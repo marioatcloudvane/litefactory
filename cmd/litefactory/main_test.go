@@ -3,39 +3,78 @@ package main
 import (
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 func TestDaemonLogPathUsesLFHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("LF_HOME", home)
 
-	got, err := daemonLogPath()
+	paths, err := config.Locate()
 	if err != nil {
-		t.Fatalf("daemonLogPath: %v", err)
+		t.Fatalf("config.Locate: %v", err)
 	}
-	if want := filepath.Join(home, "daemon.log"); got != want {
-		t.Errorf("daemonLogPath = %q, want %q", got, want)
+	if want := filepath.Join(home, "logs", "daemon.log"); paths.DaemonLogPath() != want {
+		t.Errorf("DaemonLogPath = %q, want %q", paths.DaemonLogPath(), want)
 	}
 }
 
 func TestDaemonLogPathFallsBackToHomeDir(t *testing.T) {
 	t.Setenv("LF_HOME", "")
 
-	got, err := daemonLogPath()
+	paths, err := config.Locate()
 	if err != nil {
-		t.Fatalf("daemonLogPath: %v", err)
+		t.Fatalf("config.Locate: %v", err)
 	}
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		t.Skipf("no home directory on this machine: %v", err)
 	}
-	if want := filepath.Join(dir, ".litefactory", "daemon.log"); got != want {
-		t.Errorf("daemonLogPath = %q, want %q", got, want)
+	if want := filepath.Join(dir, ".litefactory", "logs", "daemon.log"); paths.DaemonLogPath() != want {
+		t.Errorf("DaemonLogPath = %q, want %q", paths.DaemonLogPath(), want)
+	}
+}
+
+// TestConfiguredLevelFallsBackWithoutConfig covers the deliberate silence in
+// configuredLevel: with no $LF_HOME on disk at all, the logger still gets a
+// level rather than the process refusing to start.
+func TestConfiguredLevelFallsBackToInfo(t *testing.T) {
+	t.Setenv("LF_HOME", t.TempDir())
+
+	if got := configuredLevel(); got != slog.LevelInfo {
+		t.Errorf("configuredLevel() = %v, want %v", got, slog.LevelInfo)
+	}
+}
+
+// TestConfiguredLevelReadsConfig checks the seam is actually wired: a
+// log_level in config.yaml reaches the logger.
+func TestConfiguredLevelReadsConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("LF_HOME", home)
+
+	paths := config.NewPaths(home)
+	if _, err := config.WriteDefault(paths); err != nil {
+		t.Fatalf("WriteDefault: %v", err)
+	}
+	contents, err := os.ReadFile(paths.ConfigPath())
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	edited := strings.Replace(string(contents), `log_level: "info"`, `log_level: "debug"`, 1)
+	if err := os.WriteFile(paths.ConfigPath(), []byte(edited), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if got := configuredLevel(); got != slog.LevelDebug {
+		t.Errorf("configuredLevel() = %v, want %v", got, slog.LevelDebug)
 	}
 }
 

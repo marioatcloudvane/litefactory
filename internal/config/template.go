@@ -1,0 +1,176 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"strings"
+)
+
+// The default config.yaml `init` writes.
+//
+// It is generated from the same constants and lists that [Defaults] returns,
+// so the shipped file and the in-memory defaults cannot drift apart — a test
+// decodes the generated file and compares it with Defaults().
+//
+// It is heavily commented on purpose. The two keys most likely to be
+// "cleaned up" by a later reader are claude.tools and claude.allowed_tools,
+// which look redundant and are not, so the comments say why in the file
+// itself rather than only in this package's documentation.
+
+const configHeader = `# litefactory configuration.
+#
+# THIS FILE MUST NEVER CONTAIN A CREDENTIAL. Every value is scanned at startup
+# against the credential patterns litefactory redacts on the way out, and a
+# match refuses to start (exit 3), whatever the key is called. Tokens are
+# referenced indirectly — by keychain item or by environment variable name —
+# and read at runtime.
+#
+# Unknown keys are a startup error, not a silently ignored line. If litefactory
+# refuses to start after you edited this file, check the spelling of the key it
+# names.
+
+# How often the daemon looks for new comments, in seconds. Must be between %d
+# and %d; anything else is a startup error rather than a silent clamp.
+poll_interval_seconds: %d
+
+# Fallback base branch for ` + "`repo add`" + ` when --base is omitted and the remote
+# HEAD cannot be determined. Empty means there is no fallback.
+default_base_branch: ""
+
+# First segment of every task branch: <feature_prefix>/<issue>-<slug>.
+feature_prefix: "%s"
+
+# Global override for where worktrees are created. Empty means the per-repo
+# sibling default, so a clone at /Users/you/dev/acme-api gets its worktrees in
+# /Users/you/dev/.lf-worktrees/acme-api.
+worktree_root: ""
+
+# How long a finished task's worktree is kept, in days. Read and validated, but
+# nothing is removed automatically yet — use ` + "`litefactory task clean <issue>`" + `.
+worktree_retain_days: %d
+
+# debug, info, warn or error.
+log_level: "%s"
+
+github:
+  api_base: "%s"
+
+  # The bot token is never written here. Configure exactly one of the two
+  # references below; setting both is a startup error.
+  #
+  # token_keychain is the supported production source, and the only one a
+  # launchd-started daemon can use. Store the token first:
+  #
+  #   security add-generic-password -s litefactory -a github-bot -w
+  #
+  # token_keychain:
+  #   service: "litefactory"
+  #   account: "github-bot"
+
+  # token_env is the development path, for a foreground ` + "`litefactory daemon run`" + `.
+  # It holds the NAME of an environment variable, never the token itself.
+  #
+  # token_env: "LITEFACTORY_GITHUB_TOKEN"
+
+claude:
+  # The claude executable.
+  #
+  # Make this an ABSOLUTE PATH before running the daemon under launchd.
+  # launchd sets PATH=/usr/bin:/bin:/usr/sbin:/sbin, which does not include
+  # /opt/homebrew/bin, so a bare "%s" is not found there. Run ` + "`which claude`" + `
+  # and paste the result.
+  binary: "%s"
+
+  # tools is the real tool boundary. It becomes --tools, which restricts which
+  # built-in tools claude may use at all, and it is what the run's init event
+  # reports as the tool surface. Bare tool names only.
+%s
+  # allowed_tools is NOT the boundary, and it is not a duplicate of tools
+  # above. It becomes --allowedTools, which was measured to be *additive* to
+  # whatever is in the operator's own ~/.claude/settings.json: ambient
+  # allow-rules leaked through, and Bash ran while absent from this list. It is
+  # kept as a second, narrower layer of defence — deleting either key weakens
+  # the sandbox.
+  #
+  # An unqualified "Bash" entry, or "Bash(*)", is rejected at startup: both
+  # permit every shell command. Qualify them, as below.
+%s
+  # settings_path becomes --settings, so claude does not inherit the operator's
+  # personal ~/.claude/settings.json. Empty means $LF_HOME/claude-settings.json.
+  settings_path: ""
+
+  # Hard wall-clock kill for one run, in seconds. This is deliberately
+  # independent of any completion event: a stale credential makes claude retry
+  # internally and hang indefinitely without ever emitting a result event, and
+  # this timeout is the only thing that ends it.
+  timeout_seconds: %d
+
+  # Forward ANTHROPIC_* variables from the daemon's environment to claude.
+  #
+  # Leave this off. claude authenticates through the macOS Keychain here, and a
+  # forwarded stale or wrong ANTHROPIC_API_KEY silently overrides that and
+  # produces exactly the indefinite hang the timeout above exists to end.
+  forward_anthropic_env: %t
+`
+
+// DefaultFileContents renders the commented default config.yaml.
+func DefaultFileContents() []byte {
+	d := Defaults()
+	return []byte(fmt.Sprintf(configHeader,
+		MinPollIntervalSeconds, MaxPollIntervalSeconds, d.PollIntervalSeconds,
+		d.FeaturePrefix,
+		d.WorktreeRetainDays,
+		d.LogLevel,
+		d.GitHub.APIBase,
+		d.Claude.Binary, d.Claude.Binary,
+		yamlList("tools", d.Claude.Tools),
+		yamlList("allowed_tools", d.Claude.AllowedTools),
+		d.Claude.TimeoutSeconds,
+		d.Claude.ForwardAnthropicEnv,
+	))
+}
+
+// yamlList renders a string list as an indented YAML block sequence under key,
+// quoting each entry so that a qualifier containing a colon — Bash(git
+// status:*) — cannot be read as a nested mapping.
+func yamlList(key string, values []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "  %s:\n", key)
+	for _, v := range values {
+		fmt.Fprintf(&b, "    - %q\n", v)
+	}
+	return b.String()
+}
+
+// WriteDefault writes the commented default config.yaml into $LF_HOME,
+// creating the directory if needed.
+//
+// It never overwrites an existing file (AC-0.7). The first result is false
+// with a nil error when one was already there, which is what makes `init`
+// idempotent. The guarantee is the O_EXCL open rather than a stat-then-write,
+// so two concurrent inits cannot both decide the file is missing.
+func WriteDefault(p Paths) (bool, error) {
+	if err := p.EnsureHome(); err != nil {
+		return false, err
+	}
+	path := p.ConfigPath()
+
+	//nolint:gosec // 0600 in practice: the process umask is 0o077 (see cmd/litefactory/main.go).
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create %s: %w", path, err)
+	}
+	if _, err := f.Write(DefaultFileContents()); err != nil {
+		_ = f.Close()
+		return false, fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
+		return false, fmt.Errorf("close %s: %w", path, err)
+	}
+	return true, nil
+}

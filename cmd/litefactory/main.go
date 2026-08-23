@@ -12,11 +12,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 
 	"github.com/cloudvane/litefactory/internal/cli"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/logging"
 )
 
@@ -58,14 +58,12 @@ func run(args []string) int {
 		console = os.Stdout
 	}
 
-	// Seam: story LF-0 (T-LF0.1) replaces the constant level with the
-	// configured one via logging.ParseLevel.
 	var file io.Writer
 	if sink != nil {
 		file = sink
 	}
 	logger := logging.New(logging.Options{
-		Level:   slog.LevelInfo,
+		Level:   configuredLevel(),
 		Console: console,
 		File:    file,
 	}).With(slog.String("version", version))
@@ -82,32 +80,40 @@ func run(args []string) int {
 }
 
 // openLogSink builds the daemon.log sink. The sink opens the file lazily, so
-// a command that logs nothing creates nothing. If the path cannot be
+// a command that logs nothing creates nothing. If $LF_HOME cannot be
 // resolved, litefactory says so loudly and carries on with console logging
 // only rather than refusing to run.
 func openLogSink(stderr io.Writer) *logging.FileSink {
-	path, err := daemonLogPath()
+	paths, err := config.Locate()
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: logging to file disabled: %v\n", programName, err)
 		return nil
 	}
-	return logging.NewFileSink(path)
+	return logging.NewFileSink(paths.DaemonLogPath())
 }
 
-// daemonLogPath resolves $LF_HOME/daemon.log.
+// configuredLevel reads log_level from config.yaml, falling back to info.
 //
-// Seam: story LF-0 (T-LF0.1) owns $LF_HOME resolution; this
-// minimal copy exists only so the logger has a destination before
-// internal/config lands, and should be replaced by the config lookup then.
-func daemonLogPath() (string, error) {
-	if home := os.Getenv("LF_HOME"); home != "" {
-		return filepath.Join(home, "daemon.log"), nil
-	}
-	dir, err := os.UserHomeDir()
+// Every failure here is deliberately silent, and this is the one place that is
+// correct. The logger has to exist before any command runs — including init,
+// which is the command that creates the configuration in the first place, and
+// which cannot be made to depend on the configuration existing. A command that
+// actually needs the configuration loads it itself and reports the failure
+// properly, with the file name and the offending key.
+func configuredLevel() slog.Level {
+	paths, err := config.Locate()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory: %w", err)
+		return slog.LevelInfo
 	}
-	return filepath.Join(dir, ".litefactory", "daemon.log"), nil
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return slog.LevelInfo
+	}
+	level, err := logging.ParseLevel(cfg.LogLevel)
+	if err != nil {
+		return slog.LevelInfo
+	}
+	return level
 }
 
 // rootContext creates the process-wide cancellation context. It is the only
