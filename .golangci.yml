@@ -1,0 +1,85 @@
+# golangci-lint v2 configuration.
+#
+# Strict enough to catch the mistakes this codebase cares about — dropped
+# errors, missing context, leaked secrets in log calls — without linters that
+# argue about style. `make check` fails on any finding.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - forbidigo
+    - gocritic
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - predeclared
+    - revive
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+    forbidigo:
+      forbid:
+        # The root context is created in main and threaded through. A
+        # context.Background() anywhere else means a cancellation path was
+        # dropped.
+        - pattern: ^context\.Background$
+          msg: take the context from the caller; the root context comes from main
+        # Logging goes through *slog.Logger. Command results go to
+        # env.Stdout via fmt.Fprintf, which is not forbidden.
+        - pattern: ^fmt\.Print.*$
+          msg: write to the command's output writer instead of the process stdout
+        - pattern: ^log\.(Print|Fatal|Panic).*$
+          msg: use log/slog through the injected logger
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: indent-error-flow
+        - name: errorf
+        - name: error-naming
+        - name: error-return
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: unreachable-code
+        - name: var-declaration
+        - name: superfluous-else
+
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # main is the one place allowed to create the root context and to write
+      # directly to the process stderr before the logger exists.
+      - path: ^cmd/litefactory/
+        linters:
+          - forbidigo
+      # Tests fabricate their own contexts and shell out to fixtures.
+      - path: _test\.go
+        linters:
+          - forbidigo
+          - gosec
+          - unparam
+          - noctx
+
+formatters:
+  enable:
+    - gofmt

@@ -8,14 +8,26 @@
 *.so
 *.dylib
 
+# Build output
+/dist/
+/litefactory
+
 # Test binary, built with `go test -c`
 *.test
 
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*
+cover.html
 *.coverprofile
 profile.cov
+
+# Local runtime state, in case anyone points $LF_HOME at the checkout
+/.litefactory/
+*.db
+*.db-wal
+*.db-shm
+daemon.log
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
