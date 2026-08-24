@@ -1,0 +1,7 @@
+<!-- lf:reply task=github:acme/acme-api#123 -->
+
+`/spike` needs something to work on. Say what you want tried, on the same line or the ones after it:
+
+```text
+/spike see whether the flaky checkout test is a race in the fixture
+```

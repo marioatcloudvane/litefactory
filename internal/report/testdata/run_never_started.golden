@@ -1,0 +1,20 @@
+<!-- lf:status task=github:acme/acme-api#123 run=1 -->
+
+### litefactory · run 1 · did not run
+
+> [!CAUTION]
+> litefactory could not get run 1 as far as `claude`: git worktree add: fatal: 'lf/123-x' is already checked out at /Users/mario/dev/.lf-worktrees/acme-api/task-123
+
+- **Branch:** `lf/123-add-dry-run-to-task-clean`
+- **Commit:** none — this run committed nothing
+- **Exit status:** unknown
+- **Duration:** unknown
+- **Log:** no local log path was recorded for this run
+
+**Files touched**
+
+_No files were changed._
+
+**Run output**
+
+_No output was captured for this run._

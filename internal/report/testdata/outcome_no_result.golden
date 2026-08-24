@@ -1,0 +1,30 @@
+<!-- lf:status task=github:acme/acme-api#123 run=3 -->
+
+### litefactory · run 3 · no result
+
+> [!WARNING]
+> Run 3 exited cleanly without ever reporting a result. In practice this is usually a stale `claude` credential: the CLI retries internally about ten times and then goes quiet. Run `claude` once by hand to check it is still logged in, then comment again.
+
+- **Branch:** `lf/123-add-dry-run-to-task-clean`
+- **Commit:** none — this run committed nothing
+- **Exit status:** killed by litefactory, so there is no exit code
+- **Reason:** claude exited 0 without emitting a terminal result event
+- **Duration:** 12.4s
+- **Model:** `claude-sonnet-4-5`
+- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+**Files touched (1)**
+
+```
+modified go.mod
+```
+
+<details>
+<summary>Run output — last 40 lines</summary>
+
+```text
+go: downloading example.com/nope v1.2.3
+error: module example.com/nope: not found
+```
+
+</details>

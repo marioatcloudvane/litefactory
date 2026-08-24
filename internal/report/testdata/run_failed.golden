@@ -1,0 +1,30 @@
+<!-- lf:status task=github:acme/acme-api#123 run=3 -->
+
+### litefactory · run 3 · failed
+
+> [!CAUTION]
+> Run 3 failed: `claude` exited with status 1.
+
+- **Branch:** `lf/123-add-dry-run-to-task-clean`
+- **Commit:** none — this run committed nothing
+- **Exit status:** `1`
+- **Reason:** claude exited 1
+- **Duration:** 12.4s
+- **Model:** `claude-sonnet-4-5`
+- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+**Files touched (1)**
+
+```
+modified go.mod
+```
+
+<details>
+<summary>Run output — last 40 lines</summary>
+
+```text
+go: downloading example.com/nope v1.2.3
+error: module example.com/nope: not found
+```
+
+</details>

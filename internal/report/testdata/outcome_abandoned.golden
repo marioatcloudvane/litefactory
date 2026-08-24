@@ -1,0 +1,30 @@
+<!-- lf:status task=github:acme/acme-api#123 run=3 -->
+
+### litefactory · run 3 · abandoned
+
+> [!NOTE]
+> Run 3 was abandoned because litefactory was shutting down. Nothing failed and nothing crashed: the daemon was asked to stop while the run was in flight, so it stopped. Comment again to run it.
+
+- **Branch:** `lf/123-add-dry-run-to-task-clean`
+- **Commit:** none — this run committed nothing
+- **Exit status:** killed by litefactory, so there is no exit code
+- **Reason:** abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)
+- **Duration:** 12.4s
+- **Model:** `claude-sonnet-4-5`
+- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+**Files touched (1)**
+
+```
+modified go.mod
+```
+
+<details>
+<summary>Run output — last 40 lines</summary>
+
+```text
+go: downloading example.com/nope v1.2.3
+error: module example.com/nope: not found
+```
+
+</details>

@@ -1,0 +1,18 @@
+<!-- lf:status task=github:acme/acme-api#123 run=5 -->
+
+### litefactory · run 5 · failed
+
+> [!CAUTION]
+> Run 5 failed without an exit status of its own.
+
+- **Exit status:** killed by litefactory, so there is no exit code
+- **Duration:** unknown
+- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+**Files touched**
+
+_No files were changed._
+
+**Run output**
+
+_No output was captured for this run._

@@ -1,0 +1,3 @@
+<!-- lf:reply task=github:acme/acme-api#123 -->
+
+`/plan` is a real command, but litefactory does not implement it yet. The only command it acts on at the moment is `/spike <what you want tried>`.

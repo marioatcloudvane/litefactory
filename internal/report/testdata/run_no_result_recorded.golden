@@ -1,0 +1,18 @@
+<!-- lf:status task=github:acme/acme-api#123 run=4 -->
+
+### litefactory · run 4 · outcome unknown
+
+> [!CAUTION]
+> litefactory did not record how run 4 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
+
+- **Exit status:** unknown
+- **Duration:** unknown
+- **Log:** no local log path was recorded for this run
+
+**Files touched**
+
+_No files were changed._
+
+**Run output**
+
+_No output was captured for this run._

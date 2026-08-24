@@ -1,0 +1,920 @@
+package report_test
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/secrets"
+)
+
+// update rewrites the golden files instead of comparing against them.
+//
+// The goldens are the point of this file: a comment body is prose plus markup,
+// and the only useful review of it is a human reading the whole thing and
+// deciding whether it says what happened. A diff on a rendered body is that
+// review, in a form that survives into every later change.
+var update = flag.Bool("update", false, "rewrite the golden files in testdata")
+
+// testRef is the task every fixture reports against.
+var testRef = naming.Ref{Forge: naming.ForgeGitHub, Owner: "acme", Repo: "acme-api", Issue: 123}
+
+const testLogPath = "/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl"
+
+// newReporter builds a Reporter at GitHub's real comment limit, with a
+// redactor that scans nothing it was not given: the environment of whatever
+// machine runs the tests must not change what a body renders as.
+func newReporter(t *testing.T, opts ...func(*redact.Options)) *report.Reporter {
+	t.Helper()
+
+	ropts := redact.Options{Environ: []string{}}
+	for _, opt := range opts {
+		opt(&ropts)
+	}
+	rep, err := report.New(report.Options{
+		Redactor: redact.New(ropts),
+		Limit:    github.CommentSizeLimit,
+	})
+	if err != nil {
+		t.Fatalf("report.New: %v", err)
+	}
+	return rep
+}
+
+// successRun is the fixture a passing run produces.
+func successRun() report.Run {
+	return report.Run{
+		Ref:     testRef,
+		Ordinal: 2,
+		Result: &harness.RunResult{
+			Outcome:    harness.OutcomeSucceeded,
+			ExitCode:   0,
+			SessionID:  "8f1a0c2e-0000-4000-8000-000000000001",
+			LogPath:    testLogPath,
+			Model:      "claude-sonnet-4-5",
+			ResultText: "Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.",
+			CostUSD:    0.4213,
+			HasResult:  true,
+			NumTurns:   6,
+			Duration:   93 * time.Second,
+		},
+		Branch:    "lf/123-add-dry-run-to-task-clean",
+		CommitSHA: "9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1",
+		Pushed:    true,
+		Files: []git.FileChange{
+			{Kind: git.ChangeModified, Path: "internal/cli/task.go"},
+			{Kind: git.ChangeUntracked, Path: "internal/cli/task_clean_test.go"},
+			{Kind: git.ChangeRenamed, From: "internal/cli/clean.go", Path: "internal/cli/task_clean.go"},
+		},
+		Output: numberedLines("worker: applying edit to internal/cli/task.go", 60),
+	}
+}
+
+// failureRun is the fixture a non-zero exit produces.
+func failureRun() report.Run {
+	return report.Run{
+		Ref:     testRef,
+		Ordinal: 3,
+		Result: &harness.RunResult{
+			Outcome:   harness.OutcomeFailed,
+			Reason:    "claude exited 1",
+			ExitCode:  1,
+			SessionID: "8f1a0c2e-0000-4000-8000-000000000002",
+			LogPath:   testLogPath,
+			Model:     "claude-sonnet-4-5",
+			HasResult: true,
+			IsError:   true,
+			Duration:  12*time.Second + 400*time.Millisecond,
+			Stderr:    "go: downloading example.com/nope v1.2.3\nerror: module example.com/nope: not found\n",
+		},
+		Branch: "lf/123-add-dry-run-to-task-clean",
+		Files:  []git.FileChange{{Kind: git.ChangeModified, Path: "go.mod"}},
+	}
+}
+
+// numberedLines builds n distinguishable lines, so a test can tell which part
+// of a body survived a cut.
+func numberedLines(prefix string, n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "%s [line %04d]\n", prefix, i)
+	}
+	return b.String()
+}
+
+// render renders a run report and fails on error.
+func render(t *testing.T, rep *report.Reporter, run report.Run) redact.Body {
+	t.Helper()
+	body, err := rep.RenderRun(t.Context(), run)
+	if err != nil {
+		t.Fatalf("RenderRun: %v", err)
+	}
+	if !body.Valid() {
+		t.Fatal("RenderRun returned a Body that reports Valid() == false")
+	}
+	return body
+}
+
+// checkGolden compares got against testdata/<name>.golden, or rewrites it
+// under -update.
+func checkGolden(t *testing.T, name, got string) {
+	t.Helper()
+
+	path := filepath.Join("testdata", name+".golden")
+	if *update {
+		if err := os.WriteFile(path, []byte(got), 0o600); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden (run `go test ./internal/report -update` to create it): %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("rendered body does not match %s.\n--- got ---\n%s\n--- want ---\n%s", path, got, want)
+	}
+}
+
+// containsAll fails naming each missing substring, so one run of the test
+// reports every element that went missing rather than the first.
+func containsAll(t *testing.T, what, body string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(body, want) {
+			t.Errorf("%s does not contain %q", what, want)
+		}
+	}
+}
+
+// TestMarkersCarryTheirAttributes covers both forms of the S-8 marker
+// (AC-4.2). The run report carries run=N; the run-less reply has no run
+// attribute at all, because writing run=0 would make it parseable as a report
+// of a run that never existed.
+func TestMarkersCarryTheirAttributes(t *testing.T) {
+	t.Parallel()
+
+	status := report.StatusMarker(testRef, 7)
+	if want := "<!-- lf:status task=github:acme/acme-api#123 run=7 -->"; status != want {
+		t.Errorf("StatusMarker = %q, want %q", status, want)
+	}
+
+	reply := report.ReplyMarker(testRef)
+	if want := "<!-- lf:reply task=github:acme/acme-api#123 -->"; reply != want {
+		t.Errorf("ReplyMarker = %q, want %q", reply, want)
+	}
+	if strings.Contains(reply, "run=") {
+		t.Errorf("ReplyMarker %q carries a run attribute", reply)
+	}
+
+	// The self-filter is a substring test on this prefix, and it is what keeps
+	// the daemon from reading its own comment as an instruction. Both forms
+	// have to match it or the loop is only prevented by the identity check.
+	for _, marker := range []string{status, reply} {
+		if !strings.Contains(marker, report.MarkerPrefix) {
+			t.Errorf("marker %q does not contain the self-filter prefix %q", marker, report.MarkerPrefix)
+		}
+	}
+}
+
+// TestEveryBodyBeginsWithItsMarker is AC-4.2's other half: the marker is at the
+// start, not merely present. A marker further down still satisfies the
+// self-filter but stops being a reliable anchor for finding the comment again.
+func TestEveryBodyBeginsWithItsMarker(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	runBody := render(t, rep, successRun())
+	if !strings.HasPrefix(runBody.String(), report.StatusMarker(testRef, 2)) {
+		t.Errorf("run report does not begin with its status marker:\n%.120s", runBody.String())
+	}
+
+	replyBody, err := rep.RenderReply(t.Context(), report.Reply{
+		Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan",
+	})
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	if !strings.HasPrefix(replyBody.String(), report.ReplyMarker(testRef)) {
+		t.Errorf("reply does not begin with its reply marker:\n%.120s", replyBody.String())
+	}
+}
+
+// TestSuccessReport walks AC-4.3 element by element and then pins the whole
+// body to a golden file.
+func TestSuccessReport(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	body := render(t, newReporter(t), run).String()
+
+	containsAll(t, "success report", body,
+		"succeeded",
+		run.Result.ResultText,             // final result text
+		"internal/cli/task_clean_test.go", // files touched
+		"renamed internal/cli/clean.go -> internal/cli/task_clean.go",
+		"Files touched (3)",
+		run.Branch,    // branch name
+		run.CommitSHA, // commit SHA, plain text
+		"(pushed)",
+		"**Exit status:** `0`", // exit status
+		"**Duration:** 1m33s",  // duration
+		testLogPath,            // where the unredacted copy is
+		"<details>",            // collapsible output
+		"</details>",
+		fmt.Sprintf("last %d lines", report.TailLines),
+	)
+
+	// Plain text at M0 (LF-7 is out of scope): no permalinks, no blob URLs.
+	if strings.Contains(body, "https://github.com/acme/acme-api/commit") || strings.Contains(body, "/blob/") {
+		t.Error("success report links the commit; M0 renders the SHA as plain text")
+	}
+
+	// The <details> block carries the *last* TailLines lines, not the first.
+	if !strings.Contains(body, "[line 0060]") {
+		t.Error("output tail does not reach the last line of the run's output")
+	}
+	if strings.Contains(body, "[line 0020]") {
+		t.Errorf("output tail reaches back to line 20, so it is longer than %d lines", report.TailLines)
+	}
+
+	checkGolden(t, "run_succeeded", body)
+}
+
+// TestFailureReport covers AC-4.5 and S-9: distinguishable from a success at a
+// glance, carrying the exit code, the elapsed duration, the absolute local log
+// path and the quoted tail.
+func TestFailureReport(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	failure := render(t, rep, failureRun()).String()
+	success := render(t, rep, successRun()).String()
+
+	containsAll(t, "failure report", failure,
+		"failed",
+		"> [!CAUTION]",         // the callout that makes it obvious
+		"exited with status 1", // the exit code, in words
+		"**Exit status:** `1`",
+		"**Reason:** claude exited 1", // the reason the harness recorded (S-9)
+		"**Duration:** 12.4s",         // elapsed duration
+		testLogPath,                   // absolute local log path
+		"<details>",
+		"module example.com/nope: not found", // the stderr tail, quoted
+	)
+
+	if !filepath.IsAbs(testLogPath) {
+		t.Fatalf("the fixture log path %q is not absolute", testLogPath)
+	}
+
+	// "At a glance" means the difference is in the first lines, not buried in
+	// the metadata: the heading word and the callout both have to differ.
+	if headline(failure) == headline(success) {
+		t.Errorf("failure and success share the heading %q", headline(failure))
+	}
+	if strings.Contains(success, "[!CAUTION]") {
+		t.Error("the success report carries a caution callout")
+	}
+
+	checkGolden(t, "run_failed", failure)
+}
+
+// headline returns the body's heading line.
+func headline(body string) string {
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, "### ") {
+			return line
+		}
+	}
+	return ""
+}
+
+// TestEveryOutcomeRendersDistinguishably is the reason harness.Outcome has five
+// values rather than a bool. The two that are easiest to get wrong are the ones
+// asserted hardest: an abandoned run means the daemon was stopping and is
+// nobody's fault, and a no-result run needs to tell its reader what to actually
+// do about it.
+func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	// The reasons are the ones internal/harness actually records, so what the
+	// goldens show is what an issue would show.
+	reasons := map[harness.Outcome]string{
+		harness.OutcomeSucceeded: "",
+		harness.OutcomeFailed:    "claude exited with status 1",
+		harness.OutcomeTimedOut:  "timed out after 30m0s; the process subtree was killed",
+		harness.OutcomeAbandoned: "abandoned: the caller's run context ended before claude finished (daemon shutdown or cancellation)",
+		harness.OutcomeNoResult:  "claude exited 0 without emitting a terminal result event",
+	}
+	outcomes := []harness.Outcome{
+		harness.OutcomeSucceeded,
+		harness.OutcomeFailed,
+		harness.OutcomeTimedOut,
+		harness.OutcomeAbandoned,
+		harness.OutcomeNoResult,
+	}
+
+	headings := make(map[string]harness.Outcome, len(outcomes))
+	bodies := make(map[harness.Outcome]string, len(outcomes))
+	for _, outcome := range outcomes {
+		run := failureRun()
+		run.Result.Outcome = outcome
+		run.Result.Reason = reasons[outcome]
+		if outcome != harness.OutcomeFailed {
+			run.Result.ExitCode = harness.SignalExitCode
+		}
+		if outcome == harness.OutcomeSucceeded {
+			run.Result.ExitCode = 0
+		}
+
+		body := render(t, rep, run).String()
+		bodies[outcome] = body
+
+		head := headline(body)
+		if prev, dup := headings[head]; dup {
+			t.Errorf("%s and %s render the same heading %q", prev, outcome, head)
+		}
+		headings[head] = outcome
+
+		// S-9 wants the exit code *or the kill reason* in every failure
+		// comment. The three killed outcomes have no exit status to give, so
+		// the reason is the only thing that says what happened to them.
+		if reason := reasons[outcome]; reason != "" && !strings.Contains(body, "**Reason:** "+reason) {
+			t.Errorf("the %s report does not carry the recorded reason %q", outcome, reason)
+		}
+
+		checkGolden(t, "outcome_"+outcome.String(), body)
+	}
+
+	// An abandonment is not a crash and not a timeout. Reading it as either
+	// sends someone looking for a fault that is not there, so neither the
+	// heading nor the callout may present it as one.
+	abandoned := bodies[harness.OutcomeAbandoned]
+	containsAll(t, "the abandoned report", abandoned, "abandoned", "shutting down", "Comment again")
+	for _, wrong := range []string{"failed", "timed out", "crashed"} {
+		if strings.Contains(headline(abandoned), wrong) {
+			t.Errorf("the abandoned report's heading %q reads as %q, which it is not", headline(abandoned), wrong)
+		}
+	}
+	if strings.Contains(abandoned, "[!CAUTION]") {
+		t.Error("the abandoned report raises a caution callout for something that is nobody's fault")
+	}
+
+	// A no-result run is the SD-3 stall. The report has to name the likely
+	// cause, because "no result" on its own is not actionable.
+	containsAll(t, "the no-result report", bodies[harness.OutcomeNoResult],
+		"without ever reporting a result", "credential", "logged in")
+
+	// A timeout says what to change; a plain failure quotes the exit status.
+	containsAll(t, "the timed-out report", bodies[harness.OutcomeTimedOut], "timeout", "still in the worktree")
+	containsAll(t, "the failed report", bodies[harness.OutcomeFailed], "exited with status 1")
+}
+
+// TestAFailureAroundTheRunIsItsOwnReport covers the two shapes that are not
+// about how `claude` ended: a turn that never reached it, and a run that did
+// its work but could not be pushed.
+//
+// The second is the one worth being careful about. Reporting it as a success
+// tells someone to go and look for a branch that is not on the remote, so the
+// report says what happened and names the worktree the commit is still in
+// (AC-3.24).
+func TestAFailureAroundTheRunIsItsOwnReport(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	t.Run("never reached claude", func(t *testing.T) {
+		t.Parallel()
+
+		body := render(t, rep, report.Run{
+			Ref:     testRef,
+			Ordinal: 1,
+			Failure: errors.New("git worktree add: fatal: 'lf/123-x' is already checked out at /Users/mario/dev/.lf-worktrees/acme-api/task-123"),
+			Branch:  "lf/123-add-dry-run-to-task-clean",
+		}).String()
+
+		containsAll(t, "the prepare-failure report", body,
+			"did not run", "> [!CAUTION]", "already checked out")
+		if strings.Contains(headline(body), "succeeded") {
+			t.Errorf("a turn that never ran reports as a success: %q", headline(body))
+		}
+		checkGolden(t, "run_never_started", body)
+	})
+
+	t.Run("push failed after a good run", func(t *testing.T) {
+		t.Parallel()
+
+		run := successRun()
+		run.Pushed = false
+		run.Failure = errors.New("git push origin lf/123-add-dry-run-to-task-clean: permission denied (publickey)")
+		run.WorktreePath = "/Users/mario/dev/.lf-worktrees/acme-api/task-123"
+
+		body := render(t, rep, run).String()
+
+		containsAll(t, "the push-failure report", body,
+			"not completed",
+			"> [!CAUTION]",
+			"permission denied",
+			run.WorktreePath,
+			"not pushed",
+			run.CommitSHA,         // the commit is real and is named
+			run.Result.ResultText, // and so is what the run did
+		)
+		if strings.Contains(headline(body), "succeeded") {
+			t.Errorf("an unpushed run reports as a success: %q", headline(body))
+		}
+		checkGolden(t, "run_push_failed", body)
+	})
+}
+
+// TestOversizeBodyCutsTheLogTailAndNeverTheSummary is AC-4.8. The log tail is
+// the expendable part — the whole of it is on disk — and the summary and the
+// path to that disk copy are what a human needs, so they are what survives.
+func TestOversizeBodyCutsTheLogTailAndNeverTheSummary(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	// Forty lines, each far larger than a whole comment: the tail alone is
+	// twelve times the limit.
+	run.Output = strings.Repeat(strings.Repeat("x", 20_000)+"\n", 40)
+	run.Output = strings.ReplaceAll(run.Output, "xxxxxxxxxx\n", "END-OF-LINE\n")
+
+	body := render(t, newReporter(t), run)
+	text := body.String()
+
+	if body.Len() > github.CommentSizeLimit {
+		t.Errorf("body is %d bytes, over GitHub's %d-byte limit", body.Len(), github.CommentSizeLimit)
+	}
+
+	// The summary survives whole: every element AC-4.3 lists is still there.
+	containsAll(t, "the truncated body", text,
+		report.StatusMarker(testRef, 2),
+		run.Result.ResultText,
+		run.Branch,
+		run.CommitSHA,
+		"Files touched (3)",
+		"internal/cli/task_clean_test.go",
+		"**Exit status:** `0`",
+		"**Duration:** 1m33s",
+	)
+
+	// The truncation is explicit, and it names the local log — the two things
+	// that stop a shortened comment from being read as a complete one.
+	containsAll(t, "the truncated body", text, "removed here to fit the comment size limit", testLogPath)
+
+	// The cut came out of the middle: both ends of the tail survive.
+	if !strings.Contains(text, "END-OF-LINE") {
+		t.Error("no run output survived the cut at all")
+	}
+	if !strings.HasSuffix(strings.TrimRight(text, "\n"), "</details>") {
+		t.Error("the body does not end with the closing </details>, so the cut ran past the tail")
+	}
+}
+
+// TestTruncatedReportReadsAsOne renders the AC-4.8 result at a limit small
+// enough to read in one screen. The golden is the actual review: someone has to
+// be able to look at a shortened report and tell that it is shortened, and know
+// where the rest of it went.
+func TestTruncatedReportReadsAsOne(t *testing.T) {
+	t.Parallel()
+
+	rep, err := report.New(report.Options{
+		Redactor: redact.New(redact.Options{Environ: []string{}}),
+		Limit:    4_000,
+	})
+	if err != nil {
+		t.Fatalf("report.New: %v", err)
+	}
+
+	run := successRun()
+	run.Output = numberedLines("worker: applying edit to internal/cli/task.go", 60)
+
+	body := render(t, rep, run)
+	text := body.String()
+
+	if body.Len() > 4_000 {
+		t.Errorf("body is %d bytes, over the 4000-byte limit", body.Len())
+	}
+	// Both ends of the tail survive and the middle is gone: the first lines say
+	// what the run was doing and the last say how it stopped.
+	containsAll(t, "the truncated report", text,
+		"[line 0021]", "[line 0060]", "of output removed here", testLogPath)
+	if strings.Contains(text, "[line 0040]") {
+		t.Error("the cut did not come out of the middle of the tail")
+	}
+
+	checkGolden(t, "run_truncated", text)
+}
+
+// TestOversizeBodyIsWithinTheLimitAfterRedaction checks the interaction the
+// spec left unspecified: redaction runs after the body is assembled and can
+// grow it, so the size that matters is the one measured after the pass, not
+// before. The fixture is dense with eight-character secrets, each of which
+// becomes the ten-byte "[redacted]".
+func TestOversizeBodyIsWithinTheLimitAfterRedaction(t *testing.T) {
+	t.Parallel()
+
+	rep := newReporter(t, func(o *redact.Options) {
+		o.Environ = []string{"DEPLOY_SECRET=abcdefgh"}
+	})
+
+	run := successRun()
+	run.Output = strings.Repeat("abcdefgh abcdefgh abcdefgh abcdefgh\n", 4_000)
+	run.Result = run.Result.Clone()
+	run.Result.ResultText = strings.Repeat("abcdefgh ", 8_000)
+
+	body := render(t, rep, run)
+	if body.Len() > github.CommentSizeLimit {
+		t.Errorf("body is %d bytes after redaction, over the %d-byte limit", body.Len(), github.CommentSizeLimit)
+	}
+	if strings.Contains(body.String(), "abcdefgh") {
+		t.Error("a known secret survived into the outbound body")
+	}
+	if body.Counts().Total() == 0 {
+		t.Error("no redactions were counted, so the fixture did not exercise the pass")
+	}
+}
+
+// TestTokenShapedOutputNeverReachesTheBody is AC-4.6 from the outbound end. The
+// same string has to remain verbatim in $LF_HOME/logs, which is asserted from
+// the other end in internal/redact and LF-5; what this test owns is that no
+// path through this package — result text, stderr tail, reason, branch name —
+// carries one out.
+func TestTokenShapedOutputNeverReachesTheBody(t *testing.T) {
+	t.Parallel()
+
+	const botToken = "ghp_liveBotTokenValue0000000000000000"
+	const envSecret = "s3cret-deploy-key-value"
+
+	rep := newReporter(t, func(o *redact.Options) {
+		o.Token = secrets.NewToken(botToken)
+		o.Environ = []string{"DEPLOY_TOKEN=" + envSecret}
+	})
+
+	run := successRun()
+	run.Result = run.Result.Clone()
+	run.Result.ResultText = "I exported the token as " + envSecret + " and it worked."
+	run.Result.Stderr = "curl: Authorization: Bearer " + botToken + "\n"
+	run.Result.Reason = "auth failed for " + botToken
+	run.Output = "fatal: could not read from https://mario:" + envSecret + "@github.com/acme/acme-api.git\n" +
+		"ghp_anotherTokenShapedStringABCDEFGHIJ0123\nAKIAIOSFODNN7EXAMPLE\n"
+
+	// The local copy is untouched: this is the exact text that stays in the
+	// JSONL on disk, and it still holds every secret verbatim.
+	local := run.Result.ResultText + run.Result.Stderr + run.Output
+	containsAll(t, "the local, unredacted copy", local, botToken, envSecret, "AKIAIOSFODNN7EXAMPLE")
+
+	body := render(t, rep, run).String()
+	for _, secret := range []string{botToken, envSecret, "AKIAIOSFODNN7EXAMPLE", "ghp_anotherTokenShapedStringABCDEFGHIJ0123"} {
+		if strings.Contains(body, secret) {
+			t.Errorf("the outbound body contains the credential %q", secret)
+		}
+	}
+	if !strings.Contains(body, "[redacted]") {
+		t.Error("nothing in the body was replaced, so the fixture never reached the pass")
+	}
+}
+
+// TestSparseRunResultStillReports is AC-4.1 at its hardest: a run whose result
+// is missing or half-filled still produces a comment a human can act on.
+// Silence is the one outcome that is not allowed, and the run that crashed on
+// its way to reporting is the run whose comment matters most.
+func TestSparseRunResultStillReports(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	t.Run("no result at all", func(t *testing.T) {
+		t.Parallel()
+
+		body := render(t, rep, report.Run{Ref: testRef, Ordinal: 4}).String()
+
+		containsAll(t, "the crash report", body,
+			report.StatusMarker(testRef, 4),
+			"outcome unknown",
+			"> [!CAUTION]",
+			"**Exit status:** unknown",
+			"**Duration:** unknown",
+		)
+		// It must not claim a success it has no evidence for.
+		if strings.Contains(headline(body), "succeeded") {
+			t.Errorf("a run with no result reports as a success: %q", headline(body))
+		}
+		checkGolden(t, "run_no_result_recorded", body)
+	})
+
+	t.Run("half-filled result", func(t *testing.T) {
+		t.Parallel()
+
+		body := render(t, rep, report.Run{
+			Ref:     testRef,
+			Ordinal: 5,
+			Result: &harness.RunResult{
+				Outcome:  harness.OutcomeFailed,
+				ExitCode: harness.SignalExitCode,
+				LogPath:  testLogPath,
+			},
+		}).String()
+
+		containsAll(t, "the sparse failure report", body,
+			"failed",
+			"killed by litefactory",
+			"**Duration:** unknown",
+			testLogPath,
+			"No files were changed.",
+			"No output was captured",
+		)
+		checkGolden(t, "run_sparse_result", body)
+	})
+}
+
+// TestUntrustedTextCannotBreakOutOfItsBlock covers the markup half of
+// "untrusted content": the run output is written by a model that read a
+// third-party issue comment, and quoting it with a fixed three-backtick fence
+// would let it close the fence and continue as markup.
+func TestUntrustedTextCannotBreakOutOfItsBlock(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.Output = "harmless\n```\n</details>\n### not a heading\n``` \nmore\n"
+	run.Files = []git.FileChange{{Kind: git.ChangeUntracked, Path: "weird/```name.txt"}}
+
+	body := render(t, newReporter(t), run).String()
+
+	// The fence around the output is longer than any run of backticks inside
+	// it, so the block closes where this package says it does.
+	open := strings.Index(body, "````text\n")
+	closing := strings.LastIndex(body, "````")
+	if open < 0 || closing <= open {
+		t.Fatalf("the output block does not use a widened fence:\n%s", body)
+	}
+	if headline(body) == "### not a heading" {
+		t.Error("output escaped its code block and became a heading")
+	}
+
+	// The </details> the output carries sits inside the fence; the one that
+	// closes the block is the last thing in the body.
+	if quoted := strings.Index(body, "</details>"); quoted < open || quoted > closing {
+		t.Errorf("the quoted </details> at %d is not inside the fence (%d..%d)", quoted, open, closing)
+	}
+	if !strings.HasSuffix(strings.TrimRight(body, "\n"), "</details>") {
+		t.Error("the block is not closed at the end of the body")
+	}
+}
+
+// TestControlCharactersAreStripped guards against the 422 that reads like a
+// mystery: GitHub rejects a body that is not valid UTF-8, and half-stripped
+// ANSI escapes render as junk.
+func TestControlCharactersAreStripped(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.Output = "\x1b[31mred\x1b[0m text\x00 and \xff invalid\r\n"
+
+	body := render(t, newReporter(t), run).String()
+
+	for _, bad := range []string{"\x1b", "\x00", "\r", "[31m"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("body still contains %q", bad)
+		}
+	}
+	containsAll(t, "the body", body, "red text and")
+}
+
+// TestReplies covers the three run-less reply forms. The wording matters as
+// much as the marker: "not yet" and "never heard of it" send the reader to
+// different places.
+func TestReplies(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	cases := []struct {
+		name   string
+		reply  report.Reply
+		golden string
+		wants  []string
+	}{
+		{
+			name:   "unsupported command",
+			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan"},
+			golden: "reply_unsupported",
+			wants:  []string{"`/plan`", "does not implement it yet", "`/spike <what you want tried>`"},
+		},
+		{
+			name:   "unknown command",
+			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"},
+			golden: "reply_unknown",
+			wants:  []string{"do not recognise `/frobnicate`", "`/spike <what you want tried>`"},
+		},
+		{
+			name:   "empty spike",
+			reply:  report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"},
+			golden: "reply_empty_spike",
+			wants:  []string{"`/spike` needs something to work on", "/spike see whether"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := rep.RenderReply(t.Context(), tc.reply)
+			if err != nil {
+				t.Fatalf("RenderReply: %v", err)
+			}
+			text := body.String()
+
+			if !strings.HasPrefix(text, report.ReplyMarker(testRef)) {
+				t.Errorf("reply does not begin with the reply marker:\n%s", text)
+			}
+			if strings.Contains(text, "run=") {
+				t.Error("a run-less reply carries a run attribute")
+			}
+			containsAll(t, tc.name+" reply", text, tc.wants...)
+			checkGolden(t, tc.golden, text)
+		})
+	}
+}
+
+// TestReplyQuotesTheCommandSafely re-applies the parser's own restriction at
+// the point the token is echoed back. This is the one place a third party's
+// text is repeated in a comment litefactory signs its own name to.
+func TestReplyQuotesTheCommandSafely(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	body, err := rep.RenderReply(t.Context(), report.Reply{
+		Ref:     testRef,
+		Kind:    report.ReplyUnknownCommand,
+		Command: "/ev`il <!-- lf:status --> @everyone",
+	})
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	text := body.String()
+
+	if strings.Contains(text, "@everyone") {
+		t.Error("the reply echoed a mention back into the comment")
+	}
+	if strings.Count(text, report.MarkerPrefix) != 1 {
+		t.Error("the reply echoed a second lf: marker back into the comment")
+	}
+	// The token stops at the backtick rather than being reassembled around it.
+	if !strings.Contains(text, "`/ev`") {
+		t.Errorf("the reply does not quote the sanitised command:\n%s", text)
+	}
+	if strings.Contains(text, "il") {
+		t.Errorf("the reply reassembled text from beyond the first bad character:\n%s", text)
+	}
+}
+
+// TestRenderRejectsUnrenderableInput covers the only inputs that fail: the ones
+// that would produce a body without a well-formed marker. Everything else
+// degrades to "unknown" rather than erroring, because a run that finished has
+// to be reported.
+func TestRenderRejectsUnrenderableInput(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	cases := []struct {
+		name string
+		run  report.Run
+	}{
+		{"empty ref", report.Run{Ordinal: 1}},
+		{"ref that could close the comment", report.Run{
+			Ref:     naming.Ref{Forge: "github", Owner: "acme --> x", Repo: "api", Issue: 1},
+			Ordinal: 1,
+		}},
+		{"zero ordinal", report.Run{Ref: testRef, Ordinal: 0}},
+		{"negative ordinal", report.Run{Ref: testRef, Ordinal: -1}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			body, err := rep.RenderRun(t.Context(), tc.run)
+			if !errors.Is(err, report.ErrInvalidArgument) {
+				t.Fatalf("RenderRun error = %v, want ErrInvalidArgument", err)
+			}
+			if body.Valid() {
+				t.Error("a failed render returned a postable Body")
+			}
+		})
+	}
+
+	if _, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef}); !errors.Is(err, report.ErrInvalidArgument) {
+		t.Errorf("RenderReply with the zero ReplyKind: error = %v, want ErrInvalidArgument", err)
+	}
+}
+
+// TestNewRejectsIncompleteWiring fails at startup rather than at the first
+// render, which happens just after a run finished — the worst moment to find
+// out that nothing can report it.
+func TestNewRejectsIncompleteWiring(t *testing.T) {
+	t.Parallel()
+
+	if _, err := report.New(report.Options{Limit: github.CommentSizeLimit}); !errors.Is(err, report.ErrInvalidArgument) {
+		t.Errorf("New without a redactor: error = %v, want ErrInvalidArgument", err)
+	}
+	if _, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}})}); !errors.Is(err, report.ErrInvalidArgument) {
+		t.Errorf("New with a zero limit: error = %v, want ErrInvalidArgument", err)
+	}
+}
+
+// TestRenderFailsClosedOnRedactionFailure is AC-4.9 seen from this package:
+// when the pass cannot complete, no body comes back at all, so there is nothing
+// for the caller to post and the run stays un-reported.
+//
+// The failure is induced with a Redactor that never went through redact.New,
+// which is the one Apply failure reachable from outside that package. What is
+// asserted is the shape of the refusal, not the cause: no Body, and an error
+// that identifies itself as a redaction failure.
+func TestRenderFailsClosedOnRedactionFailure(t *testing.T) {
+	t.Parallel()
+
+	rep, err := report.New(report.Options{
+		Redactor: &redact.Redactor{},
+		Limit:    github.CommentSizeLimit,
+	})
+	if err != nil {
+		t.Fatalf("report.New: %v", err)
+	}
+	if rep.Limit() != github.CommentSizeLimit {
+		t.Errorf("Limit() = %d, want %d", rep.Limit(), github.CommentSizeLimit)
+	}
+
+	body, err := rep.RenderRun(t.Context(), successRun())
+	if err == nil {
+		t.Fatal("RenderRun succeeded with a redactor that cannot redact")
+	}
+	if body.Valid() {
+		t.Error("a failed render returned a postable Body")
+	}
+	if !errors.Is(err, redact.ErrRedactionFailed) {
+		t.Errorf("error %v does not wrap redact.ErrRedactionFailed", err)
+	}
+
+	replyBody, err := rep.RenderReply(t.Context(), report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike})
+	if err == nil || replyBody.Valid() {
+		t.Errorf("RenderReply returned (%v, %v); want no Body and an error", replyBody.Valid(), err)
+	}
+}
+
+// TestASmallLimitStillProducesAPostableBody covers the other end of the size
+// question. A limit far below what a report wants is not an error: the body is
+// trimmed to fit and still says where the whole of it is.
+func TestASmallLimitStillProducesAPostableBody(t *testing.T) {
+	t.Parallel()
+
+	for _, limit := range []int{600, 1_500, 4_000, 16_000, github.CommentSizeLimit} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			t.Parallel()
+
+			rep, err := report.New(report.Options{
+				Redactor: redact.New(redact.Options{Environ: []string{}}),
+				Limit:    limit,
+			})
+			if err != nil {
+				t.Fatalf("report.New: %v", err)
+			}
+
+			run := successRun()
+			run.Output = numberedLines("worker: a line of run output that is not especially short", 40)
+
+			body := render(t, rep, run)
+			if body.Len() > limit {
+				t.Errorf("body is %d bytes, over the %d-byte limit", body.Len(), limit)
+			}
+			// The marker survives every level of trimming, or the self-filter
+			// stops recognising litefactory's own comments.
+			if !strings.HasPrefix(body.String(), report.StatusMarker(testRef, 2)) {
+				t.Errorf("the marker did not survive:\n%s", body.String())
+			}
+		})
+	}
+}
+
+// No rendered body escapes this package as a string. This is the guarantee the
+// package exists to preserve, and it is asserted at compile time where a reader
+// will look for it: both renderers hand back a redact.Body, which only
+// redact.Apply can construct and which github.PostComment is the only consumer
+// of. A signature returning a string would put an unredacted body in a caller's
+// hand and turn AC-4.6 back into a rule everyone has to remember.
+//
+// Changing either signature to return a string breaks this file.
+var (
+	_ func(*report.Reporter, context.Context, report.Run) (redact.Body, error)   = (*report.Reporter).RenderRun
+	_ func(*report.Reporter, context.Context, report.Reply) (redact.Body, error) = (*report.Reporter).RenderReply
+)

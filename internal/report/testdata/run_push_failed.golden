@@ -1,0 +1,76 @@
+<!-- lf:status task=github:acme/acme-api#123 run=2 -->
+
+### litefactory · run 2 · not completed
+
+> [!CAUTION]
+> Run 2 did its work, but litefactory could not complete the turn: git push origin lf/123-add-dry-run-to-task-clean: permission denied (publickey)
+>
+> Whatever the run produced is still in the worktree at `/Users/mario/dev/.lf-worktrees/acme-api/task-123`.
+
+- **Branch:** `lf/123-add-dry-run-to-task-clean`
+- **Commit:** `9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1` (in the local worktree only — not pushed)
+- **Exit status:** `0`
+- **Duration:** 1m33s
+- **Cost:** $0.4213
+- **Model:** `claude-sonnet-4-5`
+- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+**Result**
+
+Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.
+
+**Files touched (3)**
+
+```
+modified internal/cli/task.go
+untracked internal/cli/task_clean_test.go
+renamed internal/cli/clean.go -> internal/cli/task_clean.go
+```
+
+<details>
+<summary>Run output — last 40 lines</summary>
+
+```text
+worker: applying edit to internal/cli/task.go [line 0021]
+worker: applying edit to internal/cli/task.go [line 0022]
+worker: applying edit to internal/cli/task.go [line 0023]
+worker: applying edit to internal/cli/task.go [line 0024]
+worker: applying edit to internal/cli/task.go [line 0025]
+worker: applying edit to internal/cli/task.go [line 0026]
+worker: applying edit to internal/cli/task.go [line 0027]
+worker: applying edit to internal/cli/task.go [line 0028]
+worker: applying edit to internal/cli/task.go [line 0029]
+worker: applying edit to internal/cli/task.go [line 0030]
+worker: applying edit to internal/cli/task.go [line 0031]
+worker: applying edit to internal/cli/task.go [line 0032]
+worker: applying edit to internal/cli/task.go [line 0033]
+worker: applying edit to internal/cli/task.go [line 0034]
+worker: applying edit to internal/cli/task.go [line 0035]
+worker: applying edit to internal/cli/task.go [line 0036]
+worker: applying edit to internal/cli/task.go [line 0037]
+worker: applying edit to internal/cli/task.go [line 0038]
+worker: applying edit to internal/cli/task.go [line 0039]
+worker: applying edit to internal/cli/task.go [line 0040]
+worker: applying edit to internal/cli/task.go [line 0041]
+worker: applying edit to internal/cli/task.go [line 0042]
+worker: applying edit to internal/cli/task.go [line 0043]
+worker: applying edit to internal/cli/task.go [line 0044]
+worker: applying edit to internal/cli/task.go [line 0045]
+worker: applying edit to internal/cli/task.go [line 0046]
+worker: applying edit to internal/cli/task.go [line 0047]
+worker: applying edit to internal/cli/task.go [line 0048]
+worker: applying edit to internal/cli/task.go [line 0049]
+worker: applying edit to internal/cli/task.go [line 0050]
+worker: applying edit to internal/cli/task.go [line 0051]
+worker: applying edit to internal/cli/task.go [line 0052]
+worker: applying edit to internal/cli/task.go [line 0053]
+worker: applying edit to internal/cli/task.go [line 0054]
+worker: applying edit to internal/cli/task.go [line 0055]
+worker: applying edit to internal/cli/task.go [line 0056]
+worker: applying edit to internal/cli/task.go [line 0057]
+worker: applying edit to internal/cli/task.go [line 0058]
+worker: applying edit to internal/cli/task.go [line 0059]
+worker: applying edit to internal/cli/task.go [line 0060]
+```
+
+</details>
