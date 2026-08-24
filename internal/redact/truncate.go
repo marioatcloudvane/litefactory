@@ -55,33 +55,33 @@ func Budget(limit int) int {
 	return limit - margin
 }
 
-// truncate cuts s to at most max bytes, appending [truncationNotice] when it
+// truncate cuts s to at most limit bytes, appending [truncationNotice] when it
 // removes anything. It reports whether it cut.
 //
 // The cut is at a safe boundary in two senses. It never splits a UTF-8 rune —
 // GitHub rejects a body that is not valid UTF-8, and an invalid byte at the end
 // of a truncated log tail is a 422 that looks like a mystery. And it prefers
 // the last line break within [newlineWindow], so the body ends on a whole line.
-func truncate(s string, max int) (string, bool) {
-	if max <= 0 {
+func truncate(s string, limit int) (string, bool) {
+	if limit <= 0 {
 		return "", s != ""
 	}
-	if len(s) <= max {
+	if len(s) <= limit {
 		return s, false
 	}
 
 	// Reserve room for the notice. If the limit is too small to hold even
 	// that, drop the notice rather than overshoot: honouring the limit is the
 	// requirement, explaining it is the courtesy.
-	room := max - len(truncationNotice)
+	room := limit - len(truncationNotice)
 	if room <= 0 {
-		return s[:safeCut(s, max)], true
+		return s[:safeCut(s, limit)], true
 	}
 	return s[:safeCut(s, room)] + truncationNotice, true
 }
 
-// safeCut returns an index at or below max to cut s at. The caller guarantees
-// max < len(s).
+// safeCut returns an index at or below limit to cut s at. The caller guarantees
+// limit < len(s).
 //
 // "Safe" means three things, in order of how much they matter.
 //
@@ -103,8 +103,8 @@ func truncate(s string, max int) (string, bool) {
 // protect a fragment nobody could reassemble; the rune boundary wins there.
 //
 // And it prefers a line break, so the body ends on a whole line where it can.
-func safeCut(s string, max int) int {
-	i := max
+func safeCut(s string, limit int) int {
+	i := limit
 	for i > 0 && !utf8.RuneStart(s[i]) {
 		i--
 	}

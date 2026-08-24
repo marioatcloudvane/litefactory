@@ -117,16 +117,16 @@ func splitRemoteURL(raw string) (host, path string, err error) {
 	// not merely fail on it — it succeeds with the wrong answer, reading
 	// "git@github.com:owner/name.git" as scheme "git@github.com". So it is
 	// split by hand, and only after "://" has been ruled out above.
-	colon := strings.Index(raw, ":")
-	if colon < 0 {
+	host, path, found := strings.Cut(raw, ":")
+	if !found {
 		return "", "", ErrMalformedRemoteURL
 	}
-	// A slash before the colon means a local path such as ../mirror:copy,
-	// which git also treats as a path rather than as SCP syntax.
-	if slash := strings.Index(raw, "/"); slash >= 0 && slash < colon {
+	// A slash before the colon — that is, anywhere in the part Cut took as the
+	// host — means a local path such as ../mirror:copy, which git also treats as
+	// a path rather than as SCP syntax.
+	if strings.Contains(host, "/") {
 		return "", "", ErrMalformedRemoteURL
 	}
-	host, path = raw[:colon], raw[colon+1:]
 	if at := strings.LastIndex(host, "@"); at >= 0 {
 		host = host[at+1:]
 	}

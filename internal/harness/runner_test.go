@@ -153,6 +153,11 @@ func writeScript(t *testing.T, path, body string) {
 	}
 }
 
+// runningMarker is the file a fake claude touches in the worktree to say it is
+// running, so a test can synchronise on the child existing instead of guessing
+// how long an exec takes.
+const runningMarker = "running.marker"
+
 // emit renders a shell line that prints one JSON event. Single quotes would
 // break the quoting, and every event this package cares about is single-quote
 // free, so a stray one is a broken fixture rather than a clever escape.
@@ -560,16 +565,28 @@ func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
 // D-B: SIGTERM cancels the run context and the daemon exits promptly. That is
 // an abandonment, not a timeout — nothing is wrong with the task.
 func TestRunAbandonedWhenTheContextIsCancelled(t *testing.T) {
-	f := newFixture(t, emit(t, initLine)+"/bin/sleep 120\n")
+	// The fake announces itself by creating runningMarker in the worktree before
+	// it blocks, so the cancellation can wait for the child to exist rather than
+	// assume it has been exec'd within a fixed sleep. A context cancelled before
+	// the process starts is a start failure, not the abandonment under test.
+	f := newFixture(t, emit(t, initLine)+"printf 'x' > "+runningMarker+"\n/bin/sleep 120\n")
+	marker := filepath.Join(f.worktree, runningMarker)
 
 	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		cancel()
-	}()
 	defer cancel()
 
-	started := time.Now()
+	cancelledAt := make(chan time.Time, 1)
+	go func() {
+		// Cancel even if the marker never appears: the assertions below then
+		// report the real failure instead of hanging until the run's timeout.
+		waitFor(10*time.Second, func() bool {
+			_, err := os.Stat(marker)
+			return err == nil
+		})
+		cancelledAt <- time.Now()
+		cancel()
+	}()
+
 	result, err := f.runner.Run(ctx, f.request())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -580,7 +597,7 @@ func TestRunAbandonedWhenTheContextIsCancelled(t *testing.T) {
 	if result.ExitCode != SignalExitCode {
 		t.Errorf("exit code = %d, want %d", result.ExitCode, SignalExitCode)
 	}
-	if elapsed := time.Since(started); elapsed > 20*time.Second {
+	if elapsed := time.Since(<-cancelledAt); elapsed > 20*time.Second {
 		t.Errorf("cancellation took %v", elapsed)
 	}
 }

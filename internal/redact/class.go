@@ -52,6 +52,11 @@ const (
 
 // classNames are the strings used in logs. They describe the class, never a
 // match.
+//
+// #nosec G101 -- False positive, and an unavoidable one: this is the table of
+// redaction *class names*, so "token", "key" and "authorization" are the
+// subject matter. Every value here is a fixed label written to logs; no
+// credential material is or could be involved.
 var classNames = [numClasses]string{
 	ClassInvalid:       "invalid",
 	ClassBotToken:      "bot_token",

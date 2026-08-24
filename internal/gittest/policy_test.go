@@ -47,6 +47,10 @@ func TestOnlyTestsImportGittest(t *testing.T) {
 		// for the compiler.
 		file, parseErr := parser.ParseFile(fileSet, path, nil, parser.ImportsOnly)
 		if parseErr != nil {
+			//nolint:nilerr // Deliberate: an unparseable file is skipped, not
+			// walked out on. Returning parseErr would abort the walk and turn a
+			// syntax error anywhere in the module into a failure of this import
+			// check, which the compiler already reports better.
 			return nil
 		}
 		for _, spec := range file.Imports {

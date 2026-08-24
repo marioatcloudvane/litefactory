@@ -113,8 +113,8 @@ func countLines(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// cutAt returns an index at or below max to cut s at. The caller guarantees
-// max < len(s).
+// cutAt returns an index at or below limit to cut s at. The caller guarantees
+// limit < len(s).
 //
 // "Safe" means three things, in the order they matter.
 //
@@ -132,11 +132,11 @@ func countLines(s string) int {
 // before the same pass and both have to hold.
 //
 // And it prefers a line break, so the text ends on a whole line where it can.
-func cutAt(s string, max int) int {
-	if max >= len(s) {
+func cutAt(s string, limit int) int {
+	if limit >= len(s) {
 		return len(s)
 	}
-	i := max
+	i := limit
 	for i > 0 && !utf8.RuneStart(s[i]) {
 		i--
 	}
@@ -152,23 +152,23 @@ func cutAt(s string, max int) int {
 	return i
 }
 
-// truncateEnd cuts s from the end so that s plus notice fits in max bytes,
+// truncateEnd cuts s from the end so that s plus notice fits in limit bytes,
 // reporting whether it cut anything.
 //
 // This is the fallback shape, used where there is no middle worth keeping: the
 // run's final result text, whose beginning is the part that says what happened.
-func truncateEnd(s, notice string, max int) (string, bool) {
-	if len(s) <= max {
+func truncateEnd(s, notice string, limit int) (string, bool) {
+	if len(s) <= limit {
 		return s, false
 	}
-	room := max - len(notice)
+	room := limit - len(notice)
 	if room <= 0 {
 		return "", true
 	}
 	return s[:cutAt(s, room)] + notice, true
 }
 
-// elideMiddle cuts s down to at most max bytes by removing whole lines from the
+// elideMiddle cuts s down to at most limit bytes by removing whole lines from the
 // middle and putting notice in the gap, reporting whether it cut anything.
 //
 // The middle is what goes because the two ends are what carry meaning: the
@@ -181,12 +181,12 @@ func truncateEnd(s, notice string, max int) (string, bool) {
 // Reserving the length of the notice for the largest values it could hold —
 // every line, every byte — breaks the circularity from above, and the real
 // notice is never longer than what was reserved.
-func elideMiddle(s string, max int, notice func(lines, bytes int) string) (string, bool) {
-	if len(s) <= max {
+func elideMiddle(s string, limit int, notice func(lines, bytes int) string) (string, bool) {
+	if len(s) <= limit {
 		return s, false
 	}
 	reserved := len(notice(countLines(s), len(s)))
-	room := max - reserved
+	room := limit - reserved
 	if room <= 0 {
 		return "", true
 	}
@@ -222,7 +222,7 @@ func elideMiddle(s string, max int, notice func(lines, bytes int) string) (strin
 	if removed == "" {
 		// A single line longer than the whole budget: there is no line
 		// boundary to elide at, so fall back to cutting the end off.
-		return truncateEnd(s, "\n"+notice(0, len(s)-room), max)
+		return truncateEnd(s, "\n"+notice(0, len(s)-room), limit)
 	}
 
 	removedLines := strings.Count(removed, "\n")

@@ -207,7 +207,7 @@ func TestTimeRoundTripsAndSortsLexicographically(t *testing.T) {
 	// text timestamp column.
 	earlier := FormatTime(time.Date(2026, 8, 23, 9, 0, 0, 0, time.UTC))
 	later := FormatTime(time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC))
-	if !(earlier < later) {
+	if earlier >= later {
 		t.Fatalf("%q does not sort before %q", earlier, later)
 	}
 }

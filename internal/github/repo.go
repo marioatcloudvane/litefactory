@@ -64,10 +64,10 @@ func checkPathSegment(field, value string) error {
 	fail := func(reason string) error {
 		return fmt.Errorf("github: %s %q: %w: %s", field, value, ErrInvalidArgument, reason)
 	}
-	switch {
-	case value == "":
+	switch value {
+	case "":
 		return fail("is empty")
-	case value == "." || value == "..":
+	case ".", "..":
 		return fail("is a relative path component")
 	}
 	for _, r := range value {

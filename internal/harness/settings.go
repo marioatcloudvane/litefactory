@@ -173,12 +173,17 @@ func writeFileAtomic(path string, data []byte, mode fs.FileMode) error {
 		_ = os.Remove(tmpName)
 	}()
 
+	// On these two paths the close error is discarded deliberately: the write or
+	// the chmod has already failed, the deferred os.Remove deletes the temporary
+	// file either way, and nothing was renamed into place — so a close failure
+	// can neither lose data nor leave litter. Reporting it would replace the
+	// error that actually explains the failure with a less useful one.
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write %s: %w", tmpName, err)
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("chmod %s: %w", tmpName, err)
 	}
 	if err := tmp.Close(); err != nil {

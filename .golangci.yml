@@ -9,6 +9,15 @@ run:
   timeout: 5m
   tests: true
 
+issues:
+  # Report every finding. The defaults stop at 3 occurrences of the same issue
+  # and 50 per linter, which hides a backlog instead of clearing it: fixing the
+  # three that are shown simply uncovers the next three, and the run looks
+  # equally red the whole way. `make check` fails on any finding, so the count
+  # it prints should be the real one.
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
 linters:
   # errcheck, govet, ineffassign, staticcheck, unused.
   default: standard
@@ -47,7 +56,17 @@ linters:
     govet:
       enable-all: true
       disable:
+        # Struct field order is chosen for readability here, not for padding.
         - fieldalignment
+        # `shadow` flags `if err := f(); err != nil` inside any function that
+        # already has an `err` in scope. That is the idiomatic Go form — the
+        # narrow scope is the point, and it is what keeps a stale error from
+        # being read after the branch — and the check cannot tell it apart from
+        # an accidental shadow. It produced ~40 findings here, every one of them
+        # on that pattern. Satisfying it would mean renaming errors, or widening
+        # their scope, to make the code worse. Errors that are genuinely dropped
+        # are errcheck's and nilerr's job, and both are on.
+        - shadow
     revive:
       rules:
         - name: exported

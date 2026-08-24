@@ -637,16 +637,29 @@ func TestZeroClientIsInert(t *testing.T) {
 func TestContextCancellationStopsARequest(t *testing.T) {
 	t.Parallel()
 
+	// entered is closed once the request has actually reached the handler, and
+	// is what the cancellation waits on. Cancelling after a fixed sleep instead
+	// would assume the round trip is dispatched within it: under parallel load
+	// it is not, the handler never runs, and the assertion below then waits out
+	// its whole budget on a client that behaved perfectly.
+	entered := make(chan struct{})
 	released := make(chan struct{})
-	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
+	f := newFixture(t, func(_ http.ResponseWriter, r *http.Request) {
+		close(entered)
 		<-r.Context().Done()
 		close(released)
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	go func() {
-		time.Sleep(20 * time.Millisecond)
-		cancel()
+		select {
+		case <-entered:
+			cancel()
+		case <-ctx.Done():
+			// The request never reached the handler; the deferred cancel has
+			// already run and this goroutine has nothing left to do.
+		}
 	}()
 
 	_, err := f.Client.ListIssues(ctx, testRepo, time.Time{})

@@ -19,7 +19,7 @@ func isFlagToken(tok string) bool {
 	return len(tok) > 1 && tok[0] == '-' && tok != "--"
 }
 
-// splitPositionals peels up to max leading positional arguments off args and
+// splitPositionals peels up to limit leading positional arguments off args and
 // returns them together with the remaining tokens.
 //
 // This is the reason litefactory does not call fs.Parse(args) directly: Go's
@@ -27,9 +27,9 @@ func isFlagToken(tok string) bool {
 // "logs 123 --run 2" wholesale would leave --run unparsed and sitting in
 // fs.Args(). Slicing the positionals off the front first makes the natural
 // "verb subject --options" order work.
-func splitPositionals(args []string, max int) (pos, rest []string) {
+func splitPositionals(args []string, limit int) (pos, rest []string) {
 	i := 0
-	for i < len(args) && len(pos) < max {
+	for i < len(args) && len(pos) < limit {
 		tok := args[i]
 		if tok == "--" || isFlagToken(tok) {
 			break

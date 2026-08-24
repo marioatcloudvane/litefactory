@@ -81,6 +81,10 @@ func TestGHIsInvokedOnlyFromThisPackage(t *testing.T) {
 		// compiler.
 		file, parseErr := parser.ParseFile(fileSet, path, nil, parser.SkipObjectResolution)
 		if parseErr != nil {
+			//nolint:nilerr // Deliberate: an unparseable file is skipped, not
+			// walked out on. Returning parseErr would abort the walk and turn a
+			// syntax error anywhere in the module into a failure of this gh-exec
+			// check, which the compiler already reports better.
 			return nil
 		}
 		checkImports(t, rel, file)

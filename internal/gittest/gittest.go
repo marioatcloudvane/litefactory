@@ -186,6 +186,10 @@ func run(tb testing.TB, home, dir string, args ...string) string {
 	ctx, cancel := context.WithTimeout(tb.Context(), commandTimeout)
 	defer cancel()
 
+	// #nosec G204 -- Test support only, and deliberately the one place that execs
+	// git directly: fixtures have to commit, which internal/git's Clone has no
+	// way to do. TestOnlyTestsImportGittest enforces that no shipped file can
+	// reach this package, and args are fixture literals written by the tests.
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	cmd.Env = env(home)

@@ -247,6 +247,9 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 	// O_APPEND rather than O_TRUNC: the ordinal is allocated once per run and
 	// never reused, so this file should not exist — and if it somehow does, a
 	// previous run's partial evidence is not ours to delete (S-9).
+	// #nosec G304 -- logPath is not user input: naming.RunLogPath derives it from
+	// r.home and a validated task ref plus the run ordinal, and rejects anything
+	// that would escape the run artefact directory.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, runLogFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("open run log %s: %w", logPath, err)
@@ -332,6 +335,15 @@ func (r *Runner) exec(
 	// not context.Background(), which the M0 invariants forbid.
 	killCtx := context.WithoutCancel(ctx)
 
+	// #nosec G204 -- This exec is the product's security boundary and every part
+	// of it is chosen, not inherited. r.binary.Path is an absolute path resolved
+	// and stat'ed at New time from the operator's own config, never from an
+	// issue or a comment. args comes from r.args above: fixed flags plus the
+	// configured tool lists and a UUID v5 session id, with no caller-supplied
+	// string among them. cmd.Env is the explicit allowlist buildEnv assembles,
+	// not the daemon's environment. And the untrusted input — the prompt built
+	// from the issue — goes on stdin below, never on argv, so there is no shell
+	// and nothing here for it to influence.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir = req.WorktreePath
 	cmd.Env = buildEnv(r.environ, r.forwardEnv)
@@ -563,7 +575,7 @@ func classify(c classification) (Outcome, string, int) {
 				return OutcomeFailed, fmt.Sprintf("claude exited with status %d", c.exitCode), c.exitCode
 			}
 			return OutcomeFailed,
-				fmt.Sprintf("claude was terminated by a signal: %s", exitErr.ProcessState.String()),
+				fmt.Sprintf("claude was terminated by a signal: %s", exitErr.String()),
 				SignalExitCode
 		}
 		return OutcomeFailed, fmt.Sprintf("claude could not be waited on: %v", c.waitErr), c.exitCode

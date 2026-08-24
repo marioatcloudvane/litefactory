@@ -394,6 +394,9 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 // after the run and only best-effort when the daemon is killed, so refusing to
 // show the run because of it would hide the log exactly when it is wanted.
 func readRunMeta(path string) (runMeta, string, error) {
+	// #nosec G304 -- path is litefactory's own artefact path, not user input:
+	// naming.RunMetaPath derives it from $LF_HOME and the validated task ref of
+	// a row this daemon wrote. The command reads run artefacts by design.
 	data, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -454,6 +457,9 @@ func decodeResultEvent(line []byte) (resultEvent, bool) {
 // truncating, and real stream-json lines exceed that (SD-6) — which would
 // silently drop the very event this is looking for.
 func finalResultText(path string) (text string, found bool, err error) {
+	// #nosec G304 -- path comes from the runs row litefactory wrote, or is
+	// derived by naming from $LF_HOME and the validated task ref. Reading that
+	// file is the whole point of the command.
 	f, err := os.Open(path)
 	if err != nil {
 		return "", false, err
@@ -488,6 +494,9 @@ func finalResultText(path string) (text string, found bool, err error) {
 // log rather than the log — and this is the command people reach for when they
 // need to know exactly what claude emitted.
 func copyLog(out io.Writer, path string) (err error) {
+	// #nosec G304 -- path comes from the runs row litefactory wrote, or is
+	// derived by naming from $LF_HOME and the validated task ref. Reading that
+	// file is the whole point of the command.
 	f, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -550,6 +559,9 @@ func tailLog(ctx context.Context, out io.Writer, path string, interval time.Dura
 	buf := make([]byte, followReadSize)
 	for {
 		if f == nil {
+			// #nosec G304 -- path comes from the runs row litefactory wrote, or
+			// is derived by naming from $LF_HOME and the validated task ref.
+			// Following that file is the whole point of the command.
 			opened, openErr := os.Open(path)
 			switch {
 			case openErr == nil:
@@ -598,6 +610,10 @@ func drainLog(ctx context.Context, f io.Reader, out io.Writer, buf []byte, pendi
 		// A writer that keeps up with the reader would otherwise hold this
 		// loop past a Ctrl-C, because the select on ctx is outside it.
 		if ctx.Err() != nil {
+			//nolint:nilerr // Deliberate: interrupting a follow is how one ends,
+			// not a failure, so the cancellation is reported as stop-without-error
+			// exactly as tailLog's own <-ctx.Done() branch does. Returning
+			// ctx.Err() here would make Ctrl-C exit non-zero.
 			return true, nil
 		}
 		n, readErr := f.Read(buf)

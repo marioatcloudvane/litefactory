@@ -449,8 +449,8 @@ func metadataList(run Run) string {
 	}
 
 	if res := run.Result; res != nil {
-		switch {
-		case res.ExitCode == harness.SignalExitCode:
+		switch res.ExitCode {
+		case harness.SignalExitCode:
 			add("Exit status", "killed by litefactory, so there is no exit code")
 		default:
 			add("Exit status", codeSpan(strconv.Itoa(res.ExitCode)))

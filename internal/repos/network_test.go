@@ -42,6 +42,12 @@ func TestRegistrationIsOffline(t *testing.T) {
 	fileSet := token.NewFileSet()
 	// Package-level parse with the default mode: comments are not attached, so
 	// printing the AST back yields the code alone.
+	//nolint:staticcheck // SA1019: ParseDir is deprecated in favour of
+	// golang.org/x/tools/go/packages, which is a third-party dependency. This
+	// module ships three, deliberately, and adding a fourth to the graph so an
+	// invariant test can parse its own directory is a worse trade than using a
+	// deprecated stdlib function. The deprecation is about build tags, and no
+	// file in this package is behind one.
 	pkgs, err := parser.ParseDir(fileSet, ".", func(info os.FileInfo) bool {
 		return !strings.HasSuffix(info.Name(), "_test.go")
 	}, 0)
