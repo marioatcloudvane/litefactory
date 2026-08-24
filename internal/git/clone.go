@@ -117,19 +117,22 @@ type WorktreeAddOptions struct {
 //
 // dir is made absolute and its existing ancestors symlink-resolved before it is
 // compared against the clone: a path inside the registered clone — or one
-// containing it — is refused with [ErrWorktreeOverlapsClone]. There is no force
-// option, so an occupied path is a loud failure from git and never a delete or
-// an overwrite. Missing parent directories are created by git itself.
+// containing it — is refused with [ErrWorktreeOverlapsClone]. The handle is
+// built before git runs, so that refusal happens without a single command being
+// issued. There is no force option, so an occupied path is a loud failure from
+// git and never a delete or an overwrite. Missing parent directories are
+// created by git itself.
+//
+// This is the low-level constructor: it always adds. Callers that want "reuse
+// what is already there, otherwise create it" want [EnsureWorktree].
 func (c *Clone) WorktreeAdd(ctx context.Context, dir string, opts WorktreeAddOptions) (*Worktree, error) {
-	if err := checkName("branch", opts.Branch); err != nil {
-		return nil, err
-	}
 	target, err := resolveTarget(dir)
 	if err != nil {
 		return nil, err
 	}
-	if overlaps(c.Path(), target) {
-		return nil, fmt.Errorf("worktree path %s %w %s", target, ErrWorktreeOverlapsClone, c.Path())
+	worktree, err := c.newWorktree(target, opts.Branch)
+	if err != nil {
+		return nil, err
 	}
 
 	args := []string{"worktree", "add"}
@@ -144,13 +147,7 @@ func (c *Clone) WorktreeAdd(ctx context.Context, dir string, opts WorktreeAddOpt
 	if _, err := c.runner.run(ctx, worktreeTimeout, args...); err != nil {
 		return nil, err
 	}
-
-	return &Worktree{
-		runner: runner{binary: c.runner.binary, dir: target},
-		path:   target,
-		branch: opts.Branch,
-		clone:  c.path,
-	}, nil
+	return worktree, nil
 }
 
 // WorktreeInfo describes one entry of "git worktree list".
@@ -247,12 +244,19 @@ type WorktreeRemoveOptions struct {
 	Force bool
 }
 
-// WorktreeRemove deletes a linked worktree and its administrative entry.
+// WorktreeRemove deletes a linked worktree and its administrative entry. It is
+// what "litefactory task clean <issue>" runs.
 //
 // The path is refused if it overlaps the registered clone. git rejects removing
 // the main working tree on its own, but the check is written down here too
 // because "the registered clone is never deleted" is a guarantee this package
 // owns rather than one it borrows.
+//
+// Without Force, a worktree holding uncommitted changes is refused with
+// [*WorktreeDirtyError] and nothing is removed. git refuses that case too, but
+// only with a sentence on stderr; naming the condition — and listing the files
+// that would have been lost — is what lets the CLI tell the user what to do
+// instead of relaying a fatal.
 func (c *Clone) WorktreeRemove(ctx context.Context, dir string, opts WorktreeRemoveOptions) error {
 	target, err := resolveTarget(dir)
 	if err != nil {
@@ -260,6 +264,11 @@ func (c *Clone) WorktreeRemove(ctx context.Context, dir string, opts WorktreeRem
 	}
 	if overlaps(c.Path(), target) {
 		return fmt.Errorf("worktree path %s %w %s", target, ErrWorktreeOverlapsClone, c.Path())
+	}
+	if !opts.Force {
+		if changes := c.uncommittedChanges(ctx, target); len(changes) > 0 {
+			return &WorktreeDirtyError{Path: target, Changes: changes}
+		}
 	}
 	args := []string{"worktree", "remove"}
 	if opts.Force {
@@ -269,6 +278,44 @@ func (c *Clone) WorktreeRemove(ctx context.Context, dir string, opts WorktreeRem
 	_, err = c.runner.run(ctx, worktreeTimeout, args...)
 	return err
 }
+
+// uncommittedChanges lists what is uncommitted in the worktree at target, for
+// the unforced-removal refusal above.
+//
+// It is a probe, not a check: a target that is not a worktree at all, or that
+// git will not talk about, reports nothing and lets "git worktree remove" — the
+// actual authority on what target is — produce the error. Turning a failed
+// probe into a refusal would block removing a broken worktree, which is exactly
+// what "task clean" exists for.
+func (c *Clone) uncommittedChanges(ctx context.Context, target string) []FileChange {
+	probe := runner{binary: c.runner.binary, dir: target}
+	out, err := probe.run(ctx, readTimeout, statusArgs...)
+	if err != nil {
+		return nil
+	}
+	changes, err := parseStatus(out)
+	if err != nil {
+		return nil
+	}
+	return changes
+}
+
+// WorktreeDirtyError reports an unforced removal refused because the worktree
+// still holds work. It carries the changes rather than a count so the CLI can
+// print what the user would have lost.
+type WorktreeDirtyError struct {
+	// Path is the worktree that was left alone.
+	Path string
+	// Changes are the uncommitted changes found there.
+	Changes []FileChange
+}
+
+func (e *WorktreeDirtyError) Error() string {
+	return fmt.Sprintf("worktree %s has %d uncommitted change(s) and was not removed: %v",
+		e.Path, len(e.Changes), ErrWorktreeUncommittedChanges)
+}
+
+func (e *WorktreeDirtyError) Unwrap() error { return ErrWorktreeUncommittedChanges }
 
 // RevParseOptions configures [Clone.RevParse] and [Worktree.RevParse].
 type RevParseOptions struct {

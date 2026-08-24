@@ -14,9 +14,10 @@
 //     Switch, Stash, Reset, Merge or Pull method, so writing to the registered
 //     clone is a compile error rather than a code-review comment.
 //   - [Worktree] holds the mutating half of git. It has no exported
-//     constructor and no exported field, so the only way to obtain a usable one
-//     is [Clone.WorktreeAdd] — which refuses any path that overlaps the
-//     registered clone.
+//     constructor and no exported field, so the only ways to obtain a usable
+//     one are [Clone.WorktreeAdd] and [EnsureWorktree] — both of which build it
+//     through the single unexported constructor, which refuses any path that
+//     overlaps the registered clone.
 //   - The process runner is unexported and confined to exec.go, which is the
 //     only file in the module that imports os/exec for git. No other package
 //     may exec git; test fixtures are the single documented exception and live

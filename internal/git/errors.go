@@ -39,6 +39,19 @@ var (
 	// ErrConfigKeyNotFound reports a configuration key that is not set.
 	ErrConfigKeyNotFound = errors.New("configuration key not set")
 
+	// ErrWorktreeUncommittedChanges reports a worktree that still holds
+	// uncommitted work. Removal refuses rather than discarding it; the caller
+	// re-runs with the force option once the user has decided. It is what
+	// [*WorktreeDirtyError] unwraps to, so "task clean" can recognise the
+	// condition with errors.Is and still reach the file list through errors.As.
+	ErrWorktreeUncommittedChanges = errors.New("worktree has uncommitted changes")
+
+	// ErrWorktreeOccupied reports a worktree path that already holds something
+	// that is not this task's worktree. It is what [*WorktreeConflictError]
+	// unwraps to. Nothing at the path is ever deleted or overwritten to make
+	// room, so this condition is always a refusal and never a cleanup.
+	ErrWorktreeOccupied = errors.New("worktree path is occupied")
+
 	// ErrWorktreeOverlapsClone reports an attempt to place a worktree inside
 	// the registered clone. This is the runtime half of the compile-time
 	// guarantee: a [Worktree] can never be made to point at the clone.

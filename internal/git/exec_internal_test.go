@@ -1,10 +1,97 @@
 package git
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+// timeoutPolicy is the whole deadline policy, by constant name. AC-3.22 fixes
+// the two that reach the network: 60 seconds for a fetch, 120 for a push.
+var timeoutPolicy = map[string]time.Duration{
+	"readTimeout":     15 * time.Second,
+	"fetchTimeout":    60 * time.Second,
+	"pushTimeout":     120 * time.Second,
+	"worktreeTimeout": 120 * time.Second,
+	"commitTimeout":   120 * time.Second,
+}
+
+// TestTimeoutPolicyIsWhatTheDeadlinesSay pins the durations themselves.
+func TestTimeoutPolicyIsWhatTheDeadlinesSay(t *testing.T) {
+	t.Parallel()
+
+	got := map[string]time.Duration{
+		"readTimeout":     readTimeout,
+		"fetchTimeout":    fetchTimeout,
+		"pushTimeout":     pushTimeout,
+		"worktreeTimeout": worktreeTimeout,
+		"commitTimeout":   commitTimeout,
+	}
+	for name, want := range timeoutPolicy {
+		if got[name] != want {
+			t.Errorf("%s = %s, want %s", name, got[name], want)
+		}
+	}
+}
+
+// TestEveryGitCommandCarriesADeadline is the structural half, and it matters
+// more than the values do.
+//
+// An untimed git call is not a slow call, it is a hung tick — and a hung daemon
+// looks alive, which is a worse failure than a loud one. ssh in BatchMode
+// refuses to prompt, but a black-holed host or a half-open connection still
+// blocks forever. The only durable way to keep that true is to refuse the
+// literal at the call site: every runner.run must pass one of the named policy
+// constants, so a future command cannot quietly invent its own deadline or omit
+// one.
+func TestEveryGitCommandCarriesADeadline(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(info fs.FileInfo) bool {
+		return !strings.HasSuffix(info.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parse the package source: %v", err)
+	}
+
+	var offenders []string
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "run" || len(call.Args) < 2 {
+					return true
+				}
+				ident, ok := call.Args[1].(*ast.Ident)
+				if ok {
+					if _, known := timeoutPolicy[ident.Name]; known {
+						return true
+					}
+				}
+				offenders = append(offenders, fset.Position(call.Pos()).String())
+				return true
+			})
+		}
+	}
+
+	if len(offenders) > 0 {
+		t.Fatalf("git commands are issued without a policy deadline at:\n  %s\n\n"+
+			"Every runner.run must pass one of %v. An untimed git call is a hung "+
+			"tick, and a hung daemon looks alive.",
+			strings.Join(offenders, "\n  "), slices.Sorted(maps.Keys(timeoutPolicy)))
+	}
+}
 
 // TestChildEnvIsTheAllowlist pins SD-5. The daemon's own environment can hold
 // the bot token under token_env, so the git child environment is built from

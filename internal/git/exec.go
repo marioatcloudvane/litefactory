@@ -34,12 +34,15 @@ const (
 	// pushTimeout covers network writes, which carry the payload and so get
 	// twice as long. It lives here with the other deadlines rather than with
 	// the push itself, so the whole timeout policy is readable in one place.
-	//
-	//nolint:unused // consumed by the mutating Worktree operations (T-LF3.1).
 	pushTimeout = 120 * time.Second
 	// worktreeTimeout covers "git worktree add/remove", which checks a whole
 	// tree in or out and is bounded by disk rather than by the network.
 	worktreeTimeout = 120 * time.Second
+	// commitTimeout covers "git add" and "git commit". Both are bounded by
+	// disk — a run can touch a large tree — and both may hand control to a
+	// repository hook, so they get the same budget as a worktree checkout
+	// rather than the read budget.
+	commitTimeout = 120 * time.Second
 )
 
 // waitDelay bounds how long Wait may block after the git process itself has
