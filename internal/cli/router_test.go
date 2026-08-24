@@ -100,14 +100,6 @@ func TestRouterExitCodes(t *testing.T) {
 			wantCode:      ExitUsage,
 			wantStderrHas: []string{"flag provided but not defined", "repo list"},
 		},
-		{
-			// Any still-declared-but-unbuilt command will do here. It moves as
-			// stories land: `repo list` played this part until LF-1 built it.
-			name:          "declared but unimplemented command exits 1",
-			args:          []string{"task", "clean", "123"},
-			wantCode:      ExitFailure,
-			wantStderrHas: []string{"task clean: not implemented yet"},
-		},
 	}
 
 	for _, tc := range tests {
@@ -257,6 +249,40 @@ func TestCommandsAreWellFormed(t *testing.T) {
 				t.Errorf("command %q has positional %q that its usage %q does not mention", cmd.Name, name, cmd.Usage)
 			}
 		}
+	}
+}
+
+// TestRouterReportsAnUnimplementedCommand covers the stub path: a command that
+// is declared in the dispatch table but whose behaviour has not landed exits 1
+// and says so, rather than exiting 0 having done nothing.
+//
+// The command is synthetic rather than one of the real ones. It used to point
+// at whichever command was still a stub — `repo list`, then `task clean` — and
+// moving it every time a story landed made an unrelated test fail in the middle
+// of someone else's work.
+func TestRouterReportsAnUnimplementedCommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	env := &Env{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Stdin:  strings.NewReader(""),
+		Logger: slog.New(slog.DiscardHandler),
+	}
+	cmd := &Command{
+		Name:  "frobnicate",
+		Usage: "frobnicate",
+		Short: "Not built yet",
+		New:   func(*flag.FlagSet) Handler { return notImplemented("frobnicate") },
+	}
+
+	code := NewRouter("litefactory", env, []*Command{cmd}).Run(t.Context(), []string{"frobnicate"})
+	if code != ExitFailure {
+		t.Errorf("exit code = %d, want %d\nstderr: %s", code, ExitFailure, &stderr)
+	}
+	if !strings.Contains(stderr.String(), "frobnicate: not implemented yet") {
+		t.Errorf("stderr = %q, want it to name the unimplemented command", &stderr)
 	}
 }
 
