@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // newTestRouter builds a router over the real command surface with buffered
@@ -99,10 +101,12 @@ func TestRouterExitCodes(t *testing.T) {
 			wantStderrHas: []string{"flag provided but not defined", "repo list"},
 		},
 		{
+			// Any still-declared-but-unbuilt command will do here. It moves as
+			// stories land: `repo list` played this part until LF-1 built it.
 			name:          "declared but unimplemented command exits 1",
-			args:          []string{"repo", "list"},
+			args:          []string{"task", "clean", "123"},
 			wantCode:      ExitFailure,
-			wantStderrHas: []string{"repo list: not implemented yet"},
+			wantStderrHas: []string{"task clean: not implemented yet"},
 		},
 	}
 
@@ -194,13 +198,29 @@ func TestCommandHelpShowsOnlyItsOwnFlags(t *testing.T) {
 // TestLogsCommandReachesItsHandler is AC-B.4 against the registered command
 // rather than a test double: if the positional swallowed the flags, this
 // would fail with a usage error instead of reaching the handler.
+//
+// The assertion is the absence of a UsageError, not the presence of one
+// particular error. It used to be errors.Is(err, ErrNotImplemented), which
+// held only while logs was a stub — that was the stub's behaviour, not the
+// parser's contract, and LF-5 replacing the stub is not a regression. What
+// the handler goes on to do belongs to LF-5's own tests; that the flag value
+// really arrives as 2 is covered end to end by
+// TestLogsRunFlagSelectsTheRunAfterThePositional.
+//
+// LF_HOME is pointed at an empty directory so the reached handler fails on
+// the missing database instead of reading the developer's real ~/.litefactory.
 func TestLogsCommandReachesItsHandler(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel: t.Setenv forbids it.
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	router, _, _ := newTestRouter(t)
 	err := router.dispatch(t.Context(), []string{"logs", "123", "--run", "2"})
-	if !errors.Is(err, ErrNotImplemented) {
-		t.Fatalf("dispatch returned %v, want it to reach the handler and report %v", err, ErrNotImplemented)
+	if err == nil {
+		t.Fatal("dispatch succeeded against an empty LF_HOME, so it cannot have reached the handler")
+	}
+	var usageErr *UsageError
+	if errors.As(err, &usageErr) {
+		t.Fatalf("dispatch returned the usage error %q: the positional swallowed --run instead of the handler being reached", err)
 	}
 }
 
