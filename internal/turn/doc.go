@@ -31,6 +31,15 @@
 // uniqueness of (session, triggering comment) on the runs row, which makes a
 // replayed comment a no-op rather than a second run (AC-3.4).
 //
+// # Post first, then commit
+//
+// [Reporter] is the other half of a turn: it posts the comment and only then
+// records that it did. The result comment id, the watermark advance and the
+// run's move to reported are one transaction that runs after the post returns,
+// so a forge that refuses the comment leaves the run un-reported and the
+// comment unconsumed — and the next tick retries the post rather than claude
+// (AC-4.10). Advancing first would turn a transient 502 into permanent silence.
+//
 // # The registered clone is never written to
 //
 // A turn fetches in the clone and works in a worktree. Nothing here can write
