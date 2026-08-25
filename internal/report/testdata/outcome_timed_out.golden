@@ -11,7 +11,7 @@
 - **Reason:** timed out after 30m0s; the process subtree was killed
 - **Duration:** 12.4s
 - **Model:** `claude-sonnet-4-5`
-- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+- **Log:** `litefactory logs 123 --run 3` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
 
 **Files touched (1)**
 

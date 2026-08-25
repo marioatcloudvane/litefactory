@@ -9,7 +9,7 @@
 - **Commit:** none — this run committed nothing
 - **Exit status:** unknown
 - **Duration:** unknown
-- **Log:** no local log path was recorded for this run
+- **Log:** `litefactory logs 123 --run 1` (no local log path was recorded for this run)
 
 **Files touched**
 

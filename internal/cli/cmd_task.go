@@ -56,7 +56,7 @@ func newTaskCleanCommand() *Command {
 // git's own rather than a guess made here, and a refusal leaves the directory
 // exactly as it was — no partial removal, no cleared column, nothing to undo.
 func runTaskClean(ctx context.Context, env *Env, cmd *Command, opts taskCleanOptions, issueArg string) (err error) {
-	issue, err := parseIssueArg(cmd, issueArg)
+	issue, owner, name, err := parseTaskArg(cmd, issueArg)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func runTaskClean(ctx context.Context, env *Env, cmd *Command, opts taskCleanOpt
 	}
 	defer func() { err = errors.Join(err, rt.close()) }()
 
-	session, err := rt.db.FindSessionByIssue(ctx, issue, "", "")
+	session, err := rt.db.FindSessionByIssue(ctx, issue, owner, name)
 	if err != nil {
 		return taskLookupError(err, issue)
 	}

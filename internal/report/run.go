@@ -114,6 +114,13 @@ func (r Run) logPath() string {
 	return r.Result.LogPath
 }
 
+// logsCommand is the command that shows this run's log on the machine that ran
+// it. It is what the comment points at: the comment is redacted and size-capped
+// by design, and this is how a reader gets the whole of what it left out.
+func (r Run) logsCommand() string {
+	return fmt.Sprintf("litefactory logs %d --run %d", r.Ref.Issue, r.Ordinal)
+}
+
 // outputText returns the run output to quote, falling back to the stderr tail
 // the harness kept when the caller captured nothing else. A failed run whose
 // only trace is what it printed to stderr is exactly the run S-9 is about.
@@ -480,10 +487,15 @@ func metadataList(run Run) string {
 		}
 	}
 
+	// The command first, the path second. A path to a JSONL file is a thing to
+	// go and find a way to read; the command is the way to read it, and it is
+	// the same command whether or not the run recorded a path, because `logs`
+	// derives one from the task ref when the row carries none.
 	if path := run.logPath(); path != "" {
-		add("Log", codeSpan(path)+" (unredacted, on the machine that ran it)")
+		add("Log", codeSpan(run.logsCommand())+" — the file is "+codeSpan(path)+
+			" (unredacted, on the machine that ran it)")
 	} else {
-		add("Log", "no local log path was recorded for this run")
+		add("Log", codeSpan(run.logsCommand())+" (no local log path was recorded for this run)")
 	}
 
 	if res := run.Result; res != nil && res.StreamError != nil {
