@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -66,4 +67,47 @@ func TestFirstLine(t *testing.T) {
 			t.Errorf("firstLine(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// TestClassifySecurityErrorSeparatesTheTwoOSStatuses pins the exit codes
+// apart. 44 and 36 are the same shape of failure to exec — a non-zero exit
+// with nothing on stderr — and they call for opposite advice: one means the
+// item is not there, the other means it is and the caller could not be asked
+// for permission.
+func TestClassifySecurityErrorSeparatesTheTwoOSStatuses(t *testing.T) {
+	tests := map[int]error{
+		errSecItemNotFound:          ErrNotFound,
+		errSecInteractionNotAllowed: ErrInteractionNotAllowed,
+	}
+	for code, want := range tests {
+		err := classifySecurityError(t.Context(), exitStatus(t, code), "")
+		if !errors.Is(err, want) {
+			t.Errorf("exit %d: err = %v, want %v", code, err, want)
+		}
+	}
+}
+
+// TestClassifySecurityErrorKeepsUnknownCodesVerbatim: an exit status with no
+// meaning attached to it must still reach the operator, code and all.
+func TestClassifySecurityErrorKeepsUnknownCodesVerbatim(t *testing.T) {
+	err := classifySecurityError(t.Context(), exitStatus(t, 51), "security: something else\n")
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInteractionNotAllowed) {
+		t.Fatalf("err = %v, want neither sentinel", err)
+	}
+	for _, want := range []string{"51", "security: something else"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
+// exitStatus returns the *exec.ExitError a command leaving with code produces.
+func exitStatus(t *testing.T, code int) error {
+	t.Helper()
+	err := exec.Command("/bin/sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("running `exit %d`: err = %v, want an *exec.ExitError", code, err)
+	}
+	return exitErr
 }

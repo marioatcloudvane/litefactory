@@ -13,9 +13,21 @@ import (
 // the lookup cannot be redirected by whatever PATH the daemon inherited.
 const securityBinary = "/usr/bin/security"
 
-// errSecItemNotFound is the exit status `security` uses for "the specified
-// item could not be found in the keychain" (OSStatus -25300).
-const errSecItemNotFound = 44
+// The exit statuses `security` uses for the two OSStatus values worth telling
+// apart. The tool reports an OSStatus in the low byte of its exit code, so
+// -25300 arrives as 44 and -25308 as 36.
+const (
+	// errSecItemNotFound is "the specified item could not be found in the
+	// keychain" (OSStatus -25300).
+	errSecItemNotFound = 44
+
+	// errSecInteractionNotAllowed is "user interaction is not allowed"
+	// (OSStatus -25308): the item is there, and macOS would have had to put a
+	// dialog on screen to hand it over — to unlock the keychain, or to ask
+	// whether this binary may read the item — and the calling process is in no
+	// position to show one.
+	errSecInteractionNotAllowed = 36
+)
 
 // maxStderr caps how much of the tool's stderr is quoted back in an error.
 const maxStderr = 400
@@ -56,8 +68,12 @@ func classifySecurityError(ctx context.Context, runErr error, stderr string) err
 	if !errors.As(runErr, &exitErr) {
 		return fmt.Errorf("run %s: %w", securityBinary, runErr)
 	}
-	if exitErr.ExitCode() == errSecItemNotFound {
+	switch exitErr.ExitCode() {
+	case errSecItemNotFound:
 		return ErrNotFound
+	case errSecInteractionNotAllowed:
+		// stderr is empty for this one, so the exit code is the whole signal.
+		return ErrInteractionNotAllowed
 	}
 	detail := firstLine(stderr)
 	if detail == "" {

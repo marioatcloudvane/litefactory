@@ -24,6 +24,20 @@
 // keychain lookup carries its own timeout so the daemon fails loudly instead
 // of hanging forever, and the token is resolved exactly once at start rather
 // than per tick, so there is no prompt storm.
+//
+// # Security sessions
+//
+// A dialog can also be refused outright rather than hung on. Every macOS
+// process belongs to a security session, and only a session attached to the
+// desktop login — launchctl managername reports Aqua — may put a window on
+// screen. A process in a Background session, which is what launchd's system
+// domain, an ssh login and some tool-run shells give you, gets
+// [ErrInteractionNotAllowed] the moment the keychain wants to ask a question:
+// to unlock the keychain, or to confirm that this binary may read the item.
+//
+// This is not a broken reference, and the fix is never in config.yaml. Run the
+// daemon from a session that owns the desktop, unlock the login keychain, or
+// use github.token_env, which needs no session at all.
 package secrets
 
 import (
@@ -117,6 +131,11 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrEmpty means the reference resolved, to nothing.
 	ErrEmpty = errors.New("resolved to an empty value")
+	// ErrInteractionNotAllowed means the keychain item is there but macOS
+	// would not hand it over without a dialog, and the process asking is in no
+	// position to show one. See the note on keychain sessions below.
+	ErrInteractionNotAllowed = errors.New("macOS would not open the item without a dialog it could not show; " +
+		"the process is not in a desktop login session, or the login keychain is locked")
 	// ErrIncomplete means a reference is half-configured.
 	ErrIncomplete = errors.New("incomplete reference")
 )

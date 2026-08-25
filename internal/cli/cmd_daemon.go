@@ -137,10 +137,33 @@ func resolveDaemonToken(ctx context.Context, paths config.Paths, cfg *config.Con
 
 	token, err := secrets.Resolver{}.Resolve(ctx, ref)
 	if err != nil {
-		return secrets.Token{}, Preconditionf("the bot token could not be resolved: %v\n"+
-			"  Fix the reference in %s and try again", err, paths.ConfigPath())
+		return secrets.Token{}, Preconditionf("the bot token could not be resolved: %v\n%s",
+			err, resolveTokenHint(err, paths))
 	}
 	return token, nil
+}
+
+// resolveTokenHint is the line of advice that follows a failed resolution.
+//
+// "Fix the reference" is the right answer for most of them and the wrong one
+// for exactly one: a keychain item macOS refused to open was *found*, so
+// sending the operator to config.yaml sends them to edit a setting that is
+// already correct. That case is about which session the daemon was started
+// from, and the advice has to say so.
+func resolveTokenHint(err error, paths config.Paths) string {
+	if !errors.Is(err, secrets.ErrInteractionNotAllowed) {
+		return fmt.Sprintf("  Fix the reference in %s and try again", paths.ConfigPath())
+	}
+	return fmt.Sprintf(`  The reference is fine — the item was found. macOS would not unlock it for this process.
+  Check with `+"`launchctl managername`"+`: it must print Aqua, not Background. If it prints
+  Background, start the daemon from a Terminal window on this machine's own desktop
+  rather than over ssh or from a tool that runs commands for you.
+  If it already prints Aqua, the login keychain is locked: run
+      security unlock-keychain
+  Or drop the keychain entirely for a foreground run — replace token_keychain in %s with
+      github:
+        token_env: "LITEFACTORY_GITHUB_TOKEN"
+  and export that variable in the shell you start the daemon from.`, paths.ConfigPath())
 }
 
 // daemonRunError maps a startup failure onto an exit code.

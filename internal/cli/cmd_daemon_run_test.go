@@ -5,6 +5,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
 // These tests cover what `daemon run` refuses to start over. They stop short of
@@ -99,5 +102,35 @@ func TestDaemonRunHelpDescribesTheSingleton(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("the help text does not mention %q:\n%s", want, stdout)
 		}
+	}
+}
+
+// TestResolveTokenHintDoesNotBlameTheConfig covers the one resolution failure
+// where the standing advice is actively misleading. A keychain item macOS
+// refuses to unlock was found, so "fix the reference" points the operator at a
+// setting that is already right; the hint has to talk about the session the
+// daemon was started from instead.
+func TestResolveTokenHintDoesNotBlameTheConfig(t *testing.T) {
+	paths := config.NewPaths(t.TempDir())
+
+	refused := resolveTokenHint(&secrets.ResolveError{
+		Ref: secrets.KeychainRef("litefactory", "github-bot"),
+		Err: secrets.ErrInteractionNotAllowed,
+	}, paths)
+	if strings.Contains(refused, "Fix the reference") {
+		t.Errorf("hint = %q, want it not to send the operator to config.yaml", refused)
+	}
+	for _, want := range []string{"managername", "Aqua", "unlock-keychain", "token_env"} {
+		if !strings.Contains(refused, want) {
+			t.Errorf("hint = %q, want it to mention %q", refused, want)
+		}
+	}
+
+	missing := resolveTokenHint(&secrets.ResolveError{
+		Ref: secrets.KeychainRef("litefactory", "github-bot"),
+		Err: secrets.ErrNotFound,
+	}, paths)
+	if !strings.Contains(missing, "Fix the reference in "+paths.ConfigPath()) {
+		t.Errorf("hint = %q, want the standing advice for every other failure", missing)
 	}
 }
