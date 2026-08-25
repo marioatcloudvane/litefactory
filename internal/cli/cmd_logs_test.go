@@ -269,6 +269,9 @@ func resultLine(text string) string {
 
 // TestLogsListsRunsNewestLast is AC-5.1: one line per run carrying every field
 // the criterion names, oldest first.
+//
+// The listing moved behind --runs when the default view became "show me the
+// log". The criterion is about the listing, not about which flag reaches it.
 func TestLogsListsRunsNewestLast(t *testing.T) {
 	f := newLogsHome(t)
 	session := f.session(f.repo("acme", "api"), 123)
@@ -280,7 +283,7 @@ func TestLogsListsRunsNewestLast(t *testing.T) {
 	f.finishRun(second, store.RunFailed, 3, 2*time.Second)
 	f.allocateRun(session, 1003, start.Add(2*time.Hour)) // still running
 
-	code, stdout, stderr := f.run("logs", "123")
+	code, stdout, stderr := f.run("logs", "123", "--runs")
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
 	}
@@ -684,17 +687,35 @@ func TestLogsOutputIsUnredacted(t *testing.T) {
 // this catches the import itself, which is the thing that is actually
 // forbidden.
 func TestLogsNeverImportsRedact(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), "cmd_logs.go", nil, parser.ImportsOnly)
-	if err != nil {
-		t.Fatalf("parse cmd_logs.go: %v", err)
-	}
-	for _, imported := range file.Imports {
-		if strings.Contains(imported.Path.Value, "internal/redact") {
-			t.Errorf("cmd_logs.go imports %s. `logs` output is unredacted by design (AC-5.7): "+
-				"S-7 redaction is outbound-only, and you want the token in the log at 23:00 "+
-				"and never in a public comment.", imported.Path.Value)
+	for _, name := range logsSourceFiles {
+		for _, imported := range importsOf(t, name) {
+			if strings.Contains(imported, "internal/redact") {
+				t.Errorf("%s imports %s. `logs` output is unredacted by design (AC-5.7): "+
+					"S-7 redaction is outbound-only, and you want the token in the log at 23:00 "+
+					"and never in a public comment.", name, imported)
+			}
 		}
 	}
+}
+
+// logsSourceFiles is every file the `logs` command is implemented in. The
+// structural guards below hold for the command, not for one file of it, so
+// splitting the renderer out must not be a way around them.
+var logsSourceFiles = []string{"cmd_logs.go", "cmd_logs_render.go"}
+
+// importsOf returns the import paths of a source file in this package.
+func importsOf(t *testing.T, name string) []string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse %s: %v", name, err)
+	}
+	paths := make([]string, 0, len(file.Imports))
+	for _, imported := range file.Imports {
+		paths = append(paths, imported.Path.Value)
+	}
+	return paths
 }
 
 // TestLogsUsesNoDaemonIPC is AC-5.8. The database and the files are the only
@@ -724,15 +745,13 @@ func TestLogsUsesNoDaemonIPC(t *testing.T) {
 	}
 
 	// And the package brings in no filesystem watcher: -f is a ticker.
-	file, err := parser.ParseFile(token.NewFileSet(), "cmd_logs.go", nil, parser.ImportsOnly)
-	if err != nil {
-		t.Fatalf("parse cmd_logs.go: %v", err)
-	}
-	for _, imported := range file.Imports {
-		for _, forbidden := range []string{"fsnotify", "net/rpc", "os/signal"} {
-			if strings.Contains(imported.Path.Value, forbidden) {
-				t.Errorf("cmd_logs.go imports %s; -f follows with a ticker and `logs` uses no IPC",
-					imported.Path.Value)
+	for _, name := range logsSourceFiles {
+		for _, imported := range importsOf(t, name) {
+			for _, forbidden := range []string{"fsnotify", "net/rpc", "os/signal"} {
+				if strings.Contains(imported, forbidden) {
+					t.Errorf("%s imports %s; -f follows with a ticker and `logs` uses no IPC",
+						name, imported)
+				}
 			}
 		}
 	}
@@ -843,6 +862,12 @@ func appendToFile(path, s string) error {
 // TestLogsFollowStreamsFromALiveWriter is AC-5.6 against a real second writer:
 // a goroutine appends to the JSONL while the command follows it, and the
 // terminal event ends the follow.
+//
+// It follows with --raw. What AC-5.6 is about is the streaming — that an event
+// reaches stdout as it is appended rather than when the run ends — and --raw
+// is the view whose output can be compared to the file byte for byte, so it is
+// the one that can prove it. That the rendered follow streams the same way is
+// TestLogsFollowRendersAsItStreams.
 func TestLogsFollowStreamsFromALiveWriter(t *testing.T) {
 	f := newLogsHome(t)
 	session := f.session(f.repo("acme", "api"), 123)
@@ -884,7 +909,7 @@ func TestLogsFollowStreamsFromALiveWriter(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("the live writer never finished, so the follower was not streaming: %v", err)
@@ -957,7 +982,7 @@ func TestLogsFollowNeverEmitsAPartialLine(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("live writer: %v", err)
@@ -1000,7 +1025,7 @@ func TestLogsFollowOnAFinishedRunPrintsAndExits(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f"})
+	code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
 	elapsed := time.Since(start)
 
 	if code != ExitOK {
@@ -1034,7 +1059,7 @@ func TestLogsFollowOnAFinishedRunPrintsAnUnterminatedTail(t *testing.T) {
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
-	if code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f"}); code != ExitOK {
+	if code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"}); code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
 	}
 	if stdout.String() != content {
@@ -1072,7 +1097,7 @@ func TestLogsFollowStopsOnAnInterrupt(t *testing.T) {
 
 	var stderr bytes.Buffer
 	done := make(chan int, 1)
-	go func() { done <- f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f"}) }()
+	go func() { done <- f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"}) }()
 
 	select {
 	case code := <-done:

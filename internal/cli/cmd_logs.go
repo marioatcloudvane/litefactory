@@ -46,39 +46,89 @@ const terminalEventType = "result"
 
 // logsOptions holds the parsed flags of "litefactory logs".
 type logsOptions struct {
-	// run selects a single run by ordinal; 0 means list the runs.
+	// run selects a single run by ordinal; 0 means the newest run.
 	run int
+	// runs lists the issue's runs instead of showing one run's log.
+	runs bool
 	// raw writes the run's JSONL to stdout byte for byte.
 	raw bool
 	// follow streams events as they are appended.
 	follow bool
+	// only is the comma-separated list of event kinds to show.
+	only string
+	// grep is a regexp each output line must match.
+	grep string
+	// ignoreCase folds case in the --grep pattern.
+	ignoreCase bool
+	// invert shows the lines --grep does not match.
+	invert bool
+	// full lifts the length caps on tool arguments and tool output.
+	full bool
 	// repo disambiguates an issue number registered in more than one repo.
 	repo string
 }
 
 // bind registers the logs flags on fs.
 func (o *logsOptions) bind(fs *flag.FlagSet) {
-	fs.IntVar(&o.run, "run", 0, "show only run `N` (default: list the runs)")
+	fs.IntVar(&o.run, "run", 0, "show run `N` (default: the newest run)")
+	fs.BoolVar(&o.runs, "runs", false, "list the issue's runs instead of showing one")
 	fs.BoolVar(&o.raw, "raw", false, "write the run's JSONL to stdout byte for byte")
-	fs.BoolVar(&o.follow, "f", false, "follow the newest run as events are written")
+	fs.BoolVar(&o.follow, "f", false, "follow the run as events are written")
+	fs.StringVar(&o.only, "only", "", "show only these event `kinds`, comma-separated "+
+		"(system, text, think, tool, output, result, user, other; or agent, all)")
+	fs.StringVar(&o.grep, "grep", "", "show only lines matching `regexp`")
+	fs.BoolVar(&o.ignoreCase, "i", false, "make --grep case-insensitive")
+	fs.BoolVar(&o.invert, "invert", false, "show the lines --grep does not match")
+	fs.BoolVar(&o.full, "full", false, "do not shorten tool arguments or tool output")
 	fs.StringVar(&o.repo, "repo", "", "disambiguate the issue with `owner/name`")
 }
 
-// newLogsCommand declares "litefactory logs <issue> [--run N] [--raw] [-f]
-// [--repo owner/name]".
+// filtering reports whether the caller asked for a subset of the log. It is
+// what decides whether the run's metadata summary is printed: a filtered view
+// is a view someone intends to read or pipe line by line, and a header block
+// on top of it is noise.
+func (o logsOptions) filtering() bool { return o.grep != "" || o.only != "" }
+
+// newSink builds the pipeline the run's lines are written through.
+func (o logsOptions) newSink(out io.Writer, kinds kindSet, grep *lineFilter) logSink {
+	if o.raw {
+		return &rawSink{out: out, grep: grep}
+	}
+	return newRenderSink(out, kinds, grep, o.full)
+}
+
+// newLogsCommand declares "litefactory logs <issue> [--run N] [--only kinds]
+// [--grep regexp] [--raw] [-f] [--repo owner/name]".
 //
 // The positional issue number is sliced off before the flag set sees the
 // arguments, so "logs 123 --run 2" parses; see splitPositionals.
 func newLogsCommand() *Command {
 	cmd := &Command{
 		Name:  "logs",
-		Usage: "logs <issue> [--run N] [--raw] [-f] [--repo owner/name]",
+		Usage: "logs <issue> [--run N] [--only kinds] [--grep regexp] [--raw] [-f]",
 		Short: "Show the local, unredacted log for an issue",
 		Long: "Show what the forge comment left out. Reads the database and the run logs\n" +
 			"under $LF_HOME directly, so it works with the daemon stopped. Output is\n" +
 			"never redacted.\n\n" +
-			"With no flags it lists the issue's runs, newest last. --run N selects one\n" +
-			"run; --raw and -f default to the newest run when --run is omitted.",
+			"The task is named by its issue number or by its full ref, as in\n" +
+			"github:acme/api#123.\n\n" +
+			"With no flags it prints the newest run: a summary, then the run's events\n" +
+			"rendered one labelled line at a time. --run N selects another run and\n" +
+			"--runs lists them, newest last.\n\n" +
+			"Each rendered line starts with its kind, so the output is greppable:\n" +
+			"  system  the session's init line\n" +
+			"  text    what claude said\n" +
+			"  think   thinking blocks (hidden unless asked for)\n" +
+			"  tool    a tool call and its main argument\n" +
+			"  output  what the tool returned\n" +
+			"  result  how the run ended, and its final text\n" +
+			"  user    a user-role message that is not a tool result\n" +
+			"  other   anything else, including lines that are not JSON\n\n" +
+			"Examples:\n" +
+			"  litefactory logs 123 -f --only agent   watch what the agents are doing\n" +
+			"  litefactory logs 123 --only tool       every tool call the run made\n" +
+			"  litefactory logs 123 --grep 'go test'  only the lines mentioning it\n" +
+			"  litefactory logs 123 --raw             the JSONL, byte for byte",
 		Args: ArgSpec{Names: []string{"issue"}, Min: 1},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
@@ -91,8 +141,9 @@ func newLogsCommand() *Command {
 	return cmd
 }
 
-// runLogs resolves the issue to a task and prints one of its four views: the
-// run list, one run's summary, one run's raw JSONL, or a live follow.
+// runLogs resolves the issue to a task and prints one of its views: the run
+// list, one run's rendered log, one run's raw JSONL, or a live follow of
+// either.
 //
 // Nothing here is redacted, and this file must never import internal/redact.
 // Redaction is outbound-only by design (S-7): the point of `logs` is that the
@@ -104,16 +155,29 @@ func newLogsCommand() *Command {
 // lock. The database and the files under $LF_HOME/logs/runs are read directly,
 // so every view works with the daemon stopped.
 func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issueArg string) error {
-	issue, err := parseIssueArg(cmd, issueArg)
+	issue, owner, name, err := parseTaskArg(cmd, issueArg)
 	if err != nil {
 		return err
 	}
-	owner, name, err := parseRepoFlag(cmd, opts.repo)
-	if err != nil {
-		return err
+	if owner == "" {
+		if owner, name, err = parseRepoFlag(cmd, opts.repo); err != nil {
+			return err
+		}
+	} else if opts.repo != "" {
+		return Usagef(cmd, "a task ref already names its repository; drop --repo %s", opts.repo)
 	}
 	if opts.run < 0 {
 		return Usagef(cmd, "--run takes a run ordinal of 1 or more, got %d", opts.run)
+	}
+	kinds := newKindSet(defaultKinds)
+	if opts.only != "" {
+		if kinds, err = parseKinds(opts.only); err != nil {
+			return Usagef(cmd, "%s", err)
+		}
+	}
+	grep, err := newLineFilter(opts.grep, opts.ignoreCase, opts.invert)
+	if err != nil {
+		return Usagef(cmd, "%s", err)
 	}
 
 	paths, err := config.Locate()
@@ -129,11 +193,18 @@ func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issu
 
 	target, err := loadLogTarget(ctx, paths, issue, owner, name)
 	if err != nil {
-		return lookupError(err, issue, opts.repo)
+		return lookupError(err, issue, firstNonEmpty(opts.repo, joinRepo(owner, name)))
 	}
 
-	if !opts.follow && !opts.raw && opts.run == 0 {
+	if opts.runs {
 		return writeRunList(env.Stdout, target)
+	}
+	if len(target.runs) == 0 && !opts.raw && !opts.follow {
+		// A task that exists but has never run is a state, not a failure. The
+		// byte-oriented views still fail on it: there is no file to stand in
+		// for, and a caller piping --raw wants a non-zero exit, not a sentence.
+		fmt.Fprintf(env.Stdout, "%s has no runs yet\n", target.session.TaskRef)
+		return nil
 	}
 
 	run, err := selectRun(target.runs, opts.run, issue)
@@ -144,16 +215,56 @@ func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issu
 	if err != nil {
 		return err
 	}
+	sink := opts.newSink(env.Stdout, kinds, grep)
 	switch {
 	case opts.follow:
 		// A run that has already finished stops at end of file instead of
 		// waiting for events that will never come (AC-5.6).
-		return tailLog(ctx, env.Stdout, path, followInterval, run.Status != store.RunRunning)
-	case opts.raw:
+		return tailLog(ctx, sink, path, followInterval, run.Status != store.RunRunning)
+	case opts.raw && grep == nil:
+		// The unfiltered raw view is a byte-for-byte copy and nothing else
+		// (AC-5.5); filtering it necessarily goes line by line instead.
 		return copyLog(env.Stdout, path)
 	default:
-		return writeRunSummary(env.Stdout, target, run)
+		return writeRun(env.Stdout, target, run, path, sink, opts)
 	}
+}
+
+// writeRun prints one run: its metadata summary, when the view is not a
+// filtered or raw one, followed by the run's own log.
+//
+// This is the answer to "show me the logs". The summary is four lines of
+// context — how it went, how long it took, what it cost — and then the events
+// themselves, rather than a path to a JSON file to go and read elsewhere.
+func writeRun(out io.Writer, target logTarget, run store.Run, path string, sink logSink, opts logsOptions) error {
+	summarise := !opts.raw && !opts.filtering()
+	if summarise {
+		if err := writeRunSummary(out, target, run); err != nil {
+			return err
+		}
+		fmt.Fprintln(out)
+	}
+
+	err := streamLog(path, sink)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && !opts.raw:
+		// A run can be allocated and killed before claude writes a byte. The
+		// summary above is still worth having, so this is reported rather than
+		// returned.
+		fmt.Fprintf(out, "no event log at %s\n", path)
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("no event log at %s", path)
+	case err != nil:
+		return err
+	}
+
+	if rendered, ok := sink.(*renderSink); summarise && ok && !rendered.sawResult {
+		// A run can end without a terminal result event; that is a real
+		// outcome, not a corrupt file (SD-3).
+		fmt.Fprintf(out, "\nthe run wrote no result event\n")
+	}
+	return nil
 }
 
 // logTarget is everything `logs` needs from the database: the task, its runs,
@@ -307,8 +418,9 @@ type field struct {
 	value string
 }
 
-// writeRunSummary prints a run's S-3 metadata summary followed by its final
-// result text (AC-5.4).
+// writeRunSummary prints a run's S-3 metadata summary (AC-5.4). The run's
+// events are printed after it by [writeRun]; the final result text is the last
+// thing they carry, so it is not repeated here.
 //
 // The database row and the metadata file overlap. The row wins wherever both
 // speak, because the row is written transactionally and the metadata file is
@@ -367,22 +479,6 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 	if err := tw.Flush(); err != nil {
 		return fmt.Errorf("write run summary: %w", err)
 	}
-
-	text, found, err := finalResultText(logPath)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		fmt.Fprintf(out, "\nno event log at %s\n", logPath)
-	case err != nil:
-		return err
-	case !found:
-		// A run can end without a terminal result event; that is a real
-		// outcome, not a corrupt file (SD-3).
-		fmt.Fprintf(out, "\nthe run wrote no result event\n")
-	case text == "":
-		fmt.Fprintf(out, "\nthe run's result event carried no text\n")
-	default:
-		fmt.Fprintf(out, "\nresult:\n%s\n", text)
-	}
 	return nil
 }
 
@@ -412,57 +508,45 @@ func readRunMeta(path string) (runMeta, string, error) {
 	return meta, path, nil
 }
 
-// resultEvent is the terminal event of a run's stream-json output, decoded down
-// to the fields `logs` reports.
-type resultEvent struct {
-	Type    string `json:"type"`
-	IsError bool   `json:"is_error"`
-	Result  string `json:"result"`
-	Error   string `json:"error"`
-}
-
-// text is the final text the run produced. A failed run carries its message in
-// either field depending on how claude ended, so both are consulted.
-func (e resultEvent) text() string {
-	return firstNonEmpty(e.Result, e.Error)
-}
-
-// decodeResultEvent reports whether line is a terminal result event and, if so,
-// returns it decoded.
+// isTerminalEvent reports whether line is the run's terminal result event: the
+// last line a run's log ever gets, and the one that ends a follow.
 //
 // The substring pre-check is what keeps this cheap: it runs on every line of
 // every run, and stream-json lines have been measured past 70 KB, so parsing
 // each one to discover it is an assistant message would be wasteful.
-func decodeResultEvent(line []byte) (resultEvent, bool) {
+func isTerminalEvent(line []byte) bool {
 	if !bytes.Contains(line, []byte(`"`+terminalEventType+`"`)) {
-		return resultEvent{}, false
+		return false
 	}
-	var event resultEvent
-	if err := json.Unmarshal(line, &event); err != nil {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(line, &envelope); err != nil {
 		// A partially written or non-JSON line is not the terminal event.
 		// Following a live file must not fail on one.
-		return resultEvent{}, false
+		return false
 	}
-	if event.Type != terminalEventType {
-		return resultEvent{}, false
-	}
-	return event, true
+	return envelope.Type == terminalEventType
 }
 
-// finalResultText returns the text of the run's last result event, and false
-// when it wrote none.
+// streamLog feeds every line of a finished run's log to sink.
 //
 // Lines are read with bufio.Reader.ReadBytes rather than bufio.Scanner:
 // Scanner aborts the read with ErrTooLong past 64 KB per token instead of
 // truncating, and real stream-json lines exceed that (SD-6) — which would
-// silently drop the very event this is looking for.
-func finalResultText(path string) (text string, found bool, err error) {
+// silently drop the very event you were looking for.
+//
+// The sink's "done" is ignored here. A follower stops at the terminal event
+// because nothing can come after it; a file reader has the whole file in front
+// of it and prints all of it, so a log with anything after its result event
+// shows that rather than hiding it.
+func streamLog(path string, sink logSink) (err error) {
 	// #nosec G304 -- path comes from the runs row litefactory wrote, or is
 	// derived by naming from $LF_HOME and the validated task ref. Reading that
 	// file is the whole point of the command.
 	f, err := os.Open(path)
 	if err != nil {
-		return "", false, err
+		return err
 	}
 	defer func() {
 		if cerr := f.Close(); cerr != nil && err == nil {
@@ -470,19 +554,19 @@ func finalResultText(path string) (text string, found bool, err error) {
 		}
 	}()
 
-	reader := bufio.NewReader(f)
+	reader := bufio.NewReaderSize(f, followReadSize)
 	for {
 		line, readErr := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			if event, ok := decodeResultEvent(line); ok {
-				text, found = event.text(), true
+			if _, writeErr := sink.write(line); writeErr != nil {
+				return writeErr
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				return text, found, nil
+				return nil
 			}
-			return "", false, fmt.Errorf("read %s: %w", path, readErr)
+			return fmt.Errorf("read %s: %w", path, readErr)
 		}
 	}
 }
@@ -516,8 +600,9 @@ func copyLog(out io.Writer, path string) (err error) {
 	return nil
 }
 
-// tailLog streams the run's event stream to out, byte for byte, as the daemon
-// appends to it (AC-5.6).
+// tailLog streams the run's event stream to sink as the daemon appends to it
+// (AC-5.6). What reaches stdout is whatever the sink makes of each line:
+// rendered lines by default, the raw bytes under --raw.
 //
 // It returns when the terminal event is written, when ctx is cancelled (SIGINT
 // reaches the command as a cancelled context, and interrupting a follow is a
@@ -533,7 +618,7 @@ func copyLog(out io.Writer, path string) (err error) {
 // ticker and ctx together. That is what keeps `logs -f` responsive to Ctrl-C
 // while spending only one of the program's four goroutines — the one already
 // running this command.
-func tailLog(ctx context.Context, out io.Writer, path string, interval time.Duration, finished bool) (err error) {
+func tailLog(ctx context.Context, sink logSink, path string, interval time.Duration, finished bool) (err error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -576,7 +661,7 @@ func tailLog(ctx context.Context, out io.Writer, path string, interval time.Dura
 			}
 		}
 		if f != nil {
-			stop, drainErr := drainLog(ctx, f, out, buf, &pending)
+			stop, drainErr := drainLog(ctx, f, sink, buf, &pending)
 			if drainErr != nil {
 				return drainErr
 			}
@@ -589,7 +674,7 @@ func tailLog(ctx context.Context, out io.Writer, path string, interval time.Dura
 			// half of a future event — it is the file's real tail, left behind
 			// by a writer that was killed mid-line. Printing it keeps a follow
 			// of a finished run as complete as --raw.
-			return flushPending(out, &pending)
+			return flushPending(sink, &pending)
 		}
 
 		select {
@@ -602,10 +687,10 @@ func tailLog(ctx context.Context, out io.Writer, path string, interval time.Dura
 	}
 }
 
-// drainLog copies every complete line that has appeared in f since the last
-// call to out. It reports stop when the follow should end: either the terminal
-// event was written, or ctx was cancelled.
-func drainLog(ctx context.Context, f io.Reader, out io.Writer, buf []byte, pending *[]byte) (stop bool, err error) {
+// drainLog feeds every complete line that has appeared in f since the last
+// call to sink. It reports stop when the follow should end: either the
+// terminal event was written, or ctx was cancelled.
+func drainLog(ctx context.Context, f io.Reader, sink logSink, buf []byte, pending *[]byte) (stop bool, err error) {
 	for {
 		// A writer that keeps up with the reader would otherwise hold this
 		// loop past a Ctrl-C, because the select on ctx is outside it.
@@ -619,7 +704,7 @@ func drainLog(ctx context.Context, f io.Reader, out io.Writer, buf []byte, pendi
 		n, readErr := f.Read(buf)
 		if n > 0 {
 			*pending = append(*pending, buf[:n]...)
-			done, writeErr := emitLines(out, pending)
+			done, writeErr := emitLines(sink, pending)
 			if writeErr != nil {
 				return false, writeErr
 			}
@@ -638,21 +723,21 @@ func drainLog(ctx context.Context, f io.Reader, out io.Writer, buf []byte, pendi
 
 // flushPending writes whatever is left of an unterminated final line. It is
 // only ever called once no further bytes can arrive.
-func flushPending(out io.Writer, pending *[]byte) error {
+func flushPending(sink logSink, pending *[]byte) error {
 	if len(*pending) == 0 {
 		return nil
 	}
-	if _, err := out.Write(*pending); err != nil {
-		return fmt.Errorf("write run log: %w", err)
+	if _, err := sink.write(*pending); err != nil {
+		return err
 	}
 	*pending = nil
 	return nil
 }
 
-// emitLines writes each newline-terminated line in pending to out and leaves
+// emitLines feeds each newline-terminated line in pending to sink and leaves
 // any trailing partial line behind for the next read. It stops at the terminal
 // event, which is the last line a run's log ever gets.
-func emitLines(out io.Writer, pending *[]byte) (bool, error) {
+func emitLines(sink logSink, pending *[]byte) (bool, error) {
 	rest := *pending
 	defer func() { *pending = rest }()
 
@@ -663,10 +748,11 @@ func emitLines(out io.Writer, pending *[]byte) (bool, error) {
 		}
 		line := rest[:i+1]
 		rest = rest[i+1:]
-		if _, err := out.Write(line); err != nil {
-			return false, fmt.Errorf("write run log: %w", err)
+		done, err := sink.write(line)
+		if err != nil {
+			return false, err
 		}
-		if _, ok := decodeResultEvent(line); ok {
+		if done {
 			return true, nil
 		}
 	}
@@ -706,14 +792,37 @@ func ambiguousIssueError(ambiguous *store.AmbiguousIssueError) error {
 	}
 }
 
-// parseIssueArg reads the positional issue number. A leading "#" is accepted
-// because that is how issues are written everywhere else.
-func parseIssueArg(cmd *Command, arg string) (int, error) {
-	issue, err := strconv.Atoi(strings.TrimPrefix(arg, "#"))
-	if err != nil || issue <= 0 {
-		return 0, Usagef(cmd, "issue must be a positive number, got %q", arg)
+// parseTaskArg reads the positional argument, which names a task either by its
+// issue number or by the full task ref.
+//
+// A leading "#" is accepted on the number because that is how issues are
+// written everywhere else. The ref form — github:acme/api#123 — is accepted
+// because it is what every comment marker, prompt header and log line calls a
+// task, so it is what people have in their clipboard; it also carries the
+// repository, which is what --repo would otherwise have to supply.
+//
+// owner and name are empty for the number form.
+func parseTaskArg(cmd *Command, arg string) (issue int, owner, name string, err error) {
+	if strings.ContainsAny(arg, ":/") {
+		ref, refErr := naming.ParseRef(arg)
+		if refErr != nil {
+			return 0, "", "", Usagef(cmd, "%q is neither an issue number nor a task ref: %v", arg, refErr)
+		}
+		return ref.Issue, ref.Owner, ref.Repo, nil
 	}
-	return issue, nil
+	issue, convErr := strconv.Atoi(strings.TrimPrefix(arg, "#"))
+	if convErr != nil || issue <= 0 {
+		return 0, "", "", Usagef(cmd, "issue must be a positive number, got %q", arg)
+	}
+	return issue, "", "", nil
+}
+
+// joinRepo renders owner/name, or nothing when the repository is not known.
+func joinRepo(owner, name string) string {
+	if owner == "" || name == "" {
+		return ""
+	}
+	return owner + "/" + name
 }
 
 // parseRepoFlag splits --repo owner/name. Both halves are empty when the flag

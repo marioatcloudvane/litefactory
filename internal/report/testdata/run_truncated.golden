@@ -8,7 +8,7 @@
 - **Duration:** 1m33s
 - **Cost:** $0.4213
 - **Model:** `claude-sonnet-4-5`
-- **Log:** `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+- **Log:** `litefactory logs 123 --run 2` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
 
 **Result**
 
@@ -33,11 +33,9 @@ worker: applying edit to internal/cli/task.go [line 0024]
 worker: applying edit to internal/cli/task.go [line 0025]
 worker: applying edit to internal/cli/task.go [line 0026]
 worker: applying edit to internal/cli/task.go [line 0027]
-worker: applying edit to internal/cli/task.go [line 0028]
 
-[litefactory: 24 lines / 1392 bytes of output removed here to fit the comment size limit. The full output is at /Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl]
+[litefactory: 26 lines / 1508 bytes of output removed here to fit the comment size limit. The full output is at /Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl]
 
-worker: applying edit to internal/cli/task.go [line 0053]
 worker: applying edit to internal/cli/task.go [line 0054]
 worker: applying edit to internal/cli/task.go [line 0055]
 worker: applying edit to internal/cli/task.go [line 0056]
