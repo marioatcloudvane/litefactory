@@ -44,10 +44,9 @@ vet:
 # The version is pinned here and run via `go run` rather than requiring a system
 # install, so every machine and CI runner lints with the same rules — an
 # unpinned linter turns a green build red on someone else's laptop. This is a
-# build-time tool only: it is kept out of the module graph in tools/go.mod, so
-# it contributes nothing to the shipped binary's dependencies. A locally
-# installed golangci-lint is preferred when present, purely because it is much
-# faster; both paths run the same pinned version.
+# build-time tool only: it contributes nothing to the shipped binary's
+# dependencies. A locally installed golangci-lint is preferred when present,
+# purely because it is much faster; both paths run the same pinned version.
 # .golangci.yml is a v2-format config, so the linter must be v2 — note the /v2
 # in the module path. Bumping this version without checking the config format
 # still matches is the one way this target breaks confusingly.
