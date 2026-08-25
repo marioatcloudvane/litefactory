@@ -192,8 +192,9 @@ type ReplyRequest struct {
 
 	// Command is the parsed comment, from [ParseCommand]. It must be one that
 	// needs a reply: an unsupported or unknown command, or a bare /spike
-	// (AC-2.18, AC-2.20). Free text draws no reply and is consumed with
-	// [Reporter.Consume] instead (AC-2.19).
+	// (AC-2.18, AC-2.20). Free text draws no reply — it starts a run and is
+	// answered by the run report — and an empty comment is consumed with
+	// [Reporter.Consume] instead.
 	Command Command
 }
 
@@ -387,9 +388,9 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 }
 
 // Consume advances the watermark past a comment that is answered with silence:
-// free text with no leading slash, which is recorded and ignored (AC-2.19), and
-// litefactory's own or a third party's comment, which the filter already
-// recorded and which nothing acts on (AC-2.14, AC-2.15).
+// a body with nothing in it, which is recorded and ignored, and litefactory's
+// own or a third party's comment, which the filter already recorded and which
+// nothing acts on (AC-2.14, AC-2.15).
 //
 // Nothing is posted, so there is no post to fail and no ordering to get wrong.
 // It exists here, next to the two paths that do post, so that every way a
@@ -541,7 +542,7 @@ func replyKind(kind CommandKind) (report.ReplyKind, bool) {
 		return report.ReplyUnsupportedCommand, true
 	case KindUnknown:
 		return report.ReplyUnknownCommand, true
-	case KindNone, KindSpike:
+	case KindNone, KindSpike, KindFreeText:
 		return report.ReplyInvalid, false
 	default:
 		return report.ReplyInvalid, false

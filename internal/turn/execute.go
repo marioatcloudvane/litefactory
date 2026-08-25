@@ -147,16 +147,20 @@ func (r Request) validate() error {
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
-		return invalidRequest("%s has no instruction text", r.Command.Name)
+		return invalidRequest("%s has no instruction text", r.Command.Kind)
 	default:
 		return nil
 	}
 }
 
-// mode is the run mode, "spike" at M0. It is the command word without its
+// mode is the run mode. For a command it is the command word without its
 // slash, so the runs row, the commit trailer and the metadata document all say
-// the same thing and none of them has to be kept in step by hand.
+// the same thing and none of them has to be kept in step by hand. Free text
+// named no command, so it is [InferMode].
 func (r Request) mode() string {
+	if r.Command.Kind == KindFreeText {
+		return harness.InferMode
+	}
 	return r.Command.Name[len("/"):]
 }
 

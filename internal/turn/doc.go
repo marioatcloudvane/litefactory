@@ -11,6 +11,19 @@
 // anything at all, and is a pure function with no dependencies. [Execute] is
 // everything after it.
 //
+// # What starts a turn
+//
+// Any owner comment with something in it. A "/spike <text>" runs in spike mode;
+// a comment that names no command runs in harness.InferMode, where deciding
+// what kind of work is being asked for is part of the task the run is given.
+//
+// litefactory does not classify the request itself. The worktree a run executes
+// in holds the target repository's own CLAUDE.md, and if that file defines
+// modes then it is already the authority on how to tell them apart — so the
+// prompt points the run at it. Classifying here instead would mean a second
+// model call to derive a label the run derives anyway, and would freeze one
+// repository's idea of the modes into a tool meant to serve any of them.
+//
 // # A bad turn is not an error
 //
 // [Execute] returns a [Result] for every way a turn can go wrong that the

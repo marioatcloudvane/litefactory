@@ -101,6 +101,51 @@ func TestInstructionRunsAndIsReported(t *testing.T) {
 	}
 }
 
+// TestFreeTextRunsWithTheModeLeftToTheAgent is the whole of the comment-intent
+// change seen from the outside: an owner comment that names no command starts a
+// run just as /spike does, carries the entire body as its instruction, and
+// leaves the question of what kind of work this is to the run itself.
+func TestFreeTextRunsWithTheModeLeftToTheAgent(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.issue("Add a /health endpoint")
+	f.tick() // first sight
+
+	const body = "draft some mockups for the settings screen\n\n- one per state"
+	f.forge.addComment(testIssue, 41, owner(), body)
+	result := f.tick()
+
+	if result.Runs != 1 {
+		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
+	}
+	if result.Replies != 0 {
+		t.Errorf("posted %d replies, want none — free text is answered by the run report", result.Replies)
+	}
+
+	call := f.turns.calls()[0]
+	if call.Command.Kind != turn.KindFreeText {
+		t.Errorf("comment classified as %v, want %v", call.Command.Kind, turn.KindFreeText)
+	}
+	// The whole body, not a remainder: there was no command word to strip.
+	if call.Command.Text != body {
+		t.Errorf("instruction text is %q, want the whole body %q", call.Command.Text, body)
+	}
+	if call.Command.Name != "" {
+		t.Errorf("free text named a command: %q", call.Command.Name)
+	}
+
+	posted, reacted, _ := f.forge.snapshot()
+	if len(posted) != 1 || !strings.HasPrefix(posted[0], turn.MarkerPrefix) {
+		t.Fatalf("posted %d comments, want exactly one report", len(posted))
+	}
+	if !slices.Equal(reacted, []int64{41}) {
+		t.Errorf("reacted to %v, want [41]", reacted)
+	}
+	if got := f.watermark(); got != 41 {
+		t.Errorf("watermark is %d, want 41", got)
+	}
+}
+
 // TestDaemonDoesNotReactToItsOwnComment is AC-2.14, asserted the way the
 // criterion asks for it: the daemon is fed a comment it posted itself.
 func TestDaemonDoesNotReactToItsOwnComment(t *testing.T) {
@@ -478,10 +523,10 @@ func TestRunlessCommandsReplyAndAdvanceTheWatermark(t *testing.T) {
 	f.issue("Add a /health endpoint")
 	f.tick()
 
-	f.forge.addComment(testIssue, 81, owner(), "/plan the work")     // known, not yet supported
-	f.forge.addComment(testIssue, 82, owner(), "/frobnicate")        // not in the vocabulary
-	f.forge.addComment(testIssue, 83, owner(), "/spike")             // no text
-	f.forge.addComment(testIssue, 84, owner(), "just thinking loud") // free text
+	f.forge.addComment(testIssue, 81, owner(), "/plan the work") // known, not yet supported
+	f.forge.addComment(testIssue, 82, owner(), "/frobnicate")    // not in the vocabulary
+	f.forge.addComment(testIssue, 83, owner(), "/spike")         // no text
+	f.forge.addComment(testIssue, 84, owner(), "  \n\t ")        // nothing in it
 
 	result := f.tick()
 
@@ -489,7 +534,7 @@ func TestRunlessCommandsReplyAndAdvanceTheWatermark(t *testing.T) {
 		t.Errorf("ran %d turns, want none", result.Runs)
 	}
 	if result.Replies != 3 {
-		t.Errorf("posted %d replies, want 3 — free text draws none", result.Replies)
+		t.Errorf("posted %d replies, want 3 — an empty comment draws none", result.Replies)
 	}
 	posted, reacted, _ := f.forge.snapshot()
 	if len(posted) != 3 {

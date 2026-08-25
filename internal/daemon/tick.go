@@ -348,10 +348,14 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 
 	command := turn.ParseCommand(c.Body)
 	if command.Kind == turn.KindNone {
-		// Free text from the owner: recorded, ignored, consumed (AC-2.19).
-		log.DebugContext(ctx, "comment carries no command; recorded and ignored")
+		// An empty body: nothing to act on. Recorded, ignored, consumed.
+		//
+		// Free text used to end here too. It no longer does — it spawns a run
+		// whose mode the agent infers — so this branch is now only the empty
+		// case, and every non-empty owner comment starts work.
+		log.DebugContext(ctx, "comment is empty; recorded and ignored")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return d.leave(ctx, log, "could not consume a comment with no command in it", err)
+		return d.leave(ctx, log, "could not consume an empty comment", err)
 	}
 
 	// AC-2.17: the acknowledgement goes on before anything that could start a

@@ -96,7 +96,7 @@ RETURNING session_id, last_comment_id, updated_at`,
 // A run's watermark advance is not made here — it belongs in the same
 // transaction as the posted report; see [DB.CompleteRunReport] and AC-4.10.
 // This call is for the run-less paths: an unsupported command, an empty
-// /spike, plain free text (AC-2.18, AC-2.19, AC-2.20).
+// /spike, an empty comment (AC-2.18, AC-2.19, AC-2.20).
 func (db *DB) AdvanceWatermark(ctx context.Context, sessionID, commentID int64) (Watermark, error) {
 	wm, err := advanceWatermark(ctx, db.sql, sessionID, commentID)
 	if err != nil {

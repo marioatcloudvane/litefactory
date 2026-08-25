@@ -104,45 +104,68 @@ func TestParseCommand(t *testing.T) {
 		{name: "an underscored command", body: "/dry_run", want: Command{Kind: KindUnknown, Name: "/dry_run"}},
 		{name: "a numbered command", body: "/v2", want: Command{Kind: KindUnknown, Name: "/v2"}},
 
-		// AC-2.19: free text. Recorded, ignored, no reply.
+		// Only a body with nothing in it is ignored.
 		{name: "empty body", body: "", want: Command{Kind: KindNone}},
 		{name: "whitespace only", body: " \t\n ", want: Command{Kind: KindNone}},
-		{name: "prose", body: "This looks wrong to me.", want: Command{Kind: KindNone}},
+
+		// Free text. It names no command, so it spawns a run whose mode the
+		// agent infers, and it carries the whole body as its instruction.
 		{
-			name: "a spike that is not the first token does not trigger",
+			name: "prose",
+			body: "This looks wrong to me.",
+			want: Command{Kind: KindFreeText, Text: "This looks wrong to me."},
+		},
+		{
+			name: "the body is trimmed but keeps its interior shape",
+			body: "\n  draft some mockups\n\n- one per screen\n  ",
+			want: Command{Kind: KindFreeText, Text: "draft some mockups\n\n- one per screen"},
+		},
+
+		// A /spike that is not the first token is still not a spike (AC-2.18).
+		// It is now free text rather than nothing, which is the point of the
+		// change: the comment is a request, it just is not that command.
+		{
+			name: "a spike that is not the first token does not trigger a spike",
 			body: "Please /spike this when you get a chance",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "Please /spike this when you get a chance"},
 		},
 		{
-			name: "a spike on a later line does not trigger",
+			name: "a spike on a later line does not trigger a spike",
 			body: "Some context first.\n/spike fix the login bug",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "Some context first.\n/spike fix the login bug"},
 		},
 		{
-			name: "a quoted spike does not trigger",
+			name: "a quoted spike does not trigger a spike",
 			body: "> /spike fix the login bug\n\nI would not do that.",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "> /spike fix the login bug\n\nI would not do that."},
 		},
 		{
-			name: "a fenced spike does not trigger",
+			name: "a fenced spike does not trigger a spike",
 			body: "```\n/spike fix the login bug\n```",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "```\n/spike fix the login bug\n```"},
 		},
 		{
-			name: "an emoji before the command does not trigger",
+			name: "an emoji before the command does not trigger a spike",
 			body: "🚀 /spike fix the login bug",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "🚀 /spike fix the login bug"},
 		},
+
+		// A leading slash that is not a command token. None of these may be
+		// reported as a command, so none of them may set Name.
 		{
 			name: "a leading path is not a command",
 			body: "/usr/bin/security is on the PATH",
-			want: Command{Kind: KindNone},
+			want: Command{Kind: KindFreeText, Text: "/usr/bin/security is on the PATH"},
 		},
-		{name: "a bare slash", body: "/", want: Command{Kind: KindNone}},
-		{name: "a double slash", body: "// nope", want: Command{Kind: KindNone}},
-		{name: "a slash then punctuation", body: "/!!! what", want: Command{Kind: KindNone}},
-		{name: "a slash then a hyphen", body: "/-force it", want: Command{Kind: KindNone}},
-		{name: "a non-Latin command word", body: "/спайк текст", want: Command{Kind: KindNone}},
+		{name: "a bare slash", body: "/", want: Command{Kind: KindFreeText, Text: "/"}},
+		{name: "a double slash", body: "// nope", want: Command{Kind: KindFreeText, Text: "// nope"}},
+		{name: "a slash then punctuation", body: "/!!! what", want: Command{Kind: KindFreeText, Text: "/!!! what"}},
+		{name: "a slash then a hyphen", body: "/-force it", want: Command{Kind: KindFreeText, Text: "/-force it"}},
+		{
+			name: "a non-Latin command word",
+			body: "/спайк текст",
+			want: Command{Kind: KindFreeText, Text: "/спайк текст"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -153,16 +176,23 @@ func TestParseCommand(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("ParseCommand(%q) = %+v, want %+v", tt.body, got, tt.want)
 			}
-			// Only an actionable spike carries text, and only an actionable
-			// spike may start a run.
-			if (got.Text != "") != (got.Kind == KindSpike) {
-				t.Errorf("ParseCommand(%q) = %+v: text is set exactly when the kind is %v", tt.body, got, KindSpike)
+			// A kind that spawns carries text and nothing else does: an
+			// instruction with no instruction in it is the one shape the turn
+			// cannot execute.
+			if (got.Text != "") != got.Spawns() {
+				t.Errorf("ParseCommand(%q) = %+v: text is set exactly when the command spawns", tt.body, got)
 			}
-			if got.Spawns() != (got.Kind == KindSpike) {
+			if got.Spawns() != (got.Kind == KindSpike || got.Kind == KindFreeText) {
 				t.Errorf("ParseCommand(%q) = %+v: Spawns() disagrees with the kind", tt.body, got)
 			}
-			if (got.Name == "") != (got.Kind == KindNone) {
-				t.Errorf("ParseCommand(%q) = %+v: name is empty exactly when the kind is %v", tt.body, got, KindNone)
+			// Name is what a reply quotes back, so only a kind that really
+			// named a command may set it.
+			namedACommand := got.Kind != KindNone && got.Kind != KindFreeText
+			if (got.Name != "") != namedACommand {
+				t.Errorf("ParseCommand(%q) = %+v: name is set exactly when a command was named", tt.body, got)
+			}
+			if got.Spawns() && got.NeedsReply() {
+				t.Errorf("ParseCommand(%q) = %+v: a command cannot both spawn and draw a reply", tt.body, got)
 			}
 		})
 	}
@@ -179,6 +209,7 @@ func TestCommandDisposition(t *testing.T) {
 	}{
 		{kind: KindNone, kindAsString: "none"},
 		{kind: KindSpike, spawns: true, kindAsString: "spike"},
+		{kind: KindFreeText, spawns: true, kindAsString: "free_text"},
 		{kind: KindSpikeEmpty, needsReply: true, kindAsString: "spike_empty"},
 		{kind: KindUnsupported, needsReply: true, kindAsString: "unsupported"},
 		{kind: KindUnknown, needsReply: true, kindAsString: "unknown"},

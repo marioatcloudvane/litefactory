@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 5 owner decisions open)*
-- [ ] **Implement** — code + tests *(in progress)*
+- [x] **Implement** — code + tests *(done — 3 files + tests, make check green)*
 
 ## History
 
@@ -52,3 +52,4 @@ comment queue for ever, and (b) the `<date>` component of the aiteam session
 path moving daily while the feature slug is frozen, which breaks the mode gates
 on day two.
 - 2026-08-25 — plan replaced: 9 stories/46 tasks superseded by a 4-task plan (`IMPLEMENTATION_PLAN.superseded.md` kept for reference)
+- 2026-08-25 — Implement: KindFreeText, harness.InferMode and the infer prompt paragraph. make check green.

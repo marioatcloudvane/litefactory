@@ -29,13 +29,26 @@ var knownCommands = []string{
 type CommandKind int
 
 const (
-	// KindNone is free text with no leading slash command. It is recorded and
-	// ignored: no reply, no run (AC-2.19).
+	// KindNone is a body with nothing in it — empty or whitespace only. It is
+	// recorded and ignored: no reply, no run.
+	//
+	// Free text used to land here too. It no longer does: an owner who writes
+	// a sentence is asking for something, and [KindFreeText] acts on it.
 	KindNone CommandKind = iota
 
-	// KindSpike is an actionable "/spike <text>". This is the only kind that
-	// spawns a run at M0.
+	// KindSpike is an actionable "/spike <text>".
 	KindSpike
+
+	// KindFreeText is an owner comment that opens with something other than a
+	// command token. It spawns a run whose mode the agent decides for itself.
+	//
+	// litefactory does not classify the request. The worktree the run executes
+	// in holds the target repository's own CLAUDE.md, and if that file defines
+	// modes then it is the authority on which one this comment calls for. The
+	// prompt says so; the agent reads it and routes itself. Doing the same
+	// reasoning here would cost a second model call to derive a label the run
+	// derives anyway.
+	KindFreeText
 
 	// KindSpikeEmpty is "/spike" with no text after it. It draws a reply
 	// asking for text and spawns nothing (AC-2.20).
@@ -58,6 +71,8 @@ func (k CommandKind) String() string {
 		return "none"
 	case KindSpike:
 		return "spike"
+	case KindFreeText:
+		return "free_text"
 	case KindSpikeEmpty:
 		return "spike_empty"
 	case KindUnsupported:
@@ -81,29 +96,31 @@ type Command struct {
 
 	// Name is the command token in canonical lowercase form, including the
 	// leading slash, for example "/spike" or "/plan". It is empty for
-	// [KindNone].
+	// [KindNone] and [KindFreeText], neither of which named a command.
 	//
 	// This is the lowercased token rather than what the author typed, and its
 	// character set is restricted by the parser, so a reply may quote it
 	// without smuggling markup out of a comment body and back into one.
 	Name string
 
-	// Text is the argument to /spike with surrounding whitespace trimmed. It
-	// is the rest of the body, newlines included, so a multi-line spike keeps
-	// its shape. Non-empty exactly when Kind is [KindSpike].
+	// Text is the instruction the comment carries, with surrounding whitespace
+	// trimmed: the argument to /spike for [KindSpike], and the whole body for
+	// [KindFreeText]. Newlines are kept, so a multi-line request keeps its
+	// shape. Non-empty exactly when the command spawns a run.
 	Text string
 }
 
 // Spawns reports whether this command starts a run.
-func (c Command) Spawns() bool { return c.Kind == KindSpike }
+func (c Command) Spawns() bool { return c.Kind == KindSpike || c.Kind == KindFreeText }
 
-// NeedsReply reports whether this command should draw a comment back. Free
-// text is the only kind that is answered with silence.
+// NeedsReply reports whether this command should draw a comment back. The
+// kinds that act — a spike and free text — are answered by the run report, and
+// an empty body is answered with silence.
 func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnsupported, KindUnknown:
 		return true
-	case KindNone, KindSpike:
+	case KindNone, KindSpike, KindFreeText:
 		return false
 	default:
 		return false
@@ -127,12 +144,20 @@ func (c Command) NeedsReply() bool {
 // with a path such as "/usr/bin/security is on the PATH" as free text, and it
 // bounds what [Command.Name] can contain.
 //
+// A body that names no command at all is [KindFreeText] and carries the whole
+// body as its instruction. Only a body with nothing in it is [KindNone].
+//
 // ParseCommand never fails. Every body classifies as something, because every
 // comment the daemon reads has to be disposed of one way or another.
 func ParseCommand(body string) Command {
 	token, rest := firstToken(body)
 	if !isCommandToken(token) {
-		return Command{Kind: KindNone}
+		// firstToken returns an empty token only for a body that is entirely
+		// whitespace, which is the one thing there is nothing to act on in.
+		if token == "" {
+			return Command{Kind: KindNone}
+		}
+		return Command{Kind: KindFreeText, Text: strings.TrimSpace(body)}
 	}
 
 	name := strings.ToLower(token)
