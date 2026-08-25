@@ -233,6 +233,67 @@ Net effect: every M0 mechanism is tested, but **nothing has yet been exercised a
 GitHub**. That is the single largest residual risk in the milestone and should be stated
 plainly rather than buried — the first real run is still the first real run.
 
+> **Superseded 2026-08-25 — the first real run happened.** See *Closed against real
+> GitHub* below. The paragraph above is kept as written because it was true when written.
+
+## Closed against real GitHub (2026-08-25)
+
+The full M0 loop ran end to end on `marioatcloudvane/litefactory#1`, against the real
+GitHub API, as the real bot account:
+
+```
+claude run finished       outcome=succeeded exit_code=0 duration=1m8.5s cost_usd=0.483
+run committed and pushed  commit=4eb1445 files=1
+posted the run report     comment_id=5409367450 bytes=2248 redactions={total:0}
+turn complete             disposition=ran pushed=true reported=true
+```
+
+That closes all three deferred items in the table above:
+
+- **SD-9 — real `git push`.** Done, and the SSH prerequisite turned out to be wrong.
+  `origin` is HTTPS and git's credential helper supplies the token, so no SSH key is
+  needed. The "environment prerequisites" paragraph above overstates what a real run
+  requires: a throwaway repo and a keychain bot credential, yes; an SSH key, no.
+- **Real-repo 👀 reaction.** Observed on the triggering comment, authored by
+  `botatcloudvane`.
+- **Real report comment.** Posted as the bot, marker intact, zero redactions.
+
+## Defects and constraints the first real run exposed
+
+- **`Bash(make:*)` is missing from `defaultAllowedTools`.** The agent could not run the
+  project's own verification command and honestly reported the verification as
+  outstanding. Compounding it: `litefactory init` writes the defaults *into* the user's
+  `config.yaml`, so fixing the template never reaches an existing install — the fix needs
+  a migration path, not just a new default. Note the counter-argument recorded in
+  `comment-intent`: the Makefile is `Edit`-able inside the work area, so a blanket
+  `Bash(make:*)` widens the boundary more than it looks. Enumerating the Go toolchain
+  commands individually is the safer shape.
+- **A fine-grained PAT cannot serve as the bot credential.** It can only reach
+  repositories owned by the token's own resource owner, so a bot account's fine-grained
+  token can never name a repo owned by a different user, no matter what collaborator
+  rights the bot has. Symptom: `404` on every repo and issue read while `GET /user`
+  succeeds. A **classic PAT with `repo` scope** is required. Worth stating in the setup
+  documentation, because the failure looks like a permissions mistake rather than a
+  structural limit.
+- **A Bash tool without an Aqua security session cannot read the keychain.**
+  `launchctl managername` returns `Background`; metadata reads succeed, secret reads fail
+  with `errSecInteractionNotAllowed` (`-25308`, exit 36). This is precisely why the
+  LaunchAgent targets `gui/$UID`, and it means the daemon must be started from the user's
+  own terminal, not from a tool subprocess.
+
+## Sequencing traps a first-time operator will hit
+
+Each of these cost a cycle during the first live run. None is a bug; all three are
+worth documenting.
+
+- A `/spike` posted in the same poll window as the issue's creation is swallowed by
+  watermark planting (AC-2.10) — first sight skips every comment that already exists.
+- An instruction placed in the issue **body** does nothing. litefactory reads comments,
+  never bodies (AC-2.19 / `TestIssueBodyAloneStartsNothing`).
+- Since 2026-08-25 the third trap is gone: a comment that did not start with `/spike` was
+  consumed silently. It now starts a run in `infer` mode — see
+  `.aiteam/main/2026-08-25/comment-intent/`.
+
 ## Open risks
 
 - **`golangci-lint` is not installed on this machine.** `make check` includes it, so the
