@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>litefactory — acme-api#123 (mockup)</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+
+<div class="mockup-banner">
+  MOCKUP — Option C, screen 2 of 2. Nothing is implemented; every number is invented.
+  <a href="index.html">back to the options</a>
+</div>
+
+<div class="chrome">
+  <div class="brand"><span class="glyph"></span> litefactory</div>
+  <div class="crumbs">acme-api &nbsp;›&nbsp; <b>#123</b></div>
+  <div class="spacer"></div>
+  <div class="chrome-right">
+    <span><span class="dot run pulse"></span> run 7 · 3m 12s</span>
+    <span class="mute">127.0.0.1:7457/t/github/cloudvane/acme-api/123</span>
+  </div>
+</div>
+
+<div class="nav">
+  <a href="web-overview.html">Overview</a>
+  <a href="#" class="on">Tasks</a>
+  <a href="#">Repos</a>
+  <a href="#">Runs</a>
+  <a href="#">Spend</a>
+  <a href="#">Daemon</a>
+</div>
+
+<div class="wrap">
+
+  <h1 style="font-family:var(--mono);font-size:17px;margin:20px 0 4px;">
+    github:cloudvane/acme-api#123
+  </h1>
+  <p style="color:var(--fg-dim);margin:0 0 16px;font-size:15px;">
+    Payment retries drop the idempotency key on the second attempt
+    <a href="#" style="font-size:12px;margin-left:8px;">open on GitHub ↗</a>
+  </p>
+
+  <table class="t" style="max-width:760px;">
+    <tr><td class="mute" style="width:120px;">slug</td><td>payment-retry</td>
+        <td class="mute" style="width:120px;">state</td><td><span class="ok">running</span></td></tr>
+    <tr><td class="mute">branch</td><td>lf/123-payment-retry</td>
+        <td class="mute">segment</td><td>2 <span class="mute">(rehydrated 1d ago)</span></td></tr>
+    <tr><td class="mute">worktree</td><td colspan="3">/Users/mariomh/dev/.lf-worktrees/acme-api/task-123</td></tr>
+    <tr><td class="mute">watermark</td><td>comment 3312904</td>
+        <td class="mute">lock</td><td>mac-mini.7f3a1c <span class="mute">3m 12s</span></td></tr>
+  </table>
+
+  <div class="sec"><h2>Pipeline</h2><span class="note">aiteam's state machine, not one litefactory invents</span></div>
+
+  <div class="pipe">
+    <div class="step">
+      <div class="rail"><span class="seg" style="visibility:hidden"></span><span class="pip done"></span><span class="seg done"></span></div>
+      <div class="nm">Research</div><div class="sub">run 1 · 2d ago</div>
+    </div>
+    <div class="step">
+      <div class="rail"><span class="seg done"></span><span class="pip gate"></span><span class="seg done"></span></div>
+      <div class="nm">Gate</div><div class="sub">you · 2d ago</div>
+    </div>
+    <div class="step">
+      <div class="rail"><span class="seg done"></span><span class="pip done"></span><span class="seg done"></span></div>
+      <div class="nm">Plan</div><div class="sub">run 4 · 1d ago</div>
+    </div>
+    <div class="step">
+      <div class="rail"><span class="seg done"></span><span class="pip gate"></span><span class="seg done"></span></div>
+      <div class="nm">Gate</div><div class="sub">you · 4h ago</div>
+    </div>
+    <div class="step">
+      <div class="rail"><span class="seg done"></span><span class="pip now pulse"></span><span class="seg now"></span></div>
+      <div class="nm">Implement</div><div class="sub ok">run 7 · now</div>
+    </div>
+    <div class="step pending">
+      <div class="rail"><span class="seg"></span><span class="pip"></span><span class="seg" style="visibility:hidden"></span></div>
+      <div class="nm">Review</div><div class="sub">—</div>
+    </div>
+  </div>
+
+  <div class="sec"><h2>Artifacts</h2><span class="note">discovered from git, never predicted; links pinned to the SHA</span></div>
+
+  <table class="t">
+    <tr><th>Artifact</th><th>Run</th><th>Commit</th><th>Written</th><th></th></tr>
+    <tr>
+      <td>RESEARCH_BRIEF.md</td><td>1</td><td class="dim">9f2c1ab</td>
+      <td class="mute">2026-08-23 16:20Z</td>
+      <td><a href="#">read</a> &nbsp;<a href="#">permalink ↗</a></td>
+    </tr>
+    <tr>
+      <td>IMPLEMENTATION_PLAN.md</td><td>4</td><td class="dim">4d81e07</td>
+      <td class="mute">2026-08-24 09:41Z</td>
+      <td><a href="#">read</a> &nbsp;<a href="#">permalink ↗</a></td>
+    </tr>
+    <tr>
+      <td class="mute" colspan="5">implement in progress — no artifact yet</td>
+    </tr>
+  </table>
+  <p style="color:var(--fg-mute);font-family:var(--mono);font-size:11.5px;margin:8px 0 0;">
+    .aiteam/lf-123-payment-retry/2026-08-24/payment-retry/
+  </p>
+
+  <div class="sec">
+    <h2>Live</h2>
+    <span class="note"><span class="ok">● streaming</span> — server-sent events from run 7's JSONL</span>
+    <div class="spacer"></div>
+    <a class="btn" href="#">pause</a>
+  </div>
+
+  <div class="stream">
+    <div class="ln"><span class="ts">14:07:58</span><span class="tool bash">Bash</span><span class="txt">git rev-parse --abbrev-ref HEAD</span></div>
+    <div class="ln"><span class="ts">14:08:04</span><span class="tool">Read</span><span class="txt">internal/retry/backoff.go</span></div>
+    <div class="ln"><span class="ts">14:08:12</span><span class="tool edit">Edit</span><span class="txt">internal/retry/backoff.go &nbsp;<span class="add">+18</span> <span class="del">−4</span></span></div>
+    <div class="ln"><span class="ts">14:08:19</span><span class="tool bash">Bash</span><span class="txt">go test ./internal/retry/...</span></div>
+    <div class="ln"><span class="ts">14:08:44</span><span class="tool ok">ok</span><span class="txt">ok &nbsp;github.com/cloudvane/acme-api/internal/retry &nbsp;0.412s</span></div>
+    <div class="ln"><span class="ts">14:09:01</span><span class="tool edit">Write</span><span class="txt">internal/retry/policy_test.go &nbsp;<span class="add">+64</span></span></div>
+    <div class="ln"><span class="ts">14:09:23</span><span class="tool bash">Bash</span><span class="txt">gofmt -l .</span></div>
+    <div class="ln"><span class="ts">14:09:31</span><span class="tool think">●</span><span class="txt mute">thinking…</span></div>
+  </div>
+  <p style="color:var(--fg-mute);font-family:var(--mono);font-size:11.5px;margin:7px 0 0;text-align:right;">
+    auto-scrolling ▼ &nbsp;·&nbsp; unredacted — this is the local view
+  </p>
+
+  <div class="sec"><h2>Runs</h2><span class="note">one row per <code>claude -p</code> invocation</span></div>
+
+  <table class="t">
+    <tr>
+      <th>#</th><th>Mode</th><th>Segment</th><th>Status</th><th>Started</th>
+      <th class="num">Duration</th><th class="num">Exit</th><th class="num">Cost</th><th>Trigger</th><th>Commit</th>
+    </tr>
+    <tr>
+      <td>7</td><td>implement</td><td class="dim">2</td>
+      <td><span class="ok">● running</span></td><td class="mute">2026-08-25 14:06</td>
+      <td class="num">3m 12s</td><td class="num mute">—</td><td class="num">$0.61</td>
+      <td class="dim">c17</td><td class="mute">—</td>
+    </tr>
+    <tr>
+      <td>4</td><td>plan</td><td class="dim">2</td>
+      <td class="dim">reported</td><td class="mute">2026-08-24 09:37</td>
+      <td class="num">4m 22s</td><td class="num ok">0</td><td class="num">$1.44</td>
+      <td class="dim">c11</td><td class="dim">4d81e07</td>
+    </tr>
+    <tr>
+      <td>3</td><td>research</td><td class="dim">1</td>
+      <td class="dim">reported</td><td class="mute">2026-08-23 16:12</td>
+      <td class="num">8m 04s</td><td class="num ok">0</td><td class="num">$2.02</td>
+      <td class="dim">c6</td><td class="dim">9f2c1ab</td>
+    </tr>
+    <tr>
+      <td>1</td><td>research</td><td class="dim">1</td>
+      <td><span class="bad">failed</span></td><td class="mute">2026-08-23 15:48</td>
+      <td class="num">31s</td><td class="num bad">1</td><td class="num">$0.04</td>
+      <td class="dim">c4</td><td class="mute">—</td>
+    </tr>
+  </table>
+
+  <div class="sec">
+    <h2>Thread</h2>
+    <span class="note">every comment, as litefactory classified it — this view exists nowhere else</span>
+  </div>
+
+  <table class="t">
+    <tr><th>Tag</th><th>Author</th><th>When</th><th>Body</th><th>Classification</th><th></th></tr>
+    <tr>
+      <td class="dim">c17</td><td>marioatcloudvane</td><td class="mute">14:06</td>
+      <td>/implement</td>
+      <td><span class="ok">instruction</span> <span class="mute">→ run 7</span></td><td></td>
+    </tr>
+    <tr>
+      <td class="dim">—</td><td>litefactory[bot]</td><td class="mute">09:44</td>
+      <td class="dim">Implementation plan ready: &lt;permalink&gt;</td>
+      <td class="mute">self · skipped</td><td></td>
+    </tr>
+    <tr>
+      <td class="dim">c14</td><td>jonny</td><td class="mute">09:52</td>
+      <td>&ldquo;don't forget the 429 path&rdquo;</td>
+      <td><span class="warn">third-party</span> <span class="mute">· recorded, not acted on</span></td>
+      <td><a class="btn" href="#">/include c14</a></td>
+    </tr>
+    <tr>
+      <td class="dim">c11</td><td>marioatcloudvane</td><td class="mute">09:37</td>
+      <td>/plan</td>
+      <td><span class="ok">instruction</span> <span class="mute">→ run 4</span></td><td></td>
+    </tr>
+    <tr>
+      <td class="dim">c6</td><td>marioatcloudvane</td><td class="mute">2d ago</td>
+      <td>/research payment-retry</td>
+      <td><span class="ok">instruction</span> <span class="mute">→ run 3</span></td><td></td>
+    </tr>
+  </table>
+
+  <p style="color:var(--fg-mute);font-family:var(--mono);font-size:11.5px;margin-top:40px;">
+    read-only view &nbsp;·&nbsp; every action here is a slash command on the issue, not a button —
+    see <a href="../SPIKE.md">SPIKE.md</a> §4 open question 3
+  </p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>litefactory — overview (mockup)</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+
+<div class="mockup-banner">
+  MOCKUP — Option C, screen 1 of 2. Nothing is implemented; every number is invented.
+  <a href="index.html">back to the options</a>
+</div>
+
+<div class="chrome">
+  <div class="brand"><span class="glyph"></span> litefactory</div>
+  <div class="spacer"></div>
+  <div class="chrome-right">
+    <span><span class="dot run pulse"></span> daemon running &nbsp;6h 12m</span>
+    <span>tick 12s ago</span>
+    <span class="mute">127.0.0.1:7457</span>
+  </div>
+</div>
+
+<div class="nav">
+  <a href="#" class="on">Overview</a>
+  <a href="web-task.html">Tasks</a>
+  <a href="#">Repos</a>
+  <a href="#">Runs</a>
+  <a href="#">Spend</a>
+  <a href="#">Daemon</a>
+</div>
+
+<div class="wrap">
+
+  <div class="cards">
+    <div class="card run">
+      <div class="k">Running</div>
+      <div class="v">2</div>
+      <div class="s">acme-api #123 · litefactory #2</div>
+    </div>
+    <div class="card gate">
+      <div class="k">Waiting for you</div>
+      <div class="v">1</div>
+      <div class="s">acme-api #131 · plan → implement</div>
+    </div>
+    <div class="card bad">
+      <div class="k">Blocked</div>
+      <div class="v">1</div>
+      <div class="s">acme-api #118 · 2 failures</div>
+    </div>
+    <div class="card">
+      <div class="k">Spend today</div>
+      <div class="v">$4.71</div>
+      <div class="s">12 runs · $28.03 this week</div>
+      <div class="spark">
+        <i style="height:22%"></i><i style="height:41%"></i><i style="height:88%"></i>
+        <i style="height:56%"></i><i style="height:100%;background:var(--green)"></i>
+        <i style="height:63%"></i><i style="height:34%"></i>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>Active</h2>
+    <span class="note">live · server-sent events</span>
+  </div>
+
+  <a class="row" href="web-task.html">
+    <div class="row-top">
+      <span class="dot run pulse"></span>
+      <span class="row-title">github:cloudvane/acme-api#123</span>
+      <span class="tag run">implement</span>
+      <div class="row-meta"><span>run 7</span><span>3m 12s</span><span>$0.61</span></div>
+    </div>
+    <div class="row-sub">payment-retry &nbsp;·&nbsp; lf/123-payment-retry &nbsp;·&nbsp; segment 2 &nbsp;·&nbsp; claude-opus-5</div>
+    <div class="bar"><i style="width:72%"></i></div>
+    <div class="row-sub" style="margin-top:7px;">
+      <span class="dim">Bash</span> &nbsp;go test ./internal/retry/...
+    </div>
+  </a>
+
+  <a class="row" href="#">
+    <div class="row-top">
+      <span class="dot run pulse"></span>
+      <span class="row-title">github:cloudvane/litefactory#2</span>
+      <span class="tag run">spike</span>
+      <div class="row-meta"><span>run 1</span><span>48s</span><span>$0.09</span></div>
+    </div>
+    <div class="row-sub">ui-feature &nbsp;·&nbsp; lf/2-feature-2 &nbsp;·&nbsp; segment 1 &nbsp;·&nbsp; claude-opus-5</div>
+    <div class="bar"><i style="width:21%"></i></div>
+    <div class="row-sub" style="margin-top:7px;">
+      <span class="dim">Write</span> &nbsp;.aiteam/lf-2-feature-2/2026-08-25/ui-feature/MOCKUPS.md
+    </div>
+  </a>
+
+  <div class="sec">
+    <h2>Needs you</h2>
+    <span class="note">a gate is a stop, not a failure</span>
+  </div>
+
+  <div class="row">
+    <div class="row-top">
+      <span class="dot gate"></span>
+      <span class="row-title">github:cloudvane/acme-api#131</span>
+      <span class="tag gate">plan → implement</span>
+      <div class="row-meta"><span>parked 4h</span></div>
+    </div>
+    <div class="row-sub">
+      webhook-replay &nbsp;·&nbsp; IMPLEMENTATION_PLAN.md ready &nbsp;·&nbsp; 4 stories, 12 tasks &nbsp;·&nbsp; 4d81e07
+    </div>
+    <div style="display:flex;gap:8px;margin:11px 0 0 18px;">
+      <a class="btn primary" href="#">Read the plan</a>
+      <a class="btn" href="#">Open the issue ↗</a>
+      <a class="btn" href="#">Diff since the brief</a>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="row-top">
+      <span class="dot bad"></span>
+      <span class="row-title">github:cloudvane/acme-api#118</span>
+      <span class="tag bad">blocked</span>
+      <div class="row-meta"><span>run 4</span><span>exit −1</span></div>
+    </div>
+    <div class="row-sub">
+      token-refresh &nbsp;·&nbsp; two consecutive failures &nbsp;·&nbsp; timeout after 900s &nbsp;·&nbsp;
+      no further runs until <span class="dim">/retry</span> or <span class="dim">/reset</span>
+    </div>
+    <div class="row-sub" style="margin-top:5px;">
+      ~/.litefactory/logs/runs/github/cloudvane/acme-api/118/0004.jsonl
+    </div>
+    <div style="display:flex;gap:8px;margin:11px 0 0 18px;">
+      <a class="btn" href="#">Read the log</a>
+      <a class="btn" href="#">Open the issue ↗</a>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>Recent runs</h2>
+    <span class="note">across every registered repo</span>
+  </div>
+
+  <table class="t">
+    <tr>
+      <th>Task</th><th>Run</th><th>Mode</th><th>Status</th><th>Started</th>
+      <th class="num">Duration</th><th class="num">Exit</th><th class="num">Cost</th>
+    </tr>
+    <tr>
+      <td>acme-api#123</td><td>7</td><td>implement</td>
+      <td><span class="ok">● running</span></td><td class="mute">14:06:22</td>
+      <td class="num">3m 12s</td><td class="num mute">—</td><td class="num">$0.61</td>
+    </tr>
+    <tr>
+      <td>litefactory#2</td><td>1</td><td>spike</td>
+      <td><span class="ok">● running</span></td><td class="mute">14:08:34</td>
+      <td class="num">48s</td><td class="num mute">—</td><td class="num">$0.09</td>
+    </tr>
+    <tr>
+      <td>acme-api#131</td><td>2</td><td>plan</td>
+      <td class="dim">reported</td><td class="mute">09:37:11</td>
+      <td class="num">4m 22s</td><td class="num ok">0</td><td class="num">$1.44</td>
+    </tr>
+    <tr>
+      <td>acme-api#118</td><td>4</td><td>plan</td>
+      <td><span class="bad">failed</span></td><td class="mute">08:02:47</td>
+      <td class="num">15m 00s</td><td class="num bad">−1</td><td class="num">$0.00</td>
+    </tr>
+    <tr>
+      <td>acme-api#118</td><td>3</td><td>plan</td>
+      <td><span class="bad">failed</span></td><td class="mute">yesterday 22:14</td>
+      <td class="num">4m 01s</td><td class="num bad">1</td><td class="num">$0.38</td>
+    </tr>
+    <tr>
+      <td>acme-api#123</td><td>4</td><td>plan</td>
+      <td class="dim">reported</td><td class="mute">yesterday 09:37</td>
+      <td class="num">4m 22s</td><td class="num ok">0</td><td class="num">$1.44</td>
+    </tr>
+  </table>
+
+  <div class="sec">
+    <h2>Repos</h2>
+    <span class="note">litefactory stores no repositories — these live where you keep them</span>
+  </div>
+
+  <table class="t">
+    <tr>
+      <th>Repo</th><th>Path</th><th>Base</th><th>Team</th>
+      <th class="num">Sessions</th><th class="num">Last fetch</th>
+    </tr>
+    <tr>
+      <td>cloudvane/acme-api</td>
+      <td class="mute">/Users/mariomh/dev/acme-api</td>
+      <td class="dim">main</td><td class="dim">go-backend</td>
+      <td class="num">7</td><td class="num mute">4m ago</td>
+    </tr>
+    <tr>
+      <td>cloudvane/litefactory</td>
+      <td class="mute">/Users/mariomh/dev/litefactory</td>
+      <td class="dim">main</td><td class="dim">go-backend</td>
+      <td class="num">3</td><td class="num mute">4m ago</td>
+    </tr>
+  </table>
+
+  <p style="color:var(--fg-mute);font-family:var(--mono);font-size:11.5px;margin-top:40px;">
+    owner marioatcloudvane (4410221) &nbsp;·&nbsp; bot litefactory[bot] (9930118) &nbsp;·&nbsp;
+    instance mac-mini.7f3a1c &nbsp;·&nbsp; read-only &nbsp;·&nbsp; bound to loopback
+  </p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>litefactory — terminal options (mockup)</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+
+<div class="mockup-banner">
+  MOCKUP — Options A and B. Nothing is implemented; every number is invented.
+  <a href="index.html">back to the options</a>
+</div>
+
+<div class="chrome">
+  <div class="brand"><span class="glyph"></span> litefactory</div>
+  <div class="crumbs">terminal options</div>
+  <div class="spacer"></div>
+  <div class="chrome-right"><a href="web-overview.html">see the web option →</a></div>
+</div>
+
+<div class="wrap">
+
+  <h1 id="status" style="font-size:20px;margin:20px 0 4px;">Option A — <code style="font-family:var(--mono)">litefactory status</code></h1>
+  <p class="caption" style="max-width:76ch;">
+    The commands <code>initialplan.md</code> §13/§14 promised and that were never registered.
+    Same <code>text/tabwriter</code> house style as <code>repo list</code> and <code>logs</code>.
+    <b>Not a new UI</b> — but it is the missing half of the original design, and every other option on
+    this page needs exactly these queries.
+  </p>
+
+  <div class="term">
+    <div class="bar-mac">
+      <span class="b" style="background:#f4695b"></span>
+      <span class="b" style="background:#e6b93f"></span>
+      <span class="b" style="background:#46d17a"></span>
+      <em>zsh — 96×34</em>
+    </div>
+<pre><span class="m">$</span> <b>litefactory status</b>
+
+<span class="m">daemon</span>    <span class="g">●</span> running   pid 41207   up 6h 12m   instance mac-mini.7f3a1c
+<span class="m">tick</span>      12s ago (every 30s)   cursor 2026-08-25T14:07:02Z
+<span class="m">identity</span>  owner marioatcloudvane (4410221)   bot litefactory[bot] (9930118)
+<span class="m">spend</span>     $4.71 today   $28.03 this week   47 runs
+
+<span class="m">REPO                   SESSIONS  RUNNING  BLOCKED  TEAM        LAST FETCH</span>
+cloudvane/acme-api            7        1        1  go-backend  4m ago
+cloudvane/litefactory         3        1        0  go-backend  4m ago
+
+<span class="m">TASK                            STATE    MODE       RUN  ELAPSED  BRANCH</span>
+github:cloudvane/acme-api#123   <span class="g">running</span>  implement    7    3m12s  lf/123-payment-retry
+github:cloudvane/litefactory#2  <span class="g">running</span>  spike        1      48s  lf/2-feature-2
+github:cloudvane/acme-api#118   <span class="r">failed</span>   plan         4        -  lf/118-token-refresh
+github:cloudvane/acme-api#131   idle     plan         2        -  lf/131-webhook-replay
+
+<span class="a">github:cloudvane/acme-api#131 is parked at a gate — comment /implement to continue</span>
+
+<span class="r">1 blocked</span>
+  <span class="r">#118</span>  two consecutive failures; /retry or /reset to clear
+        <span class="m">~/.litefactory/logs/runs/github/cloudvane/acme-api/118/0004.jsonl</span>
+</pre>
+  </div>
+
+  <div class="term">
+    <div class="bar-mac">
+      <span class="b" style="background:#f4695b"></span>
+      <span class="b" style="background:#e6b93f"></span>
+      <span class="b" style="background:#46d17a"></span>
+      <em>zsh — the two siblings</em>
+    </div>
+<pre><span class="m">$</span> <b>litefactory runs --failed --since 24h</b>
+
+<span class="m">TASK                           RUN  MODE  STARTED           DURATION  EXIT  COST</span>
+github:cloudvane/acme-api#118    3  plan  2026-08-24 22:14    4m01s     <span class="r">1</span>  $0.38
+github:cloudvane/acme-api#118    4  plan  2026-08-25 08:02    0m12s    <span class="r">-1</span>  $0.00
+                                                            <span class="m">timeout after 900s</span>
+
+<span class="m">$</span> <b>litefactory tail</b>
+
+<span class="m">14:08:31Z</span>  <span class="bl">tick</span>     2 repos, 3 tasks updated
+<span class="m">14:08:31Z</span>  <span class="bl">comment</span>  acme-api#123 c17 instruction (marioatcloudvane)
+<span class="m">14:08:32Z</span>  <span class="bl">lock</span>     acme-api#123 acquired by mac-mini.7f3a1c
+<span class="m">14:08:32Z</span>  <span class="bl">git</span>      fetch --prune /Users/mariomh/dev/acme-api (1.2s)
+<span class="m">14:08:34Z</span>  <span class="g">run</span>      acme-api#123 run 7 mode=implement segment=2 started
+<span class="m">14:09:44Z</span>  <span class="bl">status</span>   acme-api#123 comment 3312904 edited (elapsed 70s)
+</pre>
+  </div>
+
+  <div class="sec" style="margin-top:44px;"><h2>&nbsp;</h2></div>
+
+  <h1 id="top" style="font-size:20px;margin:20px 0 4px;">Option B — <code style="font-family:var(--mono)">litefactory top</code></h1>
+  <p class="caption" style="max-width:76ch;">
+    Full-screen master/detail with a live event stream, on Bubble Tea. One binary, no port, nothing to
+    secure, works over SSH. Adds <code>bubbletea</code> and <code>lipgloss</code> — both pure Go, so
+    <code>CGO_ENABLED=0</code> and the single-binary story survive intact.
+  </p>
+
+  <div class="term">
+    <div class="bar-mac">
+      <span class="b" style="background:#f4695b"></span>
+      <span class="b" style="background:#e6b93f"></span>
+      <span class="b" style="background:#46d17a"></span>
+      <em>litefactory top — main view</em>
+    </div>
+<pre>┌─ litefactory top ────────────────────────────────────────────────────────────────────────────┐
+│ daemon ● running    tick 12s ago    2 running · 1 blocked    spend $4.71 today               │
+├────────────────────────────┬─────────────────────────────────────────────────────────────────┤
+│ TASKS                    ▲▼│ github:cloudvane/acme-api#123                                   │
+│                            │ payment-retry · lf/123-payment-retry · segment 2                │
+│ ● #123  acme-api           │                                                                 │
+│     implement    3m12s     │   research   ✔  run 1   RESEARCH_BRIEF.md       2d ago          │
+│                            │   plan       ✔  run 4   IMPLEMENTATION_PLAN.md  1d ago          │
+│ ● #2    litefactory        │   implement  ●  run 7   running                  3m12s          │
+│     spike        48s       │                                                                 │
+│                            │ RUN 7   implement   ·   $0.61   ·   claude-opus-5               │
+│ ✖ #118  acme-api           │                                                                 │
+│     blocked · 2 fails      │ ┌─ stream ──────────────────────────────────────────┐           │
+│                            │ │ 14:08:12  Edit    internal/retry/backoff.go       │           │
+│ ○ #131  acme-api           │ │ 14:08:19  Bash    go test ./internal/retry/...    │           │
+│     idle · at gate         │ │ 14:08:44  ok      12 passed                       │           │
+│                            │ │ 14:09:01  Write   internal/retry/policy_test.go   │           │
+│ ○ #97   litefactory        │ │ 14:09:23  Bash    gofmt -l .                      │           │
+│     idle · merged          │ │ 14:09:31  ●       thinking…                       │           │
+│                            │ └───────────────────────────────────────────────────┘           │
+└────────────────────────────┴─────────────────────────────────────────────────────────────────┘
+ ↑↓ move   ↵ open   f follow   l logs   r retry   c clean   q quit
+</pre>
+  </div>
+
+  <p class="caption" style="max-width:76ch;">
+    <b>And the screen that actually matters</b> — a session parked at a gate. Something finished and you
+    have to decide. Note the classified thread at the bottom: <code>[c4]</code> is jonny's comment,
+    recorded but not acted on, with the one keystroke that hands it to aiteam as material rather than
+    as orders.
+  </p>
+
+  <div class="term">
+    <div class="bar-mac">
+      <span class="b" style="background:#f4695b"></span>
+      <span class="b" style="background:#e6b93f"></span>
+      <span class="b" style="background:#46d17a"></span>
+      <em>litefactory top — #131 parked at a gate</em>
+    </div>
+<pre>┌─ litefactory top · #131 ──────────────────────────────────────────────────────────────────────┐
+│ github:cloudvane/acme-api#131    webhook-replay    lf/131-webhook-replay                      │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│   ✔  research    run 1   RESEARCH_BRIEF.md        9f2c1ab   2026-08-24 11:04Z                 │
+│   ✔  plan        run 2   IMPLEMENTATION_PLAN.md   4d81e07   2026-08-25 09:41Z                 │
+│   ▶  GATE        waiting for you — /implement or /approve on the issue                        │
+│   ·  implement   —                                                                            │
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ARTIFACT   .aiteam/lf-131-webhook-replay/2026-08-25/webhook-replay/                           │
+│             IMPLEMENTATION_PLAN.md   ·   4 stories   ·   12 tasks                             │
+│             blob/4d81e07/…/IMPLEMENTATION_PLAN.md   → permalink in comment #4                 │
+│                                                                                               │
+│ THREAD     [me]  09:12   /plan webhook-replay                                                 │
+│            [lf]  09:41   Implementation plan ready: &lt;permalink&gt;                               │
+│            [c4]  10:02   jonny: "the replay window is 48h, not 24h"                           │
+│                          third-party · recorded, not acted on                                 │
+│                          → /include c4 hands it to aiteam as material                         │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+ o open   y copy permalink   i include c4   q back
+</pre>
+  </div>
+
+  <p class="caption" style="max-width:76ch;margin-top:26px;">
+    <b>What B cannot do:</b> show you the plan it is asking you to approve. It can tell you
+    <code>IMPLEMENTATION_PLAN.md</code> exists, when it was written and which SHA it is pinned to — and
+    then you leave the TUI to read it. That is the gap
+    <a href="web-overview.html">Option C</a> fills, and it is the whole argument between the two.
+  </p>
+
+</div>
+</body>
+</html>

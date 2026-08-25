@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>litefactory — UI options (mockups)</title>
+<link rel="stylesheet" href="_style.css">
+</head>
+<body>
+
+<div class="mockup-banner">
+  MOCKUP — nothing here is implemented. Every number is invented. Spike artifact for issue #2, slug <b>ui-feature</b>.
+</div>
+
+<div class="chrome">
+  <div class="brand"><span class="glyph"></span> litefactory</div>
+  <div class="crumbs">UI options</div>
+  <div class="spacer"></div>
+  <div class="chrome-right"><span>2026-08-25</span><span>lf/2-feature-2</span></div>
+</div>
+
+<div class="wrap">
+
+  <h1 style="font-size:22px;margin:22px 0 6px;">A UI for litefactory — five options</h1>
+  <p style="color:var(--fg-dim);max-width:76ch;margin:0 0 6px;">
+    litefactory has real local state the forge never sees: eight tables, per-run JSONL event streams,
+    worktrees, locks, watermarks, cost per run. Today the only way to read any of it is
+    <code style="font-family:var(--mono);color:var(--fg);">litefactory logs &lt;issue&gt;</code>, which requires you to
+    already know the issue number. There is no answer to <em>&ldquo;what is the factory doing right now&rdquo;</em>.
+  </p>
+  <p style="color:var(--fg-dim);max-width:76ch;">
+    <code style="font-family:var(--mono);color:var(--fg);">initialplan.md</code> §15 puts &ldquo;Web UI, dashboard,
+    metrics endpoint&rdquo; under <em>deliberately not in v1</em> — worth knowing before picking one of these.
+    The full argument, costs and open questions are in
+    <a href="../SPIKE.md">SPIKE.md</a>; the ASCII versions of every screen are in
+    <a href="../MOCKUPS.md">MOCKUPS.md</a>.
+  </p>
+
+  <div class="sec"><h2>The options</h2></div>
+
+  <div class="opt">
+    <h3>A &nbsp;·&nbsp; <code>litefactory status</code> — finish the CLI</h3>
+    <p>
+      The three commands §13 of the plan promised and that were never registered:
+      <code>status</code>, <code>runs</code>, <code>tail</code>. Same tabwriter house style as
+      <code>repo list</code>. Not really &ldquo;a new UI&rdquo; — but it is the missing half of the
+      original design, and every option below needs exactly these queries.
+    </p>
+    <p class="cost">cost S &nbsp;·&nbsp; no new dependencies &nbsp;·&nbsp; no new surface</p>
+    <a class="btn" href="tui.html#status">See it →</a>
+  </div>
+
+  <div class="opt">
+    <h3>B &nbsp;·&nbsp; <code>litefactory top</code> — terminal UI</h3>
+    <p>
+      Full-screen master/detail with a live event stream, built on Bubble Tea. One binary, no port,
+      nothing to secure, works over SSH to the Mac Mini today and the EPYC box later. What it cannot do
+      is show you the plan you are being asked to approve — only tell you one exists.
+    </p>
+    <p class="cost">cost M &nbsp;·&nbsp; +bubbletea, lipgloss (pure Go, CGO_ENABLED=0 survives)</p>
+    <a class="btn" href="tui.html#top">See it →</a>
+  </div>
+
+  <div class="opt pick">
+    <h3>C &nbsp;·&nbsp; <code>litefactory serve</code> — local web dashboard &nbsp;<span class="tag run">recommended</span></h3>
+    <p>
+      Read-mostly HTML on <code>127.0.0.1:7457</code>. Go stdlib only — <code>net/http</code>,
+      <code>html/template</code>, <code>embed</code>, SSE for the live stream. No JS framework, no build
+      step, still one binary. The only option that can put a rendered brief, a diff and a live run on the
+      same page and give you a URL for it.
+    </p>
+    <p class="cost">
+      cost M–L &nbsp;·&nbsp; adds a listening socket to a process holding your SSH key —
+      loopback-only, enforced in config validation and checked by <code>doctor</code>, read-only in v1
+    </p>
+    <a class="btn primary" href="web-overview.html">Overview →</a>
+    <a class="btn" href="web-task.html">One task →</a>
+  </div>
+
+  <div class="opt no">
+    <h3>D &nbsp;·&nbsp; macOS menu bar item &nbsp;<span class="tag bad">rejected</span></h3>
+    <p>
+      Needs Swift or cgo bindings, which breaks <code>CGO_ENABLED=0</code> and turns one static binary
+      into a binary plus an app bundle plus a signing story.
+      <code>litefactory status --oneline</code> piped into a status-bar tool you already run gets most
+      of it for an afternoon.
+    </p>
+    <p class="cost">cost L, and the wrong kind &nbsp;·&nbsp; see <a href="../MOCKUPS.md">MOCKUPS.md</a> for the sketch</p>
+  </div>
+
+  <div class="opt">
+    <h3>E &nbsp;·&nbsp; the forge as the UI</h3>
+    <p>
+      Not new technology: a richer live status comment, and a pinned &ldquo;factory status&rdquo; issue the
+      daemon keeps edited with every active session across every repo. Reuses
+      <code>internal/report</code> wholesale — <code>marker.go</code> already solves
+      find-my-comment-again, which is the hard part. Cheapest thing on the list, and the only one that
+      works when you are not at the machine.
+    </p>
+    <p class="cost">cost S &nbsp;·&nbsp; complementary to any of A/B/C, not a substitute</p>
+    <a class="btn" href="../MOCKUPS.md">See it →</a>
+  </div>
+
+  <div class="sec"><h2>Recommendation</h2></div>
+  <p style="color:var(--fg-dim);max-width:76ch;">
+    <b style="color:var(--fg)">A now, C next, E alongside. B only if a listening socket is a hard no.</b>
+    A is not optional — whatever gets built needs those queries, and building them behind a browser means
+    testing them through a browser. C beats B on the moment that actually matters: a gate, where a brief or
+    a plan is ready and you have to read it and decide. That is a reading task on a document with headings
+    and links. The live stream — the part B would win on — is a thing you glance at, not a thing you study.
+  </p>
+
+</div>
+</body>
+</html>
