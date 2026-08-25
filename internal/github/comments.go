@@ -103,29 +103,23 @@ func (c *Client) ListCommentsAfter(ctx context.Context, repo Repo, issue int, af
 // ListCommentedIssues returns the numbers of the issues in repo carrying a
 // comment at or after since, ascending and without duplicates.
 //
-// # Why discovery cannot be issue listing alone
+// # Why discovery asks twice
 //
-// [Client.ListIssues] finds the issues whose `updated_at` moved, on the
-// assumption that writing a comment moves it. Measured against
-// marioatcloudvane/litefactory on 2026-08-25, it does not — not reliably, and
-// not within any useful window:
+// [Client.ListIssues] finds the issues whose `updated_at` moved. Writing a
+// comment does move it — measured on marioatcloudvane/litefactory#4, whose
+// comment landed at 19:14:47Z and whose issue read 19:14:48Z a moment later —
+// so in principle one listing would do.
 //
-//	13:39:26  daemon: first sight of #3, no comments yet
-//	13:40:37  owner comments /research
-//	13:42:25  owner comments /spike
-//	13:42:26  tick since=11:41:56Z -> issues=0   (both comments are inside it)
-//	   … 60 further ticks, every one issues=0 …
-//	18:40:23  the issue is closed by hand; updated_at finally moves
-//	18:40:49  tick -> issues=3, and the seven-hour-old comments are drained
+// In practice the two are indexed separately and lag separately. On issue #3 of
+// the same repository, two owner comments were invisible to sixty consecutive
+// issue listings across thirty minutes, and only surfaced seven hours later
+// when the issue was closed by hand. This endpoint is indexed on the comments
+// themselves rather than on a timestamp copied onto the issue, so it is the
+// shorter path to a comment and unlikely to lag in step with the other.
 //
-// The single-issue endpoint does reflect comments in `updated_at`. The listing
-// index evidently does not, so an owner comment on an otherwise untouched issue
-// is invisible to a `since` walk over issues.
-//
-// This endpoint filters on the comments themselves, so it cannot miss one. It
-// is one request per repository per tick, the same cost as the issue listing,
-// and it carries no issue detail — only the issue each comment hangs off, which
-// is all the caller needs to know where to look.
+// It is not the guard against that lag — overlapping the listing window is (see
+// the daemon's ListingOverlap). It is a second, independent way for a comment
+// to be noticed, at one request per repository per tick.
 //
 // The sort is paired with the cursor for the reason [Client.ListIssues] gives:
 // `since` on this endpoint filters on the comment's update time, so ordering by

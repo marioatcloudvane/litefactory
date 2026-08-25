@@ -780,9 +780,62 @@ func TestCursorIsInitialisedToNowAndSurvivesRestart(t *testing.T) {
 	if len(sinceValues) != 2 {
 		t.Fatalf("recorded %d listings, want 2", len(sinceValues))
 	}
-	wanted := persisted.TasksUpdatedSince.UTC().Format(time.RFC3339)
+	// The persisted cursor, less the overlap: every tick after the first-ever
+	// one reaches back before where it left off, so an index that catches up
+	// late cannot drop a comment on the floor.
+	wanted := persisted.TasksUpdatedSince.Add(-daemon.ListingOverlap).UTC().Format(time.RFC3339)
 	if got := sinceValues[1]; got != wanted {
-		t.Errorf("the restarted daemon asked for issues since %q, want the persisted %q", got, wanted)
+		t.Errorf("the restarted daemon asked for issues since %q, want the persisted cursor less the overlap, %q",
+			got, wanted)
+	}
+}
+
+// TestTheListingWindowOverlapsSoALateIndexCannotLoseAComment is the regression
+// for the seven-hour delay on issue #3.
+//
+// The comment is real and its timestamp is old — which is what a comment the
+// forge indexed late looks like from here, once the cursor has already advanced
+// past the moment it was written. Without an overlap the window starts after it
+// and it is never seen again.
+func TestTheListingWindowOverlapsSoALateIndexCannotLoseAComment(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.issue("Logging improvements")
+	f.tick() // first sight
+
+	// Two minutes before now: comfortably behind the cursor, comfortably
+	// inside the overlap.
+	late := f.clock.Now().Add(-2 * time.Minute)
+	f.forge.addCommentAt(testIssue, 41, owner(), "/spike make the logs readable", late)
+
+	result := f.tick()
+	if result.Runs != 1 {
+		t.Fatalf("ran %d turns, want 1 — the comment predates the cursor and only the overlap reaches it\nlogs:\n%s",
+			result.Runs, f.logs)
+	}
+	if got := f.watermark(); got != 41 {
+		t.Errorf("watermark is %d, want 41", got)
+	}
+}
+
+// TestTheFirstEverTickDoesNotReachBack: the overlap must not undo AC-2.9.
+// Planting the cursor at now is what stops registering a busy repository from
+// replaying its history, and reaching back five minutes on the very first tick
+// would start doing exactly that.
+func TestTheFirstEverTickDoesNotReachBack(t *testing.T) {
+	f := newFixture(t)
+	f.issue("An issue that predates the daemon")
+
+	firstEver := f.tick()
+	if firstEver.Issues != 0 {
+		t.Errorf("the first-ever tick listed %d issues, want none", firstEver.Issues)
+	}
+	since := f.forge.since()
+	if len(since) != 1 {
+		t.Fatalf("recorded %d listings, want 1", len(since))
+	}
+	if got, floor := since[0], firstEver.StartedAt.Add(-time.Second).UTC().Format(time.RFC3339); got < floor {
+		t.Errorf("the first listing asked for %q, which reaches back before the tick started (%q)", got, floor)
 	}
 }
 
@@ -824,11 +877,12 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 	f.issue("Logging improvements")
 	f.tick() // first sight
 
-	// Push the issue's update time into the past. Nothing after this can bring
-	// it back through the issue listing.
+	f.forge.addComment(testIssue, 41, owner(), "/spike make the logs readable")
+	// Then push the issue's update time back into the past, which is what an
+	// issue listing that has not caught up looks like from here. Nothing can
+	// now bring this issue back through that listing.
 	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
 
-	f.forge.addComment(testIssue, 41, owner(), "/spike make the logs readable")
 	result := f.tick()
 
 	if result.Runs != 1 {

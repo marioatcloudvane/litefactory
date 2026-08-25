@@ -342,29 +342,37 @@ func (f *forgeServer) addIssue(issue fakeIssue) {
 	f.issues = append(f.issues, issue)
 }
 
-// addComment appends a comment to an issue and pointedly does *not* touch the
-// issue's update time.
+// addComment appends a comment to an issue and touches the issue's update time,
+// which is what GitHub does — measured on issue #4, whose comment landed at
+// 19:14:47Z and whose issue read 19:14:48Z.
 //
-// This used to bump it, on the reasonable assumption that GitHub does. GitHub
-// does not: measured on 2026-08-25, two owner comments left their issue out of
-// every `since` listing for the next thirty minutes, and the fixture's
-// generosity is why no test ever noticed. Modelling the real behaviour makes
-// every comment in this file reach the daemon the way a real one does — through
-// the repo-level comment listing, not through the issue listing.
+// What GitHub does *not* guarantee is that the issue listing reflects that
+// bump before the poll cursor has moved past it. Tests that care about the lag
+// say so explicitly, with [forgeServer.staleIssue] or by backdating a comment,
+// rather than having the fixture pretend it always happens.
 func (f *forgeServer) addComment(issue int, id int64, author fakeUser, body string) {
-	now := f.now()
+	f.addCommentAt(issue, id, author, body, f.now())
+}
 
+// addCommentAt writes a comment stamped at an arbitrary time. Backdating one is
+// how a test models an index that caught up late: the comment is real and its
+// timestamp is old, so only a listing window that reaches back far enough will
+// return it.
+func (f *forgeServer) addCommentAt(issue int, id int64, author fakeUser, body string, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.comments = append(f.comments, fakeComment{
-		ID: id, Body: body, User: author, CreatedAt: now, UpdatedAt: now, issue: issue,
+		ID: id, Body: body, User: author, CreatedAt: at, UpdatedAt: at, issue: issue,
 		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d",
 			testOwnerName, testRepoName, issue),
 	})
+	for i := range f.issues {
+		if f.issues[i].Number == issue {
+			f.issues[i].UpdatedAt = at
+		}
+	}
 }
 
-// staleIssue backdates an issue's update time, which is how a test says "this
-// issue will not come back from the issue listing again".
 func (f *forgeServer) staleIssue(number int, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

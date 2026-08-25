@@ -91,7 +91,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// never be seen a second time.
 	var pending time.Time
 
-	if err := d.poll(ctx, repos, cursor.TasksUpdatedSince, &result, &pending); err != nil {
+	if err := d.poll(ctx, repos, listingWindow(cursor), &result, &pending); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(startedAt, err)
 	}
@@ -124,6 +124,40 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		slog.Time("cursor", next.UTC()),
 		slog.String("duration", result.Duration.String()))
 	return result, nil
+}
+
+// ListingOverlap is how far back before the poll cursor each tick asks.
+//
+// The forge's listings are eventually consistent, and the cursor is monotonic:
+// it advances to the tick's start time whether or not the index had caught up.
+// With no overlap those two facts combine into permanent loss. Measured on
+// issue #3 of this repository on 2026-08-25:
+//
+//	11:40:37Z  owner comments
+//	11:40:56Z  tick since=11:40:26Z -> issues=0   the index has not caught up
+//	11:41:26Z  tick since=11:40:56Z -> issues=0   the cursor is already past it
+//	           … and it never comes back. Sixty ticks, thirty minutes, nothing.
+//
+// The comment surfaced seven hours later, when the issue was closed by hand and
+// its update time moved for a second time.
+//
+// Five minutes is far beyond any lag observed and costs nothing to re-ask for:
+// the per-task watermark is a monotonic MAX over comment ids, so a comment
+// listed twice is compared and dropped. Re-listing is cheap; losing a comment
+// is not.
+const ListingOverlap = 5 * time.Minute
+
+// listingWindow is the `since` a tick asks the forge for.
+//
+// The overlap is withheld from the very first tick ever, whose whole purpose is
+// to plant the cursor at now so that registering a busy repository does not
+// replay its history (AC-2.9). A zero LastTickAt is what says no tick has
+// completed before.
+func listingWindow(cursor store.PollCursor) time.Time {
+	if cursor.LastTickAt.IsZero() {
+		return cursor.TasksUpdatedSince
+	}
+	return cursor.TasksUpdatedSince.Add(-ListingOverlap)
 }
 
 // poll walks every registered repository (D-A, AC-2.8).
@@ -193,15 +227,19 @@ type task struct {
 // commentedIssues finds the issues that received a comment since the cursor and
 // that the issue listing did not already return.
 //
-// It exists because the issue listing alone loses owner comments — GitHub does
-// not move an issue's `updated_at` when one is written, so a comment on an
-// otherwise untouched issue is invisible to a `since` walk. The measurement is
-// in [github.Client.ListCommentedIssues]; the consequence, before this, was a
-// seven-hour delay that looked exactly like a dead daemon.
+// Both listings are eventually consistent, and neither is a substitute for the
+// other. An issue whose body or state changed comes back from the issue
+// listing; an issue that only received a comment reaches the daemon fastest
+// through the comment listing, which is indexed on the comments themselves
+// rather than on a timestamp copied onto the issue. Asking both is one extra
+// request per repository per tick, and the two indexes are unlikely to lag
+// together.
 //
-// One extra listing per repository per tick, plus one issue read per issue that
-// is *only* reachable this way — which is to say, one read per issue that has
-// genuine new work on it.
+// The overlap in [listingWindow] is what makes either of them safe. This is the
+// second listing, not the safety net.
+//
+// One issue read per issue that is *only* reachable this way — which is to say,
+// one read per issue that has genuine new work on it.
 func (d *Daemon) commentedIssues(
 	ctx context.Context,
 	repo github.Repo,

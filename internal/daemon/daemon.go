@@ -48,12 +48,11 @@ const DefaultShutdownGrace = 2 * time.Second
 // deliberately absent — it belongs to the [Reporter], which takes a redact.Body
 // and is therefore the only thing in the tree that can put text on an issue.
 //
-// Discovery takes two listings rather than one. An issue whose body or state
-// changed comes back from ListIssues; an issue that only received a comment
-// does not, because GitHub's issue index does not move `updated_at` for a
-// comment (see [github.Client.ListCommentedIssues], which carries the
-// measurement). GetIssue fills in the detail for anything only the second
-// listing found.
+// Discovery takes two listings rather than one, because the forge indexes
+// issues and comments separately and they lag separately: a comment can be
+// invisible to the issue listing long enough for the poll cursor to move past
+// it (see [github.Client.ListCommentedIssues], which carries the measurement).
+// GetIssue fills in the detail for anything only the comment listing found.
 type Forge interface {
 	ListIssues(ctx context.Context, repo github.Repo, since time.Time) ([]github.Issue, error)
 	ListCommentedIssues(ctx context.Context, repo github.Repo, since time.Time) ([]int, error)

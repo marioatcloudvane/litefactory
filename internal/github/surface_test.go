@@ -48,11 +48,11 @@ func TestPostCommentTakesARedactedBody(t *testing.T) {
 // dependency, and one arriving quietly is the moment that trade is worth
 // revisiting — so the count is asserted rather than assumed.
 //
-// The seventh was added on 2026-08-25 as a decision, not a convenience:
-// discovery cannot be done with ListIssues alone, because GitHub does not move
-// an issue's `updated_at` when a comment is written to it. See
-// [github.Client.ListCommentedIssues] for the measurement. Seven still does not
-// pay for an SDK.
+// The seventh was added on 2026-08-25 as a decision, not a convenience: issues
+// and comments are indexed separately and lag separately, so a second,
+// independent path to a new comment is worth one request per repository per
+// tick. See [github.Client.ListCommentedIssues] for the measurement. Seven
+// still does not pay for an SDK.
 func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
 	t.Parallel()
 
