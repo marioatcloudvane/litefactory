@@ -7,37 +7,31 @@
 // then held for the process lifetime (S-5). Nothing re-reads the keychain
 // per request.
 //
-// # Keychain access prompts, and why every rebuild re-prompts
+// # A locked keychain, and why it looks like a permissions problem
 //
 // The keychain lookup shells out to /usr/bin/security rather than linking
 // keybase/go-keychain, which needs cgo and would cost litefactory its
-// cgo-free single-binary build.
+// cgo-free single-binary build. One consequence is worth stating plainly:
+// keychain access control gates the process that calls the keychain API, and
+// that process is /usr/bin/security, not litefactory. An item added with
+// `security add-generic-password` already trusts security to read it back, so
+// a locally built, unsigned litefactory raises no allow-access dialog and
+// rebuilding it changes nothing.
 //
-// macOS gates keychain access on the *identity of the calling binary*. An
-// unsigned binary — which a locally built litefactory is — has no stable
-// identity, so the OS shows an allow-access dialog again after every rebuild,
-// even if you previously clicked "Always Allow". Click **Always Allow**: it
-// suppresses the prompt until the next build.
+// What does stop a lookup is a locked keychain. Reading from a locked one
+// needs a password, asking for it needs a dialog, and a process that cannot
+// show one gets [ErrInteractionNotAllowed] — OSStatus -25308, which `security`
+// reports as exit 36 with an empty stderr. The login keychain unlocks at
+// console login and re-locks on sleep, so this arrives as "it worked this
+// morning" rather than as a configuration error. `security unlock-keychain`
+// prompts on the terminal rather than on screen, so it fixes this from ssh and
+// from a background session too.
 //
-// Under launchd the same dialog may be raised where no one can see it, which
-// would wedge the daemon at startup. Two things guard against that: the
-// keychain lookup carries its own timeout so the daemon fails loudly instead
-// of hanging forever, and the token is resolved exactly once at start rather
-// than per tick, so there is no prompt storm.
-//
-// # Security sessions
-//
-// A dialog can also be refused outright rather than hung on. Every macOS
-// process belongs to a security session, and only a session attached to the
-// desktop login — launchctl managername reports Aqua — may put a window on
-// screen. A process in a Background session, which is what launchd's system
-// domain, an ssh login and some tool-run shells give you, gets
-// [ErrInteractionNotAllowed] the moment the keychain wants to ask a question:
-// to unlock the keychain, or to confirm that this binary may read the item.
-//
-// This is not a broken reference, and the fix is never in config.yaml. Run the
-// daemon from a session that owns the desktop, unlock the login keychain, or
-// use github.token_env, which needs no session at all.
+// The token is resolved exactly once at process start rather than per tick, so
+// one unlock covers a whole daemon lifetime and there is no prompt storm.
+// Under launchd a dialog could still be raised where nobody can see it, so the
+// lookup carries its own timeout and the daemon fails loudly instead of
+// hanging forever.
 package secrets
 
 import (
@@ -50,9 +44,9 @@ import (
 
 // DefaultKeychainTimeout bounds one /usr/bin/security lookup.
 //
-// It is long enough for a human to notice the allow-access dialog and click
-// Always Allow, and short enough that a daemon facing a dialog nobody can see
-// fails with a diagnosable error instead of hanging indefinitely.
+// It is long enough for a human at the console to answer an unlock dialog, and
+// short enough that a daemon facing a dialog nobody can see fails with a
+// diagnosable error instead of hanging indefinitely.
 const DefaultKeychainTimeout = 2 * time.Minute
 
 // Source names where a token is read from.
@@ -131,11 +125,10 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrEmpty means the reference resolved, to nothing.
 	ErrEmpty = errors.New("resolved to an empty value")
-	// ErrInteractionNotAllowed means the keychain item is there but macOS
-	// would not hand it over without a dialog, and the process asking is in no
-	// position to show one. See the note on keychain sessions below.
-	ErrInteractionNotAllowed = errors.New("macOS would not open the item without a dialog it could not show; " +
-		"the process is not in a desktop login session, or the login keychain is locked")
+	// ErrInteractionNotAllowed means the keychain item is there but the
+	// keychain holding it is locked, and unlocking needs a password nobody
+	// offered. See the note on locked keychains above.
+	ErrInteractionNotAllowed = errors.New("the login keychain is locked; unlock it with `security unlock-keychain`")
 	// ErrIncomplete means a reference is half-configured.
 	ErrIncomplete = errors.New("incomplete reference")
 )

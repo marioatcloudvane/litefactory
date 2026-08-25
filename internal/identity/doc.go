@@ -32,17 +32,17 @@
 // to github.com on the command line ([Host], AC-0.8) rather than inherited
 // from an ambient variable.
 //
-// # Keychain prompts, and why every rebuild re-prompts
+// # Keychain prompts
 //
 // `gh auth status` reads the token gh stored, which on macOS is usually a
 // keychain item, and litefactory's own bot-token lookup shells out to
 // /usr/bin/security for the same reason (see internal/secrets).
 //
-// macOS gates keychain access on the identity of the *calling binary*. A
-// locally built litefactory is unsigned and therefore has no stable identity,
-// so the OS raises its allow-access dialog again after every rebuild, even if
-// you clicked "Always Allow" last time. Click **Always Allow** anyway: it
-// suppresses the prompt until the next build. Under launchd the same dialog
-// can be raised where nobody can see it, which is why every gh invocation here
-// carries its own timeout and fails loudly instead of hanging.
+// Keychain access is gated on the *calling* binary, and in both cases that is
+// gh or security — never litefactory, which only ever execs them. Rebuilding
+// litefactory therefore changes nothing about what the keychain will hand
+// over. What does block a lookup is a locked keychain: unlocking one needs a
+// password, asking for it needs a dialog, and under launchd that dialog can be
+// raised where nobody can see it. Every gh invocation here carries its own
+// timeout so that fails loudly instead of hanging.
 package identity

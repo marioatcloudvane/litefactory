@@ -120,7 +120,7 @@ func TestResolveTokenHintDoesNotBlameTheConfig(t *testing.T) {
 	if strings.Contains(refused, "Fix the reference") {
 		t.Errorf("hint = %q, want it not to send the operator to config.yaml", refused)
 	}
-	for _, want := range []string{"managername", "Aqua", "unlock-keychain", "token_env"} {
+	for _, want := range []string{"locked", "unlock-keychain", "token_env"} {
 		if !strings.Contains(refused, want) {
 			t.Errorf("hint = %q, want it to mention %q", refused, want)
 		}
