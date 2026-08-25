@@ -51,3 +51,4 @@ The real residual risks are (a) an unclassifiable comment wedging a task's
 comment queue for ever, and (b) the `<date>` component of the aiteam session
 path moving daily while the feature slug is frozen, which breaks the mode gates
 on day two.
+- 2026-08-25 — plan replaced: 9 stories/46 tasks superseded by a 4-task plan (`IMPLEMENTATION_PLAN.superseded.md` kept for reference)
