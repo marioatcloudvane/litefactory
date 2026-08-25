@@ -87,6 +87,7 @@ type fakeComment struct {
 	Body      string    `json:"body"`
 	User      fakeUser  `json:"user"`
 	HTMLURL   string    `json:"html_url"`
+	IssueURL  string    `json:"issue_url"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -118,13 +119,14 @@ type forgeServer struct {
 	nextCommentID int64
 
 	// Recorded traffic.
-	sinceValues   []string
-	listIssues    int
-	listComments  int
-	postedBodies  []string
-	postedIssues  []int
-	reactedTo     []int64
-	reactionCalls int
+	sinceValues      []string
+	listIssues       int
+	listComments     int
+	listRepoComments int
+	postedBodies     []string
+	postedIssues     []int
+	reactedTo        []int64
+	reactionCalls    int
 
 	// Injected failures. Each is called with the 1-based call number and
 	// reports whether it handled the response itself.
@@ -145,6 +147,8 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	mux := http.NewServeMux()
 	base := "/repos/" + testOwnerName + "/" + testRepoName
 	mux.HandleFunc("GET "+base+"/issues", f.handleListIssues)
+	mux.HandleFunc("GET "+base+"/issues/{number}", f.handleGetIssue)
+	mux.HandleFunc("GET "+base+"/issues/comments", f.handleListRepoComments)
 	mux.HandleFunc("GET "+base+"/issues/{number}/comments", f.handleListComments)
 	mux.HandleFunc("POST "+base+"/issues/{number}/comments", f.handlePostComment)
 	mux.HandleFunc("POST "+base+"/issues/comments/{id}/reactions", f.handleReaction)
@@ -157,6 +161,12 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 		f.listIssues++
 		f.mu.Unlock()
 		writeJSON(w, http.StatusOK, []fakeIssue{})
+	})
+	mux.HandleFunc("GET "+other+"/issues/comments", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		f.listRepoComments++
+		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, []fakeComment{})
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -212,6 +222,44 @@ func (f *forgeServer) handleListComments(w http.ResponseWriter, r *http.Request)
 
 	if hook != nil && hook(w, call) {
 		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleGetIssue serves one issue, which is how the daemon fills in an issue it
+// only learned about from the comment listing.
+func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
+		return
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, issue := range f.issues {
+		if issue.Number == number {
+			writeJSON(w, http.StatusOK, issue)
+			return
+		}
+	}
+	http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+}
+
+// handleListRepoComments serves every comment in the repository written at or
+// after `since`, which is the listing that actually notices a new comment.
+func (f *forgeServer) handleListRepoComments(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	f.listRepoComments++
+	comments := slices.Clone(f.comments)
+	f.mu.Unlock()
+
+	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	out := make([]fakeComment, 0, len(comments))
+	for _, c := range comments {
+		if since.IsZero() || !c.UpdatedAt.Before(since) {
+			out = append(out, c)
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -294,8 +342,15 @@ func (f *forgeServer) addIssue(issue fakeIssue) {
 	f.issues = append(f.issues, issue)
 }
 
-// addComment appends a comment to an issue and touches the issue's update time,
-// which is what makes the next tick list it.
+// addComment appends a comment to an issue and pointedly does *not* touch the
+// issue's update time.
+//
+// This used to bump it, on the reasonable assumption that GitHub does. GitHub
+// does not: measured on 2026-08-25, two owner comments left their issue out of
+// every `since` listing for the next thirty minutes, and the fixture's
+// generosity is why no test ever noticed. Modelling the real behaviour makes
+// every comment in this file reach the daemon the way a real one does — through
+// the repo-level comment listing, not through the issue listing.
 func (f *forgeServer) addComment(issue int, id int64, author fakeUser, body string) {
 	now := f.now()
 
@@ -303,12 +358,23 @@ func (f *forgeServer) addComment(issue int, id int64, author fakeUser, body stri
 	defer f.mu.Unlock()
 	f.comments = append(f.comments, fakeComment{
 		ID: id, Body: body, User: author, CreatedAt: now, UpdatedAt: now, issue: issue,
+		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d",
+			testOwnerName, testRepoName, issue),
 	})
+}
+
+// staleIssue backdates an issue's update time, which is how a test says "this
+// issue will not come back from the issue listing again".
+func (f *forgeServer) staleIssue(number int, at time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for i := range f.issues {
-		if f.issues[i].Number == issue {
-			f.issues[i].UpdatedAt = now
+		if f.issues[i].Number == number {
+			f.issues[i].UpdatedAt = at
+			return
 		}
 	}
+	f.t.Fatalf("no issue %d to backdate", number)
 }
 
 func (f *forgeServer) snapshot() (posted []string, reacted []int64, order []string) {
@@ -321,6 +387,15 @@ func (f *forgeServer) counts() (issues, comments, posts, reactions int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.listIssues, f.listComments, len(f.postedBodies), f.reactionCalls
+}
+
+// repoCommentListings is how many times the repo-level comment listing was
+// called. It is the second half of the per-tick API cost, the issue listing
+// being the first.
+func (f *forgeServer) repoCommentListings() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listRepoComments
 }
 
 func (f *forgeServer) since() []string {

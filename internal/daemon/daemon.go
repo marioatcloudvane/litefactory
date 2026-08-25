@@ -44,13 +44,20 @@ const DefaultShutdownGrace = 2 * time.Second
 // it.
 //
 // It is declared here, at the point of consumption, rather than exported by
-// internal/github, which is a concrete client by design. Three methods is the
-// whole forge surface of a tick: list the issues that moved, list the comments
-// above a watermark, and acknowledge one comment. Posting is deliberately
-// absent — it belongs to the [Reporter], which takes a redact.Body and is
-// therefore the only thing in the tree that can put text on an issue.
+// internal/github, which is a concrete client by design. Posting is
+// deliberately absent — it belongs to the [Reporter], which takes a redact.Body
+// and is therefore the only thing in the tree that can put text on an issue.
+//
+// Discovery takes two listings rather than one. An issue whose body or state
+// changed comes back from ListIssues; an issue that only received a comment
+// does not, because GitHub's issue index does not move `updated_at` for a
+// comment (see [github.Client.ListCommentedIssues], which carries the
+// measurement). GetIssue fills in the detail for anything only the second
+// listing found.
 type Forge interface {
 	ListIssues(ctx context.Context, repo github.Repo, since time.Time) ([]github.Issue, error)
+	ListCommentedIssues(ctx context.Context, repo github.Repo, since time.Time) ([]int, error)
+	GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error)
 	ListCommentsAfter(ctx context.Context, repo github.Repo, issue int, afterID int64) ([]github.Comment, error)
 	AddCommentReaction(ctx context.Context, repo github.Repo, commentID int64, content github.ReactionContent) error
 }

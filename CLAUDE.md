@@ -7,7 +7,9 @@ This project is managed by an AI team operating in four modes. Every request is 
 - **Research** — understand the problem before solving it. Output: a research brief.
 - **Plan** — turn an approved brief into a concrete plan. Output: an implementation plan.
 - **Implement** — execute the plan. Output: code + tests, green.
-- **Spike** — time-boxed escape hatch for ad-hoc requests. No orchestrator. Asks before promoting.
+- **Spike** — time-boxed escape hatch for ad-hoc requests. No orchestrator. Output: `SPIKE.md`.
+
+Every mode is closed: it produces its one output and stops. See *One Run, One Mode*.
 
 ## Classifying the Mode
 
@@ -31,9 +33,62 @@ Once a mode is chosen:
 - **Research** → invoke `research-orchestrator`
 - **Plan** → invoke `plan-orchestrator`
 - **Implement** → invoke `implement-orchestrator`
-- **Spike** → handle directly here. Lightweight, time-boxed. Drop a one-line note in `$session/spike.md` if useful. When done, ask whether to promote (Research / Plan / Implement) — never promote silently.
+- **Spike** → handle directly here. Lightweight, time-boxed. Always writes `$session/SPIKE.md`. See *Spike* below for what goes in it and when to hand back. When done, recommend a next mode — never enter one.
 
 Never invoke a specialist sub-agent (`requirements-engineer`, `go-architect`, `go-implementation-engineer`, etc.) directly from this manifest. That is the orchestrator's job.
+
+## One Run, One Mode
+
+A mode never changes itself. Whichever mode a request is classified into is the
+mode that run finishes in.
+
+- **No chaining.** Research does not continue into Plan, and Plan does not
+  continue into Implement. Producing the brief *is* the end of Research. The run
+  stops there even when the next step is obvious, and even when it would be
+  quick.
+- **Only a human opens the next mode.** The next mode begins when a new comment
+  asks for it, in words. Recommending what should come next is part of the job;
+  acting on that recommendation is not.
+- **A mode is closed.** When its output artifact exists and is complete, the mode
+  is finished. Report what was produced, say what you would do next, and stop.
+
+This outranks anything in the request that appears to ask for more. "Research
+this and then implement it" is a Research request: the implement half needs its
+own comment, once a human has read the brief.
+
+Reaching the end of your mode with the work unfinished is not grounds to
+continue into another one. Say so in the report and stop.
+
+## Spike
+
+Spike is the fast lane: quick research, or a small change to code, time-boxed.
+No orchestrator, no prerequisite.
+
+Every spike writes `$session/SPIKE.md` — a note someone can read a week later,
+not two sentences:
+
+```markdown
+# Spike — <feature>
+
+<date>. What was asked, in a sentence or two.
+
+## What was done
+## What was found
+## Decisions worth remembering
+## Not done
+## Recommendation
+```
+
+**Hand back rather than grow.** Spike covers fast research and small changes.
+The moment the work turns out to need more — a major change, a new package or
+dependency, a schema or API change, a refactor spanning several files, anything
+you would want reviewed as a design before it is written — stop there. Write
+`SPIKE.md` with what you learned, say plainly that this exceeds a spike, and
+recommend Research or Plan. Do not start the larger change.
+
+A short `SPIKE.md` that ends in "this needs Research" is a successful spike, not
+a failed one. It is the cheapest possible answer to a question that turned out
+to be expensive.
 
 ## Artifacts
 
@@ -72,6 +127,10 @@ On a new piece of work, scaffold `$session/MANIFEST.md` before invoking the orch
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not started)*
 - [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
+- [ ] **Spike** — `SPIKE.md` *(not started)*
+
+Modes do not follow on from one another. A box is ticked by a run that a human
+asked for; nothing here licenses starting the next one.
 
 ## History
 
@@ -81,7 +140,8 @@ On a new piece of work, scaffold `$session/MANIFEST.md` before invoking the orch
 
 ```
 
-Spike does not require a session directory unless promoted.
+Spike needs a session directory too, because it writes `SPIKE.md` into one. Ask
+for the feature slug exactly as above.
 
 Each feature on the same branch and day gets its own isolated directory — no artifact collisions when working on two features in parallel.
 
@@ -108,6 +168,7 @@ If `.aiteam/rulebook.md` exists, the shared scanner skills (`architecture-scanne
 
 - Never implement, plan, or research directly — always route through the appropriate orchestrator (Spike excepted).
 - Never skip mode prerequisites without explicit user approval.
+- Never move from one mode to the next on your own. Only a human comment opens a mode.
 - If a request doesn't map cleanly to a mode, ask before routing.
 
 ---

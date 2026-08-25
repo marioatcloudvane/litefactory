@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -421,5 +423,76 @@ func TestEveryReactionNameIsAccepted(t *testing.T) {
 	}
 	if got, want := len(f.Requests()), len(reactions); got != want {
 		t.Errorf("made %d requests, want %d", got, want)
+	}
+}
+
+// TestListCommentedIssuesDedupesAndSorts covers what the daemon actually needs
+// from the repo-level listing: which issues to look at, once each, in a stable
+// order. Several comments on one issue are one issue's worth of work.
+func TestListCommentedIssuesDedupesAndSorts(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, respondJSON(http.StatusOK, `[
+		{"id": 1, "issue_url": "https://api.github.com/repos/acme/api/issues/9"},
+		{"id": 2, "issue_url": "https://api.github.com/repos/acme/api/issues/3"},
+		{"id": 3, "issue_url": "https://api.github.com/repos/acme/api/issues/9"},
+		{"id": 4, "issue_url": "https://api.github.com/repos/acme/api/issues/3"}
+	]`))
+
+	numbers, err := f.Client.ListCommentedIssues(t.Context(), testRepo, time.Time{})
+	if err != nil {
+		t.Fatalf("ListCommentedIssues: %v", err)
+	}
+	if fmt.Sprint(numbers) != "[3 9]" {
+		t.Fatalf("numbers = %v, want [3 9]", numbers)
+	}
+}
+
+// TestListCommentedIssuesDropsUnusableIssueURLs: the issue number is the only
+// thing tying a comment to work. A URL that does not end in one is dropped,
+// because the alternative — guessing — attributes a run to the wrong issue.
+func TestListCommentedIssuesDropsUnusableIssueURLs(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, respondJSON(http.StatusOK, `[
+		{"id": 1, "issue_url": ""},
+		{"id": 2, "issue_url": "https://api.github.com/repos/acme/api/issues/not-a-number"},
+		{"id": 3, "issue_url": "https://api.github.com/repos/acme/api/issues/0"},
+		{"id": 4, "issue_url": "https://api.github.com/repos/acme/api/issues/12"}
+	]`))
+
+	numbers, err := f.Client.ListCommentedIssues(t.Context(), testRepo, time.Time{})
+	if err != nil {
+		t.Fatalf("ListCommentedIssues: %v", err)
+	}
+	if fmt.Sprint(numbers) != "[12]" {
+		t.Fatalf("numbers = %v, want [12]", numbers)
+	}
+}
+
+// TestListCommentedIssuesPairsTheSortWithTheCursor: `since` on this endpoint
+// filters on the comment's update time, so a truncated walk has to lose the
+// newest rather than the oldest.
+func TestListCommentedIssuesPairsTheSortWithTheCursor(t *testing.T) {
+	t.Parallel()
+
+	var query url.Values
+	f := newFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		respondJSON(http.StatusOK, `[]`)(w, r)
+	})
+
+	since := time.Date(2026, 8, 25, 11, 40, 0, 0, time.UTC)
+	if _, err := f.Client.ListCommentedIssues(t.Context(), testRepo, since); err != nil {
+		t.Fatalf("ListCommentedIssues: %v", err)
+	}
+	for key, want := range map[string]string{
+		"sort":      "updated",
+		"direction": "asc",
+		"since":     "2026-08-25T11:40:00Z",
+	} {
+		if got := query.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 }

@@ -43,20 +43,27 @@ func TestPostCommentTakesARedactedBody(t *testing.T) {
 	}
 }
 
-// TestClientMethodSetIsTheSixEndpoints pins the API surface. Six endpoints is
-// the reason this package is net/http rather than an SDK dependency; a seventh
-// arriving quietly is the moment that trade is worth revisiting, and it should
-// be a decision rather than a diff nobody noticed.
-func TestClientMethodSetIsTheSixEndpoints(t *testing.T) {
+// TestClientMethodSetIsTheSevenEndpoints pins the API surface. A small,
+// countable set is the reason this package is net/http rather than an SDK
+// dependency, and one arriving quietly is the moment that trade is worth
+// revisiting — so the count is asserted rather than assumed.
+//
+// The seventh was added on 2026-08-25 as a decision, not a convenience:
+// discovery cannot be done with ListIssues alone, because GitHub does not move
+// an issue's `updated_at` when a comment is written to it. See
+// [github.Client.ListCommentedIssues] for the measurement. Seven still does not
+// pay for an SDK.
+func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"AddCommentReaction", // POST …/issues/comments/{id}/reactions
-		"AuthenticatedUser",  // GET  /user
-		"GetIssue",           // GET  /repos/{o}/{r}/issues/{n}
-		"ListCommentsAfter",  // GET  /repos/{o}/{r}/issues/{n}/comments
-		"ListIssues",         // GET  /repos/{o}/{r}/issues?since=&state=all
-		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments
+		"AddCommentReaction",  // POST …/issues/comments/{id}/reactions
+		"AuthenticatedUser",   // GET  /user
+		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
+		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
+		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
+		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=all
+		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
 		// BaseURL reads a field rather than calling the API.
 		"BaseURL",
 	}
@@ -71,8 +78,8 @@ func TestClientMethodSetIsTheSixEndpoints(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("github.Client method set changed.\n got: %s\nwant: %s\n\n"+
-			"Six endpoints is what makes raw net/http the right call here. "+
-			"A seventh is a reason to re-open the SDK question, not to add a method quietly.",
+			"A countable endpoint set is what makes raw net/http the right call here. "+
+			"An eighth is a reason to re-open the SDK question, not to add a method quietly.",
 			strings.Join(got, ", "), strings.Join(want, ", "))
 	}
 }

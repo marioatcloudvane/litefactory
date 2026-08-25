@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — promoted from a spike, not a fresh Research pass)*
-- [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(in progress)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 3 stories, 20 tasks)*
 - [ ] **Implement** — code + tests *(not started)*
 
 ## History
@@ -18,6 +18,12 @@
 - 2026-08-25 — Owner chose Plan mode directly over Research, with the explicit
   instruction "don't over-complicate this". Research gate satisfied by recording
   the spike findings as `RESEARCH_BRIEF.md`.
+- 2026-08-25 — Plan done. Both of the brief's unknowns were answered empirically during planning, so
+  the plan has no branch points. Headline finding: **reusing `--session-id` exits 1 ("already in
+  use"), so the second run of any task is broken today** — it has never fired only because no task
+  has ever had a second run. `--resume` composes with the whole existing flag set. Transcripts live
+  outside the worktree and survive its deletion. Three stories, 20 tasks, no migration, `tick.go`
+  untouched.
 
 ## Notes
 

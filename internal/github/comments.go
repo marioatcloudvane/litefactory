@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -97,6 +98,105 @@ func (c *Client) ListCommentsAfter(ctx context.Context, repo Repo, issue int, af
 		slog.Int("comments", len(comments)),
 	)
 	return comments, nil
+}
+
+// ListCommentedIssues returns the numbers of the issues in repo carrying a
+// comment at or after since, ascending and without duplicates.
+//
+// # Why discovery cannot be issue listing alone
+//
+// [Client.ListIssues] finds the issues whose `updated_at` moved, on the
+// assumption that writing a comment moves it. Measured against
+// marioatcloudvane/litefactory on 2026-08-25, it does not — not reliably, and
+// not within any useful window:
+//
+//	13:39:26  daemon: first sight of #3, no comments yet
+//	13:40:37  owner comments /research
+//	13:42:25  owner comments /spike
+//	13:42:26  tick since=11:41:56Z -> issues=0   (both comments are inside it)
+//	   … 60 further ticks, every one issues=0 …
+//	18:40:23  the issue is closed by hand; updated_at finally moves
+//	18:40:49  tick -> issues=3, and the seven-hour-old comments are drained
+//
+// The single-issue endpoint does reflect comments in `updated_at`. The listing
+// index evidently does not, so an owner comment on an otherwise untouched issue
+// is invisible to a `since` walk over issues.
+//
+// This endpoint filters on the comments themselves, so it cannot miss one. It
+// is one request per repository per tick, the same cost as the issue listing,
+// and it carries no issue detail — only the issue each comment hangs off, which
+// is all the caller needs to know where to look.
+//
+// The sort is paired with the cursor for the reason [Client.ListIssues] gives:
+// `since` on this endpoint filters on the comment's update time, so ordering by
+// the same field keeps a truncated walk losing the newest rather than the
+// oldest. Pull request comments arrive here too — every pull request is an
+// issue — and are not filtered out, because the payload cannot tell them apart.
+// The caller drops them when it fetches the issue.
+func (c *Client) ListCommentedIssues(ctx context.Context, repo Repo, since time.Time) ([]int, error) {
+	if err := repo.Validate(); err != nil {
+		return nil, err
+	}
+
+	query := url.Values{}
+	query.Set("sort", "updated")
+	query.Set("direction", "asc")
+	query.Set("per_page", strconv.Itoa(perPage))
+	if !since.IsZero() {
+		query.Set("since", since.UTC().Format(time.RFC3339))
+	}
+
+	endpoint := c.endpoint(repoPath(repo)+"/issues/comments", query)
+	payloads, requests, err := fetchPages[commentPayload](ctx, c, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("github: list the comments of %s: %w", repo, err)
+	}
+
+	seen := make(map[int]bool, len(payloads))
+	numbers := make([]int, 0, len(payloads))
+	malformed := 0
+	for i := range payloads {
+		number, ok := issueNumberFromURL(payloads[i].IssueURL)
+		if !ok {
+			malformed++
+			continue
+		}
+		if seen[number] {
+			continue
+		}
+		seen[number] = true
+		numbers = append(numbers, number)
+	}
+	slices.Sort(numbers)
+
+	c.logger().InfoContext(ctx, "github: listed repository issue comments",
+		slog.String("repo", repo.String()),
+		slog.Time("since", since.UTC()),
+		slog.Int("requests", requests),
+		slog.Int("comments", len(payloads)),
+		slog.Int("issues", len(numbers)),
+		slog.Int("malformed_issue_urls", malformed),
+	)
+	return numbers, nil
+}
+
+// issueNumberFromURL pulls the issue number out of a comment's issue_url,
+// which is the only place the repo-level comments endpoint records which issue
+// a comment belongs to.
+//
+// A URL that does not end in a positive integer is reported rather than
+// guessed at: dropping one comment is recoverable, attributing it to the wrong
+// issue is not.
+func issueNumberFromURL(raw string) (int, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	last := raw[strings.LastIndexByte(raw, '/')+1:]
+	number, err := strconv.Atoi(last)
+	if err != nil || number <= 0 {
+		return 0, false
+	}
+	return number, true
 }
 
 // PostComment posts a comment on an issue and returns the created comment,
@@ -220,6 +320,7 @@ type reactionRequest struct {
 // commentPayload is GitHub's issue-comment shape.
 type commentPayload struct {
 	ID        int64        `json:"id"`
+	IssueURL  string       `json:"issue_url"`
 	Body      string       `json:"body"`
 	User      *userPayload `json:"user"`
 	HTMLURL   string       `json:"html_url"`

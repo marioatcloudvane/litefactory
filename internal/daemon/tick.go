@@ -158,6 +158,11 @@ func (d *Daemon) poll(
 			return fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
 		}
+		commented, err := d.commentedIssues(ctx, forgeRepo, since, issues)
+		if err != nil {
+			return err
+		}
+		issues = append(issues, commented...)
 		result.Issues += len(issues)
 
 		for _, issue := range issues {
@@ -183,6 +188,61 @@ type task struct {
 	issue     github.Issue
 	session   store.Session
 	ref       naming.Ref
+}
+
+// commentedIssues finds the issues that received a comment since the cursor and
+// that the issue listing did not already return.
+//
+// It exists because the issue listing alone loses owner comments — GitHub does
+// not move an issue's `updated_at` when one is written, so a comment on an
+// otherwise untouched issue is invisible to a `since` walk. The measurement is
+// in [github.Client.ListCommentedIssues]; the consequence, before this, was a
+// seven-hour delay that looked exactly like a dead daemon.
+//
+// One extra listing per repository per tick, plus one issue read per issue that
+// is *only* reachable this way — which is to say, one read per issue that has
+// genuine new work on it.
+func (d *Daemon) commentedIssues(
+	ctx context.Context,
+	repo github.Repo,
+	since time.Time,
+	listed []github.Issue,
+) ([]github.Issue, error) {
+	numbers, err := d.forge.ListCommentedIssues(ctx, repo, since)
+	if err != nil {
+		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
+			repo, since.UTC().Format(time.RFC3339), err)
+	}
+	if len(numbers) == 0 {
+		return nil, nil
+	}
+
+	already := make(map[int]bool, len(listed))
+	for i := range listed {
+		already[listed[i].Number] = true
+	}
+
+	extra := make([]github.Issue, 0, len(numbers))
+	for _, number := range numbers {
+		if already[number] {
+			continue
+		}
+		issue, err := d.forge.GetIssue(ctx, repo, number)
+		if err != nil {
+			// Every pull request is an issue, so pull request comments arrive
+			// in that listing too and the payload cannot tell them apart. The
+			// issue read is where they are found out, and skipping one is
+			// routine rather than a failed tick.
+			if errors.Is(err, github.ErrInvalidArgument) {
+				d.log.DebugContext(ctx, "skipping a commented number that is not an issue",
+					slog.String("repo", repo.String()), slog.Int("number", number))
+				continue
+			}
+			return nil, fmt.Errorf("read %s#%d, which has a new comment: %w", repo, number, err)
+		}
+		extra = append(extra, issue)
+	}
+	return extra, nil
 }
 
 // processIssue finds or creates the task for one issue and drains its comment

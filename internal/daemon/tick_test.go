@@ -488,6 +488,10 @@ func TestPullRequestsAreFilteredAndEachRepoCostsOneQuery(t *testing.T) {
 	if before != 2 {
 		t.Fatalf("the settling tick made %d issue listings for 2 repositories, want 2", before)
 	}
+	commentsBefore := f.forge.repoCommentListings()
+	if commentsBefore != 2 {
+		t.Fatalf("the settling tick made %d repo comment listings for 2 repositories, want 2", commentsBefore)
+	}
 
 	f.issue("Add a /health endpoint")
 	f.forge.addIssue(fakeIssue{
@@ -501,6 +505,11 @@ func TestPullRequestsAreFilteredAndEachRepoCostsOneQuery(t *testing.T) {
 
 	if issues, _, _, _ := f.forge.counts(); issues-before != 2 {
 		t.Errorf("the tick made %d issue listings for 2 registered repositories, want 2", issues-before)
+	}
+	// Discovery is two listings per repository now — the issues that moved and
+	// the comments that were written — and still nothing per issue.
+	if got := f.forge.repoCommentListings() - commentsBefore; got != 2 {
+		t.Errorf("the tick made %d repo comment listings for 2 registered repositories, want 2", got)
 	}
 	if result.Repos != 2 {
 		t.Errorf("polled %d repositories, want 2", result.Repos)
@@ -799,5 +808,34 @@ func TestTickCostIsBoundedByTheRepoCount(t *testing.T) {
 	if comments-commentsBefore != 1 {
 		t.Errorf("the tick made %d comment listings for one issue with five comments, want 1",
 			comments-commentsBefore)
+	}
+}
+
+// TestACommentFoundOnlyByTheCommentListingStillRuns is the regression for the
+// seven-hour delay on issue #3.
+//
+// The issue is left visibly stale — its update time sits well before the poll
+// cursor, so the issue listing will not return it, exactly as GitHub behaved on
+// 2026-08-25. The comment must still be found, because discovery no longer
+// depends on an issue's update time moving.
+func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.issue("Logging improvements")
+	f.tick() // first sight
+
+	// Push the issue's update time into the past. Nothing after this can bring
+	// it back through the issue listing.
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+
+	f.forge.addComment(testIssue, 41, owner(), "/spike make the logs readable")
+	result := f.tick()
+
+	if result.Runs != 1 {
+		t.Fatalf("ran %d turns, want 1 — the comment listing is the only way this could be found\nlogs:\n%s",
+			result.Runs, f.logs)
+	}
+	if got := f.watermark(); got != 41 {
+		t.Errorf("watermark is %d, want 41", got)
 	}
 }
