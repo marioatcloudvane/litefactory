@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -23,6 +23,14 @@ asked for; nothing here licenses starting the next one.
   a single flipped test, the seven-endpoint surface tripwire, and the absent AC
   amendment mechanism) were verified against the source and folded into
   `RESEARCH_BRIEF.md`. Still Research; nothing else changed.
+
+- 2026-08-26 — Plan complete. `IMPLEMENTATION_PLAN.md` written: three user
+  stories (ignore closed issues, parse assignees, issue body as first
+  instruction), 16 tasks. The design was settled by the owner in conversation
+  before Plan ran, so no requirements conversation was held and no alternatives
+  were weighed. Two sections of the brief are recorded in the plan as
+  superseded: §4's idempotency options and the `CreatedAt` newness test. Plan is
+  closed; Implement needs its own comment from a human.
 
 ## Notes
 
