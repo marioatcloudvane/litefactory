@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,7 +15,8 @@ import (
 //
 // The order is what makes a killed daemon survivable:
 //
-//  1. Run the subprocess.
+//  1. Run the subprocess — rerunning it once, cold, if claude refuses to
+//     resume the conversation the store said it had.
 //  2. Finish the runs row immediately, so the outcome is durable before
 //     anything slower is attempted (S-9).
 //  3. Commit and push whatever the run produced (AC-3.21, AC-3.22).
@@ -30,11 +32,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	// otherwise a SIGTERM produces exactly the silence AC-4.1 forbids.
 	bookkeeping := context.WithoutCancel(ctx)
 
-	meta := harness.NewMeta(prep.request, prep.prompt, nil)
-	meta.SessionID = prep.session.ID
-	meta.Branch = prep.session.Branch
-	meta.SHABefore = prep.shaBefore
-	meta.LogPath = prep.run.LogPath
+	meta := turnMeta(prep, nil)
 	defer func() {
 		if err := harness.WriteMeta(prep.metaPath, meta); err != nil {
 			logger.Error("write the run metadata document",
@@ -42,7 +40,11 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		}
 	}()
 
-	runResult, runErr := opts.Claude.Run(ctx, prep.request)
+	runResult, runErr := runClaude(ctx, opts, prep, logger)
+	// Rebuilt from the preparation as it finally stood, because the fallback may
+	// have replaced the prompt and the path under it: what this document records
+	// has to be what was actually sent (AC-3.11), not what was first assembled.
+	meta = turnMeta(prep, runResult)
 	if runErr != nil {
 		// The run never started, so there is no RunResult to report — but the
 		// row exists and owes the issue a comment all the same.
@@ -62,13 +64,6 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	result.Reason = runResult.Reason
 	result.LogPath = runResult.LogPath
 
-	// Rebuilt from the result so every field the harness knows about is
-	// present; the fields only a turn can know are put back afterwards.
-	meta = harness.NewMeta(prep.request, prep.prompt, runResult)
-	meta.SessionID = prep.session.ID
-	meta.Branch = prep.session.Branch
-	meta.SHABefore = prep.shaBefore
-
 	run, err := opts.DB.FinishRun(bookkeeping, prep.run.ID, runOutcome(runResult))
 	if err != nil {
 		return result, fmt.Errorf("finish run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
@@ -77,6 +72,102 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 
 	result = save(ctx, opts, prep, result, runResult, logger)
 	return finish(bookkeeping, opts, prep, result, runResult, &meta, logger)
+}
+
+// runClaude starts the subprocess, and reruns it once — cold, in this same
+// turn, on this same run row — when claude refuses to resume.
+//
+// The refusal is not hypothetical. The runs table says a conversation was
+// started under this session id; the transcript that would prove it lives
+// outside the store, on the machine that wrote it and under the directory it
+// ran in. A machine move, a changed worktree_root or a hand-deleted transcript
+// leaves the rows behind with nothing to resume. Without this rerun the task is
+// wedged permanently: every run asks to resume, is refused, and reports the
+// same failure forever, and no comment on the issue can get it unstuck.
+//
+// Exactly one rerun, and only on [harness.ErrSessionNotResumable]. The rerun is
+// this run, not a new one — same row, same ordinal, same NNNN.jsonl, which the
+// harness opens with O_APPEND so the refusal stays in the log as evidence. It
+// is cold, so it passes --session-id and cannot be refused for the same reason;
+// if it fails it fails as an ordinary run and is reported as one.
+func runClaude(
+	ctx context.Context,
+	opts Options,
+	prep *preparation,
+	logger *slog.Logger,
+) (*harness.RunResult, error) {
+	result, err := opts.Claude.Run(ctx, prep.request)
+	if !errors.Is(err, harness.ErrSessionNotResumable) {
+		return result, err
+	}
+
+	logger.Warn("claude has no conversation to resume; rerunning this run cold",
+		slog.String("claude_session_id", prep.request.ClaudeSessionID),
+		slog.Int("run_ordinal", prep.run.Ordinal),
+		slog.String("stderr", refusalEvidence(result)),
+		slog.Any("error", err))
+
+	// The cold prompt is the full one — the header, the headless guidance, the
+	// issue note, and whatever else a run that has been told nothing needs to be
+	// told. Flipping Resume is the whole of the difference, which is why the
+	// input is carried here rather than reassembled: everything a cold prompt
+	// gains over a resumed one is assembled in exactly one place, in prepare.
+	cold := prep.promptInput
+	cold.Resume = false
+	prompt, err := harness.BuildPrompt(cold)
+	if err != nil {
+		return nil, fmt.Errorf("assemble the cold prompt for run %d of task %s: %w",
+			prep.run.Ordinal, prep.ref, err)
+	}
+
+	// The preparation is updated rather than shadowed: the metadata document is
+	// built from it after this returns, and it has to record the prompt that was
+	// actually sent and the path that was actually taken.
+	prep.promptInput = cold
+	prep.prompt = prompt
+	prep.request.Prompt = prompt
+	prep.request.Path = harness.PathColdAfterResumeRefused
+
+	result, err = opts.Claude.Run(ctx, prep.request)
+	if errors.Is(err, harness.ErrSessionNotResumable) {
+		// Unreachable against a real claude: a cold run is never classified as a
+		// refusal, because it is not asking to resume anything. If it happens
+		// anyway there is no third attempt — one rerun is the whole budget — so
+		// it is reported as the run failure it is.
+		logger.Error("the cold rerun was refused as well; reporting it as a run failure",
+			slog.Any("error", err))
+		return result, nil
+	}
+	return result, err
+}
+
+// refusalEvidence renders the refused run's stderr for the log line.
+//
+// It is evidence for a human and nothing else. Nothing branches on this text:
+// the wording belongs to another project's binary, and a release that reworded
+// it would otherwise turn a handled condition back into a wedged task.
+func refusalEvidence(result *harness.RunResult) string {
+	if result == nil {
+		return "(no run result)"
+	}
+	return result.Stderr
+}
+
+// turnMeta builds the run's metadata document: what the harness knows about the
+// request and the result, plus the fields only a turn can know.
+//
+// result may be nil — a run that never started still gets a document, which is
+// the point of writing it best effort — and then the log path comes from the
+// row that was allocated for it rather than from a run that never opened it.
+func turnMeta(prep *preparation, result *harness.RunResult) harness.Meta {
+	meta := harness.NewMeta(prep.request, prep.prompt, result)
+	meta.SessionID = prep.session.ID
+	meta.Branch = prep.session.Branch
+	meta.SHABefore = prep.shaBefore
+	if meta.LogPath == "" {
+		meta.LogPath = prep.run.LogPath
+	}
+	return meta
 }
 
 // runOutcome maps a harness outcome onto the runs row (S-9, AC-3.20).

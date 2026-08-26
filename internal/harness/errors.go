@@ -22,6 +22,17 @@ var (
 	// all, so no run happened and there is nothing to report on.
 	ErrStartFailed = errors.New("claude did not start")
 
+	// ErrSessionNotResumable reports that claude declined to continue the
+	// conversation a run asked to resume: the session id names no transcript it
+	// can find. It is the one run failure this package reports as an error as
+	// well as a [*RunResult], because the caller's answer to it is to rerun the
+	// same run cold rather than to report it — see [Runner.Run].
+	//
+	// It is decided from the shape of the run, never from the wording of
+	// claude's stderr; the run result carrying the stderr tail is returned
+	// alongside it as evidence.
+	ErrSessionNotResumable = errors.New("claude has no conversation to resume")
+
 	// ErrInvalidPrompt reports a [PromptInput] that cannot produce a usable
 	// prompt: no instruction, no feature slug, an unparseable task ref. It is
 	// separate from [ErrInvalidRequest] because prompt assembly is a pure

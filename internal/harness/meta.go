@@ -47,8 +47,14 @@ type Meta struct {
 	SessionID int64 `json:"session_id"`
 	// SegmentOrdinal is the conversation segment, 1 at M0.
 	SegmentOrdinal int `json:"segment_ordinal"`
-	// ClaudeSessionID is the value passed to --session-id.
+	// ClaudeSessionID is the value passed to --session-id, or to --resume on a
+	// run that continued an earlier conversation.
 	ClaudeSessionID string `json:"claude_session_id"`
+	// Resumed says whether this run continued the conversation that id names
+	// rather than starting it. It is what joins this document to the rest of
+	// the conversation: a resumed run's Prompt is only the delta it sent, and
+	// everything said before it is in claude's own transcript.
+	Resumed bool `json:"resumed"`
 	// Mode is the run mode, "spike" at M0.
 	Mode string `json:"mode"`
 	// Model is the model named by the init event (AC-3.17).
@@ -103,6 +109,7 @@ func NewMeta(req Request, prompt string, result *RunResult) Meta {
 		RunOrdinal:     req.RunOrdinal,
 		TaskRef:        req.Ref.String(),
 		SegmentOrdinal: req.SegmentOrdinal,
+		Resumed:        req.Path.resuming(),
 		Mode:           req.Mode,
 		Prompt:         prompt,
 		WorktreePath:   req.WorktreePath,

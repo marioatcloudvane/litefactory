@@ -388,3 +388,149 @@ The two notes below are the issue and the comment this run came from. They were 
 		t.Errorf("the /spike prompt changed.\n--- got ---\n%s\n--- want ---\n%s", head, want)
 	}
 }
+
+// TestResumedPromptIsTheDelta is AC-SR-2.4.
+//
+// A resumed run is the next message in a conversation, not the opening one.
+// Everything the conversation has already been told is left out, and what is
+// left is what has changed since: which run this is, what mode it is in, what
+// was asked for, and the comment that asked.
+func TestResumedPromptIsTheDelta(t *testing.T) {
+	in := testPromptInput()
+	in.Resume = true
+	in.PreviousMode = "spike"
+	in.RunOrdinal = 4
+	in.Instruction = "now add the build sha to the payload"
+	in.CommentBody = "/spike now add the build sha to the payload"
+	prompt := buildPrompt(t, in)
+
+	for _, want := range []string{
+		"# litefactory run 0004 of github:acme/acme-api#123",
+		"- Mode: spike\n",
+		"- Feature slug: 123-add-a-widget\n",
+		"## Instruction",
+		"now add the build sha to the payload",
+		"/spike now add the build sha to the payload",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the resumed prompt is missing %q:\n%s", want, prompt)
+		}
+	}
+
+	// Everything below is in the transcript already. Repeating it spends the
+	// context the resume exists to preserve.
+	for _, unwanted := range []string{
+		"- Task:",
+		"- Branch:",
+		"- Working directory:",
+		"feature name or ticket id",
+		"do not ask clarifying questions",
+		"Title: Add a widget",
+		"The widget should be blue.",
+		"The two notes below",
+	} {
+		if strings.Contains(prompt, unwanted) {
+			t.Errorf("the resumed prompt repeats %q, which the conversation has already seen:\n%s",
+				unwanted, prompt)
+		}
+	}
+
+	// One note, and it is the triggering comment's. The issue note is gone, so
+	// the count is how the two are told apart without matching on prose.
+	if got := strings.Count(prompt, "<note>"); got != 1 {
+		t.Errorf("got %d <note> elements, want 1 (the triggering comment only)", got)
+	}
+	if got := strings.Count(prompt, noteFraming); got != 1 {
+		t.Errorf("the third-party framing line appears %d times, want once for the one note", got)
+	}
+	if !strings.Contains(prompt, "written by @mario") {
+		t.Errorf("the triggering comment is not attributed:\n%s", prompt)
+	}
+}
+
+// The cold prompt is unaffected by the flag existing: Resume false is byte for
+// byte the prompt litefactory sent before there was a resume path at all. Its
+// exact text is pinned by TestSpikePromptIsUnchanged; this is the assertion
+// that the same input still reaches it.
+func TestColdPromptStillCarriesEverything(t *testing.T) {
+	in := testPromptInput()
+	in.PreviousMode = "spike"
+	cold := buildPrompt(t, in)
+
+	for _, want := range []string{
+		"- Task: github:acme/acme-api#123",
+		"- Branch: lf/123-add-a-widget",
+		"- Working directory:",
+		"feature name or ticket id",
+		"do not ask clarifying questions",
+		"Title: Add a widget",
+	} {
+		if !strings.Contains(cold, want) {
+			t.Errorf("the cold prompt is missing %q:\n%s", want, cold)
+		}
+	}
+	if got := strings.Count(cold, "<note>"); got != 2 {
+		t.Errorf("got %d <note> elements on the cold path, want 2", got)
+	}
+}
+
+// TestResumedPromptReEmitsGuidanceOnAModeChange is AC-SR-2.5.
+//
+// A conversation that began as a /spike has never been told what inferring a
+// mode means. A run four that infers has to be told now, once — and a
+// conversation that has already been told does not need it again.
+func TestResumedPromptReEmitsGuidanceOnAModeChange(t *testing.T) {
+	tests := []struct {
+		name         string
+		resume       bool
+		mode         string
+		previousMode string
+		wantGuidance bool
+	}{
+		{name: "resumed, spike becomes infer", resume: true, mode: InferMode, previousMode: "spike", wantGuidance: true},
+		{name: "resumed, still inferring", resume: true, mode: InferMode, previousMode: InferMode},
+		{name: "resumed, infer becomes spike", resume: true, mode: "spike", previousMode: InferMode},
+		{name: "resumed, still spiking", resume: true, mode: "spike", previousMode: "spike"},
+		{name: "cold and inferring", mode: InferMode, previousMode: "", wantGuidance: true},
+		{name: "cold, inferring again after an infer", mode: InferMode, previousMode: InferMode, wantGuidance: true},
+		{name: "cold and spiking", mode: "spike", previousMode: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := testPromptInput()
+			in.Resume = tc.resume
+			in.Mode = tc.mode
+			in.PreviousMode = tc.previousMode
+
+			got := strings.Contains(buildPrompt(t, in), "named no command")
+			if got != tc.wantGuidance {
+				t.Errorf("mode guidance present = %t, want %t", got, tc.wantGuidance)
+			}
+		})
+	}
+}
+
+// BuildPrompt stays the only builder, and it stays pure: the same input
+// produces the same bytes on both paths, which is what makes the prompt
+// recorded in NNNN.meta.json the whole answer to "what did we ask it".
+func TestBuildPromptIsPureOnBothPaths(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		in := testPromptInput()
+		in.Resume = resume
+		if first, second := buildPrompt(t, in), buildPrompt(t, in); first != second {
+			t.Errorf("resume=%t produced two different prompts:\n%s\n---\n%s", resume, first, second)
+		}
+	}
+}
+
+// A resumed prompt is validated exactly as a cold one is. Half a prompt sent
+// into a live conversation is worse than a refused turn, not better.
+func TestResumedPromptIsValidatedToo(t *testing.T) {
+	in := testPromptInput()
+	in.Resume = true
+	in.Instruction = "  "
+
+	if _, err := BuildPrompt(in); !errors.Is(err, ErrInvalidPrompt) {
+		t.Fatalf("error = %v, want ErrInvalidPrompt", err)
+	}
+}

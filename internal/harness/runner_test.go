@@ -1,9 +1,11 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +25,19 @@ import (
 // non-determinism of the actual binary.
 
 var testRef = naming.Ref{Forge: naming.ForgeGitHub, Owner: "acme", Repo: "acme-api", Issue: 123}
+
+// testSessionID is what naming.ClaudeSessionID derives for testRef's first
+// segment, written out rather than recomputed: this package no longer derives
+// the id, so a test that called the derivation to build its expectation would
+// be comparing the derivation against itself instead of against what the
+// request carried.
+const testSessionID = "d3ece914-438d-584f-a110-fa6b77f31645"
+
+// storedSessionID is a canonical UUID that is *not* what testRef derives — the
+// shape of a segments row written before some future change to the derivation,
+// or by a different litefactory version. It is the id claude has seen, so it is
+// the id that has to reach argv.
+const storedSessionID = "6f2a1c3d-9e4b-5a7c-8d1e-2f3a4b5c6d7e"
 
 const testPrompt = "# litefactory run 0001\n\nplease add a /health endpoint\n"
 
@@ -102,12 +117,13 @@ func fixtureEnviron(binDir, home, tmp string) []string {
 
 func (f *fixture) request() Request {
 	return Request{
-		Ref:            testRef,
-		RunOrdinal:     1,
-		SegmentOrdinal: 1,
-		Mode:           "spike",
-		WorktreePath:   f.worktree,
-		Prompt:         testPrompt,
+		Ref:             testRef,
+		RunOrdinal:      1,
+		SegmentOrdinal:  1,
+		ClaudeSessionID: testSessionID,
+		Mode:            "spike",
+		WorktreePath:    f.worktree,
+		Prompt:          testPrompt,
 	}
 }
 
@@ -219,14 +235,10 @@ func TestRunSucceeds(t *testing.T) {
 		t.Errorf("stream error: %v", result.StreamError)
 	}
 
-	// The session id is naming's deterministic UUID v5, so the segments row and
-	// the value claude was given cannot drift.
-	want, err := naming.ClaudeSessionID(testRef, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.SessionID != want {
-		t.Errorf("session id = %q, want %q", result.SessionID, want)
+	// The result reports the id the request carried, which is the id on the
+	// segments row, so the row and the conversation claude keeps cannot drift.
+	if result.SessionID != testSessionID {
+		t.Errorf("session id = %q, want %q", result.SessionID, testSessionID)
 	}
 
 	if log := f.runLog(t); strings.Count(log, "\n") != 2 {
@@ -242,16 +254,12 @@ func TestRunUsesTheVerifiedInvocation(t *testing.T) {
 	result := f.run(t)
 
 	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
-	sessionID, err := naming.ClaudeSessionID(testRef, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	for _, pair := range [][2]string{
 		{"-p", ""},
 		{"--output-format", "stream-json"},
 		{"--verbose", ""},
-		{"--session-id", sessionID},
+		{"--session-id", testSessionID},
 		{"--tools", "Read,Edit"},
 		{"--settings", filepath.Join(f.home, "claude-settings.json")},
 		{"--allowedTools", "Read,Edit(./**)"},
@@ -282,6 +290,82 @@ func TestRunUsesTheVerifiedInvocation(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(result.Command, " "), "health endpoint") {
 		t.Error("the prompt is in the recorded command line")
+	}
+}
+
+// AC-SR-1.2, the harness half of it. The id claude is given is the one the
+// request carried and nothing else, so a run whose stored session id has parted
+// company with the derivation still names the conversation claude actually has.
+//
+// storedSessionID is deliberately not what testRef derives: reinstating a
+// derivation inside Run would put the derived id on argv and fail this.
+func TestRunPutsTheRequestSessionIDOnArgv(t *testing.T) {
+	f := newFixture(t, successScript(t))
+
+	req := f.request()
+	req.ClaudeSessionID = storedSessionID
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
+	defer cancel()
+	result, err := f.runner.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	i := slices.Index(argv, "--session-id")
+	if i < 0 || i+1 >= len(argv) {
+		t.Fatalf("argv is missing --session-id: %q", argv)
+	}
+	if argv[i+1] != storedSessionID {
+		t.Errorf("--session-id = %q, want the request's %q", argv[i+1], storedSessionID)
+	}
+	if slices.Contains(argv, testSessionID) {
+		t.Errorf("argv carries the derived id %q, so the runner derived it again", testSessionID)
+	}
+	if result.SessionID != storedSessionID {
+		t.Errorf("result session id = %q, want %q", result.SessionID, storedSessionID)
+	}
+}
+
+// AC-SR-1.3. The id arrives on the request instead of being derived here, so
+// its shape is no longer guaranteed by construction and validate has to check
+// it. Canonical means what naming.ClaudeSessionID emits: lowercase, hyphenated,
+// version 5. claude rejects anything else itself, but only after the process
+// has started, which reads as a run failure rather than a bad request.
+func TestRunRejectsAMalformedSessionID(t *testing.T) {
+	f := newFixture(t, successScript(t))
+
+	tests := []struct {
+		name      string
+		sessionID string
+		wantValid bool
+	}{
+		{"the derived id", testSessionID, true},
+		{"a stored id from some other derivation", storedSessionID, true},
+		{"empty", "", false},
+		{"not a uuid at all", "seeded-session-id", false},
+		{"one character short", testSessionID[:len(testSessionID)-1], false},
+		{"uppercase hex", strings.ToUpper(testSessionID), false},
+		{"unhyphenated", strings.ReplaceAll(testSessionID, "-", ""), false},
+		{"version 4 rather than 5", "d3ece914-438d-484f-a110-fa6b77f31645", false},
+		{"surrounded by whitespace", " " + testSessionID + "\n", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := f.request()
+			req.ClaudeSessionID = tc.sessionID
+
+			_, err := f.runner.Run(t.Context(), req)
+			switch {
+			case tc.wantValid && err != nil:
+				t.Fatalf("Run rejected %s: %v", tc.name, err)
+			case !tc.wantValid && err == nil:
+				t.Fatalf("Run accepted %s", tc.name)
+			case !tc.wantValid && !errors.Is(err, ErrInvalidRequest):
+				t.Fatalf("error %v does not unwrap to ErrInvalidRequest", err)
+			}
+		})
 	}
 }
 
@@ -887,4 +971,235 @@ func readTrimmed(t *testing.T, path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// runArgv runs one request on the given path and returns the argv the child
+// actually received. The fake overwrites argv.dump on every run, so two calls
+// on one fixture compare two invocations of the same runner.
+func runArgv(t *testing.T, f *fixture, path RunPath) []string {
+	t.Helper()
+
+	req := f.request()
+	req.Path = path
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
+	defer cancel()
+	if _, err := f.runner.Run(ctx, req); err != nil {
+		t.Fatalf("Run on the %s path: %v", path, err)
+	}
+	return strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+}
+
+// withoutSessionFlag returns argv with the session flag and its value removed,
+// which is everything the two paths are required to agree on.
+func withoutSessionFlag(t *testing.T, argv []string) []string {
+	t.Helper()
+
+	for _, flag := range []string{"--session-id", "--resume"} {
+		if i := slices.Index(argv, flag); i >= 0 {
+			if i+1 >= len(argv) {
+				t.Fatalf("%s has no value: %q", flag, argv)
+			}
+			return slices.Concat(argv[:i], argv[i+2:])
+		}
+	}
+	t.Fatalf("argv carries neither --session-id nor --resume: %q", argv)
+	return nil
+}
+
+// TestRunResumeSwapsOnlyTheSessionFlag is AC-SR-2.1 and AC-SR-2.9.
+//
+// The first run of a segment names the conversation it is about to start; every
+// run after it resumes that conversation instead. The two flags cannot both be
+// passed — claude rejects the combination unless --fork-session is also given —
+// so this is a swap, not an addition.
+//
+// The rest of argv is asserted to be identical, and the tool boundary is the
+// reason: a resumed session resolves --tools from the argv it is given and does
+// not inherit a wider surface from the transcript it continues, so the two
+// paths must present the same boundary or resuming would be a way to widen it.
+func TestRunResumeSwapsOnlyTheSessionFlag(t *testing.T) {
+	f := newFixture(t, successScript(t))
+
+	cold := runArgv(t, f, PathCold)
+	resumed := runArgv(t, f, PathResume)
+
+	if i := slices.Index(cold, "--session-id"); i < 0 || cold[i+1] != testSessionID {
+		t.Errorf("the cold path does not pass --session-id %s: %q", testSessionID, cold)
+	}
+	if slices.Contains(cold, "--resume") {
+		t.Errorf("the cold path passes --resume: %q", cold)
+	}
+	if i := slices.Index(resumed, "--resume"); i < 0 || resumed[i+1] != testSessionID {
+		t.Errorf("the resume path does not pass --resume %s: %q", testSessionID, resumed)
+	}
+	if slices.Contains(resumed, "--session-id") {
+		t.Errorf("the resume path still passes --session-id, which claude rejects: %q", resumed)
+	}
+	if !slices.Equal(withoutSessionFlag(t, cold), withoutSessionFlag(t, resumed)) {
+		t.Errorf("the two paths differ by more than the session flag:\ncold:   %q\nresume: %q", cold, resumed)
+	}
+
+	// The fallback runs cold in every respect. It is a different name for the
+	// same invocation, kept only so the log line can say where it came from.
+	if fallback := runArgv(t, f, PathColdAfterResumeRefused); !slices.Equal(fallback, cold) {
+		t.Errorf("the cold rerun's argv differs from a cold run's:\nrerun: %q\ncold:  %q", fallback, cold)
+	}
+}
+
+// refusalScript is P5 of the CLI contract: --resume on an id claude has no
+// transcript for. It exits 1 having emitted no init event and exactly one
+// terminal result event, which is why "no events" is not the test.
+func refusalScript(t *testing.T) string {
+	t.Helper()
+
+	const refusal = `{"type":"result","subtype":"error_during_execution","is_error":true,` +
+		`"duration_ms":0,"num_turns":0,"result":null,"total_cost_usd":0}`
+	return dumpPrologue +
+		"echo 'No conversation found with session ID: " + testSessionID + "' >&2\n" +
+		emit(t, refusal) +
+		"exit 1\n"
+}
+
+// TestRunReportsARefusedResume is AC-SR-2.7. A conversation the store believed
+// in and claude cannot find is the one run failure that comes back as an error
+// as well as a result: the caller's answer is to rerun cold, not to report it.
+func TestRunReportsARefusedResume(t *testing.T) {
+	f := newFixture(t, refusalScript(t))
+
+	req := f.request()
+	req.Path = PathResume
+
+	result, err := f.runner.Run(t.Context(), req)
+	if !errors.Is(err, ErrSessionNotResumable) {
+		t.Fatalf("error = %v, want it to unwrap to ErrSessionNotResumable", err)
+	}
+	if result == nil {
+		t.Fatal("no result came back with the refusal; the stderr is the evidence for it")
+	}
+	if result.Outcome != OutcomeFailed || result.ExitCode != 1 {
+		t.Errorf("outcome = %s exit = %d, want failed and 1", result.Outcome, result.ExitCode)
+	}
+	if !strings.Contains(result.Stderr, "No conversation found") {
+		t.Errorf("stderr tail = %q, want claude's own explanation kept as evidence", result.Stderr)
+	}
+	if !result.HasResult || result.Events != 1 {
+		t.Errorf("events = %d has_result = %t; the refusal emits one terminal event, so a test on "+
+			"the event count instead of the init event would never fire", result.Events, result.HasResult)
+	}
+}
+
+// The same failure on a cold run is an ordinary failure. A cold run is not
+// asking to resume anything, so rerunning it would fix nothing — and the
+// identical shape is reachable there for a different reason entirely: a
+// --session-id that is already in use exits 1 with no events at all.
+func TestRunDoesNotReportARefusalOnTheColdPath(t *testing.T) {
+	f := newFixture(t, refusalScript(t))
+
+	result, err := f.runner.Run(t.Context(), f.request())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if result.Outcome != OutcomeFailed {
+		t.Errorf("outcome = %s, want the ordinary failure", result.Outcome)
+	}
+}
+
+// TestResumeRefusedClauses pins every clause of the classification. Each row is
+// a failure that looks like a refusal in some respect and is not one.
+func TestResumeRefusedClauses(t *testing.T) {
+	tests := []struct {
+		name     string
+		resuming bool
+		result   RunResult
+		want     bool
+	}{
+		{
+			name:     "a refused resume",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeFailed, ExitCode: 1},
+			want:     true,
+		},
+		{
+			name:     "the same shape on a cold run",
+			resuming: false,
+			result:   RunResult{Outcome: OutcomeFailed, ExitCode: 1},
+		},
+		{
+			name:     "a resumed run that failed after its init event",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeFailed, ExitCode: 2, Model: "claude-fake-1"},
+		},
+		{
+			name:     "a resumed run killed by the timeout",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeTimedOut, ExitCode: SignalExitCode},
+		},
+		{
+			name:     "a resumed run abandoned by a shutting-down daemon",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeAbandoned, ExitCode: SignalExitCode},
+		},
+		{
+			name:     "a resumed run killed by a signal",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeFailed, ExitCode: SignalExitCode},
+		},
+		{
+			name:     "the SD-7 missing --verbose failure: no events, clean exit",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeNoResult, ExitCode: 0},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.result
+			if got := resumeRefused(tc.resuming, &result); got != tc.want {
+				t.Errorf("resumeRefused = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+// AC-SR-2.10, the harness half: which path a run took is on every line it logs,
+// so a fallback can be read out of daemon.log afterwards.
+func TestRunLogsThePathItTook(t *testing.T) {
+	for _, tc := range []struct {
+		path RunPath
+		want string
+	}{
+		{PathCold, "path=cold"},
+		{"", "path=cold"},
+		{PathResume, "path=resume"},
+		{PathColdAfterResumeRefused, "path=cold_after_resume_refused"},
+	} {
+		t.Run(tc.want, func(t *testing.T) {
+			logs := &bytes.Buffer{}
+			f := newFixture(t, successScript(t))
+			f.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+
+			req := f.request()
+			req.Path = tc.path
+			if _, err := f.runner.Run(t.Context(), req); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if !strings.Contains(logs.String(), tc.want) {
+				t.Errorf("the run log lines do not carry %s:\n%s", tc.want, logs)
+			}
+		})
+	}
+}
+
+// An unrecognised path would run cold, and on a task with a live conversation
+// running cold is the one outcome this feature exists to prevent.
+func TestRunRejectsAnUnknownPath(t *testing.T) {
+	f := newFixture(t, successScript(t))
+
+	req := f.request()
+	req.Path = "continue"
+
+	_, err := f.runner.Run(t.Context(), req)
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error = %v, want ErrInvalidRequest", err)
+	}
 }

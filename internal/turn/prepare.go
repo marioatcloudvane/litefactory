@@ -33,6 +33,11 @@ type preparation struct {
 	request  harness.Request
 	prompt   string
 	metaPath string
+
+	// promptInput is what the prompt was built from, kept so that the resume
+	// fallback in [runAndHarvest] can rebuild it cold without reassembling any
+	// of it here. Flipping Resume is the whole difference between the two.
+	promptInput harness.PromptInput
 }
 
 // prepare takes a locked task from "there is a comment" to "claude can start".
@@ -50,7 +55,9 @@ type preparation struct {
 //  6. Allocate the runs row — and with it the ordinal and the log path —
 //     before the subprocess starts, so a crashed run still owns its number
 //     (S-1).
-//  7. Assemble the prompt.
+//  7. Decide whether this run continues the previous run's conversation, read
+//     the thread as litefactory has recorded it, and assemble the prompt that
+//     decision calls for.
 //
 // Everything that can go wrong because of the state of the world is returned as
 // a *failure, which [Execute] turns into a reportable result rather than an
@@ -105,6 +112,13 @@ func prepare(
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
 
+	// The one place in the tree that derives a claude session id. Every later
+	// consumer — the harness, the run log, the metadata document — reads it back
+	// off the segment below, because GetOrCreateSegment only uses this value
+	// when it creates the row and returns an existing row as stored. Its doc
+	// comment says the stored value wins if the two ever disagree; a resumed run
+	// is what makes that real, since the stored id is the only one that names a
+	// conversation claude can still find.
 	claudeSessionID, err := naming.ClaudeSessionID(ref, store.FirstSegmentOrdinal)
 	if err != nil {
 		return nil, fmt.Errorf("derive the claude session id for task %s: %w", ref, err)
@@ -112,6 +126,15 @@ func prepare(
 	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, claudeSessionID)
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
+	}
+
+	// Read before the row for this run is inserted, so that the run being
+	// prepared cannot be found as its own predecessor. The terminal-status
+	// filter would exclude it anyway — it is inserted as running — and both are
+	// kept: one of them is an ordering that a later edit could quietly reverse.
+	previous, resume, err := previousRun(ctx, opts, session, segment)
+	if err != nil {
+		return nil, err
 	}
 
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
@@ -123,7 +146,12 @@ func prepare(
 		return nil, fmt.Errorf("derive the metadata path of run %d: %w", run.Ordinal, err)
 	}
 
-	prompt, err := harness.BuildPrompt(harness.PromptInput{
+	history, err := commentHistory(ctx, opts, session, req)
+	if err != nil {
+		return nil, err
+	}
+
+	promptInput := harness.PromptInput{
 		Ref:           ref,
 		FeatureSlug:   session.FeatureSlug,
 		Branch:        branch,
@@ -135,9 +163,18 @@ func prepare(
 		IssueAuthor:   req.Issue.Author,
 		CommentBody:   req.Trigger.Body,
 		CommentAuthor: req.Trigger.Author,
-	})
+		Resume:        resume,
+		PreviousMode:  previous.Mode,
+		History:       history,
+	}
+	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
+
+	path := harness.PathCold
+	if resume {
+		path = harness.PathResume
 	}
 
 	logger.Info("run prepared",
@@ -146,28 +183,164 @@ func prepare(
 		slog.String("branch", branch),
 		slog.String("worktree", worktree.Path()),
 		slog.String("sha_before", shaBefore),
+		slog.String("path", path.String()),
+		slog.Int("previous_run_ordinal", previous.Ordinal),
+		slog.Int("history_comments", len(history)),
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
-		repo:      repo,
-		session:   session,
-		ref:       ref,
-		author:    author,
-		worktree:  worktree,
-		shaBefore: shaBefore,
-		segment:   segment,
-		run:       run,
-		prompt:    prompt,
-		metaPath:  metaPath,
+		repo:        repo,
+		session:     session,
+		ref:         ref,
+		author:      author,
+		worktree:    worktree,
+		shaBefore:   shaBefore,
+		segment:     segment,
+		run:         run,
+		prompt:      prompt,
+		metaPath:    metaPath,
+		promptInput: promptInput,
 		request: harness.Request{
-			Ref:            ref,
-			RunOrdinal:     run.Ordinal,
-			SegmentOrdinal: segment.Ordinal,
-			Mode:           req.mode(),
-			WorktreePath:   worktree.Path(),
-			Prompt:         prompt,
+			Ref:             ref,
+			RunOrdinal:      run.Ordinal,
+			SegmentOrdinal:  segment.Ordinal,
+			ClaudeSessionID: segment.ClaudeSessionID,
+			Mode:            req.mode(),
+			Path:            path,
+			WorktreePath:    worktree.Path(),
+			Prompt:          prompt,
 		},
 	}, nil
+}
+
+// previousRun finds the last run of this segment that claude was actually
+// invoked for, and with it the answer to "is there a conversation to continue?".
+//
+// The evidence is the runs table and nothing else. A row on this segment in a
+// terminal status means a subprocess was started with the segment's claude
+// session id, and claude keeps a transcript for every session id it is given —
+// so a conversation should exist and this run can resume it. There is no column
+// for this and there does not need to be one: runs.segment_id and runs.status
+// already say it, and a column would be a second copy of the same fact to keep
+// in step.
+//
+// A row still marked running is not evidence. It is either this daemon's own
+// run, which cannot be its own predecessor, or a run a killed daemon left
+// behind — and that one becomes failed, and therefore terminal, the moment
+// reconciliation sees it (D-B).
+//
+// Note what this is not: proof. The rows are here and the transcript is on
+// whichever machine wrote it, under whichever working directory it ran in. A
+// machine move or a changed worktree_root leaves the rows pointing at a
+// conversation that no longer exists, which is what the cold rerun in
+// [runAndHarvest] exists to survive.
+func previousRun(
+	ctx context.Context,
+	opts Options,
+	session store.Session,
+	segment store.Segment,
+) (store.Run, bool, error) {
+	runs, err := opts.DB.ListRuns(ctx, session.ID)
+	if err != nil {
+		return store.Run{}, false, fmt.Errorf("list the runs of task %s: %w", session.TaskRef, err)
+	}
+
+	var previous store.Run
+	var found bool
+	for _, run := range runs {
+		// ListRuns is in ordinal order, oldest first, so the last match wins
+		// and previous is the most recent run of this conversation.
+		if run.SegmentID == segment.ID && terminalRunStatus(run.Status) {
+			previous, found = run, true
+		}
+	}
+	return previous, found, nil
+}
+
+// commentHistory reads the comments litefactory has recorded on this task and
+// turns them into the prompt's history entries, oldest first.
+//
+// Assembly, not markup. The <note> frame, the size caps and the neutralisation
+// are harness's single responsibility; a block pre-rendered here would drift
+// from the framing the other notes use, and the drift would be invisible until
+// something read the wrong half of a prompt as litefactory's own words. All
+// this does is map the store's classification onto the label the prompt shows
+// and drop the comment that triggered this run — that one already appears
+// verbatim in its own note, and a thread where the live request also appears as
+// history is a thread where it is ambiguous which one is live.
+//
+// It is read on every path even though only a cold prompt renders it. The
+// resume fallback in [runAndHarvest] rebuilds this same input with Resume
+// flipped to false, and that rerun is a cold start that needs the history like
+// any other (AC-SR-2.8); reading it here is what makes the flip the whole of
+// the difference between the two prompts.
+//
+// It is best effort over what the comments table holds. A newly watched issue
+// is bootstrapped by recording the highest comment id on it and discarding the
+// bodies, so anything said before litefactory first saw the issue is not stored
+// and cannot be rendered. The block says so in its own Source line rather than
+// implying it is the whole thread.
+func commentHistory(
+	ctx context.Context,
+	opts Options,
+	session store.Session,
+	req Request,
+) ([]harness.HistoryEntry, error) {
+	comments, err := opts.DB.ListComments(ctx, session.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list the comments of task %s: %w", session.TaskRef, err)
+	}
+
+	// ListComments is in forge id order, which is the order they were written.
+	history := make([]harness.HistoryEntry, 0, len(comments))
+	for _, comment := range comments {
+		if comment.ForgeCommentID == req.Trigger.CommentID {
+			continue
+		}
+		history = append(history, harness.HistoryEntry{
+			Role:   historyRole(comment.Classification),
+			Author: comment.AuthorHandle,
+			Body:   comment.Body,
+			At:     comment.CreatedAt,
+		})
+	}
+	return history, nil
+}
+
+// historyRole maps the store's classification onto the label the prompt renders
+// it under.
+//
+// The relabelling is the point of the block, not a naming detail. "instruction"
+// is what a comment was when it arrived; replaying a thread full of comments
+// still called instructions is how a `/spike …` from last week gets carried out
+// a second time. An unrecognised classification is labelled as a third party's,
+// which is the reading that claims least.
+func historyRole(classification store.Classification) harness.HistoryRole {
+	switch classification {
+	case store.ClassificationInstruction:
+		return harness.RoleOldOwner
+	case store.ClassificationThirdParty:
+		return harness.RoleOldThirdParty
+	case store.ClassificationSelf:
+		return harness.RoleLitefactory
+	default:
+		return harness.RoleOldThirdParty
+	}
+}
+
+// terminalRunStatus reports whether a run has stopped, whatever it stopped as.
+// Failed counts as much as succeeded: claude was invoked either way, and a
+// conversation that went badly is still a conversation the next run should be
+// continuing rather than repeating.
+func terminalRunStatus(status store.RunStatus) bool {
+	switch status {
+	case store.RunSucceeded, store.RunFailed, store.RunReported:
+		return true
+	case store.RunRunning:
+		return false
+	default:
+		return false
+	}
 }
 
 // resolveAuthor settles who the run's commit is authored as.

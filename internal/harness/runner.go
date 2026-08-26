@@ -145,23 +145,78 @@ func (r *Runner) Binary() config.Executable { return r.binary }
 // Timeout returns the hard wall-clock limit one run is given.
 func (r *Runner) Timeout() time.Duration { return r.timeout }
 
+// RunPath names which conversation a run is trying to have. It decides one
+// flag — [PathResume] passes --resume where the others pass --session-id — and
+// it is the `path` attribute on every one of the run's log lines, which is what
+// makes a fallback readable in daemon.log after the fact.
+type RunPath string
+
+// The three paths a run can take.
+const (
+	// PathCold starts a new conversation under the session id. It is what the
+	// first run of a segment does, and it is the zero value: a caller that
+	// knows nothing about resuming gets the behaviour litefactory had before
+	// resuming existed.
+	PathCold RunPath = "cold"
+
+	// PathResume continues the conversation the session id already names.
+	PathResume RunPath = "resume"
+
+	// PathColdAfterResumeRefused is the rerun of a resume claude refused —
+	// the runs table said a conversation existed and the transcript did not.
+	// It is invoked exactly like [PathCold] and differs only in what it says
+	// it is, because "this run threw away a conversation we thought we had" is
+	// worth being able to grep for.
+	PathColdAfterResumeRefused RunPath = "cold_after_resume_refused"
+)
+
+// String renders the path for a log attribute, naming the zero value rather
+// than logging an empty string for it.
+func (p RunPath) String() string {
+	if p == "" {
+		return string(PathCold)
+	}
+	return string(p)
+}
+
+// resuming reports whether this path asks claude to continue an existing
+// conversation. Only [PathResume] does: the fallback path is a cold run that
+// remembers where it came from.
+func (p RunPath) resuming() bool { return p == PathResume }
+
 // Request is one claude run: which task, which run number, where, and what to
 // say. The prompt is assembled by [BuildPrompt].
 type Request struct {
-	// Ref identifies the task. It fixes the run log path and the deterministic
-	// claude session id.
+	// Ref identifies the task. It fixes the run log path and names the task on
+	// every log line the run emits.
 	Ref naming.Ref
 
 	// RunOrdinal is the per-task run number, allocated by inserting the runs
 	// row before the subprocess starts (S-1). It becomes the NNNN file stem.
 	RunOrdinal int
 
-	// SegmentOrdinal is the conversation segment, 1 at M0. Together with Ref it
-	// derives the claude session id.
+	// SegmentOrdinal is the conversation segment, 1 at M0. It is recorded in
+	// the metadata document and derives nothing: the session id it used to
+	// produce here now arrives ready-made in ClaudeSessionID below.
 	SegmentOrdinal int
+
+	// ClaudeSessionID is the value passed to `claude --session-id`, taken from
+	// the segments row rather than recomputed. internal/naming derives it once,
+	// when the row is created; this package treats it as given.
+	//
+	// Deriving it a second time here would agree with the stored value only for
+	// as long as the derivation never changes, and if the two ever part company
+	// the stored one wins — it is the id claude has already seen, and the one a
+	// later run has to name to find that conversation again.
+	ClaudeSessionID string
 
 	// Mode is the run mode, "spike" at M0. Recorded in the metadata document.
 	Mode string
+
+	// Path says which conversation this run is trying to have, and so which of
+	// --session-id and --resume it is invoked with. The zero value is a cold
+	// run, which is what a first run of a segment is.
+	Path RunPath
 
 	// WorktreePath is the run's working directory: the task's git worktree,
 	// never the registered clone.
@@ -183,8 +238,25 @@ func (req Request) validate() error {
 	if req.SegmentOrdinal < 1 {
 		return invalidRequest("segment ordinal %d is below 1", req.SegmentOrdinal)
 	}
+	if req.ClaudeSessionID == "" {
+		return invalidRequest("claude session id is empty")
+	}
+	if !naming.ValidClaudeSessionID(req.ClaudeSessionID) {
+		// claude rejects a malformed --session-id itself, but only after the
+		// worktree exists and the process has started. Refusing it here costs
+		// nothing, and keeps a corrupted segments row from being diagnosed as
+		// a claude failure.
+		return invalidRequest("claude session id %q is not a canonical UUID", req.ClaudeSessionID)
+	}
 	if strings.TrimSpace(req.Mode) == "" {
 		return invalidRequest("mode is empty")
+	}
+	switch req.Path {
+	case "", PathCold, PathResume, PathColdAfterResumeRefused:
+	default:
+		// An unrecognised path would silently run cold, which on a task with a
+		// live conversation is the one outcome this feature exists to prevent.
+		return invalidRequest("run path %q is not one of cold, resume or cold_after_resume_refused", req.Path)
 	}
 	if req.WorktreePath == "" || !filepath.IsAbs(req.WorktreePath) {
 		return invalidRequest("worktree path %q must be an absolute path", req.WorktreePath)
@@ -206,9 +278,14 @@ func (req Request) validate() error {
 //
 // A run that failed is not an error: it comes back as a [*RunResult] whose
 // Outcome says how it failed, because every run that actually happened has to
-// be logged, have its metadata written and be reported to the issue (S-9). Only
-// a failure to *start* a run — an invalid request, an unwritable run directory,
-// a binary that will not execute — returns a non-nil error.
+// be logged, have its metadata written and be reported to the issue (S-9). A
+// failure to *start* a run — an invalid request, an unwritable run directory, a
+// binary that will not execute — returns a non-nil error and no result.
+//
+// [ErrSessionNotResumable] is the single exception to both halves of that: it
+// comes back *with* a result, because the process did run, and it comes back as
+// an error because the caller's answer to it is not to report the run but to
+// rerun it cold. Nothing else returns both.
 //
 // The shape of the body is dictated by three measured failures:
 //
@@ -227,10 +304,6 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 		return nil, err
 	}
 
-	sessionID, err := naming.ClaudeSessionID(req.Ref, req.SegmentOrdinal)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
-	}
 	logPath, err := naming.RunLogPath(r.home, req.Ref, req.RunOrdinal)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
@@ -261,17 +334,17 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 		}
 	}()
 
-	args := r.args(sessionID)
+	args := r.args(req.ClaudeSessionID, req.Path.resuming())
 	logger := r.logger.With(
 		slog.String("task", req.Ref.String()),
 		slog.Int("run", req.RunOrdinal),
-		slog.String("claude_session_id", sessionID))
+		slog.String("claude_session_id", req.ClaudeSessionID),
+		slog.String("path", req.Path.String()))
 
-	result, err := r.exec(ctx, req, args, sessionID, logPath, logFile, logger)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	// exec's result is returned even when its error is not nil: a refused
+	// resume is both a run that happened and a condition the caller has to act
+	// on, and the result is the evidence for it.
+	return r.exec(ctx, req, args, logPath, logFile, logger)
 }
 
 // args builds the child's argv, prompt excluded.
@@ -283,8 +356,21 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 //     stream this package parses.
 //   - --verbose is MANDATORY. Without it claude hard-errors and writes nothing
 //     at all to stdout, which is indistinguishable from a hang.
-//   - --session-id is naming's deterministic UUID v5, so the id on the segments
-//     row and the id claude used cannot drift.
+//   - --session-id names the conversation a *first* run is about to start. The
+//     id is the one carried on the request, which is the one recorded on the
+//     segments row, so the row and the conversation claude keeps on disk cannot
+//     drift apart. Passing it a second time does not resume anything: claude
+//     checks the id against the transcript on disk and exits non-zero with
+//     "Session ID <uuid> is already in use."
+//   - --resume takes that same id on every run after the first, and
+//     --session-id is dropped — the two are mutually exclusive unless
+//     --fork-session is also given, which would write a second transcript per
+//     run and need a fresh id for each. --resume fails *closed*: an id with no
+//     conversation behind it exits non-zero rather than inventing one, which is
+//     what makes a lost transcript detectable and the cold rerun possible.
+//     claude's --continue fails *open* — with nothing to continue it silently
+//     starts a fresh conversation and exits 0, indistinguishable from having
+//     resumed — so it is never constructed here or anywhere else.
 //   - --tools is the real tool boundary (SD-2).
 //   - --settings points at the litefactory-controlled file, so a run does not
 //     inherit the operator's personal permissions.
@@ -299,12 +385,20 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 // never constructed here or anywhere else in the tree. That is a grep-able
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
-func (r *Runner) args(sessionID string) []string {
+func (r *Runner) args(sessionID string, resume bool) []string {
+	// The session flag is the only difference between the two paths. Everything
+	// after it — and the tool boundary in particular — is identical, because a
+	// resumed session takes its surface from this argv and does not inherit a
+	// wider one from the transcript it is continuing.
+	sessionFlag := "--session-id"
+	if resume {
+		sessionFlag = "--resume"
+	}
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
-		"--session-id", sessionID,
+		sessionFlag, sessionID,
 		"--tools", strings.Join(r.tools, ","),
 		"--settings", r.settingsPath,
 	}
@@ -322,7 +416,7 @@ func (r *Runner) exec(
 	ctx context.Context,
 	req Request,
 	args []string,
-	sessionID, logPath string,
+	logPath string,
 	sink io.Writer,
 	logger *slog.Logger,
 ) (*RunResult, error) {
@@ -339,11 +433,12 @@ func (r *Runner) exec(
 	// of it is chosen, not inherited. r.binary.Path is an absolute path resolved
 	// and stat'ed at New time from the operator's own config, never from an
 	// issue or a comment. args comes from r.args above: fixed flags plus the
-	// configured tool lists and a UUID v5 session id, with no caller-supplied
-	// string among them. cmd.Env is the explicit allowlist buildEnv assembles,
-	// not the daemon's environment. And the untrusted input — the prompt built
-	// from the issue — goes on stdin below, never on argv, so there is no shell
-	// and nothing here for it to influence.
+	// configured tool lists and the segment's session id, which validate has
+	// already established is a canonical UUID and so cannot smuggle in a flag.
+	// Nothing else on this argv is caller-supplied. cmd.Env is the explicit
+	// allowlist buildEnv assembles, not the daemon's environment. And the
+	// untrusted input — the prompt built from the issue — goes on stdin below,
+	// never on argv, so there is no shell and nothing here for it to influence.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir = req.WorktreePath
 	cmd.Env = buildEnv(r.environ, r.forwardEnv)
@@ -435,7 +530,7 @@ func (r *Runner) exec(
 		Outcome:     outcome,
 		Reason:      reason,
 		ExitCode:    recordedExit,
-		SessionID:   sessionID,
+		SessionID:   req.ClaudeSessionID,
 		LogPath:     logPath,
 		Command:     append([]string{r.binary.Path}, args...),
 		Model:       stream.model,
@@ -449,12 +544,12 @@ func (r *Runner) exec(
 		FinishedAt:  finishedAt,
 		Duration:    finishedAt.Sub(startedAt),
 	}
-	if stream.sessionID != "" && stream.sessionID != sessionID {
-		// The segments row records what we asked for. If claude answered with a
-		// different id, the row and the conversation on disk have parted
-		// company, and a future segment would resume the wrong one.
+	if stream.sessionID != "" && stream.sessionID != req.ClaudeSessionID {
+		// The id came off the segments row. If claude answered with a different
+		// one, the row and the conversation on disk have parted company, and a
+		// later run would resume the wrong one.
 		logger.Warn("claude reported a different session id than it was given",
-			slog.String("requested", sessionID),
+			slog.String("requested", req.ClaudeSessionID),
 			slog.String("reported", stream.sessionID))
 	}
 
@@ -467,7 +562,45 @@ func (r *Runner) exec(
 	}
 
 	r.logCompletion(logger, result)
+
+	if resumeRefused(req.Path.resuming(), result) {
+		logger.Warn("claude refused to resume the conversation",
+			slog.String("stderr", excerpt(result.Stderr)))
+		return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit %d)",
+			ErrSessionNotResumable, req.ClaudeSessionID, result.ExitCode)
+	}
 	return result, nil
+}
+
+// resumeRefused reports whether this run is claude declining to resume, which
+// is the one failure the caller answers by rerunning rather than by reporting.
+//
+// It is decided structurally. The stderr line claude prints ("No conversation
+// found with session ID: …") is logged as evidence and never matched on: it is
+// prose from another project's binary, and a release that rewords it would turn
+// a handled condition into a permanently wedged task.
+//
+// Every clause earns its place:
+//
+//   - resume only. A cold run cannot be refused for this reason, and a cold run
+//     that exits non-zero having emitted nothing is a different problem — a
+//     session id already in use, for one — that rerunning would not fix.
+//   - OutcomeFailed. It excludes OutcomeTimedOut and OutcomeAbandoned, neither
+//     of which says anything about whether the conversation exists.
+//   - no init event, so Model is empty. A run that got as far as an init event
+//     had its conversation and then failed at something else; rerunning it cold
+//     would throw that conversation away. Note that the refusal is *not* silent
+//     on stdout — it emits a single terminal result event with num_turns 0 — so
+//     the absence of an init event is the test, not the absence of events.
+//   - a positive exit code. It excludes [SignalExitCode], which is a killed
+//     process rather than a status claude chose, and the SD-7 missing-`--verbose`
+//     failure, which is zero events with a *clean* exit and classifies as
+//     OutcomeNoResult.
+func resumeRefused(resuming bool, result *RunResult) bool {
+	return resuming &&
+		result.Outcome == OutcomeFailed &&
+		result.Model == "" &&
+		result.ExitCode > 0
 }
 
 // join waits for both readers, closing their pipes if they outstay ioGrace.

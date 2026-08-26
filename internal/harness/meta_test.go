@@ -198,3 +198,40 @@ func TestWriteMetaRejectsARelativePath(t *testing.T) {
 		t.Fatalf("error %v does not unwrap to ErrInvalidRequest", err)
 	}
 }
+
+// AC-SR-2.10, the document half. A resumed run's prompt is only the delta it
+// sent; without this key there is nothing in the run directory to say that the
+// rest of the conversation is in claude's transcript rather than missing.
+func TestMetaRecordsWhichPathTheRunTook(t *testing.T) {
+	for _, tc := range []struct {
+		path RunPath
+		want bool
+	}{
+		{PathCold, false},
+		{"", false},
+		{PathResume, true},
+		{PathColdAfterResumeRefused, false},
+	} {
+		t.Run(tc.path.String(), func(t *testing.T) {
+			req := metaRequest("/w/task-123")
+			req.Path = tc.path
+
+			meta := NewMeta(req, testPrompt, nil)
+			if meta.Resumed != tc.want {
+				t.Errorf("resumed = %t, want %t", meta.Resumed, tc.want)
+			}
+
+			data, err := json.Marshal(meta)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(data, &decoded); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if got, ok := decoded["resumed"]; !ok || got != tc.want {
+				t.Errorf("the document's resumed key = %v (present %t), want %t", got, ok, tc.want)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -301,4 +302,86 @@ func writeInWorktree(t *testing.T, req harness.Request, name, content string) {
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// seedRun writes the rows a previous run of this task would have left: the
+// conversation segment carrying the claude session id, and a run on it in the
+// status it ended in. It is how a test says "this task has already talked to
+// claude", which is the only evidence the resume decision has.
+//
+// segmentOrdinal is a parameter because a run on a *different* conversation is
+// not evidence about this one, and that has to be expressible.
+func (f *fixture) seedRun(
+	segmentOrdinal int,
+	claudeSessionID string,
+	commentID int64,
+	mode string,
+	status store.RunStatus,
+) store.Run {
+	f.t.Helper()
+
+	segment, err := f.db.GetOrCreateSegment(f.t.Context(), f.session.ID, segmentOrdinal, claudeSessionID)
+	if err != nil {
+		f.t.Fatalf("seed segment %d: %v", segmentOrdinal, err)
+	}
+	run, err := f.db.AllocateRun(f.t.Context(), store.AllocateRunParams{
+		SessionID:        f.session.ID,
+		SegmentID:        segment.ID,
+		Mode:             mode,
+		TriggerCommentID: commentID,
+		LogPath: func(ordinal int) string {
+			path, pathErr := naming.RunLogPath(f.paths.Home(), f.ref(), ordinal)
+			if pathErr != nil {
+				f.t.Fatalf("derive the seeded log path: %v", pathErr)
+			}
+			return path
+		},
+	})
+	if err != nil {
+		f.t.Fatalf("seed run: %v", err)
+	}
+	if status == store.RunRunning {
+		return run
+	}
+
+	exitCode := int64(0)
+	finished := store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exitCode}
+	if status == store.RunFailed {
+		exitCode = int64(store.SignalExitCode)
+		finished = store.RunOutcome{Status: store.RunFailed, ExitCode: &exitCode, Error: store.ReasonAbandoned}
+	}
+	run, err = f.db.FinishRun(f.t.Context(), run.ID, finished)
+	if err != nil {
+		f.t.Fatalf("seed run outcome: %v", err)
+	}
+	if status == store.RunReported {
+		if run, err = f.db.CompleteRunReport(f.t.Context(), run.ID, commentID+1); err != nil {
+			f.t.Fatalf("seed run report: %v", err)
+		}
+	}
+	return run
+}
+
+// refused is the RunResult and error a claude that cannot find the conversation
+// comes back with: it ran, it emitted its one terminal event, and it exited 1
+// without ever reaching an init event.
+func refused(req harness.Request, home string) (*harness.RunResult, error) {
+	now := time.Now()
+	logPath, _ := naming.RunLogPath(home, req.Ref, req.RunOrdinal)
+	result := &harness.RunResult{
+		Outcome:    harness.OutcomeFailed,
+		Reason:     "claude exited with status 1",
+		ExitCode:   1,
+		SessionID:  req.ClaudeSessionID,
+		LogPath:    logPath,
+		Stderr:     "No conversation found with session ID: " + req.ClaudeSessionID + "\n",
+		HasResult:  true,
+		IsError:    true,
+		Events:     1,
+		StartedAt:  now.Add(-time.Second),
+		FinishedAt: now,
+		Duration:   time.Second,
+	}
+	return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit 1)",
+		harness.ErrSessionNotResumable, req.ClaudeSessionID)
 }

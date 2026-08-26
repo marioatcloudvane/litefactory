@@ -375,7 +375,12 @@ func TestExecuteReplayIsANoOp(t *testing.T) {
 func seedFinishedRun(t *testing.T, f *fixture, reported bool) {
 	t.Helper()
 
-	segment, err := f.db.GetOrCreateSegment(t.Context(), f.session.ID, store.FirstSegmentOrdinal, "seeded-session-id")
+	// A canonical UUID, because that is the only shape a segments row can
+	// legitimately hold: harness.Request.validate refuses anything else before
+	// the process starts. This path never reaches a real runner, but a fixture
+	// that could not survive one is a trap for the next test written from it.
+	segment, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID)
 	if err != nil {
 		t.Fatalf("seed segment: %v", err)
 	}
