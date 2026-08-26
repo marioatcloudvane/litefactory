@@ -893,3 +893,133 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 		t.Errorf("watermark is %d, want 41", got)
 	}
 }
+
+// closedListingForge is a forge whose issue listing hands back a closed issue
+// however it was asked.
+//
+// It models what the `state=open` query cannot rule out — an issue closed
+// between the listing and the tick that reads it — and, more to the point, it
+// is what makes the *issue listing* path assertable at all: with the query
+// filter working, no closed issue reaches the daemon that way, and a test that
+// relied on the fake forge alone would be asserting the query rather than the
+// guard.
+type closedListingForge struct {
+	daemon.Forge
+	issue github.Issue
+}
+
+func (f closedListingForge) ListIssues(context.Context, github.Repo, time.Time) ([]github.Issue, error) {
+	return []github.Issue{f.issue}, nil
+}
+
+// TestAClosedIssueStartsNothingOnEitherDiscoveryPath is AC-2.22. Closing an
+// issue is how litefactory is told to stop working on it, and it has to mean
+// that whichever listing found the issue — which is the whole reason the skip
+// is in processIssue, where the two paths meet, and not in a query.
+//
+// "Starts nothing" is asserted in its strong form: no run, no reply, no
+// reaction, and no rows. A closed issue that left a session and a watermark
+// behind would still be wrong, because registering a repository would then
+// mean a task per closed issue anyone ever comments on.
+func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
+	t.Run("found by the comment listing", func(t *testing.T) {
+		f := newFixture(t)
+		f.settle()
+		f.forge.addIssue(fakeIssue{
+			Number: testIssue,
+			Title:  "Add a /health endpoint",
+			Body:   "The service has no way to say whether it is up.",
+			User:   stranger(),
+			State:  "closed",
+		})
+		f.forge.addComment(testIssue, 50, owner(), "/spike do the thing anyway")
+
+		_, commentListingsBefore, _, _ := f.forge.counts()
+		result := f.tick()
+
+		// The issue listing asks for open issues and does not return it, so
+		// this is the comment listing's find — reached through GetIssue, which
+		// never saw that query. It is discovered and then deliberately skipped.
+		if result.Issues != 1 {
+			t.Fatalf("the tick saw %d issues, want 1: the comment listing is the path under test\nlogs:\n%s",
+				result.Issues, f.logs)
+		}
+		assertClosedIssueWasLeftAlone(t, f, result, commentListingsBefore)
+	})
+
+	t.Run("found by the issue listing", func(t *testing.T) {
+		f := newFixture(t)
+		f.settle()
+
+		closed := github.Issue{
+			Number:    testIssue,
+			Title:     "Add a /health endpoint",
+			Body:      "The service has no way to say whether it is up.",
+			State:     "closed",
+			Author:    github.User{ID: strangerID, Login: strangerLogin},
+			UpdatedAt: f.clock.Now(),
+		}
+		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{Forge: f.client, issue: closed}})
+
+		_, commentListingsBefore, _, _ := f.forge.counts()
+		result := f.tick()
+
+		if result.Issues != 1 {
+			t.Fatalf("the tick saw %d issues, want 1: the issue listing handed it one\nlogs:\n%s",
+				result.Issues, f.logs)
+		}
+		assertClosedIssueWasLeftAlone(t, f, result, commentListingsBefore)
+	})
+}
+
+// assertClosedIssueWasLeftAlone is the whole of AC-2.22, asserted the same way
+// for both discovery paths because the criterion is the same for both.
+func assertClosedIssueWasLeftAlone(
+	t *testing.T,
+	f *fixture,
+	result daemon.TickResult,
+	commentListingsBefore int,
+) {
+	t.Helper()
+
+	if result.Bootstrapped != 0 {
+		t.Errorf("bootstrapped %d tasks from a closed issue, want none", result.Bootstrapped)
+	}
+	if result.Comments != 0 || result.Runs != 0 || result.Replies != 0 {
+		t.Errorf("processed %d comments, %d runs and %d replies on a closed issue, want none",
+			result.Comments, result.Runs, result.Replies)
+	}
+	if result.Deferred != 0 {
+		t.Errorf("deferred %d tasks on a closed issue, want none — nothing was left waiting", result.Deferred)
+	}
+
+	// No session and no watermark: the skip happens before GetOrCreateSession,
+	// so a closed issue leaves nothing behind at all.
+	if _, err := f.db.GetSessionByTaskRef(t.Context(),
+		store.TaskRef(store.ForgeGitHub, testOwnerName, testRepoName, testIssue)); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a session exists for a closed issue (err = %v); the skip must come before the store write", err)
+	}
+	if got := f.watermark(); got != -1 {
+		t.Errorf("watermark is %d, want none: a closed issue leaves no watermarks row either", got)
+	}
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns on a closed issue, want none", len(calls))
+	}
+	_, commentListings, posts, reactions := f.forge.counts()
+	if posts != 0 {
+		t.Errorf("posted %d comments about a closed issue, want none", posts)
+	}
+	if reactions != 0 {
+		t.Errorf("reacted to %d comments on a closed issue, want none", reactions)
+	}
+	// Not even its comments were listed: the skip is above the bootstrap, so a
+	// closed issue costs nothing per tick beyond the listing that found it.
+	if commentListings != commentListingsBefore {
+		t.Errorf("listed the comments of a closed issue %d times, want none",
+			commentListings-commentListingsBefore)
+	}
+	if !strings.Contains(f.logs.String(), "skipping an issue that is not open") {
+		t.Errorf("the skip was not logged; a comment that starts nothing has to say why\nlogs:\n%s", f.logs)
+	}
+}

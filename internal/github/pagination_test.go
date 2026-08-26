@@ -91,10 +91,10 @@ func TestListIssuesFollowsLinkPagination(t *testing.T) {
 			t.Errorf("request %d asked for page %q, want %q", i, got, wantPage)
 		}
 		// The Link header carries the whole query, so the filters must survive
-		// the hop. Losing state=all on page two would silently skip closed
-		// issues from there on.
-		if got := req.Query.Get("state"); got != "all" {
-			t.Errorf("request %d lost state=all (got %q)", i, got)
+		// the hop. Losing state=open on page two would start pulling closed
+		// issues back down the wire from there on.
+		if got := req.Query.Get("state"); got != "open" {
+			t.Errorf("request %d lost state=open (got %q)", i, got)
 		}
 	}
 }

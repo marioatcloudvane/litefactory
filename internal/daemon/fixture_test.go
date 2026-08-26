@@ -71,11 +71,16 @@ func bot() fakeUser      { return fakeUser{ID: botID, Login: botLogin, Type: "Bo
 func stranger() fakeUser { return fakeUser{ID: strangerID, Login: strangerLogin, Type: "User"} }
 
 type fakeIssue struct {
-	Number      int            `json:"number"`
-	Title       string         `json:"title"`
-	Body        string         `json:"body"`
-	State       string         `json:"state"`
-	User        fakeUser       `json:"user"`
+	Number int      `json:"number"`
+	Title  string   `json:"title"`
+	Body   string   `json:"body"`
+	State  string   `json:"state"`
+	User   fakeUser `json:"user"`
+	// Assignees is who the issue is assigned to. GitHub always sends the
+	// member, as [] for an unassigned issue, so it is not omitempty: an
+	// absent member is a shape the client is tested against directly, not one
+	// this fixture should be producing by accident.
+	Assignees   []fakeUser     `json:"assignees"`
 	HTMLURL     string         `json:"html_url"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
@@ -192,8 +197,20 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	// The since filter is inclusive, exactly as GitHub's is (D-A).
 	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	// And the state filter, also as GitHub applies it: open unless asked
+	// otherwise, and "all" is the only way a closed issue comes back. The
+	// daemon asks for open, so this is what keeps a closed issue out of *this*
+	// listing — handleGetIssue still serves one, because GitHub does, which is
+	// why the AC-2.22 skip cannot live in the query.
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "open"
+	}
 	out := make([]fakeIssue, 0, len(issues))
 	for _, issue := range issues {
+		if state != "all" && issue.State != state {
+			continue
+		}
 		if since.IsZero() || !issue.UpdatedAt.Before(since) {
 			out = append(out, issue)
 		}
@@ -371,6 +388,22 @@ func (f *forgeServer) addCommentAt(issue int, id int64, author fakeUser, body st
 			f.issues[i].UpdatedAt = at
 		}
 	}
+}
+
+// closeIssue closes an issue the way a human does: its state changes and its
+// update time moves with it. Everything about it stays on the forge, and
+// handleGetIssue keeps serving it — closed is a state, not a deletion.
+func (f *forgeServer) closeIssue(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.issues {
+		if f.issues[i].Number == number {
+			f.issues[i].State = "closed"
+			f.issues[i].UpdatedAt = f.now()
+			return
+		}
+	}
+	f.t.Fatalf("no issue %d to close", number)
 }
 
 func (f *forgeServer) staleIssue(number int, at time.Time) {

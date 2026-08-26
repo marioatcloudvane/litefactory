@@ -109,11 +109,21 @@ type Issue struct {
 	Author string
 }
 
-// Trigger is the comment that started this turn.
+// Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
 	// CommentID is the forge's id for the comment. It is unique per session on
 	// the runs row, and that uniqueness is the whole crash-replay guarantee
 	// (AC-3.4).
+	//
+	// Zero is not a comment. It is the issue body, run as the first instruction
+	// on an issue assigned to the owner (AC-2.16b), and it is deliberately not
+	// the issue's own forge id: reporting a run advances the comment watermark
+	// to this value, so any positive id here would push the watermark past
+	// every comment the issue will ever receive and swallow them all. Zero
+	// makes that advance a MAX(0, 0) no-op (AC-2.23) while the runs table's
+	// (session, trigger comment) uniqueness still fires a body exactly once.
+	//
+	// Negative is neither, and is refused.
 	CommentID int64
 	// Body is the comment text, verbatim and untrusted.
 	Body string
@@ -142,8 +152,11 @@ func (r Request) validate() error {
 		return invalidRequest("a session id is required")
 	case r.Issue.Number <= 0:
 		return invalidRequest("issue number %d must be positive", r.Issue.Number)
-	case r.Trigger.CommentID <= 0:
-		return invalidRequest("a triggering comment id is required")
+	// Not "positive": 0 is the issue body run as the first instruction. See
+	// [Trigger.CommentID] for why the body's trigger id is 0 and not the
+	// issue's own id.
+	case r.Trigger.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":

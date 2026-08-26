@@ -285,6 +285,20 @@ func (d *Daemon) commentedIssues(
 
 // processIssue finds or creates the task for one issue and drains its comment
 // queue, reporting whether the queue stopped early.
+//
+// # A closed issue is left alone
+//
+// Closing an issue is how litefactory is told to stop working on it, so an
+// issue that is not open is skipped here and nowhere else (AC-2.22). Here,
+// because this is where the two discovery paths meet: `state=open` on the
+// issue listing covers one of them, but [Daemon.commentedIssues] reaches an
+// issue through GetIssue, which never sees that query — a filter on the query
+// alone would leave the faster path wide open.
+//
+// And *before* [store.DB.GetOrCreateSession], so that a comment on an issue
+// closed two months ago leaves no sessions row and no watermarks row behind.
+// A skip that first created the task it was refusing to work on would put
+// rows in the database for every closed issue anyone ever comments on.
 func (d *Daemon) processIssue(
 	ctx context.Context,
 	repo store.Repo,
@@ -292,6 +306,15 @@ func (d *Daemon) processIssue(
 	issue github.Issue,
 	result *TickResult,
 ) (bool, error) {
+	if issue.State != github.StateOpen {
+		d.log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
+			"litefactory is told to stop working on it",
+			slog.String("repo", forgeRepo.String()),
+			slog.Int("issue", issue.Number),
+			slog.String("state", issue.State))
+		return false, nil
+	}
+
 	session, err := d.db.GetOrCreateSession(ctx, repo, issue.Number)
 	if err != nil {
 		return false, fmt.Errorf("find the task for %s#%d: %w", forgeRepo, issue.Number, err)
