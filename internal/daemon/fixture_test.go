@@ -796,6 +796,13 @@ func (f *fixture) settle() {
 }
 
 // issue registers the task every test polls.
+//
+// It is deliberately inert: a stranger opened it, nobody is assigned to it, and
+// its body is a statement of fact rather than an instruction. Nothing about it
+// can start a run on its own, so a test that adds comments to it is testing
+// only its comments. That is what makes it useless for a body test — use
+// [fixture.assignedIssue], which says at the call site that the owner asked for
+// something.
 func (f *fixture) issue(title string) {
 	f.t.Helper()
 
@@ -804,6 +811,35 @@ func (f *fixture) issue(title string) {
 		Title:  title,
 		Body:   "The service has no way to say whether it is up.",
 		User:   stranger(),
+	})
+}
+
+// assignedIssue registers an issue with the given body, assigned to the owner:
+// the shape that runs its body as a first instruction (AC-2.16b).
+//
+// The author is the *stranger*, on purpose. The gate is assignment and not
+// authorship — assigning an issue to yourself is the act of instruction, and
+// anyone at all may open one — so the harder of the two cases is the default
+// here, and a body test cannot pass by accident because the owner happened to
+// write it. Where authorship is the point, [fixture.assignedIssueBy] says so.
+func (f *fixture) assignedIssue(title, body string) {
+	f.t.Helper()
+
+	f.assignedIssueBy(stranger(), title, body)
+}
+
+// assignedIssueBy is [fixture.assignedIssue] with the issue's author spelled
+// out — the owner's own issue, most usefully, which is what happens on a real
+// machine when Mario opens one and assigns it to himself.
+func (f *fixture) assignedIssueBy(author fakeUser, title, body string) {
+	f.t.Helper()
+
+	f.forge.addIssue(fakeIssue{
+		Number:    testIssue,
+		Title:     title,
+		Body:      body,
+		User:      author,
+		Assignees: []fakeUser{owner()},
 	})
 }
 

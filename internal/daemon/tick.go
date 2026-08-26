@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -33,7 +34,9 @@ type TickResult struct {
 	// Issues is how many non-pull-request issues came back across them.
 	Issues int
 	// Bootstrapped is how many tasks were seen for the first time and had a
-	// watermark planted without processing anything (AC-2.10).
+	// watermark planted without any of their existing comments being processed
+	// (AC-2.10). A first sight can still run the issue body, which counts in
+	// Runs and not here (AC-2.16b).
 	Bootstrapped int
 	// Comments is how many comments above a watermark were examined.
 	Comments int
@@ -340,9 +343,12 @@ func (d *Daemon) processIssue(
 //
 // The alternative — treating every existing comment as new — turns registering
 // a repository with a long-running issue into a stampede of runs, one per
-// historical `/spike` anyone ever wrote. Nothing here reads the issue body:
-// only comments are ever acted on, so a task opened by someone else starts
-// nothing (AC-2.16).
+// historical `/spike` anyone ever wrote.
+//
+// The issue body is the one thing a first sight may act on, and only when the
+// issue asked for it: see [Daemon.runIssueBody] for the gate (AC-2.16a–d) and
+// `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
+// (AC-2.16) was reversed. Existing comments are still never replayed.
 func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) error {
 	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
 	if err != nil {
@@ -368,7 +374,118 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 		slog.Int("existing_comments", len(comments)),
 		slog.Int64("watermark", watermark.LastCommentID),
 		slog.Bool("created", created))
-	return nil
+
+	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
+	// for why that order is the whole of "exactly once".
+	return d.runIssueBody(ctx, t, comments, result)
+}
+
+// runIssueBody runs the issue body as the task's first instruction, when the
+// issue is one that asked for it (AC-2.16b).
+//
+// # The gate
+//
+// Four conditions, all of them required:
+//
+//  1. The issue is open. Not checked here: [Daemon.processIssue] returns before
+//     GetOrCreateSession on anything that is not open (AC-2.22), so an issue
+//     that is not open can never reach a bootstrap at all. Re-checking it would
+//     be a second place to keep in step with the first, and the first is the
+//     one that also stops the session row being written.
+//  2. The issue is assigned to the owner, matched on the numeric user id and
+//     never on a handle (D-I). This is the authorisation, and it is the whole
+//     reason the old ban could be lifted: anyone can open an issue, but only
+//     the owner's account can assign one to the owner. Assigning an issue to
+//     yourself is the act of instruction.
+//  3. Its body has something in it.
+//  4. It has no comments at all. A body is a *first* instruction; an issue that
+//     has already been talked on is one whose conversation is the instruction,
+//     and replaying its opening post underneath that would be a second voice
+//     nobody asked for (AC-2.16d).
+//
+// # Watermark first, then run
+//
+// [Daemon.bootstrap] plants the watermark before calling this, and that
+// ordering is what makes "fires exactly once" a property of the control flow
+// rather than of a check: the next tick finds a watermark and takes
+// [Daemon.drain], so this function is unreachable a second time. A crash
+// between the two leaves a `running` row that startup reconciliation reports as
+// abandoned (AC-2.21) — which is the failure mode to prefer over a body that
+// silently runs twice.
+//
+// # The trigger
+//
+// CommentID is 0: not a comment, and deliberately not the issue's own forge id
+// either — reporting a run advances the watermark to the trigger id, and any
+// positive value would push it past every comment the issue will ever receive
+// (AC-2.23). See [turn.Trigger.CommentID].
+//
+// Body is left empty. There is no comment, and the prompt drops the comment
+// note on this path, so a copy of the issue body there would be dead weight;
+// the body reaches the model as the instruction itself and as the issue note.
+// Nothing validates Trigger.Body.
+//
+// Author is the *issue* author's handle, which is not necessarily the owner —
+// the gate is assignment, not authorship. That is safe precisely because the
+// prompt keeps the `opened by X` attribution: a run started from a stranger's
+// body still tells the model who wrote what it was handed.
+//
+// # No 👀
+//
+// There is no comment to react to, and reacting to the issue would be an eighth
+// forge endpoint for a cosmetic gain. AC-2.17 stays comment-only.
+func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment, result *TickResult) error {
+	var refusal string
+	switch {
+	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
+		refusal = "it is not assigned to the owner"
+	case strings.TrimSpace(t.issue.Body) == "":
+		refusal = "its body is empty"
+	case len(comments) != 0:
+		refusal = "it already has comments, which are the conversation to follow instead"
+	}
+	if refusal != "" {
+		d.log.DebugContext(ctx, "not running the issue body on first sight; "+refusal,
+			slog.String("task", t.ref.String()),
+			slog.Int64("session_id", t.session.ID),
+			slog.Int("existing_comments", len(comments)))
+		return nil
+	}
+
+	log := d.log.With(
+		slog.String("task", t.ref.String()),
+		slog.Int64("session_id", t.session.ID),
+		slog.Int64("comment_id", 0),
+		slog.String("trigger", "issue_body"),
+		slog.Int64("author_user_id", t.issue.Author.ID),
+		slog.String("author", t.issue.Author.Login))
+
+	command := turn.ParseCommand(t.issue.Body)
+	if command.Kind == turn.KindNone {
+		// A body with nothing in it, which the gate above has already refused.
+		// Kept because ParseCommand's contract, not this function's, is what
+		// decides it — and an empty body must end here silently in either case.
+		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
+		return nil
+	}
+	if !command.Spawns() {
+		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
+		// same command in a comment — nothing is posted either (AC-2.16c). A
+		// reply would be litefactory answering a question nobody asked it, on
+		// an issue whose author may not even have meant the first line as a
+		// command.
+		log.DebugContext(ctx, "the issue body names a command that spawns nothing; "+
+			"nothing runs and nothing is posted",
+			slog.String("command", command.Name),
+			slog.String("kind", command.Kind.String()))
+		return nil
+	}
+
+	log.InfoContext(ctx, "running the issue body as the task's first instruction",
+		slog.String("command", command.Name),
+		slog.String("kind", command.Kind.String()))
+	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login}
+	return d.run(ctx, t, trigger, command, log, result)
 }
 
 // drain processes the comments above the watermark, in ascending id order
@@ -487,7 +604,8 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log, result)
 	}
-	return d.run(ctx, t, c, command, log, result)
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login}
+	return d.run(ctx, t, trigger, command, log, result)
 }
 
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on
@@ -534,7 +652,14 @@ func (d *Daemon) reply(
 	return nil
 }
 
-// run executes one instruction comment and reports what it did.
+// run executes one instruction and reports what it did.
+//
+// It takes a [turn.Trigger] rather than the comment it usually came from,
+// because it no longer always comes from one: [Daemon.runIssueBody] calls this
+// with the issue body's trigger, whose comment id is 0. Everything the turn
+// needs about what started it is in that struct, and everything the *log* needs
+// is in the logger the caller has already decorated — nothing is read back off
+// a comment here.
 //
 // The turn itself is [turn.Execute]: lock, prepare, run claude, harvest. None
 // of that is this package's business — what is, is that a turn which found the
@@ -543,7 +668,7 @@ func (d *Daemon) reply(
 func (d *Daemon) run(
 	ctx context.Context,
 	t *task,
-	c github.Comment,
+	trigger turn.Trigger,
 	command turn.Command,
 	log *slog.Logger,
 	result *TickResult,
@@ -556,7 +681,7 @@ func (d *Daemon) run(
 			Body:   t.issue.Body,
 			Author: t.issue.Author.Login,
 		},
-		Trigger: turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login},
+		Trigger: trigger,
 		Command: command,
 	})
 	if err != nil {
