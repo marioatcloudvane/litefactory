@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -26,6 +26,19 @@ asked for; nothing here licenses starting the next one.
   comment data, and a directive parsed out of a comment body fails silently).
   Addendum appended to `RESEARCH_BRIEF.md`. Research remains closed; OQ 1 still
   unanswered.
+
+- 2026-08-27 — Plan complete; `IMPLEMENTATION_PLAN.md` written. 4 user stories,
+  12 tasks. OQ 1 settled empirically from run logs: `Task` IS a live tool name
+  (not stale, not renamed to `Agent`) — but `TodoWrite` is requested and silently
+  dropped (8 requested, 7 resolved, no error), which becomes the worked example
+  for requested-vs-resolved reporting. OQ 10 also closed (the forbidden-flag test
+  exists at `internal/config/purity_test.go:84-91`). C7 clear — session-resume has
+  landed, no sequencing blocker. `feature-spec.md` written by requirements-engineer;
+  go-architect performed a four-lens review. Eight planning decisions recorded as
+  D-1..D-8, including two judgment calls flagged for owner reversal: kept
+  per-profile `allowed_tools` (rejecting the architect's cut), and label-present-
+  but-no-profiles now REFUSES. `--setting-sources`/`--bare`/`dontAsk`/sandbox kept
+  as a clearly-marked OPTIONAL section Implement may skip wholesale.
 
 ## Notes
 

@@ -514,9 +514,17 @@ change. The edit sites are `issuePayload` + `github.Issue` + `turn.Issue` +
 
 ### Open questions after this decision
 
-Moot, because D is gone: **OQ 4** (who may set a label — the ceiling makes it
-downgrade/DoS only, and the brief already argues accepting the gap is defensible;
-confirmed accepted).
+Moot, because D is gone: **OQ 4** (who may set a label). The gap is accepted
+knowingly.
+
+**Corrected 2026-08-27 during Plan (D-7).** This paragraph originally read that the
+ceiling makes an untrusted label "downgrade/DoS only, never escalation". That was
+written before OQ 3 was decided, and it is **false** now that labels may widen: a
+label selects any profile up to the ceiling, and a profile may be wider than
+`claude.tools`. What an untrusted label can do is **bounded escalation**. The
+boundary is the **ceiling, not the label** — an operator who believes labels cannot
+escalate will set a lax ceiling, which is the exact mistake this correction exists to
+prevent.
 
 Still open and still blocking Plan:
 
