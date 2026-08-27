@@ -5,7 +5,8 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-08-26; revised 2026-08-27)*
-- [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; **revised in place to rev 2** after the
+  architect review returned; **11 open questions** for the owner at the top, none answered)*
 - [ ] **Implement** — code + tests *(not started)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
@@ -27,7 +28,95 @@ asked for; nothing here licenses starting the next one.
   the mode explicitly ("this is a spike"). `SPIKE.md` written. No research, no verification, no
   code — a condensation of the existing brief. Nothing committed by this run.
 
+- 2026-08-27 — **Plan (run 0006).** Owner opened Plan mode explicitly and scoped it: ask (C)
+  (sub-issues) deferred to his own story; ask (B) approved; briefs must get much shorter; ask (A)'s
+  default **inverted** to opt-in via a `research-mode: ask` tag. `feature-spec.md` and
+  `IMPLEMENTATION_PLAN.md` written. Four user stories (A1, A2, B1, B2), each independently
+  shippable. **Eight questions for the owner are at the top of the plan and were NOT assumed away**
+  — the owner asked for exactly that ("don't assume stuff! we eat our own dogfood"). Three
+  sub-agents: `requirements-engineer`, `go-architect`, and two narrow `git show` verifications.
+  No code changed, nothing committed by this run. Per *One Run, One Mode*, Implement does not
+  follow from this — it needs its own comment.
+
+- 2026-08-27 — **Plan revised in place (run 0007).** Run 0006's `go-architect` review returned after
+  that run had already exited; it is on disk as `ARCHITECT_REVIEW.md`. `IMPLEMENTATION_PLAN.md`
+  revised to **rev 2** — not a new document. **Still Plan** — no code, nothing committed, and
+  Implement still needs its own comment.
+
+  **The headline is a process defect, not a technical one.** Rev 1 opened by claiming *"nothing
+  genuinely his to decide has been decided here"* and then silently decided two things: that Go
+  would parse the tag, and that asking permission would carry across a resume via a `PreviousAsked`
+  field. Both landed on Story A1 — the story meant to ship first. Both are now questions (**Q3**,
+  **Q9**). **The question count went 8 → 11; no question was answered or dropped.**
+
+  Four findings were verified against source before this run and applied as fact: the gag paragraph
+  bundles the commit/push prohibition (F-9), quote-reply is silently dropped (F-21), the marker
+  matcher is a label-upgrade hole (F-19), and rev 1's claim that a brief fed through `RenderRun`
+  would be elided was **wrong** and is deleted (F-4). One narrow verification sub-agent was run this
+  revision, on `prepare.go`'s `PreviousMode` handling.
+
+  Story count 4 → 5: **Story S0** added, and it now ships first.
+
 ## Notes
+
+**Plan rev 2 (run 0007) — the three things most worth knowing.**
+
+1. **A quote-reply to any litefactory comment is silently discarded.** `HasMarker` is
+   `strings.Contains(body, "<!-- lf:")` — anywhere in the body (`turn/classify.go:38`) — and
+   `Classify` tests `selfReason` *before* the owner check (`classify.go:207-214`), deliberately
+   (`classify.go:193-196`). GitHub's quote-reply copies the raw markdown including HTML comments, so
+   the owner's own reply classifies `self` and is dropped: no run, no notification. **This bites the
+   moment the owner answers any of the eleven questions by quote-reply.** New **Story S0** fixes the
+   accidental case by line-anchoring the match; the deliberate-impersonation case (F-19) is put to
+   the owner as Q10(b) and otherwise listed in `Out of Scope`, because inverting author-versus-marker
+   precedence is a larger security change than issue #7.
+
+2. **`PreviousAsked` was unimplementable and is replaced by `PreviousMayAsk`.** It answered the
+   wrong question — *"did the last run ask?"* rather than *"may this run ask?"* — and under A1's
+   "no new state" it is not derivable at all: a run that asked and one that did not are
+   byte-identical in the store. The architect's replacement holds and was verified, **with one
+   correction to its reasoning**: `PreviousMode` is a store-column read (`prepare.go:175`), so
+   `PreviousMayAsk` is *not* "the same shape" and is *not* free. It must be re-parsed from the
+   previous run's trigger comment — reachable from `store.Run.TriggerCommentID` (`store/runs.go:75`,
+   present on every row, currently unused) against the comment list `commentHistory` already loads
+   on both paths (`prepare.go:149-152`, `:297`), with **no watermark filtering to worry about**
+   (`store/comments.go:151-154`). But `harness.HistoryEntry` carries no comment id, so it needs a
+   small local refactor in `prepare.go`, plus a fallback for `TriggerCommentID == 0` (issue-body
+   trigger). Both are now their own tasks with their own AC.
+
+3. **Splitting the gag paragraph is the sharpest concrete bug in the plan.** `prompt.go:396-401` is
+   one paragraph carrying two unrelated instructions, and the second is *"do the work in this
+   worktree; do not commit or push."* Branching the whole paragraph on `MayAsk` — which is what rev 1
+   said to do — **makes every tagged run commit and push**, colliding with litefactory's own commit
+   step. A new task splits it first so that sentence stays unconditional, and AC-A1.8 makes a tagged
+   prompt missing it a failing test.
+
+**Field names are now declared once, in the plan, and supersede `feature-spec.md:47-48`:**
+`MayAsk` / `PreviousMayAsk`. Rev 1's `AskingAllowed`/`PreviousAsked` and the spec's
+`MayAsk`/`AnswersQuestion` are both retired.
+
+**Two ACs are marked (manual / observational)** — AC-B1.2 and AC-B2.1 — so `implement-orchestrator`
+does not stall waiting for a test that cannot exist. Rev 1's AC-A1.6, which the architect correctly
+called "a claim, not a criterion", was replaced by an executable `turn`-level assertion instead.
+
+**Plan run 0006 — three facts verified this run that CORRECT the research brief.**
+1. `terminalRunStatus` is `succeeded` / `failed` / `reported` (`turn/prepare.go:343-352`), and the
+   only other resume gate is segment match. **So a run that asks its question in the final message
+   and ends normally is already resumed when the owner replies.** The question round-trip works
+   today; only the prompt text forbids it. This splits ask (A) into a near-free story (A1) and an
+   optional one (A2), and is the single biggest sizing change in the plan.
+2. `internal/report/run.go:24` caps the run's final message at **`maxResultBytes = 32 << 10`**,
+   truncated **from the end** (`run.go:528`). The brief sized briefs against 63,488 bytes. If a
+   brief is delivered via the final message the real ceiling is **half that**, and the sections
+   lost are the last ones — Open Questions and Recommended scope.
+3. There are **two** headless paragraphs in `writeHeader`, not one: the known gag at
+   `harness/prompt.go:396-401` and the feature-slug paragraph at `:388-390`. Changing only the
+   first leaves a contradiction inside the same header.
+
+**A defect found this run that no earlier document contains:** asking permission does not survive
+the resume. The tag is on the original comment, the answer comment will not carry it, and
+`writeResumeHeader` never re-emits the gag — so the default, if nothing is decided, is a resumed
+run that may ask indefinitely. That is Q7 in the plan.
 
 Headless run — started from a comment on issue #7 with no slash command. Feature
 slug supplied by the runner: `headless-mode-should-ask-via-a-comment`.
