@@ -1,0 +1,447 @@
+# APP_CONTEXT — litefactory
+
+Read this before writing code. It exists so you find what already exists,
+follow the conventions this codebase actually holds itself to, and do not
+reinvent a utility that is already three lines away.
+
+`litefactory` (module `github.com/cloudvane/litefactory`, **Go 1.26**) is a macOS
+daemon that polls GitHub issues and, when the owner comments, runs a headless
+`claude` process inside a git worktree and reports back on the thread.
+
+Single Go module. Not a monorepo. Everything is under `internal/`, with
+`cmd/litefactory/main.go` as wiring only (umask, signal context, logger,
+dispatch, exit code).
+
+In a hurry? Jump to **[Do not reinvent these](#do-not-reinvent-these)** at the
+bottom, then come back for the invariants.
+
+---
+
+## Before you run anything
+
+- **A live daemon is running from `dist/litefactory`.** Do not `make build`, do
+  not write into `dist/`, do not kill or restart it. `dist/` is gitignored.
+- Safe: `go build ./...`, `go test ./...`, `go vet ./...`, `gofmt -l .`.
+- `make check` = `fmt vet lint test` (this is what CI enforces). `make test`
+  runs with `-race`. `make lint` runs a pinned golangci-lint v2 (`.golangci.yml`
+  is a v2-format config).
+- There are **no build tags and no integration tests** in the tree today. A
+  `PreToolUse` hook (`.claude/hooks/check-test-env.sh`) blocks
+  `go test -tags integration` / `-run …Integration` unless `TEST_BASE_URL` and
+  `TEST_DATABASE_URL` are set — you will only trip it if you invent one.
+- Runtime state lives in `$LF_HOME` (default `~/.litefactory`). Do not edit
+  `~/.litefactory/config.yaml`.
+
+---
+
+## Package map and dependency direction
+
+Arrows point at what a package imports (litefactory packages only).
+
+```
+config        →  (nothing)          leaf. everything may depend on it.
+naming        →  (nothing)          leaf. pure functions, zero third-party imports.
+store         →  (nothing)          leaf. SQLite + every SQL statement in the tree.
+git           →  (nothing)          leaf. the only gateway to the git CLI.
+secrets       →  (nothing)          leaf. keychain / env token resolution.
+identity      →  (nothing)          leaf. the only package that execs `gh`.
+launchd       →  (nothing)          leaf. the macOS LaunchAgent.
+logging       →  (nothing)          leaf. slog construction + file sink.
+gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
+
+redact        →  secrets
+github        →  naming, redact, secrets
+harness       →  config, naming
+report        →  git, harness, naming, redact
+repos         →  git, naming, store
+turn          →  config, git, github, harness, naming, redact, report, store
+daemon        →  config, git, github, harness, naming, redact, report, secrets, store, turn
+cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store
+cmd/litefactory → cli, config, logging
+```
+
+The load-bearing consequences:
+
+- **`internal/config` imports nothing from litefactory and is stdlib-only apart
+  from the YAML decode.** `internal/config/purity_test.go` →
+  `TestValidationHasNoThirdPartyImports` parses every non-test file in the
+  package and fails on any import whose first path segment contains a dot.
+  `config.go` is the single exception, and only for `gopkg.in/yaml.v3`.
+  `internal/naming` states the same invariant in its `doc.go` and holds it.
+- **`internal/report` cannot import `internal/turn`** — `turn` depends on
+  `report` to render its replies, so the arrow cannot point back. That is why
+  `report.ReplyKind` (`internal/report/reply.go`) is its own enum rather than
+  reusing `turn.CommandKind`, and why the mapping is a small switch at the call
+  site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
+  reply shape, you add a `ReplyKind` **and** a case in that switch.
+  Note `report` is *not* a leaf — it imports `git`, `harness`, `naming`, `redact`.
+- **`internal/harness` is the only place that executes `claude`.** It owns the
+  subprocess, the argv, the child environment allowlist, the kill sweep, and it
+  writes the run's `NNNN.jsonl` event stream.
+  *Path derivation is not.* `naming.RunLogPath` / `naming.RunMetaPath`
+  derive the paths and `config.Paths` owns the `$LF_HOME` layout. The sidecar
+  `NNNN.meta.json` is written by **`internal/turn`** (`harvest.go`, via
+  `harness.WriteMeta`) once the shas and touched files are known.
+- **`internal/turn` orchestrates one turn** and has no clock, no ticker, no
+  signals. **`internal/daemon` is litefactory's sense of time** — tick loop,
+  singleton lock, backoff, cursor, shutdown — and owns no business logic. This
+  split is a named invariant (`internal/daemon/doc.go`,
+  `internal/turn/doc.go`); it is what makes the whole business path testable
+  without waiting for anything.
+
+### Read the `doc.go` files
+
+Eleven packages carry a `doc.go` whose prose is the real specification for that
+package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`, `naming`,
+`redact`, `repos`, `report`, `turn` — and `config` and `store` carry theirs at
+the top of `config.go` / `store.go`. **Read the one for the package you are
+about to touch before you touch it.** They record what was measured, what was
+tried and rejected, and what breaks if you do the obvious thing.
+
+---
+
+## Security invariants — enforced by tests, not by convention
+
+These are not style rules. Each has a test or a type that fails if you break it.
+
+- **`--dangerously-skip-permissions` is never constructed anywhere in the tree.**
+  `config.forbiddenFlag()` in `internal/config/policy.go` assembles it from two
+  fragments precisely so the whole string is not a literal anywhere, which keeps
+  a repository-wide grep a reliable review invariant.
+  `TestForbiddenFlagIsAbsentFromTheTree` (`purity_test.go`) walks the whole repo
+  and fails on any `.go` file containing it. Separately,
+  `validateNoForbiddenFlag` refuses any *configured* value that smuggles it in
+  through `claude.binary`, `settings_path`, or any tool list.
+- **Untrusted input goes on the child's stdin, never argv** (AC-3.12).
+  `harness.Request.Prompt` is piped in. This removes the ~1 MB macOS `ARG_MAX`
+  ceiling and keeps third-party text out of every `ps` listing.
+- **`--tools` is the real tool boundary; `--allowedTools` is not.** Measured:
+  `--allowedTools` is *additive* to the operator's own `~/.claude/settings.json`
+  — 250 ambient allow-rules leaked through and `Bash` executed while absent from
+  the list. `--tools` is what the init event's `.tools` array reflects.
+  **An omitted `--tools` means allow-all**, which is why an empty list is a
+  validation error rather than "no tools": see `validateTools` in
+  `internal/config/policy.go` and the `New()` guard in
+  `internal/harness/runner.go`.
+- **The claude child's environment is an allowlist, never `os.Environ`.**
+  `internal/harness/env.go`: `PATH HOME USER SHELL LANG LC_ALL TERM TMPDIR`, and
+  nothing else. Every entry has a documented reason (`USER` is required or the
+  Keychain lookup silently fails with "Not logged in"). `SSH_AUTH_SOCK` and
+  `CLAUDE_CONFIG_DIR` are deliberately absent. `AllowedEnvNames()` is exported
+  so a diagnostic can print the boundary.
+- **`internal/report` re-applies input restrictions locally rather than trusting
+  upstream validation.** `internal/report/reply.go` re-declares
+  `profileNamePattern` (rather than importing it) and `commandSpan` re-restricts
+  the command token, because this is the one place attacker-controlled text is
+  echoed into a comment litefactory signs its own name to. `commandSpan` *stops*
+  at the first disallowed rune rather than skipping it, so unexpected input can
+  only ever produce a shorter, plainer token. Two of the three tool refusals
+  carry no field at all for label text to travel in — that is the mechanism, not
+  a habit.
+- **Redaction is hygiene, not a boundary** (`internal/redact/doc.go`). The
+  boundary is not giving the subprocess the secret. The type system enforces the
+  ordering: renderers return `redact.Body`, which only `redact.Redactor.Apply`
+  can construct and `github.PostComment` is the only consumer of. There is no
+  exported way to get the text back out. Outbound bodies are redacted; the local
+  `$LF_HOME/logs` copy deliberately is not.
+- **litefactory never writes inside the registered clone.** `git.Clone`'s method
+  set *is* the S-6 allowlist (`Fetch WorktreeAdd WorktreeList WorktreeRemove
+  RevParse RemoteURL ConfigGet ShowRef` + `Path`). There is no `Commit`,
+  `Checkout`, `Reset`, `Merge` or `Pull`, so mutating a registered clone is a
+  compile error. `internal/git/surface_test.go` pins the method set both
+  positively and negatively.
+- **Identity is numeric, never a handle** (`internal/github/doc.go`, D-I).
+  Logins are renameable and a fine-grained PAT on a machine user reports type
+  `"User"`. Compare ids.
+- **`gh` is identity discovery only**, reached only by `litefactory init`, and
+  its child environment strips `GITHUB_TOKEN`/`GH_TOKEN` (`internal/identity`) —
+  otherwise `init` would record the bot as the owner and the daemon would read
+  its own comments as instructions.
+- `syscall.Umask(0o077)` is the **first statement of `main`**. Nothing in
+  litefactory calls `Chmod`; that one line is why it does not have to.
+- **The only `recover()` in the tree** is in `redact.Redactor.Apply`
+  (`internal/redact/redact.go`): a panic mid-redaction becomes an error so the
+  post aborts and the watermark does not advance (AC-4.9). Do not add a second.
+
+### The tests that enforce the above
+
+If one of these fails, you changed a design decision — go and make it
+deliberately rather than editing the test.
+
+| Test | What it pins |
+|---|---|
+| `config/purity_test.go` | `internal/config` is stdlib-only bar the YAML decode; the skip-permissions flag appears nowhere in the tree |
+| `git/surface_test.go` | `Clone`'s method set *is* the S-6 allowlist; `Worktree` has no exported construction path; zero values refuse to exec git |
+| `git/construction_internal_test.go` | `Worktree` is built in exactly one place |
+| `git/exec_internal_test.go` | every git command carries a deadline; the child env is an allowlist; the launchd PATH fallback |
+| `github/surface_test.go` | `PostComment` takes `redact.Body`, never `string`; exactly seven endpoints; **no interface type is declared in the package** (no premature Forge abstraction); `Token.Reveal()` has exactly one call site, on the `Authorization` line |
+| `identity/policy_test.go` | only `cli/cmd_init.go` may import `internal/identity`; the literal `"gh"` appears nowhere else outside `store/identities.go` |
+| `gittest/policy_test.go` | no non-test file imports `internal/gittest` |
+| `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
+| `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` |
+| `store/store_test.go` | FK enforcement, migrate idempotency, `AdvanceWatermark` never rewinds, `AllocateRun` refuses a replay, `CompleteRunReport` is one transaction |
+
+---
+
+## Config conventions (`internal/config`)
+
+- **Strict decoding.** `yaml.Decoder.KnownFields(true)` — an unknown or
+  misspelled key is a startup error, not a silently ignored line (AC-0.10).
+  A second YAML document is also refused. `friendlyYAMLError` rewrites yaml.v3's
+  Go-type phrasing into `unknown key "…"`.
+- **Defaults are applied by decoding on top of `Defaults()`**, so an explicitly
+  written zero (`poll_interval_seconds: 0`) is distinguishable from an absent key
+  and is rejected rather than silently replaced.
+- **The shipped template cannot drift from `Defaults()`.**
+  `internal/config/template.go` holds a commented `config.yaml` as a format
+  string; `DefaultFileContents()` interpolates the values *from* `Defaults()`,
+  and `TestDefaultFileMatchesDefaults` decodes the generated file and compares it
+  against `Defaults()`. If you add a config key, add it to `Defaults()`, to the
+  template, and expect that test to tell you if you forgot.
+  (The template deliberately writes `tool_ceiling` and `tool_profiles` only as
+  commented examples — both are optional and absent on a fresh install.)
+- **config.yaml never contains secrets**, only references to them (a keychain
+  service/account, or the *name* of an env var). `secretscan.go` reflects over
+  every string in the decoded struct and matches the S-7 credential shapes; a hit
+  is a hard startup error unwrapping to `ErrLiteralSecret`, which the command
+  layer maps to exit 3. Matched text never appears in the error — only the key
+  and the class.
+- **Validation aggregates.** `Config.Validate()` collects every problem and
+  returns `errors.Join(errs...)`. Reporting one problem per run would mean fixing
+  four typos in four restarts. Follow this when you add validation.
+- **Out of range is an error, never a silent clamp** (`poll_interval_seconds`
+  10–60, `claude.timeout_seconds` 60–86400, `worktree_retain_days` 1–3650).
+- **Never `exec.LookPath`.** launchd hands a LaunchAgent
+  `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which has no Homebrew.
+  `config.ResolveExecutable` searches an explicitly passed PATH and its error
+  names every directory it looked in.
+- **Nothing outside `internal/config` may join a path against `$LF_HOME`.**
+  Add a method to `config.Paths` instead (`ConfigPath DBPath LogsDir RunsDir
+  DaemonLogPath LockPath SettingsPath`).
+
+---
+
+## Testing conventions
+
+- **Table-driven, stdlib `testing`, `t.Parallel()` where safe.** `go-cmp` is the
+  only assertion helper and is used sparingly — 7 test files (`config`, `redact`,
+  `launchd`, `repos`). Everything else compares by hand with a good failure
+  message.
+- **No mocking framework, no new module.** There is no testify, no gomock, no
+  mockery, and adding one is not on the table. Fakes are hand-written structs.
+  (`go.mod` has exactly three direct requires: `go-cmp`, `yaml.v3`,
+  `modernc.org/sqlite`. Keep it that way.)
+- **`fixture_test.go` is the pattern for a package-wide fake cast.**
+  `internal/turn/fixture_test.go` (in-package, `package turn`) builds a real git
+  clone with a real origin, a migrated database and a configurable fake claude.
+  `internal/daemon/fixture_test.go` (`package daemon_test`) builds an
+  `httptest` GitHub, a real store and a fake executor. Extend one of these two
+  rather than standing up a third way of faking a turn.
+- **Naming: `*_internal_test.go` means white-box.** In packages that are
+  otherwise black-box tested (`daemon`, `git`, `github`), a file named
+  `*_internal_test.go` is `package X` and everything else is `package X_test`.
+  Packages tested in-package throughout (`turn`, `harness`, `config`, `cli`,
+  `naming`, `logging`, `secrets`) do not use the suffix.
+- **Interfaces are declared at the point of consumption.** `harness` exports a
+  concrete `*Runner`; `turn` declares the one-method `turn.Runner` interface it
+  needs. `report` exports a concrete `*Reporter`; `turn` declares `Renderer` and
+  `Poster`. Do not add an interface next to its implementation.
+- **A promise about a transaction is tested against real SQLite**, not a fake
+  store — see the comment on `turn.ReporterOptions.DB`. A fake would let a test
+  assert a guarantee the implementation does not keep.
+- **Determinism matters; Go map ordering has bitten this codebase.** Sort before
+  iterating a map or before emitting a list an assertion will read:
+  `sortedProfileNames` in `internal/config/policy.go`, the `reflect.Map` branch
+  in `internal/config/secretscan.go`, and also `harness/env.go`,
+  `github/comments.go`, `launchd/plist.go`, `store/migrate.go`,
+  `redact/redact.go`, `cli/cmd_logs_render.go`.
+- **Some tests exist to fail on a design change**, not on a bug — the
+  `surface_test.go` / `policy_test.go` / `purity_test.go` family listed above.
+  Adding an exported method, an interface, or an import can fail the build. That
+  is the feature.
+
+---
+
+## Style
+
+- **Comments explain *why*, and are expected to be true.** This codebase holds an
+  unusually high standard here: comments cite decision and acceptance-criterion
+  identifiers (`D-6`, `AC-3.12`, `SD-2`, `S-7`, `C9`, `P-3`), record what was
+  *measured* rather than assumed, and say what would break if the code were
+  changed the obvious way. **When your change makes a comment untrue, updating it
+  is part of the change.** Match the register — a one-line restatement of the
+  code is worse than nothing here.
+- **Copy slices at struct boundaries**, with `append([]string(nil), …)` (11 uses
+  across `harness/runner.go`, `harness/meta.go`, `turn/execute.go`,
+  `turn/report.go`, `daemon/daemon.go`, `daemon/tools.go`, `daemon/tick.go`) or
+  `slices.Clone` / `maps.Clone`. The reason is concrete: a request struct is
+  mutated in place on the cold-rerun path, and one `append` into spare capacity
+  would rewrite the operator's configuration for every later run in the process.
+- **Goroutine budgets are documented and deliberately tiny.** Three non-test
+  files start a goroutine at all: `harness/runner.go` (exactly two, one per pipe,
+  neither able to outlive `Run`), `daemon/daemon.go` (one, the loop), and
+  `cmd/litefactory/main.go` (one, the second-signal watcher). If you add one, say
+  in a comment what bounds its lifetime.
+- **A bad outcome is a value, not an error.** Across `turn`, `harness` and
+  `daemon`, an operation that *happened and went badly* returns a result whose
+  field says how; the `error` return is reserved for "could not be conducted or
+  recorded at all". Silence on the issue is the one outcome that is forbidden
+  (AC-4.1).
+- **Post first, then commit.** Every reporting path renders, posts, and only then
+  writes to the database in a single transaction. Advancing a watermark before a
+  successful post turns a transient 502 into permanent silence.
+- Lint rules worth knowing (`.golangci.yml`): `context.Background()` is forbidden
+  outside `main` (take the context from the caller); `fmt.Print*` and `log.*` are
+  forbidden (use the injected `*slog.Logger`, or the command's output writer);
+  `errcheck` checks type assertions; `gosec`, `errorlint`, `nilerr`, `noctx`,
+  `unparam` are on. `govet` is `enable-all` minus `fieldalignment` and `shadow`,
+  and the config explains why for both.
+- Every store accessor and every git method takes `ctx` first.
+
+### Recurring shapes you should match
+
+- **`Options` struct + `New(opts) (*T, error)`**, validating every dependency at
+  wiring time rather than at first use. The stated reason recurs verbatim: the
+  first render happens when a run has just finished, which is the worst possible
+  moment to discover the reporter cannot produce a body.
+- **Function fields as the injection seam**, where a constructor would be
+  overkill: `secrets.Resolver{Keychain, LookupEnv}` has no `NewResolver`;
+  `launchd.Manager` takes a `Runner`. Tests substitute the field.
+- **Typed errors carrying fields, unwrapping to a sentinel.**
+  `*git.CommandError` exposes the command and stderr as fields so a caller can
+  print them verbatim; `*github.RateLimitError.RetryAfter` is read by the
+  daemon's backoff; `*config.SecretError` carries the key and class but never the
+  value. Prefer this to formatting a string a caller has to re-parse.
+- **No retries, no sleeps, below the daemon.** `internal/github` retries nothing
+  and sleeps nowhere — backoff is `internal/daemon`'s job. Keep it that way.
+- **CLI handlers never read the flag set back.** `Command.New(fs)` binds flags
+  and returns a *closure* capturing the values; the handler receives only
+  arity-checked positionals plus `*cli.Env`. Exit code comes from the error
+  kind: `*UsageError` (bad command line) vs `*PreconditionError` (machine not
+  ready) vs plain error.
+
+---
+
+## Where durable external-behaviour findings live
+
+`claude` and `git` are external binaries whose behaviour this codebase depends
+on. The convention is: **probe read-only, in a scratch directory outside the
+repo, and write it up in a document — do not commit a test that spawns a real
+`claude`.** A test like that would be slow, quota-consuming and flaky, and the
+repo has no build-tag or env-var gate for it.
+
+The two documents, both stating the exact `claude` version they were verified
+against and how to re-verify after an upgrade:
+
+- `.aiteam/main/2026-08-25/session-resume/CLAUDE_CLI_CONTRACT.md` — the
+  `--session-id` / `--resume` contract (verified against `claude 2.1.246`).
+  Reusing `--session-id` exits 1 with no stdout; `--resume` fails *closed* while
+  `--continue` fails *open*, which is why `--continue` is never constructed; the
+  tool boundary survives a resume.
+- `.aiteam/main/2026-08-26/tool-permissions/TOOL_SURFACE_PROBE.md` — that an
+  operator-authored profile actually widens the *resolved* surface of a real
+  `claude` process (verified against `claude 2.1.247`).
+
+If you change how litefactory invokes `claude`, add to these rather than
+starting a third convention.
+
+---
+
+## The feature most recently built: tool profiles selected by a label
+
+A GitHub label of the exact form **`lf:tools=<profile>`** on an issue selects an
+operator-authored tool profile from `$LF_HOME/config.yaml`, and that profile
+becomes the `--tools` / `--allowedTools` surface of the `claude` child for runs
+that issue triggers. With no profiles configured the feature is inert and every
+run uses `claude.tools` exactly as before.
+
+Key files:
+
+| File | Role |
+|---|---|
+| `internal/config/policy.go` | profile/ceiling/tool-list validation, `sortedProfileNames`, `forbiddenFlag` |
+| `internal/config/config.go` | `Claude.ToolCeiling`, `Claude.ToolProfiles`, `ToolProfile` |
+| `internal/daemon/tools.go` | `resolveTools(labels)` → `toolDecision` |
+| `internal/daemon/tick.go` | resolution point (`Daemon.run`) and `Daemon.refuseTools` |
+| `internal/harness/runner.go` | `Runner.surface`, `Request.validate` ceiling re-check, `args` |
+| `internal/report/reply.go` | the three refusal replies |
+| `internal/report/run.go` | requested-vs-resolved tool surface in the run report |
+
+Things that are easy to get wrong:
+
+- **`claude.tool_ceiling`, not the label, is the security boundary.** Anyone who
+  can label an issue can select any profile, so a profile is only ever as safe as
+  the ceiling. The ceiling is resolved **once**, in `config.Load`, before
+  validation (`Claude.resolveToolCeiling`), and defaults to a *copy* of
+  `claude.tools` — the narrowest default there is. The harness reads it as given
+  and never re-derives it. `harness.Request.validate` re-checks `Tools` against
+  the ceiling immediately before argv is built.
+- **Detected leniently, accepted strictly (D-6).** The prefix is matched
+  case-insensitively so `LF:Tools=` is *seen*, then refused because it is not
+  byte-exact lowercase. Seeing-and-refusing turns a typo into a loud refusal
+  instead of a silently ignored permission request.
+- **Three refusal kinds, not four:** `ReplyUnknownToolProfile`,
+  `ReplyMalformedToolLabel`, `ReplyAmbiguousToolLabels`. "No profiles configured
+  at all" takes the *unknown* path — from the thread's point of view it is the
+  same answer.
+- **Only the unknown-profile refusal names anything.** The malformed and
+  ambiguous refusals leave `Profile` empty; there is deliberately no field for
+  label text to travel in.
+- **A refusal on the issue-body path posts nothing.** When the trigger comment id
+  is `0` (the issue body run as the first instruction) there is no comment to
+  answer, so `refuseTools` refuses the run, logs it, and posts no comment. The
+  next real comment on the issue is refused loudly on the thread. This is the
+  only branch to change if that trade is revisited.
+- **Ambiguity is never resolved by picking or unioning.** Two labels are two
+  permission requests; the count is taken before any of them is judged.
+- **The label is only a lookup key.** Every string that reaches argv is
+  operator-authored configuration. `ToolProfile` (a validated name) is used for
+  logging and metadata only and is never joined into argv. `turn.Issue.Labels`
+  documents that it is one hop from `harness.PromptInput` and that no label text
+  may be rendered into a prompt.
+- **An unprofiled run's argv must stay byte-identical** to what it was before
+  this feature existed (AC-2.3). `Runner.surface` discriminates on
+  `len(req.Tools) > 0`, not on `ToolProfile`, because `Tools` is what argv is
+  built from.
+
+---
+
+## Do not reinvent these
+
+| I need to… | Use | Notes |
+|---|---|---|
+| resolve `$LF_HOME` or any path under it | `config.Locate()` → `config.Paths` | `ConfigPath DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath` |
+| derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
+| run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
+| run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
+| build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
+| call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
+| resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
+| strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
+| build a comment body | `internal/report` | Renders only; reaches no network and no database |
+| run `claude` | `internal/harness` | The only place |
+| do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
+| decide *when* work happens | `internal/daemon` | `Tick` is an ordinary synchronous method, callable straight from a test |
+| add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
+| install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
+| build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
+
+Before you touch the store:
+
+- **SQLite via `modernc.org/sqlite`** (pure Go, cgo-free — the binary is static),
+  driver name `"sqlite"`, not `"sqlite3"`. Pool capped at **one** connection.
+  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (SQLite defaults it
+  *off*, per connection — without it every `REFERENCES` is decorative),
+  `journal_mode(WAL)` so `litefactory logs` can read while the daemon writes,
+  `busy_timeout`, `synchronous(NORMAL)`.
+- **Migrations are hand-rolled and embedded** —
+  `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
+  filename prefix, one transaction each, recorded in `schema_migrations`. A new
+  schema change is a new `.sql` file and nothing else. Adding a migration library
+  is an explicitly rejected dependency.
+
+NULL mapping in the store is uniform and worth copying: timestamps are
+`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text, so
+lexicographic order is chronological order); text whose empty value carries no
+meaning is a plain `string`; forge ids are `int64` with 0 meaning NULL; and
+numbers whose zero is a *real* value (an exit code, a cost) are **pointers**.
