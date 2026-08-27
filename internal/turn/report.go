@@ -496,16 +496,22 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	}
 
 	return report.Run{
-		Ref:          result.Ref,
-		Ordinal:      ordinal,
-		Result:       result.Harness,
-		Branch:       result.Branch,
-		CommitSHA:    result.CommitSHA,
-		Pushed:       result.Pushed,
-		Files:        result.Changes,
-		LogPath:      result.LogPath,
-		Failure:      turnFailure(result),
-		WorktreePath: result.WorktreePath,
+		Ref:       result.Ref,
+		Ordinal:   ordinal,
+		Result:    result.Harness,
+		Branch:    result.Branch,
+		CommitSHA: result.CommitSHA,
+		Pushed:    result.Pushed,
+		Files:     result.Changes,
+		LogPath:   result.LogPath,
+		Failure:   turnFailure(result),
+		// The requested surface and its provenance travel on the render input
+		// itself rather than on the harness result, because the report has to
+		// carry them for a run that produced no result at all — the run whose
+		// boundary is least obvious afterwards.
+		ToolsRequested: append([]string(nil), result.ToolsRequested...),
+		ToolProfile:    result.ToolProfile,
+		WorktreePath:   result.WorktreePath,
 	}, nil
 }
 

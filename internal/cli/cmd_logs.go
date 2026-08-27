@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -397,6 +398,9 @@ type runMeta struct {
 	ClaudeSessionID string   `json:"claude_session_id"`
 	Mode            string   `json:"mode"`
 	Model           string   `json:"model"`
+	Tools           []string `json:"tools"`
+	ToolsRequested  []string `json:"tools_requested"`
+	ToolProfile     string   `json:"tool_profile"`
 	Prompt          string   `json:"prompt"`
 	WorktreePath    string   `json:"worktree_path"`
 	Branch          string   `json:"branch"`
@@ -454,6 +458,9 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 		{"error", firstNonEmpty(run.Error, meta.Error)},
 		{"mode", firstNonEmpty(run.Mode, meta.Mode)},
 		{"model", meta.Model},
+		{"tools", strings.Join(meta.Tools, " ")},
+		{"tool profile", meta.ToolProfile},
+		{"tools requested", logsRequestedTools(meta)},
 		{"started", logsTime(run.StartedAt)},
 		{"finished", logsTime(run.FinishedAt)},
 		{"duration", logsDuration(run)},
@@ -890,6 +897,34 @@ func logsCost(values ...*float64) string {
 		}
 	}
 	return ""
+}
+
+// logsRequestedTools reports the surface litefactory asked for, and is empty
+// when it is the surface the run got. The two agreeing is the ordinary case and
+// printing it twice would only make the disagreement harder to spot — and the
+// disagreement is the point: TodoWrite was requested and silently dropped on
+// every run for the life of the project, with no error raised anywhere.
+func logsRequestedTools(meta runMeta) string {
+	if len(meta.ToolsRequested) == 0 || slices.Equal(meta.ToolsRequested, meta.Tools) {
+		return ""
+	}
+	requested := strings.Join(meta.ToolsRequested, " ")
+	if len(meta.Tools) == 0 {
+		// Nothing resolved to compare against: the run never reported a
+		// surface, so every requested tool is unaccounted for rather than
+		// denied.
+		return requested
+	}
+	var missing []string
+	for _, tool := range meta.ToolsRequested {
+		if !slices.Contains(meta.Tools, tool) {
+			missing = append(missing, tool)
+		}
+	}
+	if len(missing) == 0 {
+		return requested
+	}
+	return requested + " (not granted: " + strings.Join(missing, " ") + ")"
 }
 
 // logsPrompt reports the prompt's size rather than its text. The prompt as sent
