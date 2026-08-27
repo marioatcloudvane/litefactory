@@ -432,3 +432,107 @@ and `harness.Request` are the exact edit sites and are currently uncommitted.
 
 *Research is closed. Next mode: **Plan** — but only on a human's say-so, and ideally after
 open question 1 has been answered, since it could change what is worth planning.*
+
+---
+
+## Addendum — owner decision, 2026-08-27
+
+Recorded after a review conversation on the brief. This section is a decision
+record, not new research; the body above is unchanged.
+
+### Decision: Option A only
+
+**Option A is adopted. Options B, C and D are rejected outright — not deferred.**
+
+This overrides the brief's own recommendation, which paired A with D as a per-run
+override. D is out. There is to be no comment-directive channel, no `/tools`
+command, and no second resolution path. The label is the only signal.
+
+Why D was dropped, after being explored in detail:
+
+- **GitHub sends no structure.** `commentPayload` (`internal/github/comments.go:315-323`)
+  carries `Body string` and nothing more — the raw markdown the author typed. Every
+  bit of structure in a comment directive is structure litefactory would have to
+  invent by parsing that string. Webhooks would not change this; same body, pushed
+  instead of polled.
+- **Any syntax is strict, and its failure is silent.** `ParseCommand` inspects only
+  the first non-whitespace token (AC-2.18, `command.go:132-134`) — deliberately, so
+  that a comment *discussing* a command does not become one. A directive written
+  anywhere else is prose: the run proceeds with default tools and the directive
+  rides along in the prompt as text. A run that looks like it was asked for
+  something and quietly was not is the worst failure mode available here.
+- **It buys nothing A does not already have.** Labels are re-read on every tick that
+  has work (see below), so relabel-then-comment already covers the "just for this
+  one, let it search the web" case that D existed to serve.
+
+B and C are rejected as the brief argues them: B is A plus combinatorial state, and
+C is self-authorising when read from the worktree (C4).
+
+### Finding: labels are fresh on every tick, at no API cost
+
+Confirmed by reading the poll path. An issue with new comments reaches the daemon as
+a freshly fetched `github.Issue` by one of two routes — `ListIssues` (`tick.go:190`)
+for issues whose `updated_at` moved, or `GetIssue` (`tick.go:268`) for issues
+reachable only through the comment listing. Both decode through `issuePayload`, so
+one struct field covers both. Nothing is cached between ticks: `task.issue` is built
+at `tick.go:303` and lives for that tick only.
+
+Consequences, all of which Plan should state as behaviour:
+
+1. **Relabel, then comment, works.** The run that comment triggers reads the labels
+   as they stand at that moment. No restart, no re-registration, no extra API call.
+2. **A label change alone starts nothing.** Labelling bumps `updated_at`, so the
+   issue returns from `ListIssues` on the next tick, but `drain` finds no comment
+   above the watermark and does nothing. Only comments trigger runs
+   (`classify.go:204-206`). This is correct and should stay.
+3. **Granularity is per-tick, not per-comment.** `drain` (`tick.go:373-401`) loops
+   over every queued comment against a single `t.issue`. Two comments drained in one
+   tick share one label snapshot, even if the label changed between them. **Decision:
+   document this rather than fix it** — fixing it costs an issue read per comment.
+   The `**Tools:**` line in the run report is what makes it non-mysterious after the
+   fact, which raises that line from nice-to-have to required.
+4. **A relabel during a run applies to the next run.** Labels are read before the run
+   starts; the argv is fixed at spawn.
+
+### Finding: C8 resolves in the widening direction
+
+`CLAUDE_CLI_CONTRACT.md:58-71` already verified that a resumed session takes its
+boundary from the current argv and does not inherit from the transcript. So adding a
+label five comments into a conversation genuinely widens the next run, with the
+conversation intact. Narrowing binds new calls the same way, but earlier turns ran
+wider and their output remains in context. That asymmetry is worth a sentence in the
+plan, not a mechanism.
+
+### Correction: one fewer edit site than the brief assumed
+
+The brief lists `harvest.go:115-129` as needing to carry the profile through the
+cold-rerun path. It does not. `harvest.go:126-129` **mutates `prep.request` in place**
+rather than rebuilding it, so new fields on `harness.Request` ride along without a
+change. The edit sites are `issuePayload` + `github.Issue` + `turn.Issue` +
+`tick.go:528-538`, `policy.go`, `config.go` + `template.go`, `harness.Request` +
+`Runner.args`, and `prepare.go:203-212`.
+
+### Open questions after this decision
+
+Moot, because D is gone: **OQ 4** (who may set a label — the ceiling makes it
+downgrade/DoS only, and the brief already argues accepting the gap is defensible;
+confirmed accepted).
+
+Still open and still blocking Plan:
+
+- **OQ 1** — is `Task` a live tool name in claude 2.1.246, or is it `Agent` now?
+  Unanswered. Cheapest item on the list, and it may be the whole of the original
+  "everything is blocked" complaint. Settle first.
+- **OQ 2** — are `WebFetch`/`WebSearch` grantable at all, and under what rules? This
+  is where C5 bites hardest.
+- **OQ 3** — may a label widen relative to the default, or only narrow? The crux of
+  "carefully".
+- **OQ 5** — what happens with no label?
+- **OQ 6** — which Bash families become grantable, with or without a sandbox.
+- **OQ 7** — adopt `--setting-sources user` / `--bare` / `dontAsk`? Independent of
+  labels; fixes a measured hole. Still the highest-value finding in this brief that
+  is not about labels.
+- **OQ 9** — `WriteSettings` has no non-test caller (C6).
+- **OQ 10** — confirm the forbidden-flag repository-wide test exists.
+
+*Research remains closed. Next mode: **Plan**, on a human's say-so.*

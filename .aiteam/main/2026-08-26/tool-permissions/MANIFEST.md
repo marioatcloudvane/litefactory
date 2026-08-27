@@ -21,6 +21,12 @@ asked for; nothing here licenses starting the next one.
   with a comment directive as per-run override. Ten open questions logged, one of
   which (`Task` vs `Agent` tool name) should be settled empirically before Plan.
 
+- 2026-08-27 — owner decision on review: **Option A only**. Options B, C and D
+  rejected outright (D explored in detail and dropped: GitHub sends no structured
+  comment data, and a directive parsed out of a comment body fails silently).
+  Addendum appended to `RESEARCH_BRIEF.md`. Research remains closed; OQ 1 still
+  unanswered.
+
 ## Notes
 
 Request: tools are currently blocked by default for Claude sessions in
