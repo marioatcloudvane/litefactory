@@ -680,6 +680,10 @@ func (d *Daemon) run(
 			Title:  t.issue.Title,
 			Body:   t.issue.Body,
 			Author: t.issue.Author.Login,
+			// Copied rather than shared: the tick's issue snapshot outlives
+			// this call, and a turn that appended to a slice it did not own
+			// would reach back into it.
+			Labels: append([]string(nil), t.issue.Labels...),
 		},
 		Trigger: trigger,
 		Command: command,

@@ -107,6 +107,16 @@ type Issue struct {
 	// Author is the handle that opened the issue, for the prompt's attribution
 	// line.
 	Author string
+	// Labels is every label name on the issue, as GitHub reported it at the
+	// head of this tick.
+	//
+	// It is a lookup key for tool-profile resolution and nothing else: these
+	// strings are matched against operator-authored configuration, and the
+	// configuration is what supplies any value that travels onwards. No label
+	// text may be rendered into a prompt or echoed into a comment — this struct
+	// is one hop from [harness.PromptInput], and that hop is the one place the
+	// rule has to be kept by hand (S-13).
+	Labels []string
 }
 
 // Trigger is what started this turn: a comment, or the issue body itself.
