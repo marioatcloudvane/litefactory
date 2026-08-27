@@ -673,6 +673,29 @@ func (d *Daemon) run(
 	log *slog.Logger,
 	result *TickResult,
 ) error {
+	// The tool profile is resolved here, before anything is locked, fetched or
+	// written: a refusal has to be run-less (AC-3.7), and by the time
+	// [turn.Execute] has prepared a turn there is a worktree and a runs row to
+	// account for. The labels are this tick's snapshot, so two comments drained
+	// in one tick share it — which is exactly why the run report carries the
+	// tool surface it used.
+	tools := d.resolveTools(t.issue.Labels)
+	if tools.refused() {
+		return d.refuseTools(ctx, t, trigger, tools, log, result)
+	}
+	if tools.Profile != "" {
+		log = log.With(slog.String("tool_profile", tools.Profile))
+		// Logged before the turn starts and with the ceiling beside it, because
+		// this is the only record of which boundary was in force at the moment
+		// the label was read: the labels are a per-tick snapshot, and a run that
+		// then hangs for two hours would otherwise leave nothing behind saying
+		// what it was granted.
+		log.InfoContext(ctx, "a label selected a tool profile for this run",
+			slog.Any("tools", tools.Tools),
+			slog.Any("allowed_tools", tools.AllowedTools),
+			slog.Any("tool_ceiling", d.toolCeiling))
+	}
+
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		SessionID: t.session.ID,
 		Issue: turn.Issue{
@@ -680,9 +703,19 @@ func (d *Daemon) run(
 			Title:  t.issue.Title,
 			Body:   t.issue.Body,
 			Author: t.issue.Author.Login,
+			// Copied rather than shared: the tick's issue snapshot outlives
+			// this call, and a turn that appended to a slice it did not own
+			// would reach back into it.
+			Labels: append([]string(nil), t.issue.Labels...),
 		},
 		Trigger: trigger,
 		Command: command,
+		// Already copies of the operator's configuration, and the only strings
+		// in this request that reach the child's argv. The label chose which
+		// profile; it contributes nothing else (C2).
+		Tools:        tools.Tools,
+		AllowedTools: tools.AllowedTools,
+		ToolProfile:  tools.Profile,
 	})
 	if err != nil {
 		return d.leave(ctx, log, "the turn could not be conducted", err)
@@ -707,6 +740,84 @@ func (d *Daemon) run(
 		slog.Bool("pushed", turnResult.Pushed),
 		slog.Int64("report_comment_id", posted.CommentID),
 		slog.Bool("reported", !posted.Skipped))
+	return nil
+}
+
+// refuseTools answers an lf:tools= label that could not be resolved into a
+// profile: unknown, malformed, ambiguous, or named on a daemon that has no
+// profiles configured at all.
+//
+// Nothing runs. That is the point: a label is a permission request, and the four
+// ways of failing to understand one all have the same safe answer, which is to
+// decline and say so (C9). Falling through to the default surface would answer
+// "which tools may this have" with "the ones it would have had anyway", which is
+// the failure this whole feature exists to prevent.
+//
+// The refusal is a result and not an error, exactly like every other turn that
+// went badly: it owes the thread a comment, and an error return is the one shape
+// that cannot carry one.
+//
+// # The issue-body path posts nothing
+//
+// A run started from the issue body has no comment to reply to — its trigger id
+// is 0, and [turn.ReplyRequest] requires a real one, because a reply is
+// something posted *in answer to* a comment and consumed by advancing the
+// watermark past it. So on that path the refusal refuses the run, says so in the
+// log, and posts nothing.
+//
+// That is consistent with what the body path already does with a command it will
+// not act on (AC-2.16c): a body that spawns nothing posts nothing. It is
+// fail-closed, because the run does not happen either way. And it is not a
+// permanent silence: the next comment on the issue arrives through
+// [Daemon.handleComment], which has a comment id, and refuses loudly there. If
+// that trade is ever revisited, this is the only branch to change.
+func (d *Daemon) refuseTools(
+	ctx context.Context,
+	t *task,
+	trigger turn.Trigger,
+	decision toolDecision,
+	log *slog.Logger,
+	result *TickResult,
+) error {
+	log = log.With(slog.String("tools_refusal", decision.Refusal.String()))
+	if decision.MiscasedPrefix {
+		// The label was seen because detection folds case and refused because
+		// acceptance does not (D-6). Worth a line, because the reply describes
+		// the rule for profile *names* and cannot say that it was the prefix
+		// that was wrong — and because "my label did nothing" is the complaint
+		// this feature must never produce. The label text itself is not logged,
+		// for the same reason it is not echoed onto the thread (S-9).
+		log = log.With(slog.Bool("miscased_tool_label_prefix", true))
+	}
+
+	if trigger.CommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: its lf:tools= label does not "+
+			"resolve to a configured tool profile. Nothing was run and no comment was posted, "+
+			"because there is no comment to answer; the next comment on this issue is refused "+
+			"on the thread")
+		return nil
+	}
+
+	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		Ref:       t.ref,
+		SessionID: t.session.ID,
+		CommentID: trigger.CommentID,
+		Refusal:   decision.Refusal,
+		// Empty for every refusal but the unknown one, which is the only refusal
+		// that may name what it was asked for. internal/report re-checks it
+		// before rendering (S-8).
+		Profile: decision.Profile,
+	})
+	if err != nil {
+		return d.leave(ctx, log, "could not refuse the tool profile this issue asks for",
+			d.orphaned(ctx, log, posted, err))
+	}
+	if !posted.Skipped {
+		result.Replies++
+		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
+			"resolve to a configured tool profile",
+			slog.Int64("reply_comment_id", posted.CommentID))
+	}
 	return nil
 }
 

@@ -157,6 +157,17 @@ type Result struct {
 	MetaPath string
 	LogPath  string
 
+	// ToolsRequested is the tool surface this turn asked claude for, and
+	// ToolProfile is the operator-authored profile it came from — empty when no
+	// profile was selected. Both are set from the request, so they survive a
+	// turn that never started a subprocess; the resolved surface, which only an
+	// init event can supply, stays on Harness.
+	//
+	// ToolProfile is a validated profile name from the operator's config, never
+	// text originating from the forge.
+	ToolsRequested []string
+	ToolProfile    string
+
 	// Err is the failure that was not claude's: a fetch that did not run, a
 	// worktree that could not be created, a commit or push that did not
 	// complete. A *git.PushError here names the worktree still holding the

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -81,6 +82,11 @@ type Runner struct {
 	home         string
 	tools        []string
 	allowedTools []string
+	// ceiling is the hard upper bound on any tool surface a request may carry.
+	// It bounds the profile-supplied lists only: r.tools is the operator's own
+	// configured surface and config validation has already established the
+	// ceiling contains it.
+	ceiling      []string
 	settingsPath string
 	timeout      time.Duration
 	forwardEnv   bool
@@ -125,11 +131,30 @@ func New(opts Options) (*Runner, error) {
 		return nil, fmt.Errorf("resolve claude binary: %w", err)
 	}
 
+	// The ceiling is resolved once, in config.Load, which defaults it to
+	// claude.tools before validation runs — so it arrives non-empty on any
+	// configuration that came from there and is read exactly as given. Deriving
+	// it a second time here is precisely how two definitions of the one boundary
+	// that must not drift would drift apart.
+	//
+	// It can still be empty on a config.Claude assembled by hand rather than
+	// loaded, which is what a test or an embedder does. Empty is not "no
+	// ceiling" and must not be treated as one: a runner with an empty ceiling
+	// rejects every request that carries a profile. It falls back to the tools
+	// surface — the same narrowest default Load would have applied, never a
+	// wider one — so an unloaded configuration is bounded by exactly what it
+	// already grants every unprofiled run.
+	ceiling := opts.Claude.ToolCeiling
+	if len(ceiling) == 0 {
+		ceiling = opts.Claude.Tools
+	}
+
 	return &Runner{
 		binary:       binary,
 		home:         home,
 		tools:        append([]string(nil), opts.Claude.Tools...),
 		allowedTools: append([]string(nil), opts.Claude.AllowedTools...),
+		ceiling:      append([]string(nil), ceiling...),
 		settingsPath: settingsPath,
 		timeout:      time.Duration(opts.Claude.TimeoutSeconds) * time.Second,
 		forwardEnv:   opts.Claude.ForwardAnthropicEnv,
@@ -224,11 +249,44 @@ type Request struct {
 
 	// Prompt is delivered on the child's stdin, never in argv (AC-3.12).
 	Prompt string
+
+	// Tools is the --tools surface this run is granted, when a tool profile was
+	// resolved for it. Empty means no profile applied, and the runner falls back
+	// to its configured surface; it is never a request to grant no tools at all,
+	// because an omitted --tools is allow-all.
+	//
+	// Every entry must be within the runner's ceiling or the request is refused
+	// before anything is started.
+	Tools []string
+
+	// AllowedTools is the --allowedTools permission list belonging with Tools,
+	// and is read only when Tools is non-empty. Empty then means the profile
+	// genuinely carries no permission rules, so the flag is omitted rather than
+	// filled in from the configured list — empty and absent are different.
+	//
+	// It is defence in depth, not the boundary: it is additive to the operator's
+	// ambient settings, and nothing is granted by a rule here that Tools does
+	// not already allow.
+	AllowedTools []string
+
+	// ToolProfile is the name of the operator-authored profile Tools and
+	// AllowedTools came from, recorded so a run's surface can be explained after
+	// the fact.
+	//
+	// It is a profile name that was validated against the operator's own config
+	// map, never raw label text and never anything else originating from an
+	// issue or a comment. It is used for logging and metadata only: it is never
+	// joined into the child's argv.
+	ToolProfile string
 }
 
 // validate rejects a request that would produce an unusable run rather than a
 // confusing one.
-func (req Request) validate() error {
+//
+// ceiling is the runner's hard upper bound on Tools, passed in because the
+// check belongs with the rest of the request's own validation and a Request has
+// no other way to reach the [Runner] that is about to run it.
+func (req Request) validate(ceiling []string) error {
 	if err := req.Ref.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
@@ -271,6 +329,23 @@ func (req Request) validate() error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return invalidRequest("prompt is empty")
 	}
+	// The ceiling re-check (AC-2.6). It is deliberately not a duplicate of the
+	// one config validation runs at boot: that one proves the operator's profile
+	// map is sound, this one proves that the []string which travelled
+	// daemon → turn → harness as a value — copied at the resolution boundary,
+	// carried on a struct, rewritten in place on the cold-rerun path — is still
+	// within the ceiling at the moment argv is about to be built from it. It is
+	// what keeps the #nosec justification on the exec below honest.
+	//
+	// Only Tools is checked. AllowedTools grants nothing that Tools does not
+	// already allow, so a rule outside the ceiling there cannot widen this run
+	// past it.
+	for _, tool := range req.Tools {
+		if !slices.Contains(ceiling, tool) {
+			return invalidRequest("tool %q is outside the configured ceiling [%s]",
+				tool, strings.Join(ceiling, ", "))
+		}
+	}
 	return nil
 }
 
@@ -300,7 +375,7 @@ func (req Request) validate() error {
 //     detection, because a stale credential makes claude retry internally and
 //     then hang emitting nothing at all (SD-3).
 func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
-	if err := req.validate(); err != nil {
+	if err := req.validate(r.ceiling); err != nil {
 		return nil, err
 	}
 
@@ -334,7 +409,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 		}
 	}()
 
-	args := r.args(req.ClaudeSessionID, req.Path.resuming())
+	args := r.args(req)
 	logger := r.logger.With(
 		slog.String("task", req.Ref.String()),
 		slog.Int("run", req.RunOrdinal),
@@ -385,30 +460,62 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 // never constructed here or anywhere else in the tree. That is a grep-able
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
-func (r *Runner) args(sessionID string, resume bool) []string {
+//
+// The two tool lists are the request's when it carries a resolved profile and
+// the runner's configured ones otherwise — see [Runner.surface]. Only config
+// strings are ever joined in here; the profile *name* that selected them is
+// not, and neither is anything else that came from GitHub.
+func (r *Runner) args(req Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
 	// resumed session takes its surface from this argv and does not inherit a
 	// wider one from the transcript it is continuing.
 	sessionFlag := "--session-id"
-	if resume {
+	if req.Path.resuming() {
 		sessionFlag = "--resume"
 	}
+	tools, allowedTools := r.surface(req)
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
-		sessionFlag, sessionID,
-		"--tools", strings.Join(r.tools, ","),
+		sessionFlag, req.ClaudeSessionID,
+		// Unconditional, in both cases. An omitted --tools is allow-all, which
+		// is the exact opposite of what an empty list looks like it asks for.
+		"--tools", strings.Join(tools, ","),
 		"--settings", r.settingsPath,
 	}
-	if len(r.allowedTools) > 0 {
+	if len(allowedTools) > 0 {
 		// Comma-joined into a single argument rather than passed variadically:
 		// --allowedTools takes <tools...>, and a following flag would otherwise
 		// be swallowed as another tool rule.
-		args = append(args, "--allowedTools", strings.Join(r.allowedTools, ","))
+		args = append(args, "--allowedTools", strings.Join(allowedTools, ","))
 	}
 	return append(args, "--strict-mcp-config")
+}
+
+// surface picks the pair of tool lists one run is invoked with. It is the only
+// place that choice is made, so argv and the log line that reports what argv
+// was built from cannot disagree.
+//
+// A request carrying tools is a request a profile was resolved for: its lists
+// are used exactly as they arrive, AllowedTools verbatim. Empty AllowedTools
+// there is a profile that genuinely has no permission rules — the flag is
+// omitted rather than backfilled from the configured list, because empty and
+// absent mean different things to claude.
+//
+// A request with no tools is every run that has no profile, and takes the
+// runner's configured lists unchanged. That is what keeps an unprofiled argv
+// byte-identical to the one litefactory built before profiles existed (AC-2.3).
+//
+// Tools is the discriminator rather than ToolProfile because Tools is what argv
+// is built from: a profile name with an empty surface behind it would otherwise
+// omit --tools, and an omitted --tools grants everything.
+func (r *Runner) surface(req Request) (tools, allowedTools []string) {
+	if len(req.Tools) > 0 {
+		return req.Tools, req.AllowedTools
+	}
+	return r.tools, r.allowedTools
 }
 
 // exec starts the process, streams it, and classifies how it ended.
@@ -432,13 +539,24 @@ func (r *Runner) exec(
 	// #nosec G204 -- This exec is the product's security boundary and every part
 	// of it is chosen, not inherited. r.binary.Path is an absolute path resolved
 	// and stat'ed at New time from the operator's own config, never from an
-	// issue or a comment. args comes from r.args above: fixed flags plus the
-	// configured tool lists and the segment's session id, which validate has
-	// already established is a canonical UUID and so cannot smuggle in a flag.
-	// Nothing else on this argv is caller-supplied. cmd.Env is the explicit
-	// allowlist buildEnv assembles, not the daemon's environment. And the
+	// issue or a comment. args comes from r.args above: fixed flags, the
+	// segment's session id — which validate has already established is a
+	// canonical UUID and so cannot smuggle in a flag — and one of two tool
+	// surfaces.
+	//
+	// The tool lists now arrive on the request rather than only from the runner,
+	// and that is the part worth being precise about. They are copies of
+	// operator-authored strings out of config.yaml, selected by a profile name
+	// that was validated against the operator's own profile map, and validate
+	// has just checked every one of them against r.ceiling — so nothing here can
+	// exceed a bound set outside GitHub. The name that selected them stays off
+	// argv entirely: it is a lookup key, never a value.
+	//
+	// So no string originating from GitHub is ever joined into this argv. The
 	// untrusted input — the prompt built from the issue — goes on stdin below,
 	// never on argv, so there is no shell and nothing here for it to influence.
+	// cmd.Env is the explicit allowlist buildEnv assembles, not the daemon's
+	// environment.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir = req.WorktreePath
 	cmd.Env = buildEnv(r.environ, r.forwardEnv)
@@ -482,11 +600,18 @@ func (r *Runner) exec(
 	closeAll(stdoutW, stderrW)
 	defer closeAll(stdoutR, stderrR)
 
+	// The three tool attributes report the surface this run was actually
+	// invoked with, not the runner's configured defaults: with a profile in
+	// play the two differ, and the log line is the only place the difference is
+	// visible after the fact. tool_profile is empty when no profile applied.
+	tools, allowedTools := r.surface(req)
 	logger.Info("claude started",
 		slog.String("binary", r.binary.Path),
 		slog.Int("pid", cmd.Process.Pid),
 		slog.String("worktree", req.WorktreePath),
-		slog.String("tools", strings.Join(r.tools, ",")),
+		slog.String("tools", strings.Join(tools, ",")),
+		slog.String("allowed_tools", strings.Join(allowedTools, ",")),
+		slog.String("tool_profile", req.ToolProfile),
 		slog.String("settings", r.settingsPath),
 		slog.Int("env_vars", len(cmd.Env)),
 		slog.String("timeout", r.timeout.String()))

@@ -2,6 +2,7 @@ package report
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -100,6 +101,22 @@ type Run struct {
 	// WorktreePath is where the work is on this machine. It is quoted when a
 	// push failed, because that is where the commit still is (AC-3.24).
 	WorktreePath string
+
+	// ToolsRequested is the tool surface litefactory asked claude for, and
+	// ToolProfile is the name of the operator-authored profile that surface came
+	// from — empty when no profile was selected.
+	//
+	// They are on Run rather than on Result because they are known before the
+	// subprocess starts and must survive a run that produced no result at all:
+	// Result is nil for a run that died before the init event, which is exactly
+	// the run whose requested surface is worth reading. The resolved surface —
+	// what claude actually ran under — stays on Result, where the init event put
+	// it, and the two are reported side by side.
+	//
+	// ToolProfile is a validated profile name from the operator's own config. No
+	// text originating from the forge is ever carried here.
+	ToolsRequested []string
+	ToolProfile    string
 }
 
 // logPath returns the absolute path of the run's local log, or "" if it was
@@ -487,6 +504,10 @@ func metadataList(run Run) string {
 		}
 	}
 
+	if tools, ok := toolsEntry(run); ok {
+		add("Tools", tools)
+	}
+
 	// The command first, the path second. A path to a JSONL file is a thing to
 	// go and find a way to read; the command is the way to read it, and it is
 	// the same command whether or not the run recorded a path, because `logs`
@@ -503,6 +524,92 @@ func metadataList(run Run) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// toolsEntry renders the Tools bullet: the surface the run actually had, the
+// profile that surface came from, and anything litefactory asked for and did
+// not get. The second result is false only when nothing about the run's tools
+// was recorded at all, which is metadataList's standing rule — omit rather than
+// guess — applied to a run that never reached a boundary decision.
+//
+// This line is required, not decorative. Do not make it conditional and do not
+// drop it to save a bullet:
+//
+//   - Profiles are resolved per tick, not per comment: two comments drained in
+//     one tick share one label snapshot. This bullet is the only after-the-fact
+//     evidence of which snapshot the run in front of you used.
+//   - Labels are authenticated by nothing (C3). Anyone with triage permission
+//     can widen an issue's profile and wait for the next comment. The ceiling
+//     bounds what that can reach; this line is the only thing that makes it
+//     visible afterwards, so it is the whole detection story for a relabel.
+//   - Requested and resolved genuinely differ in practice. TodoWrite was
+//     requested and silently dropped for the life of the project — eight asked
+//     for, seven granted, no error anywhere — and nothing but this comparison
+//     would have shown it.
+func toolsEntry(run Run) (string, bool) {
+	var resolved []string
+	if run.Result != nil {
+		resolved = run.Result.Tools
+	}
+	requested := run.ToolsRequested
+
+	if len(resolved) == 0 && len(requested) == 0 && run.ToolProfile == "" {
+		return "", false
+	}
+
+	var parts []string
+	switch {
+	case len(resolved) > 0:
+		parts = append(parts, codeList(resolved))
+	case len(requested) > 0:
+		// No init event arrived, so the surface claude ran under was never
+		// observed. Say what was asked for and say plainly that it is not the
+		// same claim (AC-4.3).
+		parts = append(parts, "requested "+codeList(requested)+
+			", but the run recorded no resolved surface")
+	default:
+		parts = append(parts, "no tool surface was recorded")
+	}
+
+	if run.ToolProfile != "" {
+		parts = append(parts, "profile "+codeSpan(run.ToolProfile))
+	} else {
+		// A run with no profile ran on the operator's configured surface. That
+		// is a fact about the run, not an absence, and it is what every run
+		// before profiles existed will say.
+		parts = append(parts, "no profile (the operator's default surface)")
+	}
+
+	// Only worth computing when both lists are real: with no resolved surface
+	// to compare against, every requested tool would look dropped.
+	if len(resolved) > 0 {
+		if missing := notGranted(requested, resolved); len(missing) > 0 {
+			parts = append(parts, "requested but not granted: "+codeList(missing))
+		}
+	}
+
+	return strings.Join(parts, " — "), true
+}
+
+// notGranted is the requested tools that the resolved surface does not carry,
+// in the order they were requested.
+func notGranted(requested, resolved []string) []string {
+	var missing []string
+	for _, tool := range requested {
+		if !slices.Contains(resolved, tool) {
+			missing = append(missing, tool)
+		}
+	}
+	return missing
+}
+
+// codeList renders names as a comma-separated list of code spans.
+func codeList(names []string) string {
+	spans := make([]string, 0, len(names))
+	for _, name := range names {
+		spans = append(spans, codeSpan(name))
+	}
+	return strings.Join(spans, ", ")
 }
 
 const resultHeading = "**Result**"

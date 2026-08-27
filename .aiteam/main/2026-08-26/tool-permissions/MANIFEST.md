@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -39,6 +39,28 @@ asked for; nothing here licenses starting the next one.
   per-profile `allowed_tools` (rejecting the architect's cut), and label-present-
   but-no-profiles now REFUSES. `--setting-sources`/`--bare`/`dontAsk`/sandbox kept
   as a clearly-marked OPTIONAL section Implement may skip wholesale.
+
+- 2026-08-27 — Implement complete on branch `lf/tool-permissions` (from main at
+  `2c2a874`). 11 commits, 29 files, +3472/-61. All four user stories built;
+  T-1..T-11 delivered as planned, T-12 delivered as a probe document
+  (`TOOL_SURFACE_PROBE.md`) rather than a committed test, following the
+  `CLAUDE_CLI_CONTRACT.md` convention. The plan's OPTIONAL section skipped
+  wholesale per D-8.
+
+  Tests: **green, 0 failed** — `gofmt -l .` empty, `go vet ./...` clean,
+  `go build ./...` clean, `go test -count=1 ./...` 18/18 packages ok, and
+  `go test -race -count=1 ./...` 18/18 ok. No bug-loop cycle was needed; no
+  escalation. Coverage after: config 94.8%, harness 93.1%, report 90.0%,
+  daemon 87.9%, turn 86.1%, cli 81.1%.
+
+  Code review verdict **CLEAN** — no BLOCKING, no ADVISORY (`CODE_REVIEW.md`).
+
+  Two things for the owner in `notes.md`: I-1, a tools refusal on the issue-body
+  path posts nothing (a gap the plan did not cover, decided without an owner
+  answer, locally reversible); and C-1, the D-6 case rule was implemented wrongly
+  first on the orchestrator's incorrect instruction and corrected in `6dd9d9b`.
+
+  Nothing pushed, nothing merged to `main`.
 
 ## Notes
 

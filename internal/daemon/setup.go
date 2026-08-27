@@ -205,12 +205,18 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			InstanceID: instanceID,
 			Logger:     s.Logger,
 		}),
-		Reporter:   reporter,
-		InstanceID: instanceID,
-		Interval:   interval,
-		Logger:     s.Logger,
-		Lock:       lock,
-		Now:        s.Now,
+		Reporter: reporter,
+		// The same two keys the harness was built from above, so the profile a
+		// label selects and the ceiling that bounds it are one decision made in
+		// one place — internal/config resolved the ceiling before it validated
+		// anything against it.
+		ToolProfiles: s.Config.Claude.ToolProfiles,
+		ToolCeiling:  s.Config.Claude.ToolCeiling,
+		InstanceID:   instanceID,
+		Interval:     interval,
+		Logger:       s.Logger,
+		Lock:         lock,
+		Now:          s.Now,
 	})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())

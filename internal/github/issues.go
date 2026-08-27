@@ -48,6 +48,17 @@ type Issue struct {
 	// makes "this one is for you" expressible. Match it with
 	// [Issue.AssignedTo], never by comparing logins.
 	Assignees []User
+	// Labels is every label name on the issue, in the order GitHub sent them,
+	// empty when it carries none. Like [Issue.Assignees] it rides on the issue
+	// payload that is already fetched, so it costs no extra request on either
+	// the listing or the single-issue path.
+	//
+	// A label is a *lookup key* and never a value (C2): the only thing
+	// litefactory does with one of these strings is match it against
+	// operator-authored configuration. No label text may be rendered into a
+	// prompt, echoed into a comment, or joined into a child process's argv —
+	// nobody's write access to this repository is a permission grant (C3).
+	Labels []string
 	// HTMLURL is the browser URL of the issue.
 	HTMLURL string
 	// CreatedAt and UpdatedAt are GitHub's timestamps. UpdatedAt is what the
@@ -199,9 +210,13 @@ type issuePayload struct {
 	// assigned to nobody. It is decoded through pointers anyway, so neither an
 	// absent list nor a null element inside one can panic a tick.
 	Assignees []*userPayload `json:"assignees"`
-	HTMLURL   string         `json:"html_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	// Labels is decoded through pointers for the same reason as Assignees: the
+	// list is [] rather than null on an unlabelled issue, and neither an absent
+	// list nor a null element inside one can panic a tick.
+	Labels    []*labelPayload `json:"labels"`
+	HTMLURL   string          `json:"html_url"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
 	// PullRequest is present, and non-nil, exactly when this "issue" is really
 	// a pull request. Its contents are irrelevant; its existence is the signal.
 	PullRequest *pullRequestPayload `json:"pull_request"`
@@ -209,6 +224,13 @@ type issuePayload struct {
 
 type pullRequestPayload struct {
 	URL string `json:"url"`
+}
+
+// labelPayload is a label on an issue. Only the name is read: the colour and
+// the description are presentation, and the id is of no use to a lookup that
+// matches on the name an operator typed.
+type labelPayload struct {
+	Name string `json:"name"`
 }
 
 func (p *issuePayload) issue() Issue {
@@ -219,6 +241,7 @@ func (p *issuePayload) issue() Issue {
 		State:     p.State,
 		Author:    p.User.user(),
 		Assignees: p.assignees(),
+		Labels:    p.labels(),
 		HTMLURL:   p.HTMLURL,
 		CreatedAt: p.CreatedAt.UTC(),
 		UpdatedAt: p.UpdatedAt.UTC(),
@@ -242,4 +265,24 @@ func (p *issuePayload) assignees() []User {
 		users = append(users, assignee.user())
 	}
 	return users
+}
+
+// labels converts the label list to its names.
+//
+// A null element is dropped rather than carried as the empty name, on the same
+// reasoning as [issuePayload.assignees]: the list means "the labels GitHub
+// named", and an empty string in it is a key that every caller would have to
+// defend against.
+func (p *issuePayload) labels() []string {
+	if len(p.Labels) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(p.Labels))
+	for _, label := range p.Labels {
+		if label == nil {
+			continue
+		}
+		names = append(names, label.Name)
+	}
+	return names
 }

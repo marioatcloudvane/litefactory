@@ -1192,6 +1192,139 @@ func TestRunLogsThePathItTook(t *testing.T) {
 
 // An unrecognised path would run cold, and on a task with a live conversation
 // running cold is the one outcome this feature exists to prevent.
+// TestRunWithNoProfileArgvIsByteIdentical is AC-2.3, pinned as hard as
+// possible: with Request.Tools empty — which is every run before this feature
+// existed, and every run today that carries no lf:tools= label — argv is
+// compared whole, not flag by flag, against the exact sequence the runner
+// built before Tools and AllowedTools existed on the request at all.
+func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
+	f := newFixture(t, successScript(t))
+	f.run(t)
+
+	got := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	want := []string{
+		"-p",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--session-id", testSessionID,
+		"--tools", "Read,Edit",
+		"--settings", filepath.Join(f.home, "claude-settings.json"),
+		"--allowedTools", "Read,Edit(./**)",
+		"--strict-mcp-config",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("argv = %q\nwant  %q", got, want)
+	}
+}
+
+// TestRunUsesTheProfileSurfaceExclusively is AC-2.5's first half: a request
+// that carries a resolved profile's Tools and AllowedTools uses exactly those
+// two lists for --tools and --allowedTools — never the runner's own
+// configured surface, and never a union of the two. Granting nothing beyond
+// what the profile says is the whole point of a ceiling that bounds profiles
+// rather than merges into them.
+func TestRunUsesTheProfileSurfaceExclusively(t *testing.T) {
+	f := newFixture(t, successScript(t), func(c *config.Claude) {
+		c.ToolCeiling = []string{"Read", "Edit", "Bash"}
+	})
+
+	req := f.request()
+	req.Tools = []string{"Bash"}
+	req.AllowedTools = []string{"Bash(ls:*)"}
+	req.ToolProfile = "research"
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
+	defer cancel()
+	if _, err := f.runner.Run(ctx, req); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	i := slices.Index(argv, "--tools")
+	if i < 0 || argv[i+1] != "Bash" {
+		t.Errorf("--tools = %v, want exactly the profile's [Bash], not the runner's own configured surface", argv)
+	}
+	if slices.Contains(argv, "Read,Edit") {
+		t.Errorf("argv still carries the runner's configured --tools value: %q", argv)
+	}
+	j := slices.Index(argv, "--allowedTools")
+	if j < 0 || argv[j+1] != "Bash(ls:*)" {
+		t.Errorf("--allowedTools = %v, want exactly the profile's [Bash(ls:*)]", argv)
+	}
+}
+
+// TestRunOmitsAllowedToolsWhenTheProfileHasNone is AC-2.5's second half: a
+// profile with a granted --tools surface and no allowed_tools rules at all
+// must omit --allowedTools rather than fill it in from the runner's own
+// configured list — empty and absent are different flags to claude, and
+// --tools stays unconditional regardless.
+func TestRunOmitsAllowedToolsWhenTheProfileHasNone(t *testing.T) {
+	f := newFixture(t, successScript(t), func(c *config.Claude) {
+		c.ToolCeiling = []string{"Read", "Edit", "Bash"}
+	})
+
+	req := f.request()
+	req.Tools = []string{"Bash"}
+	req.AllowedTools = nil
+	req.ToolProfile = "research"
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
+	defer cancel()
+	if _, err := f.runner.Run(ctx, req); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	if i := slices.Index(argv, "--tools"); i < 0 || argv[i+1] != "Bash" {
+		t.Errorf("--tools = %v, want it present with value Bash", argv)
+	}
+	if slices.Contains(argv, "--allowedTools") {
+		t.Errorf("argv carries --allowedTools for a profile with no rules: %q", argv)
+	}
+}
+
+// TestRunRejectsAToolOutsideTheCeiling is AC-2.6: the ceiling is re-checked
+// here, at the moment argv is about to be built, independently of whatever
+// config validation proved about the operator's profile map at boot (D-2).
+func TestRunRejectsAToolOutsideTheCeiling(t *testing.T) {
+	f := newFixture(t, successScript(t), func(c *config.Claude) {
+		c.ToolCeiling = []string{"Read", "Edit"}
+	})
+
+	req := f.request()
+	req.Tools = []string{"Read", "Bash"}
+	req.ToolProfile = "research"
+
+	_, err := f.runner.Run(t.Context(), req)
+	if err == nil {
+		t.Fatal("Run accepted a tool outside the configured ceiling")
+	}
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error %v does not unwrap to ErrInvalidRequest", err)
+	}
+	if !strings.Contains(err.Error(), "Bash") {
+		t.Errorf("error does not name the offending tool: %v", err)
+	}
+}
+
+// TestRunFallsBackToTheConfiguredCeilingWhenNoneWasResolved is the harness
+// half of the New doc comment: a config.Claude assembled by hand rather than
+// loaded through internal/config carries an empty ToolCeiling, and that must
+// bound every profiled request by claude.tools rather than accept anything —
+// an empty ceiling is not "no ceiling".
+func TestRunFallsBackToTheConfiguredCeilingWhenNoneWasResolved(t *testing.T) {
+	f := newFixture(t, successScript(t)) // ToolCeiling left unset by the fixture's baseline
+
+	req := f.request()
+	req.Tools = []string{"Bash"} // outside claude.tools = [Read, Edit], and no ceiling was ever resolved
+	req.ToolProfile = "research"
+
+	_, err := f.runner.Run(t.Context(), req)
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error = %v, want ErrInvalidRequest: an empty ceiling must fall back to claude.tools, not allow-all", err)
+	}
+}
+
 func TestRunRejectsAnUnknownPath(t *testing.T) {
 	f := newFixture(t, successScript(t))
 
@@ -1201,5 +1334,82 @@ func TestRunRejectsAnUnknownPath(t *testing.T) {
 	_, err := f.runner.Run(t.Context(), req)
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("error = %v, want ErrInvalidRequest", err)
+	}
+}
+
+// logLineContaining returns the one line of a captured log buffer that
+// contains substr, or fails the test. Text-handler output puts every
+// attribute of one record on one line, so this is enough to isolate a single
+// log line's attributes from the rest of a run's output.
+func logLineContaining(t *testing.T, logs, substr string) string {
+	t.Helper()
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	t.Fatalf("no log line contains %q:\n%s", substr, logs)
+	return ""
+}
+
+// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the "claude started" line
+// carries allowed_tools and tool_profile alongside tools, and — the part that
+// actually matters — all three report the surface this run was invoked with,
+// never the runner's own configured default, once a profile has been
+// resolved for the request (runner.go:602-604).
+func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
+	tests := []struct {
+		name             string
+		reqTools         []string
+		reqAllowedTools  []string
+		reqToolProfile   string
+		wantTools        string
+		wantAllowedTools string
+		wantToolProfile  string
+	}{
+		{
+			name:             "profile resolved/reports the request's surface, not the runner's configured default",
+			reqTools:         []string{"Read", "Grep", "Bash"},
+			reqAllowedTools:  []string{"Bash(git:*)", "Grep(*)"},
+			reqToolProfile:   "research",
+			wantTools:        "tools=Read,Grep,Bash",
+			wantAllowedTools: "allowed_tools=Bash(git:*),Grep(*)",
+			wantToolProfile:  "tool_profile=research",
+		},
+		{
+			name:             "no profile/reports the runner's own configured surface",
+			wantTools:        "tools=Read,Edit",
+			wantAllowedTools: "allowed_tools=Read,Edit(./**)",
+			wantToolProfile:  `tool_profile=""`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := &bytes.Buffer{}
+			f := newFixture(t, successScript(t), func(c *config.Claude) {
+				// Wide enough that a profile's tools sit inside the ceiling
+				// but still outside the runner's own configured default
+				// (Read, Edit), so the two surfaces are actually different.
+				c.ToolCeiling = []string{"Read", "Edit", "Grep", "Bash"}
+			})
+			f.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+
+			req := f.request()
+			req.Tools = tt.reqTools
+			req.AllowedTools = tt.reqAllowedTools
+			req.ToolProfile = tt.reqToolProfile
+
+			if _, err := f.runner.Run(t.Context(), req); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			line := logLineContaining(t, logs.String(), `msg="claude started"`)
+			for _, want := range []string{tt.wantTools, tt.wantAllowedTools, tt.wantToolProfile} {
+				if !strings.Contains(line, want) {
+					t.Errorf("claude started log line missing %q:\n%s", want, line)
+				}
+			}
+		})
 	}
 }

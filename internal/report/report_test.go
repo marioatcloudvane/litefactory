@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,16 @@ import (
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/secrets"
+)
+
+// todoWriteResolved and todoWriteRequested are the measured finding this story
+// exists to make visible ("Settled before planning", IMPLEMENTATION_PLAN.md):
+// eight tools requested, seven resolved, TodoWrite silently dropped with no
+// error raised anywhere. The resolved order is copied verbatim from a real
+// init event.
+var (
+	todoWriteResolved  = []string{"Task", "Bash", "Edit", "Glob", "Grep", "Read", "Write"}
+	todoWriteRequested = append(append([]string{}, todoWriteResolved...), "TodoWrite")
 )
 
 // update rewrites the golden files instead of comparing against them.
@@ -903,6 +914,209 @@ func TestASmallLimitStillProducesAPostableBody(t *testing.T) {
 				t.Errorf("the marker did not survive:\n%s", body.String())
 			}
 		})
+	}
+}
+
+// TestToolsBulletRendersRequestedAndResolvedSurface is AC-4.2 and AC-4.3: the
+// four cases the implementer measured, pinned by name. The last case is a
+// deliberate judgement call — metadataList's documented rule is to omit a fact
+// rather than guess at it, and this is the test that locks that rule in for
+// the Tools bullet specifically.
+func TestToolsBulletRendersRequestedAndResolvedSurface(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		modify     func(*report.Run)
+		want       string
+		wantAbsent bool
+	}{
+		{
+			name: "granted profile/lists the resolved surface and its profile",
+			modify: func(r *report.Run) {
+				r.Result.Tools = []string{"Read", "Grep", "Bash"}
+				r.ToolProfile = "research"
+			},
+			want: "- **Tools:** `Read`, `Grep`, `Bash` — profile `research`",
+		},
+		{
+			name: "requested exceeds resolved/names the tool that was not granted (TodoWrite worked example)",
+			modify: func(r *report.Run) {
+				r.Result.Tools = todoWriteResolved
+				r.ToolsRequested = todoWriteRequested
+			},
+			want: "- **Tools:** `Task`, `Bash`, `Edit`, `Glob`, `Grep`, `Read`, `Write` — " +
+				"no profile (the operator's default surface) — requested but not granted: `TodoWrite`",
+		},
+		{
+			name: "nil RunResult/shows the requested surface and the profile, never a resolved one",
+			modify: func(r *report.Run) {
+				r.Result = nil
+				r.ToolsRequested = []string{"Read", "Grep"}
+				r.ToolProfile = "research"
+			},
+			want: "- **Tools:** requested `Read`, `Grep`, but the run recorded no resolved surface — profile `research`",
+		},
+		{
+			name: "no profile at all/says so explicitly rather than staying silent",
+			modify: func(r *report.Run) {
+				r.Result.Tools = []string{"Read", "Edit"}
+			},
+			want: "- **Tools:** `Read`, `Edit` — no profile (the operator's default surface)",
+		},
+		{
+			name: "nothing known about tools/the bullet is omitted rather than guessed",
+			modify: func(r *report.Run) {
+				r.Result = nil
+			},
+			wantAbsent: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := successRun()
+			// Start from nothing tools-related recorded, so every case's
+			// expectation is self-contained rather than riding successRun's
+			// own defaults.
+			run.Result.Tools = nil
+			run.ToolsRequested = nil
+			run.ToolProfile = ""
+			tt.modify(&run)
+
+			text := render(t, newReporter(t), run).String()
+
+			if tt.wantAbsent {
+				if strings.Contains(text, "**Tools:**") {
+					t.Errorf("expected no Tools bullet, got:\n%s", text)
+				}
+				return
+			}
+			if !strings.Contains(text, tt.want) {
+				t.Errorf("rendered report does not contain %q:\n%s", tt.want, text)
+			}
+		})
+	}
+}
+
+// TestToolsBulletFollowsModelImmediately is the positional half of AC-4.2: the
+// bullet must land in metadataList right after Model, which is what puts it
+// inside secFixed — the one section [runBody] never trims.
+func TestToolsBulletFollowsModelImmediately(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.Result.Tools = []string{"Read", "Grep", "Bash"}
+	run.ToolProfile = "research"
+
+	text := render(t, newReporter(t), run).String()
+	lines := strings.Split(text, "\n")
+
+	modelIdx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "- **Model:**") {
+			modelIdx = i
+			break
+		}
+	}
+	if modelIdx == -1 {
+		t.Fatalf("no Model bullet found:\n%s", text)
+	}
+	if modelIdx+1 >= len(lines) {
+		t.Fatalf("Model is the last line of the body; Tools cannot follow it:\n%s", text)
+	}
+	if next := lines[modelIdx+1]; !strings.HasPrefix(next, "- **Tools:**") {
+		t.Errorf("Tools does not immediately follow Model; the next line is %q", next)
+	}
+}
+
+// TestToolsBulletSurvivesTruncation is AC-4.2's second, load-bearing
+// assertion: the bullet must still be there under a report big enough to
+// force every other section to be cut, because it is the only after-the-fact
+// evidence of which tool surface a per-tick-resolved run actually used (C3).
+// Asserting only the bullet's position, without this, would miss the whole
+// point of putting it in secFixed.
+func TestToolsBulletSurvivesTruncation(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.Result.Tools = []string{"Read", "Grep", "Bash"}
+	run.ToolProfile = "research"
+	run.ToolsRequested = []string{"Read", "Grep", "Bash", "TodoWrite"}
+	// Forty lines, each far larger than a whole comment: enough to force the
+	// log tail to be elided or dropped outright.
+	run.Output = strings.Repeat(strings.Repeat("x", 20_000)+"\n", 40)
+
+	body := render(t, newReporter(t), run)
+	text := body.String()
+
+	if body.Len() > github.CommentSizeLimit {
+		t.Errorf("body is %d bytes, over GitHub's %d-byte limit", body.Len(), github.CommentSizeLimit)
+	}
+	want := "- **Tools:** `Read`, `Grep`, `Bash` — profile `research` — requested but not granted: `TodoWrite`"
+	if !strings.Contains(text, want) {
+		t.Errorf("the Tools bullet did not survive truncation; want %q in:\n%s", want, text)
+	}
+}
+
+// TestToolsBulletPassesThroughRedactionUntouched is AC-4.6: internal/redact
+// matches credential shapes only, so a realistic tool list and profile name
+// must come out exactly as they went in, with no redaction class firing on
+// them at all.
+func TestToolsBulletPassesThroughRedactionUntouched(t *testing.T) {
+	t.Parallel()
+
+	redactor := redact.New(redact.Options{Environ: []string{"DEPLOY_SECRET=abcdefgh", "API_KEY=shhhhhhh1"}})
+	line := "- **Tools:** `Task`, `Bash`, `Edit`, `Glob`, `Grep`, `Read`, `Write` — " +
+		"profile `research` — requested but not granted: `TodoWrite`"
+
+	body, err := redactor.Apply(t.Context(), line, 10_000)
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if body.String() != line {
+		t.Errorf("a tool list was altered by redaction:\ngot:  %s\nwant: %s", body.String(), line)
+	}
+	if total := body.Counts().Total(); total != 0 {
+		t.Errorf("redaction fired %d times on a tool list and profile name: %+v", total, body.Counts())
+	}
+}
+
+// TestToolsBulletCarriesNoLabelSyntax is the C2/S-13 guardrail: nothing
+// originating from GitHub — a label body, the "lf:tools=" syntax itself — may
+// ever reach a rendered report. ToolProfile is documented as a validated
+// config key, never raw label text.
+func TestToolsBulletCarriesNoLabelSyntax(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.Result.Tools = todoWriteResolved
+	run.ToolsRequested = todoWriteRequested
+	run.ToolProfile = "research"
+
+	text := render(t, newReporter(t), run).String()
+
+	for _, forbidden := range []string{"lf:tools=", "lf:tools ="} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("rendered report leaked label syntax %q:\n%s", forbidden, text)
+		}
+	}
+}
+
+// TestRunCarriesNoLabelField is the structural half of the same guardrail:
+// report.Run has no field for raw label text at all, so there is nothing for a
+// future change to wire up by mistake (S-13).
+func TestRunCarriesNoLabelField(t *testing.T) {
+	t.Parallel()
+
+	rt := reflect.TypeOf(report.Run{})
+	for i := range rt.NumField() {
+		name := rt.Field(i).Name
+		if strings.Contains(strings.ToLower(name), "label") {
+			t.Errorf("report.Run has a field named %q; labels must never reach this package (S-13)", name)
+		}
 	}
 }
 

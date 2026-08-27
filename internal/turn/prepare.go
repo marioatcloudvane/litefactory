@@ -217,6 +217,14 @@ func prepare(
 			Path:            path,
 			WorktreePath:    worktree.Path(),
 			Prompt:          prompt,
+			// Passed straight through: the request's lists are already the
+			// caller's copies of operator-authored configuration, and the
+			// harness re-checks them against its ceiling before it builds argv
+			// (AC-2.6). Empty means this run takes the harness's own surface,
+			// which is every run that carries no tool profile.
+			Tools:        req.Tools,
+			AllowedTools: req.AllowedTools,
+			ToolProfile:  req.ToolProfile,
 		},
 	}, nil
 }
