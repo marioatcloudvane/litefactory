@@ -7,7 +7,7 @@
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-08-26; revised 2026-08-27)*
 - [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
-- [ ] **Spike** — `SPIKE.md` *(not started)*
+- [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
 asked for; nothing here licenses starting the next one.
@@ -22,6 +22,10 @@ asked for; nothing here licenses starting the next one.
   corrected run 0001's headline finding and enlarged the scope from one ask to three. Two
   verification sub-agents run; citations re-checked against `origin/main` @ `3427686`. Still
   Research — no plan, no code, no comments posted, nothing committed by this run.
+
+- 2026-08-27 — **Spike (run 0005).** Owner asked for a plain-English summary of the brief and named
+  the mode explicitly ("this is a spike"). `SPIKE.md` written. No research, no verification, no
+  code — a condensation of the existing brief. Nothing committed by this run.
 
 ## Notes
 
