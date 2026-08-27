@@ -143,8 +143,10 @@ func validateClaude(c *Claude) []error {
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
 	}
 
-	errs = append(errs, validateTools(c.Tools)...)
-	errs = append(errs, validateAllowedTools(c.AllowedTools)...)
+	errs = append(errs, validateTools("claude.tools", c.Tools)...)
+	errs = append(errs, validateAllowedTools("claude.allowed_tools", c.AllowedTools)...)
+	errs = append(errs, validateToolCeiling(c)...)
+	errs = append(errs, validateToolProfiles(c)...)
 	errs = append(errs, validateNoForbiddenFlag(c)...)
 	return errs
 }
@@ -167,6 +169,14 @@ func (c *Config) normalize() {
 	c.Claude.SettingsPath = strings.TrimSpace(c.Claude.SettingsPath)
 	trimAll(c.Claude.Tools)
 	trimAll(c.Claude.AllowedTools)
+	trimAll(c.Claude.ToolCeiling)
+	// A ToolProfile is copied by the range, but its two slice headers still
+	// point at the map value's backing arrays, so trimming in place lands on
+	// the configuration the daemon will use.
+	for _, profile := range c.Claude.ToolProfiles {
+		trimAll(profile.Tools)
+		trimAll(profile.AllowedTools)
+	}
 }
 
 func trimAll(values []string) {
