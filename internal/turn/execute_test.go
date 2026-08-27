@@ -849,6 +849,25 @@ func TestExecuteValidatesItsArguments(t *testing.T) {
 			t.Errorf("err = %v, want %v", err, ErrInvalidRequest)
 		}
 	})
+
+	// A trigger id of 0 is the issue body, not a missing comment (AC-2.16b).
+	// It is the one non-positive value a turn accepts, and it is 0 rather than
+	// the issue's own forge id because reporting the run advances the watermark
+	// to it (AC-2.23).
+	t.Run("issue body as the trigger", func(t *testing.T) {
+		t.Parallel()
+
+		req := f.request()
+		req.Trigger.CommentID = 0
+		if err := req.validate(); err != nil {
+			t.Errorf("validate with a trigger of 0 = %v, want it accepted as the issue body", err)
+		}
+
+		req.Trigger.CommentID = -1
+		if err := req.validate(); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("validate with a trigger of -1 = %v, want %v", err, ErrInvalidRequest)
+		}
+	})
 }
 
 // TestReconcileReclaimsAndLogs is AC-3.2: a lock held by a non-current daemon

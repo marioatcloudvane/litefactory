@@ -151,7 +151,13 @@ type RunReport struct {
 	SessionID int64
 
 	// CommentID is the comment that triggered the run and is consumed by this
-	// report. Required.
+	// report. Required, and it is the value the watermark advances to.
+	//
+	// Zero is the issue body rather than a comment: a run started by assigning
+	// an issue to the owner has no triggering comment to consume (AC-2.16b).
+	// The advance is then a MAX(0, 0) no-op, which is the whole reason the body
+	// carries 0 instead of the issue's forge id — a positive id here would
+	// consume every comment the issue will ever receive (AC-2.23).
 	CommentID int64
 
 	// RunID is the runs row that moves to [store.RunReported]. Zero is the
@@ -164,8 +170,10 @@ func (rep RunReport) validate() error {
 	switch {
 	case rep.SessionID <= 0:
 		return invalidRequest("a session id is required to report a run")
-	case rep.CommentID <= 0:
-		return invalidRequest("a triggering comment id is required to report a run")
+	// Not "positive": 0 is a run triggered by the issue body, which owes the
+	// issue a report like any other run. See [RunReport.CommentID].
+	case rep.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", rep.CommentID)
 	case rep.RunID < 0:
 		return invalidRequest("run id %d is not a run", rep.RunID)
 	}

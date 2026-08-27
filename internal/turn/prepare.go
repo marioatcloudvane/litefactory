@@ -151,21 +151,29 @@ func prepare(
 		return nil, err
 	}
 
+	// A trigger id of 0 is the issue body rather than a comment (see
+	// [Trigger.CommentID]): the run was started by assigning the issue, so the
+	// body is the instruction and must not also be framed as third-party
+	// material to evaluate (D-N, AC-2.25). The condition is decided here, once;
+	// harness does the rest of it.
+	bodyIsInstruction := req.Trigger.CommentID == 0
+
 	promptInput := harness.PromptInput{
-		Ref:           ref,
-		FeatureSlug:   session.FeatureSlug,
-		Branch:        branch,
-		Mode:          req.mode(),
-		RunOrdinal:    run.Ordinal,
-		Instruction:   req.Command.Text,
-		IssueTitle:    req.Issue.Title,
-		IssueBody:     req.Issue.Body,
-		IssueAuthor:   req.Issue.Author,
-		CommentBody:   req.Trigger.Body,
-		CommentAuthor: req.Trigger.Author,
-		Resume:        resume,
-		PreviousMode:  previous.Mode,
-		History:       history,
+		Ref:               ref,
+		FeatureSlug:       session.FeatureSlug,
+		Branch:            branch,
+		Mode:              req.mode(),
+		RunOrdinal:        run.Ordinal,
+		Instruction:       req.Command.Text,
+		IssueTitle:        req.Issue.Title,
+		IssueBody:         req.Issue.Body,
+		IssueAuthor:       req.Issue.Author,
+		CommentBody:       req.Trigger.Body,
+		CommentAuthor:     req.Trigger.Author,
+		BodyIsInstruction: bodyIsInstruction,
+		Resume:            resume,
+		PreviousMode:      previous.Mode,
+		History:           history,
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {

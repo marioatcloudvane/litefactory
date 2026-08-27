@@ -62,7 +62,7 @@ func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
-		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=all
+		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=open
 		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
 		// BaseURL reads a field rather than calling the API.
 		"BaseURL",

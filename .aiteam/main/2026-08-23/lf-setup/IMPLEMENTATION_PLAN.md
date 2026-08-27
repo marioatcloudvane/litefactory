@@ -234,6 +234,8 @@ Delivers the daemon loop, launchd lifecycle, cross-repo polling, the self-filter
 | AC-2.20 | `/spike` with an empty argument gets a reply asking for text and spawns nothing. |
 | AC-2.21 | On daemon start, an orphaned `running` run is reconciled to `failed (abandoned)`, a failure comment is posted, and the watermark advances — no re-run, and the unique constraint is not violated. |
 
+**AC-2.16 has since been amended** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (issue #6, 2026-08-26). The row above is left as first written.
+
 ---
 
 ## User Story LF-3 — Run aiteam in a worktree

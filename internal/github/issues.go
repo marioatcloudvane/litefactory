@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// StateOpen is the one issue state litefactory acts on.
+//
+// Closing an issue is how the factory is told to stop working on it: a comment
+// on an issue that is not open starts nothing (AC-2.22). The skip itself is the
+// daemon's, not this package's — see [Client.ListIssues] for why the query
+// filter is not the guard.
+const StateOpen = "open"
+
 // Issue is a GitHub issue. Pull requests never appear here — see [Client.ListIssues].
 type Issue struct {
 	// Number is the issue number, the one that appears in the task ref.
@@ -21,17 +29,51 @@ type Issue struct {
 	// triggered the run, which is why the prompt frames it as a third-party
 	// note (D-N).
 	Body string
-	// State is "open" or "closed".
+	// State is "open" or "closed"; only [StateOpen] is acted on (AC-2.22).
 	State string
-	// Author is who opened the issue. An issue body alone never starts
-	// anything (AC-2.16), so this is recorded, not acted on.
+	// Author is who opened the issue. It is the attribution the prompt carries
+	// — "opened by X" — and, on an issue whose body is run as its first
+	// instruction, the author of that trigger too (AC-2.16b).
+	//
+	// It is not the authorisation. Anyone can open an issue, so nothing is
+	// started on the strength of this field: what unlocks a body is
+	// [Issue.Assignees] containing the owner. That the two can differ is the
+	// point, and the attribution is why it is safe — a run started from a
+	// stranger's body still tells the model who wrote it. The blanket ban this
+	// comment used to cite (AC-2.16) is reversed in `.aiteam/AC_AMENDMENTS.md`.
 	Author User
+	// Assignees is everyone the issue is assigned to, empty when it is
+	// assigned to nobody. It rides on the same payload as every other field
+	// here — no extra request and no eighth endpoint (AC-2.24) — and is what
+	// makes "this one is for you" expressible. Match it with
+	// [Issue.AssignedTo], never by comparing logins.
+	Assignees []User
 	// HTMLURL is the browser URL of the issue.
 	HTMLURL string
 	// CreatedAt and UpdatedAt are GitHub's timestamps. UpdatedAt is what the
 	// since filter matches on.
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// AssignedTo reports whether the account with this numeric id is one of the
+// issue's assignees.
+//
+// The comparison is on the id and never on a login (D-I), for the same reason
+// every other identity decision in litefactory is: a login is a label GitHub
+// lets people change, and the id is the account. A zero id matches nothing —
+// that is what GitHub reports for a deleted account, and an unknown owner id
+// must not quietly match one.
+func (i Issue) AssignedTo(userID int64) bool {
+	if userID == 0 {
+		return false
+	}
+	for _, assignee := range i.Assignees {
+		if assignee.ID == userID {
+			return true
+		}
+	}
+	return false
 }
 
 // ListIssues returns the issues in repo touched at or after since, oldest
@@ -75,7 +117,13 @@ func (c *Client) ListIssues(ctx context.Context, repo Repo, since time.Time) ([]
 	}
 
 	query := url.Values{}
-	query.Set("state", "all")
+	// Only open issues are listed. This is a payload saving on the common
+	// path and *not* the guard AC-2.22 asks for: the daemon reaches an issue a
+	// second way, through [Client.GetIssue] for a number that only the comment
+	// listing produced, and that read never sees this query string. The skip
+	// therefore lives where the two paths meet, in the daemon's processIssue —
+	// filtering here as well simply saves carrying issues nobody will act on.
+	query.Set("state", StateOpen)
 	// Sorting by update time ascending pairs with the since cursor: the last
 	// page holds the newest activity, and a truncated walk loses the newest
 	// rather than the oldest.
@@ -142,14 +190,18 @@ func (c *Client) GetIssue(ctx context.Context, repo Repo, number int) (Issue, er
 // issuePayload is GitHub's issue shape. Only the fields M0 reads are declared;
 // the rest of a very large object is discarded by the decoder.
 type issuePayload struct {
-	Number    int          `json:"number"`
-	Title     string       `json:"title"`
-	Body      string       `json:"body"`
-	State     string       `json:"state"`
-	User      *userPayload `json:"user"`
-	HTMLURL   string       `json:"html_url"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	Number int          `json:"number"`
+	Title  string       `json:"title"`
+	Body   string       `json:"body"`
+	State  string       `json:"state"`
+	User   *userPayload `json:"user"`
+	// Assignees is a list GitHub sends as [] rather than null when an issue is
+	// assigned to nobody. It is decoded through pointers anyway, so neither an
+	// absent list nor a null element inside one can panic a tick.
+	Assignees []*userPayload `json:"assignees"`
+	HTMLURL   string         `json:"html_url"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	// PullRequest is present, and non-nil, exactly when this "issue" is really
 	// a pull request. Its contents are irrelevant; its existence is the signal.
 	PullRequest *pullRequestPayload `json:"pull_request"`
@@ -166,8 +218,28 @@ func (p *issuePayload) issue() Issue {
 		Body:      p.Body,
 		State:     p.State,
 		Author:    p.User.user(),
+		Assignees: p.assignees(),
 		HTMLURL:   p.HTMLURL,
 		CreatedAt: p.CreatedAt.UTC(),
 		UpdatedAt: p.UpdatedAt.UTC(),
 	}
+}
+
+// assignees converts the assignee list.
+//
+// A null element is dropped rather than carried as an account with id 0: the
+// list means "the accounts GitHub named", and a zero id in it would be a
+// nobody that [Issue.AssignedTo] has to defend against twice.
+func (p *issuePayload) assignees() []User {
+	if len(p.Assignees) == 0 {
+		return nil
+	}
+	users := make([]User, 0, len(p.Assignees))
+	for _, assignee := range p.Assignees {
+		if assignee == nil {
+			continue
+		}
+		users = append(users, assignee.user())
+	}
+	return users
 }

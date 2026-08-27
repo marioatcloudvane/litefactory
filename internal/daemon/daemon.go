@@ -61,10 +61,19 @@ type Forge interface {
 	AddCommentReaction(ctx context.Context, repo github.Repo, commentID int64, content github.ReactionContent) error
 }
 
-// Classifier decides what an inbound comment is and records it. *turn.Filter
-// satisfies it.
+// Classifier decides what an inbound comment is and records it, and answers
+// which identities it decides with. *turn.Filter satisfies it.
+//
+// Identities is on the interface because the daemon has no other route to the
+// owner's numeric user id, and that id is what "assigned to me" is a question
+// about: assignment is matched on the id and never on a handle (D-I,
+// AC-2.24), exactly as every other identity decision here is. It is asked of
+// the classifier rather than loaded a second time so that one set of ids
+// governs both — a daemon that classified with one owner id and gated
+// assignment on another would be indefensible.
 type Classifier interface {
 	Admit(ctx context.Context, sessionID int64, c github.Comment) (turn.Admission, error)
+	Identities() turn.Identities
 }
 
 // Executor runs one turn. [NewExecutor] wraps turn.Execute into one.

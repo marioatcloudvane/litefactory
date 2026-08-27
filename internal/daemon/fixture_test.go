@@ -71,11 +71,16 @@ func bot() fakeUser      { return fakeUser{ID: botID, Login: botLogin, Type: "Bo
 func stranger() fakeUser { return fakeUser{ID: strangerID, Login: strangerLogin, Type: "User"} }
 
 type fakeIssue struct {
-	Number      int            `json:"number"`
-	Title       string         `json:"title"`
-	Body        string         `json:"body"`
-	State       string         `json:"state"`
-	User        fakeUser       `json:"user"`
+	Number int      `json:"number"`
+	Title  string   `json:"title"`
+	Body   string   `json:"body"`
+	State  string   `json:"state"`
+	User   fakeUser `json:"user"`
+	// Assignees is who the issue is assigned to. GitHub always sends the
+	// member, as [] for an unassigned issue, so it is not omitempty: an
+	// absent member is a shape the client is tested against directly, not one
+	// this fixture should be producing by accident.
+	Assignees   []fakeUser     `json:"assignees"`
 	HTMLURL     string         `json:"html_url"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
@@ -192,8 +197,20 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	// The since filter is inclusive, exactly as GitHub's is (D-A).
 	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	// And the state filter, also as GitHub applies it: open unless asked
+	// otherwise, and "all" is the only way a closed issue comes back. The
+	// daemon asks for open, so this is what keeps a closed issue out of *this*
+	// listing — handleGetIssue still serves one, because GitHub does, which is
+	// why the AC-2.22 skip cannot live in the query.
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "open"
+	}
 	out := make([]fakeIssue, 0, len(issues))
 	for _, issue := range issues {
+		if state != "all" && issue.State != state {
+			continue
+		}
 		if since.IsZero() || !issue.UpdatedAt.Before(since) {
 			out = append(out, issue)
 		}
@@ -371,6 +388,22 @@ func (f *forgeServer) addCommentAt(issue int, id int64, author fakeUser, body st
 			f.issues[i].UpdatedAt = at
 		}
 	}
+}
+
+// closeIssue closes an issue the way a human does: its state changes and its
+// update time moves with it. Everything about it stays on the forge, and
+// handleGetIssue keeps serving it — closed is a state, not a deletion.
+func (f *forgeServer) closeIssue(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.issues {
+		if f.issues[i].Number == number {
+			f.issues[i].State = "closed"
+			f.issues[i].UpdatedAt = f.now()
+			return
+		}
+	}
+	f.t.Fatalf("no issue %d to close", number)
 }
 
 func (f *forgeServer) staleIssue(number int, at time.Time) {
@@ -763,6 +796,13 @@ func (f *fixture) settle() {
 }
 
 // issue registers the task every test polls.
+//
+// It is deliberately inert: a stranger opened it, nobody is assigned to it, and
+// its body is a statement of fact rather than an instruction. Nothing about it
+// can start a run on its own, so a test that adds comments to it is testing
+// only its comments. That is what makes it useless for a body test — use
+// [fixture.assignedIssue], which says at the call site that the owner asked for
+// something.
 func (f *fixture) issue(title string) {
 	f.t.Helper()
 
@@ -771,6 +811,35 @@ func (f *fixture) issue(title string) {
 		Title:  title,
 		Body:   "The service has no way to say whether it is up.",
 		User:   stranger(),
+	})
+}
+
+// assignedIssue registers an issue with the given body, assigned to the owner:
+// the shape that runs its body as a first instruction (AC-2.16b).
+//
+// The author is the *stranger*, on purpose. The gate is assignment and not
+// authorship — assigning an issue to yourself is the act of instruction, and
+// anyone at all may open one — so the harder of the two cases is the default
+// here, and a body test cannot pass by accident because the owner happened to
+// write it. Where authorship is the point, [fixture.assignedIssueBy] says so.
+func (f *fixture) assignedIssue(title, body string) {
+	f.t.Helper()
+
+	f.assignedIssueBy(stranger(), title, body)
+}
+
+// assignedIssueBy is [fixture.assignedIssue] with the issue's author spelled
+// out — the owner's own issue, most usefully, which is what happens on a real
+// machine when Mario opens one and assigns it to himself.
+func (f *fixture) assignedIssueBy(author fakeUser, title, body string) {
+	f.t.Helper()
+
+	f.forge.addIssue(fakeIssue{
+		Number:    testIssue,
+		Title:     title,
+		Body:      body,
+		User:      author,
+		Assignees: []fakeUser{owner()},
 	})
 }
 
