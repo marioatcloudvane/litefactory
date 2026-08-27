@@ -203,16 +203,62 @@ type ReplyRequest struct {
 	// (AC-2.18, AC-2.20). Free text draws no reply — it starts a run and is
 	// answered by the run report — and an empty comment is consumed with
 	// [Reporter.Consume] instead.
+	//
+	// It is not read at all when Refusal is set: what a tool-permission refusal
+	// answers is the label on the issue, and it answers it the same way whatever
+	// the comment asked for.
 	Command Command
+
+	// Refusal, when set, makes this a tool-permission refusal rather than an
+	// answer to the command: the lf:tools= label on the issue could not be
+	// resolved, so nothing was run and the thread is owed an explanation
+	// (AC-3.1 to AC-3.4).
+	//
+	// It has to be a field of its own rather than another [CommandKind], because
+	// a refusal is drawn by precisely the commands that *do* spawn a run. Both
+	// guards on this path — [ReplyRequest.validate] and [ReplyRequest.kind] —
+	// ask about the command, and both give the wrong answer for a refusal; this
+	// is what they branch on first.
+	Refusal report.ReplyKind
+
+	// Profile is the tool profile name the label asked for. It belongs to
+	// [report.ReplyUnknownToolProfile] alone and is empty everywhere else, which
+	// is how the malformed and ambiguous refusals are kept structurally unable
+	// to echo label text (S-9). internal/report checks it against the
+	// profile-name pattern again before rendering it (S-8).
+	Profile string
+}
+
+// refusing reports whether this request is a tool-permission refusal rather
+// than an answer to the comment's command.
+func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInvalid }
+
+// kind is the reply internal/report should render for this request.
+//
+// A refusal names its own kind; everything else is the command's, through the
+// mapping at [replyKind].
+func (req ReplyRequest) kind() (report.ReplyKind, bool) {
+	if req.refusing() {
+		return req.Refusal, req.Refusal.RefusesTools()
+	}
+	return replyKind(req.Command.Kind)
 }
 
 func (req ReplyRequest) validate() error {
 	switch {
 	case req.SessionID <= 0:
 		return invalidRequest("a session id is required to reply to a comment")
+	// A refusal needs one as much as any other reply does. The issue-body path
+	// has no comment to answer and does not come here at all: it refuses the run
+	// and logs it, and the next comment on the issue is refused on the thread.
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
-	case !req.Command.NeedsReply():
+	case req.refusing() && !req.Refusal.RefusesTools():
+		return invalidRequest("reply kind %s is not a tool-permission refusal", req.Refusal)
+	// Only when this is not a refusal. A refusal is triggered by a command that
+	// would have spawned a run, and a command that spawns a run draws no reply —
+	// so asking this question of a refusal refuses the refusal.
+	case !req.refusing() && !req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
 	if err := req.Ref.Validate(); err != nil {
@@ -341,12 +387,19 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 // row to move to [store.RunReported] and nothing to record a result comment id
 // against. The watermark still advances, because an unsupported command that was
 // answered is a comment that has been dealt with (AC-2.18, AC-2.20) — and it
-// advances after the post, for the same reason a run report's does.
+// advances after the post, for the same reason a run report's does: a post that
+// failed leaves the comment unconsumed and a later tick answers it again, which
+// is the behaviour a tool-permission refusal wants too (AC-3.9).
+//
+// A [ReplyRequest.Refusal] takes the same path with a different reason: the
+// comment asked for a run, and the labels on the issue said the tools it would
+// have had cannot be determined. Nothing was prepared, nothing ran, and the
+// answer is a comment (AC-3.7).
 func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, error) {
 	if err := req.validate(); err != nil {
 		return Posted{}, err
 	}
-	kind, ok := replyKind(req.Command.Kind)
+	kind, ok := req.kind()
 	if !ok {
 		return Posted{}, invalidRequest("%s draws no reply", req.Command.Kind)
 	}
@@ -370,6 +423,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Ref:     req.Ref,
 		Kind:    kind,
 		Command: req.Command.Name,
+		Profile: req.Profile,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
