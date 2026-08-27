@@ -5,10 +5,21 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
+)
+
+// todoWriteResolved and todoWriteRequested are the measured finding the whole
+// story exists to make visible ("Settled before planning" in the
+// implementation plan): eight tools requested, seven resolved, TodoWrite
+// silently dropped with no error raised anywhere. The resolved order is
+// copied verbatim from a real init event.
+var (
+	todoWriteResolved  = []string{"Task", "Bash", "Edit", "Glob", "Grep", "Read", "Write"}
+	todoWriteRequested = append(append([]string{}, todoWriteResolved...), "TodoWrite")
 )
 
 func metaRequest(worktree string) Request {
@@ -120,6 +131,117 @@ func TestNewMetaToleratesAMissingResult(t *testing.T) {
 	}
 	if _, err := json.Marshal(meta); err != nil {
 		t.Fatalf("the document does not encode: %v", err)
+	}
+}
+
+// TestMetaToolsRequestedAndToolProfileComeFromDifferentSources is AC-4.1: Meta
+// carries ToolsRequested (what the request asked for), the existing resolved
+// Tools (what the init event reported), and ToolProfile, and the three must
+// not collapse into one another. Tools and ToolsRequested are fed disjoint
+// lists here on purpose — if the implementation ever aliased one field to the
+// other, this is the test that would catch it, where two lists that merely
+// overlap would not.
+func TestMetaToolsRequestedAndToolProfileComeFromDifferentSources(t *testing.T) {
+	req := metaRequest("/w/task-123")
+	req.Tools = []string{"Read", "Write"}
+	req.AllowedTools = []string{"Read"}
+	req.ToolProfile = "research"
+
+	meta := NewMeta(req, testPrompt, &RunResult{
+		Outcome:  OutcomeSucceeded,
+		ExitCode: 0,
+		Tools:    []string{"Grep", "Bash"}, // deliberately disjoint from req.Tools
+	})
+
+	if !slices.Equal(meta.Tools, []string{"Grep", "Bash"}) {
+		t.Errorf("Tools = %q, want the init event's resolved surface", meta.Tools)
+	}
+	if !slices.Equal(meta.ToolsRequested, []string{"Read", "Write"}) {
+		t.Errorf("ToolsRequested = %q, want the request's own surface", meta.ToolsRequested)
+	}
+	if meta.ToolProfile != "research" {
+		t.Errorf("ToolProfile = %q, want %q", meta.ToolProfile, "research")
+	}
+	if slices.Equal(meta.Tools, meta.ToolsRequested) {
+		t.Fatal("Tools and ToolsRequested collapsed into the same slice")
+	}
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{"tools", `["Grep","Bash"]`},
+		{"tools_requested", `["Read","Write"]`},
+		{"tool_profile", `"research"`},
+	} {
+		got, ok := decoded[tc.key]
+		if !ok {
+			t.Errorf("JSON key %q is missing", tc.key)
+			continue
+		}
+		if string(got) != tc.want {
+			t.Errorf("JSON key %q = %s, want %s", tc.key, got, tc.want)
+		}
+	}
+}
+
+// TestMetaToolsRequestedSurvivesANilResult is AC-4.1's other half: the
+// requested surface and its profile are known before the subprocess starts and
+// must not depend on a result ever arriving. This is exactly the run whose
+// requested surface is worth reading (E-1) — a run that died before the init
+// event still records what it asked for.
+func TestMetaToolsRequestedSurvivesANilResult(t *testing.T) {
+	req := metaRequest("/w/task-123")
+	req.Tools = []string{"Read", "Grep"}
+	req.ToolProfile = "research"
+
+	meta := NewMeta(req, testPrompt, nil)
+
+	if !slices.Equal(meta.ToolsRequested, []string{"Read", "Grep"}) {
+		t.Errorf("ToolsRequested = %q, want %q", meta.ToolsRequested, []string{"Read", "Grep"})
+	}
+	if meta.ToolProfile != "research" {
+		t.Errorf("ToolProfile = %q, want %q", meta.ToolProfile, "research")
+	}
+	if len(meta.Tools) != 0 {
+		t.Errorf("Tools = %q, want empty: no init event ever arrived", meta.Tools)
+	}
+}
+
+// TestMetaTodoWriteWorkedExample is the named regression for the finding that
+// motivates the whole story: TodoWrite was requested on every run for the life
+// of the project and silently dropped, with no error raised. Eight requested,
+// seven resolved (IMPLEMENTATION_PLAN.md, "Settled before planning").
+func TestMetaTodoWriteWorkedExample(t *testing.T) {
+	req := metaRequest("/w/task-123")
+	req.Tools = todoWriteRequested
+	req.ToolProfile = "research"
+
+	meta := NewMeta(req, testPrompt, &RunResult{
+		Outcome:  OutcomeSucceeded,
+		ExitCode: 0,
+		Tools:    todoWriteResolved,
+	})
+
+	if len(meta.ToolsRequested) != 8 {
+		t.Fatalf("requested %d tools, want 8: %q", len(meta.ToolsRequested), meta.ToolsRequested)
+	}
+	if len(meta.Tools) != 7 {
+		t.Fatalf("resolved %d tools, want 7: %q", len(meta.Tools), meta.Tools)
+	}
+	if !slices.Contains(meta.ToolsRequested, "TodoWrite") {
+		t.Error("TodoWrite is missing from the requested surface")
+	}
+	if slices.Contains(meta.Tools, "TodoWrite") {
+		t.Error("TodoWrite resolved, contradicting the measured finding that it is silently dropped")
 	}
 }
 

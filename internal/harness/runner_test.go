@@ -1203,3 +1203,80 @@ func TestRunRejectsAnUnknownPath(t *testing.T) {
 		t.Fatalf("error = %v, want ErrInvalidRequest", err)
 	}
 }
+
+// logLineContaining returns the one line of a captured log buffer that
+// contains substr, or fails the test. Text-handler output puts every
+// attribute of one record on one line, so this is enough to isolate a single
+// log line's attributes from the rest of a run's output.
+func logLineContaining(t *testing.T, logs, substr string) string {
+	t.Helper()
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	t.Fatalf("no log line contains %q:\n%s", substr, logs)
+	return ""
+}
+
+// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the "claude started" line
+// carries allowed_tools and tool_profile alongside tools, and — the part that
+// actually matters — all three report the surface this run was invoked with,
+// never the runner's own configured default, once a profile has been
+// resolved for the request (runner.go:602-604).
+func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
+	tests := []struct {
+		name             string
+		reqTools         []string
+		reqAllowedTools  []string
+		reqToolProfile   string
+		wantTools        string
+		wantAllowedTools string
+		wantToolProfile  string
+	}{
+		{
+			name:             "profile resolved/reports the request's surface, not the runner's configured default",
+			reqTools:         []string{"Read", "Grep", "Bash"},
+			reqAllowedTools:  []string{"Bash(git:*)", "Grep(*)"},
+			reqToolProfile:   "research",
+			wantTools:        "tools=Read,Grep,Bash",
+			wantAllowedTools: "allowed_tools=Bash(git:*),Grep(*)",
+			wantToolProfile:  "tool_profile=research",
+		},
+		{
+			name:             "no profile/reports the runner's own configured surface",
+			wantTools:        "tools=Read,Edit",
+			wantAllowedTools: "allowed_tools=Read,Edit(./**)",
+			wantToolProfile:  `tool_profile=""`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := &bytes.Buffer{}
+			f := newFixture(t, successScript(t), func(c *config.Claude) {
+				// Wide enough that a profile's tools sit inside the ceiling
+				// but still outside the runner's own configured default
+				// (Read, Edit), so the two surfaces are actually different.
+				c.ToolCeiling = []string{"Read", "Edit", "Grep", "Bash"}
+			})
+			f.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
+
+			req := f.request()
+			req.Tools = tt.reqTools
+			req.AllowedTools = tt.reqAllowedTools
+			req.ToolProfile = tt.reqToolProfile
+
+			if _, err := f.runner.Run(t.Context(), req); err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+
+			line := logLineContaining(t, logs.String(), `msg="claude started"`)
+			for _, want := range []string{tt.wantTools, tt.wantAllowedTools, tt.wantToolProfile} {
+				if !strings.Contains(line, want) {
+					t.Errorf("claude started log line missing %q:\n%s", want, line)
+				}
+			}
+		})
+	}
+}
