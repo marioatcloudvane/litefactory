@@ -10,14 +10,22 @@ import (
 // toolLabelPrefix is the whole of the label vocabulary: one label, of the shape
 // lf:tools=<profile>, naming a profile the operator wrote in config.yaml.
 //
-// The prefix is matched case-insensitively (D-6). GitHub label names keep the
-// case they were typed in, and "LF:Tools=" is the same request as "lf:tools=" to
-// everybody except a byte comparison — a permission request that silently
-// missed and ran on the default surface is the one outcome this feature exists
-// to prevent. The *value* after the "=" is a different matter: it is a lookup
-// key, it is compared to the configuration exactly as it arrived, and
-// [toolProfileName] admits lowercase only. So "LF:Tools=research" selects the
-// research profile, and "LF:Tools=Research" is a malformed label and refused.
+// It is *detected* case-insensitively and *accepted* only byte-exact, and the
+// distance between those two is the whole of D-6. GitHub label names keep the
+// case they were typed in, so a case-sensitive scan would not see "LF:Tools="
+// at all: the run would proceed on the harness's default surface having
+// silently ignored a permission request, which is the one outcome this feature
+// exists to prevent. Seeing the label and then refusing it turns the typo into a
+// loud refusal instead — a maintainer who mis-typed the prefix is told so on the
+// thread rather than left to assume a profile took effect.
+//
+// So "lf:tools=research" resolves the research profile, and "LF:Tools=research"
+// is a malformed label: refused, not resolved, and never a no-op.
+//
+// The value after the "=" is held to the same standard for the same reason. It
+// is a lookup key, it is compared to the configuration exactly as it arrived,
+// and [toolProfileName] admits lowercase only — so "lf:tools=Research" is
+// malformed too.
 const toolLabelPrefix = "lf:tools="
 
 // toolProfileName is the shape of a profile name, and it is the same pattern
@@ -55,6 +63,17 @@ type toolDecision struct {
 	// text to travel in (S-9).
 	Profile string
 
+	// MiscasedPrefix records that this malformed refusal was drawn by a label
+	// that was seen case-insensitively but did not carry the prefix byte for
+	// byte, as opposed to one whose value was the wrong shape. It is set on that
+	// one branch and read only by the log line in [Daemon.refuseTools].
+	//
+	// It is a bool on purpose. The operator needs to know *that* a mis-cased
+	// prefix was refused, because the reply cannot say so; nothing here can
+	// carry *which* label said it, for the same reason Profile stays empty on
+	// this path (S-9).
+	MiscasedPrefix bool
+
 	// Tools and AllowedTools are the profile's surface, copied. Empty unless a
 	// profile resolved.
 	Tools        []string
@@ -69,13 +88,20 @@ func (d toolDecision) refused() bool { return d.Refusal != report.ReplyInvalid }
 // The labels are the tick's fresh snapshot and are read again on every tick;
 // nothing here is cached, and no API call is made for them. The rules, in order:
 //
-//   - No lf:tools= label: nothing is resolved and nothing is set. This is the
-//     overwhelmingly common case and it must stay indistinguishable from the
-//     behaviour before profiles existed.
-//   - More than one: ambiguous, and refused. One is never picked and two are
-//     never unioned — "which of these two permission grants did you mean" has no
-//     safe answer, and inventing one is how a narrow label gets quietly widened
-//     by a second one somebody else applied.
+//   - No label whose prefix equals lf:tools= ignoring case: nothing is resolved
+//     and nothing is set. This is the overwhelmingly common case and it must
+//     stay indistinguishable from the behaviour before profiles existed. A
+//     label that does not carry the prefix in any casing is not a tools label
+//     at all and is passed over in silence, not refused.
+//   - More than one such label: ambiguous, and refused. One is never picked and
+//     two are never unioned — "which of these two permission grants did you
+//     mean" has no safe answer, and inventing one is how a narrow label gets
+//     quietly widened by a second one somebody else applied. A mis-cased label
+//     counts as one of the two; see the comment on the count below.
+//   - The single label's prefix, byte for byte: it must be the lowercase
+//     lf:tools=. Anything else is malformed, and refused (AC-3.5). This is the
+//     accept-strictly half of D-6 and it is the only reason the detection above
+//     is lenient at all.
 //   - A value that is not the shape of a profile name, including the empty
 //     string: malformed, and refused.
 //   - A well-formed value that is not a key of the profile map: unknown, and
@@ -89,20 +115,46 @@ func (d toolDecision) refused() bool { return d.Refusal != report.ReplyInvalid }
 // lower-cased or otherwise repaired first, because the profile keys were not
 // normalised when the operator's config was validated either: a lookup that
 // canonicalised more than the key space does could match a profile the operator
-// cannot see in their own file.
+// cannot see in their own file. The prefix is not repaired either, for the
+// stronger reason that repairing it is indistinguishable from accepting it.
 func (d *Daemon) resolveTools(labels []string) toolDecision {
-	var values []string
+	// A label that was seen, with the two facts the rules below need about it:
+	// whether the prefix survived a byte comparison as well as a folded one, and
+	// what followed it. Neither the label nor this struct leaves this function.
+	type seen struct {
+		exactPrefix bool
+		value       string
+	}
+
+	var found []seen
 	for _, label := range labels {
 		if len(label) < len(toolLabelPrefix) {
 			continue
 		}
-		if !strings.EqualFold(label[:len(toolLabelPrefix)], toolLabelPrefix) {
+		prefix, value := label[:len(toolLabelPrefix)], label[len(toolLabelPrefix):]
+		if !strings.EqualFold(prefix, toolLabelPrefix) {
 			continue
 		}
-		values = append(values, label[len(toolLabelPrefix):])
+		found = append(found, seen{exactPrefix: prefix == toolLabelPrefix, value: value})
 	}
 
-	switch len(values) {
+	// Counted before any of them is judged, and a mis-cased label counts in the
+	// total. Two detected labels are two permission requests however they were
+	// typed, so "lf:tools=research" beside "LF:Tools=build" is ambiguous rather
+	// than malformed, and that ordering is chosen rather than incidental:
+	//
+	//   - The malformed reply tells the maintainer to fix the shape of a label.
+	//     Doing so would leave them with two well-formed labels and a second
+	//     refusal, so it is the less useful of two true answers — removing one
+	//     label is the thing that has to happen first either way.
+	//   - Judging one label before counting them means choosing which of two
+	//     competing grants gets to describe the failure. Choosing between them
+	//     is exactly what the ambiguous rule exists to refuse, and it would make
+	//     the refusal depend on the order GitHub happened to return the labels.
+	//
+	// Both answers refuse and both leave Profile empty, so neither can resolve
+	// one of the two, echo either, or fall through to the default surface (C9).
+	switch len(found) {
 	case 0:
 		return toolDecision{}
 	case 1:
@@ -110,7 +162,11 @@ func (d *Daemon) resolveTools(labels []string) toolDecision {
 		return toolDecision{Refusal: report.ReplyAmbiguousToolLabels}
 	}
 
-	name := values[0]
+	label := found[0]
+	if !label.exactPrefix {
+		return toolDecision{Refusal: report.ReplyMalformedToolLabel, MiscasedPrefix: true}
+	}
+	name := label.value
 	if !toolProfileName.MatchString(name) {
 		return toolDecision{Refusal: report.ReplyMalformedToolLabel}
 	}

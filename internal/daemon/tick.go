@@ -780,6 +780,15 @@ func (d *Daemon) refuseTools(
 	result *TickResult,
 ) error {
 	log = log.With(slog.String("tools_refusal", decision.Refusal.String()))
+	if decision.MiscasedPrefix {
+		// The label was seen because detection folds case and refused because
+		// acceptance does not (D-6). Worth a line, because the reply describes
+		// the rule for profile *names* and cannot say that it was the prefix
+		// that was wrong — and because "my label did nothing" is the complaint
+		// this feature must never produce. The label text itself is not logged,
+		// for the same reason it is not echoed onto the thread (S-9).
+		log = log.With(slog.Bool("miscased_tool_label_prefix", true))
+	}
 
 	if trigger.CommentID == 0 {
 		log.InfoContext(ctx, "refusing to run the issue body: its lf:tools= label does not "+
