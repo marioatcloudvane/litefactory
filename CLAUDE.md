@@ -107,6 +107,16 @@ Path components:
 
 Example: branch `feat/payments`, date `2026-05-20`, feature `stripe-webhook` → `.aiteam/feat-payments/2026-05-20/stripe-webhook/`
 
+### Plan mode's output: `plan_brief.md` + per-story sub-issues
+
+Plan mode writes **`$session/plan_brief.md`** — one short shared-context document holding only what two or more stories need: shared decisions, shipping order, cross-story constraints, out-of-scope, provenance. Each user story's own tasks, acceptance criteria and architecture notes live in **its own sub-issue** under the parent issue, and nowhere else.
+
+`plan_brief.md` carries a **Story Index** — one row per story with its ID, title, size, dependencies and sub-issue link. That index is the discovery mechanism: read the brief, then follow the index to the story you need. The index carries identity and location only, never content.
+
+The brief stays a file in the repo, so it is versioned, diffable and reviewable. The sub-issues are not — a sub-issue is editable by anyone with write access, so the per-story plan of record is mutable and unversioned. That is a real, accepted cost; keeping the brief in git is what limits its blast radius, and is a large part of why the brief — not the sub-issues — is what a mode gate checks for. Gates stay local file-existence checks; no mode gate makes a network call.
+
+**Transition, in progress.** Until now Plan mode produced a single `$session/IMPLEMENTATION_PLAN.md` containing every story in full. `plan_brief.md` is the incoming replacement and lands first; the Implement mode gate below still names `IMPLEMENTATION_PLAN.md` and is flipped to `plan_brief.md` in a later shipment, together with the mechanism that creates the sub-issues. Expect both names to appear in the docs until then. Sessions already archived under `.aiteam/` keep whatever artifact they were written with — **archives are never rewritten to match a new format.**
+
 To derive the session path:
 ```
 branch=$(git rev-parse --abbrev-ref HEAD | tr '/' '-' | tr '[:upper:]' '[:lower:]')
@@ -125,7 +135,7 @@ On a new piece of work, scaffold `$session/MANIFEST.md` before invoking the orch
 ## Modes
 
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not started)*
-- [ ] **Plan** — `IMPLEMENTATION_PLAN.md` *(not started)*
+- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -178,7 +188,7 @@ If `.aiteam/rulebook.md` exists, the shared scanner skills (`architecture-scanne
 | ID | Role | File | Description |
 |---|---|---|---|
 | `research-orchestrator` | research-orchestrator | `agents/research-orchestrator.md` | Orchestrates Research mode — produces `RESEARCH_BRIEF.md` |
-| `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `IMPLEMENTATION_PLAN.md` |
+| `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `plan_brief.md` plus one sub-issue per user story |
 | `implement-orchestrator` | implement-orchestrator | `agents/implement-orchestrator.md` | Orchestrates Implement mode — code + tests, green |
 | `codebase-tour` | codebase-tour | `agents/codebase-tour.md` | Two-pass codebase exploration for Research mode |
 | `requirements-engineer` | requirements | `agents/requirements-engineer.md` | Runs the Plan-mode requirements conversation, writes `feature-spec.md` |

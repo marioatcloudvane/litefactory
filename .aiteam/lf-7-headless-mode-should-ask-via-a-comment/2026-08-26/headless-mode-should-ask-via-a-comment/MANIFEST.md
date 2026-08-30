@@ -14,7 +14,13 @@
   out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
   unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
   `plan_brief.md` plus one sub-issue per story)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — code + tests *(**attempted 2026-08-30, delivered nothing — box stays unticked**.
+  **Zero of seven stories completed.** Five (S0, B2, A1, D1, C1) blocked on a diverged Go tree that
+  the permission system would not let this run sync; two (B1, E1) blocked on `.claude/` not being
+  writable; D1 additionally blocked on having no network access to pin the SDK version. The only
+  change on disk is a partial, **uncommitted** fragment of E1's docs work — `initialplan.md` and
+  `CLAUDE.md`. **That is not a story and must not be read as partial completion.** See
+  `DRIFT_REPORT.md` and `notes.md`. **`APP_CONTEXT.md` was deliberately NOT created** — see below)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -212,7 +218,70 @@ asked for; nothing here licenses starting the next one.
   stated correctly; nothing needed adjusting. **The rev-4 story set of seven stands — no story was
   added or removed.** Code review remains ring-fenced.
 
+- 2026-08-30 — **Implement attempted and abandoned. Nothing delivered; the Implement box stays
+  unticked.** Two stories were scoped in (B1, E1); the run exited while waiting on the E1 engineer
+  and a follow-up bookkeeping run wrote the exit artifacts. **No tests were written or run — the
+  run never reached Phase 3, so there is no pass/fail count to report.** No code review, no
+  environment setup, no bug loop. **Three blockers, none of which an agent can clear for itself:**
+
+  1. **The Go tree is diverged from `origin/main` and could not be synced.** `origin/main` is
+     `71d3bea`; `git diff --shortstat origin/main -- internal cmd` gives **52 files, 257
+     insertions, 7,752 deletions**, and `git merge-base --is-ancestor` exits 1 — **genuinely
+     diverged, not merely behind**. Both `git merge origin/main` and
+     `git checkout origin/main -- internal cmd` were attempted and **refused by the permission
+     system**. Blocks **S0, B2, A1, D1, C1** — every story touching Go, because every one of them
+     edits by `path:line` pinned at `71d3bea`.
+  2. **`.claude/` is not writable.** Two `Edit` calls against `.claude/agents/research-orchestrator.md`
+     were refused. Blocks **B1 and E1**, which are almost entirely edits to this team's own config.
+     The B1 engineer returned BLOCKED with the tree untouched and **correctly declined to route
+     around the denial by substituting `Write` for the refused `Edit`** — recorded as a precedent
+     worth keeping. **The boundary is scoped to `.claude/`**: repo-root files were writable, which
+     is how E1's fragment landed.
+  3. **D1 cannot pin the SDK version.** T-D1.1 needs the live module proxy and GitHub's docs to pin
+     `go-github` and confirm sub-issue support (AC-D1.2). **No web access in this session.**
+     Independent of blockers 1 and 2.
+
+  **On disk, uncommitted:** `initialplan.md` (4 hunks) and `CLAUDE.md` (3 hunks) — E1's
+  repo-root documentation edits. They are correct and they correctly **do not flip the Implement
+  gate (AC-E1.9 holds)**, but they are a small minority of E1. **The next run inherits a dirty tree
+  with E1 half-applied** and must decide whether to commit or revert them before retrying.
+
+  **Note the briefed end state was itself slightly wrong** and is corrected in `notes.md`: this run
+  was told `initialplan.md` was the only modified file and a single paragraph. `git status` shows
+  **two** modified files and nine hunks.
+
+  **One plan correction, verified against `origin/main`:** the claim that grepping `**/*.go` for the
+  artifact names returns nothing is **false** — four Go **test** files match
+  (`internal/cli/cmd_logs_test.go:534`, `internal/config/toolprofiles_test.go:13`,
+  `internal/harness/meta_test.go:222`, `internal/report/report_test.go:25`), all **historical
+  citations in comments**. No Go code reads the artifact, so **E1's substantive conclusion stands**,
+  but **AC-E1.2's "a grep is the check" will trip on these** and **AC-E1.10 forbids E1 from touching
+  Go files** — so E1 cannot clear its own check. AC-E1.2 needs a carve-out. **Fourth measured
+  instance of citation rot this session.** Separately, **T-E1.0's 13-file inventory was
+  re-confirmed and matches the plan exactly at `71d3bea`** — that part of the plan is sound.
+
+  **Artifacts written:** `notes.md`, `DRIFT_REPORT.md` (verdict: **DRIFTED — zero of seven
+  delivered**, environmental and permissions, **not the plan being wrong**).
+
 ## Notes
+
+**Implement attempt (2026-08-30) — three things to carry forward.**
+
+1. **`.aiteam/APP_CONTEXT.md` was deliberately NOT created, and must not be created until the Go tree
+   is synced.** The tree is 52 files and 7,752 deletions away from `origin/main`. App context
+   generated from it would describe packages, utilities and patterns **that do not exist on main** —
+   and app context is the first thing every future implementation engineer reads and trusts. Writing
+   it now would turn this session's stale-tree problem into a durable one that silently misleads
+   every later run. Run `app-context-updater` in init mode **after** Blocker 1 is cleared, not before.
+2. **Do not retry Implement until a human has granted three things**: a sync of `internal/` and
+   `cmd/` to `origin/main` (`git merge origin/main`, or `git checkout origin/main -- internal cmd`);
+   write access to `.claude/agents/**` and `.claude/skills/**`; and either network access or a
+   hand-pinned, evidence-backed `go-github` version. Retrying without them reproduces this run
+   exactly. `notes.md` states what each blocker needs.
+3. **A refused tool call is a decision, not an obstacle to engineer around.** The B1 engineer hit a
+   denied `Edit` and returned BLOCKED rather than retrying as `Write`. Keep that norm — an engineer
+   that "works around" a permission denial should be treated as having failed the task, not
+   completed it.
 
 **Plan rev 5 (run 0011) — one thing to carry forward.** The plan names the SDK but **not its
 version, on purpose**. Anyone starting D1 must pin the version themselves as its first action
