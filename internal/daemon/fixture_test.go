@@ -829,6 +829,11 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Interval != 0 {
 		opts.Interval = overrides.Interval
 	}
+	// Zero means "not overridden" here for the same reason it means "use the
+	// default" in Options.validate, so the base opts keeps the default.
+	if overrides.MaxConcurrentRuns != 0 {
+		opts.MaxConcurrentRuns = overrides.MaxConcurrentRuns
+	}
 	if overrides.Ticks != nil {
 		opts.Ticks = overrides.Ticks
 	}
