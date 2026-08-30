@@ -441,17 +441,24 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 	}
 }
 
-// TestIssueBodyAloneStartsNothing is AC-2.16. Only comments are ever acted on,
-// so a task opened by someone else auto-starts nothing — however the body is
-// worded.
-func TestIssueBodyAloneStartsNothing(t *testing.T) {
+// TestAnUnassignedIssueBodyStartsNothing is AC-2.16a, the surviving half of the
+// old blanket ban on issue bodies (AC-2.16, reversed in
+// `.aiteam/AC_AMENDMENTS.md`).
+//
+// The reversal turns on one field and one field only: an issue assigned to the
+// owner may have its body run. Everything else about the old rule stands, and
+// this is it — an unassigned issue starts nothing however its body is worded,
+// *including* a body the owner wrote himself. Authorship was never the
+// authorisation, because a body the owner typed into an issue he did not assign
+// to anyone is a note to himself and not an order.
+func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
 	f := newFixture(t)
 	f.settle()
 	f.forge.addIssue(fakeIssue{
 		Number: testIssue,
 		Title:  "Please do this",
 		Body:   "/spike rewrite the authentication layer",
-		User:   owner(),
+		User:   owner(), // the owner's own words, and still not enough
 	})
 
 	f.tick() // first sight
@@ -462,10 +469,293 @@ func TestIssueBodyAloneStartsNothing(t *testing.T) {
 	f.tick()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns from an issue body, want none", len(calls))
+		t.Errorf("ran %d turns from an unassigned issue body, want none", len(calls))
 	}
-	if posted, _, _ := f.forge.snapshot(); len(posted) != 0 {
-		t.Errorf("posted %d comments in answer to an issue body, want none", len(posted))
+	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
+		t.Errorf("posted %d comments and %d reactions in answer to an unassigned issue body, want none",
+			len(posted), len(reacted))
+	}
+	if got := f.runs(); len(got) != 0 {
+		t.Errorf("recorded %d runs for an unassigned issue body, want none", len(got))
+	}
+}
+
+// TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction is AC-2.16b: the whole
+// of the new behaviour, in the shape it actually happens in — Mario opens an
+// issue, assigns it to himself, says what he wants in the body, and does not
+// have to repeat himself in a comment.
+//
+// The issue is opened here by a *stranger* (see [fixture.assignedIssue]),
+// because the gate is assignment and not authorship, and the trigger's author
+// is then asserted to be that stranger: the prompt's attribution is what makes
+// running someone else's words safe, so losing it would be the bug.
+//
+// "Exactly once" is asserted by ticking again, and it is a property of the
+// control flow rather than of a check — the second tick finds a watermark and
+// takes drain, which never looks at the body.
+func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	const body = "/spike add a /health endpoint that returns 200"
+	f.assignedIssue("Add a /health endpoint", body)
+
+	result := f.tick()
+
+	if result.Bootstrapped != 1 {
+		t.Errorf("bootstrapped %d tasks, want 1", result.Bootstrapped)
+	}
+	if result.Runs != 1 {
+		t.Fatalf("ran %d turns on first sight, want 1: the body is the first instruction\nlogs:\n%s",
+			result.Runs, f.logs)
+	}
+	if result.Comments != 0 {
+		t.Errorf("examined %d comments, want none — there are none, and the body is not one", result.Comments)
+	}
+
+	calls := f.turns.calls()
+	if len(calls) != 1 {
+		t.Fatalf("the executor was called %d times, want 1", len(calls))
+	}
+	req := calls[0]
+	if req.Trigger.CommentID != 0 {
+		t.Errorf("trigger comment id is %d, want 0: the body is not a comment, and any positive id "+
+			"would advance the watermark past comments that have not been read", req.Trigger.CommentID)
+	}
+	if req.Trigger.Body != "" {
+		t.Errorf("trigger body is %q, want empty: there is no comment, and the body reaches the "+
+			"prompt as the instruction and as the issue note", req.Trigger.Body)
+	}
+	if req.Trigger.Author != strangerLogin {
+		t.Errorf("trigger author is %q, want %q — the issue's author, not the owner: the gate is "+
+			"assignment, and the attribution is what makes that safe",
+			req.Trigger.Author, strangerLogin)
+	}
+	if req.Command.Kind != turn.KindSpike {
+		t.Errorf("the body parsed to %s, want %s", req.Command.Kind, turn.KindSpike)
+	}
+	if want := "add a /health endpoint that returns 200"; req.Command.Text != want {
+		t.Errorf("instruction text is %q, want %q: the body itself is what the turn was asked to do",
+			req.Command.Text, want)
+	}
+	if req.Issue.Body != body {
+		t.Errorf("the request carried issue body %q, want %q", req.Issue.Body, body)
+	}
+
+	// AC-2.17 stays comment-only: there is no comment to react to, and an
+	// issue-level reaction would be an eighth forge endpoint.
+	if _, _, _, reactions := f.forge.counts(); reactions != 0 {
+		t.Errorf("added %d reactions on the body path, want none — there is no comment to react to",
+			reactions)
+	}
+	if posted, _, _ := f.forge.snapshot(); len(posted) != 1 {
+		t.Fatalf("posted %d comments, want 1 — the run report", len(posted))
+	}
+
+	// And again. Nothing looks at the body a second time.
+	second := f.tick()
+
+	if second.Runs != 0 {
+		t.Errorf("the second tick ran %d turns, want none: a planted watermark takes drain, "+
+			"which never reads the body", second.Runs)
+	}
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Errorf("turns ran for %v, want [0]: the body fires exactly once", got)
+	}
+	if got := f.runs(); len(got) != 1 {
+		t.Errorf("recorded %d runs, want 1", len(got))
+	}
+}
+
+// TestFirstSightPlantsTheWatermarkBeforeTheBodyRuns is AC-2.10b.
+//
+// The ordering is the whole of "exactly once": the watermark exists before the
+// turn starts, so a crash in the middle leaves a task that takes drain on the
+// next tick and a `running` row that startup reconciliation reports as
+// abandoned (AC-2.21). The alternative — run, then plant — would replay the
+// body on every tick until it succeeded.
+//
+// It is asserted from inside the turn, because that is the only moment at which
+// the question means anything.
+func TestFirstSightPlantsTheWatermarkBeforeTheBodyRuns(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
+
+	duringRun := int64(-2)
+	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
+		duringRun = f.watermark()
+		return f.ranSuccessfully(ctx, req)
+	})
+
+	f.tick()
+
+	if duringRun != 0 {
+		t.Errorf("the watermark read %d while the body was running, want 0: it is planted first, "+
+			"and at 0 on an issue that has no comments", duringRun)
+	}
+	if got := f.watermark(); got != 0 {
+		t.Errorf("watermark is %d after the run, want 0", got)
+	}
+}
+
+// TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt is AC-2.23, and it is
+// the criterion that catches the one bug this design exists to avoid.
+//
+// Reporting a run advances the watermark to the trigger id. Had the body been
+// given the issue's own forge id — a plausible-looking six-digit number — that
+// advance would have pushed the watermark past every comment the issue will
+// ever receive, and the task would go permanently deaf the moment its body ran.
+// With 0 the advance is MAX(0, 0) and changes nothing, so the comment that
+// follows is read normally.
+func TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
+
+	f.tick()
+
+	runs := f.runs()
+	if len(runs) != 1 {
+		t.Fatalf("recorded %d runs, want 1\nlogs:\n%s", len(runs), f.logs)
+	}
+	if runs[0].TriggerCommentID != 0 {
+		t.Errorf("the runs row carries trigger_comment_id %d, want 0", runs[0].TriggerCommentID)
+	}
+	if runs[0].Status != store.RunReported {
+		t.Errorf("the run is %s, want %s", runs[0].Status, store.RunReported)
+	}
+	if got := f.watermark(); got != 0 {
+		t.Errorf("watermark is %d after reporting the body run, want 0: a body run must not "+
+			"advance it past comments nobody has read", got)
+	}
+
+	// The part that bites: a comment written afterwards must still be seen.
+	f.forge.addComment(testIssue, 617_004, owner(), "/spike and now the readiness probe")
+
+	f.tick()
+
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0, 617004}) {
+		t.Errorf("turns ran for %v, want [0 617004]: the body run must not swallow later comments", got)
+	}
+	if got := f.watermark(); got != 617_004 {
+		t.Errorf("watermark is %d, want 617004", got)
+	}
+}
+
+// TestABodyThatCommandsNothingStartsNothingAndPostsNothing is AC-2.16c.
+//
+// The silence is the point, and it is the one place the body path deliberately
+// differs from the comment path. A `/plan` in a comment draws a reply, because
+// someone typed it at litefactory and deserves an answer. A `/plan` in an issue
+// body may well be a heading in a template — replying to it would be
+// litefactory answering a question nobody asked, on every issue anyone opens
+// and assigns.
+func TestABodyThatCommandsNothingStartsNothingAndPostsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "empty", body: ""},
+		{name: "whitespace", body: "  \n\t "},
+		{name: "a command from a later milestone", body: "/plan the work"},
+		{name: "a bare spike with no text", body: "/spike"},
+		{name: "a command that is not in the vocabulary", body: "/frobnicate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.settle()
+			f.assignedIssue("Add a /health endpoint", tc.body)
+
+			result := f.tick()
+
+			if result.Bootstrapped != 1 {
+				t.Fatalf("bootstrapped %d tasks, want 1: the task is still created and watermarked",
+					result.Bootstrapped)
+			}
+			if result.Runs != 0 {
+				t.Errorf("ran %d turns from a body that commands nothing, want none", result.Runs)
+			}
+			if result.Replies != 0 {
+				t.Errorf("posted %d replies to an issue body, want none", result.Replies)
+			}
+			if calls := f.turns.calls(); len(calls) != 0 {
+				t.Errorf("the executor was called %d times, want none", len(calls))
+			}
+			posted, reacted, _ := f.forge.snapshot()
+			if len(posted) != 0 {
+				t.Errorf("posted %d comments in answer to an issue body, want none: %q", len(posted), posted)
+			}
+			if len(reacted) != 0 {
+				t.Errorf("added %d reactions, want none", len(reacted))
+			}
+			if got := f.watermark(); got != 0 {
+				t.Errorf("watermark is %d, want 0: the task is bootstrapped either way", got)
+			}
+		})
+	}
+}
+
+// TestAnIssueWithCommentsDoesNotFireItsBody is AC-2.16d.
+//
+// A body is a *first* instruction. An issue that has already been talked on has
+// a conversation to follow instead, and replaying its opening post underneath
+// that conversation would be a second voice nobody asked for — quite possibly
+// contradicting the comment that supersedes it. The comments drain exactly as
+// they did before, which is to say the pre-existing ones do not run at all
+// (AC-2.10) and the next one does.
+func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
+	f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
+
+	result := f.tick()
+
+	if result.Runs != 0 {
+		t.Errorf("ran %d turns on an issue that already has a comment, want none\nlogs:\n%s",
+			result.Runs, f.logs)
+	}
+	if got := f.watermark(); got != 220 {
+		t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
+	}
+
+	// And its comments go on working the way they always have.
+	f.forge.addComment(testIssue, 221, owner(), "/spike do it now then")
+
+	f.tick()
+
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{221}) {
+		t.Errorf("turns ran for %v, want [221]: the comments drain as they do today", got)
+	}
+}
+
+// TestANonOwnerAssigneeDoesNotFireTheBody guards the direction the assignment
+// gate has to hold in: it is the *owner's* id that unlocks a body, matched
+// numerically (D-I), and not the mere fact of the issue being assigned to
+// somebody. An issue triaged onto a colleague is not an instruction to
+// litefactory.
+func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.forge.addIssue(fakeIssue{
+		Number:    testIssue,
+		Title:     "Add a /health endpoint",
+		Body:      "/spike add a health endpoint",
+		User:      owner(),
+		Assignees: []fakeUser{stranger()},
+	})
+
+	result := f.tick()
+
+	if result.Bootstrapped != 1 {
+		t.Fatalf("bootstrapped %d tasks, want 1", result.Bootstrapped)
+	}
+	if result.Runs != 0 {
+		t.Errorf("ran %d turns on an issue assigned to somebody else, want none\nlogs:\n%s",
+			result.Runs, f.logs)
+	}
+	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
+		t.Errorf("posted %d comments and %d reactions, want none", len(posted), len(reacted))
 	}
 }
 
@@ -891,5 +1181,135 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 	}
 	if got := f.watermark(); got != 41 {
 		t.Errorf("watermark is %d, want 41", got)
+	}
+}
+
+// closedListingForge is a forge whose issue listing hands back a closed issue
+// however it was asked.
+//
+// It models what the `state=open` query cannot rule out — an issue closed
+// between the listing and the tick that reads it — and, more to the point, it
+// is what makes the *issue listing* path assertable at all: with the query
+// filter working, no closed issue reaches the daemon that way, and a test that
+// relied on the fake forge alone would be asserting the query rather than the
+// guard.
+type closedListingForge struct {
+	daemon.Forge
+	issue github.Issue
+}
+
+func (f closedListingForge) ListIssues(context.Context, github.Repo, time.Time) ([]github.Issue, error) {
+	return []github.Issue{f.issue}, nil
+}
+
+// TestAClosedIssueStartsNothingOnEitherDiscoveryPath is AC-2.22. Closing an
+// issue is how litefactory is told to stop working on it, and it has to mean
+// that whichever listing found the issue — which is the whole reason the skip
+// is in processIssue, where the two paths meet, and not in a query.
+//
+// "Starts nothing" is asserted in its strong form: no run, no reply, no
+// reaction, and no rows. A closed issue that left a session and a watermark
+// behind would still be wrong, because registering a repository would then
+// mean a task per closed issue anyone ever comments on.
+func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
+	t.Run("found by the comment listing", func(t *testing.T) {
+		f := newFixture(t)
+		f.settle()
+		f.forge.addIssue(fakeIssue{
+			Number: testIssue,
+			Title:  "Add a /health endpoint",
+			Body:   "The service has no way to say whether it is up.",
+			User:   stranger(),
+			State:  "closed",
+		})
+		f.forge.addComment(testIssue, 50, owner(), "/spike do the thing anyway")
+
+		_, commentListingsBefore, _, _ := f.forge.counts()
+		result := f.tick()
+
+		// The issue listing asks for open issues and does not return it, so
+		// this is the comment listing's find — reached through GetIssue, which
+		// never saw that query. It is discovered and then deliberately skipped.
+		if result.Issues != 1 {
+			t.Fatalf("the tick saw %d issues, want 1: the comment listing is the path under test\nlogs:\n%s",
+				result.Issues, f.logs)
+		}
+		assertClosedIssueWasLeftAlone(t, f, result, commentListingsBefore)
+	})
+
+	t.Run("found by the issue listing", func(t *testing.T) {
+		f := newFixture(t)
+		f.settle()
+
+		closed := github.Issue{
+			Number:    testIssue,
+			Title:     "Add a /health endpoint",
+			Body:      "The service has no way to say whether it is up.",
+			State:     "closed",
+			Author:    github.User{ID: strangerID, Login: strangerLogin},
+			UpdatedAt: f.clock.Now(),
+		}
+		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{Forge: f.client, issue: closed}})
+
+		_, commentListingsBefore, _, _ := f.forge.counts()
+		result := f.tick()
+
+		if result.Issues != 1 {
+			t.Fatalf("the tick saw %d issues, want 1: the issue listing handed it one\nlogs:\n%s",
+				result.Issues, f.logs)
+		}
+		assertClosedIssueWasLeftAlone(t, f, result, commentListingsBefore)
+	})
+}
+
+// assertClosedIssueWasLeftAlone is the whole of AC-2.22, asserted the same way
+// for both discovery paths because the criterion is the same for both.
+func assertClosedIssueWasLeftAlone(
+	t *testing.T,
+	f *fixture,
+	result daemon.TickResult,
+	commentListingsBefore int,
+) {
+	t.Helper()
+
+	if result.Bootstrapped != 0 {
+		t.Errorf("bootstrapped %d tasks from a closed issue, want none", result.Bootstrapped)
+	}
+	if result.Comments != 0 || result.Runs != 0 || result.Replies != 0 {
+		t.Errorf("processed %d comments, %d runs and %d replies on a closed issue, want none",
+			result.Comments, result.Runs, result.Replies)
+	}
+	if result.Deferred != 0 {
+		t.Errorf("deferred %d tasks on a closed issue, want none — nothing was left waiting", result.Deferred)
+	}
+
+	// No session and no watermark: the skip happens before GetOrCreateSession,
+	// so a closed issue leaves nothing behind at all.
+	if _, err := f.db.GetSessionByTaskRef(t.Context(),
+		store.TaskRef(store.ForgeGitHub, testOwnerName, testRepoName, testIssue)); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a session exists for a closed issue (err = %v); the skip must come before the store write", err)
+	}
+	if got := f.watermark(); got != -1 {
+		t.Errorf("watermark is %d, want none: a closed issue leaves no watermarks row either", got)
+	}
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns on a closed issue, want none", len(calls))
+	}
+	_, commentListings, posts, reactions := f.forge.counts()
+	if posts != 0 {
+		t.Errorf("posted %d comments about a closed issue, want none", posts)
+	}
+	if reactions != 0 {
+		t.Errorf("reacted to %d comments on a closed issue, want none", reactions)
+	}
+	// Not even its comments were listed: the skip is above the bootstrap, so a
+	// closed issue costs nothing per tick beyond the listing that found it.
+	if commentListings != commentListingsBefore {
+		t.Errorf("listed the comments of a closed issue %d times, want none",
+			commentListings-commentListingsBefore)
+	}
+	if !strings.Contains(f.logs.String(), "skipping an issue that is not open") {
+		t.Errorf("the skip was not logged; a comment that starts nothing has to say why\nlogs:\n%s", f.logs)
 	}
 }

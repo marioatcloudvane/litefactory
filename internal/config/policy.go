@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -20,11 +22,25 @@ var toolNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
 
+// profileKeyRE matches a tool-profile name. It is deliberately narrower than a
+// tool name: a profile name is typed into a GitHub label by a human, as
+// lf:tools=<name>, so it stays lower-case and free of anything that could be
+// mistaken for a shell or YAML construct. Forty characters is far more than a
+// label of this shape ever needs.
+var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+
 // defaultTools is the --tools surface `init` writes. It is the real boundary,
 // so it is a concrete list and never a wildcard. Task is included because
 // aiteam's agents are subagent invocations.
+//
+// These are the seven names that actually resolve. An eighth, a todo-writing
+// tool, used to be listed here and was measured to be silently dropped: runs
+// requested eight tools and the init event reported seven, with no error
+// raised and no todo-shaped name in any log. A list that asks for a tool
+// nobody grants teaches the reader that the list is approximate, which is the
+// last thing the tool boundary should look like.
 func defaultTools() []string {
-	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task", "TodoWrite"}
+	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"}
 }
 
 // defaultAllowedTools is the --allowedTools permission list `init` writes.
@@ -62,8 +78,11 @@ func forbiddenFlag() string {
 // The list must be non-empty. An empty list would mean litefactory omits the
 // flag, and an omitted --tools is allow-all — the exact opposite of what an
 // empty list looks like it asks for.
-func validateTools(tools []string) []error {
-	const key = "claude.tools"
+//
+// The key parameter names the list being checked — "claude.tools", or a
+// profile's own dotted path — so that a bad entry in a profile is reported
+// where the reader will find it, rather than as claude.tools[3].
+func validateTools(key string, tools []string) []error {
 	if len(tools) == 0 {
 		return []error{fmt.Errorf("%s: must list at least one tool; an empty list would omit --tools, which means allow-all", key)}
 	}
@@ -85,8 +104,10 @@ func validateTools(tools []string) []error {
 // A bare Bash and a Bash(*) are the same thing wearing different clothes:
 // permission to run any command at all. A user hits a blocked command once and
 // writes one of them, so both are rejected at startup rather than warned about.
-func validateAllowedTools(rules []string) []error {
-	const key = "claude.allowed_tools"
+//
+// As with [validateTools], key names the list being checked so a profile's
+// rules are reported under the profile.
+func validateAllowedTools(key string, rules []string) []error {
 	var errs []error
 	for i, raw := range rules {
 		entry := strings.TrimSpace(raw)
@@ -147,5 +168,166 @@ func validateNoForbiddenFlag(c *Claude) []error {
 	for i, v := range c.AllowedTools {
 		check(fmt.Sprintf("claude.allowed_tools[%d]", i), v)
 	}
+	for i, v := range c.ToolCeiling {
+		check(fmt.Sprintf("claude.tool_ceiling[%d]", i), v)
+	}
+	for _, name := range sortedProfileNames(c.ToolProfiles) {
+		profile := c.ToolProfiles[name]
+		for i, v := range profile.Tools {
+			check(fmt.Sprintf("%s[%d]", profileToolsKey(name), i), v)
+		}
+		for i, v := range profile.AllowedTools {
+			check(fmt.Sprintf("%s[%d]", profileAllowedToolsKey(name), i), v)
+		}
+	}
 	return errs
+}
+
+// profileToolsKey and profileAllowedToolsKey name a profile's two lists the
+// way they appear in config.yaml, so an error points at a line the reader can
+// find: claude.tool_profiles["research"].tools[3].
+func profileToolsKey(name string) string {
+	return fmt.Sprintf("claude.tool_profiles[%q].tools", name)
+}
+
+func profileAllowedToolsKey(name string) string {
+	return fmt.Sprintf("claude.tool_profiles[%q].allowed_tools", name)
+}
+
+// sortedProfileNames orders the profile map for iteration.
+//
+// Go randomises map order, so a configuration with two bad profiles would
+// otherwise report them in a different order on every boot: any test asserting
+// the full error list would be flaky, and an operator comparing two failed
+// starts would see the list shuffle for no reason.
+func sortedProfileNames(profiles map[string]ToolProfile) []string {
+	return slices.Sorted(maps.Keys(profiles))
+}
+
+// effectiveToolCeiling is the single definition of "the ceiling": the
+// configured one when there is one, and claude.tools otherwise — the narrowest
+// default there is, under which no profile can widen anything at all.
+//
+// [Claude.resolveToolCeiling] materialises it once during [Load], before
+// validation runs, so the daemon and the harness read the same slice this
+// validation checked. It stays a function because Decode-without-Load is a
+// supported path and must not see a nil ceiling as "nothing is permitted".
+func effectiveToolCeiling(c *Claude) []string {
+	if len(c.ToolCeiling) > 0 {
+		return c.ToolCeiling
+	}
+	return c.Tools
+}
+
+// resolveToolCeiling writes the effective ceiling into ToolCeiling, once, at
+// load time (E-7). Computing it again later — in validation, in the harness —
+// is how the two drift apart, and the ceiling is the one boundary that must
+// not.
+//
+// The default is a copy rather than an alias of Tools: the two keys are
+// separate values afterwards, so trimming or narrowing one cannot silently
+// rewrite the other.
+func (c *Claude) resolveToolCeiling() {
+	c.ToolCeiling = slices.Clone(effectiveToolCeiling(c))
+}
+
+// validateToolCeiling checks the hard upper bound on every tool surface.
+//
+// The ceiling must contain claude.tools, which is not a formality: claude.tools
+// is what every unlabelled run uses, so a ceiling that excludes it would
+// describe a boundary the daemon crosses on its very first run.
+func validateToolCeiling(c *Claude) []error {
+	if len(c.ToolCeiling) == 0 {
+		// Absent, or written as an empty list, which means the same thing:
+		// the effective ceiling is claude.tools, already checked under its own
+		// key, and a superset of itself.
+		return nil
+	}
+
+	var errs []error
+	if !slices.Equal(c.ToolCeiling, c.Tools) {
+		// When the ceiling was defaulted from claude.tools by
+		// resolveToolCeiling, its entries are the same strings validateTools
+		// has already reported on. Naming them a second time under a key the
+		// operator never wrote is noise, not thoroughness.
+		errs = append(errs, validateTools("claude.tool_ceiling", c.ToolCeiling)...)
+	}
+
+	inCeiling := toolSet(c.ToolCeiling)
+	for i, tool := range c.Tools {
+		// Entries validateTools has already rejected are skipped; a misspelled
+		// name is one problem, not two.
+		if !toolNameRE.MatchString(tool) || inCeiling[tool] {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("claude.tools[%d]: %q is not in claude.tool_ceiling; the ceiling is the upper bound on every tool surface, so it must list at least everything claude.tools does", i, tool))
+	}
+	return errs
+}
+
+// validateToolProfiles checks the operator-authored profiles (AC-1.4, AC-1.6,
+// AC-1.7).
+//
+// A nil or empty map is the normal case and is not an error: with no profiles
+// configured the feature is inert and every run uses claude.tools.
+func validateToolProfiles(c *Claude) []error {
+	if len(c.ToolProfiles) == 0 {
+		return nil
+	}
+
+	ceiling := effectiveToolCeiling(c)
+	inCeiling := toolSet(ceiling)
+
+	var errs []error
+	for _, name := range sortedProfileNames(c.ToolProfiles) {
+		profile := c.ToolProfiles[name]
+		if !profileKeyRE.MatchString(name) {
+			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what an lf:tools= label carries", name, name))
+		}
+
+		toolsKey := profileToolsKey(name)
+		allowedKey := profileAllowedToolsKey(name)
+		errs = append(errs, validateTools(toolsKey, profile.Tools)...)
+		errs = append(errs, validateAllowedTools(allowedKey, profile.AllowedTools)...)
+
+		// Every tool the profile grants must be inside the ceiling. Entries
+		// validateTools has already rejected are skipped: reporting a
+		// misspelled name twice helps nobody.
+		for i, tool := range profile.Tools {
+			if !toolNameRE.MatchString(tool) || inCeiling[tool] {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("%s[%d]: %q is not in claude.tool_ceiling; a profile may narrow the ceiling and never widen it", toolsKey, i, tool))
+		}
+
+		// A permission rule for a tool the profile does not list grants
+		// nothing, because --tools is the boundary. It is almost always a
+		// half-finished edit, so it fails the start rather than passing
+		// quietly as a rule that does nothing.
+		inProfile := toolSet(profile.Tools)
+		for i, rule := range profile.AllowedTools {
+			entry := strings.TrimSpace(rule)
+			match := toolRuleRE.FindStringSubmatch(entry)
+			if match == nil {
+				// Empty, "*" or otherwise unparseable: validateAllowedTools
+				// has already said so.
+				continue
+			}
+			if tool := match[1]; !inProfile[tool] {
+				errs = append(errs, fmt.Errorf("%s[%d]: %q names %s, which %s does not list; --tools is the boundary, so a rule for a tool outside the profile's surface grants nothing", allowedKey, i, entry, tool, toolsKey))
+			}
+		}
+	}
+	return errs
+}
+
+// toolSet indexes a tool list for membership tests. Comparison is exact:
+// --tools is matched by claude case-sensitively, so treating Read and read as
+// the same name here would report a boundary the run does not have.
+func toolSet(tools []string) map[string]bool {
+	set := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		set[tool] = true
+	}
+	return set
 }

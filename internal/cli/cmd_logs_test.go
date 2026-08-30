@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -526,6 +527,175 @@ func TestLogsRunSummary(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "4096 bytes") {
 		t.Errorf("the summary does not report the prompt's size:\n%s", stdout)
+	}
+}
+
+// todoWriteResolved and todoWriteRequested are the measured finding this story
+// exists to make visible ("Settled before planning", IMPLEMENTATION_PLAN.md):
+// eight tools requested, seven resolved, TodoWrite silently dropped with no
+// error raised anywhere. The resolved order is copied verbatim from a real
+// init event.
+var (
+	todoWriteResolved  = []string{"Task", "Bash", "Edit", "Glob", "Grep", "Read", "Write"}
+	todoWriteRequested = append(append([]string{}, todoWriteResolved...), "TodoWrite")
+)
+
+// TestLogsRunSummaryTodoWriteWorkedExample is AC-4.4: `litefactory logs`
+// prints the resolved tools, the profile, and the requested tools when they
+// differ from what resolved. This is the named regression for the finding
+// that motivates the whole story — eight requested, seven resolved, no error
+// raised anywhere else.
+func TestLogsRunSummaryTodoWriteWorkedExample(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 321)
+	start := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+
+	run := f.allocateRun(session, 2001, start)
+	f.finishRun(run, store.RunSucceeded, 0, 5*time.Second)
+
+	f.writeMeta(session, 1, map[string]any{
+		"run_ordinal":     1,
+		"task_ref":        session.TaskRef,
+		"mode":            store.ModeSpike,
+		"model":           "claude-sonnet-4-5",
+		"tools":           todoWriteResolved,
+		"tools_requested": todoWriteRequested,
+		"tool_profile":    "research",
+		"prompt":          "do the thing",
+	})
+	f.writeLog(session, 1, resultLine("done"))
+
+	code, stdout, stderr := f.run("logs", "321", "--run", "1")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+
+	for _, want := range []string{
+		"Task Bash Edit Glob Grep Read Write", // resolved
+		"research",                            // profile
+		"tools requested",                     // the row's own label
+		"(not granted: TodoWrite)",            // the tool that was asked for and dropped
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("summary is missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+// TestLogsRunSummaryOmitsRequestedToolsWhenTheyMatchResolved is the other half
+// of AC-4.4's "when they differ": printing the requested list a second time
+// when it agrees with what resolved would only make a real disagreement harder
+// to spot, so the row is omitted rather than repeated.
+func TestLogsRunSummaryOmitsRequestedToolsWhenTheyMatchResolved(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 322)
+	start := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+
+	run := f.allocateRun(session, 2002, start)
+	f.finishRun(run, store.RunSucceeded, 0, 5*time.Second)
+
+	same := []string{"Read", "Edit"}
+	f.writeMeta(session, 1, map[string]any{
+		"run_ordinal":     1,
+		"task_ref":        session.TaskRef,
+		"mode":            store.ModeSpike,
+		"tools":           same,
+		"tools_requested": same,
+		"prompt":          "do the thing",
+	})
+	f.writeLog(session, 1, resultLine("done"))
+
+	code, stdout, stderr := f.run("logs", "322", "--run", "1")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+	if strings.Contains(stdout, "tools requested") {
+		t.Errorf("the requested-tools row should be omitted when it agrees with what resolved:\n%s", stdout)
+	}
+}
+
+// TestLogsRequestedTools is the direct, table-driven counterpart to the two
+// tests above: it pins the exact formatting logsRequestedTools produces,
+// including the case a full command-level fixture cannot easily set up — a run
+// whose meta carries a requested surface but no resolved one at all.
+func TestLogsRequestedTools(t *testing.T) {
+	tests := []struct {
+		name string
+		meta runMeta
+		want string
+	}{
+		{
+			name: "nothing requested/omitted",
+			meta: runMeta{Tools: todoWriteResolved},
+			want: "",
+		},
+		{
+			name: "requested matches resolved/omitted",
+			meta: runMeta{Tools: todoWriteResolved, ToolsRequested: todoWriteResolved},
+			want: "",
+		},
+		{
+			name: "TodoWrite worked example/names the missing tool",
+			meta: runMeta{Tools: todoWriteResolved, ToolsRequested: todoWriteRequested},
+			want: "Task Bash Edit Glob Grep Read Write TodoWrite (not granted: TodoWrite)",
+		},
+		{
+			name: "no resolved surface at all/reports the full requested list unmarked",
+			meta: runMeta{ToolsRequested: todoWriteRequested},
+			want: "Task Bash Edit Glob Grep Read Write TodoWrite",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := logsRequestedTools(tt.meta); got != tt.want {
+				t.Errorf("logsRequestedTools() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestLogsOutputCarriesNoLabelSyntax is the C2/S-13 guardrail applied to
+// `logs`: nothing originating from GitHub — a label body, the "lf:tools="
+// syntax itself — may ever reach the printed summary.
+func TestLogsOutputCarriesNoLabelSyntax(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 323)
+	start := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
+
+	run := f.allocateRun(session, 2003, start)
+	f.finishRun(run, store.RunSucceeded, 0, 5*time.Second)
+
+	f.writeMeta(session, 1, map[string]any{
+		"run_ordinal":     1,
+		"task_ref":        session.TaskRef,
+		"mode":            store.ModeSpike,
+		"tools":           todoWriteResolved,
+		"tools_requested": todoWriteRequested,
+		"tool_profile":    "research",
+		"prompt":          "do the thing",
+	})
+	f.writeLog(session, 1, resultLine("done"))
+
+	code, stdout, stderr := f.run("logs", "323", "--run", "1")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+	if strings.Contains(stdout, "lf:tools=") {
+		t.Errorf("`logs` output leaked label syntax:\n%s", stdout)
+	}
+}
+
+// TestRunMetaCarriesNoLabelField is the structural half of the same guardrail:
+// runMeta has no field for raw label text at all, so there is nothing for a
+// future change to wire up by mistake (S-13).
+func TestRunMetaCarriesNoLabelField(t *testing.T) {
+	rt := reflect.TypeOf(runMeta{})
+	for i := range rt.NumField() {
+		name := rt.Field(i).Name
+		if strings.Contains(strings.ToLower(name), "label") {
+			t.Errorf("runMeta has a field named %q; labels must never reach the logs pipeline (S-13)", name)
+		}
 	}
 }
 

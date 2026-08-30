@@ -200,10 +200,14 @@ func (f *Filter) Identities() Identities { return f.identities }
 //	instruction  — the author id is the owner's (AC-2.15).
 //	third_party  — any other author. Recorded, tagged, triggers nothing.
 //
-// The parameter is a [github.Comment] and never an issue: an issue body is not
-// a comment and can never be an instruction, so a task opened by someone else
-// starts nothing (AC-2.16). There is deliberately no overload that takes a
-// bare body and an author.
+// The parameter is a [github.Comment] and never an issue, and that is still
+// true now that an issue body can start a run (AC-2.16b): the body path does
+// not come through here at all. It has no comment to classify — no forge
+// comment id, nothing to record against the session, and no author whose id
+// decides anything, because what authorises a body is the issue's assignee and
+// not its writer. So there is deliberately still no overload taking a bare body
+// and an author, and [Filter.Admit]'s refusal of a zero comment id stands. See
+// `.aiteam/AC_AMENDMENTS.md`.
 func (f *Filter) Classify(c github.Comment) Verdict {
 	if reason := f.selfReason(c); reason != SelfReasonNone {
 		return Verdict{Classification: store.ClassificationSelf, SelfReason: reason}

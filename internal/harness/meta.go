@@ -47,15 +47,35 @@ type Meta struct {
 	SessionID int64 `json:"session_id"`
 	// SegmentOrdinal is the conversation segment, 1 at M0.
 	SegmentOrdinal int `json:"segment_ordinal"`
-	// ClaudeSessionID is the value passed to --session-id.
+	// ClaudeSessionID is the value passed to --session-id, or to --resume on a
+	// run that continued an earlier conversation.
 	ClaudeSessionID string `json:"claude_session_id"`
+	// Resumed says whether this run continued the conversation that id names
+	// rather than starting it. It is what joins this document to the rest of
+	// the conversation: a resumed run's Prompt is only the delta it sent, and
+	// everything said before it is in claude's own transcript.
+	Resumed bool `json:"resumed"`
 	// Mode is the run mode, "spike" at M0.
 	Mode string `json:"mode"`
 	// Model is the model named by the init event (AC-3.17).
 	Model string `json:"model"`
 	// Tools is the surface the init event reported, which reflects --tools and
-	// so is the boundary claude actually ran under (SD-2).
+	// so is the boundary claude actually ran under (SD-2). It is empty for a run
+	// that never produced an init event.
 	Tools []string `json:"tools"`
+	// ToolsRequested is the surface the request carried, before claude had a say
+	// in it, and is empty on a run that took the operator's configured default.
+	//
+	// It is recorded separately from Tools because the two have been observed to
+	// differ silently: TodoWrite was requested on every run for the life of the
+	// project and never resolved, with no error raised. Only holding both makes
+	// that readable after the fact.
+	ToolsRequested []string `json:"tools_requested"`
+	// ToolProfile is the name of the operator-authored profile the requested
+	// surface came from, empty when no profile was selected. It is a validated
+	// key from the operator's own config — never text originating from the
+	// forge, which reaches this package as nothing at all.
+	ToolProfile string `json:"tool_profile"`
 	// Prompt is the full prompt as sent, verbatim (AC-3.11).
 	Prompt string `json:"prompt"`
 	// WorktreePath is the run's working directory.
@@ -103,12 +123,15 @@ func NewMeta(req Request, prompt string, result *RunResult) Meta {
 		RunOrdinal:     req.RunOrdinal,
 		TaskRef:        req.Ref.String(),
 		SegmentOrdinal: req.SegmentOrdinal,
+		Resumed:        req.Path.resuming(),
 		Mode:           req.Mode,
 		Prompt:         prompt,
 		WorktreePath:   req.WorktreePath,
 		Outcome:        OutcomeAbandoned.String(),
 		ExitCode:       SignalExitCode,
 		Tools:          []string{},
+		ToolsRequested: append([]string{}, req.Tools...),
+		ToolProfile:    req.ToolProfile,
 		FilesTouched:   []string{},
 	}
 	if result == nil {

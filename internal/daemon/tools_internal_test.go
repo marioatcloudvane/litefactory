@@ -1,0 +1,221 @@
+package daemon
+
+import (
+	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/report"
+)
+
+// testProfiles is the operator's configuration every resolveTools test in this
+// file reads. It carries two profiles so that "two labels, both well-formed"
+// is a real ambiguity between two things that could each have resolved on
+// their own, and it copies to distinct addresses per test so a bug in the
+// copy-on-read path can never leak between table cases.
+func testProfiles() map[string]config.ToolProfile {
+	return map[string]config.ToolProfile{
+		"research": {Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}},
+		"build":    {Tools: []string{"Read", "Edit", "Bash"}, AllowedTools: nil},
+	}
+}
+
+// TestResolveTools_DecisionTable pins the resolver's decision table (AC-2.2,
+// AC-3.1 through AC-3.5, D-5, D-6): every shape of label a maintainer can put
+// on an issue, and exactly one of the outcomes resolveTools may reach for it.
+//
+// It calls resolveTools directly, on a *Daemon built with nothing but the
+// tool configuration, because the decision is a pure function of the labels
+// and the operator's profile map — nothing else about the daemon's wiring is
+// relevant to it, and going through a whole tick per case would be the same
+// test with the database and the forge server on the critical path instead
+// of off it.
+func TestResolveTools_DecisionTable(t *testing.T) {
+	d := &Daemon{toolProfiles: testProfiles(), toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
+
+	tests := []struct {
+		name         string
+		labels       []string
+		wantRefusal  report.ReplyKind
+		wantProfile  string
+		wantMiscased bool
+		wantResolved string // profile name the decision must carry Tools/AllowedTools for
+	}{
+		{
+			name:         "one valid label/resolves the profile",
+			labels:       []string{"lf:tools=research"},
+			wantResolved: "research",
+		},
+		{
+			name:         "an unrelated label beside a valid one/resolves, ignoring the unrelated label",
+			labels:       []string{"bug", "lf:tools=research"},
+			wantResolved: "research",
+		},
+		{
+			name:        "mis-cased prefix, lowercase value/malformed, prefix flagged",
+			labels:      []string{"LF:Tools=research"},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
+		},
+		{
+			name:        "fully uppercase prefix/malformed, prefix flagged",
+			labels:      []string{"LF:TOOLS=research"},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
+		},
+		{
+			name:        "mis-cased prefix over an unconfigured value/still the prefix failure, not unknown",
+			labels:      []string{"LF:Tools=nosuch"},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
+		},
+		{
+			name:        "byte-exact prefix, uppercase value/malformed on the value shape, prefix not flagged",
+			labels:      []string{"lf:tools=Research"},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
+		},
+		{
+			name:        "empty value/malformed, prefix not flagged",
+			labels:      []string{"lf:tools="},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
+		},
+		{
+			name:        "value with a space/malformed, prefix not flagged",
+			labels:      []string{"lf:tools=bad name"},
+			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
+		},
+		{
+			name:        "well-formed value naming no configured profile/unknown, names the profile",
+			labels:      []string{"lf:tools=nosuch"},
+			wantRefusal: report.ReplyUnknownToolProfile, wantProfile: "nosuch",
+		},
+		{
+			name: "no labels at all/the zero value: no refusal, no profile",
+		},
+		{
+			name:   "labels present, none of them a tools label/the zero value",
+			labels: []string{"bug", "lf:reply", "priority:high"},
+		},
+		{
+			name:   "the wrong key, lf:tool=/too short to carry the prefix, ignored entirely",
+			labels: []string{"lf:tool=research"},
+		},
+		{
+			name:   "no equals sign at all/too short to carry the prefix, ignored entirely",
+			labels: []string{"lf:tools"},
+		},
+		{
+			name:        "two valid labels, same casing/ambiguous, neither is chosen",
+			labels:      []string{"lf:tools=research", "lf:tools=build"},
+			wantRefusal: report.ReplyAmbiguousToolLabels,
+		},
+		{
+			name:        "two labels, mixed casing and reversed order/ambiguous regardless of order or casing",
+			labels:      []string{"LF:Tools=build", "lf:tools=research"},
+			wantRefusal: report.ReplyAmbiguousToolLabels,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			decision := d.resolveTools(tc.labels)
+
+			if decision.Refusal != tc.wantRefusal {
+				t.Errorf("Refusal = %s, want %s", decision.Refusal, tc.wantRefusal)
+			}
+			if decision.refused() != (tc.wantRefusal != report.ReplyInvalid) {
+				t.Errorf("refused() = %t, disagrees with Refusal = %s", decision.refused(), decision.Refusal)
+			}
+			if decision.MiscasedPrefix != tc.wantMiscased {
+				t.Errorf("MiscasedPrefix = %t, want %t", decision.MiscasedPrefix, tc.wantMiscased)
+			}
+			// S-9: MiscasedPrefix is set on exactly the prefix-caused malformed
+			// refusal, never on the value-caused one and never on ambiguous — the
+			// two malformed causes have to stay distinguishable in the logs.
+			if tc.wantMiscased && tc.wantRefusal != report.ReplyMalformedToolLabel {
+				t.Fatalf("test table error: %s wants MiscasedPrefix without wanting the malformed refusal", tc.name)
+			}
+
+			switch {
+			case tc.wantResolved != "":
+				if decision.Profile != tc.wantResolved {
+					t.Errorf("Profile = %q, want the resolved %q", decision.Profile, tc.wantResolved)
+				}
+				profile := testProfiles()[tc.wantResolved]
+				if len(decision.Tools) == 0 {
+					t.Fatalf("Tools is empty for a resolved profile")
+				}
+				if got, want := decision.Tools, profile.Tools; !equalStrings(got, want) {
+					t.Errorf("Tools = %v, want the profile's %v", got, want)
+				}
+				if got, want := decision.AllowedTools, profile.AllowedTools; !equalStrings(got, want) {
+					t.Errorf("AllowedTools = %v, want the profile's %v", got, want)
+				}
+			case tc.wantProfile != "":
+				if decision.Profile != tc.wantProfile {
+					t.Errorf("Profile = %q, want %q", decision.Profile, tc.wantProfile)
+				}
+				if len(decision.Tools) != 0 || len(decision.AllowedTools) != 0 {
+					t.Errorf("an unresolved decision carries tools: %v / %v", decision.Tools, decision.AllowedTools)
+				}
+			default:
+				// The zero value, the malformed refusal and the ambiguous refusal
+				// all share this: Profile stays empty, because there is no field
+				// for label text to travel in (S-9), and no tools resolved.
+				if decision.Profile != "" {
+					t.Errorf("Profile = %q, want empty: this decision must not name a label", decision.Profile)
+				}
+				if len(decision.Tools) != 0 || len(decision.AllowedTools) != 0 {
+					t.Errorf("this decision carries tools: %v / %v, want none", decision.Tools, decision.AllowedTools)
+				}
+			}
+		})
+	}
+}
+
+// TestResolveTools_CopiesProfileSlices is AC-2.9. The map is the operator's
+// own configuration and it lives for the whole process; a resolved decision's
+// slices have to be independent copies, because the harness request they end
+// up on is mutated in place on the cold-rerun path (harvest.go:126-129), and
+// one append into shared spare capacity there would corrupt the profile for
+// every later run this process makes.
+func TestResolveTools_CopiesProfileSlices(t *testing.T) {
+	profiles := testProfiles()
+	original := append([]string(nil), profiles["research"].Tools...)
+	d := &Daemon{toolProfiles: profiles, toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
+
+	decision := d.resolveTools([]string{"lf:tools=research"})
+
+	// Index mutation: proves the two slices do not share a backing array at
+	// all, regardless of what append happens to have done internally.
+	decision.Tools[0] = "TAMPERED"
+	decision.AllowedTools = append(decision.AllowedTools, "TAMPERED-TOO")
+
+	// Growing past the copy's own length: if resolveTools had ever handed back
+	// a slice with spare capacity into the profile's own array, this append
+	// would silently overwrite the config's next element instead of
+	// allocating a new one.
+	for range 8 {
+		decision.Tools = append(decision.Tools, "MORE")
+	}
+
+	if got := profiles["research"].Tools; !equalStrings(got, original) {
+		t.Errorf("the operator's profile changed after the resolved decision was mutated: %v, want %v",
+			got, original)
+	}
+
+	// A second resolution reads the map fresh and must be unaffected by
+	// whatever the first decision's slices were put through.
+	again := d.resolveTools([]string{"lf:tools=research"})
+	if !equalStrings(again.Tools, original) {
+		t.Errorf("a later resolution of the same profile = %v, want the untouched %v", again.Tools, original)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}

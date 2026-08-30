@@ -102,6 +102,73 @@ func TestStartReportsAnAbandonedRunAndDoesNotRerunIt(t *testing.T) {
 	}
 }
 
+// TestAnAbandonedRunIsReconciledEvenWhenItsIssueWasClosed is AC-2.22b.
+//
+// Closing an issue stops litefactory *starting* anything on it (AC-2.22); it
+// does not cancel a report that is already owed. Startup reconciliation works
+// off the runs table and never asks the forge which issues are open, so a run
+// killed mid-flight is failed, reported and consumed however its issue now
+// stands — which is the only defensible answer, because the alternative is a
+// run row that stays running for ever and a comment nobody ever hears back
+// about (AC-4.1).
+//
+// This is asserted rather than derived: "the listing is not involved" is
+// exactly the kind of claim that stops being true when someone adds a
+// convenience filter to Start.
+func TestAnAbandonedRunIsReconciledEvenWhenItsIssueWasClosed(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.issue("Add a /health endpoint")
+	f.tick() // first sight, while the issue is still open
+
+	session := f.session()
+	f.forge.addComment(testIssue, 200, owner(), "/spike the run that was killed")
+	orphan := f.allocateRunningRun(session, 200)
+
+	// And then the issue is closed, which is what a human does when the daemon
+	// has gone quiet mid-run.
+	f.forge.closeIssue(testIssue)
+
+	reconciled, err := f.daemon.Start(t.Context())
+	if err != nil {
+		t.Fatalf("Start: %v\nlogs:\n%s", err, f.logs)
+	}
+	if reconciled.AbandonedRuns != 1 || reconciled.Reported != 1 {
+		t.Fatalf("abandoned %d runs and reported %d, want 1 and 1 — a closed issue does not "+
+			"cancel a report that is already owed\nlogs:\n%s",
+			reconciled.AbandonedRuns, reconciled.Reported, f.logs)
+	}
+
+	posted, _, _ := f.forge.snapshot()
+	if len(posted) != 1 {
+		t.Fatalf("posted %d comments for an abandoned run on a closed issue, want 1", len(posted))
+	}
+	if !strings.Contains(posted[0], "abandoned") {
+		t.Errorf("the failure comment does not say the run was abandoned:\n%s", posted[0])
+	}
+	if got := f.watermark(); got != 200 {
+		t.Errorf("watermark is %d, want 200: reporting an abandoned run consumes its comment", got)
+	}
+	reloaded, err := f.db.GetRun(t.Context(), orphan.ID)
+	if err != nil {
+		t.Fatalf("read the abandoned run: %v", err)
+	}
+	if reloaded.Status != store.RunReported {
+		t.Errorf("the abandoned run is %q, want %q", reloaded.Status, store.RunReported)
+	}
+
+	// The tick that follows is where AC-2.22 takes over: the issue is closed
+	// now, so nothing more happens on it, and the abandoned run is not re-run.
+	result := f.tick()
+
+	if result.Runs != 0 {
+		t.Errorf("ran %d turns on a closed issue after reconciliation, want none", result.Runs)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns after reconciliation, want none", len(calls))
+	}
+}
+
 // TestStartWithNothingToReconcileIsQuiet keeps the ordinary case honest: a
 // clean start posts nothing.
 func TestStartWithNothingToReconcileIsQuiet(t *testing.T) {

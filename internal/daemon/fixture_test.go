@@ -70,12 +70,43 @@ func owner() fakeUser    { return fakeUser{ID: ownerID, Login: ownerLogin, Type:
 func bot() fakeUser      { return fakeUser{ID: botID, Login: botLogin, Type: "Bot"} }
 func stranger() fakeUser { return fakeUser{ID: strangerID, Login: strangerLogin, Type: "User"} }
 
+// fakeLabel is a label object the way GitHub sends one: a name plus fields
+// (colour, description, id) this fixture never needs and so never encodes.
+// It has to be a struct rather than a bare string because the real payload —
+// internal/github's issuePayload — decodes []*labelPayload, not []string
+// (T-4), and a fixture that sent strings would never exercise that decode.
+type fakeLabel struct {
+	Name string `json:"name"`
+}
+
+// toFakeLabels is the usual way a test builds an issue's label list: label
+// names in, the objects GitHub actually sends out.
+func toFakeLabels(names ...string) []fakeLabel {
+	if len(names) == 0 {
+		return nil
+	}
+	labels := make([]fakeLabel, len(names))
+	for i, name := range names {
+		labels[i] = fakeLabel{Name: name}
+	}
+	return labels
+}
+
 type fakeIssue struct {
-	Number      int            `json:"number"`
-	Title       string         `json:"title"`
-	Body        string         `json:"body"`
-	State       string         `json:"state"`
-	User        fakeUser       `json:"user"`
+	Number int      `json:"number"`
+	Title  string   `json:"title"`
+	Body   string   `json:"body"`
+	State  string   `json:"state"`
+	User   fakeUser `json:"user"`
+	// Assignees is who the issue is assigned to. GitHub always sends the
+	// member, as [] for an unassigned issue, so it is not omitempty: an
+	// absent member is a shape the client is tested against directly, not one
+	// this fixture should be producing by accident.
+	Assignees []fakeUser `json:"assignees"`
+	// Labels is every label on the issue. Nil is fine: an unlabelled issue is
+	// the overwhelmingly common case and GitHub's own [] round-trips the same
+	// way through the decoder as omitting the field entirely.
+	Labels      []fakeLabel    `json:"labels"`
 	HTMLURL     string         `json:"html_url"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
@@ -192,8 +223,20 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	// The since filter is inclusive, exactly as GitHub's is (D-A).
 	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	// And the state filter, also as GitHub applies it: open unless asked
+	// otherwise, and "all" is the only way a closed issue comes back. The
+	// daemon asks for open, so this is what keeps a closed issue out of *this*
+	// listing — handleGetIssue still serves one, because GitHub does, which is
+	// why the AC-2.22 skip cannot live in the query.
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "open"
+	}
 	out := make([]fakeIssue, 0, len(issues))
 	for _, issue := range issues {
+		if state != "all" && issue.State != state {
+			continue
+		}
 		if since.IsZero() || !issue.UpdatedAt.Before(since) {
 			out = append(out, issue)
 		}
@@ -371,6 +414,39 @@ func (f *forgeServer) addCommentAt(issue int, id int64, author fakeUser, body st
 			f.issues[i].UpdatedAt = at
 		}
 	}
+}
+
+// closeIssue closes an issue the way a human does: its state changes and its
+// update time moves with it. Everything about it stays on the forge, and
+// handleGetIssue keeps serving it — closed is a state, not a deletion.
+func (f *forgeServer) closeIssue(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.issues {
+		if f.issues[i].Number == number {
+			f.issues[i].State = "closed"
+			f.issues[i].UpdatedAt = f.now()
+			return
+		}
+	}
+	f.t.Fatalf("no issue %d to close", number)
+}
+
+// setLabels replaces an issue's labels, the way a maintainer relabeling it on
+// GitHub does, and touches its update time the same way [forgeServer.addComment]
+// does for a comment: relabeling is a real edit to the issue, and a tick that
+// filtered on `since` has to see it (AC-2.10).
+func (f *forgeServer) setLabels(number int, labels ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.issues {
+		if f.issues[i].Number == number {
+			f.issues[i].Labels = toFakeLabels(labels...)
+			f.issues[i].UpdatedAt = f.now()
+			return
+		}
+	}
+	f.t.Fatalf("no issue %d to relabel", number)
 }
 
 func (f *forgeServer) staleIssue(number int, at time.Time) {
@@ -719,6 +795,12 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.Logger != nil {
 		opts.Logger = overrides.Logger
 	}
+	if overrides.ToolProfiles != nil {
+		opts.ToolProfiles = overrides.ToolProfiles
+	}
+	if overrides.ToolCeiling != nil {
+		opts.ToolCeiling = overrides.ToolCeiling
+	}
 
 	d, err := daemon.New(opts)
 	if err != nil {
@@ -763,6 +845,13 @@ func (f *fixture) settle() {
 }
 
 // issue registers the task every test polls.
+//
+// It is deliberately inert: a stranger opened it, nobody is assigned to it, and
+// its body is a statement of fact rather than an instruction. Nothing about it
+// can start a run on its own, so a test that adds comments to it is testing
+// only its comments. That is what makes it useless for a body test — use
+// [fixture.assignedIssue], which says at the call site that the owner asked for
+// something.
 func (f *fixture) issue(title string) {
 	f.t.Helper()
 
@@ -771,6 +860,59 @@ func (f *fixture) issue(title string) {
 		Title:  title,
 		Body:   "The service has no way to say whether it is up.",
 		User:   stranger(),
+	})
+}
+
+// issueWithLabels is [fixture.issue] carrying one or more lf: labels from the
+// moment it is opened, for a resolver test that wants a label present on the
+// very first tick that sees the issue.
+func (f *fixture) issueWithLabels(title string, labels ...string) {
+	f.t.Helper()
+
+	f.forge.addIssue(fakeIssue{
+		Number: testIssue,
+		Title:  title,
+		Body:   "The service has no way to say whether it is up.",
+		User:   stranger(),
+		Labels: toFakeLabels(labels...),
+	})
+}
+
+// relabel replaces the labels on the fixture's one issue (AC-2.10): a
+// maintainer changing their mind about which profile a run should have,
+// between one comment and the next.
+func (f *fixture) relabel(labels ...string) {
+	f.t.Helper()
+
+	f.forge.setLabels(testIssue, labels...)
+}
+
+// assignedIssue registers an issue with the given body, assigned to the owner:
+// the shape that runs its body as a first instruction (AC-2.16b).
+//
+// The author is the *stranger*, on purpose. The gate is assignment and not
+// authorship — assigning an issue to yourself is the act of instruction, and
+// anyone at all may open one — so the harder of the two cases is the default
+// here, and a body test cannot pass by accident because the owner happened to
+// write it. Where authorship is the point, [fixture.assignedIssueBy] says so.
+func (f *fixture) assignedIssue(title, body string) {
+	f.t.Helper()
+
+	f.assignedIssueBy(stranger(), title, body)
+}
+
+// assignedIssueBy is [fixture.assignedIssue] with the issue's author spelled
+// out — the owner's own issue, most usefully, which is what happens on a real
+// machine when Mario opens one and assigns it to himself.
+func (f *fixture) assignedIssueBy(author fakeUser, title, body string) {
+	f.t.Helper()
+
+	f.forge.addIssue(fakeIssue{
+		Number:    testIssue,
+		Title:     title,
+		Body:      body,
+		User:      author,
+		Assignees: []fakeUser{owner()},
 	})
 }
 

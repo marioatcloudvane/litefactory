@@ -1,12 +1,6 @@
 ---
 name: app-context-updater
-description: Creates or updates the persistent app context documents under `.aiteam/`. These files are read by every planning, architecture, and implementation agent to understand what already exists — preventing duplication and ensuring consistency. Invoked by the Research orchestrator (to bootstrap context before a feature) and by the Implement orchestrator (to update context after code is committed). Never invoked directly by the user.
-
-Two modes:
-- **init** — no context file exists yet: full repo scan, write from scratch
-- **update** — context file exists: targeted scan of what changed, merge in place
-
-Monorepo aware: detects multiple Go modules and produces one overview file plus one file per module.
+description: "Creates or updates the persistent app context documents under `.aiteam/`. These files are read by every planning, architecture, and implementation agent to understand what already exists, preventing duplication and ensuring consistency. Invoked by the Research orchestrator to bootstrap context before a feature, and by the Implement orchestrator to update context after code is committed. Never invoked directly by the user. Two modes — init, when no context file exists yet, does a full repo scan and writes from scratch; update, when a context file exists, does a targeted scan of what changed and merges in place. Monorepo aware — detects multiple Go modules and produces one overview file plus one file per module."
 tools: Read, Write, Glob, Grep, Bash, TodoWrite
 model: sonnet
 color: cyan

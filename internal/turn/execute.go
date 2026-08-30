@@ -107,13 +107,33 @@ type Issue struct {
 	// Author is the handle that opened the issue, for the prompt's attribution
 	// line.
 	Author string
+	// Labels is every label name on the issue, as GitHub reported it at the
+	// head of this tick.
+	//
+	// It is a lookup key for tool-profile resolution and nothing else: these
+	// strings are matched against operator-authored configuration, and the
+	// configuration is what supplies any value that travels onwards. No label
+	// text may be rendered into a prompt or echoed into a comment — this struct
+	// is one hop from [harness.PromptInput], and that hop is the one place the
+	// rule has to be kept by hand (S-13).
+	Labels []string
 }
 
-// Trigger is the comment that started this turn.
+// Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
 	// CommentID is the forge's id for the comment. It is unique per session on
 	// the runs row, and that uniqueness is the whole crash-replay guarantee
 	// (AC-3.4).
+	//
+	// Zero is not a comment. It is the issue body, run as the first instruction
+	// on an issue assigned to the owner (AC-2.16b), and it is deliberately not
+	// the issue's own forge id: reporting a run advances the comment watermark
+	// to this value, so any positive id here would push the watermark past
+	// every comment the issue will ever receive and swallow them all. Zero
+	// makes that advance a MAX(0, 0) no-op (AC-2.23) while the runs table's
+	// (session, trigger comment) uniqueness still fires a body exactly once.
+	//
+	// Negative is neither, and is refused.
 	CommentID int64
 	// Body is the comment text, verbatim and untrusted.
 	Body string
@@ -134,6 +154,32 @@ type Request struct {
 	// Command is the parsed comment, from [ParseCommand]. It must be a command
 	// that spawns a run; a reply-only command is the caller's to handle.
 	Command Command
+
+	// Tools and AllowedTools are the tool surface a resolved tool profile
+	// grants this turn, and ToolProfile is the name of the profile they came
+	// from. All three are empty when no lf:tools= label selected one, and the
+	// run then takes the harness's configured surface exactly as it did before
+	// profiles existed (AC-2.3).
+	//
+	// Every string here is operator-authored configuration. The label only ever
+	// chose *which* profile; nothing that originated on the forge travels in
+	// these fields, and that is what keeps C2 true all the way to argv. The
+	// caller has already copied them out of the configuration it holds for the
+	// life of the process, because [preparation.request] is mutated in place on
+	// the cold-rerun path.
+	//
+	// The harness checks Tools against its own ceiling before it starts anything
+	// (AC-2.6). A list it refuses should be unreachable — config validation
+	// proved every profile fits under the ceiling at boot — but if it happens it
+	// is reported as a *run* failure and not returned as an error: by then the
+	// worktree and the runs row exist, and an error return would leave the
+	// comment unconsumed for a next tick that would build the same worktree and
+	// be refused in exactly the same way, for ever. It ends up as
+	// "claude did not start: …" on the runs row, a failure comment on the issue,
+	// and a consumed comment (AC-2.7).
+	Tools        []string
+	AllowedTools []string
+	ToolProfile  string
 }
 
 func (r Request) validate() error {
@@ -142,8 +188,11 @@ func (r Request) validate() error {
 		return invalidRequest("a session id is required")
 	case r.Issue.Number <= 0:
 		return invalidRequest("issue number %d must be positive", r.Issue.Number)
-	case r.Trigger.CommentID <= 0:
-		return invalidRequest("a triggering comment id is required")
+	// Not "positive": 0 is the issue body run as the first instruction. See
+	// [Trigger.CommentID] for why the body's trigger id is 0 and not the
+	// issue's own id.
+	case r.Trigger.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
@@ -215,6 +264,12 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		Branch:           session.Branch,
 		WorktreePath:     session.WorktreePath,
 		Remote:           opts.remote(),
+		// Set here, on the first result this function builds, rather than after
+		// preparation: a turn that never reaches claude — a failed fetch, an
+		// occupied worktree — still owes the issue a report, and the surface it
+		// would have run with is exactly what that report has to say (AC-4.3).
+		ToolsRequested: append([]string(nil), req.Tools...),
+		ToolProfile:    req.ToolProfile,
 	}
 	if session.IssueNumber != req.Issue.Number {
 		return result, invalidRequest("task %s is issue %d, not issue %d",

@@ -69,6 +69,15 @@ func ClaudeSessionID(ref Ref, segmentOrdinal int) (string, error) {
 	return id, nil
 }
 
+// ValidClaudeSessionID reports whether s could have come from
+// [ClaudeSessionID]: a canonical lowercase RFC 4122 version 5 UUID.
+//
+// It exists because the id travels. It is derived here once, recorded on the
+// segments row, and read back from there by whatever puts it on claude's argv
+// — which therefore cannot assume it arrived straight from the function above,
+// and checks the same post-condition [ClaudeSessionID] asserts on the way out.
+func ValidClaudeSessionID(s string) bool { return uuidPattern.MatchString(s) }
+
 // SessionNamespace returns litefactory's UUID namespace in canonical form. It
 // exists so the constant can be shown in diagnostics and pinned by tests
 // without exporting the uuid type.

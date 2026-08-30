@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
@@ -61,10 +62,19 @@ type Forge interface {
 	AddCommentReaction(ctx context.Context, repo github.Repo, commentID int64, content github.ReactionContent) error
 }
 
-// Classifier decides what an inbound comment is and records it. *turn.Filter
-// satisfies it.
+// Classifier decides what an inbound comment is and records it, and answers
+// which identities it decides with. *turn.Filter satisfies it.
+//
+// Identities is on the interface because the daemon has no other route to the
+// owner's numeric user id, and that id is what "assigned to me" is a question
+// about: assignment is matched on the id and never on a handle (D-I,
+// AC-2.24), exactly as every other identity decision here is. It is asked of
+// the classifier rather than loaded a second time so that one set of ids
+// governs both — a daemon that classified with one owner id and gated
+// assignment on another would be indefensible.
 type Classifier interface {
 	Admit(ctx context.Context, sessionID int64, c github.Comment) (turn.Admission, error)
+	Identities() turn.Identities
 }
 
 // Executor runs one turn. [NewExecutor] wraps turn.Execute into one.
@@ -103,6 +113,22 @@ type Options struct {
 
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
+
+	// ToolProfiles are the operator's named tool surfaces, keyed by the name an
+	// lf:tools= label selects them with. Optional: a nil or empty map means no
+	// label can resolve, which is what a config with no tool_profiles asks for.
+	//
+	// It is read-only for the life of the daemon and never written to. Whatever
+	// a resolution takes out of it is copied first — see [Daemon.resolveTools].
+	ToolProfiles map[string]config.ToolProfile
+
+	// ToolCeiling is the hard upper bound every profile was checked against at
+	// startup, carried here so the daemon can record which boundary was in
+	// force when it resolved a profile. Nothing is decided by it: the ceiling
+	// is enforced by config validation at boot and again by the harness at the
+	// moment argv is built (D-2), and a daemon that made a third, subtly
+	// different decision about it would be the one nobody could reason about.
+	ToolCeiling []string
 
 	// InstanceID is this daemon process's identity, and is what the per-task
 	// lock is held under. It must be fresh per process — see [NewInstanceID] —
@@ -176,12 +202,16 @@ type Daemon struct {
 	turn       Executor
 	reporter   Reporter
 	instanceID string
-	interval   time.Duration
-	grace      time.Duration
-	log        *slog.Logger
-	lock       *Lock
-	now        func() time.Time
-	ticks      <-chan time.Time
+	// toolProfiles and toolCeiling are the operator's tool configuration as it
+	// stood at startup. Read-only after New; see [Options.ToolProfiles].
+	toolProfiles map[string]config.ToolProfile
+	toolCeiling  []string
+	interval     time.Duration
+	grace        time.Duration
+	log          *slog.Logger
+	lock         *Lock
+	now          func() time.Time
+	ticks        <-chan time.Time
 
 	backoff backoff
 }
@@ -216,12 +246,17 @@ func New(opts Options) (*Daemon, error) {
 		turn:       opts.Turn,
 		reporter:   opts.Reporter,
 		instanceID: opts.InstanceID,
-		interval:   interval,
-		grace:      grace,
-		log:        opts.Logger,
-		lock:       opts.Lock,
-		now:        now,
-		ticks:      opts.Ticks,
+		// Copied, like every other tool list that crosses a boundary in this
+		// feature: the caller keeps its own map and slice, and nothing here may
+		// reach back into the configuration the process is running on.
+		toolProfiles: maps.Clone(opts.ToolProfiles),
+		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
+		interval:     interval,
+		grace:        grace,
+		log:          opts.Logger,
+		lock:         opts.Lock,
+		now:          now,
+		ticks:        opts.Ticks,
 	}, nil
 }
 

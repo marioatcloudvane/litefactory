@@ -111,6 +111,16 @@ type Keychain struct {
 //     therefore defence in depth, not the sandbox. It is still policy-checked
 //     (a bare Bash or Bash(*) entry is rejected, AC-3.15) because a narrow
 //     allow-list is worth having even when it is not load-bearing.
+//
+// # The two optional keys
+//
+// ToolCeiling and ToolProfiles are both optional and both absent on a fresh
+// install, which leaves the surface above as the only one litefactory can
+// ever use. ToolProfiles names alternative surfaces an issue label may select;
+// ToolCeiling is the hard upper bound every one of them is checked against at
+// startup. The ceiling, not the label, is the boundary: anyone who can label
+// an issue can select any profile, so a profile is only ever as safe as the
+// ceiling it sits under.
 type Claude struct {
 	// Binary is the claude executable. A launchd-started daemon has
 	// PATH=/usr/bin:/bin:/usr/sbin:/sbin and will not find a Homebrew
@@ -126,6 +136,22 @@ type Claude struct {
 	// AllowedTools is the --allowedTools permission list. Additive to the
 	// operator's settings; defence in depth, not the boundary.
 	AllowedTools []string `yaml:"allowed_tools"`
+	// ToolCeiling is the hard upper bound on every tool surface litefactory
+	// will ever pass as --tools. No profile may name a tool outside it, and it
+	// must itself contain everything in Tools.
+	//
+	// Absent (and empty, which means the same thing) it defaults to Tools —
+	// the narrowest possible default, under which no profile can widen
+	// anything at all. [Load] resolves the default once, before validation, so
+	// config validation and the harness read the same slice.
+	ToolCeiling []string `yaml:"tool_ceiling"`
+	// ToolProfiles are operator-authored named tool surfaces, keyed by the
+	// name an issue label selects them with. Absent means a nil map, which
+	// leaves every run on Tools.
+	//
+	// The key is a lookup key and never reaches the claude command line; only
+	// the config-authored strings inside the profile do.
+	ToolProfiles map[string]ToolProfile `yaml:"tool_profiles"`
 	// TimeoutSeconds is the hard wall-clock kill for one run. It is
 	// independent of any event-driven completion detection because a bad
 	// credential makes claude retry internally and hang indefinitely,
@@ -143,6 +169,25 @@ type Claude struct {
 	// explicit carve-out from the secret-name env strip, since ANTHROPIC_API_KEY
 	// matches the KEY pattern.
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
+}
+
+// ToolProfile is one named tool surface an operator authored in config.yaml.
+//
+// It mirrors the two tool keys of [Claude] and carries the same meanings:
+// Tools is the boundary that becomes --tools for a run using this profile,
+// AllowedTools is the additive permission list that becomes --allowedTools.
+// Both are validated at startup against the same policy, plus two rules that
+// only make sense for a profile: Tools must be a subset of
+// [Claude.ToolCeiling], and every AllowedTools rule must name a tool this
+// profile itself lists — a permission rule for a tool outside the surface
+// grants nothing and is far more likely to be a mistake than an intention.
+type ToolProfile struct {
+	// Tools is the profile's --tools surface. Must be non-empty, for the same
+	// reason [Claude.Tools] must be: an empty list would omit the flag, and an
+	// omitted --tools is allow-all.
+	Tools []string `yaml:"tools"`
+	// AllowedTools is the profile's --allowedTools permission list. Optional.
+	AllowedTools []string `yaml:"allowed_tools"`
 }
 
 // Defaults returns the configuration litefactory runs with when config.yaml
@@ -215,6 +260,7 @@ func Load(p Paths) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.applyPathDefaults(p)
+	cfg.Claude.resolveToolCeiling()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

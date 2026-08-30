@@ -745,6 +745,84 @@ func TestAllocateRunAssignsOrdinalsAndRefusesReplay(t *testing.T) {
 	}
 }
 
+// TestAllocateRunTakesTheIssueBodyAsTriggerZero is the store half of AC-2.23.
+//
+// A run started by the issue body has no triggering comment, and carries 0
+// rather than the issue's own forge id. Three things follow, and all three are
+// the reason for the choice: the allocation is accepted, the (session, trigger)
+// uniqueness fires a body exactly once per issue, and reporting the run
+// advances the watermark by MAX(0, 0) — leaving every comment the issue later
+// receives still to be processed.
+func TestAllocateRunTakesTheIssueBodyAsTriggerZero(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id")
+	if err != nil {
+		t.Fatalf("segment: %v", err)
+	}
+	// First sight of an issue with no comments plants the watermark at 0.
+	if _, _, err := db.BootstrapWatermark(t.Context(), session.ID, 0); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	run := testRun(t, db, session.ID, 0)
+	if run.TriggerCommentID != 0 {
+		t.Fatalf("trigger_comment_id = %d, want 0", run.TriggerCommentID)
+	}
+
+	// The body a second time — a tick that somehow saw the issue as fresh
+	// again. Once ever, and the uniqueness is what says so.
+	_, err = db.AllocateRun(t.Context(), AllocateRunParams{
+		SessionID:        session.ID,
+		SegmentID:        segment.ID,
+		Mode:             ModeSpike,
+		TriggerCommentID: 0,
+		LogPath:          func(int) string { return "/logs/dup.jsonl" },
+	})
+	if !errors.Is(err, ErrDuplicateRun) {
+		t.Fatalf("re-allocating for the issue body gave %v, want ErrDuplicateRun", err)
+	}
+
+	// Negative is neither a comment nor the body, and is still refused.
+	_, err = db.AllocateRun(t.Context(), AllocateRunParams{
+		SessionID:        session.ID,
+		SegmentID:        segment.ID,
+		Mode:             ModeSpike,
+		TriggerCommentID: -1,
+		LogPath:          func(int) string { return "/logs/negative.jsonl" },
+	})
+	if err == nil {
+		t.Fatal("allocated a run for a negative trigger id")
+	}
+
+	exitCode := int64(0)
+	if _, err := db.FinishRun(t.Context(), run.ID, RunOutcome{Status: RunSucceeded, ExitCode: &exitCode}); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if _, err := db.CompleteRunReport(t.Context(), run.ID, 5001); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	wm, _, err := db.GetWatermark(t.Context(), session.ID)
+	if err != nil {
+		t.Fatalf("watermark: %v", err)
+	}
+	if wm.LastCommentID != 0 {
+		t.Fatalf("watermark after a body run = %d, want it still at 0: any positive trigger id "+
+			"would consume every comment the issue will ever receive", wm.LastCommentID)
+	}
+
+	// And the comments that arrive afterwards are still ahead of it.
+	if _, err := db.AdvanceWatermark(t.Context(), session.ID, 1001); err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	if wm, _, err = db.GetWatermark(t.Context(), session.ID); err != nil {
+		t.Fatalf("watermark: %v", err)
+	} else if wm.LastCommentID != 1001 {
+		t.Fatalf("watermark = %d, want 1001", wm.LastCommentID)
+	}
+}
+
 func TestFinishRunComputesDuration(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

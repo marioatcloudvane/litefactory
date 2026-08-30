@@ -3,6 +3,7 @@ package naming
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -167,6 +168,49 @@ func TestClaudeSessionIDRejectsBadInput(t *testing.T) {
 			}
 			if got != "" {
 				t.Errorf("ClaudeSessionID returned %q alongside an error, want an empty string", got)
+			}
+		})
+	}
+}
+
+// ValidClaudeSessionID is the check a consumer applies to an id it read back
+// from the segments row rather than derived. It has to accept every id this
+// package can emit and reject anything claude would refuse, so the two halves
+// are asserted together: the derived ids below come from ClaudeSessionID
+// itself.
+func TestValidClaudeSessionID(t *testing.T) {
+	t.Parallel()
+
+	derived, err := ClaudeSessionID(Ref{ForgeGitHub, "acme", "acme-api", 123}, 1)
+	if err != nil {
+		t.Fatalf("ClaudeSessionID: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		id   string
+		want bool
+	}{
+		{"a derived id", derived, true},
+		{"a canonical v5 uuid from elsewhere", "6f2a1c3d-9e4b-5a7c-8d1e-2f3a4b5c6d7e", true},
+		{"empty", "", false},
+		{"not a uuid at all", "seeded-session-id", false},
+		{"one character short", derived[:len(derived)-1], false},
+		{"one character long", derived + "0", false},
+		{"uppercase hex", strings.ToUpper(derived), false},
+		{"unhyphenated", strings.ReplaceAll(derived, "-", ""), false},
+		{"version 4", "d3ece914-438d-484f-a110-fa6b77f31645", false},
+		{"reserved variant", "d3ece914-438d-584f-c110-fa6b77f31645", false},
+		{"surrounded by whitespace", " " + derived + "\n", false},
+		{"non-hex character", "d3ece914-438d-584f-a110-fa6b77f3164g", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := ValidClaudeSessionID(tt.id); got != tt.want {
+				t.Errorf("ValidClaudeSessionID(%q) = %t, want %t", tt.id, got, tt.want)
 			}
 		})
 	}

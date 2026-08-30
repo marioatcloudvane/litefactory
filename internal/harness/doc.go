@@ -12,6 +12,14 @@
 //	  --session-id <uuid> --tools <surface> --settings <file> \
 //	  --allowedTools <rules...> --strict-mcp-config
 //
+// The first run of a conversation is the one shown above. Every run after it
+// replaces --session-id <uuid> with --resume <uuid> and changes nothing else:
+// the two flags are mutually exclusive, and passing --session-id a second time
+// does not continue the conversation, it exits non-zero with "Session ID <uuid>
+// is already in use". The tool boundary is identical on both — a resumed
+// session resolves --tools from this argv and does not inherit a wider surface
+// from the transcript it is continuing.
+//
 // --verbose is mandatory. Without it claude hard-errors and writes nothing at
 // all to stdout, which looks exactly like a hung run. The binary is an absolute
 // path resolved from configuration and never by searching the ambient PATH:

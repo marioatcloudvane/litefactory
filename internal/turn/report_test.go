@@ -417,6 +417,63 @@ func TestReportReplayOfAReportedRunIsANoOp(t *testing.T) {
 	}
 }
 
+// TestReportRunTriggeredByTheIssueBody is the turn half of AC-2.23.
+//
+// A run started by the issue body carries trigger id 0, so the watermark
+// advance that closes its report is MAX(0, 0): the watermark stays where
+// bootstrap planted it and every comment the issue later receives still runs.
+// The report itself is posted like any other run's (AC-4.1).
+func TestReportRunTriggeredByTheIssueBody(t *testing.T) {
+	t.Parallel()
+
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeInWorktree(t, req, "health.go", "package api\n")
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+
+	// First sight of an issue with no comments plants the watermark at 0 and
+	// only then runs the body (AC-2.10b).
+	if _, _, err := f.db.BootstrapWatermark(t.Context(), f.session.ID, 0); err != nil {
+		t.Fatalf("bootstrap the watermark: %v", err)
+	}
+
+	body := "/spike add a health endpoint that reports the build sha"
+	req := f.request()
+	req.Issue.Body = body
+	req.Command = ParseCommand(body)
+	req.Trigger = Trigger{CommentID: 0, Body: "", Author: req.Issue.Author}
+
+	result := f.execute(req)
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionRan, f.logs)
+	}
+	if result.TriggerCommentID != 0 {
+		t.Errorf("TriggerCommentID = %d, want 0: the body is not a comment", result.TriggerCommentID)
+	}
+
+	posted, err := reporter.ReportTurn(t.Context(), result)
+	if err != nil {
+		t.Fatalf("ReportTurn: %v\nlogs:\n%s", err, f.logs)
+	}
+	if posted.Skipped {
+		t.Error("Skipped = true, want a body-triggered run to report like any other")
+	}
+	if posts := forge.all(); len(posts) != 1 {
+		t.Fatalf("forge saw %d posts, want 1", len(posts))
+	}
+	if posted.Run.TriggerCommentID != 0 {
+		t.Errorf("runs row trigger_comment_id = %d, want 0", posted.Run.TriggerCommentID)
+	}
+	if got := watermark(t, f); got != 0 {
+		t.Errorf("watermark after a body run = %d, want it still at 0: a positive id here "+
+			"would swallow every comment the issue ever receives", got)
+	}
+}
+
 // TestReportSkipsALockedTurn: a comment left for a later tick must not be
 // consumed, or "no queue" would mean "dropped" (AC-3.1).
 func TestReportSkipsALockedTurn(t *testing.T) {
@@ -518,7 +575,9 @@ func TestReportValidatesItsArguments(t *testing.T) {
 			mutate func(*RunReport)
 		}{
 			{"no session", func(r *RunReport) { r.SessionID = 0 }},
-			{"no comment", func(r *RunReport) { r.CommentID = 0 }},
+			// 0 is not in this table: it is the issue body, and a body-triggered
+			// run owes the issue a report like any other (AC-2.16b).
+			{"negative comment id", func(r *RunReport) { r.CommentID = -1 }},
 			{"negative run id", func(r *RunReport) { r.RunID = -1 }},
 			{"no ref", func(r *RunReport) { r.Run.Ref = f.ref(); r.Run.Ref.Owner = "" }},
 			{"zero ordinal", func(r *RunReport) { r.Run.Ordinal = 0 }},

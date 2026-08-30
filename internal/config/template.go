@@ -97,6 +97,63 @@ claude:
   # An unqualified "Bash" entry, or "Bash(*)", is rejected at startup: both
   # permit every shell command. Qualify them, as below.
 %s
+  # tool_ceiling is the hard upper bound on every tool surface litefactory will
+  # ever pass as --tools. It is the boundary. Nothing below can widen it, and
+  # the tools list above must be a subset of it.
+  #
+  # Left out, as here, it defaults to exactly the tools list above — the
+  # narrowest default there is, under which no profile can grant anything the
+  # daemon cannot already do. Raise it only when you mean to.
+  #
+  # tool_ceiling:
+  #   - "Read"
+  #   - "Glob"
+  #   - "Grep"
+  #   - "Edit"
+  #   - "Write"
+  #   - "Bash"
+  #   - "Task"
+  #   - "WebFetch"
+
+  # tool_profiles are named tool surfaces. Put a label of the exact form
+  # lf:tools=<name> on an issue and the runs it triggers use that profile
+  # instead of the tools list above. With no profiles configured, as here, the
+  # feature is inert and every run uses that list.
+  #
+  # THE LABEL IS ONLY A LOOKUP KEY. Nothing from GitHub is ever passed to
+  # claude as a value: the label selects one of the profiles written here, and
+  # an unknown or malformed name is refused rather than quietly widened to a
+  # default. But a label is authenticated by nothing, and anyone who can label
+  # an issue can select ANY profile below — so it is the ceiling above, not the
+  # label, that bounds what a run can do. Keep every profile inside a ceiling
+  # you are willing to hand to anyone who can label an issue in this repo.
+  #
+  # Checked at startup, so a bad map fails the daemon rather than a run: each
+  # profile's tools must be a subset of tool_ceiling, each of its allowed_tools
+  # rules must name a tool that same profile lists, and the profile name must
+  # match ^[a-z0-9][a-z0-9_-]{0,39}$. No name is special — there is no
+  # "default" profile, and there does not need to be one.
+  #
+  # tool_profiles:
+  #   research:
+  #     # Read-only by construction: no Edit, no Write. Bash is on the surface
+  #     # but every rule for it is qualified, so the agent can look around the
+  #     # worktree and change nothing in it.
+  #     tools:
+  #       - "Read"
+  #       - "Glob"
+  #       - "Grep"
+  #       - "Bash"
+  #       - "Task"
+  #     allowed_tools:
+  #       - "Read"
+  #       - "Glob"
+  #       - "Grep"
+  #       - "Bash(ls:*)"
+  #       - "Bash(cat:*)"
+  #       - "Bash(rg:*)"
+  #       - "Bash(git log:*)"
+
   # settings_path becomes --settings, so claude does not inherit the operator's
   # personal ~/.claude/settings.json. Empty means $LF_HOME/claude-settings.json.
   settings_path: ""

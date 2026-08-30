@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -128,8 +129,15 @@ func walkStrings(v reflect.Value, path string, visit func(key, value string)) {
 			walkStrings(v.Index(i), fmt.Sprintf("%s[%d]", path, i), visit)
 		}
 	case reflect.Map:
-		for iter := v.MapRange(); iter.Next(); {
-			walkStrings(iter.Value(), fmt.Sprintf("%s[%v]", path, iter.Key()), visit)
+		// Sorted, because Go randomises map order and claude.tool_profiles is
+		// a map: two profiles carrying something credential-shaped would
+		// otherwise be reported in a different order on every boot.
+		keys := v.MapKeys()
+		slices.SortFunc(keys, func(a, b reflect.Value) int {
+			return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
+		})
+		for _, key := range keys {
+			walkStrings(v.MapIndex(key), fmt.Sprintf("%s[%v]", path, key), visit)
 		}
 	default:
 		// Numbers, booleans and the rest cannot carry a credential.

@@ -3,6 +3,7 @@ package github_test
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,8 +56,12 @@ func TestListIssuesFiltersPullRequests(t *testing.T) {
 }
 
 // TestListIssuesQuery pins the request D-A settled on. The parameters are the
-// decision: state=all because a closed issue can still receive an instruction,
-// and since as the cursor.
+// decision: state=open because a closed issue is one litefactory has been told
+// to stop working on (AC-2.22), and since as the cursor.
+//
+// The filter is a payload saving, not the guard. The daemon skips a closed
+// issue whichever listing found it, because the comment listing reaches one
+// through GetIssue, which never sends this query.
 func TestListIssuesQuery(t *testing.T) {
 	t.Parallel()
 
@@ -74,7 +79,7 @@ func TestListIssuesQuery(t *testing.T) {
 	if got, want := req.Path, "/repos/acme/acme-api/issues"; got != want {
 		t.Errorf("path = %q, want %q — the per-repo listing, never /search/issues", got, want)
 	}
-	if got, want := req.Query.Get("state"), "all"; got != want {
+	if got, want := req.Query.Get("state"), "open"; got != want {
 		t.Errorf("state = %q, want %q", got, want)
 	}
 	if got, want := req.Query.Get("per_page"), "100"; got != want {
@@ -319,5 +324,128 @@ func TestRepoRefAndValidateAcceptRealRepositoryNames(t *testing.T) {
 	}
 	if got := github.RepoFromRef(ref); got != repo {
 		t.Errorf("RepoFromRef round trip = %+v, want %+v", got, repo)
+	}
+}
+
+// assigneesJSON is a listing whose issues cover every assignee shape a tick can
+// meet. The last three are the point: GitHub documents `assignees: []` for an
+// unassigned issue and never sends null, but "never" is not a property this
+// package can enforce, and each of them would be a nil dereference that took
+// the daemon down over an issue nobody is working on.
+const assigneesJSON = `[
+	{"number": 21, "title": "Assigned to two people", "state": "open",
+	 "assignees": [{"id": 4242, "login": "marioatcloudvane", "type": "User"},
+	               {"id": 777, "login": "octo-stranger", "type": "User"}]},
+	{"number": 22, "title": "Assigned to nobody", "state": "open", "assignees": []},
+	{"number": 23, "title": "No assignees member at all", "state": "open"},
+	{"number": 24, "title": "A null in the list", "state": "open", "assignees": [null]}
+]`
+
+// TestListIssuesCarriesAssignees is AC-2.24. Every assignee's numeric id and
+// login arrive on the issue the ordinary listing already fetched — no second
+// request, and no eighth endpoint (AC-2.24b).
+func TestListIssuesCarriesAssignees(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, respondJSON(http.StatusOK, assigneesJSON))
+
+	issues, err := f.Client.ListIssues(t.Context(), testRepo, time.Time{})
+	if err != nil {
+		t.Fatalf("ListIssues: %v", err)
+	}
+	if len(issues) != 4 {
+		t.Fatalf("got %d issues, want 4: %+v", len(issues), issues)
+	}
+	byNumber := make(map[int]github.Issue, len(issues))
+	for _, issue := range issues {
+		byNumber[issue.Number] = issue
+	}
+
+	want := []github.User{
+		{ID: 4242, Login: "marioatcloudvane"},
+		{ID: 777, Login: "octo-stranger"},
+	}
+	if got := byNumber[21].Assignees; !slices.Equal(got, want) {
+		t.Errorf("Assignees = %+v, want %+v — the id is what a match compares, the login is display", got, want)
+	}
+	if !byNumber[21].AssignedTo(4242) {
+		t.Error("AssignedTo(4242) = false for an issue assigned to that account")
+	}
+
+	// An unassigned issue is assigned to nobody, however the absence was
+	// spelled, and asking is never a panic.
+	for _, number := range []int{22, 23, 24} {
+		issue := byNumber[number]
+		if len(issue.Assignees) != 0 {
+			t.Errorf("issue #%d has assignees %+v, want none", number, issue.Assignees)
+		}
+		if issue.AssignedTo(4242) {
+			t.Errorf("issue #%d reports itself assigned to 4242", number)
+		}
+	}
+	if _, present := f.Only(t).Query["assignee"]; present {
+		t.Error("the listing filtered on assignee server-side; the whole list is wanted, " +
+			"so that who an issue is assigned to is decided here and not by a query")
+	}
+}
+
+// TestAssignedToMatchesTheIDAndNeverTheLogin is D-I applied to assignment. A
+// login is a label GitHub lets anyone change, and taking the owner's old handle
+// must not be a way to hand yourself the factory.
+func TestAssignedToMatchesTheIDAndNeverTheLogin(t *testing.T) {
+	t.Parallel()
+
+	const ownerID = int64(4242)
+	const ownerLogin = "marioatcloudvane"
+
+	cases := map[string]struct {
+		issue github.Issue
+		want  bool
+	}{
+		"the id is among the assignees": {
+			issue: github.Issue{Assignees: []github.User{{ID: ownerID, Login: ownerLogin}}},
+			want:  true,
+		},
+		"the id is one of several": {
+			issue: github.Issue{Assignees: []github.User{
+				{ID: 777, Login: "octo-stranger"},
+				{ID: ownerID, Login: ownerLogin},
+			}},
+			want: true,
+		},
+		"another account wearing the owner's handle": {
+			issue: github.Issue{Assignees: []github.User{{ID: 999, Login: ownerLogin}}},
+			want:  false,
+		},
+		"a different account": {
+			issue: github.Issue{Assignees: []github.User{{ID: 777, Login: "octo-stranger"}}},
+			want:  false,
+		},
+		"assigned to nobody": {
+			issue: github.Issue{},
+			want:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tc.issue.AssignedTo(ownerID); got != tc.want {
+				t.Errorf("AssignedTo(%d) = %t, want %t for %+v", ownerID, got, tc.want, tc.issue.Assignees)
+			}
+		})
+	}
+}
+
+// TestAssignedToRefusesAZeroID keeps an unresolved owner id from matching the
+// zero id GitHub reports for a deleted account — the same guard the self-filter
+// makes on the bot id.
+func TestAssignedToRefusesAZeroID(t *testing.T) {
+	t.Parallel()
+
+	issue := github.Issue{Assignees: []github.User{{ID: 0, Login: ""}}}
+	if issue.AssignedTo(0) {
+		t.Error("AssignedTo(0) = true; a zero id is an account nobody has, not a wildcard")
 	}
 }

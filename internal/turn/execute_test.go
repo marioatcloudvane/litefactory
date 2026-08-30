@@ -375,7 +375,12 @@ func TestExecuteReplayIsANoOp(t *testing.T) {
 func seedFinishedRun(t *testing.T, f *fixture, reported bool) {
 	t.Helper()
 
-	segment, err := f.db.GetOrCreateSegment(t.Context(), f.session.ID, store.FirstSegmentOrdinal, "seeded-session-id")
+	// A canonical UUID, because that is the only shape a segments row can
+	// legitimately hold: harness.Request.validate refuses anything else before
+	// the process starts. This path never reaches a real runner, but a fixture
+	// that could not survive one is a trap for the next test written from it.
+	segment, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID)
 	if err != nil {
 		t.Fatalf("seed segment: %v", err)
 	}
@@ -842,6 +847,25 @@ func TestExecuteValidatesItsArguments(t *testing.T) {
 		req.Issue.Number = testIssue + 1
 		if _, err := Execute(t.Context(), f.opts, req); !errors.Is(err, ErrInvalidRequest) {
 			t.Errorf("err = %v, want %v", err, ErrInvalidRequest)
+		}
+	})
+
+	// A trigger id of 0 is the issue body, not a missing comment (AC-2.16b).
+	// It is the one non-positive value a turn accepts, and it is 0 rather than
+	// the issue's own forge id because reporting the run advances the watermark
+	// to it (AC-2.23).
+	t.Run("issue body as the trigger", func(t *testing.T) {
+		t.Parallel()
+
+		req := f.request()
+		req.Trigger.CommentID = 0
+		if err := req.validate(); err != nil {
+			t.Errorf("validate with a trigger of 0 = %v, want it accepted as the issue body", err)
+		}
+
+		req.Trigger.CommentID = -1
+		if err := req.validate(); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("validate with a trigger of -1 = %v, want %v", err, ErrInvalidRequest)
 		}
 	})
 }

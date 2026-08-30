@@ -121,6 +121,14 @@ type AllocateRunParams struct {
 	// TriggerCommentID is the comment that caused the run. A second
 	// allocation for the same (session, comment) is refused with
 	// [ErrDuplicateRun].
+	//
+	// Zero means the issue body caused it, not a comment: an issue assigned to
+	// the owner runs its body as the first instruction. It is 0 rather than the
+	// issue's own forge id because [DB.CompleteRunReport] advances the
+	// watermark to this column, and a positive id would consume every comment
+	// the issue will ever receive; MAX(0, 0) leaves the watermark where
+	// bootstrap planted it. The same uniqueness then gives body-fires-once-ever
+	// for free.
 	TriggerCommentID int64
 	// StartedAt is when the run began. Zero means now.
 	StartedAt time.Time
@@ -151,8 +159,13 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		return Run{}, errors.New("store: allocate run: segment id is required")
 	case params.Mode == "":
 		return Run{}, errors.New("store: allocate run: mode is required")
-	case params.TriggerCommentID == 0:
-		return Run{}, errors.New("store: allocate run: trigger comment id is required")
+	// Not "== 0": 0 is the issue body rather than a missing id, and refusing it
+	// here would also stop startup reconciliation reporting a body run that was
+	// abandoned by a crash. See [AllocateRunParams.TriggerCommentID].
+	case params.TriggerCommentID < 0:
+		return Run{}, fmt.Errorf(
+			"store: allocate run: trigger id %d is neither a comment nor the issue body",
+			params.TriggerCommentID)
 	case params.LogPath == nil:
 		return Run{}, errors.New("store: allocate run: LogPath is required")
 	}
