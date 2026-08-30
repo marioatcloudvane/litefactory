@@ -1,0 +1,45 @@
+-- 0002_session_backlog — sessions.needs_poll, the durable re-discovery axis a
+-- concurrent tick needs (RD-2).
+--
+-- Once a tick hands work to a worker goroutine it can no longer hold the poll
+-- cursor back to cover that work: holding the cursor for one busy session pins
+-- discovery for every repository in the set (AC-PAR-5.1). The cursor becomes a
+-- pure forge-listing watermark, and "this session still has work" moves here.
+--
+-- It has to be a local column and not a forge timestamp, because both forge
+-- listings are timestamp-indexed and neither timestamp moves while a run is in
+-- flight: the issue listing keys on the issue's updated_at, and the commented-
+-- issue listing keys on the comment's created_at. Once the cursor passes T,
+-- neither listing ever re-finds a comment written at T, so a session busy for
+-- longer than the listing overlap is invisible to both (AC-PAR-5.2). Nor can
+-- the backlog live in memory: advancing the cursor while the backlog is only
+-- in memory means a restart loses it after the cursor has already moved past
+-- the comment, which is permanent silence on the thread — the one outcome
+-- AC-4.1 forbids by name. Local and durable, or not at all.
+--
+-- One write site, one clear rule. The tick sets 1 for every session it
+-- dispatches, before the worker starts; the worker clears it only on a fully
+-- drained, error-free turn. Stale-true is safe and self-healing — the next
+-- tick re-lists the session, finds nothing above its watermark and clears it.
+-- Stale-false is impossible. That asymmetry is AdvanceWatermark's never-rewind
+-- posture: a bad outcome leaves the row pointing at *more* work, never less,
+-- which is why every abnormal exit (a killed daemon, a worker abandoned at
+-- shutdown, a drain stopped on an unconsumed comment, a lock lost to a second
+-- process) is survivable without any compensating write.
+--
+-- A boolean, not a backlog_comment_id: self-clearing by comparing a recorded
+-- comment id against the watermark is elegant, but the tick does not know the
+-- highest comment id without an API call it must not make, and mixing a
+-- tick-written sentinel with a worker-written id in one column is worse than a
+-- boolean with an explicit clear.
+--
+-- The 0 backfill is correct rather than merely convenient. This migration
+-- lands while Tick is still synchronous and the old cursor hold-back is still
+-- in force, so at the instant it runs the cursor still re-finds every
+-- outstanding session by itself. There is no backlog yet to preserve.
+ALTER TABLE sessions ADD COLUMN needs_poll INTEGER NOT NULL DEFAULT 0;
+
+-- Partial index: it holds the backlog and nothing else, so the backlog listing
+-- costs the size of the backlog rather than the size of the table, and the
+-- steady state — every session idle — carries no index entries at all.
+CREATE INDEX idx_sessions_needs_poll ON sessions (id) WHERE needs_poll = 1;

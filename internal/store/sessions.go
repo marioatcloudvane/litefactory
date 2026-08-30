@@ -49,6 +49,10 @@ type Session struct {
 	LockOwner string
 	// LockAcquiredAt is when the current holder took the lock.
 	LockAcquiredAt time.Time
+	// NeedsPoll marks a session the daemon owes another look at, independently
+	// of anything the forge's timestamp-indexed listings can still see. See
+	// [DB.SetSessionNeedsPoll].
+	NeedsPoll bool
 	// CreatedAt and UpdatedAt are bookkeeping.
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -313,18 +317,111 @@ WHERE id = ? AND lock_owner = ?`,
 	return nil
 }
 
+// SetSessionNeedsPoll marks a session as one the daemon still owes a look at,
+// whatever the forge's listings can still see.
+//
+// A concurrent tick cannot hold the poll cursor back to cover work it has
+// handed to a worker — holding it for one busy session pins discovery for
+// every other repository (AC-PAR-5.1). Nor can the cursor re-find the work
+// later: both forge listings are timestamp-indexed on timestamps that do not
+// move while a run is in flight (the issue's updated_at, the comment's
+// created_at), so once the cursor passes T neither ever re-finds a comment
+// written at T (AC-PAR-5.2). This flag is that re-discovery axis, and it is in
+// the database rather than in memory because a restart must not be able to
+// lose it after the cursor has already moved on — that would be permanent
+// silence on the thread, which AC-4.1 forbids.
+//
+// The protocol has one write site and one clear rule: the tick sets the flag
+// for every session it dispatches, before the worker starts, and only
+// [DB.ClearSessionNeedsPoll] on a fully drained, error-free turn takes it back
+// off. Setting it on a session that already carries it is a no-op, so the call
+// needs no read first. A session that does not exist is [ErrNotFound].
+func (db *DB) SetSessionNeedsPoll(ctx context.Context, sessionID int64) error {
+	return db.setSessionNeedsPoll(ctx, sessionID, true)
+}
+
+// ClearSessionNeedsPoll takes the backlog flag off a session.
+//
+// Only a fully drained, error-free turn may call this. Every other exit —
+// a killed daemon, a worker abandoned at shutdown, a drain that stopped on an
+// unconsumed comment, a lock lost to a second process, an error mid-turn —
+// must leave the flag standing, because a stale-true flag is self-healing (the
+// next tick re-lists the session, finds nothing above its watermark and clears
+// it) while a stale-false flag is silence. That asymmetry is the same posture
+// as [DB.AdvanceWatermark]'s never-rewind: a bad outcome leaves the row
+// pointing at more work, never less.
+//
+// Clearing a session that is not flagged is not an error; the row still
+// matches. A session that does not exist is [ErrNotFound].
+func (db *DB) ClearSessionNeedsPoll(ctx context.Context, sessionID int64) error {
+	return db.setSessionNeedsPoll(ctx, sessionID, false)
+}
+
+func (db *DB) setSessionNeedsPoll(ctx context.Context, sessionID int64, needsPoll bool) error {
+	verb := "clear"
+	if needsPoll {
+		verb = "set"
+	}
+	res, err := db.sql.ExecContext(ctx,
+		`UPDATE sessions SET needs_poll = ?, updated_at = ? WHERE id = ?`,
+		needsPoll, FormatTime(nowUTC()), sessionID)
+	if err != nil {
+		return fmt.Errorf("store: %s needs_poll on session %d: %w", verb, sessionID, err)
+	}
+	return requireAffected(res, fmt.Sprintf("store: %s needs_poll on session %d", verb, sessionID))
+}
+
+// ListBacklogSessions returns every session still carrying the backlog flag,
+// ordered by id.
+//
+// This is the local half of discovery, and it is deliberately cross-repo: the
+// backlog is a property of the session set as a whole, not of whichever
+// repository the tick happens to be listing, which is what keeps one busy repo
+// from starving another. It reads a partial index covering exactly the flagged
+// rows, so it costs the size of the backlog rather than the size of the table
+// and — unlike the forge listings it is unioned with — costs no API quota at
+// all.
+//
+// It returns sessions, not issues. The caller fetches the forge issue for a
+// backlogged session lazily, only once the dispatcher has actually selected it
+// to run, which caps the extra API cost at max_concurrent_runs issue fetches
+// per tick however deep the backlog has grown. Fetching eagerly for every row
+// this returns would make that cost grow with backlog depth, which is the
+// shape this bound exists to rule out.
+func (db *DB) ListBacklogSessions(ctx context.Context) ([]Session, error) {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT `+sessionColumns+` FROM sessions WHERE needs_poll = 1 ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list backlog sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Session
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list backlog sessions: %w", err)
+		}
+		out = append(out, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list backlog sessions: %w", err)
+	}
+	return out, nil
+}
+
 // sessionColumns is the column list every session read shares, in the order
 // scanSession expects.
 const sessionColumns = `
     id, repo_id, issue_number, task_ref, feature_slug, branch, worktree_path,
-    state, lock_owner, lock_acquired_at, created_at, updated_at`
+    state, lock_owner, lock_acquired_at, created_at, updated_at, needs_poll`
 
 // prefixedSessionColumns is sessionColumns qualified for a join.
 const prefixedSessionColumns = `
     sessions.id, sessions.repo_id, sessions.issue_number, sessions.task_ref,
     sessions.feature_slug, sessions.branch, sessions.worktree_path,
     sessions.state, sessions.lock_owner, sessions.lock_acquired_at,
-    sessions.created_at, sessions.updated_at`
+    sessions.created_at, sessions.updated_at, sessions.needs_poll`
 
 func scanSession(s scanner) (Session, error) {
 	return scanSessionWith(s)
@@ -348,7 +445,7 @@ func scanSessionWith(s scanner, extra ...any) (Session, error) {
 	dest := []any{
 		&session.ID, &session.RepoID, &session.IssueNumber, &session.TaskRef,
 		&slug, &branch, &worktreePath, &state, &lockOwner, &lockAt,
-		&createdAt, &updatedAt,
+		&createdAt, &updatedAt, &session.NeedsPoll,
 	}
 	dest = append(dest, extra...)
 

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -461,6 +463,164 @@ func TestAcquireSessionLockOnAMissingSession(t *testing.T) {
 	_, err := db.AcquireSessionLock(t.Context(), 9999, "daemon-1")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+}
+
+// TestSessionNeedsPollRoundTrips covers the backlog flag a concurrent tick
+// re-discovers work through when the forge's timestamp-indexed listings no
+// longer can (AC-PAR-5.2).
+func TestSessionNeedsPollRoundTrips(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 11)
+
+	// A session is born clear. The 0 backfill in 0002 is only safe because
+	// nothing is owed at the moment the column appears.
+	if session.NeedsPoll {
+		t.Fatal("a freshly created session is already flagged")
+	}
+
+	if err := db.SetSessionNeedsPoll(t.Context(), session.ID); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	// Every read path must carry the new column, not just the one by id: a
+	// column list that was widened in one place and not the others is the
+	// failure this asserts against.
+	byID, err := db.GetSession(t.Context(), session.ID)
+	if err != nil || !byID.NeedsPoll {
+		t.Fatalf("GetSession = %+v, %v; want NeedsPoll true", byID, err)
+	}
+	byRef, err := db.GetSessionByTaskRef(t.Context(), session.TaskRef)
+	if err != nil || !byRef.NeedsPoll {
+		t.Fatalf("GetSessionByTaskRef = %+v, %v; want NeedsPoll true", byRef, err)
+	}
+	byIssue, err := db.FindSessionByIssue(t.Context(), session.IssueNumber, "", "")
+	if err != nil || !byIssue.NeedsPoll {
+		t.Fatalf("FindSessionByIssue = %+v, %v; want NeedsPoll true", byIssue, err)
+	}
+
+	// Setting a flag that is already set is a no-op, so the tick never has to
+	// read the row before writing it.
+	if err := db.SetSessionNeedsPoll(t.Context(), session.ID); err != nil {
+		t.Fatalf("second set: %v", err)
+	}
+
+	if err := db.ClearSessionNeedsPoll(t.Context(), session.ID); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if cleared, err := db.GetSession(t.Context(), session.ID); err != nil || cleared.NeedsPoll {
+		t.Fatalf("flag was not cleared: %+v, %v", cleared, err)
+	}
+	// Clearing an unflagged session is not an error: the worker clears on
+	// every drained turn without knowing whether the tick flagged it.
+	if err := db.ClearSessionNeedsPoll(t.Context(), session.ID); err != nil {
+		t.Fatalf("second clear: %v", err)
+	}
+
+	// A session that does not exist must not look like a successful clear.
+	if err := db.SetSessionNeedsPoll(t.Context(), 9999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("set on a missing session gave %v, want ErrNotFound", err)
+	}
+	if err := db.ClearSessionNeedsPoll(t.Context(), 9999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("clear on a missing session gave %v, want ErrNotFound", err)
+	}
+}
+
+// TestListBacklogSessionsIsCrossRepo pins the property that makes the backlog
+// worth having: it is a view of the whole session set, so a busy repository
+// cannot hold back discovery for another one (AC-PAR-5.1).
+func TestListBacklogSessionsIsCrossRepo(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+
+	api := testRepo(t, db, "acme", "api")
+	web := testRepo(t, db, "acme", "web")
+
+	sessionIn := func(repo Repo, issue int) Session {
+		t.Helper()
+		session, err := db.GetOrCreateSession(t.Context(), repo, issue)
+		if err != nil {
+			t.Fatalf("get or create session %s#%d: %v", repo.Slug(), issue, err)
+		}
+		return session
+	}
+	flaggedAPI := sessionIn(api, 1)
+	idleAPI := sessionIn(api, 2)
+	flaggedWeb := sessionIn(web, 3)
+
+	if backlog, err := db.ListBacklogSessions(t.Context()); err != nil || len(backlog) != 0 {
+		t.Fatalf("a fresh database has backlog %+v, %v; want none", backlog, err)
+	}
+
+	for _, session := range []Session{flaggedAPI, flaggedWeb} {
+		if err := db.SetSessionNeedsPoll(t.Context(), session.ID); err != nil {
+			t.Fatalf("set on %s: %v", session.TaskRef, err)
+		}
+	}
+
+	backlog, err := db.ListBacklogSessions(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := make([]int64, 0, len(backlog))
+	repos := make(map[int64]bool)
+	for _, session := range backlog {
+		if !session.NeedsPoll {
+			t.Errorf("backlog holds %s with NeedsPoll false", session.TaskRef)
+		}
+		got = append(got, session.ID)
+		repos[session.RepoID] = true
+	}
+	want := []int64{flaggedAPI.ID, flaggedWeb.ID}
+	if !slices.Equal(got, want) {
+		t.Fatalf("backlog = %v, want %v (ordered by id, unflagged %d excluded)", got, want, idleAPI.ID)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("backlog spans %d repositories, want 2: it is not cross-repo", len(repos))
+	}
+
+	// Clearing one leaves the other: the flag is per session, not global.
+	if err := db.ClearSessionNeedsPoll(t.Context(), flaggedAPI.ID); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	remaining, err := db.ListBacklogSessions(t.Context())
+	if err != nil {
+		t.Fatalf("list after clear: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != flaggedWeb.ID {
+		t.Fatalf("backlog after clearing %d = %+v, want only %d", flaggedAPI.ID, remaining, flaggedWeb.ID)
+	}
+}
+
+// TestNeedsPollSurvivesAReMigration is the two-phase landing's safety net: the
+// migration that adds the column runs on every start, and a re-run must not
+// reset a flag that is standing for work still owed.
+func TestNeedsPollSurvivesAReMigration(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 5)
+
+	if err := db.SetSessionNeedsPoll(t.Context(), session.ID); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatalf("re-migrate: %v", err)
+	}
+	if got, err := db.GetSession(t.Context(), session.ID); err != nil || !got.NeedsPoll {
+		t.Fatalf("flag did not survive re-migration: %+v, %v", got, err)
+	}
+
+	// The partial index is what keeps the backlog listing proportional to the
+	// backlog rather than to the table.
+	var indexSQL string
+	err := db.sql.QueryRowContext(t.Context(),
+		`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`,
+		"idx_sessions_needs_poll").Scan(&indexSQL)
+	if err != nil {
+		t.Fatalf("read index: %v", err)
+	}
+	if !strings.Contains(indexSQL, "needs_poll = 1") {
+		t.Fatalf("idx_sessions_needs_poll is %q, want a partial index on needs_poll = 1", indexSQL)
 	}
 }
 
