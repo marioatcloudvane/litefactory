@@ -462,9 +462,12 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 
 	command := turn.ParseCommand(t.issue.Body)
 	if command.Kind == turn.KindNone {
-		// A body with nothing in it, which the gate above has already refused.
-		// Kept because ParseCommand's contract, not this function's, is what
-		// decides it — and an empty body must end here silently in either case.
+		// A body with nothing to act on. The gate above has already refused an
+		// empty one, so what reaches here is a body whose whole content was the
+		// `lf: ask` tag: it is non-empty text that asks for nothing, because the
+		// tag grants permission and gives no instruction (AC-A1.9). It ends here
+		// silently, exactly as an empty body would — there is no comment to
+		// answer on the body path, and an issue is not a question.
 		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
 		return nil
 	}
@@ -586,12 +589,15 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 
 	command := turn.ParseCommand(c.Body)
 	if command.Kind == turn.KindNone {
-		// An empty body: nothing to act on. Recorded, ignored, consumed.
+		// Nothing to act on. Recorded, ignored, consumed.
 		//
 		// Free text used to end here too. It no longer does — it spawns a run
-		// whose mode the agent infers — so this branch is now only the empty
-		// case, and every non-empty owner comment starts work.
-		log.DebugContext(ctx, "comment is empty; recorded and ignored")
+		// whose mode the agent infers. What reaches this branch is a body that
+		// is empty, or one whose only content was the `lf: ask` tag: the tag
+		// grants permission and asks for nothing, so a comment carrying only the
+		// tag has given no instruction to carry out (AC-A1.9). Consuming it is
+		// what stops the next tick reading it again.
+		log.DebugContext(ctx, "comment asks for nothing; recorded and ignored")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
 		return d.leave(ctx, log, "could not consume an empty comment", err)
 	}

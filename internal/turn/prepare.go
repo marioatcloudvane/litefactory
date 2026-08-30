@@ -146,7 +146,7 @@ func prepare(
 		return nil, fmt.Errorf("derive the metadata path of run %d: %w", run.Ordinal, err)
 	}
 
-	history, err := commentHistory(ctx, opts, session, req)
+	history, previousTriggerBody, err := commentHistory(ctx, opts, session, req, previous.TriggerCommentID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +157,13 @@ func prepare(
 	// material to evaluate (D-N, AC-2.25). The condition is decided here, once;
 	// harness does the rest of it.
 	bodyIsInstruction := req.Trigger.CommentID == 0
+
+	// Permission to ask is the conjunction, assembled here and handed to the
+	// harness already decided (AC-A1.6): the tag off this run's own trigger, and
+	// a mode that may ask at all. [ParseCommand] found the tag on whichever text
+	// started the run, so the comment path and the issue-body path are covered by
+	// the same call.
+	mayAsk := req.Command.Tagged && modeMayAsk(req.mode())
 
 	promptInput := harness.PromptInput{
 		Ref:               ref,
@@ -172,6 +179,8 @@ func prepare(
 		CommentAuthor:     req.Trigger.Author,
 		BodyIsInstruction: bodyIsInstruction,
 		Resume:            resume,
+		MayAsk:            mayAsk,
+		PreviousMayAsk:    previousMayAsk(previous, resume, previousTriggerBody, req.Issue.Body),
 		PreviousMode:      previous.Mode,
 		History:           history,
 	}
@@ -296,20 +305,43 @@ func previousRun(
 // bodies, so anything said before litefactory first saw the issue is not stored
 // and cannot be rendered. The block says so in its own Source line rather than
 // implying it is the whole thread.
+//
+// It also returns the body of the comment previousTriggerID names, or "" if the
+// list does not hold it. That is a second job for one loop, and it is here
+// rather than in a query of its own for two reasons: this is already the only
+// place the whole comment list is read, and [harness.HistoryEntry] carries no
+// forge comment id, so a caller holding the history has nothing left to match
+// on. The body is what [previousMayAsk] re-parses the ask tag out of, which is
+// how the previous run's permission is recovered with no new column, no
+// migration and no second query (AC-A1.13).
+//
+// There is no watermark hazard in reading it back: store.ListComments selects
+// on the session alone, in forge id order, with no watermark predicate, and
+// nothing in internal deletes comment rows. A comment that triggered a run is
+// therefore still there on every later run of the same task.
 func commentHistory(
 	ctx context.Context,
 	opts Options,
 	session store.Session,
 	req Request,
-) ([]harness.HistoryEntry, error) {
+	previousTriggerID int64,
+) ([]harness.HistoryEntry, string, error) {
 	comments, err := opts.DB.ListComments(ctx, session.ID)
 	if err != nil {
-		return nil, fmt.Errorf("list the comments of task %s: %w", session.TaskRef, err)
+		return nil, "", fmt.Errorf("list the comments of task %s: %w", session.TaskRef, err)
 	}
 
 	// ListComments is in forge id order, which is the order they were written.
+	var previousTriggerBody string
 	history := make([]harness.HistoryEntry, 0, len(comments))
 	for _, comment := range comments {
+		// Matched before the trigger is skipped, not after. The two ids are
+		// different on every path that reaches here — a comment that has already
+		// produced a run cannot produce a second one — but a match that depended
+		// on that would be a match with a reason to stop working.
+		if previousTriggerID != 0 && comment.ForgeCommentID == previousTriggerID {
+			previousTriggerBody = comment.Body
+		}
 		if comment.ForgeCommentID == req.Trigger.CommentID {
 			continue
 		}
@@ -320,7 +352,43 @@ func commentHistory(
 			At:     comment.CreatedAt,
 		})
 	}
-	return history, nil
+	return history, previousTriggerBody, nil
+}
+
+// previousMayAsk re-derives whether the run before this one was allowed to ask.
+//
+// It is a re-parse, not a lookup. Permission is not stored anywhere — there is
+// no column for it and this story adds none (AC-A1.13) — but everything it was
+// computed from still is: the previous run's row names the comment that
+// triggered it and the mode it ran in, and the comment's body is in the list
+// [commentHistory] has just read.
+//
+// It is the same conjunction this run's own permission is, evaluated with the
+// *previous* run's mode. Using this run's mode would be the subtle bug: a spike
+// carrying the tag was never allowed to ask, and reading it as though it had
+// been would make the next run announce that permission has been withdrawn from
+// a conversation that never had it.
+//
+// Two cases where the comment is not where it usually is:
+//
+//   - the previous run was triggered by the issue body (AC-2.16b), so its
+//     trigger id is 0 and there is no comment row to find. The body is the text
+//     that was parsed then and it is already in memory, so it is parsed again
+//     here (T-A1.7);
+//   - there was no previous run at all. The answer is false and is never read:
+//     [writeResumeHeader] is the only consumer and a cold run does not reach it.
+//     Returning early on resume keeps that honest rather than accidental — it
+//     stops a zero store.Run, whose trigger id is also 0, from being read as a
+//     body-triggered predecessor and having the issue body parsed for it.
+func previousMayAsk(previous store.Run, resume bool, previousTriggerBody, issueBody string) bool {
+	if !resume {
+		return false
+	}
+	body := previousTriggerBody
+	if previous.TriggerCommentID == 0 {
+		body = issueBody
+	}
+	return HasAskTag(body) && modeMayAsk(previous.Mode)
 }
 
 // historyRole maps the store's classification onto the label the prompt renders

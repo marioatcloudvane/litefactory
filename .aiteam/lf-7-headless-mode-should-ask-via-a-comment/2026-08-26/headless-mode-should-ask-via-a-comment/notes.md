@@ -193,3 +193,92 @@ At that point init mode is worth running, and running it against a synced tree i
   done" for two of its files; reverting means losing correct work that would just be rewritten.
   Committing is probably right, but it is the owner's call and should be made explicitly rather than
   inherited by accident.
+
+---
+---
+
+# Implement run 2 — 2026-08-30 — Story A1 only
+
+*A second Implement run, scoped by the owner to **Story A1 alone**. S0 and B2 were already delivered
+at `e4a8d29`; B1 and E1 are owner-executed (rev 6); D1 and C1 were explicitly out of scope.*
+
+## The previous run's diagnosis was wrong, and rev 6 already struck it
+
+Everything above under *"Blocker 1"* and *"the Go tree is 52 files from `origin/main`"* is **struck**
+and was struck by plan rev 6 before this run started. There was never a diverged Go tree: the branch
+had never touched `internal/` or `cmd/`, it was 27 commits *behind*, and the "52 files, 7,752
+deletions" figure is a one-way diffstat **read backwards** — those were additions on `main` the branch
+lacked. The branch has since been merged and is synced.
+
+**This is worth keeping, because the mechanism of the error is more useful than the error.** The
+previous run was refused 22 Bash calls (`ls`, `find`, `grep`, `git ls-tree`, `git merge`, `git
+checkout`, `mkdir`, `curl`, `go doc`) and then **reasoned about repository state from the fragments it
+could still see.** It could not list files at a ref, so it inferred the tree from a diffstat, and it
+inferred it backwards. The lesson is not "widen the allowlist" — the allowlist is deliberate and US3
+of the tool-enforcement session replaces it with sandbox confinement anyway. The lesson is: **do not
+reason about repository state from partial evidence. Use the file tools, which work.**
+
+## `.aiteam/APP_CONTEXT.md` — the block above no longer applies
+
+The section *"Why `.aiteam/APP_CONTEXT.md` was deliberately not created"* was conditioned on Blocker 1.
+Blocker 1 did not exist. `APP_CONTEXT.md` **exists and is current** — it was found on disk at the
+start of this run, not created by it, and it is accurate against the synced tree. It was read by the
+implementation engineer, the code reviewer and the test engineer, and it earned its keep: it is where
+the house rules about `doc.go` prose, comment honesty and the `surface_test.go` family come from.
+
+## Code review advisories
+
+`go-code-reviewer` returned **CLEAN** — no BLOCKING findings. One advisory, recorded for completeness:
+
+- **CR-A-001 (advisory).** `internal/daemon/tick.go` was described by the implementer as "two doc
+  comments only". It also updates two `log.DebugContext` **message strings** for accuracy. No test
+  depends on the exact text and there is no behavioural effect, so this is a reporting imprecision
+  rather than a defect. The edits themselves are correct and were necessary: both `KindNone` branches
+  carried comments that A1 made false, and the issue-body branch's *"which the gate above has already
+  refused"* became wrong once a tag-only body could reach it.
+
+## Decisions worth remembering
+
+1. **The modes that may ask are `research`, `plan` and `infer`** — not the literal `{research, plan}`
+   the plan's architecture note writes. `infer` has to be permitted or **AC-A1.7 is unsatisfiable**:
+   that criterion exists precisely because Go cannot know the eventual mode on the infer path, and the
+   Implement-never-asks rule is carried there as prompt text. Denying `infer` would also make the
+   feature unreachable in practice — a comment naming no command is the common path, and every one of
+   them is `infer`. **`spike` is excluded**, as a deliberate reading of Q6, which named Research and
+   Plan and named nothing else. Both exclusions are recorded in `modeMayAsk`'s doc comment.
+
+2. **`/spike lf: ask do X` — the plan's own F-15 example — is deliberately NOT tagged.** F-15 predates
+   N4, which settled the tag as **line-anchored**. A mid-line tag is therefore not a tag, so there is
+   nothing to strip and the instruction is left verbatim. Relaxing the anchor for this one shape would
+   reopen **F-22**, which is the reason the anchor exists: the plan document itself contains the
+   literal `lf: ask` many times, and a `Contains` match would let an issue body quoting the plan turn
+   permission on. The *genuine* F-15 hazard — a tag on its own line inside a spike body, landing
+   mid-`Text` — is handled and tested. The reviewer was asked for a second opinion on this specific
+   reading and judged it sound.
+
+3. **Silently editing an instruction is the worse failure.** Follows from 2: where the tag is not a
+   tag, the text stays as the owner wrote it rather than being quietly rewritten.
+
+4. **The tag lives in `ParseCommand`, not at the call sites.** It is the single choke point both the
+   comment path (`tick.go:587`) and the issue-body path (`tick.go:463`) go through, so the tag is
+   found and stripped once for both. Stripping happens **before** tokenising, which is why F-16
+   (tag-only comment → `KindNone`) and the tag-only `/spike` (→ `KindSpikeEmpty`) need no
+   special-casing at all — they fall out of the existing paths.
+
+5. **The gag paragraph split is structural, not textual.** `headlessRule` and `worktreeRule` are
+   composed with a single space so the untagged path reproduces today's bytes exactly. A paragraph
+   break there would have broken AC-A1.1 and `TestSpikePromptIsUnchanged`, whose literal was not
+   touched.
+
+6. **`PreviousMayAsk` uses the PREVIOUS run's mode.** Using this run's would make a tagged *spike*
+   predecessor read as having had permission it never had, and the next run would announce that
+   permission had been withdrawn from a conversation that never held it.
+
+## Not done, and why
+
+- **T-A1.11, T-A1.21, and the markdown half of T-A1.12** target `.claude/agents/research-orchestrator.md`
+  and `.claude/agents/plan-orchestrator.md`. **Writes under `.claude/` are refused** — the same
+  boundary that makes B1 and E1 owner-executed. These three are owner-executed. T-A1.12's *prompt-text*
+  half is implemented in Go (`askingRule`), which is what actually makes a run emit the standing
+  *"move to the next phase"* line, so **AC-A1.15 holds for the prompt**; what is missing is the
+  instruction to the two orchestrator definitions.
