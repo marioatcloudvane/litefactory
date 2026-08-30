@@ -182,10 +182,17 @@ func (d *Daemon) poll(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// One child logger per repository, derived once here and handed down, so
+		// that every line below this point says which repository it came from
+		// without each call site restating it (AC-PAR-7.1). It is derived above
+		// the forge check rather than below it because owner/name identifies a
+		// repository on any forge, and the line that refuses one wants it too.
+		repoLog := d.log.With(slog.String("repo", repo.Owner+"/"+repo.Name))
+
 		if repo.Forge != store.ForgeGitHub {
 			// M0 supports one forge. A row from a future migration is skipped
 			// loudly rather than sent to the GitHub client.
-			d.log.WarnContext(ctx, "skipping a repository on an unsupported forge",
+			repoLog.WarnContext(ctx, "skipping a repository on an unsupported forge",
 				slog.String("path", repo.Path), slog.String("forge", repo.Forge))
 			continue
 		}
@@ -202,11 +209,11 @@ func (d *Daemon) poll(
 			// here rather than at the end of the tick.
 			cleared = true
 			if held, wasHeld := d.backoff.clear(); wasHeld {
-				d.log.InfoContext(ctx, "resumed polling after a rate-limit backoff",
+				repoLog.InfoContext(ctx, "resumed polling after a rate-limit backoff",
 					slog.String("held_for", held.String()))
 			}
 		}
-		commented, err := d.commentedIssues(ctx, forgeRepo, since, issues)
+		commented, err := d.commentedIssues(ctx, repoLog, forgeRepo, since, issues)
 		if err != nil {
 			return err
 		}
@@ -214,7 +221,7 @@ func (d *Daemon) poll(
 		result.Issues += len(issues)
 
 		for _, issue := range issues {
-			deferred, err := d.processIssue(ctx, repo, forgeRepo, issue, result)
+			deferred, err := d.processIssue(ctx, repo, forgeRepo, issue, repoLog, result)
 			if err != nil {
 				return err
 			}
@@ -236,6 +243,16 @@ type task struct {
 	issue     github.Issue
 	session   store.Session
 	ref       naming.Ref
+
+	// log is the task's own child logger, carrying the canonical ref and the
+	// session id so that every line emitted for this task says which task it
+	// belongs to (AC-PAR-7.1). It is derived in [Daemon.processIssue] once the
+	// ref has been parsed, because the ref is what identifies a task and there
+	// is nothing to name one by before then. Anything below [Daemon.poll] logs
+	// through this or through a child of it, never through the daemon's own
+	// logger — with two tasks in flight at once, an undecorated line is
+	// attributable only by guesswork.
+	log *slog.Logger
 
 	// tickAt is the instant the tick began, copied in rather than read when it
 	// is wanted. [Daemon.now] is the clock seam the tests substitute, and the
@@ -263,6 +280,7 @@ type task struct {
 // one read per issue that has genuine new work on it.
 func (d *Daemon) commentedIssues(
 	ctx context.Context,
+	log *slog.Logger,
 	repo github.Repo,
 	since time.Time,
 	listed []github.Issue,
@@ -293,8 +311,8 @@ func (d *Daemon) commentedIssues(
 			// issue read is where they are found out, and skipping one is
 			// routine rather than a failed tick.
 			if errors.Is(err, github.ErrInvalidArgument) {
-				d.log.DebugContext(ctx, "skipping a commented number that is not an issue",
-					slog.String("repo", repo.String()), slog.Int("number", number))
+				log.DebugContext(ctx, "skipping a commented number that is not an issue",
+					slog.Int("number", number))
 				continue
 			}
 			return nil, fmt.Errorf("read %s#%d, which has a new comment: %w", repo, number, err)
@@ -325,12 +343,12 @@ func (d *Daemon) processIssue(
 	repo store.Repo,
 	forgeRepo github.Repo,
 	issue github.Issue,
+	log *slog.Logger,
 	result *TickResult,
 ) (bool, error) {
 	if issue.State != github.StateOpen {
-		d.log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
+		log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
 			"litefactory is told to stop working on it",
-			slog.String("repo", forgeRepo.String()),
 			slog.Int("issue", issue.Number),
 			slog.String("state", issue.State))
 		return false, nil
@@ -351,6 +369,12 @@ func (d *Daemon) processIssue(
 		session:   session,
 		ref:       ref,
 		tickAt:    result.StartedAt,
+		// The per-task child, derived from the repository's own so that a line
+		// carries both. See [task.log]; the ref cannot be named any earlier
+		// than this.
+		log: log.With(
+			slog.String("task", ref.String()),
+			slog.Int64("session_id", session.ID)),
 	}
 
 	watermark, exists, err := d.db.GetWatermark(ctx, session.ID)
@@ -393,9 +417,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 	}
 	result.Bootstrapped++
 
-	d.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
-		slog.String("task", t.ref.String()),
-		slog.Int64("session_id", t.session.ID),
+	t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
 		slog.Int("existing_comments", len(comments)),
 		slog.Int64("watermark", watermark.LastCommentID),
 		slog.Bool("created", created))
@@ -470,16 +492,12 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		refusal = "it already has comments, which are the conversation to follow instead"
 	}
 	if refusal != "" {
-		d.log.DebugContext(ctx, "not running the issue body on first sight; "+refusal,
-			slog.String("task", t.ref.String()),
-			slog.Int64("session_id", t.session.ID),
+		t.log.DebugContext(ctx, "not running the issue body on first sight; "+refusal,
 			slog.Int("existing_comments", len(comments)))
 		return nil
 	}
 
-	log := d.log.With(
-		slog.String("task", t.ref.String()),
-		slog.Int64("session_id", t.session.ID),
+	log := t.log.With(
 		slog.Int64("comment_id", 0),
 		slog.String("trigger", "issue_body"),
 		slog.Int64("author_user_id", t.issue.Author.ID),
@@ -554,10 +572,8 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64, result *Ti
 			return false, fmt.Errorf("read the watermark of task %s: %w", t.ref, err)
 		}
 		if !consumed {
-			d.log.InfoContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
+			t.log.InfoContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
 				"later tick retries it. Processing the comments after it would advance the watermark past this one",
-				slog.String("task", t.ref.String()),
-				slog.Int64("session_id", t.session.ID),
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
@@ -588,9 +604,7 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, result *TickResult) error {
-	log := d.log.With(
-		slog.String("task", t.ref.String()),
-		slog.Int64("session_id", t.session.ID),
+	log := t.log.With(
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
@@ -638,14 +652,12 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 // (AC-2.17).
 func (d *Daemon) acknowledge(ctx context.Context, t *task, commentID int64) {
 	if err := d.forge.AddCommentReaction(ctx, t.forgeRepo, commentID, github.ReactionEyes); err != nil {
-		d.log.WarnContext(ctx, "could not acknowledge the comment with a reaction; carrying on",
-			slog.String("task", t.ref.String()),
+		t.log.WarnContext(ctx, "could not acknowledge the comment with a reaction; carrying on",
 			slog.Int64("comment_id", commentID),
 			slog.Any("error", err))
 		return
 	}
-	d.log.DebugContext(ctx, "acknowledged the comment",
-		slog.String("task", t.ref.String()), slog.Int64("comment_id", commentID))
+	t.log.DebugContext(ctx, "acknowledged the comment", slog.Int64("comment_id", commentID))
 }
 
 // reply answers a command litefactory will not act on: one from a later
