@@ -1,10 +1,12 @@
 # Implementation Plan — headless-mode-should-ask-via-a-comment
 # Branch: lf-7-headless-mode-should-ask-via-a-comment
-# Date: 2026-08-30 (**rev 4** — all sixteen owner questions answered; see *What changed in rev 4*)
+# Date: 2026-08-30 (**rev 5** — **all eighteen owner questions answered; nothing is outstanding**;
+#   see *What changed in rev 5*)
 # Issue: marioatcloudvane/litefactory#7
 # Sources: `RESEARCH_BRIEF.md` rev 2 · `feature-spec.md` · `ARCHITECT_REVIEW.md` · the owner's
 #   scoping comment of 2026-08-27 · **his answers to Q1–Q11 (2026-08-30)** ·
-#   **his answers to N1–N5 (2026-08-30)** · a verification pass that landed after rev 3
+#   **his answers to N1–N5 (2026-08-30)** · **his answers to N6–N7 (2026-08-30)** ·
+#   a verification pass that landed after rev 3
 # Citations pin to `origin/main` @ **`71d3bea`** *("aiteam: scaffold the tool-enforcement session")*.
 
 > **This document is scheduled for deletion by its own Story E1.** N3 replaced Plan mode's output
@@ -66,9 +68,15 @@ line number.
 
 ---
 
-> **Rev 4 is the first revision with nothing outstanding from the owner.** He has now answered
-> **sixteen** questions: Q1–Q11 at rev 3, and **N1–N5 at rev 4**. Every one is recorded below as
-> **ANSWERED**, with what he decided.
+> **Rev 5 closes the plan's question list entirely. There are no open questions and no blocked
+> tasks.** He has now answered **eighteen**: Q1–Q11 at rev 3, **N1–N5 at rev 4**, and **N6–N7 at
+> rev 5**. Every one is recorded below as **ANSWERED**, with what he decided.
+>
+> **The one thing rev 5 deliberately does not settle is the SDK's version literal**, and that is
+> recorded as an acceptance criterion rather than a question — see **AC-D1.1**, **AC-D1.2** and
+> **T-D1.1**. Pinning it needs live access to the module proxy and GitHub's docs, which this session
+> does not have; **inventing a version number here would be exactly the `[W]`-grade guess this plan
+> spends a page warning about.**
 >
 > **Three of the five N-answers overrode a recommendation, and all three are applied without
 > re-argument.** N2 (SDK) reverses a documented project policy. N3 (replace the plan file) rejects
@@ -80,12 +88,33 @@ line number.
 > story: **D1** (adopt an SDK) and **E1** (Plan mode's output becomes `plan_brief.md`). C1 shrinks to
 > what it always should have been — creating and linking the sub-issues.
 >
-> **Two new questions, and only two.** Both fall directly out of N2 and neither can be answered by
-> reading this repo: **N6** (which SDK, which pinned version) and **N7** (migrate all seven endpoints
-> or run a hybrid). He has answered sixteen; rev 4 does not repay that with a fresh interrogation.
+> **Rev 4's two new questions — N6 (which SDK) and N7 (migrate or hybrid) — are answered at rev 5
+> and no new ones are raised.** Rev 5 asks nothing.
 >
-> **`BLOCKED-ON-Nn` is now confined to one story.** S0, B1, B2, A1 and E1 are **fully unblocked**.
-> Only D1 and C1 carry blocked tasks.
+> **`BLOCKED-ON-Nn` no longer appears anywhere in this plan.** S0, B1, B2, A1, E1, D1 and C1 are
+> **all fully unblocked**. Every task is ready to be picked up.
+
+## What changed in rev 5
+
+*A small, surgical amendment. The owner answered the last two questions. **No story was added, no
+story was removed, and the seven-story set from rev 4 stands unchanged.** Nothing was re-verified —
+citations still pin to `71d3bea` and the provenance warning above still governs, unamended.*
+
+| # | Change | Source | Direction |
+|---|---|---|---|
+| 1 | **N6 answered: the SDK is `github.com/google/go-github`.** The recommendation was taken | owner, N6 | settled |
+| 2 | **The version is still NOT settled, and is not invented here.** The *library* is chosen; the *version* is an **implementation-time decision**, taken by someone with live access to the module proxy and GitHub's docs. **T-D1.1 is the first action of D1**, and **AC-D1.2** still requires sub-issue support be confirmed against that pinned version, with the generic-request fallback if it is absent | owner, N6 | recorded, not guessed |
+| 3 | **N7 answered: (a), full migration.** All seven existing endpoints move to the SDK; `net/http` and `pagination.go`'s Link-header helper come out | owner, N7 | **settled at the expensive end** |
+| 4 | **D1's size is flatly XL.** The *"XL if migration / L if hybrid"* conditional is deleted | rev 5, N7 | — |
+| 5 | **T-D1.3 unblocked.** Its remaining job is to **record** the migration decision and its reasoning, not to make it | rev 5, N7 | unblocked |
+| 6 | **T-D1.7 loses its conditional.** Unconditionally: migrate the seven endpoints call site by call site and remove the Link-header helper. The *"(if hybrid: …)"* branch is deleted | rev 5, N7 | unblocked |
+| 7 | **The deciding argument stays on the record: one credential path is one thing to guard (AC-D1.6)** — not tidiness | owner/rev 4 | preserved |
+| 8 | **The hybrid option moves to `Out of Scope` as *considered and rejected*, with its two-credential-path risk**, so a future reader sees it was weighed rather than missed | rev 5 | recorded |
+| 9 | **All eighteen questions are ANSWERED and the open-questions section is gone**, replaced by a line saying plainly that nothing is outstanding | rev 5 | **closed** |
+| 10 | **Sequencing re-checked, and it holds unchanged:** S0 · B1 · B2 · A1 · E1 · D1 · C1. The E1+C1 hard coupling and the D1→C1 dependency are stated correctly and are untouched | rev 5 | confirmed |
+
+**What rev 5 did not touch, deliberately:** the provenance warning, the `71d3bea` citation base,
+**T-B2.0** (re-pinning is still Implement's first task), the story set, and every AC not named above.
 
 ## What changed in rev 4
 
@@ -105,14 +134,14 @@ deliverable rather than filling a hole in it, so this is the largest structural 
 | 9 | **N5 answered: (a), build real artifact discovery.** T-B2.3b keeps its **L** size and is **unblocked**. The `Files`-matching fallback is **removed from the plan**, with one line recording why it was rejected | owner, N5 | settled at the expensive end |
 | 10 | **C1 shrinks.** With D1 owning the client change and E1 owning the artifact change, C1 is creation, linkage, idempotency and partial-failure recovery. It now **depends on both** | rev 4 | re-scoped |
 | 11 | **A real upside recorded, not just costs.** The sub-issue API facts in `RESEARCH_BRIEF.md` are `[W]` — second-hand and unverified. **An SDK encapsulates exactly the facts that block is untrusted about**, so N2 materially *reduces* the risk C1 carries. This is an argument in the owner's favour and it belongs in the record | rev 4 | **risk reduced** |
-| 12 | **Two new questions: N6** (which SDK, which pinned version) and **N7** (migrate or hybrid). Both fall out of N2; neither is answerable from this repo | rev 4 | open |
+| 12 | **Two new questions: N6** (which SDK, which pinned version) and **N7** (migrate or hybrid). Both fall out of N2; neither is answerable from this repo. **Both answered at rev 5** | rev 4 | ~~open~~ → answered |
 
 ---
 
 ## Answered questions — the record
 
-*Sixteen. Q1–Q11 answered at rev 3; **N1–N5 answered at rev 4**. Nothing here is outstanding. The two
-genuinely new questions are in the next section.*
+*Eighteen — **the complete list.** Q1–Q11 answered at rev 3; **N1–N5 at rev 4**; **N6–N7 at rev 5**.
+**Nothing is outstanding, and there is no open-questions section after this one.***
 
 ### Q1 — Is the research brief MIRRORED or MOVED? — **ANSWERED: MIRRORED**
 
@@ -300,13 +329,17 @@ It gets **its own task (T-D1.6) and its own AC (AC-D1.6)**. Whatever form the ne
 must still fail the build when the token is revealed anywhere other than the one place that hands it
 to the transport.
 
-**Three things D1 must decide and state — two of them are N6 and N7:**
+**Three things D1 must decide and state — two of them were N6 and N7, and both are now answered:**
 
-- **Which SDK, and which pinned version.** → **N6.**
+- **Which SDK** → **N6: `github.com/google/go-github`.** Settled.
+  **Which pinned version → deliberately still open, as an implementation-time decision, not a
+  question.** See AC-D1.1 and T-D1.1.
 - **Do the existing seven endpoints migrate, or do only the new sub-issue calls use the SDK?** →
-  **N7.** Recorded plainly: **a hybrid leaves two HTTP stacks and two error taxonomies in one
-  package**, and — worse for the item above — **two credential paths**, which makes the `.Reveal()`
-  guarantee materially harder to re-establish than either pure option.
+  **N7: (a), full migration.** All seven move; `net/http` and `pagination.go`'s Link-header helper
+  come out. The hybrid was **considered and rejected** — it leaves two HTTP stacks and two error
+  taxonomies in one package, and, decisively for the item above, **two credential paths**, which makes
+  the `.Reveal()` guarantee materially harder to re-establish than either pure option. **One
+  credential path is one thing to guard.** The rejected option is recorded in `Out of Scope`.
 - **The one genuine unknown: whether the chosen SDK version supports sub-issues at all.** GitHub's
   sub-issue API is recent, and SDK coverage of recent endpoints lags. **Web tools are disabled
   session-wide, so this cannot be checked here.** It is therefore **an acceptance criterion — that it
@@ -394,49 +427,67 @@ summarises without rewriting the brief** (a resumed research run answering a que
 summary), which breaks **B1's fourth hard rule that the summary always links the detail** — and it
 fails precisely on the runs where the reader has least context.
 
+### N6 — Which SDK, and which version is pinned? — **ANSWERED: `github.com/google/go-github`**
+
+**The recommendation was taken. The library is `github.com/google/go-github`** — the de-facto standard
+Go client for the GitHub REST API, permissively licensed, and the library `doc.go`'s *"reach for a
+library"* rule was plainly written about. **The choice is settled and is not re-argued.**
+
+**The version is NOT settled, and this plan does not invent one.** This is the one thing rev 5
+deliberately leaves for implementation time, and it is recorded as a fact about the plan rather than
+as a question:
+
+- **Pinning the version is the first action of D1** — **T-D1.1** — and it must be taken by **someone or
+  something with live access to the module proxy and to GitHub's own documentation.** This session has
+  no web access, so it cannot check which major is current or which majors ship sub-issue support.
+- **`go.mod` pins an exact version, and the literal goes into `plan_brief.md` and `doc.go`.**
+  **"Latest" is a failing outcome** (AC-D1.1).
+- **`AC-D1.2` stands unchanged:** the pinned version's sub-issue support is **confirmed against a live
+  source before any code is written**, with the **generic-request escape hatch as the fallback if it is
+  not supported** — and that fallback is confirmed too, not assumed.
+- **Writing a version number into this document would be exactly the `[W]`-grade guess the provenance
+  warning above spends a page on.** It is left blank on purpose.
+- **Nothing else in D1 depends on it.** Every task is written against "the SDK" and is ready now.
+
+### N7 — Do the existing seven endpoints migrate, or only the new sub-issue calls? — **ANSWERED: (a), full migration**
+
+**All seven existing endpoints move to the SDK.** `net/http` and `pagination.go`'s Link-header helper
+**come out.** This is also what rev 4 recommended.
+
+**The deciding argument is not tidiness — it is AC-D1.6.** A hybrid would leave **two HTTP stacks, two
+error taxonomies and two credential paths** permanently in one package. The third is what matters: the
+`.Reveal()`-exactly-once guarantee would have to hold across both paths, which is materially harder to
+re-establish and easier to erode later. **One credential path is one thing to guard.**
+
+**The cost is real and is accepted, not overlooked.** (a) rewrites seven working, tested methods that
+nobody asked to have changed, in a package whose surface is deliberately pinned by tests, in service of
+a feature about sub-issues. **That is why D1 is XL and why it is reviewed as a client-and-security
+change rather than as plumbing.**
+
+**Consequences applied:**
+
+- **D1 is XL, flatly.** The *"XL if migration / L if hybrid"* conditional is deleted.
+- **T-D1.3 is unblocked.** Its job is now to **record** this decision and its reasoning — not to make
+  it.
+- **T-D1.7 is unconditional**: migrate the seven endpoints call site by call site and remove the
+  Link-header helper. The *"(if hybrid: …)"* branch is deleted.
+- **The hybrid is in `Out of Scope` as considered and rejected**, with its two-credential-path risk
+  recorded, so a future reader can see it was weighed rather than missed.
+
 ---
 
-## New questions
+## Open questions — **none**
 
-*Two. Both fall directly out of N2, and **neither is answerable by reading this repo** — one needs a
-dependency judgement, the other needs a scope call. Nothing else has been manufactured; sixteen
-answers is enough.*
+**There are no open questions. All eighteen — Q1–Q11 and N1–N7 — are answered and recorded above, and
+rev 5 raises none.** This section exists to say that plainly rather than leave an empty heading behind.
 
-### N6 — Which SDK, and which version is pinned?
+**The single thing still genuinely unsettled is the SDK's version literal, and it is not a question —
+it is an acceptance criterion.** It cannot be answered by asking the owner or by reading this repo; it
+needs live access to the module proxy and GitHub's docs at implementation time. It is carried as
+**T-D1.1** (pin it, first action of D1) and **AC-D1.1 / AC-D1.2** (pin an exact version; confirm that
+version supports sub-issues, with the generic-request fallback if it does not).
 
-N2 settled *that* we adopt one. It did not settle *which*.
-
-- **Recommendation: `github.com/google/go-github`.** It is the de-facto standard Go client for the
-  GitHub REST API, permissively licensed, and it is the library `doc.go`'s *"reach for a library"*
-  rule was plainly written about. **Say so if you want a different one** — the plan does not depend on
-  the choice, only on it being recorded.
-- **The version must be pinned to an exact major and minor, and the literal written into
-  `plan_brief.md`** — not "latest". **Rev 4 deliberately does not name a version**, because web tools
-  are disabled session-wide and it cannot check which major is current or which majors ship sub-issue
-  support. **Naming one here would be exactly the `[W]`-grade guess this plan spends a page warning
-  about.**
-- **This is not a blocker for planning** — D1's tasks are written against "the SDK" and are unchanged
-  by which one it is. It **is** a blocker for D1's first line of code.
-
-### N7 — Do the existing seven endpoints migrate to the SDK, or only the new sub-issue calls?
-
-- **(a) Full migration** — all seven move; `net/http` and the Link-header helper in `pagination.go`
-  come out. Largest diff, **one** HTTP stack, **one** error taxonomy, **one** credential path.
-- **(b) Hybrid** — the seven stay hand-rolled, only sub-issue calls use the SDK. Smallest diff now,
-  and **the option the plan is most wary of**: it leaves **two HTTP stacks, two error taxonomies and
-  two credential paths** permanently in one package — plus `doc.go` describing a "No SDK" package that
-  half-uses one.
-
-**Recommendation: (a), full migration** — and the deciding argument is **not** tidiness, it is
-**AC-D1.6**. Two credential paths means the `.Reveal()`-exactly-once guarantee must hold across both,
-which is materially harder to re-establish and easier to erode later. **One path is one thing to
-guard.**
-
-**But the cost is real and is yours to weigh:** (a) rewrites seven working, tested methods that
-nobody asked to have changed, in a package whose surface is deliberately pinned by tests — and it does
-so in service of a feature about sub-issues. **If you want (b) now and full migration later, say so**
-and D1 shrinks substantially; the two-credential-path risk is then recorded in `Out of Scope` with the
-guard requirement applying to both paths, rather than being discovered in production.
+**No task in this plan carries a `BLOCKED-ON-Nn` marker any more.**
 
 ---
 
@@ -1030,7 +1081,14 @@ Implements the owner's N2 decision. **Split out of C1 because it reverses a docu
 three deliberate guard tests and touches the one file in the repo whose job is keeping a credential
 out of logs. It must be reviewed as a client-and-security change, not as plumbing for sub-issues.**
 
-**Size: XL if N7 = full migration · L if N7 = hybrid. Shape settled; the choice is N6 + N7.**
+**Size: XL. Fully unblocked as of rev 5 (N6 = `github.com/google/go-github`, N7 = (a) full
+migration).** The rev-4 conditional *"XL if migration / L if hybrid"* is gone — **N7 chose full
+migration, so D1 is XL.**
+
+**The SDK is `github.com/google/go-github`. Its version is not named in this plan and must not be
+guessed:** pinning it is **T-D1.1, the first action of this story**, taken by someone with live access
+to the module proxy and GitHub's documentation. **AC-D1.2 then confirms that pinned version actually
+supports sub-issues**, with the generic-request escape hatch as the fallback if it does not.
 
 > **This story exists because a tripwire fired and the owner answered it.**
 > `TestClientMethodSetIsTheSevenEndpoints` says an eighth method is *"a reason to re-open the SDK
@@ -1070,26 +1128,31 @@ out of logs. It must be reviewed as a client-and-security change, not as plumbin
   to the transport. **Own task (T-D1.6), own AC (AC-D1.6).** *(Design hint, not a decision: the natural
   shape is a single construction site that reveals once into the SDK's credential type, with the
   line-based assertion re-aimed at that call rather than at `Authorization`.)*
-- **The one genuine unknown: does the chosen SDK version support sub-issues?** GitHub's sub-issue API
-  is recent and SDK coverage of recent endpoints lags. **Web tools are disabled session-wide, so this
-  could not be checked while planning.** It is **AC-D1.2 — confirmed before implementation, never
-  assumed.** If it is unsupported, the fallback is the SDK's generic-request escape hatch, **and that
-  must be confirmed too**.
+- **The one genuine unknown: does the pinned `go-github` version support sub-issues?** GitHub's
+  sub-issue API is recent and SDK coverage of recent endpoints lags. **Web tools are disabled
+  session-wide, so neither the current major nor its sub-issue coverage could be checked while
+  planning — which is precisely why no version literal appears in this plan.** **Pinning the version is
+  T-D1.1, the first action of this story**, and it requires live access to the module proxy and
+  GitHub's documentation. It is **AC-D1.2 — confirmed before implementation, never assumed.** If it is
+  unsupported, the fallback is the SDK's generic-request escape hatch, **and that must be confirmed
+  too**.
 - **The upside, and it is why this makes C1 safer.** The sub-issue facts in `RESEARCH_BRIEF.md` are
   `[W]` — second-hand and unverified, from a source that recorded six of its predecessor's external
   GitHub claims as wrong. **An SDK encapsulates exactly what that block is untrusted about**: endpoint
   paths, payload field names, pagination shape, and the **`sub_issue_id`-versus-issue-number trap**,
   which is the easiest way to get sub-issues silently wrong. **N2 converts a class of
   unverifiable-here facts into a dependency's tested surface**, materially reducing C1's risk.
-- **N7 decides the blast radius**, and the deciding argument is the credential guard: a hybrid leaves
-  **two HTTP stacks, two error taxonomies and two credential paths**, and the third of those makes
-  AC-D1.6 harder to satisfy and easier to erode. **Recommendation: full migration.**
-- **Error taxonomy is a migration hazard whichever way N7 goes.** Callers depend on today's error
-  shapes; an SDK returns its own. **Map at the package boundary so `internal/github`'s error contract
-  to its callers is unchanged**, or the migration leaks into every call site. **T-D1.5.**
-- **`pagination.go`'s Link-header helper** is named in the policy being rewritten. Under full
-  migration the SDK owns pagination and the helper comes out; under hybrid it stays. **Either way, say
-  which** — a dead helper left behind is how the next reader concludes the package still hand-rolls.
+- **The blast radius is settled: N7 = (a), full migration.** All seven existing endpoints move to the
+  SDK. **The deciding argument is the credential guard, not tidiness:** a hybrid would leave **two HTTP
+  stacks, two error taxonomies and two credential paths**, and the third of those makes **AC-D1.6**
+  harder to satisfy and easier to erode. **One credential path is one thing to guard.** The hybrid is
+  recorded in `Out of Scope` as considered and rejected.
+- **Error taxonomy is the main migration hazard.** Callers depend on today's error shapes; the SDK
+  returns its own. **Map at the package boundary so `internal/github`'s error contract to its callers
+  is unchanged**, or the migration leaks into every call site. **T-D1.5.**
+- **`pagination.go`'s Link-header helper comes out.** It is named in the policy being rewritten, and
+  under full migration the SDK owns pagination. **Remove it and say so in `doc.go`** — a dead helper
+  left behind is how the next reader concludes the package still hand-rolls.
 - Platform: **this is the only story that adds a dependency.** New `go.mod` entry, pinned version,
   vendoring/licence check per project convention. **Review it as a dependency decision.**
 
@@ -1098,13 +1161,13 @@ out of logs. It must be reviewed as a client-and-security change, not as plumbin
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
 | T-D1.0 | **Re-pin every `internal/github` citation against `71d3bea`** — `doc.go`, `surface_test.go:56`, `:92`, `:137`, `pagination.go` — before editing. They are owner-verified but the file is on the 52-file stale list | Chore | — | S |
-| T-D1.1 | **Choose the SDK and pin an exact version.** Record both, with the reasoning, in `plan_brief.md` and in `doc.go` | Design | T-D1.0 · **BLOCKED-ON-N6** | S |
+| T-D1.1 | **Pin the SDK version. The first action of D1.** The library is settled — **`github.com/google/go-github`** (N6). The **version is not**, and must not be invented: pin an exact version using **live access to the module proxy and GitHub's docs**, then record the literal and the reasoning in `plan_brief.md` and `doc.go`. **No other D1 task starts before this one** | Design | T-D1.0 | S |
 | T-D1.2 | **Confirm the pinned version supports sub-issues** — parent linkage, `sub_issue_id` semantics, and the generic-request fallback if it does not. Record what was checked, against what source, and when. **No code before this** | Design | T-D1.1 | M |
-| T-D1.3 | **Settle migrate-versus-hybrid** and record the decision with its reasoning | Design | T-D1.1 · **BLOCKED-ON-N7** | S |
+| T-D1.3 | **Record the migration decision.** It is **already made** — N7 = (a), **full migration**. This task writes it down with its reasoning: **one credential path is one thing to guard (AC-D1.6)**, not tidiness. **Nothing here is left to decide** | Design | T-D1.1 | S |
 | T-D1.4 | Add the dependency: `go.mod`, pinned version, licence/vendoring check per project convention | Go | T-D1.3 | S |
 | T-D1.5 | **Error-taxonomy mapping at the package boundary**, so `internal/github`'s error contract to its callers is unchanged by the SDK | Go | T-D1.4 | M |
 | T-D1.6 | **Re-establish the credential guarantee.** Route the token through the SDK's credential path at a **single** construction site, and **rework `TestRevealIsCalledExactlyOnce` to guard that site.** The test is reworked, **never deleted** | Go + Test | T-D1.4 | **M–L** |
-| T-D1.7 | *(if N7 = full migration)* Migrate the seven existing endpoints to the SDK, call site by call site, and remove `pagination.go`'s Link-header helper. *(if hybrid: state in `doc.go` that the helper stays and why)* | Go | T-D1.5, T-D1.6 | **L** |
+| T-D1.7 | **Migrate the seven existing endpoints to the SDK, call site by call site, and remove `pagination.go`'s Link-header helper.** Unconditional — N7 = (a) | Go | T-D1.5, T-D1.6 | **L** |
 | T-D1.8 | **Rewrite `doc.go`'s `# No SDK` section**: who decided, why, and that **the documented trigger (a third pagination special case) did not fire** — the trigger was sub-issues plus an owner decision. Reconcile "six" versus "seven" endpoints | Docs | T-D1.3 | S |
 | T-D1.9 | **Retire or rework `TestClientMethodSetIsTheSevenEndpoints` deliberately**, referencing its own message in the commit. If a surface guard survives, it must still fail on silent growth | Test | T-D1.7 | M |
 | T-D1.10 | **Assert `TestNoForgeAbstraction` still passes.** No interface enters a non-test file in `internal/github` | Test | T-D1.7 | S |
@@ -1114,14 +1177,14 @@ out of logs. It must be reviewed as a client-and-security change, not as plumbin
 
 | ID | Criterion |
 |----|-----------|
-| AC-D1.1 | The SDK and its **exact pinned version** are recorded in `plan_brief.md` and in `doc.go`, with the reasoning. `go.mod` pins that version. **"Latest" is a failing outcome.** |
-| AC-D1.2 | **The pinned version's sub-issue support was confirmed against a live source before implementation**, and the check is recorded with its date and source. If unsupported, the generic-request fallback was confirmed too. **A `[W]`-sourced claim is not sufficient evidence.** |
+| AC-D1.1 | The SDK is **`github.com/google/go-github`** (settled at N6), and its **exact pinned version** — **chosen at implementation time, never guessed from this plan** — is recorded in `plan_brief.md` and in `doc.go` with its reasoning. `go.mod` pins that exact version. **"Latest" is a failing outcome, and so is a version copied out of a document written without live access.** |
+| AC-D1.2 | **The pinned version's sub-issue support was confirmed against a live source before implementation** — parent linkage and `sub_issue_id` semantics — and the check is recorded with its date and source. **If unsupported, the SDK's generic-request escape hatch was confirmed as the fallback, also against a live source.** **A `[W]`-sourced claim is not sufficient evidence.** |
 | AC-D1.3 | `doc.go`'s `# No SDK` section is rewritten and **records that the documented trigger did not fire** — the reversal was sub-issues plus an owner decision, not a third pagination special case. |
 | AC-D1.4 | `TestClientMethodSetIsTheSevenEndpoints` was changed **deliberately**, the commit references the test's own message, and any surviving surface guard **still fails on silent growth**. |
 | AC-D1.5 | **`TestNoForgeAbstraction` is green.** No interface is declared in any non-test file in `internal/github`. **SDK adoption did not introduce the forge abstraction.** |
 | AC-D1.6 | **The credential guarantee is re-established, not removed.** The token is revealed at **exactly one** place, that place is the SDK's credential path, and **a build-failing test enforces it**. **Deleting `TestRevealIsCalledExactlyOnce` without an equivalent replacement is a failing outcome — this is the guard keeping the token out of logs.** |
 | AC-D1.7 | `internal/github`'s **error contract to its callers is unchanged**. No caller outside the package changes to accommodate SDK error types. |
-| AC-D1.8 | The migrate-versus-hybrid decision is recorded. *(If hybrid: `doc.go` states that two HTTP stacks, two error taxonomies and two credential paths now exist, and **AC-D1.6 holds across both**.)* |
+| AC-D1.8 | **All seven existing endpoints use the SDK, and `pagination.go`'s Link-header helper is gone.** One HTTP stack, one error taxonomy, **one credential path**. A surviving hand-rolled `net/http` call site in `internal/github` is a failing outcome, and so is a dead Link-header helper left behind. The decision and its reasoning are recorded (T-D1.3). |
 | AC-D1.9 | Existing endpoint behaviour is unchanged: same results, same errors, same pagination, same redaction. |
 | AC-D1.10 | `go test -race -cover ./...` green; `gofmt` clean; `go vet` clean. |
 
@@ -1222,9 +1285,17 @@ of C1.
 5. **E1** — `plan_brief.md`. **Fully unblocked**, zero Go, and it can be written in parallel with the
    Go stories. **But it must not flip the gate** — that is C1's last task. *(L)*
 6. **D1** — the SDK. **Before C1**, because C1 has nothing to build on until the client can create.
-   **Blocked on N6 and N7** for its first line of code; every task is written against "the SDK" and is
-   otherwise ready. *(XL, or L if N7 = hybrid)*
+   **Fully unblocked as of rev 5** (N6 = `github.com/google/go-github`, N7 = (a) full migration).
+   **Its first action is T-D1.1, pinning the version** — which needs live access to the module proxy
+   and GitHub's docs, and is the one thing this plan deliberately does not supply. *(XL)*
 7. **C1** — sub-issue creation, then **the gate flip, last**. *(L)*
+
+**Re-checked at rev 5 and unchanged.** D1 becoming XL and unblocked does not move it: it still sits
+**after E1** (which is zero-Go and can run in parallel with everything) and **before C1** (which cannot
+start until the client can create). **The D1 → C1 dependency stands** — C1's `T-C1.1` depends on
+`T-D1.2`, and `T-C1.3`/`T-C1.4` build on the SDK D1 adopts. **The E1 + C1 hard coupling stands too**,
+with **T-C1.13 still the join and still the last task in the plan.** Nothing in the sequence needed
+adjusting.
 
 **The one hard coupling: E1 and C1 must complete together.** E1 alone leaves Plan mode producing
 shared context with nowhere for stories to live; C1 without E1 creates sub-issues nothing reads.
@@ -1256,6 +1327,16 @@ function in this plan, which is why AC-A1.4 exists as a criterion of its own.
 - **Matching the brief out of `Files` for the B2 link (rev 3.1's option N5(b)).** **Considered and
   rejected**: it drops the link on runs that summarise without rewriting the brief, breaking B1's rule
   that the summary always links the detail.
+- **The hybrid SDK adoption — the seven existing endpoints staying hand-rolled while only sub-issue
+  calls use the SDK (rev 4's option N7(b)).** **Considered and rejected at N7**, in favour of (a) full
+  migration. **The reason is the credential guard, not tidiness:** a hybrid leaves **two HTTP stacks,
+  two error taxonomies and two credential paths** permanently in one package, and the third means the
+  `.Reveal()`-exactly-once guarantee (**AC-D1.6**) would have to hold across **both** paths — materially
+  harder to re-establish and easier to erode later. **One credential path is one thing to guard.** It
+  would also leave `doc.go` describing a "No SDK" package that half-uses one. **Recorded here so a
+  future reader sees it was weighed, not missed.** Its one real advantage — a much smaller diff, since
+  (a) rewrites seven working, tested methods nobody asked to have changed — was **known and accepted**
+  as the price of the single credential path.
 - **The forge abstraction (`forge.go`, LF-18).** **Explicitly not introduced by D1**, and
   `TestNoForgeAbstraction` stays green. Extract it later from two real implementations; do not guess it
   from one plus an SDK.

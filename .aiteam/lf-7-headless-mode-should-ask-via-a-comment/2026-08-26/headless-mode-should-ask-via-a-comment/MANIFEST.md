@@ -6,12 +6,14 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-08-26; revised 2026-08-27)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; rev 2 on 2026-08-27; rev 3 and rev 3.1
-  on 2026-08-30; **revised in place to rev 4** on 2026-08-30 after the owner answered all five
-  N-questions. **All 16 ANSWERED** — Q1–Q11 and N1–N5. **2 open questions**, both from N2 and neither
-  answerable from this repo: **N6** which SDK and which pinned version, **N7** migrate all seven
-  endpoints or run a hybrid. **7 stories**: S0 · B1 · B2 · A1 · E1 · D1 · C1. **This artifact is
-  scheduled for deletion by its own Story E1** — N3 replaced it with `plan_brief.md` plus one
-  sub-issue per story)*
+  on 2026-08-30; rev 4 on 2026-08-30; **amended in place to rev 5** on 2026-08-30 after the owner
+  answered the last two questions. **All 18 ANSWERED** — Q1–Q11 and N1–N7. **0 open questions** — the
+  open-questions section now says so plainly. **N6: the SDK is `github.com/google/go-github`; its
+  version is deliberately NOT named** and is an implementation-time pin (T-D1.1, AC-D1.1, AC-D1.2).
+  **N7: (a), full migration** — all seven endpoints move, `net/http` and the Link-header helper come
+  out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
+  unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
+  `plan_brief.md` plus one sub-issue per story)*
 - [ ] **Implement** — code + tests *(not started)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
@@ -177,7 +179,46 @@ asked for; nothing here licenses starting the next one.
   credential paths). **One genuine unknown is recorded as an acceptance criterion rather than an
   assumption:** whether the chosen SDK version supports sub-issues at all (AC-D1.2).
 
+- 2026-08-30 — **Plan amended in place to rev 5 (run 0011).** The owner answered the last two
+  questions. `IMPLEMENTATION_PLAN.md` amended — **small and surgical, not a rewrite.** Nothing was
+  re-verified, no sub-agents were run, and **citations still pin to `origin/main` @ `71d3bea`** with
+  the provenance warning and **T-B2.0** untouched. **Still Plan** — no code, nothing committed, and
+  Implement still needs its own comment from the owner.
+
+  **All eighteen questions are now ANSWERED and the plan has no open questions.** The
+  open-questions section says so plainly rather than sitting empty. **No new question was raised.**
+
+  - **N6 — the SDK is `github.com/google/go-github`.** The recommendation was taken.
+    **The version is deliberately NOT settled and was NOT invented.** This session has no web access,
+    so it could not check which major is current or which majors ship sub-issue support, and writing a
+    number would have been exactly the `[W]`-grade guess the plan spends a page warning about.
+    **The library is chosen; the version is an implementation-time decision.** Pinning it is
+    **T-D1.1, the first action of D1**, taken by someone with live access to the module proxy and
+    GitHub's docs. **AC-D1.2 stands:** confirm the pinned version actually supports sub-issues, with
+    the generic-request escape hatch as the fallback if it does not.
+  - **N7 — (a), full migration.** All seven existing endpoints move to the SDK; `net/http` and
+    `pagination.go`'s Link-header helper come out. **D1's size is flatly XL** — the *"XL if migration /
+    L if hybrid"* conditional is deleted. **T-D1.3 is unblocked** and now only *records* the decision;
+    **T-D1.7 is unconditional** and its *"(if hybrid: …)"* branch is gone. **The deciding argument
+    stays on the record: one credential path is one thing to guard (AC-D1.6), not tidiness.**
+    **The hybrid moved to `Out of Scope` as considered and rejected**, with its two-credential-path
+    risk and its one real advantage both stated, so a future reader sees it was weighed rather than
+    missed.
+
+  **`BLOCKED-ON-Nn` no longer appears anywhere in the plan.** All seven stories are fully unblocked.
+
+  **Sequencing re-checked and unchanged:** S0 · B1 · B2 · A1 · E1 · D1 · C1. The **E1 + C1 hard
+  coupling** (T-C1.13 is the join and the last task) and the **D1 → C1 dependency** are both still
+  stated correctly; nothing needed adjusting. **The rev-4 story set of seven stands — no story was
+  added or removed.** Code review remains ring-fenced.
+
 ## Notes
+
+**Plan rev 5 (run 0011) — one thing to carry forward.** The plan names the SDK but **not its
+version, on purpose**. Anyone starting D1 must pin the version themselves as its first action
+(T-D1.1) and confirm sub-issue support against a live source (AC-D1.2). **A version number that
+appears in any downstream document without that check is a guess, and this session's record is
+explicit that it did not make one.**
 
 **Plan rev 4 (run 0010) — three things worth knowing before Implement.**
 
