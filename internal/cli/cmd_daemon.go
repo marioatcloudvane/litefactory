@@ -201,6 +201,7 @@ func writeDaemonRunReport(out io.Writer, startup daemon.Startup) {
 	fmt.Fprintf(tw, "  lock\t%s\n", startup.LockPath)
 	fmt.Fprintf(tw, "  instance\t%s\n", startup.InstanceID)
 	fmt.Fprintf(tw, "  interval\t%s\n", startup.Interval)
+	fmt.Fprintf(tw, "  concurrency\t%d run(s) at a time, across all repos\n", startup.MaxConcurrentRuns)
 	fmt.Fprintf(tw, "  api\t%s\n", startup.APIBase)
 	fmt.Fprintf(tw, "  repos\t%d registered (one listing per repo per tick)\n", startup.Repos)
 	fmt.Fprintf(tw, "  owner\t%s (id %d)\n", startup.Identities.OwnerHandle, startup.Identities.OwnerUserID)

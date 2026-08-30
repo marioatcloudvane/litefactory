@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -54,6 +55,28 @@ func TestDefaultFileDocumentsTheTwoToolKeys(t *testing.T) {
 	for _, want := range []string{"--tools", "--allowedTools", "--settings", "NOT the boundary"} {
 		if !strings.Contains(contents, want) {
 			t.Errorf("the default config file no longer mentions %q", want)
+		}
+	}
+}
+
+// TestDefaultFileDocumentsTheConcurrencyCeiling is AC-PAR-6.2. The shipped
+// file is where an operator learns what max_concurrent_runs costs them, so it
+// has to carry the range, and it has to say that the default is a placeholder
+// rather than a number anyone measured — otherwise the first reader to quote
+// it will quote it as evidence.
+//
+// The range and the value are rendered from the consts through a positional
+// fmt.Sprintf, where inserting an argument mid-list shifts every later one, so
+// they are asserted here as well as through TestDefaultFileMatchesDefaults:
+// two arguments of the same type can swap without the decode noticing.
+func TestDefaultFileDocumentsTheConcurrencyCeiling(t *testing.T) {
+	contents := string(DefaultFileContents())
+
+	wantRange := fmt.Sprintf("between %d and %d", MinMaxConcurrentRuns, MaxMaxConcurrentRuns)
+	wantValue := fmt.Sprintf("max_concurrent_runs: %d", DefaultMaxConcurrentRuns)
+	for _, want := range []string{wantValue, wantRange, "not a measurement"} {
+		if !strings.Contains(contents, want) {
+			t.Errorf("the default config file does not contain %q", want)
 		}
 	}
 }

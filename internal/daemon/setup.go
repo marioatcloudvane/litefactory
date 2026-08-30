@@ -65,6 +65,11 @@ type Startup struct {
 	InstanceID string
 	// Interval is the tick interval in force.
 	Interval time.Duration
+	// MaxConcurrentRuns is how many runs may be in flight at once, daemon-wide
+	// (D2). It is printed for the same reason the interval is: the number that
+	// decides how hard this machine will be worked should be visible at boot,
+	// not inferred from how busy it feels.
+	MaxConcurrentRuns int
 	// Home is $LF_HOME and LockPath the singleton lock file inside it.
 	Home     string
 	LockPath string
@@ -93,7 +98,8 @@ type Startup struct {
 // The order is the point, and it is "everything that can fail without touching
 // anything, first":
 //
-//  1. The tick interval, against the D-C clamp (AC-2.7).
+//  1. The tick interval, against the D-C clamp (AC-2.7), and the run
+//     concurrency ceiling, against its own (AC-PAR-6.1).
 //  2. git and claude, by absolute path, naming the exact PATH searched on
 //     failure. This happens before a turn — and therefore before a worktree —
 //     can exist (AC-3.18, AC-2.2). launchd hands an agent
@@ -120,6 +126,17 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			"poll_interval_seconds is %d, which is outside the supported range %d..%d",
 			s.Config.PollIntervalSeconds,
 			int(MinInterval.Seconds()), int(MaxInterval.Seconds()))
+	}
+
+	// Re-clamped here even though config validation already refused anything
+	// out of range, for the same reason the interval above is: Open is reached
+	// by more than one route into a *config.Config, and a slot count that has
+	// not been checked on this path is one nobody can point at.
+	maxRuns := s.Config.MaxConcurrentRuns
+	if maxRuns < MinConcurrentRuns || maxRuns > MaxConcurrentRuns {
+		return nil, Startup{}, invalidOptions(
+			"max_concurrent_runs is %d, which is outside the supported range %d..%d",
+			maxRuns, MinConcurrentRuns, MaxConcurrentRuns)
 	}
 
 	environ := s.Environ
@@ -214,26 +231,30 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		ToolCeiling:  s.Config.Claude.ToolCeiling,
 		InstanceID:   instanceID,
 		Interval:     interval,
-		Logger:       s.Logger,
-		Lock:         lock,
-		Now:          s.Now,
+		// Nothing spends the slots yet; carrying the value from here means the
+		// pool, when it lands, reads a number that has been clamped three times.
+		MaxConcurrentRuns: maxRuns,
+		Logger:            s.Logger,
+		Lock:              lock,
+		Now:               s.Now,
 	})
 	if err != nil {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 
 	return daemon, Startup{
-		InstanceID:    instanceID,
-		Interval:      interval,
-		Home:          s.Paths.Home(),
-		LockPath:      lock.Path(),
-		APIBase:       client.BaseURL(),
-		Git:           gitBinary.Path(),
-		GitVersion:    gitBinary.Version(),
-		Claude:        claude.Binary(),
-		ClaudeTimeout: claude.Timeout(),
-		Identities:    identities,
-		Repos:         len(repos),
+		InstanceID:        instanceID,
+		Interval:          interval,
+		MaxConcurrentRuns: maxRuns,
+		Home:              s.Paths.Home(),
+		LockPath:          lock.Path(),
+		APIBase:           client.BaseURL(),
+		Git:               gitBinary.Path(),
+		GitVersion:        gitBinary.Version(),
+		Claude:            claude.Binary(),
+		ClaudeTimeout:     claude.Timeout(),
+		Identities:        identities,
+		Repos:             len(repos),
 	}, nil
 }
 

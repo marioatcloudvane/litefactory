@@ -30,6 +30,27 @@ const (
 	MaxInterval = 60 * time.Second
 )
 
+// The run-concurrency ceiling and its clamp (D2, AC-PAR-6.1). Same rule as the
+// interval above: outside the range is a startup error, never a silent
+// correction.
+//
+// The numbers are taken from internal/config rather than restated, because
+// they are one decision. The redundancy that matters is where they are
+// *checked* — config validation, [Open] and [Options.validate] each refuse
+// independently — not how many places the digits are written down.
+const (
+	// DefaultConcurrentRuns is how many runs may be in flight when none is
+	// configured. It is a conservative placeholder rather than a measurement;
+	// see [config.Config.MaxConcurrentRuns].
+	DefaultConcurrentRuns = config.DefaultMaxConcurrentRuns
+	// MinConcurrentRuns is the fewest runs allowed in flight: one, which is
+	// the serial daemon litefactory was before the ceiling existed.
+	MinConcurrentRuns = config.MinMaxConcurrentRuns
+	// MaxConcurrentRuns is the most allowed. It bounds the *setting*
+	// [Options.MaxConcurrentRuns], which is the value actually in force.
+	MaxConcurrentRuns = config.MaxMaxConcurrentRuns
+)
+
 // DefaultShutdownGrace is how long [Daemon.Run] waits for an in-flight turn
 // after the context is cancelled before it returns anyway.
 //
@@ -140,6 +161,18 @@ type Options struct {
 	// outside [MinInterval]..[MaxInterval] is a startup error (AC-2.7).
 	Interval time.Duration
 
+	// MaxConcurrentRuns is how many runs may be in flight at the same instant,
+	// daemon-wide across every repository (D2). Zero means
+	// [DefaultConcurrentRuns]; anything outside
+	// [MinConcurrentRuns]..[MaxConcurrentRuns] is a startup error
+	// (AC-PAR-6.1), exactly as Interval is.
+	//
+	// Zero-means-default is what makes this a usable test seam: a test sets
+	// only the field it is asserting on. The worker pool that spends the slots
+	// is not here yet, so nothing reads the value; it is validated and carried
+	// from the start so that no code can ever depend on an unclamped one.
+	MaxConcurrentRuns int
+
 	// Logger receives the daemon's structured log lines. Required.
 	Logger *slog.Logger
 
@@ -186,6 +219,13 @@ func (o Options) validate() error {
 		// interval can reach the loop.
 		return invalidOptions("tick interval %s is outside the supported range %s..%s",
 			o.Interval, MinInterval, MaxInterval)
+	}
+	if o.MaxConcurrentRuns != 0 && (o.MaxConcurrentRuns < MinConcurrentRuns || o.MaxConcurrentRuns > MaxConcurrentRuns) {
+		// AC-PAR-6.1: out of range refuses to start. internal/config checks the
+		// same bound on max_concurrent_runs; this one catches every other way a
+		// value can reach the loop.
+		return invalidOptions("max concurrent runs %d is outside the supported range %d..%d",
+			o.MaxConcurrentRuns, MinConcurrentRuns, MaxConcurrentRuns)
 	}
 	return nil
 }

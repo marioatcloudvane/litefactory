@@ -35,6 +35,17 @@ const configHeader = `# litefactory configuration.
 # and %d; anything else is a startup error rather than a silent clamp.
 poll_interval_seconds: %d
 
+# How many runs the daemon may have in flight at the same instant, across every
+# registered repository. Must be between %d and %d; anything else is a startup
+# error rather than a silent clamp. Set it to 1 for the strictly serial
+# behaviour litefactory had before this key existed.
+#
+# The default is a conservative placeholder, not a measurement — nobody has sized
+# it against real hardware yet. Every slot is a claude process with a git
+# worktree of its own, so raise it while watching CPU, memory and your API
+# budget, and lower it if runs start interfering with each other.
+max_concurrent_runs: %d
+
 # Fallback base branch for ` + "`repo add`" + ` when --base is omitted and the remote
 # HEAD cannot be determined. Empty means there is no fallback.
 default_base_branch: ""
@@ -177,6 +188,7 @@ func DefaultFileContents() []byte {
 	d := Defaults()
 	return []byte(fmt.Sprintf(configHeader,
 		MinPollIntervalSeconds, MaxPollIntervalSeconds, d.PollIntervalSeconds,
+		MinMaxConcurrentRuns, MaxMaxConcurrentRuns, d.MaxConcurrentRuns,
 		d.FeaturePrefix,
 		d.WorktreeRetainDays,
 		d.LogLevel,

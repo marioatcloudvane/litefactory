@@ -48,6 +48,22 @@ type Config struct {
 	// (D-C, superseding the 10..300 in the original spec); out of range is a
 	// startup error, never a silent clamp (AC-2.7).
 	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
+	// MaxConcurrentRuns is how many claude runs the daemon may have in flight
+	// at the same instant. It is one daemon-wide number shared by every
+	// registered repository, not a per-repo budget (D2). Clamped to 1..16; out
+	// of range is a startup error, never a silent clamp, and an explicitly
+	// written zero is refused rather than read as "unlimited" (AC-PAR-6.1).
+	//
+	// The default of 3 is a conservative placeholder and NOT a measurement:
+	// the machine-sizing probe (P5, "max_concurrent_runs default on real
+	// hardware") was never run, and the spike says so. Nobody should quote 3
+	// as evidence. It is a config.yaml key rather than a Go constant precisely
+	// so that revising it once someone has measured real hardware is an
+	// operator edit instead of a code change — which is also what distinguishes
+	// it from CursorLookback (AC-FC-2.6), a constant because it is a value no
+	// operator should have to choose. This one is machine-shaped, so the
+	// operator must.
+	MaxConcurrentRuns int `yaml:"max_concurrent_runs"`
 	// DefaultBaseBranch is the fallback used by `repo add` when --base is
 	// omitted and the remote HEAD cannot be determined. Empty is valid.
 	DefaultBaseBranch string `yaml:"default_base_branch"`
@@ -196,6 +212,7 @@ type ToolProfile struct {
 func Defaults() Config {
 	return Config{
 		PollIntervalSeconds: DefaultPollIntervalSeconds,
+		MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
 		DefaultBaseBranch:   "",
 		FeaturePrefix:       DefaultFeaturePrefix,
 		WorktreeRoot:        "",
@@ -218,6 +235,7 @@ func Defaults() Config {
 // `init` output can name the same numbers the code uses.
 const (
 	DefaultPollIntervalSeconds  = 30
+	DefaultMaxConcurrentRuns    = 3
 	DefaultFeaturePrefix        = "lf"
 	DefaultWorktreeRetainDays   = 14
 	DefaultLogLevel             = "info"

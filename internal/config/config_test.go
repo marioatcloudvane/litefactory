@@ -83,6 +83,43 @@ func TestConfigValidation(t *testing.T) {
 			want: "poll_interval_seconds: 0 is out of range",
 		},
 
+		// AC-PAR-6.1 — max_concurrent_runs defaults to 3, is clamped 1..16, and
+		// is refused rather than clamped outside it.
+		{name: "concurrency at the default", yaml: "max_concurrent_runs: 3"},
+		{name: "concurrency at lower bound", yaml: "max_concurrent_runs: 1"},
+		{name: "concurrency at upper bound", yaml: "max_concurrent_runs: 16"},
+		{
+			name: "concurrency above upper bound",
+			yaml: "max_concurrent_runs: 17",
+			want: "max_concurrent_runs: 17 is out of range",
+		},
+		{
+			// The shape of the mistake the ceiling exists to catch: a typed
+			// extra digit, which would be sixteen claude processes too many.
+			name: "concurrency with an extra digit",
+			yaml: "max_concurrent_runs: 30",
+			want: "max_concurrent_runs: 30 is out of range",
+		},
+		{
+			name: "concurrency negative",
+			yaml: "max_concurrent_runs: -1",
+			want: "max_concurrent_runs: -1 is out of range",
+		},
+		{
+			// Zero is refused rather than read as "unlimited". Decoding on top
+			// of the defaults is what makes an explicitly written zero
+			// distinguishable from an absent key, and an unlimited daemon is
+			// exactly what the ceiling exists to prevent.
+			name: "concurrency explicitly zero",
+			yaml: "max_concurrent_runs: 0",
+			want: "max_concurrent_runs: 0 is out of range",
+		},
+		{
+			name: "misspelled concurrency key",
+			yaml: "max_concurrent_run: 3",
+			want: `unknown key "max_concurrent_run"`,
+		},
+
 		// AC-3.26 — worktree_retain_days is read and validated.
 		{name: "retain days default", yaml: "worktree_retain_days: 14"},
 		{
@@ -425,6 +462,7 @@ func TestSecretErrorNeverRepeatsTheValue(t *testing.T) {
 func TestValidateReportsEveryProblem(t *testing.T) {
 	err := parse(t, strings.Join([]string{
 		"poll_interval_seconds: 3",
+		"max_concurrent_runs: 99",
 		"worktree_retain_days: 0",
 		"log_level: chatty",
 		"claude:",
@@ -433,7 +471,7 @@ func TestValidateReportsEveryProblem(t *testing.T) {
 	if err == nil {
 		t.Fatal("an invalid config was accepted")
 	}
-	for _, want := range []string{"poll_interval_seconds", "worktree_retain_days", "log_level", "allowed_tools"} {
+	for _, want := range []string{"poll_interval_seconds", "max_concurrent_runs", "worktree_retain_days", "log_level", "allowed_tools"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q:\n%v", want, err)
 		}
@@ -450,6 +488,9 @@ func TestDecodeKeepsDefaultsForAbsentKeys(t *testing.T) {
 	}
 	if cfg.PollIntervalSeconds != DefaultPollIntervalSeconds {
 		t.Errorf("PollIntervalSeconds = %d, want the default %d", cfg.PollIntervalSeconds, DefaultPollIntervalSeconds)
+	}
+	if cfg.MaxConcurrentRuns != DefaultMaxConcurrentRuns {
+		t.Errorf("MaxConcurrentRuns = %d, want the default %d", cfg.MaxConcurrentRuns, DefaultMaxConcurrentRuns)
 	}
 	if cfg.GitHub.APIBase != DefaultAPIBase {
 		t.Errorf("APIBase = %q, want the default %q", cfg.GitHub.APIBase, DefaultAPIBase)

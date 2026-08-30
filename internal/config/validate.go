@@ -19,6 +19,17 @@ const (
 	// above 60s the daemon stops feeling responsive to a comment.
 	MinPollIntervalSeconds = 10
 	MaxPollIntervalSeconds = 60
+	// MinMaxConcurrentRuns and MaxMaxConcurrentRuns bound how many runs may be
+	// in flight at once (D2, AC-PAR-6.1). The floor is 1 because the serial
+	// daemon litefactory was before this key existed has to stay expressible —
+	// it is the setting an operator falls back to when concurrency is
+	// suspected. The ceiling of 16 is a guard against a typed extra digit
+	// rather than a measured limit: every slot is a claude process with a
+	// worktree of its own, so 160 would exhaust the machine long before it
+	// exhausted the GitHub budget, and refusing it at startup is cheaper than
+	// discovering it at the third tick.
+	MinMaxConcurrentRuns = 1
+	MaxMaxConcurrentRuns = 16
 	// MinClaudeTimeoutSeconds and MaxClaudeTimeoutSeconds bound the hard
 	// wall-clock kill for one run.
 	MinClaudeTimeoutSeconds = 60
@@ -52,6 +63,10 @@ func (c *Config) Validate() error {
 	if c.PollIntervalSeconds < MinPollIntervalSeconds || c.PollIntervalSeconds > MaxPollIntervalSeconds {
 		errs = append(errs, fmt.Errorf("poll_interval_seconds: %d is out of range; must be between %d and %d",
 			c.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds))
+	}
+	if c.MaxConcurrentRuns < MinMaxConcurrentRuns || c.MaxConcurrentRuns > MaxMaxConcurrentRuns {
+		errs = append(errs, fmt.Errorf("max_concurrent_runs: %d is out of range; must be between %d and %d",
+			c.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns))
 	}
 	if c.WorktreeRetainDays < MinWorktreeRetainDays || c.WorktreeRetainDays > MaxWorktreeRetainDays {
 		errs = append(errs, fmt.Errorf("worktree_retain_days: %d is out of range; must be between %d and %d",
