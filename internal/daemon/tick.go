@@ -96,7 +96,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 
 	if err := d.poll(ctx, repos, listingWindow(cursor), &result, &pending); err != nil {
 		result.Duration = d.now().Sub(startedAt)
-		return result, d.observe(startedAt, err)
+		return result, d.observe(ctx, startedAt, err)
 	}
 
 	next := startedAt
@@ -110,11 +110,6 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	}
 	result.Cursor = persisted
 	result.Duration = result.Cursor.LastTickAt.Sub(startedAt)
-
-	if held, wasHeld := d.backoff.clear(); wasHeld {
-		d.log.InfoContext(ctx, "resumed polling after a rate-limit backoff",
-			slog.String("held_for", held.String()))
-	}
 
 	d.log.InfoContext(ctx, "tick complete",
 		slog.Int("repos", result.Repos),
@@ -177,6 +172,12 @@ func (d *Daemon) poll(
 	result *TickResult,
 	pending *time.Time,
 ) error {
+	// cleared makes the resume happen at most once per tick, on the first
+	// listing that answers. Everything in this loop runs on the Tick goroutine,
+	// which is what makes an unguarded bool the right thing here — and which is
+	// also why [backoff.clear] is called from here and nowhere below.
+	cleared := false
+
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -194,6 +195,16 @@ func (d *Daemon) poll(
 		if err != nil {
 			return fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
+		}
+		if !cleared {
+			// Evidence that the forge is answering again, which is the only thing
+			// that ends a run of refusals. See [backoff.clear] for why this is
+			// here rather than at the end of the tick.
+			cleared = true
+			if held, wasHeld := d.backoff.clear(); wasHeld {
+				d.log.InfoContext(ctx, "resumed polling after a rate-limit backoff",
+					slog.String("held_for", held.String()))
+			}
 		}
 		commented, err := d.commentedIssues(ctx, forgeRepo, since, issues)
 		if err != nil {
@@ -225,6 +236,13 @@ type task struct {
 	issue     github.Issue
 	session   store.Session
 	ref       naming.Ref
+
+	// tickAt is the instant the tick began, copied in rather than read when it
+	// is wanted. [Daemon.now] is the clock seam the tests substitute, and the
+	// test clock advances a whole second on every reading — so only [Daemon.Tick]
+	// may turn it, and anything below [Daemon.poll] that needs an instant takes
+	// this one. The backoff is what needs it: see [Daemon.rateLimited].
+	tickAt time.Time
 }
 
 // commentedIssues finds the issues that received a comment since the cursor and
@@ -326,7 +344,14 @@ func (d *Daemon) processIssue(
 	if err != nil {
 		return false, fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
 	}
-	t := &task{repo: repo, forgeRepo: forgeRepo, issue: issue, session: session, ref: ref}
+	t := &task{
+		repo:      repo,
+		forgeRepo: forgeRepo,
+		issue:     issue,
+		session:   session,
+		ref:       ref,
+		tickAt:    result.StartedAt,
+	}
 
 	watermark, exists, err := d.db.GetWatermark(ctx, session.ID)
 	if err != nil {
@@ -558,9 +583,10 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // handleComment classifies one comment and does whatever it asks for.
 //
 // The error return is reserved for failures that end the whole tick: a database
-// that will not answer, and a rate limit, which there is no point carrying on
-// through. Everything else is logged and left: the comment stays unconsumed,
-// which [Daemon.drain] detects and turns into a retry on a later tick.
+// that will not answer, and shutdown. Everything else is logged and left — the
+// comment stays unconsumed, which [Daemon.drain] detects and turns into a retry
+// on a later tick — including a rate limit, which arms the backoff where it was
+// met and then leaves by that same door. See [Daemon.leave].
 func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, result *TickResult) error {
 	log := d.log.With(
 		slog.String("task", t.ref.String()),
@@ -581,7 +607,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 		// litefactory's own comment, or a third party's: recorded and tagged,
 		// nothing runs, the comment is consumed (AC-2.14, AC-2.15).
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return d.leave(ctx, log, "could not consume a comment litefactory does not act on", err)
+		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
 	command := turn.ParseCommand(c.Body)
@@ -593,7 +619,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 		// case, and every non-empty owner comment starts work.
 		log.DebugContext(ctx, "comment is empty; recorded and ignored")
 		_, err := d.reporter.Consume(ctx, t.session.ID, c.ID)
-		return d.leave(ctx, log, "could not consume an empty comment", err)
+		return d.leave(ctx, t, log, "could not consume an empty comment", err)
 	}
 
 	// AC-2.17: the acknowledgement goes on before anything that could start a
@@ -640,7 +666,7 @@ func (d *Daemon) reply(
 		Command:   command,
 	})
 	if err != nil {
-		return d.leave(ctx, log, "could not reply to "+command.Name, d.orphaned(ctx, log, posted, err))
+		return d.leave(ctx, t, log, "could not reply to "+command.Name, d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
 		result.Replies++
@@ -718,7 +744,7 @@ func (d *Daemon) run(
 		ToolProfile:  tools.Profile,
 	})
 	if err != nil {
-		return d.leave(ctx, log, "the turn could not be conducted", err)
+		return d.leave(ctx, t, log, "the turn could not be conducted", err)
 	}
 	result.Runs++
 
@@ -729,7 +755,7 @@ func (d *Daemon) run(
 
 	posted, err := d.reporter.ReportTurn(ctx, turnResult)
 	if err != nil {
-		return d.leave(ctx, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
+		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
 	}
 	log.InfoContext(ctx, "turn complete",
 		slog.String("disposition", turnResult.Disposition.String()),
@@ -809,7 +835,7 @@ func (d *Daemon) refuseTools(
 		Profile: decision.Profile,
 	})
 	if err != nil {
-		return d.leave(ctx, log, "could not refuse the tool profile this issue asks for",
+		return d.leave(ctx, t, log, "could not refuse the tool profile this issue asks for",
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
@@ -823,23 +849,29 @@ func (d *Daemon) refuseTools(
 
 // leave decides what a per-comment failure costs.
 //
-// A rate limit ends the tick, so that the backoff is applied once and the
-// remaining quota is not spent discovering the same limit on every other task.
+// Shutdown is the only failure below the listings that still ends the tick.
 // Everything else is logged here and goes no further: the comment was not
 // consumed, [Daemon.drain] will notice, and this task's queue stops with the
 // comment still waiting.
-func (d *Daemon) leave(ctx context.Context, log *slog.Logger, what string, err error) error {
+//
+// A rate limit used to be the exception, returned so that it escalated five
+// frames — handleComment, drain, processIssue, poll — into [Daemon.Tick]'s
+// error branch, where the backoff was armed. It now arms the backoff here,
+// through [Daemon.rateLimited], and then takes the ordinary path. That is a
+// simplification rather than a concession: a return-value chain cannot cross a
+// goroutine boundary, and nothing was gained by unwinding, because the hold is
+// what stops the next tick either way. Two lines come out of it — the warning
+// naming the hold, and the line below saying what this comment lost.
+func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what string, err error) error {
 	if err == nil {
 		return nil
-	}
-	if errors.As(err, new(*github.RateLimitError)) {
-		return err
 	}
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		// Shutdown, not a failure of this comment. Ending the tick is what the
 		// signal asked for.
 		return err
 	}
+	d.rateLimited(ctx, log, t.tickAt, err)
 	log.ErrorContext(ctx, what+"; the comment stays unconsumed and this task's queue stops here",
 		slog.Any("error", err))
 	return nil
@@ -864,20 +896,44 @@ func (d *Daemon) orphaned(ctx context.Context, log *slog.Logger, posted turn.Pos
 	return err
 }
 
-// observe records a rate limit and returns the error that ended the tick.
+// observe records a rate limit that ended a listing and returns the error, so
+// that the tick ends with it.
 //
-// The cursor was not persisted and no watermark was touched by the failure, so
-// there is nothing to undo: the tick simply did not happen, and the next one
-// asks for the same window (AC-2.12, AC-2.13).
-func (d *Daemon) observe(now time.Time, err error) error {
+// The listing path is the one place a rate limit still unwinds, and it can
+// afford to: it runs on the Tick goroutine, before any task has been touched.
+// The cursor was not persisted and no watermark was moved, so there is nothing
+// to undo — the tick simply did not happen, and the next one asks for the same
+// window (AC-2.12, AC-2.13). A refusal met further down goes through
+// [Daemon.leave], which arms the same backoff without unwinding anything.
+func (d *Daemon) observe(ctx context.Context, now time.Time, err error) error {
+	d.rateLimited(ctx, d.log, now, err)
+	return err
+}
+
+// rateLimited arms the backoff when err is the forge refusing a call over
+// quota, and says so in the log. Anything else is not its business and is left
+// entirely to the caller.
+//
+// It takes its logger and its instant instead of reading either off the daemon,
+// because it is called from wherever the refusal was met rather than from
+// [Daemon.Tick]. The logger is the caller's own, already decorated with the task
+// and comment the refusal belongs to. The instant is the tick's, carried down on
+// [task.tickAt], because the test clock advances on every reading and only Tick
+// may turn it.
+//
+// It is safe to call from any goroutine: [backoff] is mutex-guarded, and
+// [backoff.fail] is idempotent inside a standing hold, so a tick whose tasks are
+// all refused at once arms one hold between them rather than doubling it per
+// refusal (AC-PAR-4.2).
+func (d *Daemon) rateLimited(ctx context.Context, log *slog.Logger, now time.Time, err error) {
 	var rateLimit *github.RateLimitError
 	if !errors.As(err, &rateLimit) {
-		return err
+		return
 	}
 
 	failures, delay, until := d.backoff.fail(now, rateLimit.RetryAfter)
-	d.log.Warn("github refused the tick with a rate limit; backing off. The poll cursor and every "+
-		"watermark are unchanged, and polling resumes on its own",
+	log.WarnContext(ctx, "github refused a call with a rate limit; backing off. The poll cursor and "+
+		"every watermark are unchanged, and polling resumes on its own",
 		slog.Int("consecutive_refusals", failures),
 		slog.String("retry_after", rateLimit.RetryAfter.String()),
 		slog.String("backoff", delay.String()),
@@ -885,5 +941,4 @@ func (d *Daemon) observe(now time.Time, err error) error {
 		slog.Bool("secondary", rateLimit.Secondary),
 		slog.String("resource", rateLimit.Resource),
 		slog.Any("error", err))
-	return err
 }

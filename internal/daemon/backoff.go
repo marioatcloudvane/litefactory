@@ -42,8 +42,20 @@ func (b *backoff) hold(now time.Time) (time.Time, bool) {
 	return b.until, true
 }
 
-// fail records a rate-limit refusal and returns the hold it imposes: the
-// consecutive-failure count, the delay and the instant ticks resume at.
+// fail records a rate-limit refusal and returns the hold that stands after it:
+// the consecutive-failure count, the delay and the instant ticks resume at.
+//
+// A refusal that arrives while a hold is already in force does not lengthen it.
+// The standing values come back unchanged and the count does not move, because
+// the count means *consecutive refusals* and several calls refused inside one
+// hold are one refusal that several callers found out about. That distinction
+// costs nothing while the daemon does one thing at a time; once a tick's tasks
+// run concurrently it is the difference between the delay the forge asked for
+// and retryAfter*2^4 for five simultaneous 403s (AC-PAR-4.2).
+//
+// A refusal *after* a hold has expired still increments, which is what
+// "consecutive" always meant: the forge is still refusing after the window it
+// named, so litefactory is contributing to the limit rather than waiting it out.
 //
 // retryAfter is [github.RateLimitError.RetryAfter], which that type guarantees
 // is positive; a non-positive value here would mean an immediate retry into a
@@ -51,6 +63,10 @@ func (b *backoff) hold(now time.Time) (time.Time, bool) {
 func (b *backoff) fail(now time.Time, retryAfter time.Duration) (int, time.Duration, time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if !b.until.IsZero() && now.Before(b.until) {
+		return b.failures, b.delay, b.until
+	}
 
 	if retryAfter <= 0 {
 		retryAfter = time.Second
@@ -69,9 +85,23 @@ func (b *backoff) fail(now time.Time, retryAfter time.Duration) (int, time.Durat
 	return b.failures, delay, b.until
 }
 
-// clear forgets the run of refusals. It is called after every tick that
-// completed, so an isolated rate limit tomorrow starts from GitHub's own
-// Retry-After again rather than from an hour of accumulated doubling.
+// clear forgets the run of refusals, so that an isolated rate limit tomorrow
+// starts from GitHub's own Retry-After again rather than from an hour of
+// accumulated doubling.
+//
+// It is called on evidence of success — the first forge listing of a tick that
+// comes back 200, on the Tick goroutine — and not on the tick completing. Those
+// were the same thing while a tick did one thing at a time; they stop being the
+// same thing once a tick's tasks run concurrently, because a tick can complete
+// having had a worker refused. Clearing on the listing means a worker's later
+// 429 re-arms the backoff as what it is, a new refusal, instead of being wiped
+// out by the tick it happened inside.
+//
+// The trade runs the other way too: a refusal seen just before the next tick's
+// listing succeeds is forgotten, so a limit that is genuinely still firing may
+// cost one extra dispatch window before the doubling resumes. That is the worst
+// case, and it is cheaper than the alternative — a re-armed hold silently
+// cleared by the tick that provoked it.
 func (b *backoff) clear() (time.Duration, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
