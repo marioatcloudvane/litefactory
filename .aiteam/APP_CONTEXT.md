@@ -55,7 +55,7 @@ harness       →  config, naming
 report        →  git, harness, naming, redact
 repos         →  git, naming, store
 turn          →  config, git, github, harness, naming, redact, report, store
-daemon        →  config, git, github, harness, naming, redact, report, secrets, store, turn
+daemon        →  config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store
 cmd/litefactory → cli, config, logging
 ```
@@ -88,6 +88,12 @@ The load-bearing consequences:
   split is a named invariant (`internal/daemon/doc.go`,
   `internal/turn/doc.go`); it is what makes the whole business path testable
   without waiting for anything.
+
+- **`internal/daemon` importing `internal/repos` is new and deliberately
+  cycle-free** — added when the startup worktree-collision check
+  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
+  function rather than reimplementing it. `repos` still imports nothing back
+  from `daemon`.
 
 ### Read the `doc.go` files
 
@@ -180,6 +186,10 @@ deliberately rather than editing the test.
 | `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
 | `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` |
 | `store/store_test.go` | FK enforcement, migrate idempotency, `AdvanceWatermark` never rewinds, `AllocateRun` refuses a replay, `CompleteRunReport` is one transaction |
+| `daemon/clock_test.go` | only `Daemon.Tick` (never a helper, never a function literal) reads the daemon's clock |
+| `turn/gate_test.go` | `prepareClone` and `commitAndPush` are the only two call sites of `CloneGate.Acquire`, one acquisition each; the claude run itself is never inside a critical section |
+| `daemon/gate_internal_test.go`, `daemon/pool_internal_test.go`, `daemon/inflight_internal_test.go` | the gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs`, `enter`/`leave` are a true check-and-insert |
+| `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 
 ---
 
@@ -256,9 +266,16 @@ deliberately rather than editing the test.
   `github/comments.go`, `launchd/plist.go`, `store/migrate.go`,
   `redact/redact.go`, `cli/cmd_logs_render.go`.
 - **Some tests exist to fail on a design change**, not on a bug — the
-  `surface_test.go` / `policy_test.go` / `purity_test.go` family listed above.
-  Adding an exported method, an interface, or an import can fail the build. That
-  is the feature.
+  `surface_test.go` / `policy_test.go` / `purity_test.go` family listed above,
+  joined by `internal/daemon/clock_test.go` (parses the AST to confirm only
+  `Daemon.Tick` reads the injected clock, and that no function literal reads it
+  either) and the critical-section check in `internal/turn/gate_test.go`
+  (`TestCriticalSectionsAreSingleAcquisitions`: `prepareClone` and
+  `commitAndPush` each call `CloneGate.Acquire` exactly once, twice total in the
+  package). Parsing the package's own AST with `go/ast` to pin who is allowed to
+  call what is now an established shape for this kind of test in this codebase,
+  not a one-off. Adding an exported method, an interface, an import, or a new
+  call site can fail the build. That is the feature.
 
 ---
 
@@ -274,14 +291,34 @@ deliberately rather than editing the test.
 - **Copy slices at struct boundaries**, with `append([]string(nil), …)` (11 uses
   across `harness/runner.go`, `harness/meta.go`, `turn/execute.go`,
   `turn/report.go`, `daemon/daemon.go`, `daemon/tools.go`, `daemon/tick.go`) or
-  `slices.Clone` / `maps.Clone`. The reason is concrete: a request struct is
-  mutated in place on the cold-rerun path, and one `append` into spare capacity
-  would rewrite the operator's configuration for every later run in the process.
-- **Goroutine budgets are documented and deliberately tiny.** Three non-test
-  files start a goroutine at all: `harness/runner.go` (exactly two, one per pipe,
+  `slices.Clone` / `maps.Clone`. The reason was originally sequential: a request
+  struct is mutated in place on the cold-rerun path, and one `append` into spare
+  capacity would rewrite the operator's configuration for every later run in the
+  process. **Under concurrent turns this stops being a defence against a
+  sequential bug and becomes load-bearing for isolation between live sibling
+  turns** — two turn workers sharing one process now legitimately hold requests
+  built from the same configuration at the same instant, and a missed copy at
+  one of these sites would be a data race, not just a stale value. Do not remove
+  one of these on the grounds that nothing looked like it was reading the slice
+  again.
+- **Goroutine budgets are documented and deliberately tiny.** The inventory is
+  four fixed goroutines — `harness/runner.go` (exactly two, one per pipe,
   neither able to outlive `Run`), `daemon/daemon.go` (one, the loop), and
-  `cmd/litefactory/main.go` (one, the second-signal watcher). If you add one, say
-  in a comment what bounds its lifetime.
+  `cmd/litefactory/main.go` (one, the second-signal watcher) — plus **at most
+  `max_concurrent_runs` turn workers** (`internal/daemon/pool.go`). That setting
+  is validated to `MinConcurrentRuns..MaxConcurrentRuns` (1..16) and is **refused,
+  never clamped**, outside that range, so the hard ceiling on the whole process is
+  twenty goroutines. The one named termination condition for the worker pool is
+  `Daemon.Quiesce` (`internal/daemon/pool.go`) — not a `select` on shutdown, and
+  not a sleep. **As of this update `Tick` does not yet dispatch to the pool**
+  (nothing calls `pool.try`), so today the true number of live goroutines is
+  still four; the pool exists and is tested but is not yet load-bearing. See
+  `$session/IMPLEMENTATION_PLAN.md` (T-PAR-5, 6, 7, 8, 9, 13, 15, 22) for the
+  commit that wires it. **This paragraph disagrees with
+  `lf-setup/IMPLEMENTATION_PLAN.md:58`**, which still states the old four-goroutine
+  inventory as final; reconciling the two documents is tracked as T-PAR-44 and is
+  not done — trust this file over that line until it is. If you add a goroutine,
+  say in a comment what bounds its lifetime.
 - **A bad outcome is a value, not an error.** Across `turn`, `harness` and
   `daemon`, an operation that *happened and went badly* returns a result whose
   field says how; the `error` return is reserved for "could not be conducted or
@@ -406,6 +443,73 @@ Things that are easy to get wrong:
 
 ---
 
+## In progress: concurrent turns
+
+**`Tick` is still synchronous.** This session (`lf/parallelization`, twelve
+commits, `1d2890c..HEAD`) landed the independently-green preparatory two-thirds
+of the parallelization plan and deliberately stopped before the commit that
+makes dispatch asynchronous. A future engineer reading the code must not
+conclude the daemon already runs turns in parallel — it does not yet. `pool.try`,
+`inflight.enter`/`leave` and `store.ListBacklogSessions` all exist, are unit
+tested, and **have no production call site**. The poll cursor is still held
+back per outstanding session rather than being a pure watermark. The remaining
+work — splitting `Tick` into discovery and per-session dispatch, wiring the
+pool and the in-flight set, switching the cursor to the backlog-driven scheme —
+is `internal/daemon/tick_test.go`'s red commit: `$session/IMPLEMENTATION_PLAN.md`
+tasks T-PAR-5, 6, 7, 8, 9, 13, 15, 22, and everything listed downstream of it in
+that plan's "Not done" section.
+
+What already exists and must not be reinvented when that commit lands:
+
+| File | Role |
+|---|---|
+| `internal/daemon/gate.go` | `cloneGate` — per-clone git serialisation, keyed on `store.Repo.Path`. A 1-buffered channel per clone, acquired with `select` on `ctx.Done()` — **never** a `sync.Mutex`, because `Lock` is uninterruptible and would blow `Daemon.Quiesce`'s shutdown grace budget. Consumed only through the `turn.CloneGate` interface declared on `turn.Options`; `internal/git` declares nothing and knows nothing about it |
+| `internal/daemon/pool.go` | `pool` — a buffered-channel semaphore plus a `sync.WaitGroup`, sized from `config.MaxConcurrentRuns`. `try()` is non-blocking and is meant to be called only from the dispatch loop on the Tick goroutine. Exports `Daemon.Quiesce(ctx)` — the **only** exported API this feature adds, and the intended seam for a future "what is in flight" view. Production shutdown goes through the unconditional `pool.wait()`, never through `quiesce`/`Quiesce` — see the doc comment on `pool.wait` for why a `select` on `ctx.Done()` there would abandon every worker |
+| `internal/daemon/inflight.go` | `inflight` — the in-memory per-session mutual-exclusion set for one daemon *process* ("not this session, not now"). Distinct from and wider than `sessions.lock_owner` in the store, which is durable, cross-process, and held only across `turn.Execute` |
+| `internal/store/migrations/0002_session_backlog.sql` | `sessions.needs_poll` (partial index on `= 1`), plus `store.SetSessionNeedsPoll` / `ClearSessionNeedsPoll` / `ListBacklogSessions`. Set for every dispatched session before its worker starts, cleared only by a fully drained, error-free turn — as a statement, never a `defer` (a `defer` would clear it on error paths too, which is the stale-*false* the design forbids) |
+| `config.MaxConcurrentRuns` | `max_concurrent_runs` in `config.yaml`, default `config.DefaultMaxConcurrentRuns` (3 — a conservative placeholder, not a measurement; the sizing probe was never run), range `config.MinMaxConcurrentRuns`..`config.MaxMaxConcurrentRuns` (1..16), refused outside it rather than clamped. Re-validated and re-floored in `daemon.Options.validate` and `pool.newPool` — clamped/refused at three layers total |
+| `internal/repos/collision.go` | `ValidateWorktreeRoots` / `ValidateNewWorktreeRoot` — refuses two registered repos from mapping one issue number to one worktree directory, since a worktree path carries the issue number but not the repository. Enforced at daemon startup and at `repo add`, before any row is written (AC-PAR-4.8) |
+
+Things that are easy to get wrong here:
+
+- **The two critical sections the clone gate protects are CS1 and CS2, and
+  nothing else.** CS1 is `fetch` → `freezeSlug` → `ensureWorktree`, taken as one
+  section by `prepareClone` in `internal/turn/prepare.go`. CS2 is `Commit` →
+  `Push`, taken by `commitAndPush` in `internal/turn/harvest.go`. The `claude`
+  run itself deliberately sits **outside** both — that gap is the entire source
+  of surviving parallelism (AC-PAR-3.2), and `internal/turn/gate_test.go`
+  (`TestClaudeRunsOutsideTheCloneGate`) checks it directly. Do not widen either
+  section to "be safe".
+- **A nil `CloneGate` is a startup error, not a degraded no-op**
+  (`turn.Options.validate`). The measured failure rates it prevents — 75% on a
+  contended `fetch`, 0.75% on `worktree add` — would look healthy for a long
+  time under a silent no-op and then start posting fatal git errors that read
+  like flakes.
+- **`pool.wait()` takes no context and must not be given one.** It is called
+  from `loop`'s defer, at the moment the loop's own context is *already*
+  cancelled — that is why `loop` is returning. A `select` on `ctx.Done()` there
+  would return instantly and abandon every in-flight worker while still reading
+  like a join. `Daemon.Quiesce` (which does take a context) is the caller-facing
+  version; production shutdown never goes through it.
+- **`markBacklog`'s call site is provisional.** Today discovery and dispatch are
+  the same event, so marking every discovered task as needing a poll
+  (`internal/daemon/tick.go:386`) is correct. Once T-PAR-5/6/22 split discovery
+  from dispatch, the mark must also cover "eligible but the pool was full" — see
+  code-review advisory CR-A-001 in this session's `CODE_REVIEW.md`. This is
+  forward-looking guidance, not a defect in what is currently committed.
+- **A standing rate-limit backoff cannot self-clear with zero repos
+  registered** (CR-A-002, `tick.go` `poll` / `backoff.go` `clear`) — assessed as
+  benign (no repos means no traffic the backoff protects), documented rather
+  than fixed.
+- **`internal/daemon/clock_test.go`** pins that only `Daemon.Tick` reads the
+  injected clock — not a helper, not a function literal — because a `d.now()`
+  read from inside a dispatched worker would make the number of clock readings
+  depend on dispatch order instead of being deterministic. This check was
+  landed ahead of the `Tick` split it guards, deliberately, so it is a
+  guardrail for that change rather than an audit after it.
+
+---
+
 ## Do not reinvent these
 
 | I need to… | Use | Notes |
@@ -414,6 +518,9 @@ Things that are easy to get wrong:
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
 | run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
+| serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op. See "Concurrent turns" below |
+| refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
+| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Written at dispatch, cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
