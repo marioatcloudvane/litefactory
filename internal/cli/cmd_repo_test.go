@@ -394,3 +394,75 @@ func TestRepoListWithNothingRegistered(t *testing.T) {
 		t.Errorf("empty listing does not say how to add one:\n%s", stdout)
 	}
 }
+
+// TestRepoAddRefusesACollidingWorktreeRoot is the `repo add` half of
+// AC-PAR-4.8.
+//
+// The worktree path carries the issue number but not the repository, so two
+// repositories under one worktree root map issue 42 to one directory — a
+// directory two concurrent, correctly authorised turns can both enter. The
+// refusal has to happen here as well as at startup: registering the collision
+// into a running daemon and discovering it at the next restart leaves colliding
+// turns in between.
+func TestRepoAddRefusesACollidingWorktreeRoot(t *testing.T) {
+	paths := newRepoHome(t)
+	first := newRepoFixture(t)
+	second := newRepoFixture(t)
+	second.SetOriginURL("git@github.com:acme/second-repo.git")
+	shared := filepath.Join(t.TempDir(), "worktrees")
+	router, stdout, stderr := newTestRouter(t)
+
+	if code := router.Run(t.Context(), []string{"repo", "add", first.Dir, "--worktrees", shared}); code != ExitOK {
+		t.Fatalf("first add exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	// The second repository spells the same root differently, because it is the
+	// derived worktree path that collides, not the stored string.
+	code := router.Run(t.Context(), []string{"repo", "add", second.Dir, "--worktrees", shared + "/./"})
+	if code != ExitPrecondition {
+		t.Fatalf("second add exit code = %d, want %d\nstderr: %s", code, ExitPrecondition, stderr)
+	}
+	for _, want := range []string{first.Dir, "acme/does-not-exist", second.Dir, "acme/second-repo", shared} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr does not name %q, which the operator has to act on:\n%s", want, stderr)
+		}
+	}
+
+	// Refused before the upsert: no row is left behind for the next daemon to
+	// trip over.
+	list := listRepos(t, paths)
+	if len(list) != 1 {
+		t.Fatalf("registered %d repositories, want 1", len(list))
+	}
+	if list[0].Path != first.Dir {
+		t.Errorf("the surviving row is %q, want %q", list[0].Path, first.Dir)
+	}
+}
+
+// TestRepoAddDoesNotCollideWithItself guards the false positive that would
+// matter most: `repo add` on an already-registered path updates that row
+// (AC-1.8), so the collision check has to exclude the row it is replacing.
+// Getting this wrong would break every re-run of `repo add`.
+func TestRepoAddDoesNotCollideWithItself(t *testing.T) {
+	paths := newRepoHome(t)
+	repo := newRepoFixture(t)
+	shared := filepath.Join(t.TempDir(), "worktrees")
+	router, stdout, stderr := newTestRouter(t)
+
+	for _, worktrees := range []string{shared, shared + "/", shared + "/../worktrees"} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := router.Run(t.Context(), []string{"repo", "add", repo.Dir, "--worktrees", worktrees}); code != ExitOK {
+			t.Fatalf("`repo add --worktrees %s` exit code = %d, want %d\nstderr: %s",
+				worktrees, code, ExitOK, stderr)
+		}
+	}
+	if list := listRepos(t, paths); len(list) != 1 {
+		t.Fatalf("registered %d repositories, want 1", len(list))
+	}
+	if !strings.Contains(stdout.String(), "updated") {
+		t.Errorf("the last add did not report an update:\n%s", stdout)
+	}
+}

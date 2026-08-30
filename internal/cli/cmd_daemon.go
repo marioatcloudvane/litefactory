@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/launchd"
+	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -171,14 +172,17 @@ func resolveTokenHint(err error, paths config.Paths) string {
 // Everything internal/daemon refuses to start over is the machine not being
 // ready rather than the command being wrong: a second instance already holding
 // the lock (AC-2.6), a claude or git that is not where the configuration says
-// (AC-3.18), identities that `init` never derived. All of them are exit 3, and
-// all of them carry the message the domain package wrote — which already names
-// the lock file, or the PATH that was searched.
+// (AC-3.18), identities that `init` never derived, two registered repositories
+// that would create their worktrees in one directory (AC-PAR-4.8). All of them
+// are exit 3, and all of them carry the message the domain package wrote —
+// which already names the lock file, the PATH that was searched, or both
+// colliding repositories.
 func daemonRunError(err error) error {
 	switch {
 	case errors.As(err, new(*daemon.AlreadyRunningError)),
 		errors.Is(err, config.ErrExecutableNotFound),
 		errors.Is(err, config.ErrNotExecutable),
+		errors.Is(err, repos.ErrWorktreeRootCollision),
 		errors.Is(err, store.ErrNotFound):
 		return Precondition(err)
 	default:

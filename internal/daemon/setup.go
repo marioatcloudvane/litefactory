@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -111,7 +112,12 @@ type Startup struct {
 //     run the self-filter reads its own reports as instructions (AC-2.14).
 //  5. The redaction and reporting chain, so that nothing can post before S-7
 //     is wired up.
-//  6. The singleton lock, last, because it is the first step that leaves a
+//  6. The registered repositories, refusing any two that would create their
+//     worktrees in one directory (AC-PAR-4.8). It belongs in this group
+//     because it is a security control: the collision is a directory two
+//     concurrent, correctly authorised turns can both enter, so it has to be
+//     refused before a turn can run rather than discovered by one.
+//  7. The singleton lock, last, because it is the first step that leaves a
 //     mark (AC-2.6).
 //
 // The returned daemon owns the lock and releases it on [Daemon.Close].
@@ -200,8 +206,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	repos, err := s.DB.ListRepos(ctx)
+	registered, err := s.DB.ListRepos(ctx)
 	if err != nil {
+		return nil, Startup{}, err
+	}
+	// AC-PAR-4.8. Two repositories under one worktree root map an issue number
+	// to one directory, and concurrently that is a directory two correctly
+	// authorised turns can both enter. It is checked here, in the group that
+	// can fail without leaving a mark, so a machine configured that way refuses
+	// to start rather than starting and colliding.
+	if err := repos.ValidateWorktreeRoots(registered); err != nil {
 		return nil, Startup{}, err
 	}
 
@@ -254,7 +268,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Claude:            claude.Binary(),
 		ClaudeTimeout:     claude.Timeout(),
 		Identities:        identities,
-		Repos:             len(repos),
+		Repos:             len(registered),
 	}, nil
 }
 

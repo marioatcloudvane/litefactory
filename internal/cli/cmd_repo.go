@@ -119,6 +119,17 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 		return repoRegistrationError(cmd, err)
 	}
 
+	// AC-PAR-4.8, and it runs before the upsert so that a refused registration
+	// leaves no row behind. internal/repos decides; the rows come from here,
+	// because that package makes no query of its own.
+	existing, err := rt.db.ListRepos(ctx)
+	if err != nil {
+		return err
+	}
+	if err := repos.ValidateNewWorktreeRoot(registration, existing); err != nil {
+		return repoRegistrationError(cmd, err)
+	}
+
 	// Whether the row already existed only changes the verb in the output, but
 	// it is the difference between "I registered something" and "I changed
 	// something you already had", and the user should not have to guess which
@@ -271,7 +282,9 @@ func (r *repoRuntime) close() error { return r.db.Close() }
 //
 // Everything that says "this repository or this machine is not in a state
 // where I can register it" is a precondition (exit 3) — that is AC-1.1,
-// AC-1.2 and AC-1.4. A flag value git would not accept is the command line
+// AC-1.2 and AC-1.4, and AC-PAR-4.8, where what makes this repository
+// unregisterable is another one already registered. A flag value git would not
+// accept is the command line
 // being wrong (exit 2). The error text itself is left alone: for a git failure
 // it is a [*git.CommandError] carrying the exact command and its stderr, which
 // several criteria require printed verbatim.
@@ -282,6 +295,7 @@ func repoRegistrationError(cmd *Command, err error) error {
 		return &UsageError{Cmd: cmd, Err: err}
 	case errors.Is(err, repos.ErrAiteamMissing),
 		errors.Is(err, repos.ErrBaseBranchUnknown),
+		errors.Is(err, repos.ErrWorktreeRootCollision),
 		errors.Is(err, fs.ErrNotExist),
 		errors.Is(err, git.ErrNotDirectory),
 		errors.Is(err, git.ErrNotARepository),

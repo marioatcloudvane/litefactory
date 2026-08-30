@@ -21,6 +21,17 @@
 // is Fetch, and this package never calls it — which TestRegistrationIsOffline
 // checks rather than trusting.
 //
+// # Two repositories may not create their worktrees in one directory
+//
+// A worktree path carries the issue number but not the repository, so two
+// repositories sharing a worktree root map issue 42 to one directory. Run
+// sequentially that is an annoyance; run concurrently it is a security
+// exposure, because the two turns hold two correctly granted locks and nothing
+// else in the design stops them. [ValidateWorktreeRoots] refuses the
+// configuration at daemon startup and [ValidateNewWorktreeRoot] refuses it at
+// `repo add`, before the row is written. The first of those documents why the
+// collision is refused rather than designed out (AC-PAR-4.8).
+//
 // # aiteam detection is one rule, and it is deliberately dumb
 //
 // See [DetectAiteam]. It reads two explicit markers and infers nothing from
