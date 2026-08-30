@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — promoted from a spike, not a fresh Research pass)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 3 stories, 20 tasks)*
-- [x] **Implement** — code + tests *(done — 3 stories, 20 tasks, green; uncommitted in the working tree)*
+- [x] **Implement** — code + tests *(done — 3 stories, 20 tasks, green; committed and pushed as `edf82e7`)*
 
 Artifacts: `CLAUDE_CLI_CONTRACT.md`, `CODE_REVIEW.md`, `DRIFT_REPORT.md`, `notes.md`.
 
@@ -39,7 +39,7 @@ Artifacts: `CLAUDE_CLI_CONTRACT.md`, `CODE_REVIEW.md`, `DRIFT_REPORT.md`, `notes
   S1 exists to pin is what caught it. Contract re-verified against `claude 2.1.246` (plan probed
   `2.1.245`; behaviour identical).
 - 2026-08-26 — `internal/daemon/tick.go` ends byte-identical, so **no collision with the sibling
-  `fix-comments-pickup` session**. Nothing committed or pushed; the owner commits.
+  `fix-comments-pickup` session**. Committed and pushed by the owner as `edf82e7` on 2026-08-26, fast-forward onto `origin/main`.
 
 ## Notes
 
