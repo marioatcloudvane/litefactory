@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [~] **Implement** — code + tests *(partial — sequencing steps 1-9 landed green; stopped at the red-commit boundary before T-PAR-9, by owner instruction)*
 - [x] **Spike** — `SPIKE.md` *(done — the two empirical gates)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -55,6 +55,18 @@ asked for; nothing here licenses starting the next one.
   distinction rather than a contradiction. One new security exposure identified that the git mutex
   does **not** cover — the cross-repo worktree-path TOCTOU — closed by refusal at startup *and* at
   `repo add`.
+
+- 2026-08-30 — Implement (partial). Landed the plan's "land these first, green,
+  to shrink the red commit" sequence, steps 1-9, as 12 commits on
+  `lf/parallelization`: T-PAR-1, 18, 19, 20, 26, 27, 32, 11, 12, 34, 39, 2, 3, 4,
+  28, 29, 30, 31, plus T-PAR-40 pulled forward as a guardrail and the reachable
+  slice of T-PAR-33. `go test -race ./...` green across all 18 packages; gofmt
+  and vet clean. Code review verdict **ADVISORY_ONLY** — 0 blocking, 2 advisory
+  (`CODE_REVIEW.md`).
+  **Stopped before T-PAR-9** and the necessarily-red commit (T-PAR-5, 6, 7, 8, 9,
+  13, 15, 22): T-PAR-9 re-shapes ~50% of `internal/daemon/tick_test.go`, which a
+  live daemon's in-flight run on issue #7 has already modified. No file owned by
+  #7 was touched. Details in `notes.md`.
 
 ## Notes
 
