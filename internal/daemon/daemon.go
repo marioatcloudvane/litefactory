@@ -168,9 +168,9 @@ type Options struct {
 	// (AC-PAR-6.1), exactly as Interval is.
 	//
 	// Zero-means-default is what makes this a usable test seam: a test sets
-	// only the field it is asserting on. The worker pool that spends the slots
-	// is not here yet, so nothing reads the value; it is validated and carried
-	// from the start so that no code can ever depend on an unclamped one.
+	// only the field it is asserting on. It is the capacity [New] builds the
+	// worker pool with, and the pool is created once, so this is the only
+	// moment the number is decided.
 	MaxConcurrentRuns int
 
 	// Logger receives the daemon's structured log lines. Required.
@@ -233,8 +233,10 @@ func (o Options) validate() error {
 // Daemon is the poll loop.
 //
 // It is built once per process and is not reusable after [Daemon.Close]. Its
-// only mutable state is the rate-limit backoff, which is mutex-guarded, so
-// [Daemon.Tick] may be called from a test on any goroutine.
+// mutable state is the rate-limit backoff, the in-flight set and the pool, all
+// mutex- or channel-guarded. [Daemon.Tick] may therefore be called from a test
+// on any goroutine — but it is *not* safe to call concurrently with itself, and
+// never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
 	db         *store.DB
 	forge      Forge
@@ -253,7 +255,9 @@ type Daemon struct {
 	now          func() time.Time
 	ticks        <-chan time.Time
 
-	backoff backoff
+	backoff  backoff
+	inflight inflight
+	pool     *pool
 }
 
 // New builds a daemon from its dependencies.
@@ -278,6 +282,10 @@ func New(opts Options) (*Daemon, error) {
 	if now == nil {
 		now = time.Now
 	}
+	maxRuns := opts.MaxConcurrentRuns
+	if maxRuns == 0 {
+		maxRuns = DefaultConcurrentRuns
+	}
 
 	return &Daemon{
 		db:         opts.DB,
@@ -297,6 +305,7 @@ func New(opts Options) (*Daemon, error) {
 		lock:         opts.Lock,
 		now:          now,
 		ticks:        opts.Ticks,
+		pool:         newPool(maxRuns),
 	}, nil
 }
 
@@ -477,15 +486,18 @@ func abandonedResult(run store.Run) *harness.RunResult {
 //
 // # Why the loop is on its own goroutine
 //
-// It is the one goroutine this package is allotted, and this is what it buys:
-// SIGTERM has to return within three seconds even when a turn is in flight, and
-// an in-flight turn can take longer than that to unwind — the harness gives
-// claude's process subtree ten seconds to die and its pipes ten more. Waiting
-// on the turn would blow the budget; running the loop here and returning on
-// cancellation cannot. The goroutine's termination condition is the same
-// context: it stops at the end of the turn it is in, and if it outlasts the
-// grace the process exits and takes it with it, leaving a run row the next
-// start reconciles (D-B).
+// The loop is one of the four goroutines litefactory runs — the other three are
+// the harness's two pipe readers and main's second-signal watcher — plus the at
+// most max_concurrent_runs turn workers it dispatches, every one of which
+// terminates on the one named condition, [Daemon.Quiesce]. This is what the
+// loop's own goroutine buys: SIGTERM has to return within three seconds even
+// when a turn is in flight, and an in-flight turn can take longer than that to
+// unwind — the harness gives claude's process subtree ten seconds to die and
+// its pipes ten more. Waiting on the turn would blow the budget; running the
+// loop here and returning on cancellation cannot. The goroutine's termination
+// condition is the same context: it stops at the end of the turn it is in, and
+// if it outlasts the grace the process exits and takes it with it, leaving a
+// run row the next start reconciles (D-B).
 func (d *Daemon) Run(ctx context.Context) error {
 	if _, err := d.Start(ctx); err != nil {
 		return err
@@ -530,12 +542,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	return nil
 }
 
-// loop ticks until the context is cancelled or the tick source closes.
+// loop ticks until the context is cancelled or the tick source closes, and
+// does not return until every worker its ticks dispatched has finished.
 //
 // A failed tick is logged and never fatal: the cursor was not persisted, so the
 // next tick redoes the work (AC-2.13), and a daemon that exited because GitHub
 // returned a 502 would need a human to notice and restart it.
+//
+// The join is here rather than in [Daemon.Run], and the frame is the mechanism:
+// Run's goroutine defers close(done) and then calls loop, so loop's own defer
+// runs strictly first and done cannot be closed until the wait has returned.
+// That is what makes done mean "the loop returned *and* every worker finished"
+// instead of only the first half, and it is why Run's grace timer covers the
+// whole shutdown — N runs included — without a line of Run changing.
 func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time) {
+	defer d.pool.wait()
+
 	for {
 		select {
 		case <-ctx.Done():
