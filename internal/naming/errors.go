@@ -25,6 +25,12 @@ var (
 	// would reject as the leading component of a branch name.
 	ErrInvalidFeaturePrefix = errors.New("invalid feature prefix")
 
+	// ErrInvalidBranch reports a branch name that [SlugFromBranch] cannot read
+	// as one [Branch] built for the given issue. It is a refusal to guess, not
+	// an assertion failure: a branch created by hand is a legitimate thing to
+	// hold and simply carries no frozen slug to recover.
+	ErrInvalidBranch = errors.New("invalid task branch")
+
 	// ErrInvalidPath reports a path root that cannot be used to build a
 	// worktree or log path.
 	ErrInvalidPath = errors.New("invalid path")

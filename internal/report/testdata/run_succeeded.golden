@@ -4,11 +4,14 @@
 
 - **Branch:** `lf/123-add-dry-run-to-task-clean`
 - **Commit:** `9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1` (pushed)
+- **Research brief:** [`.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md`](https://github.com/acme/acme-api/blob/9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1/.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md) — pinned to this run's commit; 404s until a Research run writes one
 - **Exit status:** `0`
 - **Duration:** 1m33s
 - **Cost:** $0.4213
 - **Model:** `claude-sonnet-4-5`
 - **Log:** `litefactory logs 123 --run 2` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
+
+_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
 
 **Result**
 

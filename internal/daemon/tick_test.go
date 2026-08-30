@@ -193,6 +193,62 @@ func TestDaemonDoesNotReactToItsOwnComment(t *testing.T) {
 	}
 }
 
+// TestOwnerQuoteReplyStartsARun is AC-S0.1 end to end, against the shape that
+// produced it: litefactory posts a report, the owner presses GitHub's "quote
+// reply" on it and answers underneath, and the answer has to start a run.
+//
+// It used to start nothing. The quoted marker matched the self-filter's
+// substring search, the owner's comment was classified as litefactory's own
+// output, and it was dropped without a run, a reply or even a reaction — so
+// answering a litefactory question worked or did not depending on which button
+// was pressed.
+func TestOwnerQuoteReplyStartsARun(t *testing.T) {
+	f := newFixture(t)
+	f.settle()
+	f.issue("Add a /health endpoint")
+	f.tick() // first sight
+
+	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
+	f.tick()
+
+	posted, _, _ := f.forge.snapshot()
+	if len(posted) != 1 {
+		t.Fatalf("expected one report to quote, got %d", len(posted))
+	}
+
+	// Every line of litefactory's report prefixed with "> ", then the owner's
+	// own instruction underneath: what the quote-reply button writes.
+	quoted := "> " + strings.ReplaceAll(posted[0], "\n", "\n> ") +
+		"\n\nnow do the same for the readiness endpoint"
+	f.forge.addComment(testIssue, 41, owner(), quoted)
+
+	result := f.tick()
+	if result.Runs != 1 {
+		t.Fatalf("the owner's quote-reply ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
+	}
+	if got := f.turns.triggers(); !slices.Contains(got, int64(41)) {
+		t.Errorf("turn triggers %v, want the quote-reply (41) among them", got)
+	}
+
+	// The body reaches the run whole, quote included. Stripping the quote is not
+	// litefactory's job: the run reads the comment the owner wrote.
+	call := f.turns.calls()[len(f.turns.calls())-1]
+	if !strings.Contains(call.Command.Text, "readiness endpoint") {
+		t.Errorf("the run did not receive the owner's instruction; got %q", call.Command.Text)
+	}
+
+	var recorded store.Comment
+	for _, c := range f.comments() {
+		if c.ForgeCommentID == 41 {
+			recorded = c
+		}
+	}
+	if recorded.Classification != store.ClassificationInstruction {
+		t.Errorf("the quote-reply was classified %q, want %q",
+			recorded.Classification, store.ClassificationInstruction)
+	}
+}
+
 // TestOwnCommentUnderAHumanAccountIsStillDropped covers the belt-and-braces
 // half of the self-filter: the marker catches a report even when the account it
 // was posted from is not the one the identities table names.

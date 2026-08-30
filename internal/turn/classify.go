@@ -12,14 +12,14 @@ import (
 )
 
 // MarkerPrefix is the literal every outbound litefactory comment body starts
-// with, and the substring the self-filter looks for anywhere in an inbound one
-// (S-8).
+// with, and the literal the self-filter looks for at the start of a line in an
+// inbound one (S-8).
 //
 // It is the *prefix* of the marker rather than a whole marker, deliberately:
 // both shapes litefactory posts — "<!-- lf:status task=… run=N -->" for a run
 // report and "<!-- lf:reply task=… -->" for the run-less replies of AC-2.18 and
-// AC-2.20 — begin with it, so one substring test catches every comment
-// litefactory has ever written, including shapes added later.
+// AC-2.20 — begin with it, so one test catches every comment litefactory has
+// ever written, including shapes added later.
 //
 // internal/report composes its own marker literals rather than importing this
 // constant: the reporter is a dependency of a turn, so an import back this way
@@ -27,15 +27,40 @@ import (
 // that has to keep matching.
 const MarkerPrefix = "<!-- lf:"
 
-// HasMarker reports whether body carries a litefactory marker anywhere in it.
+// HasMarker reports whether any line of body begins with [MarkerPrefix].
 //
-// Anywhere, not at the start: GitHub's own "quote reply" and a human pasting a
-// report back into a comment both move the marker off byte zero, and a comment
-// that contains litefactory's output is still litefactory's output as far as
-// looping is concerned. Over-matching here costs a dropped comment that a human
-// can repost without the quote; under-matching costs an infinite loop against a
-// live issue.
-func HasMarker(body string) bool { return strings.Contains(body, MarkerPrefix) }
+// Line-anchored, not a substring search anywhere in the body. The difference is
+// the whole of AC-S0.1, and it is what tells litefactory's own output apart from
+// somebody talking about it:
+//
+//   - litefactory always writes its marker at the start of a line — at byte zero
+//     of the body, in fact, which internal/report pins — so every comment it has
+//     posted still matches;
+//   - GitHub's "quote reply" prefixes every quoted line with "> ", so a quoted
+//     marker reads as "> <!-- lf:" and no longer matches. A substring search did
+//     match it, and the owner's reply was therefore classified as litefactory's
+//     own and silently dropped: answering a question was a coin flip on which
+//     button was pressed.
+//
+// Any line, not only the first, because a human can paste a report unquoted
+// under a line of their own and the paste is still litefactory's output as far
+// as looping is concerned. Over-matching costs a dropped comment; under-matching
+// costs an infinite loop against a live issue, so the anchor is loosened no
+// further than "start of a line" — leading whitespace is deliberately not
+// tolerated, since nothing litefactory posts has any.
+//
+// What this does not stop is somebody writing the marker at the start of a line
+// on purpose to have their comment ignored. Line-anchoring fixes the accident,
+// not the impersonation; fixing that means testing authorship before the marker,
+// which AC-2.14 forbids.
+func HasMarker(body string) bool {
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, MarkerPrefix) {
+			return true
+		}
+	}
+	return false
+}
 
 // SelfReason names which of the three self-filter conditions fired. It exists
 // for the log line: "dropped as self" is not actionable, "dropped as self
@@ -56,10 +81,14 @@ const (
 	// SelfReasonForgeBot means the forge itself flagged the author as a bot.
 	SelfReasonForgeBot SelfReason = "forge_bot_flag"
 
-	// SelfReasonMarker means the body carries [MarkerPrefix]. This is the
-	// belt-and-braces condition: it holds even when the stored identities are
-	// wrong, missing or stale, so a misconfigured install still cannot read its
-	// own report back as an instruction.
+	// SelfReasonMarker means a line of the body begins with [MarkerPrefix].
+	// This is the belt-and-braces condition: it holds even when the stored
+	// identities are wrong, missing or stale, so a misconfigured install still
+	// cannot read its own report back as an instruction.
+	//
+	// It is also the only one of the three that can fire on a comment a human
+	// really wrote, which is why [Filter.Admit] logs it: a drop for this reason
+	// is the one a person may need to explain.
 	SelfReasonMarker SelfReason = "marker"
 )
 
@@ -196,9 +225,14 @@ func (f *Filter) Identities() Identities { return f.identities }
 // account is also the owner's account by misconfiguration.
 //
 //	self         — the author id is the bot's, or the forge flagged the author
-//	               as a bot, or the body carries `<!-- lf:` anywhere.
+//	               as a bot, or a line of the body begins with `<!-- lf:`.
 //	instruction  — the author id is the owner's (AC-2.15).
 //	third_party  — any other author. Recorded, tagged, triggers nothing.
+//
+// The marker condition is line-anchored rather than a substring search, so a
+// quote-reply to a litefactory comment is the owner's instruction and not
+// litefactory's own output (AC-S0.1). See [HasMarker] for why that is the fix
+// and what it deliberately leaves unfixed.
 //
 // The parameter is a [github.Comment] and never an issue, and that is still
 // true now that an issue body can start a run (AC-2.16b): the body path does
@@ -257,7 +291,10 @@ func (a Admission) Triggers() bool { return a.Verdict.Triggers() }
 // Every comment is recorded, including litefactory's own: a dropped comment
 // that left no trace is indistinguishable from a comment that was never
 // fetched, and "it never reacted to itself" is a claim worth being able to
-// check against the database after the fact.
+// check against the database after the fact. A drop is logged as well as
+// recorded, naming the [SelfReason] — the database says what was decided, the
+// log is what somebody reads when they are asking why nothing happened
+// (AC-S0.4).
 //
 // A third-party comment is stored with the session's next cN tag, allocated by
 // the store inside the insert transaction so two comments cannot be handed the
@@ -302,6 +339,24 @@ func (f *Filter) Admit(ctx context.Context, sessionID int64, c github.Comment) (
 		slog.String("tag", recorded.Tag),
 		slog.Bool("triggers", verdict.Triggers()),
 	)
+
+	if verdict.IsSelf() {
+		// Info rather than debug, at the default level, because this is the one
+		// verdict that throws a comment away. Silence is the real cost of a
+		// misclassification: a comment dropped as self produces no run, no reply
+		// and no reaction, so from the thread it is indistinguishable from a
+		// daemon that is not running at all. The reason is what makes the next
+		// occurrence diagnosable rather than a mystery — "marker" means a human
+		// wrote something litefactory read as its own, and that is a different
+		// conversation from "bot_user_id" (AC-S0.4).
+		f.logger().InfoContext(ctx, "turn: dropped a comment as litefactory's own",
+			slog.Int64("session_id", sessionID),
+			slog.Int64("comment_id", c.ID),
+			slog.String("self_reason", string(verdict.SelfReason)),
+			slog.Int64("author_user_id", c.Author.ID),
+			slog.String("author_handle", c.Author.Login),
+		)
+	}
 	return Admission{Verdict: verdict, Comment: recorded}, nil
 }
 

@@ -88,6 +88,60 @@ func fenceFor(content string) string {
 	return strings.Repeat("`", max(3, longest+1))
 }
 
+// leadingFence reads a line as a possible CommonMark code fence. It returns the
+// length of the backtick run the line opens with, and whether the line is bare
+// — nothing but backticks and spaces — which is what a closing fence has to be.
+//
+// Four or more spaces of indentation makes an indented code block rather than a
+// fence, and a run shorter than three backticks is inline code, not a fence.
+// Both return zero.
+func leadingFence(line string) (marks int, bare bool) {
+	rest := strings.TrimLeft(line, " ")
+	if len(line)-len(rest) > 3 {
+		return 0, false
+	}
+	for marks < len(rest) && rest[marks] == '`' {
+		marks++
+	}
+	if marks < 3 {
+		return 0, false
+	}
+	return marks, strings.TrimRight(rest[marks:], " ") == ""
+}
+
+// closeOpenFence appends the code fence that s left open, if it left one open.
+//
+// It is the counterpart of [fenceFor] for text that is rendered as markdown
+// rather than quoted inside a fence of this package's own — the run's final
+// message, which is a message written to be read and whose formatting is part
+// of it. That text is written by a model that read third-party issue comments,
+// so an unbalanced fence in it is not hypothetical, and CommonMark runs an
+// unclosed fenced block to the end of the document: one stray ``` in the
+// summary swallows the files-touched list, the log tail and the closing
+// </details> beneath it, and the report arrives as a wall of code.
+//
+// Closing the block is the smallest fix that keeps the message rendering as
+// markdown. Quoting the whole summary instead would be safe and unreadable.
+func closeOpenFence(s string) string {
+	open := 0
+	for line := range strings.SplitSeq(s, "\n") {
+		marks, bare := leadingFence(line)
+		switch {
+		case marks == 0:
+			// Not a fence line. Inside a block it is content; outside one it is
+			// prose. Either way it changes nothing.
+		case open == 0:
+			open = marks
+		case bare && marks >= open:
+			open = 0
+		}
+	}
+	if open == 0 {
+		return s
+	}
+	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat("`", open)
+}
+
 // lastLines returns the last n lines of s, with trailing blank lines removed.
 func lastLines(s string, n int) string {
 	s = strings.TrimRight(s, "\n")

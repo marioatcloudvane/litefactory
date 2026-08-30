@@ -282,6 +282,11 @@ func (r Reply) body() string {
 		return ""
 	}
 
+	// Every reply above ends by asking for another comment, so every reply is a
+	// comment somebody is about to answer — which makes this the last line of
+	// all of them rather than a decoration on some (AC-S0.6).
+	b.WriteString(sectionGap)
+	b.WriteString(ReplyPlainlyNotice)
 	b.WriteString("\n")
 	return b.String()
 }

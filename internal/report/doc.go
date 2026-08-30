@@ -24,6 +24,36 @@
 // caller. Keeping the two apart is what makes every body in here assertable in
 // a unit test with no fixtures.
 //
+// # Links, without a forge client
+//
+// A run report links the session's research brief, so the short version on the
+// issue reaches the long one in a click. The URL is built here, from
+// [naming.Ref] and the run's sha_after, and from nothing else: the ref already
+// carries the owner and the repository, so the permalink needs no forge client,
+// no base URL and no I/O — importing internal/github for a hostname would put a
+// token and seven endpoints inside the package whose whole promise is that it
+// has neither.
+//
+// Two rules make a link honest enough to put in front of someone.
+//
+// It is pinned to the run's sha_after, never to the branch and never to the
+// commit sha. A branch-relative URL shows whatever the branch holds when it is
+// opened, which for a report of run 3 may be what run 7 wrote; and the commit
+// sha is empty whenever claude committed for itself through its own Bash tool,
+// which is a supported path with real, published work behind it.
+//
+// And it is rendered only for a pushed run. Unpushed is not a rare failure —
+// the branch not moving and an abandoned run are both ordinary — and a link
+// into a commit that exists only in a local worktree is a guaranteed 404. No
+// link is better than a dead one, because a dead one invites the click.
+//
+// The path to the brief is derived rather than discovered: this package cannot
+// look at a filesystem, and looking for the brief in the files-touched list
+// would link it only on the run that rewrote it, never on the run that merely
+// read it. See [naming.AITeamSessionDir]. The rendered line says the derivation
+// is a derivation, because a session that has not run Research has no brief and
+// the report must not claim otherwise.
+//
 // # Why the renderers return redact.Body and never a string
 //
 // S-7 requires redaction to be the last transformation before the API call, and
@@ -48,10 +78,10 @@
 // assert → hard-truncate. This package aims its own truncation at that budget
 // and does the smart cut, in this priority order (AC-4.8):
 //
-//	marker, heading, status and the metadata list  never cut
-//	the run's final result text                    cut second, from the end
-//	the files-touched list                         capped by entry count
-//	the run output tail in <details>               cut first, from the middle
+//	marker, heading, status, metadata, reply notice  never cut
+//	the run's final result text                      cut second, from the end
+//	the files-touched list                           capped by entry count
+//	the run output tail in <details>                 cut first, from the middle
 //
 // The parts a human needs to act — what happened, and the absolute path of the
 // local log — are at the top and are never the thing that gets removed. The log
