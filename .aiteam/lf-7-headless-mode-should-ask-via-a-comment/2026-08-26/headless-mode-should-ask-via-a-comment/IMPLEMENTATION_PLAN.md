@@ -1,7 +1,8 @@
 # Implementation Plan — headless-mode-should-ask-via-a-comment
 # Branch: lf-7-headless-mode-should-ask-via-a-comment
-# Date: 2026-08-30 (**rev 5** — **all eighteen owner questions answered; nothing is outstanding**;
-#   see *What changed in rev 5*)
+# Date: 2026-08-30 (**rev 6** — **execution scope split: B1 and E1 are owner-executed, not
+#   agent-executed**; see *What changed in rev 6*. Rev 5 answered the last of the eighteen owner
+#   questions; nothing is outstanding.)
 # Issue: marioatcloudvane/litefactory#7
 # Sources: `RESEARCH_BRIEF.md` rev 2 · `feature-spec.md` · `ARCHITECT_REVIEW.md` · the owner's
 #   scoping comment of 2026-08-27 · **his answers to Q1–Q11 (2026-08-30)** ·
@@ -93,6 +94,36 @@ line number.
 >
 > **`BLOCKED-ON-Nn` no longer appears anywhere in this plan.** S0, B1, B2, A1, E1, D1 and C1 are
 > **all fully unblocked**. Every task is ready to be picked up.
+
+## What changed in rev 6
+
+*Scope only. **No story was added or removed, no acceptance criterion was weakened, and the
+sequencing S0 · B1 · B2 · A1 · E1 · D1 · C1 is untouched.** What changes is **who executes two of the
+seven stories** — a fact established by measurement, not by preference.*
+
+**Provenance: the 2026-08-30 Implement run (`~/.litefactory/logs/runs/.../7/0001-0011.jsonl`),
+which delivered zero of seven stories.** Its `DRIFT_REPORT.md` attributed the failure to a diverged
+Go tree and a missing `.claude/` write grant. Re-measured against the logs, **29 tool denials**
+break down as **Bash 22 · Edit 4 · Read 2 · Write 1**, and the diagnosis was wrong in one place and
+incomplete in another:
+
+| # | Change | Evidence | Direction |
+|---|---|---|---|
+| 1 | **Blocker 1 ("diverged Go tree") did not exist and is struck.** `git diff --name-only main...HEAD` returns **zero** `.go`/`go.mod`/`go.sum` files: this branch has never touched `internal/` or `cmd/`. It was 27 commits *behind*, not diverged. The report's *"52 files, 257 insertions, 7,752 deletions"* is a one-way diff read backwards — those are additions on `main` the branch lacked | measured 2026-08-30 | **struck; now resolved** |
+| 2 | **The branch is synced.** `main` merged in cleanly, no conflicts; `go build ./...` and `go vet ./...` pass. The report's own check, `git diff --shortstat origin/main -- internal cmd`, is now **empty** | merge `da5ef58` | **cleared** |
+| 3 | **The dominant blocker was never `.claude/` — it was the Bash allowlist**, 22 of 29 denials: `git ls-tree`, `git merge`, `git checkout`, `go doc`, `grep`, `find`, `ls`, `mkdir`, `curl`. `claude.allowed_tools` grants only `git status\|diff\|log\|show`, `go build\|test\|vet`, `gofmt`, `make`. The run could not list files at a ref, which is **how it came to misread the diffstat in #1** | run logs | **root cause, restated** |
+| 4 | **Do not widen `allowed_tools` to fix #3.** The `tool-enforcement` session's **US3 — "Bash is confined by the OS sandbox"** replaces the command allowlist with sandbox confinement. Patching the allowlist now is work that is thrown away when US3 ships | owner, 2026-08-30 | **deferred, deliberately** |
+| 5 | **B1 and E1 become owner-executed** — see the banners on both stories. The `.claude/**` write refusal is **not litefactory's**: the live `claude-settings.json` deny list contains no rule matching the worktree's `.claude/`; its only `.claude` entry is `Read(~/.claude/**)`, pointing at the operator's home. The refusals carry the generic *"Permission to use Edit has been denied"*, not the deny-rule wording, and repo-root `CLAUDE.md` and `initialplan.md` were edited successfully in the same run | run 0010 | **re-assigned** |
+| 6 | **AC-E1.2 still needs its carve-out.** Its grep trips on four Go **test** files carrying comment-only historical citations — `internal/cli/cmd_logs_test.go:534`, `internal/config/toolprofiles_test.go:13`, `internal/harness/meta_test.go:222`, `internal/report/report_test.go:25` — while **AC-E1.10 forbids E1 from modifying any Go file**. E1 cannot clear its own check. **Left open; rev 6 does not amend it** | run 0010, verified | **open** |
+| 7 | **Blocker 3 (no network for T-D1.1) is cleared by configuration, not by code.** The `web` tool profile already carries `WebFetch`/`WebSearch`; the issue is labelled `lf:tools=web`. **D1 can now pin `go-github` itself**, and AC-D1.2's live check is executable | owner, 2026-08-30 | **cleared** |
+
+**Precedent worth keeping, from the same run.** The B1 engineer returned BLOCKED with the tree
+untouched and **declined to substitute `Write` for the refused `Edit`**. That is the norm: a refused
+tool call is a decision, not an obstacle to engineer around.
+
+**What rev 6 did not touch, deliberately:** the provenance warning, the `71d3bea` citation base (the
+merge in #2 moves the tree past it — **T-B2.0's re-pin is now mandatory, not optional**), the story
+set, the sequencing, and every AC.
 
 ## What changed in rev 5
 
@@ -579,7 +610,29 @@ carries a marker — and today, on the most natural reply path, he cannot.
 writes, and a business-readable summary for the comment. Zero Go. The fastest thing in this plan to
 ship.
 
-**Size: S. Fully unblocked.**
+**Size: S. Unblocked as work — but see the execution scope below: an agent cannot perform it.**
+
+> ### ⚠ EXECUTION SCOPE — OWNER-EXECUTED, NOT AGENT-EXECUTED *(rev 6)*
+>
+> **Every file this story writes lives under `.claude/`, and a litefactory run cannot write there.**
+> Measured 2026-08-30 (run 0010): two `Edit` calls against
+> `.claude/agents/research-orchestrator.md` were refused, while `CLAUDE.md` and `initialplan.md` at
+> the repo root were edited successfully in the same run. The boundary is `.claude/`, exactly.
+>
+> **This is not litefactory's deny list and cannot be granted in `config.yaml`.** The live
+> `claude-settings.json` has no rule matching the worktree's `.claude/`; its only `.claude` entry is
+> `Read(~/.claude/**)`, which points at the operator's home directory. Nothing an operator writes in
+> `claude.allowed_tools` or a `tool_profiles` entry lifts it.
+>
+> **Treat that as correct, not as an obstacle.** This story rewrites the definition of the agent that
+> would be executing it. An agent editing its own orchestrator is self-modification, and a run
+> triggered by a third-party issue comment is exactly the case the guard exists for.
+>
+> **So: the owner writes this story's diff by hand.** The plan keeps it because the *content* — the
+> four hard rules, the audience split, the ordering warning — is still the specification. What
+> changes is who types it. **Do not dispatch B1 to an implementation agent; it will return BLOCKED,
+> as it did on 2026-08-30.** An agent that appears to complete it has routed around a refused tool
+> call and has failed the task, not finished it.
 
 ### Architecture Notes
 
@@ -947,7 +1000,33 @@ Retires `IMPLEMENTATION_PLAN.md` and replaces it with `plan_brief.md`. **Split o
 an artifact-and-process change affecting thirteen files, and burying it inside a story about creating
 sub-issues would hide it from review.**
 
-**Size: L. Fully unblocked — but see the hard coupling to C1 below.**
+**Size: L. Unblocked as work — but see the execution scope below, and the hard coupling to C1.**
+
+> ### ⚠ EXECUTION SCOPE — SPLIT: MOSTLY OWNER-EXECUTED *(rev 6)*
+>
+> **Of E1's 13 live files, the majority sit under `.claude/agents/**` and `.claude/skills/**` and are
+> not writable by a run** — same measured boundary as B1 above, same reason, same non-remedy.
+> Run 0010 refused `Edit` on `.claude/agents/research-orchestrator.md`,
+> `.claude/agents/plan-orchestrator.md` and `.claude/AGENT_ROSTER.md`.
+>
+> **The split is clean and was proven by the same run:**
+>
+> | Path | Writable by a run? | Executed by |
+> |---|---|---|
+> | `CLAUDE.md` (repo root) | yes — **already edited, uncommitted on this branch** | agent |
+> | `initialplan.md` (repo root) | yes — **already edited, uncommitted on this branch** | agent |
+> | `.claude/agents/**` | **no — refused** | **owner, by hand** |
+> | `.claude/skills/**` | **no — refused** | **owner, by hand** |
+>
+> **The partial work already on disk is not the story.** Both repo-root files were edited in run
+> 0010 and remain uncommitted. They are correct as far as they go — the new *"Plan mode's output"*
+> section does **not** flip the Implement gate, so **AC-E1.9 holds** — but they are a small minority
+> of E1 and do **not** make it deliverable.
+>
+> **Do not dispatch E1 whole to an implementation agent.** Either the owner executes it, or it is
+> split so that only the two repo-root files are dispatched and the `.claude/**` edits are handed
+> back. **AC-E1.2's carve-out (rev 6, #6) is still open and must be settled before E1 can pass its
+> own acceptance check**, whoever executes it.
 
 > **Hard coupling, and it is the sequencing risk in this plan.** E1 alone leaves Plan mode producing
 > shared context with **nowhere for the stories to live**, because only C1 creates sub-issues.

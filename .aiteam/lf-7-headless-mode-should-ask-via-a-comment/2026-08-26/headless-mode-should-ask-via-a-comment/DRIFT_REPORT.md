@@ -1,6 +1,35 @@
 # Drift Report — headless mode should ask via a comment
 # Branch: lf-7-headless-mode-should-ask-via-a-comment | Date: 2026-08-30
 
+> ## ⚠ CORRECTED 2026-08-30, AFTER THIS REPORT WAS WRITTEN — READ THIS FIRST
+>
+> **Blocker 1 below ("the Go tree is diverged") was wrong, and it is the reason five stories were
+> deferred.** Re-measured against the branch itself: `git diff --name-only main...HEAD` returns
+> **zero** `.go`, `go.mod` or `go.sum` files. This branch has never touched `internal/` or `cmd/`.
+> It was **27 commits behind**, not diverged, and `git merge-tree` reported a clean merge.
+>
+> The *"52 files, 257 insertions, 7,752 deletions"* figure is a one-way diff read backwards: those
+> 7,752 lines are **additions on `main` that this branch did not have yet**, not code missing from a
+> diverged tree. **`main` has since been merged in cleanly** (`da5ef58`); `go build ./...` and
+> `go vet ./...` pass, and this report's own check — `git diff --shortstat origin/main -- internal
+> cmd` — is now **empty**.
+>
+> **Why the misreading happened, and it matters more than the misreading.** The run could not
+> execute `git ls-tree`, `git merge` or `git checkout`: `claude.allowed_tools` grants only
+> `git status|diff|log|show`. Unable to list files at a ref, it reasoned from a diffstat alone.
+> **Bash is 22 of this run's 29 denials** — `git ls-tree`, `git merge`, `git checkout`, `go doc`,
+> `grep`, `find`, `ls`, `mkdir`, `curl`. The Bash allowlist, not `.claude/`, was the dominant
+> blocker, and this report does not say so.
+>
+> **Blocker 2 stands as an observation but not as a request.** The `.claude/` refusal is *not*
+> litefactory's deny list and cannot be granted in `config.yaml` — see `IMPLEMENTATION_PLAN.md`
+> rev 6. B1 and E1 are now **owner-executed**.
+>
+> **Blocker 3 is cleared:** the issue is labelled `lf:tools=web`, so `WebFetch`/`WebSearch` are on
+> the surface and T-D1.1 can pin the SDK itself.
+>
+> Everything below is left exactly as written, as the record of what the run believed at the time.
+
 **Verdict up front: zero of seven stories delivered.** Five blocked on a diverged Go tree that could
 not be synced, two blocked on a write permission that was refused. One supporting documentation
 change from Story E1 landed and is sitting uncommitted in the working tree.

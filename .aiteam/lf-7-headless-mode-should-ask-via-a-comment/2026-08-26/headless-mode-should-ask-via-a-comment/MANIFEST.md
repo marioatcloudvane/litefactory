@@ -263,6 +263,30 @@ asked for; nothing here licenses starting the next one.
   **Artifacts written:** `notes.md`, `DRIFT_REPORT.md` (verdict: **DRIFTED — zero of seven
   delivered**, environmental and permissions, **not the plan being wrong**).
 
+- 2026-08-30 — **Blockers cleared and execution scope corrected (owner-driven, no mode entered).**
+  `main` merged into this branch cleanly (`da5ef58`); `go build ./...` and `go vet ./...` pass. The
+  Implement run's Blocker 1 — *"the Go tree is diverged"* — **was measured and does not exist**: this
+  branch has never touched `internal/` or `cmd/`, and the *"7,752 deletions"* figure was a one-way
+  diff read backwards. `DRIFT_REPORT.md` carries a correction banner.
+
+  Re-measured from the run logs, the run's **29 denials are Bash 22 · Edit 4 · Read 2 · Write 1** —
+  **the Bash allowlist, not `.claude/`, was the dominant blocker**, and it is what caused the
+  diffstat misreading (`git ls-tree` was denied 10 times alongside `git merge` and `git checkout`).
+  The allowlist is **deliberately not being widened**: the `tool-enforcement` session's US3 replaces
+  it with OS-sandbox confinement, and patching it now is throwaway work.
+
+  `IMPLEMENTATION_PLAN.md` is **rev 6**: **B1 and E1 are re-scoped as owner-executed**, because every
+  file B1 writes and most of E1's thirteen sit under `.claude/`, which no run can write — and which
+  litefactory's config cannot grant, since the guard is not litefactory's. Story set, sequencing and
+  every AC are untouched. Issue labelled `lf:tools=web`, so **Blocker 3 is cleared** and T-D1.1 can
+  pin the SDK itself.
+
+  **Still open:** AC-E1.2 needs a carve-out for four comment-only Go test citations that its own grep
+  will surface while AC-E1.10 forbids E1 from touching Go. **T-B2.0's re-pin is now mandatory** — the
+  merge moved the tree past the `71d3bea` citation base.
+
+  No story was implemented. Implement still needs its own human comment.
+
 ## Notes
 
 **Implement attempt (2026-08-30) — three things to carry forward.**
