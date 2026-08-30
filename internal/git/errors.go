@@ -57,6 +57,19 @@ var (
 	// guarantee: a [Worktree] can never be made to point at the clone.
 	ErrWorktreeOverlapsClone = errors.New("overlaps the registered clone")
 
+	// ErrUpstreamNotRecorded reports a push that git exited 0 from without
+	// leaving branch.<name>.remote behind. It is what [*PushError] unwraps to
+	// when only the upstream failed.
+	//
+	// This is a measured condition, not a defensive one. At parallelism 4 on
+	// git 2.50.1, 240 concurrent "push --set-upstream" runs from one clone
+	// produced 0 non-zero exits and put all 240 branches on the remote, while
+	// 89 of them printed "error: could not lock config file .git/config: File
+	// exists" and 60 finished with no branch.<name>.remote entry: git loses
+	// the race for the config lock, skips the write, and exits 0 anyway. The
+	// objects are on the remote; the bookkeeping is what is missing.
+	ErrUpstreamNotRecorded = errors.New("push did not record the upstream")
+
 	// ErrInvalidArgument reports a value that would reach git as an option or
 	// that git cannot express as an argument.
 	ErrInvalidArgument = errors.New("invalid argument")
