@@ -377,14 +377,35 @@ func (d *Daemon) processIssue(
 			slog.Int64("session_id", session.ID)),
 	}
 
+	// The dispatch point (RD-2). Everything above this line is discovery —
+	// finding the session and naming the task — and everything below it is the
+	// work itself, which is what a worker goroutine is handed once [Daemon.Tick]
+	// is split. The flag is set here, before any of that work begins, so that no
+	// abnormal exit between this line and a clean drain can lose the session.
+	// See [Daemon.markBacklog].
+	d.markBacklog(ctx, t)
+
 	watermark, exists, err := d.db.GetWatermark(ctx, session.ID)
 	if err != nil {
 		return false, fmt.Errorf("read the watermark of task %s: %w", ref, err)
 	}
+
+	var deferred bool
 	if !exists {
-		return false, d.bootstrap(ctx, t, result)
+		err = d.bootstrap(ctx, t, result)
+	} else {
+		deferred, err = d.drain(ctx, t, watermark.LastCommentID, result)
 	}
-	return d.drain(ctx, t, watermark.LastCommentID, result)
+	if err != nil {
+		return deferred, err
+	}
+	if !deferred {
+		// The one clear site, and deliberately a statement on the success path
+		// rather than a defer: a defer would fire on the error returns above too,
+		// which is exactly the stale-false the protocol forbids.
+		d.clearBacklog(ctx, t)
+	}
+	return deferred, nil
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -596,6 +617,71 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 	return exists && watermark.LastCommentID >= commentID, nil
 }
 
+// markBacklog records that a session still owes the daemon a look, whatever the
+// forge's listings can still see (RD-2).
+//
+//	Protocol — one write site, one clear rule. The tick sets needs_poll = 1
+//	for every session it dispatches, before the worker starts. The worker
+//	clears it only on a fully drained, error-free drain/bootstrap. Stale-true
+//	is safe and self-healing (the next tick re-lists, finds nothing above the
+//	watermark, clears). Stale-false is impossible. That asymmetry is the same
+//	posture as AdvanceWatermark's never-rewind: a bad outcome leaves the record
+//	pointing at *more* work, never less.
+//
+// Nothing reads the flag yet. This lands while [Daemon.Tick] is still
+// synchronous and the poll cursor is still held back to a deferred issue, so
+// every session marked here is one the cursor re-finds by itself. That
+// redundancy is the point: the write side is in place, and exercised, before
+// the tick that stops holding the cursor back comes to depend on it — T-PAR-13
+// is what gives [store.DB.ListBacklogSessions] its consumer.
+//
+// A store failure is logged and goes no further. The flag is a re-discovery
+// hint rather than the work, so failing the turn over one would trade
+// everything the tick has already done for a hint, and today the hold-back
+// still covers the session either way. It is logged at error level all the
+// same, because a lost *set* is the dangerous direction: once the cursor is
+// monotonic, this line is the only thing that will explain a session that went
+// quiet. Shutdown is not that failure — the tick is abandoned, its cursor is
+// never persisted, and the next start lists the session again — so it is
+// discriminated here the way [Daemon.leave] discriminates it.
+func (d *Daemon) markBacklog(ctx context.Context, t *task) {
+	err := d.db.SetSessionNeedsPoll(ctx, t.session.ID)
+	if err == nil {
+		return
+	}
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		t.log.DebugContext(ctx, "shutdown interrupted marking this task as still needing a poll; "+
+			"the tick is abandoned and its cursor is not persisted, so the next start lists it again")
+		return
+	}
+	t.log.ErrorContext(ctx, "could not mark this task as still needing a poll; the turn carries on, "+
+		"but a later tick may have nothing local telling it to come back",
+		slog.Any("error", err))
+}
+
+// clearBacklog takes the flag back off a session whose work reached the end
+// without an error. It is the only place that clears it.
+//
+// The asymmetry with [Daemon.markBacklog] runs all the way down to the log
+// level: losing a clear leaves a stale-true flag, which the next tick heals by
+// re-listing the session, finding nothing above its watermark and clearing it
+// then. That costs one listing rather than a comment, so it is a warning and
+// not an error, and it needs no shutdown branch — every path that reaches here
+// has already returned the context's error rather than calling this.
+//
+// A bootstrap counts as drained when it returns no error, including one whose
+// issue-body run was swallowed by [Daemon.leave]. That is not a stale-false:
+// [Daemon.bootstrap] plants the watermark before the body runs, so a body that
+// failed is not re-runnable by any mechanism this flag could reach, and leaving
+// it standing would buy the next tick a listing that finds nothing.
+func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
+	if err := d.db.ClearSessionNeedsPoll(ctx, t.session.ID); err != nil {
+		t.log.WarnContext(ctx, "could not clear this task's backlog flag after a clean drain; "+
+			"a later tick re-lists it, finds nothing above its watermark and clears it then",
+			slog.Any("error", err))
+	}
+}
+
 // handleComment classifies one comment and does whatever it asks for.
 //
 // The error return is reserved for failures that end the whole tick: a database
@@ -761,6 +847,14 @@ func (d *Daemon) run(
 	result.Runs++
 
 	if turnResult.Disposition == turn.DispositionLocked {
+		// RD-4: a lock lost to a second process is promoted from a drop to a
+		// marker-set. The dispatch above has already set the flag and the drain's
+		// deferral keeps it, but this is the one disposition whose entire meaning
+		// is "this work did not happen and the session must be reconsidered", and
+		// saying so here rather than inferring it from the drain's bookkeeping is
+		// what keeps it true when the drain is no longer what notices. One
+		// idempotent UPDATE, on a path only a contended task ever takes.
+		d.markBacklog(ctx, t)
 		log.InfoContext(ctx, "task is locked by another daemon instance; leaving the comment for a later tick")
 		return nil
 	}
