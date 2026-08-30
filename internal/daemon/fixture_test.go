@@ -628,6 +628,42 @@ func (e *fakeExecutor) set(fn func(ctx context.Context, req turn.Request) (turn.
 }
 
 // ---------------------------------------------------------------------------
+// The log sink
+// ---------------------------------------------------------------------------
+
+// syncBuffer is the sink every logger in a fixture writes into, and the only
+// thing a test reads its logs back out of.
+//
+// slog's TextHandler does take a mutex around each Handle call, but that mutex
+// belongs to the handler: it serialises that one handler's writes and nothing
+// else. It does not reach a test goroutine calling String while the daemon is
+// logging, and it never covered the older arrangement here at all — two
+// handlers over one bytes.Buffer are two mutexes over one unsynchronised
+// writer, which -race reports as soon as anything in the fixture runs
+// concurrently. The fixture now builds exactly one handler (see newFixture) and
+// this type closes the remaining gap, the one between the writer and the
+// reader.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String makes a syncBuffer a fmt.Stringer, which is what keeps the lock
+// invisible at the call sites: every failure message in this package formats
+// the sink with %s or calls String directly, and both now read it held.
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// ---------------------------------------------------------------------------
 // The fixture
 // ---------------------------------------------------------------------------
 
@@ -639,7 +675,13 @@ type fixture struct {
 	repo  store.Repo
 	turns *fakeExecutor
 	clock *testClock
-	logs  *bytes.Buffer
+
+	// logs is the one sink; logger is the one handler over it. Both are on the
+	// fixture so that every dependency a test builds — the github client, the
+	// filter, the reporter, the daemon — logs through the same handler rather
+	// than standing up a second one over the same buffer.
+	logs   *syncBuffer
+	logger *slog.Logger
 
 	client   *github.Client
 	filter   *turn.Filter
@@ -694,7 +736,7 @@ func newFixture(t *testing.T) *fixture {
 
 	clock := newTestClock()
 	forge := newForgeServer(t, clock.Now)
-	logs := &bytes.Buffer{}
+	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	token := secrets.NewToken(testToken)
 
@@ -739,6 +781,7 @@ func newFixture(t *testing.T) *fixture {
 		repo:     repo,
 		clock:    clock,
 		logs:     logs,
+		logger:   logger,
 		client:   client,
 		filter:   filter,
 		reporter: reporter,
@@ -761,7 +804,7 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		Reporter:      f.reporter,
 		InstanceID:    "daemon-instance-test",
 		Interval:      testInterval,
-		Logger:        slog.New(slog.NewTextHandler(f.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Logger:        f.logger,
 		Now:           f.clock.Now,
 		ShutdownGrace: 500 * time.Millisecond,
 	}
