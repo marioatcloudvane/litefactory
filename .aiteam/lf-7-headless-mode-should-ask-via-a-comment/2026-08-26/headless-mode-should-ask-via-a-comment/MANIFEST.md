@@ -5,8 +5,11 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-08-26; revised 2026-08-27)*
-- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; **revised in place to rev 2** after the
-  architect review returned; **11 open questions** for the owner at the top, none answered)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; revised in place to rev 3 on
+  2026-08-30 after the owner answered all eleven questions; **amended in place to rev 3.1** on
+  2026-08-30 after a late verification pass. **All 11 ANSWERED**; **5 open questions** — N1 sub-issue
+  scope reversal, N2 SDK decision, N3 plan mirrored-or-replaced, N4 tag spelling, **N5 artifact
+  discovery for the B2 link**)*
 - [ ] **Implement** — code + tests *(not started)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
@@ -57,7 +60,134 @@ asked for; nothing here licenses starting the next one.
 
   Story count 4 → 5: **Story S0** added, and it now ships first.
 
+- 2026-08-30 — **Plan revised in place to rev 3 (run 0008).** The owner answered **all eleven**
+  questions. `IMPLEMENTATION_PLAN.md` revised — not a new document. **Still Plan** — no code, nothing
+  committed, and Implement still needs its own comment.
+
+  **Every one of the eleven is now marked ANSWERED with what he decided.** Where his answer overrode
+  a recommendation it was applied without re-argument — Q3 is the clear case: rev 2 recommended
+  presence-only parsing and he chose **Go parses the literal, hard enforcement**.
+
+  **Story count 5 → 5, but the set changed.** A2 **deleted** (Q11 = A1 only) and moved to
+  `Out of Scope` with the one condition that would bring it back. **C1 added** — one GitHub sub-issue
+  per user story, from Q4. Final set: **S0 · B1 · B2 · A1 · C1**.
+
+  **Two earlier runs died before writing.** An earlier attempt hit a session limit; another stopped
+  waiting on a verification sub-agent. Rev 3 was written first and verified nothing further.
+
+  **Four new questions, deliberately few.** N1 (the sub-issue scope **reversal** — flagged plainly
+  because Q4 asked what a phrase meant and the answer changed the deliverable), N2 (SDK versus
+  hand-rolled, forced by the eighth client method), N3 (is `IMPLEMENTATION_PLAN.md` itself mirrored or
+  replaced — asked rather than assumed, because Q1's answer suggests he likes mirroring), N4 (the
+  tag's spelling — he settled its location at Q2 but never its wording).
+
+- 2026-08-30 — **Plan amended in place to rev 3.1 (run 0009).** A verification pass returned **after**
+  rev 3 had been written and reported. `IMPLEMENTATION_PLAN.md` amended, **not rewritten** — rev 3's
+  structure, its eleven ANSWERED entries and N1–N4 are intact. **Still Plan** — no code, nothing
+  committed, and Implement still needs its own comment. No sub-agents were run.
+
+  **The headline is citation rot, for the third measured time in this session.** Rev 3's citation base
+  was wrong: **`origin/main` is `71d3bea`**, not `3427686` (an ancestor). And rev 3's stale-file list
+  was badly incomplete — it named seven files and said *"everything else matches main"*, when
+  `git diff --stat origin/main -- internal cmd` shows **52 differing files**, including
+  `internal/report/run.go`, `internal/report/report_test.go`, `internal/turn/{classify,report,execute,result}.go`,
+  `internal/store/runs.go`, `internal/github/surface_test.go` and `internal/daemon/tick.go`.
+  **So citations into `internal/report`, `internal/turn`, `internal/store`, `internal/github` and
+  `internal/daemon` are disk line numbers, not `origin/main` line numbers.** The **facts stand**; the
+  line numbers do not. A prominent provenance warning now sits at the top of the plan, and
+  **re-pinning is Implement's first task** (T-B2.0), not something rev 3.1 attempted.
+
+  **Story B2 grew, and rev 3 said the opposite.** Rev 3 sized the LF-7 link as *"one field, one
+  builder, one retired test"*. Four corrections, one cheapening and three expensive:
+  - **Cheaper:** the owner/repo field is **not needed** — `report.Run.Ref` is a `naming.Ref` already
+    carrying `Forge`/`Owner`/`Repo`/`Issue`. T-B2.2 deleted.
+  - **`CommitSHA` is the wrong field.** It is empty exactly on the supported path where claude commits
+    for itself, so the permalink would render blank there. Must be **`SHAAfter`**, which is not
+    plumbed into `report.Run`.
+  - **The goldens are the real blocker, not the guard test.** `TestSuccessReport` pins the whole body
+    via `checkGolden`; twelve golden files need deliberate regeneration. Rev 3 had no such task.
+  - **`.aiteam/` artifact discovery does not exist**, and the link needs it. The only path source is
+    `Files []git.FileChange`.
+
+  **B2: S/M → L, and no longer fully unblocked.** Rev 3's offer to merge B1 and B2 is **withdrawn** —
+  B2 being L-sized is the exact objection rev 2 raised and rev 3 believed had gone away.
+
+  **N5 added — and only because a fact changed, not to reopen a settled thing.** Does the comment get
+  real artifact discovery (net-new, always links), or match `RESEARCH_BRIEF.md` out of `Files` (cheap,
+  but silently no link on a run that summarises without rewriting the brief)? **Recommended (a)** —
+  not on cost, but because (b) breaks B1's fourth hard rule, which the owner set himself: the summary
+  *always* links the detail.
+
+  **One rev-3 claim survived intact:** push already precedes the comment (`harvest.go` commits then
+  pushes; the daemon calls `turn.Execute` before `reporter.ReportTurn`). AC-B2.11 stands.
+
 ## Notes
+
+**Plan rev 3.1 (run 0009) — read the provenance warning at the top of the plan before using any
+`path:line` in it.** Citations pin to `origin/main` @ **`71d3bea`**. Five packages' line numbers are
+stale and must be re-pinned before Implement edits them. **This is the third measured instance of
+citation rot in this session** — run 0001's headline finding survived one day; `RESEARCH_BRIEF.md`'s
+own source recorded six of its predecessor's external GitHub claims as wrong; this is the third. The
+pattern is not carelessness: **this worktree drifts from `origin/main` faster than documents citing it
+get rewritten, and no artifact here has a mechanism that notices.**
+
+**Superseded below:** Plan-rev-3 note 1 (the LF-7 sizing) is **wrong on three of its four points** and
+is corrected in the plan. It is left in place for archaeology, not as guidance.
+
+**Plan rev 3 (run 0008) — the four things most worth knowing.**
+
+1. **The clickable link (LF-7) is cheaper than every earlier document claimed, and it is now IN
+   scope.** `report.Run` already carries `Branch`, `CommitSHA` and `Pushed` at render time
+   (`internal/report/run.go:59-72`). **`Pushed`, plus the doc at `run.go:95-97`, confirms push already
+   precedes the comment — the run-ordering change `initialplan.md:234` anticipated is already done and
+   must not be planned again.** The only missing input is **repo owner/name**, which `report.Run` does
+   not carry. So the link is: add owner/repo to `report.Run` + a blob-URL builder + **retire the guard
+   test at `internal/report/report_test.go:240-241`** (which asserts no `/blob/`, commented *"LF-7 is
+   out of scope"*) + remove the blocker comment at `run.go:61-62`. **SHA-pinned**, since `CommitSHA`
+   and `Pushed` are both present; a branch-relative URL rots.
+
+2. **The 8 KiB brief target is gone, replaced by an audience split.** Q5: no imposed size limit,
+   declined explicitly. **The comment is for business analysts and business users; the repo artifact
+   is for technical readers.** The summary must be plain-language, **honest — not swallowing technical
+   complexity**, must **name the problems found**, and must always link the detail. One truncation
+   *warning* survives, not a budget: the final message is cut at `maxResultBytes = 32 << 10`
+   (`run.go:24,528`) **from the end**, so a runaway summary loses its tail — which is why the link and
+   the problems go early. AC-B1.2 is now qualitative.
+
+3. **Q3 and Q6 collide in exactly one place, and rev 3 says so rather than papering over it.** Go
+   parses the literal (hard enforcement) and only Research and Plan may ask — so permission is
+   `tagPresent && mode ∈ {research, plan}`, machine-enforced wherever the mode is known. **But when
+   the mode is `infer`, Go does not yet know what the run will be**, so "Implement never asks" is
+   carried in prompt text on that path only. Documented as a structural seam, not an oversight, with
+   an offered alternative (deny infer runs outright).
+
+4. **The Q8 cap left Go entirely.** No ask-round counter, no timeout, nothing in `internal/` — the
+   agent judges whether its questions are answered and honours a direct instruction to move on.
+   **AC-A1.14 makes a Go implementation of it a *failing* outcome.** Every asking comment carries a
+   standing line inviting *"move to the next phase"* — which is consistent with *One Run, One Mode*,
+   because that is precisely the human comment required to open the next mode, not litefactory
+   licensing itself to continue.
+
+**Costs C1 carries, recorded so the reversal in N1 is priced rather than assumed:** no issue-creation
+or sub-issue call exists in `internal/github` (every verb GET or POST, five call sites, **no PATCH,
+PUT or DELETE anywhere**); it needs an **eighth and ninth** method, tripping
+`internal/github/surface_test.go:56`, a test that exists to force the SDK decision — **that decision
+is the owner's, so it is N2, not a choice rev 3 takes**; the sub-issue API facts in
+`RESEARCH_BRIEF.md` are **`[W]`, second-hand and unverified** (web tools disabled all session), so
+every sub-issue task carries an AC requiring the contract be confirmed against live docs **before any
+code**; and **no backoff exists** for bulk creation, so idempotency and partial-failure recovery are
+requirements.
+
+**One stated assumption, recorded as an assumption rather than a question:** the tag **ships in this
+plan**. Q4's original question went unanswered when the owner re-scoped, but Q2, Q3 and Q6 all presume
+it does and he answered all three in detail. If that reading is wrong, **Story A1 must not ship at
+all** — A1 without the tag is ungated asking, which is R-3.
+
+~~**Worktree caveat carried into the plan header:** `internal/harness/{prompt,runner,meta,errors,doc}.go`,
+`internal/turn/{prepare,harvest}.go` and `internal/naming/session.go` are **STALE on disk** in this
+worktree; everything else matches main. Citations pin to `origin/main` @ `3427686`.~~
+**WRONG — corrected in rev 3.1.** `origin/main` is **`71d3bea`**, and **52 files** under `internal`
+and `cmd` differ from it, not seven. See the rev-3.1 entry above.
 
 **Plan rev 2 (run 0007) — the three things most worth knowing.**
 
