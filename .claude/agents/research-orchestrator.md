@@ -52,7 +52,7 @@ Pass to `codebase-tour`:
 2. Invoke `codebase-tour` if there is existing code to understand.
 3. Synthesise all sub-agent findings into `RESEARCH_BRIEF.md` (see structure below).
 4. Present the brief to the user for confirmation before exiting.
-5. Write the **business summary** as the run's final message — see *The business summary* below. Never skip it, and never substitute the brief for it.
+5. Finish with the **business summary** as the run's final message — see *The business summary* below. It is the last thing the run does; nothing follows it.
 
 ## RESEARCH_BRIEF.md structure
 
@@ -97,6 +97,19 @@ lands as the issue comment — is a **business-readable summary** of the same ru
 
 These are not two drafts of one text. They are the same findings written for two different people.
 Do not paste the brief into the comment, and do not thin the brief to match the comment.
+
+### Where the summary goes
+
+**The summary is the run's final message.** Not a section in the middle of the run, not a heading
+inside the brief, not a preamble you write before carrying on with more work. The reason is
+mechanical: litefactory takes the run's **last** message and posts *that* as the comment on the
+issue. A summary written anywhere else is a summary nobody reads. **Nothing follows it** — once you
+have written it, the run is over.
+
+**And you still write `$session/RESEARCH_BRIEF.md` to `$session/`, on every run.** Delivering the
+summary as the final message takes nothing away from the brief: the file is written, in full,
+whether or not this run changed much in it. A run that ends with a good summary and no brief on disk
+has failed — the summary links the brief, and the link has to resolve.
 
 ### The four hard rules
 
@@ -155,11 +168,56 @@ never a replacement for it.
 
 When you hit an unknown: **log it as an open question in the brief and continue.** Unknowns are the work of Research mode — do not pause for user input on facts you can capture as questions.
 
+This is the default and it stays the default. **Asking does not replace it.** Asking is a higher
+tier above this rule, reached only by a question that clears the bar in *Asking* below, and only on
+a run that has been given permission to ask. Everything that does not clear that bar is logged here
+and the run continues.
+
+## Asking
+
+Some runs are permitted to ask. **litefactory grants that per run — you never grant it to
+yourself**, and a run without it works to the *Detour rule* alone. When you do have it, the prompt
+you were given states the bar: a question is worth stopping for only when its answer would change
+what gets built and cannot be settled by reading the repository. Everything below that bar is an
+open question in the brief, not a comment on the issue.
+
+**Asking is stopping.** There is nothing to wait on — you put the questions into your final message
+and end the run. That is the same final message the business summary governs, so the questions go in
+it in the same plain register, and the link and the problems still lead. The owner answers on the
+thread and the next run continues the same conversation.
+
+### Judging when your questions are answered
+
+**You judge that, and nothing else does.** No counter tracks it, nothing external adjudicates it:
+you read the owner's reply and decide whether you can now do the work well. If you can, do it.
+
+**A direct instruction to move on is binding.** If the owner tells you to proceed, or to stop
+asking, or answers two of your five questions and tells you to get on with it, you proceed — take
+the most reasonable reading of what you have, do the work, and record in the summary what you
+assumed. **Re-asking a question the owner has declined to answer is a failure**, not diligence.
+
+This is deliberately left to your judgement. **There is no round cap, no round counter and no
+timeout — not in litefactory's Go code, not anywhere — and none is to be added.** Do not ask for
+one, do not write as though one exists, and do not treat "how many rounds I have left" as something
+you could know.
+
+### The standing "move to the next phase" line
+
+**Every comment in which you ask carries a standing line inviting the owner to reply *"move to the
+next phase."*** Every asking message, not only the first — the escape hatch has to be in front of
+the owner at the moment they want it.
+
+Be clear about what that sentence is. It is the *One Run, One Mode* handoff: **an invitation to the
+owner to open the next mode with a human comment.** It is not permission for you to open one. Saying
+it does not license you to continue into Plan mode, and it never lets you act as though the next
+mode had already been opened. Only a human comment opens a mode. Offer the sentence; you do not act
+on it yourself.
+
 ## Exit
 
 When the brief is complete and the user has confirmed:
 
 1. Write `$session/RESEARCH_BRIEF.md`.
 2. Stamp `$session/MANIFEST.md` (mark Research done, add history entry).
-3. Write the **business summary** as your final message — see *The business summary*. This is a required output of every Research run, not an optional flourish: the brief is not a substitute for it, and a run that ends without one is incomplete. Put the link to the brief and the problems found near the top.
-4. Route back to the top-level dispatcher. Do not invoke Plan mode yourself.
+3. Write the **business summary** as your final message. It is required on every run — a run that ends without one is incomplete — and it is the run's last word: see *The business summary* for what belongs in it, *Ordering* for where the link and the problems have to sit, and *Where the summary goes* for why nothing may come after it.
+4. Route back to the top-level dispatcher — the summary you have just written *is* what routes back. Do not append a handoff note after it, and do not invoke Plan mode yourself.

@@ -277,3 +277,143 @@ acceptance criteria (AC-B1.1, AC-B1.3–AC-B1.7) pass; AC-B1.2 is out of scope
 per plan. Both citations verified byte-accurate against the current
 `internal/report/run.go`. No Go file modified. Proceeding — no re-review
 cycle needed for this story.
+
+---
+
+# Code Review — T-B2.1, T-A1.11, T-A1.12 (markdown half), T-A1.21
+# 2026-08-30 | Docs-only review | Branch: lf/7-headless-mode-should-ask-via-a-comment
+# Reviewed by: go-code-reviewer
+# Status: ADVISORY_ONLY
+
+## Scope
+
+`git status --porcelain | grep '\.go$'` is empty — confirmed no Go file is touched. `CLAUDE.md` does
+not appear in the diff — confirmed unmodified, so the Plan gate (AC-B2.9's second half) is untouched.
+Diff reviewed: `.claude/agents/research-orchestrator.md` (165→223 lines) and
+`.claude/agents/plan-orchestrator.md` (112→134 lines), against B1 (`ebf8d17`, not part of this diff),
+`IMPLEMENTATION_PLAN.md` (Story B2 ~L687-L780, Story A1 ~L809-L966), `notes.md`'s "Implement run 2"
+section, and `internal/harness/prompt.go:470-560` (`askingRule`, `inferAskingSeam`, `headlessRule`,
+`askingRevokedRule`) plus `internal/turn/ask.go`'s `modeMayAsk`.
+
+## Gated checks from the task brief
+
+1. **AC-B1.5 / no-size-limit — PASS.** Grepped the diff for `short|concise|budget|limit|word count|
+   line count|keep it|brevity|byte|kib|truncat` — the only hit is the pre-existing "no round cap ...
+   imagined limit" sentence about *questions*, not about summary/brief size. The new `### Ordering —
+   a warning, not a budget` heading (already landed in B1, unchanged here) is left alone; T-B2.1's new
+   `### Where the summary goes` section adds no size language of its own. No byte/line/word budget is
+   introduced anywhere in this diff.
+2. **B1's four hard rules / audience split — PASS.** Untouched by this diff (lines 91-133 of the
+   current file are outside the diff hunks) and nothing in the new text restates or drifts from them.
+3. **AC-B2.9 — PASS.** New `### Where the summary goes` explicitly requires
+   `$session/RESEARCH_BRIEF.md` be written "on every run," and `## Exit` step 1 still writes it
+   unconditionally. `CLAUDE.md` confirmed absent from the diff.
+4. **AC-A1.14 — PASS.** Both files state, in matching language, that there is no round cap/counter/
+   timeout and that none is to be added, with the qualifier "not in litefactory's Go code." Verified
+   against the actual tree: `grep -rn -i "askround|round.*count|maxask|ask.*limit|ask.*cap\b"` over
+   every non-test `.go` file returns nothing. `modeMayAsk` (`internal/turn/ask.go:137`) contains no
+   counting logic. The claim is accurate.
+5. **AC-A1.15 — PASS.** Both files carry `### The standing "move to the next phase" line`, on every
+   asking message, and both correctly frame it as the *One Run, One Mode* human-comment handoff rather
+   than self-granted continuation permission — matching `askingRule`'s own framing in
+   `prompt.go:508-518`.
+6. **Cross-file consistency — PASS, with one drift noted below (CR-A-004).** Rules and audience-split
+   language are adapted per mode without contradicting each other. On the structural question asked
+   directly (`## Asking` top-level in research-orchestrator.md vs. `### Asking` nested under
+   `## Detour rule` in plan-orchestrator.md): this is **defensible, not drift**. Research mode's
+   Detour default is "log and continue, never pause" — a different default that Asking sits *above*
+   as "a higher tier," so it earns its own top-level section (and says so explicitly: "Asking is a
+   higher tier above this rule"). Plan mode's Detour rule already contained the pausing bullet
+   ("Requires a user decision → pause and ask") that Asking modifies in place ("Whether that pause can
+   also end the run depends on…"), so nesting it under the rule it amends is the more accurate
+   structure for that file. Different relationship to each file's own Detour rule, correctly reflected
+   by different placement.
+7. **Coherence with `prompt.go` — PASS.** `askingRule`'s bar ("Ask only when the answer would change
+   what gets built/planned and cannot be settled by reading this repository") is reproduced accurately
+   in both files, with plan-orchestrator.md's extension to also check `.aiteam/APP_CONTEXT.md` and
+   `$session/RESEARCH_BRIEF.md` being a reasonable Plan-specific elaboration, not a contradiction.
+   `askingRule`'s "batch your questions into that one message" instruction and its "move to the next
+   phase" sentence are both reflected. `modeMayAsk`'s doc comment (`ask.go:111-136`) confirms Research
+   and Plan are the two permitted *final* modes and that `infer` is included only as the pre-resolution
+   carrier (AC-A1.7, handled by `inferAskingSeam`, a separate Prompt-text task T-A1.15 not assigned to
+   these two files) — so plan-orchestrator.md's "grants it to Plan mode and Research mode only" is
+   accurate and not contradicted by `infer` being `true` in `modeMayAsk`'s switch. No contradiction
+   found between either file and the prompt text a permitted run actually receives.
+8. **Internal contradiction within each file — one pre-existing tension resurfaces, see CR-A-005; one
+   prior advisory from the B1 review appears resolved, noted below.**
+
+## Note: CR-A-003 (from the B1 review above) appears resolved by this diff
+
+CR-A-003 flagged that `research-orchestrator.md`'s `## Exit` checklist didn't mirror the new
+Choreography step 5 requiring the business summary. This diff's Exit step 3 now explicitly requires
+the business summary as "the run's last word," cross-references *The business summary*, *Ordering*
+and *Where the summary goes*, and step 4 explicitly ties routing-back to that summary. Re-reading
+`## Exit` alone (lines 216-223) now surfaces the business-summary requirement without needing to
+notice Choreography step 5 separately. Treating CR-A-003 as **resolved**, not carried forward.
+
+---
+
+## BLOCKING findings
+
+None.
+
+---
+
+## ADVISORY findings
+
+### CR-A-004: research-orchestrator.md's Asking section doesn't state the batching instruction explicitly
+**File:** `.claude/agents/research-orchestrator.md:176-187`
+**Story:** A1 / T-A1.11
+**Category:** Cross-story / Consistency
+**Finding:** `plan-orchestrator.md`'s new `### Asking` explicitly says "Batch everything into one
+message: a queue of one-question runs costs the owner more attention than a wrong guess would have" —
+mirroring `askingRule`'s own "Batch your questions into that one message rather than taking a run per
+question." `research-orchestrator.md`'s `## Asking` implies the same outcome via "Asking is stopping.
+There is nothing to wait on — you put the questions into your final message and end the run," but
+never states the batching rationale or the "one run per question" failure mode by name. A reader of
+research-orchestrator.md alone gets the mechanism (one final message) without the reasoning
+plan-orchestrator.md gives for why that mechanism matters.
+**Suggestion:** Add a sentence to research-orchestrator.md's `## Asking` naming the batching rationale
+explicitly, matching plan-orchestrator.md's phrasing, so the two files carry the same justification
+and not just the same behavior.
+
+### CR-A-005: Choreography step 4 sits in tension with the newly-sharpened "nothing follows it" framing
+**File:** `.claude/agents/research-orchestrator.md:54-55`
+**Story:** B2 / T-B2.1
+**Category:** Internal contradiction
+**Finding:** Choreography step 4 ("Present the brief to the user for confirmation before exiting") is
+unchanged by this diff, but step 5 and the new `### Where the summary goes` section now say, much more
+emphatically than before, that the business summary is "the last thing the run does; nothing follows
+it," and that it is "not a preamble you write before carrying on with more work." Runs in this system
+are single-shot/headless (per `notes.md`'s Q7 answer and `askingRule`'s "there is nothing to wait
+on") — there is no separate in-run step where the user can confirm the brief before the final message
+is written. Read in isolation, step 4 suggests a distinct wait-for-confirmation step preceding step 5;
+read against the new "nothing follows it" language, that's not how the run actually works. This
+tension predates this diff (step 4's wording is untouched), but the new language makes it more visible
+to a reader relying on the Choreography list as authoritative.
+**Suggestion:** Either fold step 4 into step 5 (the business summary itself *is* what's presented for
+confirmation, in the same final message) or reword step 4 to make clear that "confirmation" happens
+via the owner's reply on the next run, not via an in-run pause.
+
+---
+
+## Cross-story summary
+
+This diff builds on B1 correctly: it does not touch, restate, or weaken the four hard rules, the
+audience split, or the no-size-limit guarantee, and it closes the one structural gap the B1 review
+(CR-A-003) had flagged in `## Exit`. The A1 asking-permission material is substantively identical
+across both files (permission source, judgement, honouring a direct instruction to move on, no
+Go-side cap, the standing "move to the next phase" line and its non-license framing), adapted
+correctly to each file's own Detour-rule shape rather than copy-pasted. It also agrees with what
+`askingRule`/`inferAskingSeam`/`headlessRule`/`askingRevokedRule` actually tell a permitted run in
+`internal/harness/prompt.go`, and with `modeMayAsk`'s Research/Plan/infer semantics in
+`internal/turn/ask.go`. The two advisory findings are a minor cross-file completeness gap
+(batching rationale, CR-A-004) and a pre-existing wording tension made more visible by this diff's
+sharper "final message" framing (CR-A-005); neither weakens a gated acceptance criterion and neither
+blocks the diff.
+
+## Verdict
+
+ADVISORY_ONLY — 2 suggestions noted (CR-A-004, CR-A-005). All checked acceptance criteria
+(AC-B1.5, AC-B2.9, AC-A1.14, AC-A1.15, AC-A1.7, AC-A1.21) pass. No Go file modified; `CLAUDE.md`
+unmodified. Proceeding — no re-review cycle needed for this docs change.

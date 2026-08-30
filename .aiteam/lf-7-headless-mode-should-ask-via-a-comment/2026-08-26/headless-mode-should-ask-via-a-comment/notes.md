@@ -282,3 +282,94 @@ the house rules about `doc.go` prose, comment honesty and the `surface_test.go` 
   half is implemented in Go (`askingRule`), which is what actually makes a run emit the standing
   *"move to the next phase"* line, so **AC-A1.15 holds for the prompt**; what is missing is the
   instruction to the two orchestrator definitions.
+
+---
+
+# Implement run 4 — 2026-08-30 — T-B2.1, T-A1.11, T-A1.12 (markdown half), T-A1.21
+
+*The four tasks that close out Stories B2 and A1. Markdown only, two files:
+`.claude/agents/research-orchestrator.md` and `.claude/agents/plan-orchestrator.md`. Unit tests,
+integration tests and environment setup were skipped by instruction — there is no Go in this run.*
+
+## The `.claude/` permission blocker is confirmed dead
+
+Run 2's *"Not done, and why"* above says these three tasks are owner-executed because **writes under
+`.claude/` are refused**. That premise is now falsified for the second time in a day: B1's writes to
+both agent definitions landed first try this morning, and this run's writes to the same two files
+landed first try again. **It was never a deny rule** — it is a built-in approval prompt, and a
+headless run with nobody attached collapses "needs approval" into "denied". With the owner present it
+is simply an approval. Any remaining "owner-executed because `.claude/` is unwritable" scoping in the
+plan — E1's banner in particular — rests on the same wrong premise.
+
+## Decisions worth remembering
+
+1. **B1 says what the summary *is*; T-B2.1 says *where it goes*.** These were deliberately written as
+   one contract split across two adjacent sections rather than one section restating the other.
+   `### Where the summary goes` sits between B1's audience split and B1's four hard rules, and it
+   carries exactly two facts: litefactory posts the run's **last** message, so the summary must *be*
+   that message and **nothing may follow it**; and `RESEARCH_BRIEF.md` is still written to `$session/`
+   on every run regardless (AC-B2.9). No part of B1's text was reworded to accommodate it.
+
+2. **The delivery half of B2 really is free.** No Go was needed or written. `secResult` already posts
+   the final message; the work was telling the orchestrator to put the summary there. This is Q7 =
+   option 1 behaving exactly as the plan predicted.
+
+3. **The two files place `Asking` differently, and that is deliberate.** `research-orchestrator.md`
+   gets a top-level `## Asking`; `plan-orchestrator.md` gets `### Asking` nested inside its
+   `## Detour rule`. The reason is that each file's Detour default has a different relationship to
+   asking. Research mode's default is *log the unknown and continue, never pause* — asking is a tier
+   **above** that rule, so it earns its own section and says so. Plan mode's Detour rule **already
+   contained** a pausing bullet (*"Requires a user decision → pause and ask"*), so the new text amends
+   that bullet in place rather than sitting above it. The code reviewer was asked to judge whether
+   this was drift and concluded it was defensible structure.
+
+4. **T-A1.21 was written as a paragraph under the existing rule, not as a new rule.** The
+   log-and-continue sentence is untouched; the addition immediately below it says the default stays
+   the default and asking does not replace it. The test of this task was whether a reader of
+   `## Detour rule` **alone** could conclude asking had replaced logging. They cannot now.
+
+5. **The markdown had to agree with `askingRule`, not restate it.** The Go constant is what a
+   permitted run is actually told at runtime; the agent definitions are what the orchestrator reads
+   about its own role. Both files were written against `prompt.go`'s constants and the reviewer
+   verified the two do not contradict — in particular that neither file claims a Go-side cap exists
+   (AC-A1.14) and that both frame *"move to the next phase"* the way `askingRule` frames it.
+
+6. **`modeMayAsk` permits `infer`; `plan-orchestrator.md` says "Plan and Research only".** These do
+   not conflict. `infer` is the pre-resolution carrier, and the Implement-never-asks rule rides on it
+   as `inferAskingSeam` prompt text (AC-A1.7). The reviewer checked this specific pair.
+
+## Code Review Advisories
+
+`go-code-reviewer` ran as a docs review and returned **ADVISORY_ONLY** — no blocking findings, all
+eight gated axes pass. It also recorded that **CR-A-003 from the B1 review is resolved** by this
+diff: `## Exit` now mirrors the business-summary requirement instead of listing only the brief.
+
+Two new advisories, both **left unfixed on purpose** — neither is required by an AC, and acting on
+either would have widened this run's scope past the four tasks it was given:
+
+- **CR-A-004 (advisory).** `research-orchestrator.md`'s `## Asking` gives the batching *mechanism*
+  ("put the questions into your final message and end the run") but not the batching *rationale*
+  that `plan-orchestrator.md` and `askingRule` both spell out — that a queue of one-question runs
+  costs the owner more attention than a wrong guess would have. Same behaviour, one file short of
+  the justification. A one-sentence fix if the owner wants the two files to argue identically.
+
+- **CR-A-005 (advisory, pre-existing).** Choreography step 4 (*"Present the brief to the user for
+  confirmation before exiting"*) is older than this diff and sits in tension with step 5's sharpened
+  *"nothing follows it"*. In a headless single-shot run there is no in-run step where the owner can
+  confirm the brief before the final message is written. **This is a scope decision, not a wording
+  slip** — resolving it means deciding whether "confirmation" means the owner's reply on the next
+  run, or whether step 4 folds into step 5 entirely. Deliberately handed back rather than guessed at.
+
+## Not done
+
+- **Nothing from this run's four tasks is outstanding.** T-B2.1, T-A1.11, T-A1.12's markdown half and
+  T-A1.21 are all delivered.
+- **Both stories are now complete.** B2's Go — the permalink builder, the `Pushed` gate,
+  deterministic brief discovery, the truncation marker and every regenerated golden — landed at
+  `e4a8d29` (`internal/report/link.go` plus 491 lines of `link_test.go` and twelve goldens); T-B2.1
+  was its last open task and this run delivered it. A1's Go landed in run 2 and reviewed CLEAN;
+  T-A1.11, T-A1.21 and T-A1.12's markdown half were its last open items.
+- **One correction to an earlier draft of this note.** It first claimed B2's Go was untouched. That
+  was wrong and was caught by checking the tree rather than the plan: `link.go` exists and is tested.
+  Recorded because it is run 1's mistake in miniature — **do not infer repository state from a
+  document when the file tools can tell you.**

@@ -14,13 +14,13 @@
   out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
   unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
   `plan_brief.md` plus one sub-issue per story)*
-- [ ] **Implement** — code + tests *(**attempted 2026-08-30, delivered nothing — box stays unticked**.
-  **Zero of seven stories completed.** Five (S0, B2, A1, D1, C1) blocked on a diverged Go tree that
-  the permission system would not let this run sync; two (B1, E1) blocked on `.claude/` not being
-  writable; D1 additionally blocked on having no network access to pin the SDK version. The only
-  change on disk is a partial, **uncommitted** fragment of E1's docs work — `initialplan.md` and
-  `CLAUDE.md`. **That is not a story and must not be read as partial completion.** See
-  `DRIFT_REPORT.md` and `notes.md`. **`APP_CONTEXT.md` was deliberately NOT created** — see below)*
+- [ ] **Implement** — code + tests *(**four of seven stories delivered across four runs; box stays
+  unticked because three remain**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
+  reviewed CLEAN, docs tasks closed 2026-08-30), **B1** (`ebf8d17`). Open: **D1**, **C1**, **E1**.
+  **The first attempt's account of why nothing shipped was itself wrong** — there was never a
+  diverged Go tree (a diffstat read backwards), and `.claude/` was never unwritable (an approval
+  prompt collapsing to "denied" in a headless run). Both premises are struck; see `notes.md`.
+  `APP_CONTEXT.md` **exists and is current**. See `DRIFT_REPORT.md` and `notes.md`)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -302,6 +302,31 @@ asked for; nothing here licenses starting the next one.
   "needs approval" into "denied". With the owner present, **both `.claude/agents/` writes landed on
   the first attempt.** The same correction applies to E1 and to T-A1.11 / T-A1.21 / T-A1.12, which
   were re-scoped to the owner for the same wrong reason. Not pushed — the owner decides that.
+
+- 2026-08-30 — **Implement, the last four docs tasks of B2 and A1 — delivered.** T-B2.1, T-A1.11,
+  T-A1.12 (markdown half) and T-A1.21, across `research-orchestrator.md` (165→223 lines) and
+  `plan-orchestrator.md` (112→134 lines). `research-orchestrator.md` learns that the business summary
+  **is** the run's final message — because that is what litefactory posts as the comment — while
+  `RESEARCH_BRIEF.md` is still written to `$session/` on every run; both orchestrators learn that the
+  agent itself judges when its questions are answered, **must** honour a direct instruction to move
+  on, and carries the standing *"move to the next phase"* line as an invitation to the **owner**, not
+  a licence to self-continue; and `research-orchestrator.md` records that log-and-continue survives
+  as the default with asking a tier above it. **Markdown only — zero Go, no build, no tests; unit
+  tests, integration tests and environment setup skipped by instruction.** `go-code-reviewer` ran as
+  a docs review: **ADVISORY_ONLY**, no blocking findings, all eight gated axes pass; its two
+  advisories (CR-A-004, CR-A-005) were **left unfixed on purpose** and handed to the owner — see
+  `notes.md`. It also recorded **CR-A-003 from the B1 review as resolved** by this diff. ACs met:
+  **AC-A1.15** (both files), **AC-B2.9** (brief still required; `CLAUDE.md` untouched — verified
+  absent from the diff), **AC-A1.14** (no cap, counter or timeout claimed or implied; re-verified
+  against `internal/`), **AC-B2.10** and **AC-A1.7**'s no-Go constraint (`git status` shows no `.go`
+  file modified), and **AC-B1.5** (no byte, line or word budget introduced anywhere). Reviews are
+  **appended** to `CODE_REVIEW.md`, which now holds three: A1, B1 and this one.
+
+  **Stories A1 and B2 are both now complete.** A1's Go landed in run 2 and reviewed CLEAN; B2's Go —
+  the permalink builder, the `Pushed` gate, deterministic brief discovery and every regenerated
+  golden — landed at `e4a8d29`. T-B2.1 was B2's last open task and this run delivered it. **The `.claude/` permission blocker is confirmed dead for the second
+  time today** — both writes landed first try; it was an approval prompt collapsing to "denied" in a
+  headless run, never a deny rule. Not pushed — the owner pushes after verifying.
 
 ## Notes
 

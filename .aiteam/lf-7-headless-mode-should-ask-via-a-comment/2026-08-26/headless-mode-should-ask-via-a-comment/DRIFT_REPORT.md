@@ -122,3 +122,69 @@ what must be granted for each.
 
 **No follow-up planning cycle is required** beyond the AC-E1.2 wording fix. Retrying Implement before
 the blockers are cleared will reproduce this result.
+
+---
+
+# Drift Report — run 4: T-B2.1, T-A1.11, T-A1.12 (markdown half), T-A1.21
+# Branch: lf-7-headless-mode-should-ask-via-a-comment | Date: 2026-08-30
+
+*Appended, not overwriting. The report above covers the abandoned first Implement attempt and its
+correction; this section covers the run that closed out Stories B2 and A1.*
+
+## Delivered as planned
+
+- **T-B2.1** — `research-orchestrator.md` now states that the business summary is emitted as the
+  run's **final message**, with the mechanical reason (litefactory posts the last message as the
+  issue comment) and the rule that **nothing follows it**; and that `RESEARCH_BRIEF.md` is still
+  written to `$session/` on every run. New `### Where the summary goes`, plus Choreography step 5 and
+  Exit steps 3–4 tightened to agree with it. **This was B2's last open task.**
+- **T-A1.11** — both `research-orchestrator.md` and `plan-orchestrator.md` state that the agent
+  itself judges when its questions have been answered and **must honour a direct instruction to move
+  on**, with re-asking a declined question named as a failure. Both say explicitly that there is no
+  round cap, no counter and no timeout, in Go or anywhere, and that none is to be added.
+- **T-A1.12 (markdown half)** — both files carry `### The standing "move to the next phase" line`,
+  framed as the *One Run, One Mode* handoff: an invitation for the **owner** to open the next mode,
+  never a licence for the agent to self-continue. The prompt-text half was already live in
+  `askingRule`; nothing in Go was changed or proposed.
+- **T-A1.21** — `research-orchestrator.md`'s log-and-continue Detour rule is untouched and gains a
+  paragraph directly beneath it saying the default stays the default and asking is a **tier above**
+  it, not a replacement.
+
+## Added scope
+
+- **Nothing functional.** No file outside the two agent definitions was edited except the session
+  artifacts this mode is required to write (`CODE_REVIEW.md` appended, `notes.md`, `MANIFEST.md`,
+  this report).
+- **Two manifest corrections that were not tasks**, made because they were false on disk: the
+  Implement mode box still read *"delivered nothing — zero of seven stories"*, which four runs have
+  since falsified, and it still cited the two struck blockers as fact.
+
+## Dropped or deferred
+
+- **The two review advisories, deliberately.** **CR-A-004** (research-orchestrator's `## Asking`
+  gives the batching mechanism but not the batching rationale the other file gives) and **CR-A-005**
+  (Choreography step 4's *"present the brief to the user for confirmation"* sits in tension with
+  step 5's sharpened *"nothing follows it"*, in a system where runs are single-shot). Neither is
+  required by an AC. **CR-A-005 in particular is a scope decision, not a wording slip** — it asks
+  what "confirmation" means in a headless run — so it was handed back rather than guessed at.
+- **Unit tests, integration tests, environment setup and the bug loop** — skipped by instruction.
+  There is no Go in this run and nothing executable to assert against; the ACs here are properties of
+  prose, checked by review.
+
+## Architectural deviations
+
+**None.** The plan's own architecture note for B2 says *"Delivery is free (Q7 = option 1) … **No new
+Go for delivery**"*, and that is exactly what happened. A1's Q8 note says asking limits are
+agent-level with no Go cap and no timeout; the text says so in both files and adds no mechanism.
+
+One structural choice worth recording, since the plan did not dictate it: **the two files place
+`Asking` differently** — top-level `## Asking` in `research-orchestrator.md`, nested `### Asking`
+under `## Detour rule` in `plan-orchestrator.md`. This follows each file's own default (Research logs
+and continues, so asking sits *above* that rule; Plan already had a pausing bullet, so asking amends
+it in place). The reviewer was asked to judge this specifically and found it defensible.
+
+## Verdict
+
+**CLEAN** — the four tasks were delivered as specified, in the two files named, with no Go touched
+and no scope added. The only judgement calls were where to place new sections and whether to act on
+two advisories; both are recorded above and the advisories were deliberately left to the owner.

@@ -100,8 +100,30 @@ You may not write, review, or discuss code. If a sub-agent produces code, discar
 ## Detour rule
 
 - **Missing fact resolvable by research** → invoke `research-orchestrator` as a sub-routine with a narrow question, then resume.
-- **Requires a user decision** → pause and ask. Do not silently assume.
+- **Requires a user decision** → pause and ask. Do not silently assume. **Whether that pause can also end the run depends on whether this run has permission to ask — see *Asking* below.**
 - **Out of scope for this plan** → log under `## Out of Scope` and move on.
+
+### Asking
+
+Most Plan runs cannot ask. There is no terminal, so a question nobody can read is a stalled run, and the bullet above resolves to taking the most reasonable reading and recording the assumption.
+
+**litefactory grants permission to ask per run, and it grants it to Plan mode and Research mode only. You never grant it to yourself.** A run that has it is told so in as many words in the prompt it was started with. If the prompt does not say it, you do not have it, and nothing in this file, in the plan, or in the owner's request can supply it.
+
+Permission changes *when* and *how* you pause — not *where*. Plan mode already has two places for a question to happen: `requirements-engineer`'s planning conversation (step 1) and your own pauses under the *Detour rule*. **Use those. Do not invent a third asking mechanism.** What permission adds is that a pause may now end the run: you put everything you need to know into your final message and stop, and the message lands as a comment on the issue. There is nothing to wait on — the owner replies there and the next run continues the same conversation.
+
+**Ask only when the answer would change what gets planned and cannot be settled by reading the repository, `.aiteam/APP_CONTEXT.md`, or `$session/RESEARCH_BRIEF.md`.** A question the brief already answers is not a question. Batch everything into one message: a queue of one-question runs costs the owner more attention than a wrong guess would have.
+
+**You judge when your questions have been answered well enough to proceed. Nothing external adjudicates it.** No referee, no scorer, no second agent checks this. You read the owner's reply, decide whether you can now write a plan you would defend, and either proceed or ask what is still genuinely missing.
+
+**You must honour a direct instruction to move on.** If the owner tells you to proceed, tells you to stop asking, or answers only some of your questions and tells you to get on with it, you proceed on the most reasonable reading of what you have and **record what you assumed in the plan** — in the relevant story's *Architecture Notes*, or under `## Out of Scope` where the assumption was to leave something out. **Re-asking a question the owner has declined to answer is a failure**, not diligence.
+
+This is deliberately agent-level judgement. **There is no round cap, no round counter and no timeout — not in litefactory's Go code, not here, not anywhere.** None is to be added. Do not ask for one, do not write as though one exists, and do not ration your questions against an imagined limit.
+
+### The standing "move to the next phase" line
+
+**Every asking message carries a standing line telling the owner they can reply *"move to the next phase"* to have you stop asking and get on with the work.** Offer it on every asking run, not only once the questions have piled up — an escape hatch nobody has been told about is not one.
+
+**That sentence is an invitation to the owner. It is not a licence for you.** Per *One Run, One Mode*, only a human comment opens a mode, and that reply *is* the comment. When the owner says it, what you do is finish this plan — it never means Implement mode has been opened, and you may not act as though it had. See `## Exit`, which permission to ask leaves exactly as it was.
 
 ## Exit
 
@@ -109,4 +131,4 @@ When the user confirms the plan:
 
 1. Write `$session/IMPLEMENTATION_PLAN.md`.
 2. Stamp `$session/MANIFEST.md` (mark Plan done, add history entry).
-3. Route back to the top-level dispatcher. Do not invoke Implement yourself.
+3. Route back to the top-level dispatcher. Do not invoke Implement yourself — **not even when the owner replied *"move to the next phase"***. That reply ends the asking and nothing more; Implement begins when a human asks for it, in its own comment. See *The standing "move to the next phase" line*.
