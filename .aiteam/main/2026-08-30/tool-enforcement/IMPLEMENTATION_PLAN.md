@@ -53,6 +53,7 @@ run transcripts while granted in neither `--tools` nor `--allowedTools`; `permis
 | D-A6 | **US-4 is a documentation story, not an implementation story.** | If A-5 holds, `toolNameRE` already accepts both names and they are operator-authored config. AC-4.1 is already true today; it needs a test and a probe, not code. |
 | D-A7 | The guard must also catch **`--allow-dangerously-skip-permissions`**, a real flag on 2.1.251. | Verified by inspection: `forbiddenFlag()` builds `--dangerously-skip-permissions`; the allow-variant contains only `-dangerously-skip-permissions`, one hyphen, so `strings.Contains` does not match. It is the enabling half of the pair and slips both today's guard and the spec's extension. |
 | D-A8 | **Open, needs an owner answer before T-5 concludes:** if P-4 shows the shared Go caches must be writable, prefer per-run `GOCACHE`/`GOMODCACHE` under `$TMPDIR` and deny the shared caches. | A writable `GOMODCACHE` poisons every later build on the machine, not just this run. But the alternative adds two names to `harness/env.go`'s allowlist — a boundary change needing its own justification. Do not decide this inside Implement. |
+| D-A9 | **`Read(~/.claude/**)` is too broad and is replaced by an enumerated set (AC-3.3a).** It denies litefactory's own runtime data alongside the operator's secrets. Measured on issue #7, runs 0001-0011: **2 `Read` denials on the run's own persisted tool-output overflow files** under `~/.claude/projects/<project>/<session>/tool-results/`, and **1 `Write` denial** on `~/.claude/projects/<project>/memory/`. | The rule exists to keep credentials and the operator's settings away from a run, and that part is right — `.credentials.json` holds an OAuth token, `history.jsonl` holds every prompt typed on this machine, and `projects/**/*.jsonl` holds every session transcript across every repo. But `tool-results/` is **the run's own output**, persisted by the CLI and handed back to the model by path: denying it makes the overflow mechanism unusable and the failure is silent. Deny patterns cannot negate, so the fix is enumeration, not a carve-out expression. **Memory stays denied on purpose** — `projects/*/memory/` is global and cross-repo, and a run driven by a third-party issue comment must not write there. Found while clearing lf/7's blockers; folded here rather than hand-patched, because **US-3 rewrites this document anyway and P-8b can verify it** where a hand-patch could only assert it. |
 
 ## Probe gates
 
@@ -62,7 +63,7 @@ One document: `.aiteam/main/2026-08-30/tool-enforcement/CLAUDE_CLI_ENFORCEMENT_P
 | ID | Case | Grade |
 |----|------|-------|
 | P-0 | Settle the sandbox settings-key spelling from the CLI's own schema. Does an unknown key error, or is it silently ignored? | **GATE** — all sandbox work |
-| P-1 | With `--setting-sources` empty, does an explicit `--settings <file>` still apply? Assert one of the nine `Read(...)` rules still denies. | **GATE** |
+| P-1 | With `--setting-sources` empty, does an explicit `--settings <file>` still apply? Assert one of the `Read(...)` rules still denies. | **GATE** |
 | P-1b | With `--setting-sources` empty, is an ambient `~/.claude` allow-rule no longer honoured? | **GATE** |
 | P-2 | Does `--permission-mode dontAsk` start and report `permissionMode: dontAsk`? | **GATE** |
 | P-3 | With the sandbox on, does a write inside the working directory succeed? | GATE — A-2 |
@@ -71,7 +72,8 @@ One document: `.aiteam/main/2026-08-30/tool-enforcement/CLAUDE_CLI_ENFORCEMENT_P
 | P-5b | **Negative control:** with the sandbox **off**, does that same write *succeed*? | **GATE** |
 | P-6 | Is `WebFetch` reachable when granted and unreachable when not — **and does egress exist at all with no network key configured?** | GATE — A-5 |
 | P-7 | Does `dontAsk` actually **deny** a tool that is on `--tools` but absent from `--allowedTools`? | **GATE** |
-| P-8 | The **composed** argv, all levers at once: do the nine `Read(...)` rules still deny? | **GATE** |
+| P-8 | The **composed** argv, all levers at once: do the `Read(...)` rules of **AC-3.3a's amended set** still deny? | **GATE** |
+| P-8b | **The `~/.claude` split, both halves in one case (D-A9).** `.credentials.json`, `history.jsonl` and another session's `projects/**/*.jsonl` transcript are **refused**; the run's own `projects/**/tool-results/*.txt` overflow file is **read successfully**. A pass on only the deny half is a failing probe | **GATE** |
 
 **Contingencies — state the failure, do not assume the probe passes.**
 
@@ -171,7 +173,8 @@ Makes an allow-listed `Bash` less than arbitrary execution, which prefix rules c
 | T-4 | Probe P-3/P-5/P-5b: cwd write succeeds; `denyWrite` refused; **negative control with the sandbox off** | infra | T-1 | M |
 | T-5 | Probe P-4: real `go test ./...` under the sandbox; determine the minimal carve-out set, including the per-run `GOCACHE`/`GOMODCACHE` alternative (D-A8) | infra | T-1, T-4 | M |
 | T-26 | Sandbox block in `claudeSettings` with probe-settled key names; lists sorted + deduped; add `~/Library/LaunchAgents`, `~/go/bin` | data | T-1, T-5, T-12 | M |
-| T-27 | Tests: enabled unconditionally; allow-list contents; deny-list contents; nine `Read(...)` rules unchanged; no network key | test | T-26 | M |
+| T-27 | Tests: enabled unconditionally; allow-list contents; deny-list contents; **`Read(...)` rules match AC-3.3a's amended set**; no network key | test | T-26 | M |
+| T-27a | **D-A9: replace `Read(~/.claude/**)` with the enumerated set in `DefaultSettings` (`harness/settings.go`), and update `settings_test.go`.** Deny `.credentials.json`, `settings.json`, `settings.local.json`, `history.jsonl`, `sessions/**`, `session-env/**`, `shell-snapshots/**`, `backups/**`, `projects/**/*.jsonl`; leave `projects/**/tool-results/**` readable; **keep `projects/*/memory/` denied**. Gated on P-8b | data | T-26 | S |
 
 ### Acceptance Criteria
 | ID | Criterion |
@@ -179,7 +182,9 @@ Makes an allow-listed `Bash` less than arbitrary execution, which prefix rules c
 | AC-3.1 | The written document enables the sandbox for every run, unconditionally |
 | AC-3.2 | The write allowlist contains `$TMPDIR`, the Go build cache and module cache, sorted and deduplicated, plus every registered `worktree_root` |
 | AC-3.3 | The deny list contains `$LF_HOME`, every registered clone path, `~/Library/LaunchAgents`, `~/go/bin`, and `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.claude`, `~/.netrc` |
-| AC-3.4 | The nine existing `permissions.deny` `Read(...)` rules are present and unchanged |
+| AC-3.3a | **`Read(~/.claude/**)` is replaced, not kept.** The deny list enumerates the sensitive entries individually — `.credentials.json`, `settings.json`, `settings.local.json`, `history.jsonl`, `sessions/**`, `session-env/**`, `shell-snapshots/**`, `backups/**`, `projects/**/*.jsonl` — and **`~/.claude/projects/**/tool-results/**` is readable**. See D-A9 |
+| AC-3.4 | The `permissions.deny` `Read(...)` rules are present and match **AC-3.3a's amended set**, not the original nine. Every entry outside `~/.claude` — `$LF_HOME`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.netrc`, `./.env`, `./.env.*` — is unchanged |
+| AC-3.4a | A run can read back its own persisted tool-output overflow file under `~/.claude/projects/<project>/<session>/tool-results/`, and **`.credentials.json`, `history.jsonl` and another session's `*.jsonl` transcript all still deny**. P-8 covers both halves |
 | AC-3.5 | P-4 runs a real `go test` under the sandbox and is recorded; the sandbox does not ship until it is green |
 | AC-3.6 | P-5b is green: with the sandbox off, the same denied write succeeds |
 | AC-3.7 | No sandbox network restriction is configured; the document contains no domain allowlist |

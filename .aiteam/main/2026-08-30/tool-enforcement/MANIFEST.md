@@ -47,6 +47,31 @@ asked for; nothing here licenses starting the next one.
 
   Nothing implemented, nothing committed.
 
+- 2026-08-30 — **Plan amended: D-A9 added, folded in from the lf/7 investigation.**
+
+  `Read(~/.claude/**)` is too broad and denies litefactory's own runtime data alongside the
+  operator's secrets. Measured on issue #7 (runs 0001-0011): **2 `Read` denials on the run's own
+  persisted tool-output overflow files** under `~/.claude/projects/<project>/<session>/tool-results/`
+  and **1 `Write` denial** on `~/.claude/projects/<project>/memory/`. The overflow files are output
+  the CLI persists and then hands back to the model by path, so denying them breaks the mechanism —
+  silently.
+
+  Deny patterns cannot negate, so the rule is **replaced by an enumeration** (AC-3.3a): deny
+  `.credentials.json`, `settings.json`, `settings.local.json`, `history.jsonl`, `sessions/**`,
+  `session-env/**`, `shell-snapshots/**`, `backups/**` and `projects/**/*.jsonl`; leave
+  `projects/**/tool-results/**` readable. **Memory stays denied deliberately** — it is global and
+  cross-repo, and a run triggered by a third-party issue comment must not write there.
+
+  **AC-3.4 no longer says "the nine rules unchanged"** — it now pins AC-3.3a's amended set, with
+  everything outside `~/.claude` unchanged. New **AC-3.4a**, new probe **P-8b** (both halves in one
+  case: the secrets deny *and* the run's own overflow file reads), and new task **T-27a**.
+
+  Deliberately **not hand-patched today**: US-3 rewrites this settings document anyway, so the change
+  lands once and P-8b verifies it rather than a hand edit asserting it. Live runs stay mildly
+  degraded until then — 2 denials in 11 runs.
+
+  D-A8 is still open and unaffected.
+
 ## Notes
 
 Successor to `.aiteam/main/2026-08-26/tool-permissions/`, whose label→profile
