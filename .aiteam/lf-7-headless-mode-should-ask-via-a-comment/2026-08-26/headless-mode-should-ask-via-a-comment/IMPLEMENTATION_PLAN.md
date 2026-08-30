@@ -1,11 +1,15 @@
 # Implementation Plan — headless-mode-should-ask-via-a-comment
 # Branch: lf-7-headless-mode-should-ask-via-a-comment
-# Date: 2026-08-30 (rev 3.1 — targeted amendment of rev 3; see *What changed in rev 3.1*)
+# Date: 2026-08-30 (**rev 4** — all sixteen owner questions answered; see *What changed in rev 4*)
 # Issue: marioatcloudvane/litefactory#7
 # Sources: `RESEARCH_BRIEF.md` rev 2 · `feature-spec.md` · `ARCHITECT_REVIEW.md` · the owner's
-#   scoping comment of 2026-08-27 · **the owner's answers to Q1–Q11, 2026-08-30** ·
-#   **a verification pass that landed after rev 3 was written**
+#   scoping comment of 2026-08-27 · **his answers to Q1–Q11 (2026-08-30)** ·
+#   **his answers to N1–N5 (2026-08-30)** · a verification pass that landed after rev 3
 # Citations pin to `origin/main` @ **`71d3bea`** *("aiteam: scaffold the tool-enforcement session")*.
+
+> **This document is scheduled for deletion by its own Story E1.** N3 replaced Plan mode's output
+> with `plan_brief.md` plus one GitHub sub-issue per story. This file remains the plan of record
+> until E1 and C1 ship; it is then superseded, not archived in place. See **Story E1**.
 
 ---
 
@@ -43,6 +47,16 @@ GitHub claims of *its* predecessor as wrong. This is the third. The pattern is n
 careless — it is that **this worktree drifts from `origin/main` faster than documents citing it get
 rewritten**, and no artifact here has a mechanism that notices.
 
+**Rev 4 extends the warning to two new areas, without re-pinning either:**
+
+- **`internal/github`'s surface tests.** Every line number in Story D1 (`surface_test.go:56`, `:92`,
+  `:137`) and in `doc.go` is **owner-supplied and owner-verified at `71d3bea`** — the best provenance
+  in this document. They are still re-pinned before editing, because `surface_test.go` is on the
+  52-file stale list and rev 4 read none of it first-hand.
+- **`.claude/` and `CLAUDE.md`.** Story E1's file counts below come from a **disk grep**, not from
+  `71d3bea`. They are a lower bound on the work, not an exact inventory. **T-E1.0 re-runs the grep
+  against `71d3bea` before any file is edited.**
+
 ---
 
 **Worktree caveat, corrected.** `internal/harness/{prompt,runner,meta,errors,doc}.go`,
@@ -52,66 +66,53 @@ line number.
 
 ---
 
-> **Rev 3 is the first revision written against answers rather than guesses.** The owner answered
-> **all eleven** questions. Every one is recorded below as **ANSWERED**, with what he decided, so the
-> history stays readable and nothing looks outstanding that isn't.
+> **Rev 4 is the first revision with nothing outstanding from the owner.** He has now answered
+> **sixteen** questions: Q1–Q11 at rev 3, and **N1–N5 at rev 4**. Every one is recorded below as
+> **ANSWERED**, with what he decided.
 >
-> **Where his answer overrode a recommendation, it is applied without re-argument.** Q3 is the clear
-> case: rev 2 recommended option 2 (Go parses only *presence*) and he chose **option 1 (Go parses the
-> literal, hard enforcement)**. That is applied. The recommendation is left in the record for
-> archaeology only.
+> **Three of the five N-answers overrode a recommendation, and all three are applied without
+> re-argument.** N2 (SDK) reverses a documented project policy. N3 (replace the plan file) rejects
+> rev 3.1's *mirrored* recommendation outright. N5 took the recommendation but at the expensive end.
+> Where an answer reversed something, rev 4 records it as **a deliberate decision by the owner**, not
+> as drift — that is the whole point of having asked.
 >
-> **Four new questions.** Three of them exist because his Q4 answer changed the shape of the
-> deliverable rather than answering the question asked; the fourth is one spelling he settled the
-> location of but never the wording. **No others have been manufactured** — he answered a great deal
-> and rev 3 does not repay that with a fresh interrogation.
+> **Story count 5 → 7.** N2 and N3 are each far too large to bury inside C1, so each is its own
+> story: **D1** (adopt an SDK) and **E1** (Plan mode's output becomes `plan_brief.md`). C1 shrinks to
+> what it always should have been — creating and linking the sub-issues.
 >
-> **Rev 3.1 adds a fifth — N5 — and only because a fact changed**, not because a new opinion was
-> wanted: `.aiteam/` artifact discovery turns out not to exist, and B2's link needs it. N1–N4 are
-> untouched and still unanswered.
+> **Two new questions, and only two.** Both fall directly out of N2 and neither can be answered by
+> reading this repo: **N6** (which SDK, which pinned version) and **N7** (migrate all seven endpoints
+> or run a hybrid). He has answered sixteen; rev 4 does not repay that with a fresh interrogation.
 >
-> **`BLOCKED-ON-Qn` is now rare.** Everything the answers unblocked is unblocked. What remains
-> blocked is blocked on the four new questions, and it is confined to one story.
+> **`BLOCKED-ON-Nn` is now confined to one story.** S0, B1, B2, A1 and E1 are **fully unblocked**.
+> Only D1 and C1 carry blocked tasks.
 
-## What changed in rev 3.1
+## What changed in rev 4
 
-*A targeted amendment, not a rewrite. Rev 3's structure, its eleven ANSWERED entries and its four new
-questions are untouched. A verification pass returned **after** rev 3 was written and corrected six
-things — one of which makes B2 cheaper and four of which make it more expensive.*
+*The owner answered all five outstanding questions. Three answers changed the shape of the
+deliverable rather than filling a hole in it, so this is the largest structural revision since rev 1.*
 
-| # | Change | Direction |
-|---|---|---|
-| 1 | **Citation base corrected**: `origin/main` is `71d3bea`, not `3427686`. Provenance warning added at the top; re-pinning is now Implement's first task | correction |
-| 2 | **T-B2.2 (add owner/repo to `report.Run`) DELETED.** `report.Run.Ref` is a `naming.Ref`, which already carries `Forge`, `Owner`, `Repo`, `Issue` (`internal/naming/ref.go:20-31`). No new field, no new dependency, no I/O | **cheaper** |
-| 3 | **`SHAAfter`, not `CommitSHA`.** `CommitSHA` is empty on the supported path where claude commits for itself. New task + new AC | more expensive |
-| 4 | **The goldens are the real blocker, not the guard test.** `TestSuccessReport` pins the whole body via `checkGolden`; twelve golden files must be regenerated. **A task rev 3 did not have** | more expensive |
-| 5 | **Link rendering gated on `run.Pushed`** — promoted from a parenthetical fallback to a requirement, with its own AC | more expensive |
-| 6 | **`.aiteam/` artifact discovery does not exist and B2 needs it.** The genuinely expensive item; rev 3 sized B2 without it. **B2 is re-sized. See N5** | more expensive |
-| 7 | Run-ordering confirmed a second time (`harvest.go` commits then pushes; the daemon calls `turn.Execute` before `reporter.ReportTurn`). Rev 3's instruction not to re-plan it **stands unchanged** | confirmation |
-
-**Net: B2 grew.** It was *"one field, one builder, one retired test"* — it is not. See B2's re-sizing
-note.
-
-## What changed in rev 3
-
-| # | Change | Source |
-|---|---|---|
-| 1 | **All eleven questions marked ANSWERED**; the tasks they blocked are unblocked and rewritten to the chosen option | owner |
-| 2 | **The 8 KiB brief target is deleted** (Q5 — he declined a size limit explicitly). B1 is re-aimed from *shorter* to **business-readable**, with a new audience split | owner, Q5 |
-| 3 | **LF-7 (the clickable link) is pulled INTO scope** and out of `Out of Scope`. ~~Verified cheap~~ — **rev 3.1: the "cheap" half of this claim is withdrawn.** `report.Run` does carry `Branch`, `CommitSHA` and `Pushed` at render time (`internal/report/run.go:59-72`, disk line numbers), but `CommitSHA` is the wrong field and artifact discovery does not exist. **See B2's re-sizing note** | owner Q1 + verification |
-| 4 | **The run-reordering that LF-7 was thought to need is already done** — `Pushed` plus the doc at `run.go:95-97` confirms push precedes the comment. `initialplan.md:234` anticipated a change that has since landed. **Do not plan it** | verification |
-| 5 | **AC-B2.7 inverted.** It asserted the body contains no `/blob/`; the guard test `internal/report/report_test.go:240-241` *(disk; `251-254` on `71d3bea`)* must now be **retired or narrowed**, and `run.go:61-62` *(disk; the comment is at `:63`)*'s *"Plain text at M0 … (LF-7)"* comment removed. **Rev 3.1: this is the small half — the goldens are the real blocker** | verification |
-| 6 | **New Story C1 — one GitHub sub-issue per user story.** Q4's answer re-scoped Plan mode's own output. **This reverses his earlier deferral of sub-issues** — flagged as **N1** so he can correct it | owner, Q4 |
-| 7 | **Story A2 deleted.** Q11 = A1 only. Moved to `Out of Scope` with the condition that would bring it back — not left vaguely deferred | owner, Q11 |
-| 8 | **Q8's cap moves out of Go entirely** — agent-level judgement, no Go cap, no timeout. T-A1.11 changes from a Go task to an agent-definition task | owner, Q8 |
-| 9 | **Every asking comment gains a standing "say *move to the next phase*" line** — and that line is exactly the human comment *One Run, One Mode* requires to open the next mode | owner, Q8 |
-| 10 | Q6 splits the modes: **Research and Plan may ask; Implement never does.** New architecture note on what that costs given Q3 = option 1 | owner, Q6 |
+| # | Change | Source | Direction |
+|---|---|---|---|
+| 1 | **All five N-questions marked ANSWERED.** N1–N5 join Q1–Q11 in the answered record; nothing is left outstanding from the sixteen | owner | — |
+| 2 | **N1 confirmed: sub-issues are deliberately in scope.** The hedging about an accidental reversal is **removed** — he confirmed it as a change of mind, made *"for completness"*. C1 is real | owner, N1 | settled |
+| 3 | **N2 answered: adopt an SDK.** This **overrides a documented project policy** (`internal/github/doc.go`'s *"# No SDK"* section) and retires the tripwire test that forced the question. **Split out as its own Story D1** | owner, N2 | **much more expensive** |
+| 4 | **The `.Reveal()` guard is the sharpest item in D1.** `TestRevealIsCalledExactlyOnce` (`surface_test.go:137`) is what keeps the token out of logs, and an SDK takes credentials through a different path. **It will break, and it must be re-established, not deleted.** Own task, own AC | owner, N2 | **security-critical** |
+| 5 | **N3 answered: `IMPLEMENTATION_PLAN.md` is REPLACED, not mirrored.** Plan mode's output becomes **`plan_brief.md` + one sub-issue per story**. Rev 3.1 recommended *mirrored*; the recommendation is **overridden and not re-argued**. **Split out as its own Story E1** | owner, N3 | **much more expensive** |
+| 6 | **E1 is 13 files, not 4.** A disk grep for `IMPLEMENTATION_PLAN` finds **123 occurrences across 34 files**; excluding `.aiteam/` archives, **13 live files** name it. The owner's list named four. **And zero of them are Go** — see E1 | verification | more expensive |
+| 7 | **The Implement gate stays a local file check.** `plan_brief.md` becomes the gate; sub-issues are **discovered from its Story Index**. Recommended over a forge-side gate, with reasons | rev 4, N3 | risk avoided |
+| 8 | **N4 answered: the tag is `lf: ask`**, line-anchored, in the triggering comment body. T-A1.1 unblocked; **A1 is now fully unblocked** | owner, N4 | settled |
+| 9 | **N5 answered: (a), build real artifact discovery.** T-B2.3b keeps its **L** size and is **unblocked**. The `Files`-matching fallback is **removed from the plan**, with one line recording why it was rejected | owner, N5 | settled at the expensive end |
+| 10 | **C1 shrinks.** With D1 owning the client change and E1 owning the artifact change, C1 is creation, linkage, idempotency and partial-failure recovery. It now **depends on both** | rev 4 | re-scoped |
+| 11 | **A real upside recorded, not just costs.** The sub-issue API facts in `RESEARCH_BRIEF.md` are `[W]` — second-hand and unverified. **An SDK encapsulates exactly the facts that block is untrusted about**, so N2 materially *reduces* the risk C1 carries. This is an argument in the owner's favour and it belongs in the record | rev 4 | **risk reduced** |
+| 12 | **Two new questions: N6** (which SDK, which pinned version) and **N7** (migrate or hybrid). Both fall out of N2; neither is answerable from this repo | rev 4 | open |
 
 ---
 
 ## Answered questions — the record
 
-*All eleven. Nothing here is outstanding. New questions are in the next section.*
+*Sixteen. Q1–Q11 answered at rev 3; **N1–N5 answered at rev 4**. Nothing here is outstanding. The two
+genuinely new questions are in the next section.*
 
 ### Q1 — Is the research brief MIRRORED or MOVED? — **ANSWERED: MIRRORED**
 
@@ -126,10 +127,15 @@ file and the summary.
 **This is also what makes the link load-bearing.** A summary that cannot reach its detail is a worse
 artifact than the brief it replaced, so B2's link is not a nicety — see Story B2.
 
+> **Note the asymmetry rev 4 introduces, deliberately.** The *research brief* is mirrored (Q1); the
+> *plan* is replaced (N3). Two artifacts, two opposite answers, both from the owner. That is
+> consistent, not contradictory: a brief has no per-story structure to move into sub-issues, and a
+> plan does. It is recorded here so a future reader does not "fix" one to match the other.
+
 ### Q2 — Where does the tag live? — **ANSWERED: the triggering comment body**
 
 Settled. Per-run, zero new client surface, `KindFreeText` already carries the whole body. **The
-spelling was not settled** — see **N4**.
+spelling is now settled too — see N4: `lf: ask`.**
 
 ### Q3 — Who enforces the tag? — **ANSWERED: option 1, Go parses the literal**
 
@@ -144,11 +150,12 @@ path (F-15). What it buys is the thing he asked for — a machine guarantee rath
 
 He did not pick (a) or (b). He asked for something else: **one GitHub sub-issue per user story,
 instead of the stories living inside one flat `IMPLEMENTATION_PLAN.md`.** That is a change to Plan
-mode's own output. It is **Story C1**, and it carries three raised questions — **N1**, **N2**, **N3**.
+mode's own output. **N1 confirmed it as deliberate; N2 and N3 priced it.** It is now **three**
+stories: **C1** (the sub-issues), **D1** (the client change it forces) and **E1** (the artifact
+change it forces).
 
-**The question actually asked is now unanswered**, and Q2, Q3 and Q6 all presume the answer. Rev 3
-therefore proceeds on the reading that **the tag ships in this plan**, and records that as a
-**stated assumption, not a question** — see `Stated assumptions` below.
+**The question actually asked is still unanswered**, and rev 4 still proceeds on the stated
+assumption that the tag ships in this plan — see `Stated assumptions`.
 
 ### Q5 — How brief is "brief"? — **ANSWERED: no imposed size limit**
 
@@ -161,8 +168,7 @@ this plan.**
   swallow technical complexity to sound tidy.** It **names the problems found**. It **always links
   the detailed artifact**.
 - **The repo artifact is for technical readers.** It keeps its detail, its citations and its
-  provenance tagging. Nothing is cut from it. *(This also retires rev 2's warning that cutting
-  provenance tagging was a real loss — under Q1 = mirrored it was never going to be cut.)*
+  provenance tagging. Nothing is cut from it.
 
 **One truncation warning, stated once and not as a budget.** A physical ceiling remains and it is
 not ours to remove: the run's final message is cut at `maxResultBytes = 32 << 10`
@@ -179,16 +185,15 @@ Implement never asks.
 **The consequence, stated because it is the one place Q3 and Q6 collide.** With **two** modes tagged
 and **Go parsing a literal** (Q3 option 1), a *mode-named* tag would force Go to hold a table
 (`research-mode:`, `plan-mode:`, …) kept in sync with a mode vocabulary that lives in the **target
-repo's `CLAUDE.md`**, not in litefactory. **A single neutral literal does not** — Go matches one
-opaque string and the mode gate is a separate, already-existing comparison. This is the whole reason
-**N4** is worth asking.
+repo's `CLAUDE.md`**, not in litefactory. **A single neutral literal does not.** This was the whole
+reason N4 was worth asking, and **N4 chose the neutral literal.**
 
 ### Q7 — How does the brief physically reach the comment? — **ANSWERED: option 1**
 
 Full brief to the repo, summary as the comment. Consistent with Q1. Delivery is the run's **final
 message**, which `secResult` already posts — **zero new Go for delivery**. One comment per run. OD-10
-dissolves, as rev 2 predicted. Routes (ii) sidecar and (iii) Go-reads-the-file are both dead; tasks
-T-B2.3 and T-B2.4 are **deleted**.
+dissolves. Routes (ii) sidecar and (iii) Go-reads-the-file are both dead; tasks T-B2.3 and T-B2.4 of
+rev 1 are **deleted**.
 
 ### Q8 — May a resumed run ask a follow-up, and how many times? — **ANSWERED: agent-level, not Go**
 
@@ -203,7 +208,8 @@ the next phase" is precisely the human comment that `CLAUDE.md` requires in orde
 mode. The standing line is not litefactory granting itself permission to continue — it is
 litefactory telling the owner what sentence to write if he wants it to.
 
-T-A1.11 is rewritten from a Go task to a prompt/agent-definition task, and AC-A1.13 with it.
+T-A1.11 is a prompt/agent-definition task, not a Go task, and AC-A1.14 makes a Go implementation of
+the cap a **failing** outcome.
 
 ### Q9 — What may the resume header honestly claim? — **ANSWERED: (b), hedged framing**
 
@@ -214,9 +220,8 @@ T-A1.10 is unblocked and its text is settled.
 ### Q10 — Quote-reply silently drops the owner's answer — **ANSWERED: proceed with rev 2's recommendations**
 
 Both halves of the recommendation: **line-anchored marker matching**, *and* instructing the owner to
-reply plainly rather than by quote-reply. **Story S0 stays first.** T-S0.1 is unblocked and its
-decision is recorded in S0's notes. The deliberate-impersonation half (F-19, Q10(b)) stays in
-`Out of Scope`.
+reply plainly rather than by quote-reply. **Story S0 stays first.** T-S0.1 is unblocked. The
+deliberate-impersonation half (F-19, Q10(b)) stays in `Out of Scope`.
 
 ### Q11 — Do you want the parked state at all? — **ANSWERED: A1 only**
 
@@ -225,135 +230,232 @@ decision is recorded in S0's notes. The deliberate-impersonation half (F-19, Q10
 
 ---
 
-## Stated assumptions — not questions
+### N1 — Sub-issues are back in scope — **ANSWERED: CONFIRMED, DELIBERATE**
 
-*Things rev 3 proceeds on without asking, and says so.*
+> *"yes, i changed my mind and we add it here, for completness!"*
 
-1. **The tag ships in this plan.** Q4's original question — *does the tag mechanism ship here, or in
-   its own run?* — went unanswered when the owner re-scoped. Q2 (where the tag lives), Q3 (who
-   enforces it) and Q6 (which modes it covers) all presume it does, and he answered all three in
-   detail. **Rev 3 reads that as yes.** If it is a no, Story A1 must not ship at all — A1 without the
-   tag is *ungated* asking, which is R-3, the largest product risk in the brief.
-2. **The blob link is SHA-pinned, not branch-relative.** A branch-relative URL rots the moment the
-   branch moves. **Corrected in rev 3.1 on two points:**
-   - **The SHA is `SHAAfter`, not `CommitSHA`.** See B2.
-   - **Branch-relative is not a fallback and buys nothing.** The `/blob/` guard is a bare unanchored
-     `strings.Contains`, so a branch-relative URL trips it exactly as a permalink does. The real
-     fallback when the commit is not pushed is **no link at all** — see AC-B2.3.
+**Recorded as an owner-confirmed change of mind, not a slip.** On 2026-08-27 he wrote *"sub issues we
+defer to a later run; i'll create a own story later on"*; rev 3 flagged the Q4 answer as a possible
+accidental reversal and asked. **It was intentional.** All hedging about accidental reversal is
+**removed from rev 4** — C1 is firmly in scope and is planned as a first-class story.
+
+**What the confirmation costs, now priced across three stories rather than assumed inside one:**
+
+- **`internal/github` cannot create anything today.** Every verb across the call sites is GET or POST
+  for reads and comments; there is **no PATCH, PUT or DELETE anywhere**. Sub-issues need an **eighth**
+  and a **ninth** capability. → **N2, and Story D1.**
+- **The plan's own shape changes**, because stories move out of a file and onto the forge. → **N3,
+  and Story E1.**
+- **The sub-issue API facts in `RESEARCH_BRIEF.md` are `[W]`** — second-hand and unverified. Every
+  sub-issue task carries an AC requiring the contract be confirmed against live GitHub documentation
+  **before any code is written**. *(N2 materially reduces this risk — see below.)*
+- **No backoff exists** for bulk creation. Eight stories is eight creations plus eight attachments
+  against a rate-limited API, in a loop, with no retry anywhere. Idempotency and partial-failure
+  recovery are **requirements**, not niceties.
+
+### N2 — SDK or hand-rolled? — **ANSWERED: USE AN SDK**
+
+> *"we do it via the SDK!"*
+
+**This overrides a documented project policy, and rev 4 plans it as the deliberate reversal it is —
+not as a quiet swap.** Three artifacts in `internal/github` exist specifically to prevent this
+happening by accident, and each must be dealt with **on purpose, with the reasoning recorded in the
+commit**. That is Story **D1**.
+
+**What the policy says, verbatim, and what must happen to it:**
+
+1. **`internal/github/doc.go` has an explicit `# No SDK` section.** It reads: *"Six endpoints do not
+   justify a dependency. Everything here is net/http plus the Link-header helper in pagination.go.
+   The rule for revisiting that: if a third pagination special case appears, reach for a library."*
+   **That section must be rewritten**, and the rewrite must record **who decided and why** — and in
+   particular that **the trigger was sub-issues, not the third pagination case the rule anticipated**.
+   A future reader must not conclude the documented trigger fired. *(Minor: the prose says "six
+   endpoints" and the test says seven. Reconcile both while rewriting.)*
+2. **`TestClientMethodSetIsTheSevenEndpoints` (`surface_test.go:56`) is the tripwire that forced this
+   decision, and it worked.** Its message says: *"An eighth is a reason to re-open the SDK question,
+   not to add a method quietly."* **The question was re-opened and it has now been answered.** The
+   test is retired or reworked **deliberately**, and the change references that message so the record
+   shows the tripwire did its job rather than being stepped over.
+3. **`TestNoForgeAbstraction` (`surface_test.go:92`) forbids declaring an interface in any non-test
+   file in `internal/github`**, and `doc.go` calls a `forge.go` at M0 *"a review blocker"*.
+   **An SDK does not require an interface — but a wrapper is exactly where one gets smuggled in.**
+   **Explicit constraint for D1: adopting an SDK must not introduce the forge abstraction.** A
+   concrete wrapper struct is fine; an interface in a non-test file is not. LF-18 says that
+   abstraction is to be *extracted later from two real implementations*, not guessed now. **This test
+   stays green through D1**, and a diff that turns it red is a failing outcome, not a consequence.
+
+**The security item, and it is the sharpest thing in this revision.**
+
+`TestRevealIsCalledExactlyOnce` (`surface_test.go:137`) fails the build if `.Reveal()` appears on any
+line not containing `Authorization`, or more than once in the package. **That test is what keeps the
+token out of logs** — it makes "the credential is revealed at exactly one place, and that place is
+the `Authorization` header" a compile-time-ish property rather than a habit.
+
+**An SDK takes credentials through a different path** — typically an `oauth2` token source or a
+custom `http.Client` installed at construction — **so this guard will break.** It is not incidental
+breakage; it is the removal of the single mechanism preventing credential leakage into logs.
+
+**Requirement, not a suggestion: re-establish an equivalent guarantee. Do not delete the test.**
+It gets **its own task (T-D1.6) and its own AC (AC-D1.6)**. Whatever form the new guard takes, it
+must still fail the build when the token is revealed anywhere other than the one place that hands it
+to the transport.
+
+**Three things D1 must decide and state — two of them are N6 and N7:**
+
+- **Which SDK, and which pinned version.** → **N6.**
+- **Do the existing seven endpoints migrate, or do only the new sub-issue calls use the SDK?** →
+  **N7.** Recorded plainly: **a hybrid leaves two HTTP stacks and two error taxonomies in one
+  package**, and — worse for the item above — **two credential paths**, which makes the `.Reveal()`
+  guarantee materially harder to re-establish than either pure option.
+- **The one genuine unknown: whether the chosen SDK version supports sub-issues at all.** GitHub's
+  sub-issue API is recent, and SDK coverage of recent endpoints lags. **Web tools are disabled
+  session-wide, so this cannot be checked here.** It is therefore **an acceptance criterion — that it
+  is confirmed before implementation — and explicitly not an assumption.** If the SDK does not cover
+  sub-issues, the fallback is the SDK's generic request escape hatch (most Go GitHub SDKs expose one),
+  and **that fallback must be confirmed too, not assumed.** AC-D1.2.
+
+**The upside, recorded because the record has so far been all cost.** The sub-issue facts in
+`RESEARCH_BRIEF.md` are tagged **`[W]` — second-hand and unverified**, and that block is the least
+trustworthy input to this entire plan: its own source records six of its predecessor's external
+GitHub claims as wrong, two load-bearing. **An SDK encapsulates precisely what that block is untrusted
+about** — endpoint paths, payload field names, pagination shape, and the `sub_issue_id`-versus-issue-
+number trap that is the easiest way to get sub-issues silently wrong. **Adopting one materially
+reduces the risk C1 carries**, converting a class of unverifiable-here facts into a dependency's
+tested surface. **That is a real argument in the owner's favour and it is why N2 makes C1 cheaper
+even as it makes the package more expensive.**
+
+### N3 — Is the plan mirrored or replaced? — **ANSWERED: REPLACED**
+
+> *"the plan is not necessary at this state, since we move user stories into sub-tasks! we would only
+> keep a 'plan_brief.md' that keeps all necessary information shared across sub issues that the agents
+> then need to read, e.g. common decisions, workflow and alike!"*
+
+**Rev 3.1 recommended *mirrored*. That recommendation is overridden and is not re-argued.** It is left
+in the record for archaeology only.
+
+**Plan mode's output becomes two things:**
+
+1. **`plan_brief.md`** — the shared context every sub-issue's implementer needs: common decisions,
+   workflow, cross-cutting constraints, and the index of where the stories live.
+2. **One GitHub sub-issue per user story** — carrying that story's own architecture notes, tasks and
+   acceptance criteria.
+
+**The flat `IMPLEMENTATION_PLAN.md` goes.** This is **Story E1**, and it is bigger than the owner's
+question implied — see the file count below.
+
+**The obvious risk, named rather than discovered later.** `CLAUDE.md`'s Implement gate is
+*"Implement requires `$session/IMPLEMENTATION_PLAN.md`"* — **a local file-existence check**. If the
+stories live in sub-issues, a naive reading says the gate must check the forge. **That would put a
+network call in a place that has never made one**, and it makes mode entry fail on a rate limit, an
+outage, an expired token or an offline worktree — failure modes a gate should not have.
+
+**Recommendation, and it is what rev 4 plans: `plan_brief.md` is the gate.** Sub-issues are
+**discovered from its Story Index**, not from the forge. Reasons:
+
+- The gate stays a **local file-existence check** — the same shape it has today, no new failure modes.
+- `plan_brief.md` is **in git**: versioned, diffable, reviewable. A sub-issue is editable by anyone
+  with write access, so the forge copy is mutable and unversioned. **The gate should key on the
+  versioned artifact**, and the owner's own phrasing supports this — it is the thing *"the agents then
+  need to read"*.
+- Discovery via the index is **testable offline**; discovery via the forge is not.
+
+**And the anti-duplication rule, which is the failure mode this design must avoid.** If `plan_brief.md`
+repeats what the sub-issues say, the two drift, and a reader cannot tell which is authoritative.
+**The rule: `plan_brief.md` carries only what two or more stories need.** Anything true of exactly one
+story lives in that story's sub-issue and nowhere else. **No per-story task tables. No per-story
+acceptance criteria. No per-story architecture notes.** The Story Index carries identity and location
+only — ID, title, size, dependencies, sub-issue link — never content. **AC-E1.5.**
+
+### N4 — How is the tag spelled? — **ANSWERED: `lf: ask`**
+
+The recommendation was taken. The tag is the **neutral literal `lf: ask`**, **line-anchored**, in the
+**triggering comment body**.
+
+One neutral literal covers both Research and Plan with no table in Go and no coupling to a mode
+vocabulary that lives in the target repo's `CLAUDE.md`. **T-A1.1 is unblocked and A1 is now fully
+unblocked.**
+
+**One collision check, worth a line because two line-anchored literals now exist in this codebase and
+they are not the same thing:** litefactory's self-marker is `<!-- lf:` (an HTML comment,
+`turn/classify.go:38`, line-anchored by Story S0); the ask tag is the bare literal `lf: ask`. They do
+not match each other — `<!-- lf:` will not match a line beginning `lf: ask`, and vice versa. **State
+this in the tag parser's doc comment**, because the resemblance is close enough to invite a future
+"simplification" that merges them. **T-A1.1.**
+
+### N5 — How does the comment find `RESEARCH_BRIEF.md`? — **ANSWERED: (a), build real artifact discovery**
+
+The recommendation was taken, **at the expensive end**. Locate `$session/RESEARCH_BRIEF.md`
+deterministically so the link **always** renders. **B2 keeps its L size and the link half is
+unblocked.** T-B2.3b is no longer BLOCKED and no longer branches.
+
+**Option (b) — matching a `RESEARCH_BRIEF.md` suffix out of `Files` — is removed from the plan.** One
+line records why, so it is not rediscovered as a clever shortcut: **it drops the link on any run that
+summarises without rewriting the brief** (a resumed research run answering a question; any Plan-mode
+summary), which breaks **B1's fourth hard rule that the summary always links the detail** — and it
+fails precisely on the runs where the reader has least context.
 
 ---
 
 ## New questions
 
-*Five. Three come from Q4's re-scope; one is a spelling; **N5 is new in rev 3.1** and is the one that
-re-sizes B2. **N1–N4 are unchanged — no human has replied to any of them.***
+*Two. Both fall directly out of N2, and **neither is answerable by reading this repo** — one needs a
+dependency judgement, the other needs a scope call. Nothing else has been manufactured; sixteen
+answers is enough.*
 
-### N1 — Sub-issues are back in scope. **This reverses your earlier deferral — is that intended?**
+### N6 — Which SDK, and which version is pinned?
 
-On 2026-08-27 you wrote: *"sub issues we defer to a later run; i'll create a own story later on."*
-Rev 2 recorded that in `Out of Scope` and built nothing for it. **Your Q4 answer asks for exactly
-that thing**, now, as Plan mode's output: one GitHub sub-issue per user story instead of a flat
-`IMPLEMENTATION_PLAN.md`.
+N2 settled *that* we adopt one. It did not settle *which*.
 
-**Flagging it plainly rather than quietly obeying the newer instruction**, because the reversal may
-be accidental — Q4 asked what a phrase *meant*, and the answer changed the deliverable instead.
+- **Recommendation: `github.com/google/go-github`.** It is the de-facto standard Go client for the
+  GitHub REST API, permissively licensed, and it is the library `doc.go`'s *"reach for a library"*
+  rule was plainly written about. **Say so if you want a different one** — the plan does not depend on
+  the choice, only on it being recorded.
+- **The version must be pinned to an exact major and minor, and the literal written into
+  `plan_brief.md`** — not "latest". **Rev 4 deliberately does not name a version**, because web tools
+  are disabled session-wide and it cannot check which major is current or which majors ship sub-issue
+  support. **Naming one here would be exactly the `[W]`-grade guess this plan spends a page warning
+  about.**
+- **This is not a blocker for planning** — D1's tasks are written against "the SDK" and are unchanged
+  by which one it is. It **is** a blocker for D1's first line of code.
 
-**If intended, Story C1 is real and the costs in N2 and N3 apply.** If not, say so and C1 is deleted
-in one line.
+### N7 — Do the existing seven endpoints migrate to the SDK, or only the new sub-issue calls?
 
-**The costs C1 carries, so the reversal is priced rather than assumed:**
+- **(a) Full migration** — all seven move; `net/http` and the Link-header helper in `pagination.go`
+  come out. Largest diff, **one** HTTP stack, **one** error taxonomy, **one** credential path.
+- **(b) Hybrid** — the seven stay hand-rolled, only sub-issue calls use the SDK. Smallest diff now,
+  and **the option the plan is most wary of**: it leaves **two HTTP stacks, two error taxonomies and
+  two credential paths** permanently in one package — plus `doc.go` describing a "No SDK" package that
+  half-uses one.
 
-- **No issue-creation or sub-issue call exists in `internal/github`.** Every verb is GET or POST
-  across five call sites; there is **no PATCH, PUT or DELETE anywhere**. C1 needs an **eighth and a
-  ninth** client method.
-- That trips **`internal/github/surface_test.go:56`** — a test that exists specifically to force the
-  SDK decision. See **N2**.
-- **The sub-issue API facts in `RESEARCH_BRIEF.md` are tagged `[W]` — second-hand and unverified**,
-  because web tools were disabled for the entire research session. Every sub-issue task in C1
-  therefore carries an acceptance criterion requiring the contract be **confirmed against live GitHub
-  docs before any code is written**.
-- **No backoff exists** for bulk creation. A plan with eight stories is eight POSTs in a loop against
-  an API with rate limits, and nothing in `internal/github` retries.
+**Recommendation: (a), full migration** — and the deciding argument is **not** tidiness, it is
+**AC-D1.6**. Two credential paths means the `.Reveal()`-exactly-once guarantee must hold across both,
+which is materially harder to re-establish and easier to erode later. **One path is one thing to
+guard.**
 
-### N2 — SDK or hand-rolled? The eighth method forces the decision you deferred
+**But the cost is real and is yours to weigh:** (a) rewrites seven working, tested methods that
+nobody asked to have changed, in a package whose surface is deliberately pinned by tests — and it does
+so in service of a feature about sub-issues. **If you want (b) now and full migration later, say so**
+and D1 shrinks substantially; the two-credential-path risk is then recorded in `Out of Scope` with the
+guard requirement applying to both paths, rather than being discovered in production.
 
-`TestClientMethodSetIsTheSevenEndpoints` (`internal/github/surface_test.go:56`) fails the moment an
-eighth client method exists. **That is deliberate** — the test is a tripwire whose purpose is to make
-someone stop and decide whether to keep hand-rolling HTTP or adopt an SDK, rather than growing a
-ninth, tenth and eleventh method by accretion.
+---
 
-C1 needs **two** new methods. **The decision is yours, and rev 3 will not take it silently** — taking
-it silently is the exact defect rev 2 was written to correct.
+## Stated assumptions — not questions
 
-- **(a) Hand-roll two more methods** and widen the test to nine. Cheapest now; the tripwire fires
-  again at the tenth.
-- **(b) Adopt `go-github`** (or similar) and delete the tripwire. A real dependency decision, a
-  migration of five existing call sites, and out of proportion to this feature alone — but it is the
-  decision the test was planted to provoke.
-- **(c) Neither — C1 does not ship.** See N1.
+*Things rev 4 proceeds on without asking, and says so.*
 
-**No recommendation offered.** This is a dependency choice for the project, not for this issue.
-
-### N3 — If the plan becomes sub-issues, is `IMPLEMENTATION_PLAN.md` MIRRORED or REPLACED?
-
-Exactly the Q1 question, one artifact along. **Your Q1 answer suggests you like mirroring** — file
-stays, comment summarises, link connects them — **so this asks rather than assumes.**
-
-- **Mirrored** — `IMPLEMENTATION_PLAN.md` still written; sub-issues carry a business-readable summary
-  of each story and link back. **`CLAUDE.md`'s Implement gate (*"Implement requires
-  `$session/IMPLEMENTATION_PLAN.md`"*) keeps working untouched.** Symmetric with Q1.
-- **Replaced** — sub-issues only, no file. The Implement gate can then never pass, so `CLAUDE.md`
-  must change and `initialplan.md:243` (*"State is inferred from artifacts, not self-reported"*) must
-  be amended in the same change. Also: a sub-issue is editable by anyone with write access, so the
-  plan of record becomes mutable and unversioned.
-
-**Recommendation: mirrored**, for symmetry with Q1 and because it is the only option that leaves the
-Implement gate intact.
-
-### N4 — How is the tag spelled?
-
-You settled **where** it lives (Q2: the triggering comment body). You never settled the **wording**.
-It now matters more than it did, because Q3 = option 1 means **Go matches the literal**, and Q6 means
-**two** modes are tagged.
-
-- **`research-mode: ask` verbatim** — your original words. Under Q6 = Research + Plan this forces a
-  second literal (`plan-mode: ask`) and a table in Go kept in sync with a vocabulary that lives in
-  the **target repo's `CLAUDE.md`**. Go then holds mode names it cannot validate.
-- **`lf: ask`** — one neutral literal, forever, covering both modes with no table and no vocabulary
-  coupling. The mode gate stays where Go already knows the mode.
-
-**Recommendation: `lf: ask`.** **This renames your tag, so it needs your say-so.** If you want
-`research-mode: ask` kept, say so and A1 takes a two-literal table instead — it is a bigger matcher
-and a maintenance coupling, not a blocker.
-
-### N5 — How does the comment find `RESEARCH_BRIEF.md`? *(new in rev 3.1 — this is what re-sized B2)*
-
-**There is no `.aiteam/` artifact discovery anywhere in the code, and B2's link needs one.** The only
-path source on `report.Run` is `Files []git.FileChange` — the git-status list. Artifact discovery is
-explicitly out of scope at M0. **Rev 3 sized B2 as if the path were already available. It is not.**
-
-This is the genuinely expensive item in B2, and the two ways out differ in cost *and* in whether they
-honour a rule you set yourself at Q5.
-
-- **(a) Build real artifact discovery.** Locate `$session/RESEARCH_BRIEF.md` deterministically and
-  link it. **Net-new work** — the expensive option, and the reason B2's size moved. **It always
-  produces a link.**
-- **(b) Match the brief out of `Files`.** The brief will usually appear as a changed path in the same
-  run that wrote it, so scanning `Files` for a `RESEARCH_BRIEF.md` suffix is cheap and needs no new
-  concept. **But it silently produces no link on a run that posts a summary without rewriting the
-  brief** — a resumed research run answering a question, or any Plan-mode summary.
-
-**Recommendation: (a).** Not on cost — (b) is plainly cheaper — but because **(b) breaks a rule you
-set.** B1's fourth hard rule is that the summary *"always links the detailed artifact"*, and that
-rule is the entire reason the plain-language register is affordable: nothing is lost, it is one click
-away. A link that is present most of the time turns *"read the detail here"* into *"read the detail
-here, sometimes"*, and the runs where it goes missing are the resumed ones — precisely the runs where
-the reader has least context.
-
-**Put to you rather than decided, because it is a cost-versus-your-own-rule trade and the cost is
-real.** If you would rather have (b) now and discovery later, say so and B2 shrinks back to roughly
-its rev-3 size; AC-B2.2 then relaxes to *"when the brief appears in `Files`"*, and the gap is recorded
-in `Out of Scope` rather than left to be discovered in production.
+1. **The tag ships in this plan.** Q4's original question — *does the tag mechanism ship here, or in
+   its own run?* — went unanswered when the owner re-scoped. Q2 (where the tag lives), Q3 (who
+   enforces it), Q6 (which modes) and N4 (its spelling) all presume it does, and he answered all four
+   in detail. **Rev 4 reads that as yes.** If it is a no, Story A1 must not ship at all — A1 without
+   the tag is *ungated* asking, which is R-3, the largest product risk in the brief.
+2. **The blob link is SHA-pinned, not branch-relative.** A branch-relative URL rots the moment the
+   branch moves, **and** buys nothing here: the `/blob/` guard is a bare unanchored
+   `strings.Contains`, so a branch-relative URL trips it exactly as a permalink does. **The SHA is
+   `SHAAfter`, not `CommitSHA`** — see B2. The real fallback when the commit is not pushed is **no
+   link at all** (AC-B2.3).
+3. **E1's file inventory is a lower bound.** The 13-file count is from a disk grep, and disk is stale
+   in 52 files. T-E1.0 re-runs it against `71d3bea`. **The count may go up; it will not go down.**
 
 ---
 
@@ -366,10 +468,12 @@ Stops a quote-reply from being misclassified as litefactory's own output and dis
 first**, because every other story here depends on the owner being able to reply to a comment that
 carries a marker — and today, on the most natural reply path, he cannot.
 
+**Size: M. Fully unblocked.**
+
 ### Architecture Notes
 
 - **Route settled (Q10): line-anchor the marker match, AND instruct the owner to reply plainly.** Both
-  halves, not one. T-S0.1 is unblocked and T-S0.6 is no longer conditional.
+  halves, not one.
 - **The defect in one line:** `HasMarker` = `strings.Contains(body, "<!-- lf:")` anywhere
   (`turn/classify.go:38`), and `selfReason` is tested **before** the owner check
   (`classify.go:207-214`). A quoted marker therefore beats owner authorship.
@@ -383,9 +487,10 @@ carries a marker — and today, on the most natural reply path, he cannot.
   under-pinned by tests. Pin it first, then change it.
 - **Silence is the real bug.** Some bodies will still legitimately classify `self`. Every drop must
   be logged with its `SelfReasonMarker` so the next occurrence is diagnosable instead of invisible.
-- **Now doubly load-bearing.** Under Q1 = mirrored + Q7 = option 1, every research run posts a
+- **Now triply load-bearing.** Under Q1 = mirrored + Q7 = option 1, every research run posts a
   marker-bearing, highly quotable summary. Under Q3 = option 1 the owner must reply to ask-comments
-  for the feature to work at all. S0 is the precondition for both.
+  for the feature to work at all. **And under N3, sub-issues become a second stream of
+  marker-bearing comments to reply to.** S0 is the precondition for all three.
 - Platform: no new package, no dependency, no goroutine, no query, no HTTP surface, no migration. A
   matcher change and logging inside `internal/turn`.
 - Out: the deliberate-impersonation half (F-19) — `Out of Scope`.
@@ -419,10 +524,11 @@ carries a marker — and today, on the most natural reply path, he cannot.
 > As a business reader, I want the issue comment to tell me in plain language what was found and what
 > the problems are, so that I do not have to read a technical brief to know where things stand.
 
-**Re-aimed this revision.** Rev 2's B1 was *"briefs get much shorter"*, built around an 8 KiB budget.
-Q5 deleted the budget. B1 is now about **audience**, not length: `research-orchestrator.md` learns to
-produce **two** outputs — the technical artifact it already writes, and a business-readable summary
-for the comment. Zero Go. The fastest thing in this plan to ship.
+`research-orchestrator.md` learns to produce **two** outputs — the technical artifact it already
+writes, and a business-readable summary for the comment. Zero Go. The fastest thing in this plan to
+ship.
+
+**Size: S. Fully unblocked.**
 
 ### Architecture Notes
 
@@ -434,15 +540,18 @@ for the comment. Zero Go. The fastest thing in this plan to ship.
      says it is hard and why, in business terms.
   3. **It names the problems found.** A summary that reports only progress is a failing summary.
   4. **It always links the detailed artifact.** This is what makes the plain-language register
-     affordable — nothing is lost, it is one click away. **Delivered by Story B2.**
+     affordable — nothing is lost, it is one click away. **Delivered by Story B2, and N5 = (a) is
+     what makes "always" literally true.**
 - **No size limit. Do not reintroduce one.** He declined one explicitly.
 - **One truncation warning, not a budget.** The final message is cut at `maxResultBytes = 32 << 10`
   (`report/run.go:24`), **from the end** (`run.go:528`). A runaway summary therefore loses its
   **tail** — and the tail is where the link and the open questions live. **State this in the template
-  as a warning about ordering**: put the link and the problems early, not last. It is a physical
-  ceiling that is not ours to remove, not a target to hit.
+  as a warning about ordering**: put the link and the problems early, not last.
 - **The technical artifact keeps everything.** Provenance tagging ([V]/[O]/[W]/[R0]), citations,
-  section depth — all stay. Under Q1 = mirrored nothing is being traded away.
+  section depth — all stay.
+- **These rules are reused verbatim by C1.** Sub-issue bodies are read by the same audience under the
+  same register. **Written once here, referenced there** — and under N3 they end up stated once in
+  `plan_brief.md`, which is exactly the kind of cross-story content it exists to hold.
 - Risk: an instruction with no enforcement is a suggestion. The only available lever is a template
   explicit enough that a deviation is visible when read.
 - Platform: **not applicable** — markdown only, no Go, no build, no tests to run.
@@ -479,66 +588,56 @@ for the comment. Zero Go. The fastest thing in this plan to ship.
 Delivers B1's summary to the issue thread and makes the link to the repo artifact real. Under
 Q7 = option 1 the delivery half is free; the link half is the only Go in this story.
 
-> ### ⚠ Re-sized in rev 3.1 — **this story grew, and rev 3 said the opposite**
+**Size: L. Fully unblocked as of rev 4 (N5 = (a)).**
+
+> ### Sizing note — B2 grew at rev 3.1 and rev 4 does not shrink it back
 >
-> Rev 3 called the link *"three small things, not a project"* and sized it **one field, one builder,
-> one retired test**. A verification pass that landed after rev 3 was written found that **three of
-> those four claims were wrong or incomplete**:
+> Rev 3 called the link *"three small things, not a project"*. A verification pass found three of its
+> four claims wrong or incomplete:
 >
 > | Rev 3 said | Actually |
 > |---|---|
-> | Add repo owner/name to `report.Run` — *"the one genuinely missing input"* | **Not needed.** `report.Run.Ref` is a `naming.Ref` and already carries `Forge`, `Owner`, `Repo`, `Issue` (`internal/naming/ref.go:20-31`) — **cheaper** |
+> | Add repo owner/name to `report.Run` — *"the one genuinely missing input"* | **Not needed.** `report.Run.Ref` is a `naming.Ref` already carrying `Forge`, `Owner`, `Repo`, `Issue` (`internal/naming/ref.go:20-31`) — **cheaper** |
 > | Use `CommitSHA` | **Wrong field.** `CommitSHA` is empty exactly on the supported path where claude commits for itself. Must be `SHAAfter`, **which is not plumbed** |
-> | Retire one guard test | **The goldens are the real blocker.** Twelve golden files pin whole bodies. A task in its own right, which rev 3 did not have |
-> | *(not mentioned)* | **`.aiteam/` artifact discovery does not exist.** The link has nothing to point at. **See N5** |
+> | Retire one guard test | **The goldens are the real blocker.** Twelve golden files pin whole bodies |
+> | *(not mentioned)* | **`.aiteam/` artifact discovery does not exist.** **N5 = (a): build it.** |
 >
-> **Net: from S/M to L**, and one of the four is a decision, not a task. **B2 is no longer "fully
-> unblocked"** — the shipping order is corrected accordingly.
->
-> *One thing rev 3 got right and rev 3.1 confirms: **push already precedes the comment.** `harvest.go`
-> commits then pushes, and the daemon calls `turn.Execute` before `reporter.ReportTurn`. **Do not
-> re-plan the ordering.** AC-B2.11 stands.*
+> **Net: L.** **Rev 4 changes only the last row** — it is answered, not cheaper. *Push already
+> precedes the comment: `harvest.go` commits then pushes, and the daemon calls `turn.Execute` before
+> `reporter.ReportTurn`. **Do not re-plan the ordering.** AC-B2.11 stands.*
 
 ### Architecture Notes
 
 - **Delivery is free (Q7 = option 1).** `secResult` already posts the run's final message. The work
-  is instructing `research-orchestrator.md` to put the summary there. **No new Go for delivery.** One
-  comment per run. OD-10 is retired.
-- **The link — LF-7 — is IN scope, and it is five things, not three.** Corrected in rev 3.1:
-  - **Owner/repo is NOT missing — drop that task.** `report.Run.Ref` is a `naming.Ref`, which already
-    carries `Forge`, `Owner`, `Repo` and `Issue` (`internal/naming/ref.go:20-31`). The URL is built
-    from a field the package already holds. **No new field, no new dependency, no I/O** — which
-    matters, because `internal/report`'s own package doc says it holds **no database handle and does
+  is instructing `research-orchestrator.md` to put the summary there. **No new Go for delivery.**
+- **The link — LF-7 — is IN scope, and it is five things:**
+  - **Owner/repo is NOT missing.** `report.Run.Ref` is a `naming.Ref` carrying `Forge`, `Owner`,
+    `Repo` and `Issue` (`internal/naming/ref.go:20-31`). **No new field, no new dependency, no I/O** —
+    which matters, because `internal/report`'s package doc says it holds **no database handle and does
     no git or forge work**. Importing `internal/github` here would break that; building from `Ref`
-    does not. **Keep the package choice: build it in `internal/report`.**
+    does not. **Build it in `internal/report`.**
   - **The SHA must be `SHAAfter`, and `SHAAfter` is not plumbed.** `turn.Result.SHAAfter` is not
     passed into `report.Run` by `runInput` (`internal/turn/report.go`, the struct literal).
     **`CommitSHA` alone is wrong**: on the supported path where **claude commits for itself** via its
-    own Bash tool, `git.CommitResult.SHA` is empty while `Head` has moved — so `CommitSHA` is empty
-    *exactly there* and a SHA-pinned permalink renders blank. **The fix is a `report.Run` field plus
-    one line in the `runInput` literal**, and an AC covering that path specifically.
+    own Bash tool, `git.CommitResult.SHA` is empty while `Head` has moved — so a SHA-pinned permalink
+    renders blank *exactly there*. **A `report.Run` field plus one line in the `runInput` literal**,
+    with an AC covering that path specifically.
   - **The goldens are the real blocker, not the guard test.** `TestSuccessReport` ends with
-    `checkGolden(t, "run_succeeded", body)`, which pins the **entire body** — any added line fails
-    it. The same holds for the other goldens under `internal/report/testdata/`: `run_failed`,
-    `run_push_failed`, `run_sparse_result`, `run_truncated`, `run_never_started`,
-    `run_no_result_recorded`, plus five `outcome_*`. **Regenerating the affected goldens is a task in
-    its own right** and rev 3 did not have one.
-  - **The `/blob/` guard is a bare unanchored `strings.Contains`**, so a **branch-relative URL trips
-    it too**. Branch-relative buys nothing here and is not a fallback. Retire or narrow the guard
-    either way.
-  - **The blocker comment to remove** is `report/run.go`'s *"Plain text at M0: no links, no
-    SHA-pinned permalinks (LF-7)"* — **disk `:62`, `71d3bea` `:63`.**
-  - **And there is nothing to point at yet: `.aiteam/` artifact discovery does not exist.** The only
-    path source on `report.Run` is `Files []git.FileChange`, the git-status list; artifact discovery
-    is explicitly out of scope at M0. **This is the expensive item and it is N5's decision.** Tasks
-    below branch on the answer.
+    `checkGolden(t, "run_succeeded", body)`, pinning the **entire body** — any added line fails it.
+    Same for `run_failed`, `run_push_failed`, `run_sparse_result`, `run_truncated`, `run_never_started`,
+    `run_no_result_recorded`, plus five `outcome_*` under `internal/report/testdata/`.
+    **Regenerating them is a task in its own right.**
+  - **The `/blob/` guard is a bare unanchored `strings.Contains`**, so a branch-relative URL trips it
+    too. Retire or narrow it.
+  - **Artifact discovery is real work and is now decided (N5 = (a)).** Locate
+    `$session/RESEARCH_BRIEF.md` deterministically. **It must be deterministic, not a scan of
+    `Files`** — the whole point of (a) is that the link renders on runs that did not rewrite the brief.
+    **The session path is derivable** the same way `CLAUDE.md` derives it (branch, date, feature slug),
+    and `internal/naming` already owns session naming — **look there before inventing a mechanism**.
 - **The link must be gated on `run.Pushed`.** A link to an unpushed commit 404s, and `Pushed` is
   genuinely false on real paths — push is skipped when the branch did not move, and skipped entirely
-  for an abandoned run. **Gate the link the same way `metadataList` already gates its "(pushed)"
-  suffix.** AC-B2.3.
-- **Push already precedes the comment — confirmed twice.** `harvest.go` commits then pushes, and the
-  daemon calls `turn.Execute` before `reporter.ReportTurn`. The run-ordering change
-  `initialplan.md:234` anticipated **is already done. Do not plan it, do not re-order anything.**
+  for an abandoned run. **Gate it the same way `metadataList` already gates its "(pushed)" suffix.**
+- **Push already precedes the comment — confirmed twice. Do not re-order anything.**
 - **Route the body through `internal/report` either way.** `redact.Body` has no exported constructor,
   so "post an unredacted body" is not an expressible program. Credential redaction, the residual
   assertion and the panic guard come free.
@@ -548,28 +647,16 @@ Q7 = option 1 the delivery half is free; the link half is the only Go in this st
   `fenceFor`.
 - **Decision taken — never fail silent.** Today an oversize body returns a `LimitError`, no comment is
   posted, the run goes unreported and the watermark does not move. For a visibility feature, "too big
-  to show you, so you see nothing" is the wrong failure. Truncate with an explicit marker naming what
-  was cut. *(This matters more now than in rev 2: with Q5's size limit gone, an oversize summary is no
-  longer prevented upstream.)*
-- **Verify before building T-B2.4.** The silent-failure path may already be unreachable for
-  `RenderRun`: `runBody` trims to budget, `run.go:528` truncates with an explicit marker, and
-  `redact.Redactor.Apply`'s hard-truncate is the backstop. **If so, T-B2.4 collapses to a regression
-  test.**
-- **Decision taken — no multi-comment splitting.** Nothing in the tree splits one document across
-  comments; `post` is the single forge call in `internal/turn` and is not in a loop.
+  to show you, so you see nothing" is the wrong failure. Truncate with an explicit marker.
+- **Decision taken — no multi-comment splitting.** `post` is the single forge call in `internal/turn`
+  and is not in a loop.
 - **Security: a summary posted as a comment re-enters the prompt as history wearing litefactory's own
   label.** Quoted third-party text laundered from `[old_third_party]` into `[litefactory]` is trusted
-  material it should not be. Keep quoted third-party text clearly attributed and fenced, prefer
-  summarising over quoting. **This risk drops under B1** — a plain-language summary quotes far less
-  than a technical brief did.
-- **Depends on S0.** A posted summary is a marker-bearing, highly quotable document. Until S0 ships, a
-  quote-reply to it is silently discarded.
-- **`RESEARCH_BRIEF.md` still gets written (Q1 = mirrored).** `CLAUDE.md`'s Plan gate is untouched.
-  Rev 2's T-B2.8 — amend the gate and `initialplan.md:243` — is **deleted**; it was the `moved`
-  branch.
-- Platform: **no new `internal/github` method.** The seven-endpoint surface test stays closed by this
-  story. *(Only Story C1 breaks it — see N2.)*
-- Out: nothing here touches code review.
+  material it should not be. Keep quoted third-party text attributed and fenced; prefer summarising
+  over quoting. **This risk drops under B1.**
+- **Depends on S0.** A posted summary is a marker-bearing, highly quotable document.
+- Platform: **no new `internal/github` method.** The endpoint surface test is untouched by this story
+  — **only D1 changes it.**
 
 ### Tasks
 
@@ -577,18 +664,18 @@ Q7 = option 1 the delivery half is free; the link half is the only Go in this st
 |----|-------|------|-----------|-----|
 | T-B2.0 | **Re-pin every citation in this story against `origin/main` @ `71d3bea`** before editing any file in `internal/report` or `internal/turn`. See the provenance warning | Chore | — | S |
 | T-B2.1 | Instruct `research-orchestrator.md` to emit the business summary as its final message, and to keep writing `RESEARCH_BRIEF.md` to `$session/` | Docs | — | S |
-| ~~T-B2.2~~ | ~~Add repo owner/name to `report.Run`~~ — **DELETED in rev 3.1.** `report.Run.Ref` is a `naming.Ref` already carrying `Forge`/`Owner`/`Repo`/`Issue` (`internal/naming/ref.go:20-31`) | — | — | **0** |
 | T-B2.2a | **Plumb `SHAAfter`**: add the field to `report.Run` and pass `turn.Result.SHAAfter` in `runInput`'s struct literal (`internal/turn/report.go`) | Go | T-B2.0 | S |
 | T-B2.3 | Blob-URL builder **inside `internal/report`**: permalink from `Ref` (owner/repo) + **`SHAAfter`** + path. No `internal/github` import, no I/O | Go | T-B2.2a | M |
 | T-B2.3a | **Gate link rendering on `run.Pushed`** — emit no link when false, mirroring how `metadataList` gates its "(pushed)" suffix | Go | T-B2.3 | S |
-| T-B2.3b | **Artifact discovery for `$session/RESEARCH_BRIEF.md`** — locate the brief's path so the builder has something to point at. **(a)** real discovery, net-new; **(b)** match a `RESEARCH_BRIEF.md` suffix out of `Files` | Go | T-B2.3 · **BLOCKED-ON-N5** | **L if (a) · S if (b)** |
+| T-B2.3b | **Real artifact discovery for `$session/RESEARCH_BRIEF.md` (N5 = (a))** — derive the session path deterministically so the link renders on every run, including runs that did not rewrite the brief. Check `internal/naming` first | Go | T-B2.3 | **L** |
 | T-B2.4 | **First verify** whether `RenderRun`'s existing truncation already makes silent oversize failure unreachable. If it does, this collapses to a regression test; if not, add an explicit truncation marker | Go | — | S–M |
 | T-B2.5 | Route the summary body through `report`'s existing `sanitize` and `fenceFor` | Go | — | S |
-| T-B2.6 | **Retire or narrow the `/blob/`-and-commit-URL guard** (`internal/report/report_test.go` — disk `240-241`, `71d3bea` `251-254`), whose stated premise (*"LF-7 is out of scope"*) no longer holds. Note it is an unanchored `strings.Contains`, so it trips on **any** URL form | Test | T-B2.3 | S |
-| T-B2.6a | **Regenerate the affected goldens.** `TestSuccessReport` pins the whole body via `checkGolden(t, "run_succeeded", body)`; the same applies to `run_failed`, `run_push_failed`, `run_sparse_result`, `run_truncated`, `run_never_started`, `run_no_result_recorded` and the five `outcome_*` files under `internal/report/testdata/`. **Regenerate deliberately and eyeball every diff** — a blind regeneration hides exactly the regressions goldens exist to catch | Test | T-B2.3, T-B2.3a | **M–L** |
+| T-B2.6 | **Retire or narrow the `/blob/`-and-commit-URL guard** (`internal/report/report_test.go` — disk `240-241`, `71d3bea` `251-254`), whose stated premise (*"LF-7 is out of scope"*) no longer holds. Note it is an unanchored `strings.Contains` | Test | T-B2.3 | S |
+| T-B2.6a | **Regenerate the affected goldens** — `run_succeeded`, `run_failed`, `run_push_failed`, `run_sparse_result`, `run_truncated`, `run_never_started`, `run_no_result_recorded` and the five `outcome_*` under `internal/report/testdata/`. **Regenerate deliberately and eyeball every diff** — a blind regeneration hides exactly the regressions goldens exist to catch | Test | T-B2.3, T-B2.3a | **M–L** |
 | T-B2.7 | Remove the blocker comment in `report/run.go` (*"Plain text at M0: no links, no SHA-pinned permalinks (LF-7)"* — disk `:62`, `71d3bea` `:63`) and replace it with what is now true | Docs | T-B2.3 | S |
 | T-B2.8 | Tests: a rendered comment contains a `SHAAfter`-pinned `/blob/` URL for the brief; a run with `Pushed == false` contains **no** link and no dead URL | Test | T-B2.3a | M |
-| T-B2.8a | Test: **the claude-committed-for-itself path** — `git.CommitResult.SHA` empty, `Head` moved — still renders a working permalink. This is the case `CommitSHA` gets wrong | Test | T-B2.2a, T-B2.3 | M |
+| T-B2.8a | Test: **the claude-committed-for-itself path** — `git.CommitResult.SHA` empty, `Head` moved — still renders a working permalink | Test | T-B2.2a, T-B2.3 | M |
+| T-B2.8b | Test: **a run that posts a summary without rewriting the brief still renders the link.** This is the case option (b) got wrong and the reason (a) was chosen | Test | T-B2.3b | M |
 | T-B2.9 | Tests: an oversize summary still produces a posted comment, explicitly marked as truncated | Test | T-B2.4 | M |
 
 ### Acceptance Criteria
@@ -596,19 +683,20 @@ Q7 = option 1 the delivery half is free; the link half is the only Go in this st
 | ID | Criterion |
 |----|-----------|
 | AC-B2.1 | **(manual / observational — not gateable.)** After a Research run, the summary is readable on the issue and its link opens the full brief. **`implement-orchestrator` must not block on this.** |
-| AC-B2.2 | The comment contains a **`SHAAfter`-pinned** `/blob/<sha>/…` URL to `$session/RESEARCH_BRIEF.md`. *(If N5 = (b), this relaxes to: **when the brief appears in `Files`**.)* |
-| AC-B2.2a | **On the claude-committed-for-itself path** — `git.CommitResult.SHA` empty, `Head` moved — the permalink still renders a real SHA. **A blank or missing SHA there is a failing test.** This is the case `CommitSHA` gets wrong. |
-| AC-B2.2b | The URL is built inside `internal/report` from `report.Run.Ref`. **No `internal/github` import is added to `internal/report`, and no owner/repo field is added to `report.Run`** — the package still holds no DB handle and does no git or forge work. |
-| AC-B2.3 | When `run.Pushed == false`, the comment contains **no** link at all — never a URL to an unpushed commit. Gated the same way `metadataList` gates its "(pushed)" suffix. Covers both real paths: branch did not move, and abandoned run. |
-| AC-B2.4 | The `/blob/`-and-commit-URL guard (`internal/report/report_test.go` — disk `240-241`, `71d3bea` `251-254`) is retired or narrowed, and the `report/run.go` LF-7 blocker comment (disk `:62`, `71d3bea` `:63`) is gone. Neither may be left asserting a premise this story removes. |
-| AC-B2.4a | **Every affected golden under `internal/report/testdata/` is regenerated and its diff reviewed** — `run_succeeded`, `run_failed`, `run_push_failed`, `run_sparse_result`, `run_truncated`, `run_never_started`, `run_no_result_recorded`, and the five `outcome_*`. A golden regenerated without its diff being read is a failing outcome, not a passing one. |
+| AC-B2.2 | The comment contains a **`SHAAfter`-pinned** `/blob/<sha>/…` URL to `$session/RESEARCH_BRIEF.md`. **Unconditional** — the N5 = (b) relaxation is withdrawn. |
+| AC-B2.2a | **On the claude-committed-for-itself path** — `git.CommitResult.SHA` empty, `Head` moved — the permalink still renders a real SHA. **A blank or missing SHA there is a failing test.** |
+| AC-B2.2b | The URL is built inside `internal/report` from `report.Run.Ref`. **No `internal/github` import is added to `internal/report`, and no owner/repo field is added to `report.Run`.** |
+| AC-B2.2c | **A run that posts a summary without rewriting `RESEARCH_BRIEF.md` still renders the link.** Discovery is deterministic, not a scan of `Files`. **A missing link there is a failing test** — it is the exact defect N5 = (a) was chosen to avoid. |
+| AC-B2.3 | When `run.Pushed == false`, the comment contains **no** link at all — never a URL to an unpushed commit. Covers both real paths: branch did not move, and abandoned run. |
+| AC-B2.4 | The `/blob/`-and-commit-URL guard is retired or narrowed, and the `report/run.go` LF-7 blocker comment is gone. Neither may be left asserting a premise this story removes. |
+| AC-B2.4a | **Every affected golden under `internal/report/testdata/` is regenerated and its diff reviewed.** A golden regenerated without its diff being read is a failing outcome. |
 | AC-B2.4b | **Every `path:line` citation this story relied on was re-pinned against `71d3bea` before the file was edited** (T-B2.0). |
 | AC-B2.5 | An oversize summary still produces a comment, explicitly marked as truncated. **Silence is a failing test.** |
 | AC-B2.6 | The comment carries an `<!-- lf:` marker and is filtered out of the bot's own input. |
 | AC-B2.7 | The comment body passes the redaction residual assertion; no credential reaches the forge. |
 | AC-B2.8 | Agent-authored markdown cannot break the report's fence or callout structure — the body goes through `sanitize`/`fenceFor`. |
-| AC-B2.9 | `$session/RESEARCH_BRIEF.md` still exists after a Research run, and `CLAUDE.md`'s Plan gate is unmodified. |
-| AC-B2.10 | `internal/github` still exposes exactly seven network methods; `TestClientMethodSetIsTheSevenEndpoints` is unchanged and green **by this story**. |
+| AC-B2.9 | `$session/RESEARCH_BRIEF.md` still exists after a Research run, and `CLAUDE.md`'s **Plan** gate is unmodified by this story. *(The **Implement** gate changes — that is E1.)* |
+| AC-B2.10 | `internal/github` is unmodified by this story. |
 | AC-B2.11 | **No run-ordering change is made.** Push already precedes the comment; a diff that re-orders them is a failing outcome. |
 | AC-B2.12 | `go test -race -cover ./...` green; `gofmt` clean; `go vet` clean. |
 
@@ -620,11 +708,23 @@ Q7 = option 1 the delivery half is free; the link half is the only Go in this st
 > that a wrong assumption does not propagate into a brief, then a plan, then code.
 
 Replaces the unconditional headless gag with a two-way branch on an opt-in tag that **Go parses and
-enforces** (Q3 = option 1), available to **Research and Plan only** (Q6). No new state — the existing
-resume path already carries the round trip.
+enforces** (Q3 = option 1), available to **Research and Plan only** (Q6). No new state.
+
+**Size: L. Fully unblocked as of rev 4 (N4 = `lf: ask`).**
 
 **Sized honestly: the *diff* is small, the *risk* is not.** This is the only story that can change
 the behaviour of untagged runs, and it carries three sharp defects (F-9, F-10, F-16).
+
+### The tag — settled at N4
+
+**The literal is `lf: ask`.** Line-anchored, in the triggering comment body.
+
+**Do not confuse it with the self-marker.** `<!-- lf:` (`turn/classify.go:38`) identifies
+litefactory's *own* comments and is line-anchored by Story S0. `lf: ask` grants *permission* and is
+line-anchored by this story. **They are different literals for different purposes and neither matches
+the other.** State this in the tag parser's doc comment — the resemblance invites a future
+"simplification" that merges them, and merging them would let any litefactory comment grant
+permission.
 
 ### Field names — one set, declared here
 
@@ -635,7 +735,7 @@ the behaviour of untagged runs, and it carries three sharp defects (F-9, F-10, F
 |---|---|---|---|
 | `MayAsk bool` | may **this** run ask? | tag on **this** run's trigger comment **AND** mode ∈ {research, plan} | **yes** |
 | `PreviousMayAsk bool` | did the **previous** run have permission? | re-parse the tag from the previous run's trigger comment | **yes** — see below |
-| ~~`PreviousAsked` / `AnswersQuestion`~~ | did the previous run actually ask? | requires `needs_input` | **no — and A2 is now deleted**, so this is gone for good |
+| ~~`PreviousAsked` / `AnswersQuestion`~~ | did the previous run actually ask? | requires `needs_input` | **no — and A2 is deleted**, so this is gone for good |
 
 **Why the wrong bit matters:** because `writeResumeHeader` emits no permission statement, silence on
 the resume path means *inherit from transcript* — so the dangerous cell is **previous run tagged →
@@ -663,24 +763,20 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
 
 - **The feature is prompt text plus one bit.** Everything else is plumbing.
 - **Q3 = option 1 is applied: Go parses the literal, line-anchored, hard enforcement.** An untagged
-  run **cannot** ask, whatever the agent decides. Rev 2 recommended presence-only parsing; the owner
-  chose literal parsing. Not re-argued.
-- **Q6 = Research and Plan may ask; Implement never.** So permission is a **conjunction**:
+  run **cannot** ask. Rev 2 recommended presence-only parsing; the owner chose literal parsing. Not
+  re-argued.
+- **Q6 = Research and Plan may ask; Implement never.** Permission is a **conjunction**:
   `MayAsk = tagPresent && mode ∈ {research, plan}`. The mode is already on `PromptInput` and Go
-  already branches on it (`const InferMode = "infer"`, `prompt.go:422`) — so the mode half costs
-  nothing new.
-- **Decision taken, and flagged because it is the seam between Q3 and Q6.** When the mode is
-  **`infer`**, Go does **not** know whether the run will turn out to be Research, Plan or Implement —
-  the agent classifies it from `CLAUDE.md` after the prompt is built. Go therefore cannot machine-
-  enforce "Implement never asks" on an infer run. **The rule is carried in prompt text for that path**
+  already branches on it (`const InferMode = "infer"`, `prompt.go:422`) — the mode half costs nothing.
+- **The one place hard enforcement is soft, and it is structural.** When the mode is **`infer`**, Go
+  does not know whether the run will be Research, Plan or Implement — the agent classifies it from
+  `CLAUDE.md` after the prompt is built. **The rule is carried in prompt text for that path**
   (*"if this run resolves to Implement mode, do not ask; proceed headless"*) while the tag gate stays
-  machine-enforced. **This is the one place Q3's hard enforcement is soft, and it is soft for a
-  structural reason, not an oversight.** *(Flag if you want infer runs denied permission outright
-  instead — that is stricter, cheaper, and costs you the ability to tag an unclassified comment.)*
+  machine-enforced. *(Flag if you want infer runs denied permission outright — stricter, cheaper, and
+  costs you the ability to tag an unclassified comment.)*
 - **There are TWO headless paragraphs, not one, and they must change together.** The gag at
   `harness/prompt.go:396-401` and the feature-slug paragraph at `:388-390` — *"It is stated here
-  because this run is headless and no one can answer a question."* Changing only the first leaves a
-  contradiction inside the same header.
+  because this run is headless and no one can answer a question."*
 - **CRITICAL (F-9, verified) — the gag paragraph bundles two unrelated instructions and must be split
   before it is branched.** It ends: *"**Do the work in this worktree; do not commit or push —
   litefactory does that once you are finished.**"* Branching the whole paragraph on `MayAsk` **drops
@@ -695,29 +791,24 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
 - **Emit whenever `MayAsk != PreviousMayAsk`, in BOTH polarities, and write the reason into the code
   comment**, or someone will "simplify" it to one direction: for infer-guidance, not emitting is
   merely *redundant*; here, **not emitting fails open**.
-- **Q9 = (b): the resume header's answer framing is hedged** — *"If your previous message ended in a
-  question, treat the new comment as the answer."* It asserts nothing Go does not know: the condition
-  is evaluated by the agent, from its own transcript. T-A1.10 is unblocked.
-- **Q8 = agent-level. There is no Go cap and no timeout.** The agent judges whether its questions were
-  answered and honours a direct instruction to move on. **T-A1.11 is a prompt/agent-definition task,
-  not a Go task**, and nothing in `internal/` counts rounds.
-- **Every asking comment must carry a standing line inviting *"move to the next phase."*** This is
-  both the owner's stop-word and, per *One Run, One Mode*, exactly the human comment that opens the
-  next mode. It belongs in the ask-comment template, in `research-orchestrator.md` and
-  `plan-orchestrator.md`.
+- **Q9 = (b): the resume header's answer framing is hedged.** It asserts nothing Go does not know.
+- **Q8 = agent-level. There is no Go cap and no timeout.**
+- **Every asking comment must carry a standing line inviting *"move to the next phase."*** Per *One
+  Run, One Mode*, that is exactly the human comment that opens the next mode. It belongs in the
+  ask-comment template, in `research-orchestrator.md` and `plan-orchestrator.md`.
 - **`KindFreeText` carries the whole comment body as the instruction.** The tag line must be stripped
   or it becomes part of what the agent is asked to do.
 - **F-15 — the free-text path is not the only path.** `ParseCommand` (`command.go:152`) also yields
   `KindSpike` with `Text = TrimSpace(rest)`; a tag inside `/spike lf: ask do X` lands mid-`Text` and
   must be stripped there too.
-- **F-16 — the tag-only comment is an unhandled failure.** A body containing nothing but the tag goes
-  `firstToken` → `KindFreeText` → strip → empty `Instruction` → `BuildPrompt` returns
+- **F-16 — the tag-only comment is an unhandled failure.** A body containing nothing but `lf: ask`
+  goes `firstToken` → `KindFreeText` → strip → empty `Instruction` → `BuildPrompt` returns
   `ErrInvalidPrompt`, and the run dies with a validation error the owner will not understand. Treat
-  it as `KindNone` — no run. AC-A1.7.
-- **F-22 — match line-anchored, never with `Contains`.** An issue body or comment *quoting this plan*
-  contains the literal tag, and a `Contains` match would turn permission on. Line-anchor, and ensure
-  the tag never reaches `Instruction` un-stripped — `Instruction` is documented as trusted and is the
-  one field with **no size cap**.
+  it as `KindNone` — no run. AC-A1.9.
+- **F-22 — match line-anchored, never with `Contains`.** **This plan itself now contains the literal
+  `lf: ask` many times.** An issue body or comment quoting it under a `Contains` match would turn
+  permission on. Line-anchor, and ensure the tag never reaches `Instruction` un-stripped —
+  `Instruction` is documented as trusted and is the one field with **no size cap**.
 - **Security: the tag is honoured only from the triggering comment, read by Go.** Third-party comments
   trigger nothing (`classify.go:150,214`) but are replayed into history as `old_third_party`. A tag in
   replayed history, in a third-party comment, or in an unrelated issue body grants **no** permission.
@@ -728,30 +819,27 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
   (`MaxCommentBytes`). A very long answer is truncated on the way in.
 - Edge case: a resumed run triggered by the **issue body** returns before `## Context`
   (`prompt.go:306`) and never sees the permission paragraph. Rare — document, do not fix.
-- **Depends on S0.** Until S0 ships, a quote-reply to litefactory's question is silently dropped and
-  the run never resumes.
-- **Existing test coverage, named precisely (F-6).** There is no `testdata/` or `.golden` file in
-  `internal/harness`. There are:
+- **Depends on S0.**
+- **Existing test coverage, named precisely (F-6).** No `testdata/` or `.golden` in `internal/harness`.
+  There are:
   - **`TestSpikePromptIsUnchanged` (`harness/prompt_test.go:359`)** — one full-head literal
     comparison. **Must pass byte-for-byte unmodified.**
   - **`TestBuildPromptStatesTheFeatureSlugAndForbidsQuestions` (`prompt_test.go:76`)** — asserts
     **both** facts in one test. A1 splits those facts apart, so **this test must itself be split**
     (F-11). It is not possible to claim "both existing tests untouched" — one changes by design.
-- **F-7 — `writeResumeHeader` is entirely uncovered.** `internal/harness` has **zero** tests setting
-  `Resume: true` or `PreviousMode`. **A characterization test must exist before the function is
-  touched** — T-A1.8.
+- **F-7 — `writeResumeHeader` is entirely uncovered.** Zero tests set `Resume: true` or
+  `PreviousMode`. **A characterization test must exist before the function is touched** — T-A1.8.
 - **The tag parser is the load-bearing new function in this plan.** Same code reads `MayAsk`, derives
-  `PreviousMayAsk`, and gates two modes. It gets its own AC (AC-A1.4).
-- Risk: **ungated asking is R-3.** The tag prevents it. **A1 must not ship without T-A1.1.**
+  `PreviousMayAsk`, and gates two modes. Own AC (AC-A1.4).
+- Risk: **ungated asking is R-3.** **A1 must not ship without T-A1.1.**
 - Platform: no new package, no HTTP layer, no DB access, no migration, no new dependency, no
   concurrency. Synchronous string assembly.
-- Out: code review is ring-fenced.
 
 ### Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-A1.1 | Tag parser: recognise the tag **line-anchored** on the triggering comment, strip it from the instruction text, **never return an error** | Go | — | **BLOCKED-ON-N4** *(spelling only — the shape is settled)* · M |
+| T-A1.1 | Tag parser for the literal **`lf: ask`**, matched **line-anchored**, stripped from the instruction text, **never returning an error**. Doc comment records that it is distinct from the `<!-- lf:` self-marker | Go | — | M |
 | T-A1.2 | **Split the gag paragraph (`prompt.go:396-401`)** so the worktree/commit-and-push sentence is unconditional and only the ambiguity sentences are branchable. No behaviour change yet | Go | — | S |
 | T-A1.3 | Plumb `MayAsk` from the parsed comment through `turn.Request` to `harness.PromptInput`, as `tagPresent && mode ∈ {research, plan}` | Go | T-A1.1 | M |
 | T-A1.4 | Write the permission text: ask only when the answer changes what gets built and cannot be settled by reading the repo; ask by stopping; batch into one message | Prompt text | T-A1.2 | M |
@@ -768,7 +856,7 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
 | T-A1.15 | Prompt text for the **infer-mode seam**: if the run resolves to Implement, do not ask, regardless of the tag | Prompt text | T-A1.4 | S |
 | T-A1.16 | **Split `TestBuildPromptStatesTheFeatureSlugAndForbidsQuestions` (`prompt_test.go:76`)** into a slug test asserting both paths and a gag test asserting the untagged path only | Test | T-A1.5 | S |
 | T-A1.17 | New head tests: tagged cold header; the resume header under all four `MayAsk`×`PreviousMayAsk` combinations. Assert `TestSpikePromptIsUnchanged` still passes unmodified | Test | T-A1.5, T-A1.9 | M |
-| T-A1.18 | Table-driven tag-parsing tests: present, absent, malformed, mid-body, tag-only, quoted/indented, **third-party comment**, **replayed history**, **issue body quoting this plan**, **tagged Implement run** | Test | T-A1.1, T-A1.3 | M |
+| T-A1.18 | Table-driven tag-parsing tests: present, absent, malformed, mid-body, tag-only, quoted/indented, **third-party comment**, **replayed history**, **an issue body quoting this plan**, **tagged Implement run** | Test | T-A1.1, T-A1.3 | M |
 | T-A1.19 | `turn`-level test: a comment arriving after a succeeded run in the same segment produces `Resume: true` / `RunPath = resume` | Test | T-A1.9 | S |
 | T-A1.20 | Update `prompt.go`'s package doc — it states the design rationale this story falsifies | Docs | T-A1.4 | S |
 | T-A1.21 | Note in `research-orchestrator.md` that its log-and-continue rule survives; asking is a higher tier above it, not a replacement | Docs | T-A1.4 | S |
@@ -780,7 +868,8 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
 | AC-A1.1 | An **untagged** run's cold prompt is byte-for-byte identical to today's. `TestSpikePromptIsUnchanged` (`prompt_test.go:359`) passes **unmodified**. |
 | AC-A1.2 | A **tagged** Research or Plan run's cold prompt contains neither *"do not ask clarifying questions"* nor *"no one can answer a question"*. |
 | AC-A1.3 | **A tagged run's cold prompt still states the feature slug.** Deleting `prompt.go:388-390` outright is a failing outcome. |
-| AC-A1.4 | The tag parser matches **line-anchored**, returns **no error** for any input, and treats a malformed tag as absent. A body merely *quoting* the tag inside a quoted or indented line grants no permission. |
+| AC-A1.4 | The parser matches the literal **`lf: ask`**, **line-anchored**, returns **no error** for any input, and treats a malformed tag as absent. A body merely *quoting* the tag inside a quoted or indented line grants no permission. |
+| AC-A1.4a | **The tag and the `<!-- lf:` self-marker do not match each other**, in either direction. A test asserts both. |
 | AC-A1.5 | A tag in a third-party comment, in replayed comment history, or in an unrelated issue body grants **no** permission. |
 | AC-A1.6 | **A tagged run whose mode is `implement` gets the gag, not permission.** Q6 is machine-enforced wherever the mode is known. |
 | AC-A1.7 | A tagged run whose mode is `infer` carries the prompt-text rule that Implement does not ask. *(The one place enforcement is textual — documented, not accidental.)* |
@@ -792,85 +881,327 @@ this resume untagged**, where the transcript still says "you may ask" and nothin
 | AC-A1.13 | The previous run's permission is recovered from its trigger comment; when `TriggerCommentID == 0`, from the issue body. **No new store query, no new column, no migration.** |
 | AC-A1.14 | **No ask-round counter, cap or timeout exists anywhere in `internal/`.** Per Q8 this is agent-level; a Go implementation of it is a failing outcome. |
 | AC-A1.15 | Every asking comment carries the standing *"move to the next phase"* line. |
-| AC-A1.16 | The owner's reply resumes the same Claude conversation via the existing resume path — asserted at `turn` level: a comment after a succeeded run in the same segment yields `Resume: true` / `RunPath = resume`. |
+| AC-A1.16 | The owner's reply resumes the same Claude conversation via the existing resume path — asserted at `turn` level. |
 | AC-A1.17 | `go test -race -cover ./...` green; `gofmt` clean; `go vet` clean. |
 
 ---
 
-## User Story C1 — The plan ships as one GitHub sub-issue per user story *(new this revision — see N1)*
+## User Story E1 — Plan mode's output becomes `plan_brief.md` *(new in rev 4 — see N3)*
 
-> As the owner, I want each user story to arrive as its own GitHub sub-issue, so that I can track,
-> comment on and close them independently instead of scrolling one flat plan document.
+> As an implementing agent, I want one short shared-context document plus per-story sub-issues, so
+> that I read the decisions that apply to every story once and the story I am building in its own
+> place.
 
-Changes Plan mode's own output shape. **This story is the largest thing in the plan, and it is the
-only one gated on a decision the owner has not yet made.**
+Retires `IMPLEMENTATION_PLAN.md` and replaces it with `plan_brief.md`. **Split out of C1 because it is
+an artifact-and-process change affecting thirteen files, and burying it inside a story about creating
+sub-issues would hide it from review.**
 
-> **Read N1 first.** This story exists because the Q4 answer re-scoped the deliverable, and **that
-> reverses the owner's own earlier deferral** of sub-issues (*"sub issues we defer to a later run"*).
-> If the reversal was not intended, this story is deleted in one line and nothing else in the plan
-> moves.
+**Size: L. Fully unblocked — but see the hard coupling to C1 below.**
+
+> **Hard coupling, and it is the sequencing risk in this plan.** E1 alone leaves Plan mode producing
+> shared context with **nowhere for the stories to live**, because only C1 creates sub-issues.
+> **The gate flip and the deletion of `IMPLEMENTATION_PLAN.md` must not merge before C1 ships.**
+> Rev 4 handles this as a two-shipment transition: **E1 introduces `plan_brief.md` alongside the
+> existing file and leaves the gate alone; C1's final task flips the gate and retires the file**
+> (T-C1.13). **This is a transition mechanism, not a return to *mirrored* — N3's end state is
+> replacement, and T-C1.13 is what reaches it.**
 
 ### Architecture Notes
 
-- **`internal/github` cannot create anything today.** Every verb across the five call sites is GET or
-  POST for reads and comments; **there is no PATCH, PUT or DELETE anywhere.** C1 needs an **eighth**
-  method (create issue) and a **ninth** (attach as sub-issue).
-- **That trips `internal/github/surface_test.go:56` — deliberately.** The test exists to force the
-  SDK-versus-hand-rolled decision rather than let the client grow by accretion. **The decision is the
-  owner's: N2.** Rev 3 does not take it.
-- **The sub-issue API facts in `RESEARCH_BRIEF.md` are `[W]` — second-hand and unverified.** Web tools
-  were disabled for the entire research session, and the brief's own source records six of *its*
-  predecessor's external GitHub claims as wrong, two of them load-bearing. **Every sub-issue task here
-  carries an AC requiring the contract be confirmed against live GitHub documentation before any code
-  is written.** This is not diligence theatre; the last time this repo trusted a `[W]` GitHub fact it
-  was wrong.
-- **No backoff exists for bulk creation.** A plan with eight stories is eight creations plus eight
-  attachments against a rate-limited API, in a loop, with no retry anywhere in `internal/github`. A
-  partial failure halfway through leaves a half-built plan on the issue and no record of where it
-  stopped. **Idempotency and resumability are requirements, not niceties** — the natural mechanism is
-  the existing `<!-- lf:` marker convention, checking for an already-created sub-issue before
-  creating another.
-- **N3 decides whether `IMPLEMENTATION_PLAN.md` survives.** If mirrored, `CLAUDE.md`'s Implement gate
-  is untouched and sub-issues are an additional rendering. If replaced, the gate can never pass,
-  `CLAUDE.md` and `initialplan.md:243` must be amended in the same change, and the plan of record
-  becomes a mutable, unversioned GitHub object.
-- **Sub-issue bodies are agent-authored text going to the forge**, so the same rules as B2 apply:
-  route through `internal/report`, `sanitize`/`fenceFor`, redaction residual assertion.
-- **Audience.** Per Q5's split, a sub-issue body is read by business users — so it takes the
-  **business register**, names its problems, and links the technical detail. Same rules as B1.
-- Platform: **this is the only story that adds `internal/github` surface**, the only one that adds a
-  network write verb, and the only one that may add a dependency. It should be reviewed as a client
-  change, not as a plan-formatting change.
+- **Zero Go. Verified, and it is the most useful fact in this story.** A grep across the repo for
+  `RESEARCH_BRIEF|IMPLEMENTATION_PLAN|plan_brief` in `**/*.go` returns **no files**. Artifact-based
+  state inference is **entirely unimplemented in Go** — the mode gates are enforced by agents reading
+  `CLAUDE.md`, not by code. **So this story breaks no running code**; it changes documents that change
+  agent behaviour. That makes it cheap to execute and impossible to test automatically.
+- **It is 13 files, not 4.** The owner's answer named `CLAUDE.md`, `plan-orchestrator.md`,
+  `implement-orchestrator.md` and `go-architect.md`. A disk grep for `IMPLEMENTATION_PLAN` finds
+  **123 occurrences across 34 files**; excluding `.aiteam/` session archives, **13 live files** name
+  it:
+
+  | File | Occurrences (disk) |
+  |---|---|
+  | `.claude/agents/implement-orchestrator.md` | 8 |
+  | `.claude/agents/go-architect.md` | 6 |
+  | `.claude/agents/go-code-reviewer.md` | 5 |
+  | `.claude/agents/go-implementation-engineer.md` | 5 |
+  | `initialplan.md` | 5 |
+  | `.claude/agents/plan-orchestrator.md` | 4 |
+  | `CLAUDE.md` | 3 |
+  | `.claude/agents/go-unit-test-engineer.md` | 3 |
+  | `.claude/agents/proxy-product-owner.md` | 2 |
+  | `.claude/agents/go-integration-test-engineer.md` | 2 |
+  | `.claude/AGENT_ROSTER.md` | 1 |
+  | `.claude/skills/shared/task-decomposer.md` | 1 |
+  | `.claude/agents/app-context-updater.md` | 1 |
+
+- **`.aiteam/` archives are NOT edited.** Twenty-one of the 34 files are past sessions' artifacts.
+  They are the historical record and rewriting them would falsify it. **AC-E1.7.**
+- **Counts are from disk and disk is stale.** **T-E1.0 re-runs the grep against `71d3bea` first.** The
+  list is a lower bound.
+- **Three files matter most, and they matter for different reasons:**
+  - **`CLAUDE.md`** — three places: the **Implement Mode Gate**, the **Artifacts** section, and the
+    **`MANIFEST.md` scaffold template**. The gate is the load-bearing one.
+  - **`plan-orchestrator.md`** — its Output section, its `IMPLEMENTATION_PLAN.md` format block, and
+    its Exit steps are all rewritten. **This is the largest single rewrite**, because the format block
+    is the template being replaced.
+  - **`implement-orchestrator.md`** (8 occurrences) — it must learn to read `plan_brief.md` **and then
+    the sub-issues**, which is a genuinely new step, not a rename.
+- **Everything downstream of the orchestrator reads per-story content, so it reads the sub-issue.**
+  `go-unit-test-engineer` derives tests from a story's acceptance criteria; `go-integration-test-engineer`
+  from the same; `go-implementation-engineer` from a story's tasks; `go-code-reviewer` from a story's
+  architectural hints. **Under N3, all of that content moved.** These are not filename swaps — each
+  agent needs a source. **The simplest correct answer, and the one rev 4 plans: the orchestrator
+  fetches the sub-issue and passes its content in the invocation**, so no downstream agent needs forge
+  access. **AC-E1.4.**
+- **The gate stays a local file check (N3's recommendation, taken).** `plan_brief.md` is the gate;
+  sub-issues are discovered from its **Story Index**. No network call in mode entry, no failure on
+  rate limits or offline worktrees, and the gate keys on the versioned artifact rather than a mutable
+  forge object.
+- **The anti-duplication rule is the design's main failure mode.** `plan_brief.md` carries only what
+  **two or more stories** need. Anything true of exactly one story lives in its sub-issue and nowhere
+  else. The Story Index carries **identity and location only** — never content. **AC-E1.5.**
+- **`initialplan.md:243`** — *"State is inferred from artifacts, not self-reported"* — is **not
+  falsified** by this change and must not be deleted. `plan_brief.md` is still an artifact and the
+  gate is still artifact-inferred. **Amend it to name the new artifact; do not remove the principle.**
+- **What is lost, stated plainly.** A sub-issue is editable by anyone with write access, so **the
+  per-story plan of record becomes mutable and unversioned** — no diff, no blame, no review. That is a
+  real cost of N3 and the owner accepted it. **`plan_brief.md` being in git is what limits the
+  blast radius**, which is a second reason it is the gate.
+- Platform: **no Go, no build, no tests, no dependency, no migration.** Markdown only.
+
+### `plan_brief.md` — the contract
+
+*Concrete enough to implement. Everything here is cross-story by construction; nothing here is
+per-story.*
+
+| Section | Contains | Never contains |
+|---|---|---|
+| **Header** | Feature, branch, date, parent issue, **citation base commit**, link to `RESEARCH_BRIEF.md` | — |
+| **Shared decisions** | Decisions binding on two or more stories: field-name choices, literals (e.g. `lf: ask`), the SDK and its pinned version, package-placement rules, register/audience rules | A decision used by one story |
+| **Workflow** | Shipping order, the story dependency graph, hard couplings, what ships together and why | Task-level ordering inside a story |
+| **Cross-story constraints** | Platform constraints, security invariants that must survive every story, test invariants that must stay green, ring-fenced areas (e.g. *code review is untouched*) | Story-specific architecture notes |
+| **Story Index** | One row per story: **ID · title · size · depends-on · sub-issue link**. **This is the discovery mechanism.** | Tasks, acceptance criteria, architecture notes — **any content at all** |
+| **Out of scope** | Global exclusions | Exclusions belonging to one story |
+| **Provenance** | Citation base, known-stale areas, re-pinning requirements | — |
+
+**The rule, stated once so it can be enforced: if it is true of exactly one story, it does not belong
+in `plan_brief.md`.** Duplication is how the two artifacts drift, and drift is how a reader stops
+knowing which one is authoritative.
 
 ### Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-C1.1 | **Confirm the GitHub sub-issue API contract against live documentation** — endpoint, payload, parent linkage, limits, and whether it is GA or preview. Record what was checked and when. **No code before this** | Design | — | **BLOCKED-ON-N1** · M |
-| T-C1.2 | Settle SDK versus hand-rolled and record the decision with its reasoning | Design | T-C1.1 | **BLOCKED-ON-N2** · M |
-| T-C1.3 | Eighth client method: create issue | Go | T-C1.2 | M |
-| T-C1.4 | Ninth client method: attach an issue as a sub-issue of a parent | Go | T-C1.2 | M |
-| T-C1.5 | Update or replace `TestClientMethodSetIsTheSevenEndpoints` per T-C1.2's decision — deliberately, with the reasoning in the commit | Test | T-C1.3, T-C1.4 | S |
-| T-C1.6 | Idempotent creation: a marker-based check so a re-run does not duplicate sub-issues after a partial failure | Go | T-C1.4 | M |
-| T-C1.7 | Backoff and partial-failure handling for bulk creation; a run that fails halfway reports what it created | Go | T-C1.6 | M |
-| T-C1.8 | `plan-orchestrator.md`: emit one sub-issue per user story, in the business register, each linking the technical detail | Docs | T-C1.1 | M |
-| T-C1.9 | Decide and document whether `IMPLEMENTATION_PLAN.md` is still written | Docs | — | **BLOCKED-ON-N3** · S |
-| T-C1.10 | *(only if N3 = replaced)* Amend `CLAUDE.md`'s Implement gate and `initialplan.md:243`, in the same change | Docs | T-C1.9 | M |
-| T-C1.11 | Route sub-issue bodies through `internal/report`'s `sanitize`/`fenceFor` and redaction | Go | T-C1.3 | S |
-| T-C1.12 | Tests: creation, attachment, idempotent re-run, partial failure, and rate-limit backoff — all against a faked client | Test | T-C1.7 | L |
+| T-E1.0 | **Re-run the `IMPLEMENTATION_PLAN` grep against `71d3bea`** and confirm the file inventory before editing anything. Disk counts are a lower bound | Chore | — | S |
+| T-E1.1 | Write the `plan_brief.md` contract — the section table above — into `plan-orchestrator.md`, including the **anti-duplication rule** | Docs | T-E1.0 | M |
+| T-E1.2 | Rewrite `plan-orchestrator.md`'s Output section and **replace its `IMPLEMENTATION_PLAN.md` format block** with the `plan_brief.md` format | Docs | T-E1.1 | M |
+| T-E1.3 | Rewrite `plan-orchestrator.md`'s Exit steps: write `plan_brief.md`, create the sub-issues *(C1)*, populate the Story Index with their links, stamp `MANIFEST.md` | Docs | T-E1.2 | M |
+| T-E1.4 | `implement-orchestrator.md`: read `plan_brief.md`, then **fetch each story's sub-issue from the Story Index** and pass its content to the downstream agent. 8 occurrences | Docs | T-E1.1 | M |
+| T-E1.5 | `go-architect.md`: read `plan_brief.md` plus the sub-issues. 6 occurrences | Docs | T-E1.1 | S |
+| T-E1.6 | Update the four downstream agents that read per-story content — `go-implementation-engineer` (5), `go-code-reviewer` (5), `go-unit-test-engineer` (3), `go-integration-test-engineer` (2) — to take story content **from the invocation**, not from a file they open | Docs | T-E1.4 | M |
+| T-E1.7 | Update `proxy-product-owner.md` (2), `app-context-updater.md` (1), `.claude/AGENT_ROSTER.md` (1), `.claude/skills/shared/task-decomposer.md` (1) | Docs | T-E1.1 | S |
+| T-E1.8 | `CLAUDE.md`: **Artifacts** section and the **`MANIFEST.md` scaffold template**. **Not the gate yet** — that is T-C1.13 | Docs | T-E1.1 | S |
+| T-E1.9 | `initialplan.md` (5): amend to name `plan_brief.md`. **Keep the principle at `:243`** — state is still inferred from an artifact | Docs | T-E1.1 | S |
+| T-E1.10 | State explicitly, in `plan-orchestrator.md`, that **`.aiteam/` session archives are never rewritten** when an artifact format changes | Docs | T-E1.1 | S |
 
 ### Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-C1.1 | **The sub-issue API contract was verified against live GitHub documentation before implementation**, and the verification is recorded with its date. A `[W]`-sourced claim is not sufficient evidence for any assertion in this story. |
-| AC-C1.2 | The SDK-versus-hand-rolled decision is recorded with its reasoning; `TestClientMethodSetIsTheSevenEndpoints` was changed **deliberately**, not silently widened. |
+| AC-E1.1 | `plan-orchestrator.md` specifies `plan_brief.md` — every section in the contract table — and **no longer contains an `IMPLEMENTATION_PLAN.md` format block**. |
+| AC-E1.2 | **No live file outside `.aiteam/` refers to `IMPLEMENTATION_PLAN.md` as a current artifact** after E1 + C1. A grep is the check. |
+| AC-E1.3 | `plan_brief.md` **is the Implement gate**, and the gate is a **local file-existence check**. **No mode gate makes a network call** — a forge-side gate is a failing outcome. |
+| AC-E1.4 | Every downstream agent that needs per-story content **receives it in its invocation**. No downstream agent requires forge access to do its job. |
+| AC-E1.5 | **`plan_brief.md` contains no per-story tasks, acceptance criteria or architecture notes**, and its Story Index carries identity and location only. Duplicated per-story content is a failing outcome. |
+| AC-E1.6 | `initialplan.md:243`'s principle — state inferred from artifacts, not self-reported — **survives**, naming the new artifact. Deleting it is a failing outcome. |
+| AC-E1.7 | **No file under `.aiteam/` is rewritten by this story.** Session archives are the historical record. |
+| AC-E1.8 | The file inventory was re-confirmed against `71d3bea` before editing (T-E1.0). |
+| AC-E1.9 | **`CLAUDE.md`'s Implement gate is unchanged by E1 alone.** Flipping it before C1 can create sub-issues is a failing outcome — see T-C1.13. |
+| AC-E1.10 | No Go file is modified by this story. |
+
+---
+
+## User Story D1 — Adopt a GitHub SDK *(new in rev 4 — see N2)*
+
+> As a maintainer, I want litefactory's GitHub client built on a maintained SDK, so that new endpoints
+> — starting with sub-issues — do not each require hand-rolling request shapes we cannot verify.
+
+Implements the owner's N2 decision. **Split out of C1 because it reverses a documented policy, retires
+three deliberate guard tests and touches the one file in the repo whose job is keeping a credential
+out of logs. It must be reviewed as a client-and-security change, not as plumbing for sub-issues.**
+
+**Size: XL if N7 = full migration · L if N7 = hybrid. Shape settled; the choice is N6 + N7.**
+
+> **This story exists because a tripwire fired and the owner answered it.**
+> `TestClientMethodSetIsTheSevenEndpoints` says an eighth method is *"a reason to re-open the SDK
+> question, not to add a method quietly."* **The question was re-opened and answered: use an SDK.**
+> Every guard retired here is retired **on the record, with the reasoning in the commit** — which is
+> the outcome the tripwire was planted to produce.
+
+### Architecture Notes
+
+- **This overrides `internal/github/doc.go`'s `# No SDK` section**, which reads: *"Six endpoints do not
+  justify a dependency. Everything here is net/http plus the Link-header helper in pagination.go. The
+  rule for revisiting that: if a third pagination special case appears, reach for a library."*
+  **Rewrite it, and record who decided and why.** Critically: **the documented trigger did not fire.**
+  There was no third pagination special case. **The trigger was sub-issues** — a new capability the
+  package cannot express — **and an owner decision.** A future reader must be able to tell those
+  apart. *(While rewriting: the prose says "six endpoints", the test says seven. Reconcile.)*
+- **`TestClientMethodSetIsTheSevenEndpoints` (`surface_test.go:56`) is retired or reworked
+  deliberately**, and the change **references the test's own message** so the record shows the
+  tripwire worked rather than being stepped over. **If any pinned-surface guard survives in a new
+  form, it must still fail when the surface grows silently** — the value was never the number seven,
+  it was that growth is noticed.
+- **DO NOT let SDK adoption smuggle in the forge abstraction.** `TestNoForgeAbstraction`
+  (`surface_test.go:92`) forbids declaring an interface in any non-test file in `internal/github`, and
+  `doc.go` calls a `forge.go` at M0 *"a review blocker"*. **An SDK does not require an interface — a
+  wrapper is where one gets added by reflex.** A **concrete wrapper struct is fine**; an interface in a
+  non-test file is not. **`TestNoForgeAbstraction` stays green through this story**, and a diff that
+  turns it red is a failing outcome. LF-18's position — extract the abstraction later from two real
+  implementations, do not guess it now — is unchanged by adopting a dependency.
+- **THE SECURITY ITEM. `TestRevealIsCalledExactlyOnce` (`surface_test.go:137`) will break, and it is
+  what keeps the token out of logs.** It fails the build if `.Reveal()` appears on any line not
+  containing `Authorization`, or more than once in the package. An SDK takes credentials through a
+  different path — typically an `oauth2` token source or a custom `http.Client` installed at
+  construction — so the single `Authorization`-header call site disappears and the guard's premise
+  with it.
+  **Requirement: re-establish an equivalent guarantee. Do not delete the test.** The new guard must
+  still fail the build when the credential is revealed anywhere other than the one place that hands it
+  to the transport. **Own task (T-D1.6), own AC (AC-D1.6).** *(Design hint, not a decision: the natural
+  shape is a single construction site that reveals once into the SDK's credential type, with the
+  line-based assertion re-aimed at that call rather than at `Authorization`.)*
+- **The one genuine unknown: does the chosen SDK version support sub-issues?** GitHub's sub-issue API
+  is recent and SDK coverage of recent endpoints lags. **Web tools are disabled session-wide, so this
+  could not be checked while planning.** It is **AC-D1.2 — confirmed before implementation, never
+  assumed.** If it is unsupported, the fallback is the SDK's generic-request escape hatch, **and that
+  must be confirmed too**.
+- **The upside, and it is why this makes C1 safer.** The sub-issue facts in `RESEARCH_BRIEF.md` are
+  `[W]` — second-hand and unverified, from a source that recorded six of its predecessor's external
+  GitHub claims as wrong. **An SDK encapsulates exactly what that block is untrusted about**: endpoint
+  paths, payload field names, pagination shape, and the **`sub_issue_id`-versus-issue-number trap**,
+  which is the easiest way to get sub-issues silently wrong. **N2 converts a class of
+  unverifiable-here facts into a dependency's tested surface**, materially reducing C1's risk.
+- **N7 decides the blast radius**, and the deciding argument is the credential guard: a hybrid leaves
+  **two HTTP stacks, two error taxonomies and two credential paths**, and the third of those makes
+  AC-D1.6 harder to satisfy and easier to erode. **Recommendation: full migration.**
+- **Error taxonomy is a migration hazard whichever way N7 goes.** Callers depend on today's error
+  shapes; an SDK returns its own. **Map at the package boundary so `internal/github`'s error contract
+  to its callers is unchanged**, or the migration leaks into every call site. **T-D1.5.**
+- **`pagination.go`'s Link-header helper** is named in the policy being rewritten. Under full
+  migration the SDK owns pagination and the helper comes out; under hybrid it stays. **Either way, say
+  which** — a dead helper left behind is how the next reader concludes the package still hand-rolls.
+- Platform: **this is the only story that adds a dependency.** New `go.mod` entry, pinned version,
+  vendoring/licence check per project convention. **Review it as a dependency decision.**
+
+### Tasks
+
+| ID | Title | Type | Depends On | Est |
+|----|-------|------|-----------|-----|
+| T-D1.0 | **Re-pin every `internal/github` citation against `71d3bea`** — `doc.go`, `surface_test.go:56`, `:92`, `:137`, `pagination.go` — before editing. They are owner-verified but the file is on the 52-file stale list | Chore | — | S |
+| T-D1.1 | **Choose the SDK and pin an exact version.** Record both, with the reasoning, in `plan_brief.md` and in `doc.go` | Design | T-D1.0 · **BLOCKED-ON-N6** | S |
+| T-D1.2 | **Confirm the pinned version supports sub-issues** — parent linkage, `sub_issue_id` semantics, and the generic-request fallback if it does not. Record what was checked, against what source, and when. **No code before this** | Design | T-D1.1 | M |
+| T-D1.3 | **Settle migrate-versus-hybrid** and record the decision with its reasoning | Design | T-D1.1 · **BLOCKED-ON-N7** | S |
+| T-D1.4 | Add the dependency: `go.mod`, pinned version, licence/vendoring check per project convention | Go | T-D1.3 | S |
+| T-D1.5 | **Error-taxonomy mapping at the package boundary**, so `internal/github`'s error contract to its callers is unchanged by the SDK | Go | T-D1.4 | M |
+| T-D1.6 | **Re-establish the credential guarantee.** Route the token through the SDK's credential path at a **single** construction site, and **rework `TestRevealIsCalledExactlyOnce` to guard that site.** The test is reworked, **never deleted** | Go + Test | T-D1.4 | **M–L** |
+| T-D1.7 | *(if N7 = full migration)* Migrate the seven existing endpoints to the SDK, call site by call site, and remove `pagination.go`'s Link-header helper. *(if hybrid: state in `doc.go` that the helper stays and why)* | Go | T-D1.5, T-D1.6 | **L** |
+| T-D1.8 | **Rewrite `doc.go`'s `# No SDK` section**: who decided, why, and that **the documented trigger (a third pagination special case) did not fire** — the trigger was sub-issues plus an owner decision. Reconcile "six" versus "seven" endpoints | Docs | T-D1.3 | S |
+| T-D1.9 | **Retire or rework `TestClientMethodSetIsTheSevenEndpoints` deliberately**, referencing its own message in the commit. If a surface guard survives, it must still fail on silent growth | Test | T-D1.7 | M |
+| T-D1.10 | **Assert `TestNoForgeAbstraction` still passes.** No interface enters a non-test file in `internal/github` | Test | T-D1.7 | S |
+| T-D1.11 | Tests: existing endpoint behaviour is unchanged after migration — same errors, same pagination results, same redaction — against a faked transport | Test | T-D1.7 | **L** |
+
+### Acceptance Criteria
+
+| ID | Criterion |
+|----|-----------|
+| AC-D1.1 | The SDK and its **exact pinned version** are recorded in `plan_brief.md` and in `doc.go`, with the reasoning. `go.mod` pins that version. **"Latest" is a failing outcome.** |
+| AC-D1.2 | **The pinned version's sub-issue support was confirmed against a live source before implementation**, and the check is recorded with its date and source. If unsupported, the generic-request fallback was confirmed too. **A `[W]`-sourced claim is not sufficient evidence.** |
+| AC-D1.3 | `doc.go`'s `# No SDK` section is rewritten and **records that the documented trigger did not fire** — the reversal was sub-issues plus an owner decision, not a third pagination special case. |
+| AC-D1.4 | `TestClientMethodSetIsTheSevenEndpoints` was changed **deliberately**, the commit references the test's own message, and any surviving surface guard **still fails on silent growth**. |
+| AC-D1.5 | **`TestNoForgeAbstraction` is green.** No interface is declared in any non-test file in `internal/github`. **SDK adoption did not introduce the forge abstraction.** |
+| AC-D1.6 | **The credential guarantee is re-established, not removed.** The token is revealed at **exactly one** place, that place is the SDK's credential path, and **a build-failing test enforces it**. **Deleting `TestRevealIsCalledExactlyOnce` without an equivalent replacement is a failing outcome — this is the guard keeping the token out of logs.** |
+| AC-D1.7 | `internal/github`'s **error contract to its callers is unchanged**. No caller outside the package changes to accommodate SDK error types. |
+| AC-D1.8 | The migrate-versus-hybrid decision is recorded. *(If hybrid: `doc.go` states that two HTTP stacks, two error taxonomies and two credential paths now exist, and **AC-D1.6 holds across both**.)* |
+| AC-D1.9 | Existing endpoint behaviour is unchanged: same results, same errors, same pagination, same redaction. |
+| AC-D1.10 | `go test -race -cover ./...` green; `gofmt` clean; `go vet` clean. |
+
+---
+
+## User Story C1 — The plan ships as one GitHub sub-issue per user story
+
+> As the owner, I want each user story to arrive as its own GitHub sub-issue, so that I can track,
+> comment on and close them independently instead of scrolling one flat plan document.
+
+**Confirmed deliberately in scope at N1** — *"yes, i changed my mind and we add it here, for
+completness!"*
+
+**Size: L. Depends on D1 (the client can create nothing today) and E1 (the artifact shape).**
+**Re-scoped in rev 4:** with D1 owning the SDK adoption and E1 owning the artifact change, C1 is
+creation, linkage, idempotency and partial-failure recovery — plus the final gate flip.
+
+### Architecture Notes
+
+- **`internal/github` cannot create anything today.** Every verb across the call sites is GET or POST
+  for reads and comments; there is **no PATCH, PUT or DELETE anywhere.** C1 needs **create issue** and
+  **attach as sub-issue**. **Both are built on the SDK adopted in D1** — this story adds no
+  hand-rolled HTTP.
+- **The sub-issue API facts in `RESEARCH_BRIEF.md` are `[W]` — second-hand and unverified.** Web tools
+  were disabled for the entire research session, and the brief's own source records six of *its*
+  predecessor's external GitHub claims as wrong, two load-bearing. **The contract is confirmed against
+  live documentation before any code.** *(D1 reduces this exposure but does not eliminate it: the SDK
+  encapsulates the shapes, not the semantics — **`sub_issue_id` is an issue **ID**, not an issue
+  **number**, and getting that wrong links the wrong issue silently.** Confirm it.)*
+- **No backoff exists for bulk creation.** A plan with eight stories is eight creations plus eight
+  attachments against a rate-limited API, in a loop. A partial failure halfway leaves a half-built plan
+  and no record of where it stopped. **Idempotency and resumability are requirements** — the natural
+  mechanism is the existing `<!-- lf:` marker convention, checking for an already-created sub-issue
+  before creating another. *(If D1's SDK provides retry/backoff, use it rather than hand-rolling —
+  that is part of what the dependency is being bought for.)*
+- **The Story Index in `plan_brief.md` is written from this story's output.** Creation produces the
+  sub-issue links; the links populate the index; **the index is how everything downstream finds the
+  stories.** An index row without a link is a broken plan, not a cosmetic gap.
+- **Sub-issue bodies are agent-authored text going to the forge** — same rules as B2: route through
+  `internal/report`, `sanitize`/`fenceFor`, redaction residual assertion.
+- **Audience.** Per Q5's split and B1's four rules, a sub-issue body is read by business users: business
+  register, names its problems, links the technical detail. **Stated once in `plan_brief.md`, per E1's
+  anti-duplication rule, not restated per story.**
+- **Sub-issues are a second stream of marker-bearing comments the owner will reply to. C1 therefore
+  depends on S0** as much as B2 does.
+- **The gate flip lands here, last.** T-C1.13 changes `CLAUDE.md`'s Implement gate to `plan_brief.md`
+  and retires `IMPLEMENTATION_PLAN.md`. **It must not merge until creation actually works** — before
+  that, the gate would point at an artifact whose stories have nowhere to live.
+- Platform: **the only story that performs a network write beyond commenting.** Review as a client
+  change.
+
+### Tasks
+
+| ID | Title | Type | Depends On | Est |
+|----|-------|------|-----------|-----|
+| T-C1.1 | **Confirm the GitHub sub-issue API contract against live documentation** — endpoint, payload, parent linkage, **`sub_issue_id` vs issue number**, limits, GA-or-preview. Record what was checked and when. **No code before this** | Design | D1 (T-D1.2) | M |
+| T-C1.3 | Create-issue capability, via the SDK | Go | D1, T-C1.1 | M |
+| T-C1.4 | Attach-as-sub-issue capability, via the SDK | Go | T-C1.3 | M |
+| T-C1.6 | Idempotent creation: a marker-based check so a re-run does not duplicate sub-issues after a partial failure | Go | T-C1.4 | M |
+| T-C1.7 | Backoff and partial-failure handling for bulk creation; a run that fails halfway reports what it created. **Use the SDK's retry support if it has one** | Go | T-C1.6 | M |
+| T-C1.8 | `plan-orchestrator.md`: emit one sub-issue per user story in the business register, each linking the technical detail, **and write its link into `plan_brief.md`'s Story Index** | Docs | T-C1.1, E1 (T-E1.3) | M |
+| T-C1.11 | Route sub-issue bodies through `internal/report`'s `sanitize`/`fenceFor` and redaction | Go | T-C1.3 | S |
+| T-C1.12 | Tests: creation, attachment, idempotent re-run, partial failure, rate-limit backoff — all against a faked client | Test | T-C1.7 | L |
+| T-C1.13 | **The gate flip, last.** Change `CLAUDE.md`'s Implement gate to require `$session/plan_brief.md`, and retire `IMPLEMENTATION_PLAN.md`. **Must not merge before creation works** | Docs | T-C1.12, E1 | S |
+
+*(Rev-3 task IDs T-C1.2, T-C1.5, T-C1.9 and T-C1.10 moved to Stories D1 and E1. IDs are not reused.)*
+
+### Acceptance Criteria
+
+| ID | Criterion |
+|----|-----------|
+| AC-C1.1 | **The sub-issue API contract was verified against live GitHub documentation before implementation**, and the verification is recorded with its date. **A `[W]`-sourced claim is not sufficient evidence for any assertion in this story.** |
+| AC-C1.1a | **`sub_issue_id` semantics were confirmed specifically** — issue ID versus issue number. Linking the wrong issue is a silent failure, so this is called out separately. |
 | AC-C1.3 | Each user story in a plan produces exactly one sub-issue linked to the parent issue. |
+| AC-C1.3a | **Every Story Index row in `plan_brief.md` carries a working sub-issue link.** A row without one is a failing outcome. |
 | AC-C1.4 | Re-running Plan mode on the same session creates **no duplicate** sub-issues. |
 | AC-C1.5 | A failure partway through bulk creation reports which sub-issues were created; a subsequent run completes the rest rather than starting over. |
 | AC-C1.6 | Sub-issue bodies are in the business register, name the problems, and link the technical detail. |
-| AC-C1.7 | *(if N3 = mirrored)* `$session/IMPLEMENTATION_PLAN.md` still exists and `CLAUDE.md`'s Implement gate is unmodified. |
-| AC-C1.8 | *(if N3 = replaced)* `CLAUDE.md` and `initialplan.md` are amended in the same change, not left contradicted. |
+| AC-C1.7 | **`CLAUDE.md`'s Implement gate requires `plan_brief.md`**, and `IMPLEMENTATION_PLAN.md` is retired. **The gate is a local file check — it makes no network call.** |
+| AC-C1.8 | **The gate flip did not merge before sub-issue creation worked.** A window in which the gate names an artifact whose stories have nowhere to live is a failing outcome. |
 | AC-C1.9 | Sub-issue bodies pass the redaction residual assertion and cannot break report structure. |
 | AC-C1.10 | `go test -race -cover ./...` green; `gofmt` clean; `go vet` clean. |
 
@@ -878,24 +1209,30 @@ only one gated on a decision the owner has not yet made.**
 
 ## Shipping order
 
-1. **S0** — the quote-reply fix. **First**, because A1, B2 and C1 all depend on the owner being able
-   to reply to a marker-bearing comment, and today the most natural reply path is silently discarded.
-   **Fully unblocked** (Q10).
-2. **B1** — no Go, no dependencies. **Fully unblocked** (Q1, Q5, Q7).
-3. **B2** — delivery is free. **The link is not.** Rev 3 called it *"one field, one builder, one
-   retired test"*; rev 3.1 corrects that to a `SHAAfter` plumb, a builder, a `Pushed` gate, a golden
-   regeneration, and artifact discovery. **No longer fully unblocked** — the link half is
-   **BLOCKED-ON-N5**. **The delivery half (T-B2.1) is still free and can ship first**, so B2 splits
-   cleanly if you want the summary landing before the link works.
-4. **A1** — after the above, because it is the only story that can change the behaviour of untagged
-   runs, and it carries F-9, F-10 and F-16. **Unblocked except for the tag's spelling (N4)**, which
-   blocks only T-A1.1's literal, not its shape — everything else in A1 can be written against a
-   constant.
-5. **C1** — **only if N1 confirms the reversal**, and not before N2 and N3 are answered.
+**Re-sequenced in rev 4.** N3 changed what must land together, and N2 inserted a dependency in front
+of C1.
 
-**~~B1 and B2 may now be merged~~ — withdrawn in rev 3.1.** Rev 3 offered the merge on the grounds
-that B2's link work was small. It is not: **B2 is L-sized after all**, which is the exact objection
-rev 2 raised and rev 3 believed had gone away. **Keep them separate.**
+1. **S0** — the quote-reply fix. **First**, because A1, B2 and C1 all depend on the owner being able to
+   reply to a marker-bearing comment. **Fully unblocked.** *(M)*
+2. **B1** — no Go, no dependencies. **Fully unblocked.** *(S)*
+3. **B2** — delivery is free; the link is not. **Fully unblocked as of N5 = (a).** The delivery half
+   (T-B2.1) can still ship on its own if you want the summary landing before the link works. *(L)*
+4. **A1** — after the above, because it is the only story that can change the behaviour of untagged
+   runs, and it carries F-9, F-10 and F-16. **Fully unblocked as of N4.** *(L)*
+5. **E1** — `plan_brief.md`. **Fully unblocked**, zero Go, and it can be written in parallel with the
+   Go stories. **But it must not flip the gate** — that is C1's last task. *(L)*
+6. **D1** — the SDK. **Before C1**, because C1 has nothing to build on until the client can create.
+   **Blocked on N6 and N7** for its first line of code; every task is written against "the SDK" and is
+   otherwise ready. *(XL, or L if N7 = hybrid)*
+7. **C1** — sub-issue creation, then **the gate flip, last**. *(L)*
+
+**The one hard coupling: E1 and C1 must complete together.** E1 alone leaves Plan mode producing
+shared context with nowhere for stories to live; C1 without E1 creates sub-issues nothing reads.
+**T-C1.13 is the join** — it is deliberately the last task in the plan.
+
+**Two independent tracks, if you want parallelism.** S0 → B2 → A1 is Go work in `internal/turn`,
+`internal/report` and `internal/harness`. E1 → (D1) → C1 is the plan-shape-and-client track. **B1 and
+E1 touch no Go at all** and can proceed alongside either.
 
 **Hidden coupling worth stating once:** the tag parser (T-A1.1) is the same code that derives
 `PreviousMayAsk` (T-A1.6) and gates both Research and Plan. It is the one genuinely load-bearing new
@@ -906,32 +1243,38 @@ function in this plan, which is why AC-A1.4 exists as a criterion of its own.
 ## Out of Scope
 
 - **Story A2 — parking as a first-class state (`needs_input`).** **Deleted, not deferred** (Q11 = A1
-  only). Everything it contained is gone from this plan: the `needs_input` run status and session
-  state, `terminalRunStatus` changes, the `lf:question` marker and renderer, the sidecar signal
-  channel, watermark/consumption handling, `litefactory status` visibility, and the no-answer
-  behaviour.
+  only). Everything it contained is gone: the `needs_input` run status and session state,
+  `terminalRunStatus` changes, the `lf:question` marker and renderer, the sidecar signal channel,
+  watermark/consumption handling, `litefactory status` visibility, and the no-answer behaviour.
   **What would bring it back, in one line:** a run that asks reporting as **✅ succeeded** turns out to
   be genuinely confusing in practice — at which point parking becomes worth its cost, and LF-12's
   permission gate becomes its second caller so it is built once rather than twice.
 - **Code review.** Ring-fenced by the owner: *"code review and alike are untouched by this!"* Nothing
-  is proposed for `go-code-reviewer`, `CODE_REVIEW.md`, or the Implement-mode review gates.
+  is proposed for `go-code-reviewer`, `CODE_REVIEW.md`, or the Implement-mode review gates. **E1 edits
+  `go-code-reviewer.md` for one reason only — where it reads story content from.** Its review
+  behaviour, its BLOCKING/ADVISORY classification and its gates are untouched.
+- **Matching the brief out of `Files` for the B2 link (rev 3.1's option N5(b)).** **Considered and
+  rejected**: it drops the link on runs that summarise without rewriting the brief, breaking B1's rule
+  that the summary always links the detail.
+- **The forge abstraction (`forge.go`, LF-18).** **Explicitly not introduced by D1**, and
+  `TestNoForgeAbstraction` stays green. Extract it later from two real implementations; do not guess it
+  from one plus an SDK.
 - **F-19 — deliberate marker impersonation by a third party.** Any third party can promote their
   comment from `old_third_party` to `litefactory` by writing `<!-- lf:` in it. **Real, pre-existing,
   and explicitly NOT fixed by Story S0** — line-anchoring stops the accident, not the attack. The real
   fix is inverting author-versus-marker precedence in `Classify`, which `classify.go:193-196`
-  deliberately argues against for a stated reason. **A security change larger than issue #7; plan it
-  as its own story.** *(Named here so it does not look handled.)*
-- **A Go-side ask-round cap or timeout.** Explicitly excluded by Q8 — this is the agent's judgement,
-  and building it in `internal/` would contradict the answer.
+  deliberately argues against for a stated reason. **A security change larger than issue #7.**
+- **A Go-side ask-round cap or timeout.** Explicitly excluded by Q8.
 - **Any imposed length limit on the research brief or the summary.** Explicitly declined at Q5. The
   32 KiB truncation is a physical property of `report/run.go`, not a policy this plan sets.
-- **Run re-ordering for the blob link.** **Already done — confirmed twice.** `harvest.go` commits
-  then pushes, and the daemon calls `turn.Execute` before `reporter.ReportTurn`. `initialplan.md:234`
-  anticipates a change that has landed. **A diff that re-orders them is a failing outcome**
-  (AC-B2.11), not an improvement. This is the one B2 claim rev 3.1's verification pass left standing
-  unchanged.
-- **Reworking the eleven interactive approval gates** across the agent definitions. Opt-in asking
-  defuses the risk that motivated it; a twelve-file markdown rewrite is its own change.
+- **Run re-ordering for the blob link.** **Already done — confirmed twice.** `harvest.go` commits then
+  pushes, and the daemon calls `turn.Execute` before `reporter.ReportTurn`. **A diff that re-orders
+  them is a failing outcome** (AC-B2.11).
+- **Rewriting `.aiteam/` session archives** when the plan artifact changes shape. They are the
+  historical record (AC-E1.7).
+- **Versioning or review workflow for sub-issue bodies.** N3 accepts that the per-story plan of record
+  becomes mutable and unversioned. Named here so it does not look handled.
+- **Reworking the eleven interactive approval gates** across the agent definitions.
 - **LF-12 — the permission gate.** Named as the second caller of A2's machinery so that if A2 ever
   returns, it is not built twice.
 - **LF-6 labels, LF-13 draft PRs, PR review comments as input, `/include`, prompt-injection
@@ -943,9 +1286,7 @@ function in this plan, which is why AC-A1.4 exists as a criterion of its own.
 
 ---
 
-*Note on what LF-7 no longer is: it was in `Out of Scope` in rev 2 as *"unstarted and actively
-test-blocked"*. It is now Story B2's link work. **Rev 3.1 correction: rev 2's "test-blocked" was more
-right than rev 3 gave it credit for.** Rev 3 identified the block as the single `/blob/` guard and
-sized retiring it at S. The guard is the small half — **twelve whole-body goldens are the real
-block**, and `.aiteam/` artifact discovery does not exist at all. LF-7 is in scope, but it was never
-as unblocked as rev 3 said.*
+*Note on what LF-7 no longer is: it was in `Out of Scope` at rev 2 as *"unstarted and actively
+test-blocked"*. It is now Story B2's link work — in scope, and **L-sized**: a `SHAAfter` plumb, a
+builder, a `Pushed` gate, twelve golden regenerations, and real artifact discovery. Rev 2's
+"test-blocked" was closer to right than rev 3 allowed.*

@@ -5,11 +5,13 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-08-26; revised 2026-08-27)*
-- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; revised in place to rev 3 on
-  2026-08-30 after the owner answered all eleven questions; **amended in place to rev 3.1** on
-  2026-08-30 after a late verification pass. **All 11 ANSWERED**; **5 open questions** — N1 sub-issue
-  scope reversal, N2 SDK decision, N3 plan mirrored-or-replaced, N4 tag spelling, **N5 artifact
-  discovery for the B2 link**)*
+- [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done — 2026-08-27; rev 2 on 2026-08-27; rev 3 and rev 3.1
+  on 2026-08-30; **revised in place to rev 4** on 2026-08-30 after the owner answered all five
+  N-questions. **All 16 ANSWERED** — Q1–Q11 and N1–N5. **2 open questions**, both from N2 and neither
+  answerable from this repo: **N6** which SDK and which pinned version, **N7** migrate all seven
+  endpoints or run a hybrid. **7 stories**: S0 · B1 · B2 · A1 · E1 · D1 · C1. **This artifact is
+  scheduled for deletion by its own Story E1** — N3 replaced it with `plan_brief.md` plus one
+  sub-issue per story)*
 - [ ] **Implement** — code + tests *(not started)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
@@ -121,7 +123,74 @@ asked for; nothing here licenses starting the next one.
   **One rev-3 claim survived intact:** push already precedes the comment (`harvest.go` commits then
   pushes; the daemon calls `turn.Execute` before `reporter.ReportTurn`). AC-B2.11 stands.
 
+- 2026-08-30 — **Plan revised in place to rev 4 (run 0010).** The owner answered **all five**
+  N-questions. `IMPLEMENTATION_PLAN.md` revised — not a new document. **Still Plan** — no code,
+  nothing committed, and Implement still needs its own comment. One grep run this revision; no
+  sub-agents.
+
+  **Sixteen questions are now answered and nothing is outstanding from the owner.** Q1–Q11 at rev 3,
+  N1–N5 at rev 4. **Three of the five N-answers overrode a recommendation** and all three are applied
+  without re-argument: N2 reverses a documented project policy, N3 rejects rev 3.1's *mirrored*
+  recommendation outright, N5 took the recommendation at its expensive end.
+
+  **Story count 5 → 7.** N2 and N3 were each far too large to bury inside C1, so each became its own
+  story. Final set: **S0 · B1 · B2 · A1 · E1 · D1 · C1**.
+
+  - **N1 — CONFIRMED, deliberate.** *"yes, i changed my mind and we add it here, for completness!"*
+    All hedging about an accidental reversal is removed; C1 is firmly in scope.
+  - **N2 — USE AN SDK → new Story D1 (XL, or L if hybrid).** This overrides `internal/github/doc.go`'s
+    explicit *"# No SDK"* section, whose stated trigger — a third pagination special case — **did not
+    fire**; the trigger was sub-issues plus an owner decision, and the rewrite must record that
+    distinction. **The sharpest item is security:** `TestRevealIsCalledExactlyOnce`
+    (`surface_test.go:137`) fails the build if `.Reveal()` appears anywhere but the `Authorization`
+    line, and it is **what keeps the token out of logs**. An SDK takes credentials through a different
+    path, so **the guard will break** — the plan requires an equivalent guarantee be re-established,
+    never deleted (T-D1.6 / AC-D1.6). Also flagged: **SDK adoption must not smuggle in the forge
+    abstraction** — `TestNoForgeAbstraction` (`surface_test.go:92`) stays green; a concrete wrapper is
+    fine, an interface is not. **A real upside is recorded, not just costs:** the sub-issue facts in
+    `RESEARCH_BRIEF.md` are `[W]` and untrusted, and an SDK encapsulates exactly what that block is
+    untrusted about — endpoint paths, payload names, the `sub_issue_id`-vs-number trap — so **N2
+    materially reduces C1's risk.**
+  - **N3 — REPLACED, not mirrored → new Story E1 (L).** Plan mode's output becomes **`plan_brief.md`
+    plus one sub-issue per story**; the flat plan file goes. **It is 13 live files, not the 4 the
+    owner named** — a grep finds 123 occurrences across 34 files, of which 21 are `.aiteam/` archives
+    that must **not** be rewritten. **And zero are Go**: artifact-based state inference is entirely
+    unimplemented in code, so this breaks nothing running and can be tested only by reading.
+    **The gate risk is named and answered:** `plan_brief.md` becomes the Implement gate — a local file
+    check — and sub-issues are discovered from its **Story Index**, rather than putting a network call
+    into mode entry. `plan_brief.md`'s contents are specified as a section table, with an
+    **anti-duplication rule**: it carries only what two or more stories need.
+  - **N4 — `lf: ask`**, line-anchored. **A1 is now fully unblocked.** One collision note added: it is a
+    different literal from the `<!-- lf:` self-marker and neither matches the other.
+  - **N5 — (a), real artifact discovery.** B2 keeps its **L** size and the link half is unblocked;
+    option (b) is removed with one line recording why it was rejected.
+
+  **The one hard coupling, and it drove the re-sequencing: E1 and C1 must complete together.** E1
+  alone leaves Plan mode producing shared context with nowhere for stories to live. **The gate flip is
+  deliberately the last task in the plan** (T-C1.13) and must not merge before creation works.
+
+  **Two new questions, and only two** — both fall out of N2 and neither is answerable from this repo:
+  **N6** (which SDK, which **exact pinned version**; recommendation `github.com/google/go-github`, with
+  **no version named**, because web tools are disabled and guessing one would be the `[W]`-grade error
+  this plan spends a page warning about) and **N7** (migrate all seven endpoints or hybrid;
+  **recommendation: full migration**, decided on AC-D1.6 rather than tidiness — a hybrid leaves two
+  credential paths). **One genuine unknown is recorded as an acceptance criterion rather than an
+  assumption:** whether the chosen SDK version supports sub-issues at all (AC-D1.2).
+
 ## Notes
+
+**Plan rev 4 (run 0010) — three things worth knowing before Implement.**
+
+1. **`TestRevealIsCalledExactlyOnce` is the most dangerous thing in this plan.** It will break under
+   D1, it is the only mechanism keeping the GitHub token out of logs, and the plan makes deleting it
+   without an equivalent replacement a **failing outcome** (AC-D1.6). Anyone implementing D1 who
+   treats it as a stale test in the way is removing a security control.
+2. **`IMPLEMENTATION_PLAN.md` is now scheduled for deletion by its own Story E1.** The file carries a
+   banner saying so. It remains the plan of record until E1 and C1 ship.
+3. **The provenance warning below still governs, and rev 4 extended it to two new areas without
+   re-pinning either:** `internal/github`'s surface tests (owner-verified at `71d3bea`, but the file is
+   on the 52-file stale list — T-D1.0 re-pins) and `.claude/`+`CLAUDE.md` (E1's 13-file inventory is a
+   **disk** grep, therefore a lower bound — T-E1.0 re-runs it).
 
 **Plan rev 3.1 (run 0009) — read the provenance warning at the top of the plan before using any
 `path:line` in it.** Citations pin to `origin/main` @ **`71d3bea`**. Five packages' line numbers are
