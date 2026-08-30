@@ -79,9 +79,33 @@ Things discovered during the tour that the research brief should address.
 
 The orchestrator assembles these findings into `RESEARCH_BRIEF.md`. You own no files.
 
+### Return-size cap
+
+**This return is capped.** It is machine-to-machine: the only reader is `research-orchestrator`, which
+rewrites it before a human sees a word of it. An unbounded tour crowds out the orchestrator's context
+and buys nothing, because it will be condensed anyway. (The brief and its business summary carry no
+size limit — that is a deliberate difference of audience, not an inconsistency. Do not carry a cap
+across to them.)
+
+Hold the whole return to **roughly 12 KiB / about 1,500 words**, and within it:
+
+| Part | Cap |
+|---|---|
+| Each Pass 1 dimension | ~10 bullets |
+| Each Pass 2 dimension | ~15 bullets |
+| Each scanner's findings | ~10 findings, most significant first |
+| Any quoted source excerpt | 10 lines — cite `path:line` instead of pasting more |
+| Open questions | ~10, most significant first |
+
+If you are over the cap, **cut breadth, not signal.** Drop the least relevant findings outright rather
+than shortening every finding into something too vague to act on. Then **say what you dropped** — one
+line at the end, e.g. *"omitted: 30 further files under `internal/…` matching the same pattern"* — so
+the orchestrator knows the tour saw more than it returned, instead of reading the area as small.
+
 ## Rules
 
 - Read before you write — the tour is descriptive, never prescriptive.
 - Map pass is always at the full scope passed by the orchestrator. Focus pass is always scoped to the specific area the question touches. Never invert.
 - Log unexpected findings (surprising patterns, unknown dependencies, design inconsistencies) as open questions rather than silently skipping them.
 - If the rulebook is missing, state that clearly in Scanner Findings and proceed with generic best practices.
+- Respect the return-size cap. Over the cap, drop whole findings and say so — never compress every finding into vagueness.

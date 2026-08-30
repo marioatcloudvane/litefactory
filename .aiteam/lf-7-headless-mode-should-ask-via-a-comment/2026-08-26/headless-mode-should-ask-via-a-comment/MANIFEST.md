@@ -287,6 +287,22 @@ asked for; nothing here licenses starting the next one.
 
   No story was implemented. Implement still needs its own human comment.
 
+- 2026-08-30 — **Implement, Story B1 only — delivered.** `research-orchestrator.md` gains a business
+  summary contract (audience split, the four hard rules, required sections, the ordering warning, and
+  what the brief keeps); `codebase-tour.md` gains a return-size cap. **Markdown only — zero Go, no
+  build, no tests; the unit- and integration-test engineers and environment setup were skipped as the
+  plan says they do not apply.** `go-code-reviewer` ran as a docs review: **ADVISORY_ONLY**, no
+  blocking findings, both advisories (CR-A-002, CR-A-003) fixed in place before the commit. Six gated
+  ACs pass — AC-B1.1, AC-B1.3, AC-B1.4, AC-B1.5, AC-B1.6, AC-B1.7. **AC-B1.2 is manual/observational
+  and was deliberately not gated.** AC-B1.7 verified: no `.go` file modified.
+
+  **The rev-6 "OWNER-EXECUTED, NOT AGENT-EXECUTED" banner on B1 is superseded and should be struck
+  from the plan.** Its premise was that `.claude/` is unwritable. It is not a deny rule — it is a
+  built-in approval prompt, and a headless run (`permissionMode: default`, nobody attached) collapses
+  "needs approval" into "denied". With the owner present, **both `.claude/agents/` writes landed on
+  the first attempt.** The same correction applies to E1 and to T-A1.11 / T-A1.21 / T-A1.12, which
+  were re-scoped to the owner for the same wrong reason. Not pushed — the owner decides that.
+
 ## Notes
 
 **Implement attempt (2026-08-30) — three things to carry forward.**
