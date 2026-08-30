@@ -1,0 +1,620 @@
+package turn
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/store"
+)
+
+// gateTimeout bounds every rendezvous in this file. A gate bug is a deadlock,
+// and a deadlock reported as "panic: test timed out after 10m" names no test
+// and no line. Failing on our own clock keeps the message useful.
+const gateTimeout = 30 * time.Second
+
+// testGate is a real per-clone gate with an assertion harness bolted on.
+//
+// It is not a stand-in that always succeeds: it is the same 1-buffered channel
+// per path that internal/daemon uses, because a fixture whose gate granted
+// everything immediately would let every test in this package pass over a
+// serialisation that production does not have. internal/turn cannot import
+// internal/daemon — the arrow points the other way, and that is the whole
+// ownership decision this feature rests on — so the semantics are restated
+// here, and internal/daemon's own gate_internal_test.go tests the real one.
+//
+// The instrumentation is what the acceptance criteria are read off:
+//
+//   - held/overlaps prove mutual exclusion per path (AC-PAR-3.1).
+//   - deadlined proves no caller wrapped a critical section in a timeout
+//     (AC-PAR-3.6).
+//   - acquisitions counts how many times each clone was entered, which is what
+//     distinguishes "one section" from "one section per git command".
+type testGate struct {
+	mu           sync.Mutex
+	gates        map[string]chan struct{}
+	held         map[string]int
+	acquisitions map[string]int
+	overlaps     int
+	deadlined    int
+}
+
+func newTestGate() *testGate {
+	return &testGate{
+		gates:        make(map[string]chan struct{}),
+		held:         make(map[string]int),
+		acquisitions: make(map[string]int),
+	}
+}
+
+func (g *testGate) Acquire(ctx context.Context, path string) (func(), error) {
+	gate := g.channel(path)
+
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	g.mu.Lock()
+	if _, ok := ctx.Deadline(); ok {
+		g.deadlined++
+	}
+	g.acquisitions[path]++
+	g.held[path]++
+	if g.held[path] > 1 {
+		g.overlaps++
+	}
+	g.mu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			g.mu.Lock()
+			g.held[path]--
+			g.mu.Unlock()
+			<-gate
+		})
+	}, nil
+}
+
+func (g *testGate) channel(path string) chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	gate, ok := g.gates[path]
+	if !ok {
+		gate = make(chan struct{}, 1)
+		g.gates[path] = gate
+	}
+	return gate
+}
+
+// report is the gate's state, copied so a caller reads it without racing the
+// goroutines that wrote it.
+func (g *testGate) report() (acquisitions map[string]int, overlaps, deadlined int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	acquisitions = make(map[string]int, len(g.acquisitions))
+	for path, n := range g.acquisitions {
+		acquisitions[path] = n
+	}
+	return acquisitions, g.overlaps, g.deadlined
+}
+
+// TestExecuteRequiresACloneGate pins the decision that the gate is a required
+// dependency rather than a nil-tolerant no-op.
+//
+// A nil gate degrading to "do not serialise" would be a silent regression: the
+// measured failure rates it prevents are 0.75% for "worktree add" and 75% for a
+// fetch against moved refs, so a build that lost the wiring would look healthy
+// for a long time and then post fatal git errors on the issue that read as
+// flakes. There is one production wiring point, so refusing the zero value
+// costs nothing and turns forgetting it into a startup error (AC-PAR-3.1).
+func TestExecuteRequiresACloneGate(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
+		t.Error("claude ran for a turn with no clone gate")
+		return nil, errors.New("must not be reached")
+	}))
+
+	opts := f.opts
+	opts.CloneGate = nil
+	if _, err := Execute(t.Context(), opts, f.request()); err == nil {
+		t.Fatal("Execute with no clone gate = nil error, want ErrInvalidOptions")
+	} else if !strings.Contains(err.Error(), "clone gate") {
+		t.Errorf("err = %v, want it to name the missing clone gate", err)
+	}
+}
+
+// TestCriticalSectionsAreSingleAcquisitions is the structural half of
+// AC-PAR-3.3, in the style of internal/config/purity_test.go.
+//
+// A behavioural test for "the gate was not released between these two calls" is
+// awkward to write and easy to write wrongly. What is actually being defended
+// is a shape: the git of a turn is exactly two critical sections, each one
+// acquisition with one deferred release, and the calls that must not escape one
+// are called from nowhere else in the package. That is a property of the syntax
+// tree, so it is asserted against the syntax tree.
+//
+// If this fails, someone split a section — most likely by gating each git call
+// separately, which reintroduces the resolveBranchStart-then-worktree-add
+// window the section exists to close.
+func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
+	t.Parallel()
+
+	sections := map[string]struct {
+		file string
+		// exclusive names the calls that may appear inside this section and
+		// nowhere else in the package's non-test files.
+		exclusive []string
+	}{
+		"prepareClone": {
+			file:      "prepare.go",
+			exclusive: []string{"fetch", "freezeSlug", "ensureWorktree"},
+		},
+		"commitAndPush": {
+			file:      "harvest.go",
+			exclusive: []string{"Commit", "Push"},
+		},
+	}
+
+	funcs := packageFuncs(t)
+	for name, section := range sections {
+		fn, ok := funcs[name]
+		if !ok {
+			t.Fatalf("%s is not declared in package turn; CS1 and CS2 are named functions on purpose", name)
+		}
+		if fn.file != section.file {
+			t.Errorf("%s is declared in %s, want %s", name, fn.file, section.file)
+		}
+
+		if got := countCalls(fn.decl, "Acquire"); got != 1 {
+			t.Errorf("%s makes %d gate acquisitions, want exactly 1", name, got)
+		}
+		deferred, immediate := countReleases(fn.decl)
+		if deferred != 1 {
+			t.Errorf("%s defers release() %d times, want exactly 1", name, deferred)
+		}
+		if immediate != 0 {
+			t.Errorf("%s calls release() %d times outside a defer, want 0: "+
+				"a release that is not deferred is a release an early return skips", name, immediate)
+		}
+
+		for _, call := range section.exclusive {
+			for other, decl := range funcs {
+				if other == name {
+					continue
+				}
+				if countCalls(decl.decl, call) > 0 {
+					t.Errorf("%s calls %s, but %s may only be called from inside %s: "+
+						"moving it out of the critical section is what this test exists to catch",
+						other, call, call, name)
+				}
+			}
+			if countCalls(fn.decl, call) == 0 {
+				t.Errorf("%s does not call %s; the section no longer covers it", name, call)
+			}
+		}
+	}
+
+	// Two sections, and no third acquisition hiding anywhere else.
+	total := 0
+	for _, fn := range funcs {
+		total += countCalls(fn.decl, "Acquire")
+	}
+	if total != 2 {
+		t.Errorf("package turn acquires the clone gate %d times, want exactly 2 "+
+			"(one for prepareClone, one for commitAndPush)", total)
+	}
+}
+
+// TestTurnImposesNoAmbientDeadline is AC-PAR-3.6's structural half.
+//
+// Every git command starts its own deadline when it execs, in
+// internal/git/exec.go. That is only worth anything if no caller wraps a
+// critical section in a deadline of its own, because a turn that waited 50
+// seconds for the gate would then hand a 60-second fetch ten seconds to run —
+// and would do it worst on exactly the busy clone where the wait is longest.
+// The behavioural half is asserted by [testGate], which counts acquisitions
+// made under a context that already carries a deadline.
+func TestTurnImposesNoAmbientDeadline(t *testing.T) {
+	t.Parallel()
+
+	for name, fn := range packageFuncs(t) {
+		for _, forbidden := range []string{"WithTimeout", "WithDeadline"} {
+			if countCalls(fn.decl, forbidden) > 0 {
+				t.Errorf("%s calls context.%s; internal/turn imposes no deadline of its own, "+
+					"because git commands start theirs at exec time (AC-PAR-3.6)", name, forbidden)
+			}
+		}
+	}
+}
+
+// TestClaudeRunsOutsideTheCloneGate is AC-PAR-3.2, and it is the criterion that
+// says this feature was worth building.
+//
+// Two turns on the *same* clone are made to arrive inside their claude run and
+// wait for each other. If either critical section enclosed the run, the second
+// turn could not reach claude until the first had finished entirely, and this
+// test would sit at the barrier until gateTimeout — which is the failure being
+// tested for, stated as a deadlock rather than as a slow test.
+func TestClaudeRunsOutsideTheCloneGate(t *testing.T) {
+	t.Parallel()
+
+	const otherIssue = 124
+
+	var home string
+	arrived := make(chan struct{}, 2)
+	proceed := make(chan struct{})
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		arrived <- struct{}{}
+		<-proceed
+		return succeeded(req, home), nil
+	})
+
+	f := newFixture(t, runner)
+	home = f.paths.Home()
+	gate, ok := f.opts.CloneGate.(*testGate)
+	if !ok {
+		t.Fatalf("fixture gate is %T, want *testGate", f.opts.CloneGate)
+	}
+	other := f.otherSession(otherIssue)
+
+	results := make(chan Result, 2)
+	var wg sync.WaitGroup
+	for _, req := range []Request{f.request(), f.requestFor(other, otherIssue, "Add a /ready endpoint", 9002)} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// t.Errorf rather than t.Fatalf: a Fatalf from a goroutine that
+			// is not the test's own stops that goroutine and leaves the
+			// barrier half open.
+			result, err := Execute(t.Context(), f.opts, req)
+			if err != nil {
+				t.Errorf("Execute for issue %d: %v", req.Issue.Number, err)
+			}
+			results <- result
+		}()
+	}
+
+	// Both turns inside claude at one instant. Reaching this point at all is
+	// the criterion; the timeout is the failure.
+	for i := 0; i < 2; i++ {
+		select {
+		case <-arrived:
+		case <-time.After(gateTimeout):
+			close(proceed)
+			wg.Wait()
+			t.Fatalf("only %d of 2 turns reached claude within %v; "+
+				"a critical section is holding the clone gate across the run", i, gateTimeout)
+		}
+	}
+	close(proceed)
+	wg.Wait()
+	close(results)
+
+	for result := range results {
+		if result.Disposition != DispositionRan {
+			t.Errorf("issue %d: disposition = %v (%s), want DispositionRan",
+				result.Session.IssueNumber, result.Disposition, result.Reason)
+		}
+	}
+
+	acquisitions, overlaps, deadlined := gate.report()
+	if overlaps != 0 {
+		t.Errorf("the gate was held by two turns at once %d times", overlaps)
+	}
+	if deadlined != 0 {
+		t.Errorf("%d acquisitions carried an ambient deadline, want 0 (AC-PAR-3.6)", deadlined)
+	}
+	// Two turns, two sections each, one clone.
+	if got := acquisitions[f.storeRepo.Path]; got != 4 {
+		t.Errorf("the clone at %s was entered %d times, want 4 (two turns × two sections)",
+			f.storeRepo.Path, got)
+	}
+	if len(acquisitions) != 1 {
+		t.Errorf("acquisitions span %d clones, want 1", len(acquisitions))
+	}
+}
+
+// TestConcurrentTurnsAgainstTwoClones is AC-PAR-3.5: two repositories, three
+// issues each, six turns at once, one process-wide gate.
+//
+// It runs under -race like everything else, and it also reads what git said.
+// The three strings below are the exact failures the spike measured at
+// parallelism 4 and are the reason the gate exists; each of them reaches the
+// result as a reportable failure and the log as an error line, so the check is
+// over both.
+//
+// This is the level the plan asks the criterion to be driven at. The daemon
+// dispatching turns concurrently is a later task; a gate that only works once
+// the daemon is concurrent could not be developed, and [Execute] is a function
+// of its arguments precisely so that it can be called from six goroutines here.
+func TestConcurrentTurnsAgainstTwoClones(t *testing.T) {
+	t.Parallel()
+
+	issues := []struct {
+		number  int
+		title   string
+		comment int64
+	}{
+		{123, testIssueTitle, testComment},
+		{124, "Add a /ready endpoint", 9002},
+		{125, "Add a /metrics endpoint", 9003},
+	}
+
+	// One registry for the whole process is what production has, so the two
+	// fixtures share it. Their clone paths differ, so the two repositories must
+	// not wait for each other — asserted below.
+	gate := newTestGate()
+
+	// One runner per fixture, so that the run result names the log path under
+	// that fixture's own $LF_HOME.
+	newRunner := func(home string) *stubRunner {
+		return newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+			if err := os.WriteFile(
+				filepath.Join(req.WorktreePath, "NOTES.md"),
+				[]byte("run "+req.Ref.String()+"\n"),
+				0o600,
+			); err != nil {
+				return nil, err
+			}
+			return succeeded(req, home), nil
+		})
+	}
+
+	type turnCase struct {
+		fixture *fixture
+		request Request
+	}
+	var cases []turnCase
+	fixtures := []*fixture{newFixture(t, nil), newFixture(t, nil)}
+	for _, f := range fixtures {
+		f.opts.CloneGate = gate
+		f.opts.Claude = newRunner(f.paths.Home())
+		for _, issue := range issues {
+			session := f.session
+			if issue.number != testIssue {
+				session = f.otherSession(issue.number)
+			}
+			cases = append(cases, turnCase{
+				fixture: f,
+				request: f.requestFor(session, issue.number, issue.title, issue.comment),
+			})
+		}
+	}
+
+	results := make([]Result, len(cases))
+	errs := make([]error, len(cases))
+	var wg sync.WaitGroup
+	for i, c := range cases {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = Execute(context.Background(), c.fixture.opts, c.request)
+		}()
+	}
+	wg.Wait()
+
+	// The failures the gate exists to prevent, verbatim from the measurement.
+	contention := []string{
+		"cannot lock ref",
+		"failed to read .git/worktrees/",
+		"could not lock config file",
+	}
+
+	for i, c := range cases {
+		issue := c.request.Issue.Number
+		if errs[i] != nil {
+			t.Fatalf("issue %d in %s: Execute: %v", issue, c.fixture.storeRepo.Path, errs[i])
+		}
+		result := results[i]
+		if result.Disposition != DispositionRan {
+			t.Errorf("issue %d in %s: disposition = %v, reason = %q",
+				issue, c.fixture.storeRepo.Path, result.Disposition, result.Reason)
+		}
+		if !result.Pushed {
+			t.Errorf("issue %d in %s: not pushed (err = %v, reason = %q)",
+				issue, c.fixture.storeRepo.Path, result.Err, result.Reason)
+		}
+		for _, phrase := range contention {
+			if strings.Contains(result.Reason, phrase) {
+				t.Errorf("issue %d: result reports git contention %q: %s", issue, phrase, result.Reason)
+			}
+			if result.Err != nil && strings.Contains(result.Err.Error(), phrase) {
+				t.Errorf("issue %d: result error reports git contention %q: %v", issue, phrase, result.Err)
+			}
+		}
+	}
+
+	for _, f := range fixtures {
+		logs := f.logs.String()
+		for _, phrase := range contention {
+			if strings.Contains(logs, phrase) {
+				t.Errorf("%s: the turn log reports git contention %q", f.storeRepo.Path, phrase)
+			}
+		}
+	}
+
+	acquisitions, overlaps, deadlined := gate.report()
+	if overlaps != 0 {
+		t.Errorf("the gate was held by two turns at once %d times", overlaps)
+	}
+	if deadlined != 0 {
+		t.Errorf("%d acquisitions carried an ambient deadline, want 0 (AC-PAR-3.6)", deadlined)
+	}
+	if len(acquisitions) != len(fixtures) {
+		t.Errorf("acquisitions span %d clones, want %d: the gate is keyed on the clone path",
+			len(acquisitions), len(fixtures))
+	}
+	for _, f := range fixtures {
+		if got := acquisitions[f.storeRepo.Path]; got != 2*len(issues) {
+			t.Errorf("the clone at %s was entered %d times, want %d (three turns × two sections)",
+				f.storeRepo.Path, got, 2*len(issues))
+		}
+	}
+}
+
+// funcDecl is a top-level function of this package with the file it came from.
+type funcDecl struct {
+	file string
+	decl *ast.FuncDecl
+}
+
+// packageFuncs parses every non-test file in the package and returns its
+// top-level functions and methods by name. Method names are qualified with
+// their receiver type so a method cannot silently answer for a function.
+func packageFuncs(t *testing.T) map[string]funcDecl {
+	t.Helper()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package directory: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	funcs := make(map[string]funcDecl)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			key := fn.Name.Name
+			if fn.Recv != nil {
+				key = receiverName(fn.Recv) + "." + fn.Name.Name
+			}
+			funcs[key] = funcDecl{file: name, decl: fn}
+		}
+	}
+	if len(funcs) == 0 {
+		t.Fatal("no functions found in package turn; the parse is not doing what it looks like")
+	}
+	return funcs
+}
+
+// receiverName is the type name a method hangs off, without the pointer.
+func receiverName(recv *ast.FieldList) string {
+	if len(recv.List) == 0 {
+		return ""
+	}
+	expr := recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name
+	}
+	return ""
+}
+
+// countCalls counts calls to a function or method of the given name inside fn,
+// whether it is called bare or through a selector.
+func countCalls(fn *ast.FuncDecl, name string) int {
+	count := 0
+	ast.Inspect(fn, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fun := call.Fun.(type) {
+		case *ast.Ident:
+			if fun.Name == name {
+				count++
+			}
+		case *ast.SelectorExpr:
+			if fun.Sel.Name == name {
+				count++
+			}
+		}
+		return true
+	})
+	return count
+}
+
+// countReleases counts calls to release() inside fn, split by whether they are
+// deferred. The distinction is the point: a release that is not deferred is one
+// an early return can skip, and a skipped release wedges the clone for the life
+// of the process.
+func countReleases(fn *ast.FuncDecl) (deferred, immediate int) {
+	deferredCalls := make(map[*ast.CallExpr]struct{})
+	ast.Inspect(fn, func(node ast.Node) bool {
+		if stmt, ok := node.(*ast.DeferStmt); ok {
+			deferredCalls[stmt.Call] = struct{}{}
+		}
+		return true
+	})
+
+	ast.Inspect(fn, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok || ident.Name != "release" {
+			return true
+		}
+		if _, isDeferred := deferredCalls[call]; isDeferred {
+			deferred++
+		} else {
+			immediate++
+		}
+		return true
+	})
+	return deferred, immediate
+}
+
+// otherSession registers a second task on this fixture's repository, which is
+// what makes "two turns on the same clone" expressible.
+func (f *fixture) otherSession(issue int) store.Session {
+	f.t.Helper()
+
+	session, err := f.db.GetOrCreateSession(f.t.Context(), f.storeRepo, issue)
+	if err != nil {
+		f.t.Fatalf("create session for issue %d: %v", issue, err)
+	}
+	return session
+}
+
+// requestFor is [fixture.request] for an arbitrary task on this fixture.
+func (f *fixture) requestFor(session store.Session, issue int, title string, comment int64) Request {
+	f.t.Helper()
+
+	body := fmt.Sprintf("/spike work on issue %d", issue)
+	return Request{
+		SessionID: session.ID,
+		Issue: Issue{
+			Number: issue,
+			Title:  title,
+			Body:   "The service has no way to say whether it is up.",
+			Author: "octo-reporter",
+		},
+		Trigger: Trigger{
+			CommentID: comment,
+			Body:      body,
+			Author:    "marioatcloudvane",
+		},
+		Command: ParseCommand(body),
+	}
+}

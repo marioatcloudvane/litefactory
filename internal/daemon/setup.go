@@ -229,9 +229,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Forge:  client,
 		Filter: filter,
 		Turn: NewExecutor(turn.Options{
-			DB:         s.DB,
-			Git:        gitBinary,
-			Claude:     claude,
+			DB:     s.DB,
+			Git:    gitBinary,
+			Claude: claude,
+			// One registry for the process, built here because this is the
+			// only place a turn's dependencies are bound. turn.Options
+			// validates it as required, so this line going missing is a
+			// startup error rather than a quietly unserialised daemon
+			// (AC-PAR-3.1).
+			CloneGate:  newCloneGate(),
 			Paths:      s.Paths,
 			InstanceID: instanceID,
 			Logger:     s.Logger,

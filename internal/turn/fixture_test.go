@@ -119,7 +119,12 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 			// Set explicitly so the tests do not depend on the developer's
 			// global git identity. resolveAuthor's fallback has its own test.
 			Author: git.Author{Name: "Mario Meir-Huber", Email: "mario@example.invalid"},
-			Logger: slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+			// A real serialising gate, not a no-op: every test in this package
+			// runs the same git the daemon runs, and a fixture that skipped the
+			// gate would be testing a path production does not take. Tests that
+			// need two fixtures to share one gate overwrite this field.
+			CloneGate: newTestGate(),
+			Logger:    slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		},
 	}
 }

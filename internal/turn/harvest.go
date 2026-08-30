@@ -205,6 +205,10 @@ func runOutcome(result *harness.RunResult) store.RunOutcome {
 // making. The exception is an abandoned run: the daemon has under three seconds
 // to exit (D-B), a push takes up to two minutes, and the work is safe where it
 // is — the next run on this task reuses the same worktree and commits it then.
+//
+// Deciding that is all this does. The git itself belongs to [commitAndPush],
+// which is where the clone gate is held; keeping the abandonment check outside
+// it means a shutting-down daemon never joins the queue at all.
 func save(
 	ctx context.Context,
 	opts Options,
@@ -218,6 +222,64 @@ func save(
 			slog.String("worktree", prep.worktree.Path()))
 		return result
 	}
+	return commitAndPush(ctx, opts, prep, result, runResult, logger)
+}
+
+// commitAndPush is the turn's second critical section against the registered
+// clone, and the counterpart to [prepareClone].
+//
+// # One acquisition, not two
+//
+// The commit and the push are one holder's, released once when this returns
+// (AC-PAR-3.3). The push is the operation the gate is measured to be needed
+// for: at parallelism 4 on git 2.50.1, 240 concurrent "push --set-upstream"
+// from one clone produced no non-zero exits and still left 60 branches with no
+// upstream, because git loses the race for .git/config and skips the write.
+// [git.Worktree.Push] reads the upstream back afterwards and turns that into a
+// failure (AC-PAR-3.4), so ungated the effect would be visible rather than
+// silent — but a visible failure on 25% of concurrent pushes is not the
+// outcome anyone wants, and the read-back is the check of last resort rather
+// than the fix. The commit is inside the same acquisition because it and the
+// push are one publication: releasing between them would let a sibling's push
+// interleave with nothing gained.
+//
+// # Where the parallelism actually is
+//
+// Everything expensive in a turn — the claude run, the prompt assembly, the
+// history read, the report — happens outside this section and outside
+// [prepareClone]. Two turns on one clone overlap for all of it and queue only
+// for the git (AC-PAR-3.2).
+//
+// # No deadline is imposed here
+//
+// As in [prepareClone], the context is passed through untouched so that the
+// push's own 120 seconds start when it execs and not when this turn joined the
+// queue (AC-PAR-3.6).
+func commitAndPush(
+	ctx context.Context,
+	opts Options,
+	prep *preparation,
+	result Result,
+	runResult *harness.RunResult,
+	logger *slog.Logger,
+) Result {
+	// Failing to take the gate means the context was cancelled while this turn
+	// queued behind a sibling's git — the daemon shutting down. Nothing is
+	// lost: the run's changes are still in the worktree and the next run on
+	// this task reuses it. It is recorded on the result rather than only logged
+	// because a run that produced work and did not publish it is something the
+	// issue is owed an answer about (AC-4.1), and it is the same shape a failed
+	// commit or push already takes.
+	release, err := opts.CloneGate.Acquire(ctx, prep.repo.Path)
+	if err != nil {
+		result.Err = fmt.Errorf("take the gate on the clone at %s: %w", prep.repo.Path, err)
+		logger.Error("take the clone gate to commit and push",
+			slog.String("clone", prep.repo.Path),
+			slog.String("worktree", prep.worktree.Path()),
+			slog.Any("error", err))
+		return result
+	}
+	defer release()
 
 	commit, err := prep.worktree.Commit(ctx, git.CommitOptions{
 		// Untrusted: claude wrote it. internal/git strips any forged

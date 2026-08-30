@@ -34,15 +34,34 @@
 // is reserved for a turn that could not be conducted or recorded at all —
 // invalid dependencies, an invalid request, a database that will not answer.
 //
-// # The lock is the concurrency model
+// # The lock is the cross-process concurrency model
 //
 // One task, one lock, no queue. The lock is taken before any preparation and
 // released on every exit path including a panic (AC-3.1, AC-3.3). A turn that
 // finds the lock held does nothing and says so, and the comment stays
-// unconsumed so a later tick sees it again. Everything else — two daemons, a
-// crash mid-run, the same comment arriving twice — is handled by that plus the
-// uniqueness of (session, triggering comment) on the runs row, which makes a
-// replayed comment a no-op rather than a second run (AC-3.4).
+// unconsumed so a later tick sees it again. It is durable, it survives a crash,
+// and what it excludes is another daemon *process* touching the same worktree
+// and the same runs row. Together with the uniqueness of (session, triggering
+// comment) on the runs row — which makes a replayed comment a no-op rather than
+// a second run (AC-3.4) — that covers two daemons, a crash mid-run, and the
+// same comment arriving twice.
+//
+// What it does not cover is two turns of one process, because that is not this
+// package's business. The intra-process model is the daemon's in-flight set and
+// its worker pool, and internal/turn deliberately knows nothing about either:
+// [Execute] is a function of its arguments that can be called from as many
+// goroutines as internal/daemon decides to have.
+//
+// The one place the two meet is [Options.CloneGate]. Concurrent turns in one
+// process share a registered clone, and git contends on it — measured, at
+// parallelism 4: three quarters of concurrent fetches failing to lock a
+// remote-tracking ref, "worktree add" dying on a sibling's half-written
+// registry entry, "push --set-upstream" exiting 0 without writing an upstream.
+// So the git of a turn is two short critical sections, [prepareClone] and
+// [commitAndPush], and the claude run sits between them and inside neither.
+// The gate is injected rather than owned here for the same reason the clock is
+// not here: internal/daemon decides when turns happen, and how many at once is
+// part of when.
 //
 // # Post first, then commit
 //

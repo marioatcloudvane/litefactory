@@ -25,6 +25,34 @@ type Runner interface {
 	Run(ctx context.Context, req harness.Request) (*harness.RunResult, error)
 }
 
+// CloneGate serialises the git operations that contend on one registered
+// clone. internal/daemon's per-clone gate satisfies it.
+//
+// It is declared here for the same reason [Runner] is: this is where it is
+// consumed. internal/daemon owns when work happens and therefore owns the
+// registry; internal/git is a leaf whose [git.Clone] documents itself as
+// concurrency-safe, and a package-level map and mutex hidden in there would
+// falsify that sentence for every caller and make the serialisation invisible
+// at the two places it actually matters.
+//
+// Which two places is the whole design. A turn takes the gate for its fetch,
+// slug freeze and worktree creation, gives it back, runs claude for however
+// long that takes, and takes it again to commit and push. The claude run sits
+// between the two sections and inside neither, which is why serialising git
+// costs almost none of the parallelism it protects (AC-PAR-3.2).
+type CloneGate interface {
+	// Acquire blocks until the caller holds the gate for the clone at path,
+	// and returns the function that gives it back. Every nil-error return is
+	// owed exactly one call to release.
+	//
+	// The context is a parameter, never a field on the implementation: a
+	// worker queued behind another worker's 60-second fetch has to be able to
+	// abandon the wait when the daemon is shutting down, and an acquisition
+	// that cannot be cancelled would hold shutdown past its grace budget. An
+	// implementation returns ctx.Err() and no release function in that case.
+	Acquire(ctx context.Context, path string) (release func(), err error)
+}
+
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
@@ -39,6 +67,23 @@ type Options struct {
 	// Claude runs the subprocess. In production this is a *harness.Runner
 	// built at startup, so a missing binary fails at boot (AC-3.18).
 	Claude Runner
+
+	// CloneGate keeps two turns working in one registered clone out of each
+	// other's git. Required (AC-PAR-3.1).
+	//
+	// It is required rather than optional-and-nil-tolerant on purpose. A nil
+	// gate degrading to a no-op would be a silent un-serialisation: the
+	// measured failures it prevents are 0.75% (worktree add) and 75% (fetch
+	// against moved refs), so a build that lost the wiring would look correct
+	// for a long time and then post fatal git errors on the issue that read as
+	// flakes. There is exactly one production wiring point — NewExecutor in
+	// internal/daemon/setup.go — and refusing the zero value here is what makes
+	// forgetting it a startup error instead of a Tuesday.
+	//
+	// The registry is per-process and shared by every turn, which is why it
+	// belongs in the value the daemon builds once. Nothing here is
+	// per-comment.
+	CloneGate CloneGate
 
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it.
@@ -72,6 +117,8 @@ func (o Options) validate() error {
 		return invalidOptions("a resolved git binary is required")
 	case o.Claude == nil:
 		return invalidOptions("a claude runner is required")
+	case o.CloneGate == nil:
+		return invalidOptions("a clone gate is required")
 	case o.InstanceID == "":
 		return invalidOptions("a daemon instance id is required")
 	case o.Logger == nil:

@@ -59,6 +59,9 @@ type preparation struct {
 //     the thread as litefactory has recorded it, and assemble the prompt that
 //     decision calls for.
 //
+// Steps 2 to 4 are one critical section against the registered clone and are
+// taken together by [prepareClone]; everything else here runs unserialised.
+//
 // Everything that can go wrong because of the state of the world is returned as
 // a *failure, which [Execute] turns into a reportable result rather than an
 // error. A database that will not answer is an ordinary error.
@@ -84,16 +87,7 @@ func prepare(
 		return nil, err
 	}
 
-	if err = fetch(ctx, opts, clone, repo, logger); err != nil {
-		return nil, err
-	}
-
-	session, branch, err := freezeSlug(ctx, opts, req, session, repo)
-	if err != nil {
-		return nil, err
-	}
-
-	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
+	session, branch, worktree, err := prepareClone(ctx, opts, req, clone, session, repo, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +221,71 @@ func prepare(
 			ToolProfile:  req.ToolProfile,
 		},
 	}, nil
+}
+
+// prepareClone is the turn's first critical section against the registered
+// clone: fetch, freeze the slug, create or reuse the branch and the worktree.
+//
+// # One acquisition, not three
+//
+// The gate is taken once, at the top, and given back by one deferred release
+// when this function returns (AC-PAR-3.3). Gating each git call separately
+// would look tidier and would be wrong: [git.EnsureWorktree] resolves the
+// branch start from the remote-tracking refs and then runs "worktree add"
+// against it, so a sibling's fetch landing between the two moves the ref the
+// start was resolved from. That time-of-check-to-time-of-use window is
+// precisely what this section exists to close, and it is only closed if the
+// fetch, the resolution and the add are one holder's.
+//
+// [freezeSlug] is a database call sitting inside a git critical section, which
+// is worth being deliberate about. It stays inside because the branch name it
+// returns is an input to the worktree creation below, and taking the gate again
+// afterwards would reopen the window above. It is a single indexed UPDATE …
+// RETURNING against a local SQLite file — microseconds against the seconds a
+// fetch takes — so what it costs the turns queued behind it is not measurable.
+//
+// # No deadline is imposed here
+//
+// The context is passed through untouched. Every git command starts its own
+// deadline when it execs (internal/git/exec.go), so time a turn spends waiting
+// for the gate is not spent out of the fetch's 60 seconds or the push's 120
+// (AC-PAR-3.6). Wrapping this section in a context.WithTimeout would silently
+// undo that, and would do it worst on exactly the busy clone where the wait is
+// longest.
+func prepareClone(
+	ctx context.Context,
+	opts Options,
+	req Request,
+	clone *git.Clone,
+	session store.Session,
+	repo store.Repo,
+	logger *slog.Logger,
+) (store.Session, string, *git.Worktree, error) {
+	// A cancelled context here is the daemon shutting down while this turn
+	// queued behind a sibling's fetch. It is reported the same way a failed
+	// fetch is — as a *failure the issue hears about — because from the
+	// thread's point of view nothing was attempted and the comment is owed an
+	// answer either way (AC-4.1).
+	release, err := opts.CloneGate.Acquire(ctx, repo.Path)
+	if err != nil {
+		return session, "", nil, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
+	}
+	defer release()
+
+	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
+		return session, "", nil, err
+	}
+
+	session, branch, err := freezeSlug(ctx, opts, req, session, repo)
+	if err != nil {
+		return session, "", nil, err
+	}
+
+	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
+	if err != nil {
+		return session, "", nil, err
+	}
+	return session, branch, worktree, nil
 }
 
 // previousRun finds the last run of this segment that claude was actually
