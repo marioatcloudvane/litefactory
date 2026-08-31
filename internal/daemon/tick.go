@@ -58,7 +58,15 @@ type TickResult struct {
 	RetryAt time.Time
 
 	// Repos is how many registered repositories were polled — one bounded,
-	// logged query each, which is the whole per-tick API cost (AC-2.8).
+	// logged listing each.
+	//
+	// That listing stopped being the whole per-tick API cost some time ago:
+	// [Daemon.commentedIssues] adds a second one per repository, plus an issue
+	// read for each number only it returns, and [Daemon.backlog] adds a third
+	// source that costs no quota to discover and at most max_concurrent_runs
+	// issue reads to act on, however deep it has grown. See "AC-2.8 — a tick's
+	// API cost is no longer one listing per repository" in
+	// .aiteam/AC_AMENDMENTS.md.
 	Repos int
 	// Issues is how many non-pull-request issues came back across them. It
 	// counts what the forge listings returned, so a session reached only
