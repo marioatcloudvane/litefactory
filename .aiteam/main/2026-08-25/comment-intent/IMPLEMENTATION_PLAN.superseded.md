@@ -22,6 +22,8 @@ Do not re-open these during implementation.
 | D-CI-6 | `Bash(make:*)` does **not** ship. The Go toolchain commands are enumerated individually. *(architect — see S7 notes)* |
 | D-CI-7 | The classifier is a second short-lived `claude -p` invocation, not a direct API call. Per SD-4 this machine authenticates via macOS Keychain with `apiKeySource: "none"`; a direct HTTP call needs a credential the product does not have, and a stale one overrides Keychain auth and causes the SD-3 indefinite hang. |
 
+**D-CI-3's claim that D-X is superseded has since been ruled incorrect** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (plan `.aiteam/main/2026-08-30/parallelization-lf/`, 2026-08-31). D-X was **never** superseded: this document reverses itself at `:484` (*"OD-3 — RESOLVED: no ceilings enforced at ship. … D-X stands in effect."*), the cost bound D-CI-3 was a consequence of never shipped, and the in-tree record `:29` promises (`AC-CI-9.2`, `$session/AMENDMENTS.md`) was never written. The D-CI-3 row and the `:29` paragraph are left as first written.
+
 **Reaffirmed, not re-opened:** the D-I authorship filter (`turn/classify.go` must not be touched at all), D-4/S-6 slug derivation and freezing, `UNIQUE (session_id, trigger_comment_id)`, SD-1..SD-9, D-A..D-I.
 
 **Amended:** A-8 (`lf-setup/feature-spec.md:412`) is reversed — litefactory now creates and reads `.aiteam/<branch>/<date>/<feature>/`. D-X is superseded by D-CI-3. Both are recorded in-tree by S9.

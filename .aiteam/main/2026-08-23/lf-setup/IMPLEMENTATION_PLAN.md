@@ -30,6 +30,8 @@ Do not re-open these during implementation.
 | D-N | M2's `<note>` framing is pulled forward: issue title/body and the triggering comment are wrapped as untrusted material in the M0 prompt. |
 | D-X | **Rejected for M0:** run-rate circuit breaker. No rate limiting until LF-11/M1. No task or AC may reintroduce it. |
 
+**D-A, D-B and D-7 have since been amended, and D-X ruled on** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (plan `.aiteam/main/2026-08-30/parallelization-lf/`, 2026-08-31). D-X is **not** superseded and is not amended: it is ruled not to reach `max_concurrent_runs`, which bounds runs at the same instant rather than per unit time. The rows above are left as first written.
+
 ---
 
 ## Global Invariants
@@ -56,6 +58,8 @@ Apply to every story. Violations are review blockers.
 - Zero third-party imports in `internal/naming`, `internal/redact`, and `internal/config` validation.
 
 **Goroutine inventory is exactly four:** tick loop, harness stdout reader, harness stderr reader, `logs -f` tailer. A fifth requires justification in review.
+
+**The goroutine inventory has since been amended** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (plan `.aiteam/main/2026-08-30/parallelization-lf/`, 2026-08-31), which carries the one canonical text: four fixed goroutines plus at most `max_concurrent_runs` turn workers, a hard ceiling of twenty, and `Daemon.Quiesce` as the single named termination condition. The `logs -f` tailer named above is a record bug — there is no such goroutine — and the fourth fixed one is `main`'s second-signal watcher. The sentence above is left as first written.
 
 **Dependencies.** Take: `modernc.org/sqlite`, `gopkg.in/yaml.v3` (`Decoder.KnownFields(true)` gives strict decode free), `github.com/google/go-cmp` (test-only). Do not add: `go-github` (six endpoints; raw `net/http` + a Link-header helper — switch only if a third pagination special-case appears), `cobra` (stdlib `flag` + a dispatch map; note Go's `flag` stops at the first non-flag arg, so `logs 123 --run 2` needs the positional sliced off before `fs.Parse`), `golang-migrate`/`goose` (embedded SQL + ~60-line applier; SQLite DDL is transactional), `fsnotify`, `errgroup`, `testify`, `lumberjack`. **`keybase/go-keychain` is rejected: it uses cgo** and would break the cgo-free single-binary property that motivated the stack. Shell out to `/usr/bin/security` instead.
 
@@ -236,6 +240,8 @@ Delivers the daemon loop, launchd lifecycle, cross-repo polling, the self-filter
 
 **AC-2.16 has since been amended** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (issue #6, 2026-08-26). The row above is left as first written.
 
+**AC-2.1, AC-2.8, AC-2.12, AC-2.13, AC-2.17 and AC-2.21 have since been amended, and AC-2.9 reviewed and left standing** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (plan `.aiteam/main/2026-08-30/parallelization-lf/`, 2026-08-31). The rows above are left as first written.
+
 ---
 
 ## User Story LF-3 — Run aiteam in a worktree
@@ -296,6 +302,8 @@ Delivers the full turn: lock → prepare → run → commit → push, plus `task
 | AC-3.24 | `sha_before`, `sha_after` and `commit_sha` are recorded; a push failure does not lose the commit and is reported with the local worktree path. |
 | AC-3.25 | `task clean <issue>` removes the worktree via `git worktree remove` and clears `worktree_path`; it refuses with no action on uncommitted changes unless `--force`. |
 | AC-3.26 | `worktree_retain_days` is read and validated from config; no automatic worktree removal occurs at M0. |
+
+**AC-3.1, AC-3.5, AC-3.8, AC-3.9, AC-3.10, AC-3.20 and AC-3.22 have since been amended, and AC-3.2 and AC-3.3 reviewed and left standing** — see [`.aiteam/AC_AMENDMENTS.md`](../../../AC_AMENDMENTS.md) (plan `.aiteam/main/2026-08-30/parallelization-lf/`, 2026-08-31). The rows above are left as first written.
 
 ---
 
