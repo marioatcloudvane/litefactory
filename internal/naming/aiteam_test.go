@@ -134,6 +134,90 @@ func TestAITeamSessionDirRefusesWhatItCannotName(t *testing.T) {
 	}
 }
 
+// TestAITeamBranchDir pins the branch half of [AITeamSessionDir] on its own —
+// what a caller enumerating a branch's sessions has to list — and that the two
+// functions agree: AITeamBranchDir(branch) is always a prefix of
+// AITeamSessionDir(branch, day, slug) for the same branch.
+func TestAITeamBranchDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		branch string
+		want   string
+	}{
+		{
+			name:   "the LF-7 branch, verbatim",
+			branch: "lf/7-headless-mode-should-ask-via-a-comment",
+			want:   ".aiteam/lf-7-headless-mode-should-ask-via-a-comment",
+		},
+		{
+			name:   "a prefix with several slashes flattens to one component",
+			branch: "bots/lf/123-add-a-widget",
+			want:   ".aiteam/bots-lf-123-add-a-widget",
+		},
+		{
+			name:   "an upper-case branch is lowercased, as tr does",
+			branch: "LF/123-Add-A-Widget",
+			want:   ".aiteam/lf-123-add-a-widget",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := AITeamBranchDir(tt.branch)
+			if err != nil {
+				t.Fatalf("AITeamBranchDir(%q): %v", tt.branch, err)
+			}
+			if got != tt.want {
+				t.Errorf("AITeamBranchDir = %q, want %q", got, tt.want)
+			}
+
+			session, err := AITeamSessionDir(tt.branch, day, "add-a-widget")
+			if err != nil {
+				t.Fatalf("AITeamSessionDir(%q, ...): %v", tt.branch, err)
+			}
+			if !strings.HasPrefix(session, got+"/") {
+				t.Errorf("AITeamSessionDir = %q, want it to start with AITeamBranchDir %q", session, got)
+			}
+		})
+	}
+}
+
+// TestAITeamBranchDirRefusesWhatItCannotName mirrors
+// [TestAITeamSessionDirRefusesWhatItCannotName]'s branch cases: the same
+// branch validation, exercised on its own now that it is independently
+// callable.
+func TestAITeamBranchDirRefusesWhatItCannotName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		branch string
+	}{
+		{name: "no branch", branch: ""},
+		{name: "a branch that would climb out of .aiteam", branch: ".."},
+		{name: "a branch that is a relative path component", branch: "."},
+		{name: "a branch carrying a character no path segment may hold", branch: "lf/123 x?y"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := AITeamBranchDir(tt.branch)
+			if !errors.Is(err, ErrInvalidPath) {
+				t.Fatalf("AITeamBranchDir(%q) = (%q, %v), want an error wrapping ErrInvalidPath", tt.branch, got, err)
+			}
+			if got != "" {
+				t.Errorf("AITeamBranchDir returned %q alongside its error", got)
+			}
+		})
+	}
+}
+
 // TestResearchBriefPath is the artefact the run report links to. It is the
 // session directory plus one file name, and it must stay a relative path with
 // no leading slash — a caller joins it onto a forge URL.

@@ -60,6 +60,16 @@ type Options struct {
 	// git.DefaultRemote.
 	Remote string
 
+	// SubIssueCreator and SubIssueRenderer are the sub-issue phase's two
+	// dependencies (see internal/turn/subissues.go). Nil in either one is a
+	// turn that runs without the phase at all: it is skipped rather than
+	// refused, the same tolerance [Options.Remote] gets for the same reason —
+	// a great many callers of this package, in tests above all, have no
+	// occasion to file a plan's sub-issues and should not have to supply a
+	// forge client and a renderer to construct a valid Options.
+	SubIssueCreator  SubIssueCreator
+	SubIssueRenderer SubIssueRenderer
+
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
 }

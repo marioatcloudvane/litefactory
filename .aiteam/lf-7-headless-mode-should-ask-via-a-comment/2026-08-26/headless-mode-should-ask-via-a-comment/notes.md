@@ -796,3 +796,77 @@ T-C1.6's idempotency check needs a *story* marker in the same family. **Follow t
 existing convention and put the builder in `internal/report` beside the status
 one** — do not invent a third prefix constant, and do not add a fourth
 `MarkerPrefix` declaration.
+
+---
+
+## Sub-issue wiring — implemented (2026-08-31), closing CR-B-001
+
+Built to `ARCHITECT_SUBISSUE_WIRING.md` exactly: no redesign, all three of its
+Q1/Q2/Q3 answers followed as written, all five deferrals honoured (no
+`AttachID` resumability, no schema change for commit2's sha, no daemon-level
+sweep, `CLAUDE.md`'s gate untouched, AC-W10's collision case documented as
+unsupported rather than handled).
+
+**Files created:** `internal/planbrief/{doc,errors,index,storyfile}.go` (+
+tests) — the leaf package that parses `plan_brief.md`'s Story Index and a
+per-story file, and rewrites one Sub-issue cell in place, all pure text-in,
+struct-out, header-name-driven rather than fixed-column. `internal/turn/
+subissues.go` (+ `subissues_test.go`) — `fileStoryIssues`, the phase itself,
+plus the `SubIssueCreator`/`SubIssueRenderer` interfaces in the Poster/Renderer
+idiom.
+
+**Files modified:** `internal/turn/harvest.go` (the one insertion point,
+`save()` → `fileStoryIssues()` → `finish()`, plus the doc comment naming the
+new step); `internal/turn/execute.go` (two new optional `Options` fields —
+nil skips the phase entirely, which is what keeps every pre-existing turn test
+compiling and passing unchanged); `internal/daemon/setup.go` (wires the same
+`client`/`renderer` already built for the run's own report — this is the real
+non-test caller the finding was about); `internal/naming/aiteam.go` (new
+export `AITeamBranchDir`, lifted out of the existing `branchDirName` +
+`validatePathSegment` pair `AITeamSessionDir` already used — additive, zero
+behaviour change, `AITeamSessionDir` now calls it rather than duplicating the
+check); `internal/github/subissues.go` (CR-A-010: tightened
+`checkSubIssueSpecs`'s marker check from `hasMarkerLine` — any line — to
+`strings.HasPrefix` — byte zero — so it actually enforces what
+`SubIssueSpec.Marker`'s doc comment promises; `findSubIssue`'s own,
+intentionally looser any-line search against real GitHub bodies is untouched).
+
+**Judgment calls:**
+- Detail/Excerpt split for `report.Story`: everything in a per-story file
+  before `## Architecture Notes` is `Summary` (the business register), that
+  heading onward is `Excerpt` (the technical detail). Not specified by the
+  architect doc at this level of detail; it is the natural reading of
+  plan-orchestrator.md's own per-story contract and it made the parser a plain
+  string split with no markdown model needed.
+- `Title` prefers the Story Index row's own Title cell over the per-story
+  file's H1, falling back to the file only if the row's cell is empty. The
+  Story Index is already parsed for every row regardless, so this avoids a
+  second, possibly-disagreeing source of truth for the common case.
+- commit2's `Summary` is a fixed, litefactory-authored string ("litefactory:
+  record this plan's sub-issue links in the Story Index"), not derived from
+  anything claude wrote — deliberate, since Q2 is explicit that this commit's
+  report-facing honesty depends on it visibly not being claude's text.
+- Tests use a real `*report.Reporter` behind a recording wrapper as the
+  `SubIssueRenderer`, not a hand-rolled fake: `redact.Body`'s fields are
+  unexported and only constructible through a real `redact.Redactor.Apply`,
+  and the real Reporter does no I/O of its own, so this is not a network
+  dependency — only `internal/github`'s `CreateSubIssues` is faked, which is
+  the boundary that actually reaches the forge in production. The fake's
+  issue ID and Number are deliberately offset (9001+ vs 41+) per the C1
+  pre-flight's own warning about that trap.
+- AC-W10 (two Plan sessions, same branch and day, colliding story id) is
+  explicitly out of scope per the architect doc and is not exercised by a
+  test; nothing new was built to detect or handle the collision.
+
+**Verified:** `gofmt -l .` clean, `go vet ./...` clean, `go test -race -cover
+./...` green across all 19 packages (`internal/planbrief` new at 90.5%,
+`internal/turn` up to 85.4%). `TestNoForgeAbstraction`,
+`TestRevealIsCalledExactlyOnce`, `TestTheCredentialPathIsTheSDKs`,
+`TestClientMethodSetIsPinned` re-run individually, all still green.
+`grep -rn "CreateSubIssues\|RenderSubIssue" --include="*.go" . | grep -v
+_test.go` shows `internal/turn/subissues.go` as the first and only non-test,
+non-declaration caller of either — the finding CR-B-001 named is closed.
+`golangci-lint` was not available in this environment and was not run; the
+task's own definition of done did not require it.
+
+Committed, not pushed, per the task's instruction.

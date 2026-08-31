@@ -203,7 +203,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			Claude:     claude,
 			Paths:      s.Paths,
 			InstanceID: instanceID,
-			Logger:     s.Logger,
+			// The sub-issue phase's two dependencies (internal/turn/subissues.go,
+			// closing CR-B-001): the same forge client and the same renderer
+			// already built above for posting the run's own report, reused rather
+			// than built twice.
+			SubIssueCreator:  client,
+			SubIssueRenderer: renderer,
+			Logger:           s.Logger,
 		}),
 		Reporter: reporter,
 		// The same two keys the harness was built from above, so the profile a

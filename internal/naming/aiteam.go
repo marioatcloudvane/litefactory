@@ -49,8 +49,8 @@ const (
 // component is validated as a single path segment, so no input can produce a
 // path that climbs out of .aiteam/.
 func AITeamSessionDir(branch string, day time.Time, slug string) (string, error) {
-	dir := branchDirName(branch)
-	if err := validatePathSegment("branch directory", dir); err != nil {
+	dir, err := AITeamBranchDir(branch)
+	if err != nil {
 		return "", fmt.Errorf("aiteam session directory for branch %q: %w", branch, err)
 	}
 	if day.IsZero() {
@@ -59,7 +59,27 @@ func AITeamSessionDir(branch string, day time.Time, slug string) (string, error)
 	if err := ValidateSlug(slug); err != nil {
 		return "", fmt.Errorf("aiteam session directory for branch %q: %w", branch, err)
 	}
-	return path.Join(AITeamDirName, dir, day.Format(SessionDateLayout), slug), nil
+	return path.Join(dir, day.Format(SessionDateLayout), slug), nil
+}
+
+// AITeamBranchDir returns the repository-relative directory every aiteam
+// session on one branch shares: .aiteam/<branch, slashes to hyphens,
+// lowercased> — the branch half of [AITeamSessionDir], without a date or a
+// feature slug.
+//
+// It exists for a caller that has to enumerate a branch's sessions because it
+// does not yet know which day one was named on — [AITeamSessionDir] itself
+// cannot help there, since it requires the day up front. Exporting this is
+// what lets that caller list `.aiteam/<branch>/` for its date directories
+// without re-deriving the `tr '/' '-' | tr [:upper:] [:lower:]` transform a
+// second time; [branchDirName] still does the transform, once, for both
+// functions.
+func AITeamBranchDir(branch string) (string, error) {
+	dir := branchDirName(branch)
+	if err := validatePathSegment("branch directory", dir); err != nil {
+		return "", fmt.Errorf("aiteam branch directory for branch %q: %w", branch, err)
+	}
+	return path.Join(AITeamDirName, dir), nil
 }
 
 // ResearchBriefPath returns the repository-relative path of the research brief

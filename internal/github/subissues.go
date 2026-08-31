@@ -452,8 +452,15 @@ func checkSubIssueSpecs(specs []SubIssueSpec) error {
 		if err := checkIssueBody(spec.Body); err != nil {
 			return fmt.Errorf("story %q: %w", spec.StoryID, err)
 		}
-		if !hasMarkerLine(spec.Body.String(), spec.Marker) {
-			return fmt.Errorf("%w: story %q's body does not carry its marker", ErrInvalidArgument, spec.StoryID)
+		// Byte-zero, not merely any-line: this is what SubIssueSpec.Marker's
+		// doc comment promises ("what Body begins with"), and it is a
+		// tighter check than findSubIssue's own hasMarkerLine deliberately —
+		// findSubIssue reads real GitHub bodies a human could have edited
+		// anywhere in the text, but a spec this package is about to send was
+		// built by this same run and has no excuse for the marker sitting
+		// anywhere but the first byte (CR-A-010).
+		if !strings.HasPrefix(spec.Body.String(), spec.Marker) {
+			return fmt.Errorf("%w: story %q's body does not begin with its marker", ErrInvalidArgument, spec.StoryID)
 		}
 		if spec.AttachID != 0 {
 			if err := checkIssueID(spec.AttachID); err != nil {
