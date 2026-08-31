@@ -20,7 +20,10 @@ import (
 //  2. Finish the runs row immediately, so the outcome is durable before
 //     anything slower is attempted (S-9).
 //  3. Commit and push whatever the run produced (AC-3.21, AC-3.22).
-//  4. Record the commit on the row and the whole story in NNNN.meta.json.
+//  4. File this task's plan into GitHub sub-issues, if there is one waiting —
+//     see [fileStoryIssues]. This runs strictly after step 3's push succeeds,
+//     never before, and never changes what step 3 already decided.
+//  5. Record the commit on the row and the whole story in NNNN.meta.json.
 //
 // The metadata document is written from a defer, best effort, so a run that
 // panics or is killed mid-harvest still leaves one behind: a document naming a
@@ -71,6 +74,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	result.Run = run
 
 	result = save(ctx, opts, prep, result, runResult, logger)
+	result = fileStoryIssues(ctx, opts, prep, result, runResult, logger)
 	return finish(bookkeeping, opts, prep, result, runResult, &meta, logger)
 }
 

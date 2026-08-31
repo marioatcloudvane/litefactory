@@ -283,7 +283,9 @@ func TestCommentHistoryMapsTheStoredThread(t *testing.T) {
 	f := newFixture(t, newStubRunner(nil))
 	f.seedThread()
 
-	history, err := commentHistory(t.Context(), f.opts, f.session, f.request())
+	// No previous trigger: this test is about the history entries, and the
+	// second return value has its own coverage in ask_test.go.
+	history, _, err := commentHistory(t.Context(), f.opts, f.session, f.request(), 0)
 	if err != nil {
 		t.Fatalf("commentHistory: %v", err)
 	}

@@ -44,6 +44,20 @@ var testRef = naming.Ref{Forge: naming.ForgeGitHub, Owner: "acme", Repo: "acme-a
 
 const testLogPath = "/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl"
 
+// testRunDay is when every fixture run started. It is the date component of the
+// session directory the brief link is derived from, and it is fixed and in UTC
+// so that the goldens do not move with the calendar or with the timezone of
+// whatever machine runs the tests.
+var testRunDay = time.Date(2026, 5, 20, 9, 14, 3, 0, time.UTC)
+
+// testBriefPath is where successRun's brief is derived to be: the branch with
+// its slashes hyphenated and lowercased, the run's day, and the feature slug
+// frozen into that branch. Written out by hand rather than derived, so that a
+// change to the derivation has to be agreed with here as well as in the
+// goldens.
+const testBriefPath = ".aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/" +
+	"add-dry-run-to-task-clean/RESEARCH_BRIEF.md"
+
 // newReporter builds a Reporter at GitHub's real comment limit, with a
 // redactor that scans nothing it was not given: the environment of whatever
 // machine runs the tests must not change what a body renders as.
@@ -80,9 +94,12 @@ func successRun() report.Run {
 			HasResult:  true,
 			NumTurns:   6,
 			Duration:   93 * time.Second,
+			StartedAt:  testRunDay,
+			FinishedAt: testRunDay.Add(93 * time.Second),
 		},
 		Branch:    "lf/123-add-dry-run-to-task-clean",
 		CommitSHA: "9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1",
+		SHAAfter:  "9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1",
 		Pushed:    true,
 		Files: []git.FileChange{
 			{Kind: git.ChangeModified, Path: "internal/cli/task.go"},
@@ -109,6 +126,11 @@ func failureRun() report.Run {
 			IsError:   true,
 			Duration:  12*time.Second + 400*time.Millisecond,
 			Stderr:    "go: downloading example.com/nope v1.2.3\nerror: module example.com/nope: not found\n",
+			// Dated like any other run, so that the absence of a brief link in
+			// this fixture's goldens is the push gate doing its job rather than
+			// a missing date quietly suppressing it.
+			StartedAt:  testRunDay,
+			FinishedAt: testRunDay.Add(12*time.Second + 400*time.Millisecond),
 		},
 		Branch: "lf/123-add-dry-run-to-task-clean",
 		Files:  []git.FileChange{{Kind: git.ChangeModified, Path: "go.mod"}},
@@ -190,9 +212,10 @@ func TestMarkersCarryTheirAttributes(t *testing.T) {
 		t.Errorf("ReplyMarker %q carries a run attribute", reply)
 	}
 
-	// The self-filter is a substring test on this prefix, and it is what keeps
-	// the daemon from reading its own comment as an instruction. Both forms
-	// have to match it or the loop is only prevented by the identity check.
+	// The self-filter matches this prefix at the start of a line, and it is what
+	// keeps the daemon from reading its own comment as an instruction. Both
+	// forms have to begin with it or the loop is only prevented by the identity
+	// check.
 	for _, marker := range []string{status, reply} {
 		if !strings.Contains(marker, report.MarkerPrefix) {
 			t.Errorf("marker %q does not contain the self-filter prefix %q", marker, report.MarkerPrefix)
@@ -223,6 +246,71 @@ func TestEveryBodyBeginsWithItsMarker(t *testing.T) {
 	}
 }
 
+// TestEveryBodyTellsTheReaderHowToReply is AC-S0.6, the half of the fix that
+// ships in prose rather than in the matcher.
+//
+// Line-anchoring the self-filter makes GitHub's quote-reply safe, but it cannot
+// make a marker pasted back unquoted safe: at the start of a line that is
+// litefactory's own output by definition. Every comment litefactory posts is a
+// comment somebody may answer, so every one of them says how.
+//
+// The notice is checked on both shapes and at the smallest limit a body is ever
+// assembled at, because a report whose notice was the part that did not fit
+// would fail exactly the reader it is for.
+func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	bodies := map[string]string{
+		"run report":      render(t, rep, successRun()).String(),
+		"failure report":  render(t, rep, failureRun()).String(),
+		"run-less reply":  renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"}),
+		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel}),
+		"unknown command": renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"}),
+	}
+
+	for name, body := range bodies {
+		if !strings.Contains(body, report.ReplyPlainlyNotice) {
+			t.Errorf("the %s does not tell the reader how to reply:\n%s", name, body)
+		}
+		// The notice is about the marker and must not contain one: a second
+		// marker in a body would sit somewhere other than byte zero, which is
+		// the property the self-filter now anchors on.
+		if got := strings.Count(body, report.MarkerPrefix); got != 1 {
+			t.Errorf("the %s carries %d markers, want exactly the one it opens with", name, got)
+		}
+	}
+
+	if strings.Contains(report.ReplyPlainlyNotice, report.MarkerPrefix) {
+		t.Error("ReplyPlainlyNotice contains the marker prefix it exists to warn about")
+	}
+
+	// A report squeezed into a quarter of GitHub's limit still carries it: the
+	// notice is in the never-cut section, above the log tail (AC-4.8).
+	small, err := report.New(report.Options{
+		Redactor: redact.New(redact.Options{Environ: []string{}}),
+		Limit:    4_000,
+	})
+	if err != nil {
+		t.Fatalf("report.New: %v", err)
+	}
+	run := successRun()
+	run.Output = numberedLines("worker: applying edit to internal/cli/task.go", 60)
+	if body := render(t, small, run).String(); !strings.Contains(body, report.ReplyPlainlyNotice) {
+		t.Errorf("a truncated report dropped the notice:\n%s", body)
+	}
+}
+
+// renderReply renders a run-less reply and fails on error.
+func renderReply(t *testing.T, rep *report.Reporter, reply report.Reply) string {
+	t.Helper()
+	body, err := rep.RenderReply(t.Context(), reply)
+	if err != nil {
+		t.Fatalf("RenderReply: %v", err)
+	}
+	return body.String()
+}
+
 // TestSuccessReport walks AC-4.3 element by element and then pins the whole
 // body to a golden file.
 func TestSuccessReport(t *testing.T) {
@@ -248,9 +336,19 @@ func TestSuccessReport(t *testing.T) {
 		fmt.Sprintf("last %d lines", report.TailLines),
 	)
 
-	// Plain text at M0 (LF-7 is out of scope): no permalinks, no blob URLs.
-	if strings.Contains(body, "https://github.com/acme/acme-api/commit") || strings.Contains(body, "/blob/") {
-		t.Error("success report links the commit; M0 renders the SHA as plain text")
+	// The commit itself is still plain text — the SHA is a fact to quote, not a
+	// destination. What is linked is the brief, and only ever pinned to a
+	// commit: a bare "/blob/" check would pass a branch-relative URL, which
+	// shows whatever the branch holds when it is opened rather than what this
+	// run produced.
+	if strings.Contains(body, "https://github.com/acme/acme-api/commit") {
+		t.Error("success report links the commit page; the SHA is rendered as plain text")
+	}
+	if want := "/blob/" + run.SHAAfter + "/"; !strings.Contains(body, want) {
+		t.Errorf("success report has no permalink pinned to sha_after; want %q in:\n%s", want, body)
+	}
+	if strings.Contains(body, "/blob/"+run.Branch+"/") {
+		t.Error("success report carries a branch-relative blob URL, which is not pinned to this run")
 	}
 
 	// The <details> block carries the *last* TailLines lines, not the first.
@@ -494,6 +592,20 @@ func TestOversizeBodyCutsTheLogTailAndNeverTheSummary(t *testing.T) {
 	}
 }
 
+// truncatedReportLimit is the limit TestTruncatedReportReadsAsOne renders at:
+// small enough that the report has to be cut and can be read in one screen,
+// large enough that the log tail is still worth quoting rather than dropped
+// whole.
+//
+// It was 4000 until the brief link landed in the metadata list. The link is a
+// forge URL — around 300 bytes with its path, against a budget of limit less
+// [redact.Margin] — and at 4000 it took the log tail below [minTailBytes], so
+// this test stopped exercising the middle-elision it was written for and
+// started exercising the drop-it-whole branch instead. The number moved rather
+// than the assertions, because what is under test here is the elision.
+// Dropping the tail whole at a small limit is covered by the goldens.
+const truncatedReportLimit = 5_000
+
 // TestTruncatedReportReadsAsOne renders the AC-4.8 result at a limit small
 // enough to read in one screen. The golden is the actual review: someone has to
 // be able to look at a shortened report and tell that it is shortened, and know
@@ -503,7 +615,7 @@ func TestTruncatedReportReadsAsOne(t *testing.T) {
 
 	rep, err := report.New(report.Options{
 		Redactor: redact.New(redact.Options{Environ: []string{}}),
-		Limit:    4_000,
+		Limit:    truncatedReportLimit,
 	})
 	if err != nil {
 		t.Fatalf("report.New: %v", err)
@@ -515,8 +627,8 @@ func TestTruncatedReportReadsAsOne(t *testing.T) {
 	body := render(t, rep, run)
 	text := body.String()
 
-	if body.Len() > 4_000 {
-		t.Errorf("body is %d bytes, over the 4000-byte limit", body.Len())
+	if body.Len() > truncatedReportLimit {
+		t.Errorf("body is %d bytes, over the %d-byte limit", body.Len(), truncatedReportLimit)
 	}
 	// Both ends of the tail survive and the middle is gone: the first lines say
 	// what the run was doing and the last say how it stopped.

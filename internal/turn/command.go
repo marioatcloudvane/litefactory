@@ -107,7 +107,21 @@ type Command struct {
 	// trimmed: the argument to /spike for [KindSpike], and the whole body for
 	// [KindFreeText]. Newlines are kept, so a multi-line request keeps its
 	// shape. Non-empty exactly when the command spawns a run.
+	//
+	// Any [AskTag] line the body carried has been removed. The tag is
+	// litefactory's own control vocabulary and asked for nothing; what is left
+	// here is what the owner asked for (AC-A1.8).
 	Text string
+
+	// Tagged says the body carried the [AskTag] line: the owner opted this run
+	// in to asking questions rather than guessing.
+	//
+	// It is a fact about the body and nothing more. It is set on every kind,
+	// including the ones that spawn no run, because it says what the comment
+	// contained and not what was done about it. Permission is the conjunction of
+	// this and the mode — see [modeMayAsk] — and neither half is sufficient
+	// alone.
+	Tagged bool
 }
 
 // Spawns reports whether this command starts a run.
@@ -147,17 +161,46 @@ func (c Command) NeedsReply() bool {
 // A body that names no command at all is [KindFreeText] and carries the whole
 // body as its instruction. Only a body with nothing in it is [KindNone].
 //
+// # The ask tag
+//
+// [AskTag] is read here and nowhere else, and that is the point of reading it
+// here: this is the single choke point every text-carrying path goes through,
+// so the tag is found and removed once for the issue body and the comment
+// alike. It is taken off the body before the body is tokenised, which is what
+// makes the awkward shapes fall out rather than needing to be special-cased:
+//
+//   - a comment that is nothing but the tag classifies as [KindNone] — no run,
+//     no reply, the comment consumed (AC-A1.9). Left in, it would have become
+//     free text with an empty instruction, and BuildPrompt would have refused it
+//     with ErrInvalidPrompt: a run that died on a validation error naming
+//     nothing the owner could act on;
+//   - "/spike do X" with a tag line under it keeps its argument and loses the
+//     tag, so the tag cannot reach [harness.PromptInput.Instruction] on the
+//     spike path either (AC-A1.8, F-15);
+//   - a "/spike" whose whole argument was the tag is [KindSpikeEmpty], which
+//     already draws the reply asking for some text.
+//
+// The tag is remembered in [Command.Tagged] whatever the body then turns out to
+// be. Whether the run may actually ask is that bit AND the mode; see
+// [modeMayAsk].
+//
 // ParseCommand never fails. Every body classifies as something, because every
-// comment the daemon reads has to be disposed of one way or another.
+// comment the daemon reads has to be disposed of one way or another — and the
+// tag parser cannot fail either, precisely so that contract still holds.
 func ParseCommand(body string) Command {
+	tagged := HasAskTag(body)
+	if tagged {
+		body = stripAskTag(body)
+	}
+
 	token, rest := firstToken(body)
 	if !isCommandToken(token) {
 		// firstToken returns an empty token only for a body that is entirely
 		// whitespace, which is the one thing there is nothing to act on in.
 		if token == "" {
-			return Command{Kind: KindNone}
+			return Command{Kind: KindNone, Tagged: tagged}
 		}
-		return Command{Kind: KindFreeText, Text: strings.TrimSpace(body)}
+		return Command{Kind: KindFreeText, Text: strings.TrimSpace(body), Tagged: tagged}
 	}
 
 	name := strings.ToLower(token)
@@ -165,13 +208,13 @@ func ParseCommand(body string) Command {
 	case name == SpikeCommand:
 		text := strings.TrimSpace(rest)
 		if text == "" {
-			return Command{Kind: KindSpikeEmpty, Name: name}
+			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
-		return Command{Kind: KindSpike, Name: name, Text: text}
+		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
 	case slices.Contains(knownCommands, name):
-		return Command{Kind: KindUnsupported, Name: name}
+		return Command{Kind: KindUnsupported, Name: name, Tagged: tagged}
 	default:
-		return Command{Kind: KindUnknown, Name: name}
+		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}
 }
 

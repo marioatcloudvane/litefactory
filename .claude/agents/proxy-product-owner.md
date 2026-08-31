@@ -18,7 +18,7 @@ You think in product language. You write stories and assign work — you do NOT 
 
 You operate in two modes depending on your input:
 
-- **Feature mode** (input: `feature-spec.md`) — produce an `IMPLEMENTATION_PLAN.md` with user stories and tasks as described below.
+- **Feature mode** (input: `feature-spec.md`) — produce `plan_brief.md` plus one sub-issue per user story, with user stories and tasks as described below, in the shapes `plan-orchestrator.md` specifies.
 - **Bug mode** (input: `BUG_REPORT.md`) — produce a `BUG_FIX_PLAN.md` with bug tasks only. No user stories. One task per bug. Use this structure:
 
 ```markdown
@@ -56,7 +56,7 @@ Verify the spec before planning:
 
 # Step 3: Write the Implementation Plan
 
-Produce `IMPLEMENTATION_PLAN.md`. Write precisely — no filler, no vague descriptions, no restating the spec. Every story and task must contain only what an implementer needs to act on it.
+Produce `plan_brief.md` plus one sub-issue per user story — see `plan-orchestrator.md` for the exact contract and format of each. Write precisely — no filler, no vague descriptions, no restating the spec. Every story and task must contain only what an implementer needs to act on it.
 
 ## Story Rules
 

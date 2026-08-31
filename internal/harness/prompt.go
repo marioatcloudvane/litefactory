@@ -29,9 +29,12 @@ import (
 //
 //  1. Say what the task is.
 //  2. Say the feature slug (D-3). aiteam's dispatcher asks for a feature name
-//     before it routes anything. This run is headless: nobody is there to
-//     answer, so the answer is stated in the prompt text. Without it a run stops
-//     on a question that will never be read.
+//     before it routes anything, and the answer is stated in the prompt text so
+//     that nothing has to stop for it. It is stated on every prompt, including
+//     the ones a run is allowed to ask questions on: permission to ask is for
+//     questions that change what gets built, and this is not one of them — it is
+//     a fact litefactory already holds. Without it a run stops on a question
+//     that, on an untagged run, will never be read at all.
 //  3. Frame the untrusted material as untrusted (D-N). The issue title and
 //     body, the triggering comment and — on a cold start — every earlier
 //     comment in the history block are written by third parties, and the issue
@@ -51,6 +54,13 @@ import (
 // any <note> or </note> the untrusted text contains is neutralised on the way
 // in. Without that, an issue body ending in "</note>" would hand the rest of
 // itself to the model as if litefactory had said it.
+//
+// Whether the run may ask a question at all is [PromptInput.MayAsk], and it is
+// off unless the owner opted in on the comment that triggered the run.
+// internal/turn owns both halves of that decision — the tag and the mode — and
+// hands it here as one bit; this package only chooses which paragraph to write.
+// It is the single thing that can change what an already-shipped prompt says,
+// so an untagged run's cold prompt is pinned byte for byte (AC-A1.1).
 
 // Size caps on untrusted material. Each is a byte count, and text over it is
 // cut on a UTF-8 rune boundary and marked.
@@ -206,6 +216,11 @@ type PromptInput struct {
 	// and it is the insurance against claude's own internal compaction having
 	// dropped the answer to a question that will otherwise stop the run dead
 	// (D-3).
+	//
+	// The headless guidance is dropped as something the conversation has been
+	// told, with one exception: when permission to ask *changed* between the two
+	// runs, the resume path says so. What the conversation was told is exactly
+	// the problem there — see [PromptInput.PreviousMayAsk].
 	Resume bool
 
 	// BodyIsInstruction says this run was started by the issue body rather than
@@ -239,6 +254,36 @@ type PromptInput struct {
 	// resume fallback in internal/turn rebuilds this same input with Resume
 	// flipped to false, and the flip has to stay the whole of the difference.
 	BodyIsInstruction bool
+
+	// MayAsk says this run may stop and ask the owner a question instead of
+	// guessing, and it is off unless something turned it on.
+	//
+	// It is a conjunction decided by internal/turn and handed here already
+	// settled: the triggering comment carried the opt-in tag, *and* the mode is
+	// one that may ask at all. This package neither parses the tag nor judges the
+	// mode; it chooses which paragraph to write. Splitting it that way is what
+	// keeps the permission machine-enforced — an untagged run cannot ask whatever
+	// the agent decides, because the prompt never told it that it could.
+	//
+	// The one seam is [InferMode], where the mode half cannot be decided in Go at
+	// all: the run works out what kind of work it is from the target repository's
+	// CLAUDE.md, after this prompt exists. That case carries the rule as text
+	// instead — see [inferAskingSeam].
+	MayAsk bool
+
+	// PreviousMayAsk is whether the run before this one had that same
+	// permission. It is read only on the resume path, where it is compared with
+	// MayAsk and nothing else.
+	//
+	// It is what the previous run *was allowed* to do, not what it did. Whether
+	// it actually asked would be the more precise bit and there is nowhere to
+	// read it from: no column records it, and it is not the bit that matters
+	// anyway. The dangerous cell is a conversation that could ask and now cannot,
+	// where the transcript still says permission exists and a resumed prompt
+	// repeats nothing — so unless this is compared and the difference stated, the
+	// old permission simply survives. internal/turn re-derives it from the
+	// previous run's own trigger comment; there is no new state for it.
+	PreviousMayAsk bool
 
 	// PreviousMode is the mode of the run before this one, and is read only on
 	// the resume path. A conversation that began as a /spike and is now being
@@ -384,22 +429,129 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 
 	// D-3. aiteam asks for a feature name or ticket id before it routes work.
 	// Stating it here is the whole mechanism by which a headless run gets past
-	// that question.
+	// that question, and it is stated on both paths (AC-A1.3). Permission to ask
+	// is permission to ask about what should be built; it is not a reason to
+	// stop on a bookkeeping question litefactory already knows the answer to.
+	// Only the justification changes, because the untagged one — that nobody can
+	// answer — is no longer true of a tagged run (F-10).
+	reason := "It is stated here because this run is headless and no one can answer a question."
+	if in.MayAsk {
+		reason = "It is stated here so that nothing has to stop to look it up."
+	}
 	fmt.Fprintf(b, "\nIf anything asks for the feature name or ticket id for this work, "+
-		"it is `%s`. It is stated here because this run is headless and no one "+
-		"can answer a question.\n", in.FeatureSlug)
+		"it is `%s`. %s\n", in.FeatureSlug, reason)
 
 	if strings.TrimSpace(in.Mode) == InferMode {
 		writeInferGuidance(b, in.BodyIsInstruction)
 	}
 
-	b.WriteString("\nYou are running without a terminal. Nobody will read a question and " +
+	// One paragraph, two unrelated instructions, and only one of them is
+	// conditional (F-9). Whether the run may ask is a decision about this run;
+	// that it must not commit or push is true of every run there has ever been,
+	// because litefactory commits after the agent finishes and a run that
+	// committed for itself collides with that step (AC-A1.10).
+	//
+	// The two are composed with a single space rather than split into two
+	// paragraphs, because the untagged output has to be the same bytes it was
+	// before this branch existed (AC-A1.1) — one line, one paragraph, as
+	// TestSpikePromptIsUnchanged pins it.
+	b.WriteString("\n")
+	if in.MayAsk {
+		b.WriteString(askingRule)
+		if strings.TrimSpace(in.Mode) == InferMode {
+			b.WriteString(" " + inferAskingSeam)
+		}
+	} else {
+		b.WriteString(headlessRule)
+	}
+	b.WriteString(" " + worktreeRule + "\n")
+}
+
+// The three sentences the header's last paragraph is assembled from, and the
+// one that is bolted onto the asking rule when the mode is still unresolved.
+//
+// They are constants rather than inline strings because two functions write
+// them now — [writeHeader] on a cold run and [writeResumeHeader] when
+// permission changed mid-conversation — and a permission statement that said
+// two different things depending on which prompt carried it would be the one
+// kind of drift no reader could see from either side.
+const (
+	// headlessRule is what every run was told before asking existed, and what
+	// every untagged run is still told, byte for byte (AC-A1.1).
+	headlessRule = "You are running without a terminal. Nobody will read a question and " +
 		"nobody can answer one, so do not ask clarifying questions, do not wait for " +
 		"confirmation and do not stop for approval. Where something is ambiguous, take " +
 		"the most reasonable reading, act on it, and say what you assumed in your final " +
-		"message. Do the work in this worktree; do not commit or push — litefactory " +
-		"does that once you are finished.\n")
-}
+		"message."
+
+	// worktreeRule is unconditional. See the comment in [writeHeader] for why it
+	// had to be pulled out of the paragraph above before that paragraph could be
+	// branched at all.
+	worktreeRule = "Do the work in this worktree; do not commit or push — litefactory " +
+		"does that once you are finished."
+
+	// askingRule is what a tagged run is told instead of [headlessRule]. It
+	// deliberately contains neither "do not ask clarifying questions" nor "no one
+	// can answer a question" (AC-A1.2): a prompt that granted permission in one
+	// sentence and withdrew it in another would be resolved by whichever half the
+	// model weighted, which is not a decision litefactory gets to observe.
+	//
+	// The bar is the expensive half. A run that asks whatever it is unsure of
+	// turns one comment into a queue of them and costs the owner more attention
+	// than guessing wrong would have; a question that could have been answered by
+	// reading the repository is one the run was equipped to answer itself.
+	//
+	// Asking is stopping. There is no channel to wait on — the process ends, the
+	// final message becomes the report comment on the issue, and the owner's
+	// reply resumes the same conversation on the next tick — so a run that asked
+	// and then waited would simply burn its timeout.
+	//
+	// The "move to the next phase" line is litefactory telling the agent what
+	// sentence to offer the owner, and it is not litefactory granting itself
+	// permission to continue: per the target repository's own One Run, One Mode
+	// rule, only a human comment opens the next mode, and that sentence is the
+	// comment. Saying it in the asking message is what makes the escape hatch
+	// discoverable at the moment it is needed (AC-A1.15, T-A1.12).
+	askingRule = "You are running without a terminal, but this run has been given " +
+		"permission to ask. Ask only when the answer would change what gets built and " +
+		"cannot be settled by reading this repository — a question you could answer " +
+		"yourself by reading the code is not a question. Ask by stopping: put everything " +
+		"you need to know into your final message and end the run. There is nothing to " +
+		"wait on; your final message is posted as a comment on the issue, the owner " +
+		"answers it there, and the next run continues this same conversation. Batch your " +
+		"questions into that one message rather than taking a run per question, and say " +
+		"in it that the owner can reply \"move to the next phase\" to have you stop " +
+		"asking and get on with the work. Where something is ambiguous and does not meet " +
+		"that bar, take the most reasonable reading, act on it, and say what you assumed " +
+		"in your final message."
+
+	// inferAskingSeam is the one place the Research-and-Plan-only rule is carried
+	// as prompt text rather than enforced in Go, and it is structural rather than
+	// a shortcut (AC-A1.7). When the mode is [InferMode] nothing here knows what
+	// the run will turn out to be: the agent classifies it from the target
+	// repository's own CLAUDE.md, which it reads after this prompt has been
+	// assembled. Go can enforce the tag and it can enforce a mode it knows; this
+	// is the mode it cannot know yet.
+	inferAskingSeam = "One exception, and it is not negotiable: if this run resolves to " +
+		"an implementation mode, do not ask. Proceed headless, take the most reasonable " +
+		"reading of anything ambiguous, and say what you assumed."
+
+	// askingRevokedRule is emitted on the resume path only, when the previous run
+	// could ask and this one cannot. See [writeResumeHeader] for why silence here
+	// would fail open.
+	//
+	// The answer framing is hedged on purpose (Q9(b)). Go knows what permission
+	// each run had; it does not know whether the previous run's final message
+	// actually ended in a question, because nothing records that and A2 — which
+	// would have — is deleted. So the prompt states the condition and lets the
+	// run evaluate it against its own transcript, which it can see and litefactory
+	// cannot. This is also exactly the case the framing is for: the owner replied
+	// in plain words, without re-tagging, to a run that had asked.
+	askingRevokedRule = "This run may no longer ask questions; the run before it could. " +
+		"If your previous message ended in a question, treat the new comment as the " +
+		"answer to it. From here on, take the most reasonable reading of anything " +
+		"ambiguous, act on it, and say what you assumed in your final message."
+)
 
 // writeResumeHeader writes the header of a run that is continuing a
 // conversation: the delta, and nothing the conversation has already been told.
@@ -422,6 +574,35 @@ func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	if mode == InferMode && mode != strings.TrimSpace(in.PreviousMode) {
 		writeInferGuidance(b, in.BodyIsInstruction)
 	}
+
+	// Emitted whenever permission changed, in both directions — and the
+	// bidirectionality is the part to leave alone (AC-A1.12).
+	//
+	// It looks like the infer guidance directly above and it is not. There,
+	// re-emitting into a conversation that has already been told is merely
+	// redundant, so only one direction is worth writing. Here, saying nothing is
+	// a statement: the resume path repeats none of the first prompt, so silence
+	// means "whatever the transcript already says", and the transcript of a run
+	// that could ask says it may ask. A conversation that was tagged and is now
+	// untagged would therefore go on believing it has permission. Not emitting
+	// fails open, which is why both polarities are written even though one of
+	// them looks like the mirror image of a case that does not need one.
+	//
+	// When permission did not change, nothing is emitted and the header is byte
+	// for byte what it was before this feature existed (AC-A1.11).
+	if in.MayAsk == in.PreviousMayAsk {
+		return
+	}
+	b.WriteString("\n")
+	if in.MayAsk {
+		b.WriteString(askingRule)
+		if mode == InferMode {
+			b.WriteString(" " + inferAskingSeam)
+		}
+	} else {
+		b.WriteString(askingRevokedRule)
+	}
+	b.WriteString("\n")
 }
 
 // writeInferGuidance tells a run that named no command that choosing what kind

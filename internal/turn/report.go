@@ -555,10 +555,17 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		Result:    result.Harness,
 		Branch:    result.Branch,
 		CommitSHA: result.CommitSHA,
-		Pushed:    result.Pushed,
-		Files:     result.Changes,
-		LogPath:   result.LogPath,
-		Failure:   turnFailure(result),
+		// Both shas travel, because they answer different questions and the
+		// report asks both. CommitSHA names the commit this turn made and is
+		// empty when the run committed for itself through its own Bash tool;
+		// SHAAfter is where the branch ended up either way, and is what a
+		// permalink has to be pinned to or it renders blank on exactly that path
+		// (git.CommitResult.Head, AC-3.24).
+		SHAAfter: result.SHAAfter,
+		Pushed:   result.Pushed,
+		Files:    result.Changes,
+		LogPath:  result.LogPath,
+		Failure:  turnFailure(result),
 		// The requested surface and its provenance travel on the render input
 		// itself rather than on the harness result, because the report has to
 		// carry them for a run that produced no result at all — the run whose

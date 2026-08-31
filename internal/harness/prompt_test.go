@@ -70,20 +70,38 @@ func TestBuildPromptStructure(t *testing.T) {
 	}
 }
 
-// D-3: aiteam's dispatcher asks for a feature name before it routes anything,
-// and this run is headless. If the slug is not stated, the run stops on a
-// question nobody will read.
-func TestBuildPromptStatesTheFeatureSlugAndForbidsQuestions(t *testing.T) {
-	prompt := buildPrompt(t, testPromptInput())
+// D-3: aiteam's dispatcher asks for a feature name before it routes anything.
+// If the slug is not stated, the run stops on a question that — on an untagged
+// run — nobody will read.
+//
+// This test and TestBuildPromptForbidsQuestions were one test until A1. They
+// asserted two facts that used to travel together and no longer do: the slug is
+// stated on every prompt, and the gag is on the untagged ones only. Keeping
+// them joined would have meant a slug regression and a permission regression
+// failing under the same name (F-11, T-A1.16).
+func TestBuildPromptStatesTheFeatureSlug(t *testing.T) {
+	for _, mayAsk := range []bool{false, true} {
+		in := testPromptInput()
+		in.Mode = "research"
+		in.MayAsk = mayAsk
+		prompt := buildPrompt(t, in)
 
-	if !strings.Contains(prompt, "feature name or ticket id") {
-		t.Error("the prompt does not pre-answer aiteam's feature-name question (D-3)")
+		if !strings.Contains(prompt, "feature name or ticket id") {
+			t.Errorf("MayAsk=%t: the prompt does not pre-answer aiteam's feature-name question (D-3)", mayAsk)
+		}
+		// AC-A1.3: deleting the paragraph on the tagged path is a failing
+		// outcome. Stating the slug *is* the mechanism; a run that may ask is
+		// still a run that should not have to.
+		if !strings.Contains(prompt, "`123-add-a-widget`") {
+			t.Errorf("MayAsk=%t: the slug is not stated as the answer to that question", mayAsk)
+		}
 	}
-	if !strings.Contains(prompt, "`123-add-a-widget`") {
-		t.Error("the slug is not stated as the answer to that question")
-	}
-	if !strings.Contains(prompt, "do not ask clarifying questions") {
-		t.Error("the prompt does not forbid interactive questions")
+}
+
+// The gag belongs to the untagged path alone now (AC-A1.2).
+func TestBuildPromptForbidsQuestions(t *testing.T) {
+	if prompt := buildPrompt(t, testPromptInput()); !strings.Contains(prompt, "do not ask clarifying questions") {
+		t.Error("an untagged prompt does not forbid interactive questions")
 	}
 }
 

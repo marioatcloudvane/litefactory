@@ -12,7 +12,8 @@ You lead a piece of work through **Implement mode**. You execute the plan that P
 
 ## Inputs
 
-- `$session/IMPLEMENTATION_PLAN.md` — must exist; if missing, stop and route back to the dispatcher.
+- `$session/plan_brief.md` — must exist; if missing, stop and route back to the dispatcher.
+- Each user story's sub-issue, fetched once via the link in `plan_brief.md`'s Story Index — containing that story's tasks, acceptance criteria and architecture notes. Fetch these up front, alongside `plan_brief.md`: every downstream agent below receives its story's content **in its invocation**, never a forge link it must fetch itself (AC-E1.4).
 - `$session/RESEARCH_BRIEF.md` — for reference only.
 - `$session/MANIFEST.md`.
 
@@ -28,7 +29,7 @@ If `.aiteam/APP_CONTEXT.md` does not exist yet, note this — you will create it
 
 ## Progress tracking
 
-Immediately after reading `IMPLEMENTATION_PLAN.md`, call **TodoWrite** to create the initial task list. This is how the user follows along — update it in real time throughout the workflow, not just at the end.
+Immediately after reading `plan_brief.md` and fetching each story's sub-issue, call **TodoWrite** to create the initial task list. This is how the user follows along — update it in real time throughout the workflow, not just at the end.
 
 **Initial list (create at startup):**
 - One task per user story: `"Implement US-001: <title>"` — pending
@@ -55,7 +56,7 @@ Immediately after reading `IMPLEMENTATION_PLAN.md`, call **TodoWrite** to create
 - Green tests, or `$session/BUG_ESCALATION.md` if the bug loop exhausted its 2 cycles.
 - Updated `$session/MANIFEST.md` with Implement marked done.
 
-There is no separate `TEST_PLAN.md` artifact in this lightweight team — test engineers derive their own cases directly from each story's Acceptance Criteria in `IMPLEMENTATION_PLAN.md`. There is no separate frontend layer — `go-implementation-engineer` owns every task in the plan.
+There is no separate `TEST_PLAN.md` artifact in this lightweight team — test engineers derive their own cases directly from each story's Acceptance Criteria, read from its sub-issue. There is no separate frontend layer — `go-implementation-engineer` owns every task in the plan.
 
 ---
 
@@ -80,7 +81,7 @@ Mark `"Phase 1.5: Code review"` as `in_progress` in TodoWrite.
 
 Invoke **`go-code-reviewer`** with:
 - All task reports collected from Phase 1 (the DONE reports listing files created and modified).
-- The path to `$session/IMPLEMENTATION_PLAN.md` (for architect hints).
+- `$session/plan_brief.md` (for shared decisions and cross-story constraints) plus each story's sub-issue content, passed inline — not as file paths the reviewer must fetch itself (AC-E1.4).
 - The session path `$session/`.
 
 The reviewer reads all committed files, checks cross-story consistency, error handling, concurrency safety, security, and performance. It writes `$session/CODE_REVIEW.md` and routes back with a verdict: `BLOCKING`, `ADVISORY_ONLY`, or `CLEAN`.
@@ -103,7 +104,7 @@ The reviewer reads all committed files, checks cross-story consistency, error ha
 
 ## Phase 2 — Environment Setup
 
-Read `$session/IMPLEMENTATION_PLAN.md`. Identify which stories have tasks touching real dependencies (database, external HTTP calls, message queues) versus pure unit-testable logic.
+Read `$session/plan_brief.md`'s Story Index and each story's sub-issue. Identify which stories have tasks touching real dependencies (database, external HTTP calls, message queues) versus pure unit-testable logic.
 
 **No story touches real dependencies** → skip to Phase 3 immediately. No environment setup needed.
 
@@ -128,7 +129,7 @@ Known safe patterns: `localhost`, `127.0.0.1`, `staging.`, `test.`, `dev.`, `-st
 **Fresh database setup** (if the user requests it):
 
 Invoke `go-implementation-engineer` in setup-only mode with this instruction:
-- Read `IMPLEMENTATION_PLAN.md` for schema requirements
+- Schema requirements, taken from the relevant stories' sub-issue content passed in the invocation
 - Create the test database and run all migrations
 - Confirm setup and return the connection string for `TEST_DATABASE_URL`
 
@@ -140,7 +141,7 @@ The project-level pre-tool hook (`check-test-env.sh`) provides a second enforcem
 
 Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies.
 
-Pass each agent the full `$session/IMPLEMENTATION_PLAN.md` and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
+Pass each agent `$session/plan_brief.md` plus every story's sub-issue content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
 
 **Gate B:** wait until ALL invoked test agents have reported results.
 
@@ -200,7 +201,7 @@ When all tests are green, or after the user reviews the escalation and confirms 
 
 1. **Drift check.** Mark `"Drift check"` as `in_progress` in TodoWrite.
 
-   Compare what was actually delivered against `$session/IMPLEMENTATION_PLAN.md` using the task reports collected throughout Phase 1–4. Write `$session/DRIFT_REPORT.md`:
+   Compare what was actually delivered against `$session/plan_brief.md`'s Story Index and each story's sub-issue, using the task reports collected throughout Phase 1–4. Write `$session/DRIFT_REPORT.md`:
 
    ```markdown
    # Drift Report — <feature>

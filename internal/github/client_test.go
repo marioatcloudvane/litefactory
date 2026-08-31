@@ -30,7 +30,14 @@ func TestRequestCarriesTheCredentialAndAPIHeaders(t *testing.T) {
 	if got, want := req.Header.Get("Authorization"), "Bearer "+testToken; got != want {
 		t.Errorf("Authorization header = %q, want %q", got, want)
 	}
-	if got, want := req.Header.Get("Accept"), "application/vnd.github+json"; got != want {
+	// The SDK sets this, and it sets the v3 spelling. GitHub documents
+	// application/vnd.github+json and application/vnd.github.v3+json as the
+	// same thing, v3 being the older name for the current API.
+	//
+	// This is /user, which is the SDK's default. Five of the seven endpoints
+	// send something else again — see TestTheAcceptHeaderIsTheSDKs, which pins
+	// all of them, and explains why.
+	if got, want := req.Header.Get("Accept"), "application/vnd.github.v3+json"; got != want {
 		t.Errorf("Accept header = %q, want %q", got, want)
 	}
 	if got, want := req.Header.Get("X-GitHub-Api-Version"), "2022-11-28"; got != want {

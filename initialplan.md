@@ -193,7 +193,7 @@ This is the core of the design, and it's mostly *not* new code — aiteam alread
    ┌──────────────┐
    │  PLAN        │  claude -p "/plan"
    └──────┬───────┘
-          │ IMPLEMENTATION_PLAN.md
+          │ plan_brief.md + per-story sub-issues
           ▼
    ╔══════════════════════════════════════════════╗
    ║  GATE → comment + link + park                ║   label: lf:plan-ready
@@ -210,7 +210,7 @@ This is the core of the design, and it's mostly *not* new code — aiteam alread
 
 `/spike <text>` bypasses the pipeline entirely: no gates, no artifacts, single run, result posted as a comment. That's the escape hatch for "just bump the dep version".
 
-**litefactory pre-checks the gate before spawning.** If you comment `/implement` and no `IMPLEMENTATION_PLAN.md` exists for this feature, it replies with that fact and spawns nothing. aiteam would refuse anyway; better to spend a comment than a run.
+**litefactory pre-checks the gate before spawning.** If you comment `/implement` and no `plan_brief.md` exists for this feature, it replies with that fact and spawns nothing. aiteam would refuse anyway; better to spend a comment than a run. The check is a local file-existence check on the worktree — no gate, here or in aiteam, makes a network call. The per-story sub-issues are found by reading the brief's Story Index once the mode is already running; they are never polled to decide whether a mode may start.
 
 **Two layers of slash commands, deliberately identical.** `/plan` in a GitHub comment is parsed by litefactory, which then sends `/plan` to Claude Code. Same word, two hops. Keep the vocabulary aligned so there's nothing to learn — but the parser lives in the daemon, and unrecognised commands are reported, never forwarded blindly.
 
@@ -235,12 +235,12 @@ and takes the newest match per artifact type. Prediction is a fallback, not the 
 
 ```
 forge.blob_url(repo, sha, path)
-  → https://github.com/cloudvane/acme-api/blob/9f2c1ab/.aiteam/lf/123-payment-retry/2026-08-23/payment-retry/IMPLEMENTATION_PLAN.md
+  → https://github.com/cloudvane/acme-api/blob/9f2c1ab/.aiteam/lf/123-payment-retry/2026-08-23/payment-retry/plan_brief.md
 ```
 
 Pinning to the SHA rather than the branch means the link in comment #4 still shows what you actually approved, three force-pushes later.
 
-**State is inferred from artifacts, not self-reported.** Which of `RESEARCH_BRIEF.md` / `IMPLEMENTATION_PLAN.md` exist and changed this run, plus the exit code, plus Claude's final result text for the summary. This is more robust than asking the model what state it's in, and it's free — aiteam's filenames are fixed.
+**State is inferred from artifacts, not self-reported.** Which of `RESEARCH_BRIEF.md` / `plan_brief.md` exist and changed this run, plus the exit code, plus Claude's final result text for the summary. This is more robust than asking the model what state it's in, and it's free — aiteam's filenames are fixed. Plan mode's output moved from a single `IMPLEMENTATION_PLAN.md` to `plan_brief.md` plus one sub-issue per story; the principle is untouched by that move, because `plan_brief.md` is still a file in the repo with a fixed name, and it is still what the daemon looks for. The per-story sub-issues live on the forge and are *not* part of state inference — they are discovered from the brief's Story Index, never polled to decide what state a task is in.
 
 A small optional channel covers what artifacts can't express — open questions, blockers. The daemon passes a path via `$LF_TURN_OUT` **outside the repo** (it's transport, not work product, and shouldn't be committed):
 
@@ -454,7 +454,7 @@ litefactory doctor
 - `/approve` advances one mode; naming the mode explicitly also works
 
 **LF-7 — Artifact discovery and permalinks**
-> As Mario, "plan complete" comes with a link straight to `IMPLEMENTATION_PLAN.md`.
+> As Mario, "plan complete" comes with a link straight to `plan_brief.md`, and from its Story Index, straight to each story's sub-issue.
 
 - `.aiteam/` changes discovered via git status/diff, not path prediction
 - Newest artifact per type wins when several date directories exist

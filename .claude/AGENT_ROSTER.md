@@ -5,7 +5,7 @@ Generated for the `go-backend` lightweight team. Read by `proxy-product-owner` b
 | ID | Role | File | Description |
 |---|---|---|---|
 | `research-orchestrator` | research-orchestrator | `agents/research-orchestrator.md` | Orchestrates Research mode — produces `RESEARCH_BRIEF.md` |
-| `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `IMPLEMENTATION_PLAN.md` |
+| `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `plan_brief.md` plus one sub-issue per user story |
 | `implement-orchestrator` | implement-orchestrator | `agents/implement-orchestrator.md` | Orchestrates Implement mode — code + tests, green |
 | `codebase-tour` | codebase-tour | `agents/codebase-tour.md` | Two-pass codebase exploration for Research mode |
 | `requirements-engineer` | requirements | `agents/requirements-engineer.md` | Runs the Plan-mode requirements conversation, writes `feature-spec.md` |

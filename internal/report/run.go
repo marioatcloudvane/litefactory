@@ -29,6 +29,12 @@ const (
 	// the count above the list still tells the true number.
 	maxFileEntries = 200
 
+	// maxFenceBytes is the room [resultSection] reserves for a closing fence
+	// [closeOpenFence] may have to append after a cut. A run of more than 64
+	// backticks in a final message is not worth sizing anything for, and
+	// [runBody]'s budget pass is the limit that actually has to hold.
+	maxFenceBytes = 64
+
 	// minTailBytes is the least amount of room worth giving the log tail. Below
 	// this the block is dropped whole and replaced with a line naming the local
 	// log, because a dozen surviving bytes of output is not evidence of
@@ -60,16 +66,36 @@ type Run struct {
 	Result *harness.RunResult
 
 	// Branch is the git branch the run worked on, for example "lf/123-add-x".
-	// Plain text at M0: no links, no SHA-pinned permalinks (LF-7).
+	//
+	// It is rendered as plain text — the branch is a fact about where the work
+	// is, not a destination — but it is not inert: the feature slug frozen into
+	// it is what [Run.briefLink] recovers to derive the session directory, so a
+	// branch that is not one [naming.Branch] built is the difference between a
+	// report that links its brief and one that does not.
 	Branch string
 
 	// CommitSHA is the commit this run produced, empty when it committed
-	// nothing (AC-3.23). Plain text, for the same reason as Branch.
+	// nothing (AC-3.23). Plain text: it names the commit, and [Run.SHAAfter] is
+	// what anything clickable is pinned to.
 	CommitSHA string
 
-	// Pushed reports whether CommitSHA reached the remote. A commit that exists
+	// SHAAfter is where the branch points after the run — the run's sha_after,
+	// and the commit every link in this report is pinned to.
+	//
+	// It is a separate field from CommitSHA because the two genuinely differ.
+	// claude runs with the Bash tool and may commit for itself, which leaves
+	// CommitSHA empty while the branch has moved (see git.CommitResult.Head).
+	// A permalink built from CommitSHA would therefore render blank on exactly
+	// the supported path where the work is real, so it is built from this.
+	//
+	// Empty when the worktree was never inspected after the run, in which case
+	// no link is rendered at all.
+	SHAAfter string
+
+	// Pushed reports whether the branch reached the remote. A commit that exists
 	// only in the local worktree is a materially different thing to report, so
-	// the two are not conflated.
+	// the two are not conflated — and it is what gates every link in the body,
+	// because a permalink into an unpushed commit is a guaranteed 404.
 	Pushed bool
 
 	// Files is the files-touched list from the worktree's status: a plain
@@ -149,6 +175,26 @@ func (r Run) outputText() string {
 		return r.Result.Stderr
 	}
 	return ""
+}
+
+// startedOn returns the day the run happened and whether it is known.
+//
+// It is the date component of the session directory: aiteam names that
+// directory from the machine's local clock on the day the session is opened,
+// and the run's own start time is the same clock on the same day. FinishedAt
+// stands in when a run recorded no start, which is worth a link that is right
+// except across a midnight boundary rather than no link at all.
+func (r Run) startedOn() (time.Time, bool) {
+	if r.Result == nil {
+		return time.Time{}, false
+	}
+	if !r.Result.StartedAt.IsZero() {
+		return r.Result.StartedAt, true
+	}
+	if !r.Result.FinishedAt.IsZero() {
+		return r.Result.FinishedAt, true
+	}
+	return time.Time{}, false
 }
 
 // duration returns the run's wall-clock duration and whether it is known.
@@ -411,9 +457,14 @@ func describeRunOutcome(run Run) outcomeView {
 }
 
 // fixedSection renders the part of the body that is never cut: the marker, the
-// heading, the status callout and the metadata list. The absolute log path is
-// in here rather than beside the output it describes, precisely so that it
-// survives every level of truncation (AC-4.5, AC-4.8).
+// heading, the status callout, the metadata list and [ReplyPlainlyNotice]. The
+// absolute log path is in here rather than beside the output it describes,
+// precisely so that it survives every level of truncation (AC-4.5, AC-4.8).
+//
+// The notice is in here, and not appended to the body, for the same reason.
+// Everything below the log tail is what redact.Apply's last-resort hard truncate
+// eats first, and a report that cost a run to produce should not be the one that
+// arrives without the line saying how to answer it (AC-S0.6).
 func fixedSection(run Run, view outcomeView) string {
 	var b strings.Builder
 	b.WriteString(StatusMarker(run.Ref, run.Ordinal))
@@ -425,6 +476,8 @@ func fixedSection(run Run, view outcomeView) string {
 	}
 	b.WriteString(sectionGap)
 	b.WriteString(metadataList(run))
+	b.WriteString(sectionGap)
+	b.WriteString(ReplyPlainlyNotice)
 	return b.String()
 }
 
@@ -470,6 +523,18 @@ func metadataList(run Run) string {
 		add("Commit", codeSpan(run.CommitSHA)+" (in the local worktree only — not pushed)")
 	case run.Branch != "":
 		add("Commit", "none — this run committed nothing")
+	}
+
+	// The brief sits with the branch and the commit because it is the same kind
+	// of fact — where the work is — and because being in metadataList puts it in
+	// secFixed, the one section [runBody] never trims. A link that only survives
+	// on short comments is a link nobody can rely on.
+	//
+	// The caveat is on the line rather than in this comment on purpose. The path
+	// is derived and not discovered (see [Run.briefLink]), so the report must not
+	// present it as a page it has checked is there.
+	if link, ok := run.briefLink(); ok {
+		add("Research brief", link+" — pinned to this run's commit; 404s until a Research run writes one")
 	}
 
 	if res := run.Result; res != nil {
@@ -614,16 +679,26 @@ func codeList(names []string) string {
 
 const resultHeading = "**Result**"
 
+// resultOverlongNotice ends a final message that was over [maxResultBytes].
+const resultOverlongNotice = "\n\n_[litefactory: the run's final message was longer than a comment can hold and was cut here.]_"
+
 // resultSection renders the run's final message. It is rendered as markdown
 // rather than quoted, because it is a message written to be read and its
 // formatting is part of it; it is sanitised first, and the size cap keeps it
 // from being the reason a body will not fit.
+//
+// Rendering it as markdown is what makes [closeOpenFence] necessary. The message
+// is the one part of the body that is untrusted markup and is not wrapped in a
+// fence of this package's own, so an unbalanced fence in it would run on and
+// swallow everything below — including the log tail and the closing </details>.
+// It is closed twice: once for a fence the model left open, and once for one the
+// size cap cut open, with the notice outside the block where it can be read.
 func resultSection(run Run, view outcomeView) string {
 	res := run.Result
 	if res == nil {
 		return ""
 	}
-	text := strings.TrimSpace(sanitize(res.ResultText))
+	text := closeOpenFence(strings.TrimSpace(sanitize(res.ResultText)))
 	if text == "" {
 		if !view.succeed {
 			// The callout above already says what happened; an empty result on
@@ -632,7 +707,12 @@ func resultSection(run Run, view outcomeView) string {
 		}
 		return resultHeading + sectionGap + "_The run finished without a closing message._"
 	}
-	text, _ = truncateEnd(text, "\n\n_[litefactory: the run's final message was longer than a comment can hold and was cut here.]_", maxResultBytes)
+	// Cut with no notice, close whatever the cut opened, then add the notice —
+	// so the line explaining the cut is never itself inside a code block. The
+	// room reserved covers the notice and the longest fence it could need.
+	if cut, ok := truncateEnd(text, "", maxResultBytes-len(resultOverlongNotice)-maxFenceBytes); ok {
+		text = closeOpenFence(cut) + resultOverlongNotice
+	}
 	return resultHeading + sectionGap + text
 }
 

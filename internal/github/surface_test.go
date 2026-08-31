@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	gogithub "github.com/google/go-github/v90/github"
+
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
@@ -43,27 +45,41 @@ func TestPostCommentTakesARedactedBody(t *testing.T) {
 	}
 }
 
-// TestClientMethodSetIsTheSevenEndpoints pins the API surface. A small,
-// countable set is the reason this package is net/http rather than an SDK
-// dependency, and one arriving quietly is the moment that trade is worth
-// revisiting — so the count is asserted rather than assumed.
+// TestClientMethodSetIsPinned pins the API surface. It is the reworked form of
+// TestClientMethodSetIsTheSevenEndpoints, and the rework is the point.
 //
-// The seventh was added on 2026-08-25 as a decision, not a convenience: issues
-// and comments are indexed separately and lag separately, so a second,
-// independent path to a new comment is worth one request per repository per
-// tick. See [github.Client.ListCommentedIssues] for the measurement. Seven
-// still does not pay for an SDK.
-func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
+// That test said: "A countable endpoint set is what makes raw net/http the
+// right call here. An eighth is a reason to re-open the SDK question, not to
+// add a method quietly." The tripwire did its job. The question was re-opened
+// and answered (D1): sub-issues are a capability this package could not express
+// with hand-rolled request shapes nobody here can verify, and the owner chose
+// github.com/google/go-github. So the *reason* the old assertion gave is spent
+// — seven no longer has to pay for anything.
+//
+// The guard is kept because the reason was never the number. What it actually
+// buys is that the surface cannot grow silently: this is the list of things
+// litefactory can do to a forge, and it is what LF-18 will have to extract a
+// protocol from. Adding a method is still a decision someone has to write down,
+// which is now a one-line edit here rather than an argument about a dependency.
+func TestClientMethodSetIsPinned(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
 		"AddCommentReaction",  // POST …/issues/comments/{id}/reactions
+		"AddSubIssue",         // POST /repos/{o}/{r}/issues/{n}/sub_issues
 		"AuthenticatedUser",   // GET  /user
+		"CreateIssue",         // POST /repos/{o}/{r}/issues
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
 		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=open
+		"ListSubIssues",       // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
+		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
+		// once, then CreateIssue and AddSubIssue per story that needs them.
+		// It is pinned all the same, because "file a plan on the forge" is a
+		// thing litefactory can do to a forge and LF-18 will have to say how.
+		"CreateSubIssues",
 		// BaseURL reads a field rather than calling the API.
 		"BaseURL",
 	}
@@ -78,9 +94,19 @@ func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("github.Client method set changed.\n got: %s\nwant: %s\n\n"+
-			"A countable endpoint set is what makes raw net/http the right call here. "+
-			"An eighth is a reason to re-open the SDK question, not to add a method quietly.",
+			"This list is what litefactory can do to a forge, and what LF-18 has to "+
+			"extract a protocol from. Growing it is fine; growing it silently is not — "+
+			"add the method to want, with the endpoint it calls.",
 			strings.Join(got, ", "), strings.Join(want, ", "))
+	}
+
+	// The SDK client is a field on github.Client and never an embedded type.
+	// Embedding it would promote go-github's whole method set — Repositories,
+	// Actions, Git, every service on it — onto this type, and the assertion
+	// above would then be pinning a surface that is not the one callers see.
+	if typ.NumMethod() != len(want) {
+		t.Errorf("github.Client has %d methods but %d are pinned; an embedded type is "+
+			"promoting methods onto it", typ.NumMethod(), len(want))
 	}
 }
 
@@ -130,10 +156,24 @@ func TestNoForgeAbstraction(t *testing.T) {
 	}
 }
 
+// credentialSite is the one call in this package that is allowed to see the raw
+// token: go-github's single credential option, which installs a RoundTripper
+// setting the Authorization header on every request.
+//
+// It replaced the literal "Authorization" as the anchor when D1 moved the
+// transport to the SDK and the hand-written header disappeared with it. The
+// guard's shape is unchanged; only what it points at moved.
+const credentialSite = "gogithub.WithAuthToken("
+
 // TestRevealIsCalledExactlyOnce keeps the credential boundary greppable and
 // small. secrets.Token.Reveal is the deliberate act of handling the raw value,
-// and in this package there is exactly one legitimate reason to do it: setting
-// the Authorization header.
+// and in this package there is exactly one legitimate reason to do it: handing
+// the token to the SDK at construction, on the line named by credentialSite.
+//
+// This fails the build if Reveal appears anywhere else, or more than once, or
+// on a line that is not that call — including the shape where the token is
+// pulled into a local variable first, which is how it would end up somewhere a
+// %v could reach it.
 func TestRevealIsCalledExactlyOnce(t *testing.T) {
 	t.Parallel()
 
@@ -155,9 +195,9 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 		for i, line := range strings.Split(string(contents), "\n") {
 			if strings.Contains(line, ".Reveal()") {
 				sites = append(sites, name+":"+strings.TrimSpace(line))
-				if !strings.Contains(line, "Authorization") {
-					t.Errorf("%s:%d reveals the token outside the Authorization header: %s",
-						name, i+1, strings.TrimSpace(line))
+				if !strings.Contains(line, credentialSite) {
+					t.Errorf("%s:%d reveals the token somewhere other than %s: %s",
+						name, i+1, credentialSite, strings.TrimSpace(line))
 				}
 			}
 		}
@@ -166,5 +206,29 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 	if len(sites) != 1 {
 		t.Errorf("found %d calls to Reveal, want exactly 1:\n%s",
 			len(sites), strings.Join(sites, "\n"))
+	}
+}
+
+// TestTheCredentialPathIsTheSDKs is the other half of the guard above, and the
+// half a line-based grep cannot give: the anchor it greps for has to still be
+// the thing that authenticates a request.
+//
+// If go-github renamed or removed WithAuthToken, TestRevealIsCalledExactlyOnce
+// would keep passing against a string that no longer means anything — the
+// credential could then be routed some other way and the guard would not
+// notice. This makes that a compile error instead.
+func TestTheCredentialPathIsTheSDKs(t *testing.T) {
+	t.Parallel()
+
+	client, err := gogithub.NewClient(gogithub.WithAuthToken("ghp_not-a-real-token"))
+	if err != nil {
+		t.Fatalf("gogithub.NewClient with the credential option: %v", err)
+	}
+	if client == nil {
+		t.Fatal("gogithub.NewClient returned no client")
+	}
+	if !strings.Contains(credentialSite, "WithAuthToken") {
+		t.Errorf("credentialSite = %q, which no longer names the SDK's credential option",
+			credentialSite)
 	}
 }

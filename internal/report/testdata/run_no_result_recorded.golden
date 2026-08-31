@@ -9,6 +9,8 @@
 - **Duration:** unknown
 - **Log:** `litefactory logs 123 --run 4` (no local log path was recorded for this run)
 
+_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+
 **Files touched**
 
 _No files were changed._

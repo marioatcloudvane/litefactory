@@ -1,17 +1,15 @@
 package github
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	gogithub "github.com/google/go-github/v90/github"
 
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
@@ -28,13 +26,6 @@ const (
 	// User-Agent and rejects requests without one.
 	DefaultUserAgent = "litefactory"
 
-	// apiVersion pins the REST API version, so a future default change at
-	// GitHub is an explicit upgrade here rather than a surprise on a Tuesday.
-	apiVersion = "2022-11-28"
-
-	acceptJSON      = "application/vnd.github+json"
-	contentTypeJSON = "application/json"
-
 	// perPage is the maximum GitHub allows. Fewer per page means more
 	// requests per tick, which is exactly what AC-2.8 bounds.
 	perPage = 100
@@ -44,14 +35,6 @@ const (
 	// litefactory has no business polling, and continuing would burn the
 	// hourly quota in one tick.
 	maxPages = 100
-
-	// maxResponseBytes caps a decoded response body.
-	maxResponseBytes = 32 << 20
-	// maxErrorBytes caps the body read from a failed response.
-	maxErrorBytes = 64 << 10
-	// maxDrainBytes caps what is drained from an unread body to let the
-	// connection be reused.
-	maxDrainBytes = 64 << 10
 )
 
 // Options configures [New].
@@ -80,16 +63,27 @@ type Options struct {
 
 // Client talks to one GitHub API base as one identity.
 //
-// It is safe for concurrent use — it holds no mutable state — and it retries
-// nothing: a [RateLimitError] comes straight back to the caller with the delay
-// GitHub asked for, and the daemon decides what to do about it.
+// It is a concrete struct wrapping the SDK client, deliberately not an
+// interface: the Forge protocol is still LF-18's to extract from a second
+// working implementation, and adopting a dependency did not change that
+// (see the package documentation, and TestNoForgeAbstraction).
+//
+// It is safe for concurrent use and it retries nothing: a [RateLimitError]
+// comes straight back to the caller with the delay GitHub asked for, and the
+// daemon decides what to do about it.
 type Client struct {
-	base       *url.URL
-	httpClient *http.Client
-	token      secrets.Token
-	log        *slog.Logger
-	userAgent  string
-	now        func() time.Time
+	// api is the SDK client. It is a field rather than an embedded type on
+	// purpose: embedding would promote the SDK's entire method set onto
+	// [Client], which is the surface the package guards.
+	api *gogithub.Client
+	// base is the API root as this package was configured with it, without a
+	// trailing slash. The SDK keeps its own normalised copy (which must end in
+	// "/"); this one exists for [Client.BaseURL], whose output goes in a
+	// startup log line.
+	base      *url.URL
+	log       *slog.Logger
+	userAgent string
+	now       func() time.Time
 }
 
 // New builds a client.
@@ -117,15 +111,10 @@ func New(opts Options) (*Client, error) {
 	}
 
 	c := &Client{
-		base:       base,
-		httpClient: opts.HTTPClient,
-		token:      opts.Token,
-		log:        opts.Logger,
-		userAgent:  opts.UserAgent,
-		now:        opts.Now,
-	}
-	if c.httpClient == nil {
-		c.httpClient = &http.Client{Timeout: DefaultTimeout}
+		base:      base,
+		log:       opts.Logger,
+		userAgent: opts.UserAgent,
+		now:       opts.Now,
 	}
 	if c.log == nil {
 		c.log = slog.New(slog.DiscardHandler)
@@ -136,6 +125,43 @@ func New(opts Options) (*Client, error) {
 	if c.now == nil {
 		c.now = time.Now
 	}
+
+	// The SDK normalises the base itself and requires a trailing slash, which
+	// parseURL adds; passing the trimmed form keeps the two copies agreeing on
+	// everything but that slash.
+	sdkBase := base.String() + "/"
+	options := []gogithub.ClientOptionsFunc{
+		gogithub.WithURLs(&sdkBase, nil),
+		gogithub.WithUserAgent(c.userAgent),
+		// Client-side rate-limit bookkeeping is off. The SDK will otherwise
+		// remember a 403/429 and refuse the *next* call without asking GitHub,
+		// which is a form of backoff — and backoff below the daemon is exactly
+		// what this package does not do (see the package documentation). The
+		// daemon owns the wait because only it knows what else is queued.
+		gogithub.WithDisableRateLimitCheck(),
+	}
+	if opts.HTTPClient != nil {
+		options = append(options, gogithub.WithHTTPClient(opts.HTTPClient))
+	} else {
+		options = append(options, gogithub.WithTimeout(DefaultTimeout))
+	}
+	// The one and only place the credential is revealed. WithAuthToken is the
+	// SDK's single credential path: it installs a RoundTripper that sets the
+	// Authorization header on a *clone* of each request, so the token reaches a
+	// header and never a URL, a log attribute or an error. Go's http.Client
+	// strips that header on a cross-host redirect, so a redirected request
+	// cannot carry it off github.com. TestRevealIsCalledExactlyOnce fails the
+	// build if this line moves or gains a sibling.
+	options = append(options, gogithub.WithAuthToken(opts.Token.Reveal()))
+
+	api, err := gogithub.NewClient(options...)
+	if err != nil {
+		// The SDK's construction errors name the option that failed and never
+		// echo the token: WithAuthToken's only failure is "token must not be
+		// empty", which cannot be reached past the Empty() check above.
+		return nil, fmt.Errorf("github: build api client for %q: %w", base.String(), err)
+	}
+	c.api = api
 	return c, nil
 }
 
@@ -162,131 +188,71 @@ func (c *Client) logger() *slog.Logger {
 	return c.log
 }
 
-// response is what [Client.do] reports about a successful call beyond the
-// decoded body.
-type response struct {
-	// NextPage is the rel="next" URL from the Link header, empty on the last
-	// page. It has already been checked to point at this client's own host.
-	NextPage string
+// clock reads the client's clock, tolerating a [Client] that [New] did not
+// build for the same reason [Client.logger] does.
+func (c *Client) clock() time.Time {
+	if c == nil || c.now == nil {
+		return time.Now()
+	}
+	return c.now()
 }
 
-// endpoint builds an absolute URL for an API path.
+// do performs one SDK call: it refuses an uninitialised client, logs the
+// request, and translates whatever the SDK returned into this package's error
+// taxonomy.
 //
-// path is interpolated, not escaped: every component that reaches it has been
-// through [Repo.Validate] or is a number, and those checks reject anything that
-// would need escaping. That is deliberate — url.URL re-escapes a pre-escaped
-// Path, so pre-escaping here would produce %252F in the wire request.
-//
-// A client [New] did not build has no base to interpolate into, and returns the
-// empty string rather than panicking — [Client.do] turns that into
-// [ErrUninitialized].
-func (c *Client) endpoint(path string, query url.Values) string {
-	if c == nil || c.base == nil {
-		return ""
+// Every endpoint in this package goes through here, which is what makes "one
+// HTTP stack, one error taxonomy, one credential path" checkable by reading the
+// call sites rather than by trusting them.
+func do[T any](ctx context.Context, c *Client, call func(context.Context) (T, *gogithub.Response, error)) (T, *gogithub.Response, error) {
+	var zero T
+	// A zero Client has no SDK client to call. Falling through would panic,
+	// and a nil-safe fall-through would report "no results" from a client that
+	// never made a request — indistinguishable from a quiet repository, and
+	// enough to advance a watermark over unseen comments.
+	if c == nil || c.api == nil {
+		return zero, nil, ErrUninitialized
 	}
-	u := *c.base
-	u.Path = strings.TrimRight(c.base.Path, "/") + path
-	if len(query) > 0 {
-		u.RawQuery = query.Encode()
+
+	start := c.clock()
+	value, resp, err := call(ctx)
+	c.observe(ctx, resp, start)
+	if err != nil {
+		return zero, resp, classify(resp, err, c.clock())
 	}
-	return u.String()
+	return value, resp, nil
 }
 
-// do performs one request and decodes its body.
-//
-// rawURL is absolute: either from [Client.endpoint] or a Link header that
-// [Client.nextPage] has already confirmed points at this client's host. in is
-// JSON-encoded as the request body when non-nil; out receives the decoded
-// response when non-nil.
-func (c *Client) do(ctx context.Context, method, rawURL string, in, out any) (response, error) {
-	if c == nil || c.httpClient == nil || c.base == nil || rawURL == "" {
-		return response{}, ErrUninitialized
+// observe writes the per-request debug record. It is the line that makes "what
+// did this tick actually cost" answerable, and it carries no credential: the
+// method, URL and status are all safe to print, and the token travels in a
+// header this package never reads back.
+func (c *Client) observe(ctx context.Context, resp *gogithub.Response, start time.Time) {
+	if resp == nil || resp.Response == nil {
+		return
 	}
-
-	var body io.Reader
-	if in != nil {
-		payload, err := json.Marshal(in)
-		if err != nil {
-			return response{}, fmt.Errorf("encode %s %s body: %w", method, rawURL, err)
-		}
-		body = bytes.NewReader(payload)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
-	if err != nil {
-		return response{}, fmt.Errorf("build %s %s: %w", method, rawURL, err)
-	}
-	req.Header.Set("Accept", acceptJSON)
-	req.Header.Set("X-GitHub-Api-Version", apiVersion)
-	req.Header.Set("User-Agent", c.userAgent)
-	if in != nil {
-		req.Header.Set("Content-Type", contentTypeJSON)
-	}
-	// The one and only place the credential is revealed. It goes into a
-	// header, never a URL and never a log attribute; Go's http.Client strips
-	// this header on a cross-host redirect, so a redirected request cannot
-	// carry it off github.com.
-	req.Header.Set("Authorization", "Bearer "+c.token.Reveal())
-
-	start := c.now()
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		// Returned as-is: the *url.Error already names the method and the URL,
-		// and repeating them here would print both twice. Neither contains
-		// credential material — the token travels in a header.
-		return response{}, err
-	}
-	defer func() {
-		// Draining before the close lets the connection go back in the pool
-		// instead of being torn down. The Close call is written out here rather
-		// than hidden in a helper so that it is visible to a reader and to the
-		// linter that checks for it.
-		drain(resp.Body)
-		_ = resp.Body.Close()
-	}()
-
 	c.logger().DebugContext(ctx, "github: api request",
-		slog.String("method", method),
-		slog.String("url", rawURL),
+		slog.String("method", requestMethod(resp.Response)),
+		slog.String("url", requestURL(resp.Response)),
 		slog.Int("status", resp.StatusCode),
-		slog.Duration("duration", c.now().Sub(start)),
+		slog.Duration("duration", c.clock().Sub(start)),
 		slog.Int("rate_limit_remaining", headerInt(resp.Header, "X-RateLimit-Remaining")),
 	)
-
-	var res response
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		// A truncated or unreadable error body still leaves the status, which
-		// is what classification actually turns on.
-		errBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
-		if readErr != nil {
-			errBody = nil
-		}
-		return res, classifyResponse(method, rawURL, resp, errBody, c.now())
-	}
-
-	next, err := c.nextPage(resp.Header.Get("Link"))
-	if err != nil {
-		return res, err
-	}
-	res.NextPage = next
-
-	if out == nil || resp.StatusCode == http.StatusNoContent {
-		return res, nil
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(out); err != nil {
-		if errors.Is(err, io.EOF) {
-			// 2xx with no body at all: the caller asked for a decode, GitHub
-			// had nothing to say. Leave out at its zero value.
-			return res, nil
-		}
-		return res, fmt.Errorf("decode %s %s response: %w", method, rawURL, err)
-	}
-	return res, nil
 }
 
-// drain reads a bounded amount of an unfinished response body. Whatever is left
-// unread — the tail of an error body past [maxErrorBytes], or a body nobody
-// asked to decode — would otherwise cost the connection.
-func drain(body io.Reader) {
-	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxDrainBytes))
+// requestMethod and requestURL read back what was sent. net/http fills in
+// Response.Request for every real round trip; both tolerate its absence rather
+// than making a diagnostic the reason a tick panics.
+func requestMethod(resp *http.Response) string {
+	if resp == nil || resp.Request == nil {
+		return ""
+	}
+	return resp.Request.Method
+}
+
+func requestURL(resp *http.Response) string {
+	if resp == nil || resp.Request == nil || resp.Request.URL == nil {
+		return ""
+	}
+	return resp.Request.URL.String()
 }

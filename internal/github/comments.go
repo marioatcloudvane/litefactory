@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	gogithub "github.com/google/go-github/v90/github"
 
 	"github.com/cloudvane/litefactory/internal/redact"
 )
@@ -59,25 +59,33 @@ func (c *Client) ListCommentsAfter(ctx context.Context, repo Repo, issue int, af
 	if err := repo.Validate(); err != nil {
 		return nil, err
 	}
+	// Refusing a non-positive number is load-bearing here, not just tidy: the
+	// SDK reads an issue number of 0 as "every comment in the repository" and
+	// serves it from a different path. Letting one through would compute this
+	// issue's watermark against the whole repository's comment stream.
 	if err := checkIssueNumber(issue); err != nil {
 		return nil, err
 	}
 
-	query := url.Values{}
-	query.Set("per_page", strconv.Itoa(perPage))
+	var opts gogithub.IssueListCommentsOptions
+	opts.PerPage = perPage
 
-	endpoint := c.endpoint(issuePath(repo, issue)+"/comments", query)
-	payloads, requests, err := fetchPages[commentPayload](ctx, c, endpoint)
+	payloads, requests, err := fetchPages(ctx, c,
+		func(ctx context.Context, page int) ([]*gogithub.IssueComment, *gogithub.Response, error) {
+			pageOpts := opts
+			pageOpts.Page = page
+			return c.api.Issues.ListComments(ctx, repo.Owner, repo.Name, issue, &pageOpts)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("github: list comments on %s#%d: %w", repo, issue, err)
 	}
 
 	comments := make([]Comment, 0, len(payloads))
-	for i := range payloads {
-		if payloads[i].ID <= afterID {
+	for _, payload := range payloads {
+		if payload == nil || payload.GetID() <= afterID {
 			continue
 		}
-		comments = append(comments, payloads[i].comment())
+		comments = append(comments, convertComment(payload))
 	}
 	slices.SortFunc(comments, func(a, b Comment) int {
 		switch {
@@ -132,16 +140,24 @@ func (c *Client) ListCommentedIssues(ctx context.Context, repo Repo, since time.
 		return nil, err
 	}
 
-	query := url.Values{}
-	query.Set("sort", "updated")
-	query.Set("direction", "asc")
-	query.Set("per_page", strconv.Itoa(perPage))
-	if !since.IsZero() {
-		query.Set("since", since.UTC().Format(time.RFC3339))
+	opts := gogithub.IssueListCommentsOptions{
+		Sort:      gogithub.Ptr("updated"),
+		Direction: gogithub.Ptr("asc"),
 	}
+	if !since.IsZero() {
+		opts.Since = gogithub.Ptr(since.UTC())
+	}
+	opts.PerPage = perPage
 
-	endpoint := c.endpoint(repoPath(repo)+"/issues/comments", query)
-	payloads, requests, err := fetchPages[commentPayload](ctx, c, endpoint)
+	// An issue number of 0 is how the SDK addresses the repository-level
+	// endpoint. It is the one call in this package that wants it, and the
+	// issue-scoped listing refuses 0 for exactly that reason.
+	payloads, requests, err := fetchPages(ctx, c,
+		func(ctx context.Context, page int) ([]*gogithub.IssueComment, *gogithub.Response, error) {
+			pageOpts := opts
+			pageOpts.Page = page
+			return c.api.Issues.ListComments(ctx, repo.Owner, repo.Name, 0, &pageOpts)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("github: list the comments of %s: %w", repo, err)
 	}
@@ -149,8 +165,8 @@ func (c *Client) ListCommentedIssues(ctx context.Context, repo Repo, since time.
 	seen := make(map[int]bool, len(payloads))
 	numbers := make([]int, 0, len(payloads))
 	malformed := 0
-	for i := range payloads {
-		number, ok := issueNumberFromURL(payloads[i].IssueURL)
+	for _, payload := range payloads {
+		number, ok := issueNumberFromURL(payload.GetIssueURL())
 		if !ok {
 			malformed++
 			continue
@@ -231,17 +247,21 @@ func (c *Client) PostComment(ctx context.Context, repo Repo, issue int, body red
 			repo, issue, ErrInvalidArgument, body.Len(), CommentSizeLimit)
 	}
 
-	endpoint := c.endpoint(issuePath(repo, issue)+"/comments", nil)
-	request := commentRequest{Body: body.String()}
-	var payload commentPayload
-	if _, err := c.do(ctx, http.MethodPost, endpoint, request, &payload); err != nil {
+	payload, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.IssueComment, *gogithub.Response, error) {
+		// IssueComment is the SDK's request body as well as its response
+		// shape, and every field is omitempty — so this marshals to exactly
+		// {"body": …} and nothing else travels.
+		return c.api.Issues.CreateComment(ctx, repo.Owner, repo.Name, issue,
+			&gogithub.IssueComment{Body: gogithub.Ptr(body.String())})
+	})
+	if err != nil {
 		return Comment{}, fmt.Errorf("github: post comment on %s#%d: %w", repo, issue, err)
 	}
-	if payload.ID == 0 {
+	if payload.GetID() == 0 {
 		return Comment{}, fmt.Errorf("github: post comment on %s#%d: %w: response carried no comment id",
 			repo, issue, ErrUnexpectedStatus)
 	}
-	return payload.comment(), nil
+	return convertComment(payload), nil
 }
 
 // ReactionContent is one of GitHub's fixed reaction names.
@@ -283,9 +303,9 @@ func (c *Client) AddCommentReaction(ctx context.Context, repo Repo, commentID in
 		return fmt.Errorf("github: reaction %q: %w: not a GitHub reaction", content, ErrInvalidArgument)
 	}
 
-	endpoint := c.endpoint(repoPath(repo)+"/issues/comments/"+
-		strconv.FormatInt(commentID, 10)+"/reactions", nil)
-	if _, err := c.do(ctx, http.MethodPost, endpoint, reactionRequest{Content: string(content)}, nil); err != nil {
+	if _, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.Reaction, *gogithub.Response, error) {
+		return c.api.Reactions.CreateIssueCommentReaction(ctx, repo.Owner, repo.Name, commentID, string(content))
+	}); err != nil {
 		return fmt.Errorf("github: react %s to comment %d on %s: %w", content, commentID, repo, err)
 	}
 	return nil
@@ -301,34 +321,19 @@ func (r ReactionContent) valid() bool {
 	}
 }
 
-// commentRequest is the POST body for a new comment.
-type commentRequest struct {
-	Body string `json:"body"`
-}
-
-// reactionRequest is the POST body for a new reaction.
-type reactionRequest struct {
-	Content string `json:"content"`
-}
-
-// commentPayload is GitHub's issue-comment shape.
-type commentPayload struct {
-	ID        int64        `json:"id"`
-	IssueURL  string       `json:"issue_url"`
-	Body      string       `json:"body"`
-	User      *userPayload `json:"user"`
-	HTMLURL   string       `json:"html_url"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
-}
-
-func (p *commentPayload) comment() Comment {
+// convertComment narrows the SDK's issue comment to the fields M0 reads. A nil
+// payload converts to the zero Comment rather than panicking, which is what an
+// absent or null object has always meant here.
+func convertComment(payload *gogithub.IssueComment) Comment {
+	if payload == nil {
+		return Comment{}
+	}
 	return Comment{
-		ID:        p.ID,
-		Body:      p.Body,
-		Author:    p.User.user(),
-		HTMLURL:   p.HTMLURL,
-		CreatedAt: p.CreatedAt.UTC(),
-		UpdatedAt: p.UpdatedAt.UTC(),
+		ID:        payload.GetID(),
+		Body:      payload.GetBody(),
+		Author:    convertUser(payload.User),
+		HTMLURL:   payload.GetHTMLURL(),
+		CreatedAt: payload.GetCreatedAt().UTC(),
+		UpdatedAt: payload.GetUpdatedAt().UTC(),
 	}
 }

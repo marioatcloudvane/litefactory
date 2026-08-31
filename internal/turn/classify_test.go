@@ -1,8 +1,10 @@
 package turn
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -61,8 +63,8 @@ func newClassifyFilter(t *testing.T) *Filter {
 const statusMarker = "<!-- lf:status task=github:acme/api#7 run=1 -->"
 
 // replyMarker is the run-less marker the /spike-empty and unsupported-command
-// replies carry. The self-filter must catch it with the same substring test,
-// which is why the test matches on the prefix and not on the status shape.
+// replies carry. The self-filter must catch it with the same line-anchored
+// test, which is why the test matches on the prefix and not on the status shape.
 const replyMarker = "<!-- lf:reply task=github:acme/api#7 -->"
 
 func TestFilterClassify(t *testing.T) {
@@ -136,14 +138,39 @@ func TestFilterClassify(t *testing.T) {
 			wantReason: SelfReasonMarker,
 		},
 		{
-			name: "a marker further down the body still counts",
+			// Pasted back unquoted, under a line of the paster's own: still
+			// litefactory's output, and still a loop if it were acted on.
+			name: "a marker on a later line still counts when it starts that line",
 			comment: github.Comment{
 				ID:     904,
-				Body:   "as you said earlier:\n\n> " + statusMarker + "\n> run finished",
+				Body:   "as you said earlier:\n\n" + statusMarker + "\nrun finished",
 				Author: github.User{ID: strangerUserID, Login: strangerHandle},
 			},
 			want:       store.ClassificationSelf,
 			wantReason: SelfReasonMarker,
+		},
+		{
+			// AC-S0.1. GitHub's quote-reply puts "> " in front of every quoted
+			// line, so the marker no longer starts one. The owner gets a run.
+			name: "an owner quote-reply is an instruction, not litefactory's own output",
+			comment: github.Comment{
+				ID:     914,
+				Body:   "> " + statusMarker + "\n> **Run 1** finished in 42s.\n\nnow do the same for the logs command",
+				Author: github.User{ID: ownerUserID, Login: ownerHandle},
+			},
+			want: store.ClassificationInstruction,
+		},
+		{
+			// The same quote from somebody who is not the owner is still no more
+			// than a third-party comment: line-anchoring changed which of the
+			// three answers is right, not that authorship decides it.
+			name: "a third party's quote-reply is a third party",
+			comment: github.Comment{
+				ID:     915,
+				Body:   "> " + replyMarker + "\n> `/plan` is not supported yet.\n\nfair enough",
+				Author: github.User{ID: strangerUserID, Login: strangerHandle},
+			},
+			want: store.ClassificationThirdParty,
 		},
 		{
 			name: "the forge bot flag alone is enough",
@@ -248,6 +275,83 @@ func TestFilterClassify(t *testing.T) {
 	}
 }
 
+// TestClassifySelfBeforeAuthorship pins the order [Filter.Classify] evaluates
+// its two questions in: is this litefactory's own comment, and only then, who
+// wrote it.
+//
+// The order is load-bearing rather than incidental (AC-2.14). An install whose
+// bot account is also the owner's account by misconfiguration is exactly the one
+// that would answer itself forever, and testing authorship second is what stops
+// it: every case below has an author whose id would otherwise decide the
+// verdict, and the self-filter takes precedence over all of them.
+//
+// This is a characterization test. It was written before the marker match was
+// line-anchored and describes behaviour that has to survive that change
+// unaltered, so every marker here sits at the start of a line — which is where
+// litefactory writes it. What line-anchoring changes is only whether a marker
+// found *inside a quoted line* still counts; see
+// TestQuotedMarkerIsNotLitefactorysOwnComment.
+func TestClassifySelfBeforeAuthorship(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		comment    github.Comment
+		wantReason SelfReason
+	}{
+		{
+			// Being the owner does not outrank the marker, and must not: this is
+			// the branch that holds when the identities table is wrong.
+			name: "the owner carrying a marker is self",
+			comment: github.Comment{
+				ID:     920,
+				Body:   statusMarker + "\n\n**Run 1** finished in 42s.",
+				Author: github.User{ID: ownerUserID, Login: ownerHandle},
+			},
+			wantReason: SelfReasonMarker,
+		},
+		{
+			name: "a third party carrying a marker is self, not third party",
+			comment: github.Comment{
+				ID:     921,
+				Body:   replyMarker + "\n\n`/plan` is not supported yet.",
+				Author: github.User{ID: strangerUserID, Login: strangerHandle},
+			},
+			wantReason: SelfReasonMarker,
+		},
+		{
+			// litefactory's own comment, assembled the way it posts one: all
+			// three conditions true at once. The id is the reason reported,
+			// because it is the first one asked and the truest one.
+			name: "litefactory's own comment is self by its id",
+			comment: github.Comment{
+				ID:     922,
+				Body:   statusMarker + "\n\n**Run 1** finished in 42s.",
+				Author: github.User{ID: botUserID, Login: botHandle, IsBot: true},
+			},
+			wantReason: SelfReasonBotUserID,
+		},
+	}
+
+	filter := newClassifyFilter(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := filter.Classify(test.comment)
+			if got.Classification != store.ClassificationSelf {
+				t.Errorf("Classify() = %q, want %q", got.Classification, store.ClassificationSelf)
+			}
+			if got.SelfReason != test.wantReason {
+				t.Errorf("Classify() self reason = %q, want %q", got.SelfReason, test.wantReason)
+			}
+			if got.Triggers() {
+				t.Error("Triggers() = true; a comment classified self must never start a run")
+			}
+		})
+	}
+}
+
 func TestHasMarker(t *testing.T) {
 	t.Parallel()
 
@@ -260,9 +364,20 @@ func TestHasMarker(t *testing.T) {
 		{name: "status marker", body: statusMarker, want: true},
 		{name: "reply marker", body: replyMarker, want: true},
 		{name: "prefix alone", body: MarkerPrefix, want: true},
-		{name: "quoted", body: "> " + statusMarker, want: true},
 		{name: "an unrelated html comment", body: "<!-- TODO: fix this -->", want: false},
 		{name: "prose about the marker", body: "it prints lf:status somewhere", want: false},
+
+		// Where on the line the marker sits is the whole of the match.
+		{name: "on a later line", body: "see above:\n" + statusMarker + "\nrun finished", want: true},
+		{name: "on the last line, unterminated", body: "see above:\n" + statusMarker, want: true},
+		{name: "quoted by GitHub's quote-reply", body: "> " + statusMarker, want: false},
+		{name: "quoted on a later line", body: "as you said:\n\n> " + statusMarker + "\n> run finished", want: false},
+		{name: "mid-line", body: "the marker is " + statusMarker + " apparently", want: false},
+		{name: "indented", body: "    " + statusMarker, want: false},
+
+		// CRLF: GitHub sends \r\n on some paths, and the \r lands at the end of
+		// the previous line rather than in front of the marker.
+		{name: "crlf line endings", body: "see above:\r\n" + statusMarker + "\r\nrun finished", want: true},
 	}
 
 	for _, test := range tests {
@@ -325,6 +440,148 @@ func TestFilterAdmitDropsItsOwnComment(t *testing.T) {
 		t.Error("stored body was not the body as posted")
 	}
 }
+
+// TestQuotedMarkerIsNotLitefactorysOwnComment puts AC-S0.1 and AC-S0.2 side by
+// side, which is the only way either of them means anything: the two bodies
+// below contain the same marker text, and exactly one of them is litefactory's.
+//
+// The owner's quote-reply used to be classified self and thrown away, so
+// answering a litefactory question worked or did not depending on which GitHub
+// button was pressed. It starts a run now, and the comment the quote came from
+// is still dropped.
+func TestQuotedMarkerIsNotLitefactorysOwnComment(t *testing.T) {
+	t.Parallel()
+
+	db, session := newCommentStore(t)
+	filter, err := NewFilter(db, classifyIdentities(), nil)
+	if err != nil {
+		t.Fatalf("new filter: %v", err)
+	}
+
+	posted := statusMarker + "\n\n**Run 1** finished in 42s.\n\nBranch `lf/7-flaky-test` pushed."
+
+	// What GitHub's "quote reply" button produces: every line of the quoted
+	// comment prefixed with "> ", then the reader's own text underneath.
+	quoted := "> " + strings.ReplaceAll(posted, "\n", "\n> ") +
+		"\n\nnow do the same for `litefactory logs`"
+
+	reply, err := filter.Admit(t.Context(), session.ID, github.Comment{
+		ID:        5200,
+		Body:      quoted,
+		Author:    github.User{ID: ownerUserID, Login: ownerHandle},
+		CreatedAt: time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("admit the quote-reply: %v", err)
+	}
+	if !reply.Triggers() {
+		t.Fatalf("the owner's quote-reply was classified %q with reason %q; it must start a run (AC-S0.1)",
+			reply.Verdict.Classification, reply.Verdict.SelfReason)
+	}
+	if reply.Verdict.Classification != store.ClassificationInstruction {
+		t.Errorf("classification = %q, want %q", reply.Verdict.Classification, store.ClassificationInstruction)
+	}
+
+	// AC-S0.2, in the same test and against the same marker: the comment that
+	// quote came from is still litefactory's own and is still dropped.
+	own, err := filter.Admit(t.Context(), session.ID, github.Comment{
+		ID:        5201,
+		Body:      posted,
+		Author:    github.User{ID: botUserID, Login: botHandle, IsBot: true},
+		CreatedAt: time.Date(2026, 8, 30, 9, 5, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("admit litefactory's own comment: %v", err)
+	}
+	if own.Triggers() {
+		t.Fatal("litefactory's own report started a run; this is the loop AC-2.14 exists to prevent")
+	}
+	if own.Verdict.Classification != store.ClassificationSelf {
+		t.Errorf("classification = %q, want %q", own.Verdict.Classification, store.ClassificationSelf)
+	}
+
+	// And the same body under an account the identities table does not know is
+	// still caught, because the marker starts a line of it. Line-anchoring
+	// narrowed the belt-and-braces condition; it did not remove it.
+	stray, err := filter.Admit(t.Context(), session.ID, github.Comment{
+		ID:        5202,
+		Body:      posted,
+		Author:    github.User{ID: strangerUserID, Login: strangerHandle},
+		CreatedAt: time.Date(2026, 8, 30, 9, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("admit a stray copy of the report: %v", err)
+	}
+	if stray.Verdict.SelfReason != SelfReasonMarker {
+		t.Errorf("self reason = %q, want %q", stray.Verdict.SelfReason, SelfReasonMarker)
+	}
+}
+
+// TestSelfDropIsLogged is AC-S0.4. A comment classified self is thrown away
+// without a run, a reply or a reaction, so from the thread it is
+// indistinguishable from a daemon that is not running — the log line is the only
+// trace a human can follow, and it has to name which condition fired.
+//
+// The level matters as much as the line. It is asserted against a handler at
+// slog.LevelInfo, which is what `litefactory` runs at without log_level being
+// set: a line only visible under debug is not a line the owner can find.
+func TestSelfDropIsLogged(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	db, session := newCommentStore(t)
+	filter, err := NewFilter(db, classifyIdentities(), log)
+	if err != nil {
+		t.Fatalf("new filter: %v", err)
+	}
+
+	// The marker case: the only self reason that can fire on a comment a human
+	// really wrote, and so the only one whose log line is ever the answer to
+	// "why did nothing happen when I commented?".
+	if _, err := filter.Admit(t.Context(), session.ID, github.Comment{
+		ID:     5400,
+		Body:   statusMarker + "\n\nRun 1 succeeded.",
+		Author: github.User{ID: strangerUserID, Login: strangerHandle},
+	}); err != nil {
+		t.Fatalf("admit: %v", err)
+	}
+
+	logged := logs.String()
+	for _, want := range []string{
+		`"level":"INFO"`,
+		`"self_reason":"marker"`,
+		`"comment_id":5400`,
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("the drop log line does not contain %s:\n%s", want, logged)
+		}
+	}
+	if got := strings.Count(logged, dropMessage); got != 1 {
+		t.Errorf("logged %d drop lines for one dropped comment, want 1:\n%s", got, logged)
+	}
+
+	// An instruction is not a drop and must not produce one, or the line stops
+	// being worth grepping for.
+	logs.Reset()
+	if _, err := filter.Admit(t.Context(), session.ID, github.Comment{
+		ID:     5401,
+		Body:   "/spike look at the retry path",
+		Author: github.User{ID: ownerUserID, Login: ownerHandle},
+	}); err != nil {
+		t.Fatalf("admit the instruction: %v", err)
+	}
+	if strings.Contains(logs.String(), dropMessage) {
+		t.Errorf("an owner instruction logged a drop:\n%s", logs.String())
+	}
+}
+
+// dropMessage is the message [Filter.Admit] logs a self-classified comment
+// with. It is duplicated here rather than exported: the message is the thing a
+// human greps daemon.log for, so it is worth a test that fails when it is
+// reworded silently.
+const dropMessage = "turn: dropped a comment as litefactory's own"
 
 func TestFilterAdmitRecordsOwnerInstruction(t *testing.T) {
 	t.Parallel()

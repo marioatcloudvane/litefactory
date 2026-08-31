@@ -1,3 +1,5 @@
 <!-- lf:reply task=github:acme/acme-api#123 -->
 
 `/plan` is a real command, but litefactory does not implement it yet. The only command it acts on at the moment is `/spike <what you want tried>`.
+
+_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
