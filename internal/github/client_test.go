@@ -32,9 +32,11 @@ func TestRequestCarriesTheCredentialAndAPIHeaders(t *testing.T) {
 	}
 	// The SDK sets this, and it sets the v3 spelling. GitHub documents
 	// application/vnd.github+json and application/vnd.github.v3+json as the
-	// same thing, v3 being the older name for the current API; the pin is here
-	// so that an SDK upgrade changing the negotiated media type is something
-	// this package finds out about rather than discovers in production.
+	// same thing, v3 being the older name for the current API.
+	//
+	// This is /user, which is the SDK's default. Five of the seven endpoints
+	// send something else again — see TestTheAcceptHeaderIsTheSDKs, which pins
+	// all of them, and explains why.
 	if got, want := req.Header.Get("Accept"), "application/vnd.github.v3+json"; got != want {
 		t.Errorf("Accept header = %q, want %q", got, want)
 	}

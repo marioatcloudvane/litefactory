@@ -211,6 +211,133 @@ func TestARateLimitDoesNotStopTheNextCall(t *testing.T) {
 	}
 }
 
+// TestTheAcceptHeaderIsTheSDKs pins a wire-visible change the migration made
+// and this package cannot undo.
+//
+// Before D1 every request carried Accept: application/vnd.github+json, set in
+// one place. go-github sets it per endpoint: its default is the v3 spelling of
+// the same media type, but the issue and reaction services override it with
+// application/vnd.github.squirrel-girl-preview — the long-graduated preview
+// header for reactions, which go-github keeps sending for the benefit of older
+// GitHub Enterprise Server installs. Those service methods take no request
+// option, so there is no supported way to override it back.
+//
+// It costs nothing: the response bodies are the same JSON and the fields this
+// package reads are unaffected. It is pinned because it is the kind of thing an
+// SDK upgrade changes quietly, and a header nobody expected is a bad thing to
+// meet as a 415 in production rather than as a failure here.
+func TestTheAcceptHeaderIsTheSDKs(t *testing.T) {
+	t.Parallel()
+
+	const (
+		v3       = "application/vnd.github.v3+json"
+		reaction = "application/vnd.github.squirrel-girl-preview"
+	)
+	// The response each endpoint needs to decode. A list endpoint served an
+	// object fails before the assertion is reached, which would make this test
+	// pass for the wrong reason on the day it stops holding.
+	const (
+		list   = `[]`
+		object = `{"id": 1, "number": 1, "login": "litefactory-bot"}`
+	)
+
+	tests := []struct {
+		name     string
+		call     func(*fixture) error
+		path     string
+		want     string
+		response string
+	}{
+		{
+			name:     "ListIssues",
+			path:     "/repos/acme/acme-api/issues",
+			want:     reaction,
+			response: list,
+			call: func(f *fixture) error {
+				_, err := f.Client.ListIssues(t.Context(), testRepo, time.Time{})
+				return err
+			},
+		},
+		{
+			name:     "GetIssue",
+			path:     "/repos/acme/acme-api/issues/7",
+			want:     reaction,
+			response: object,
+			call: func(f *fixture) error {
+				_, err := f.Client.GetIssue(t.Context(), testRepo, 7)
+				return err
+			},
+		},
+		{
+			name:     "ListCommentsAfter",
+			path:     "/repos/acme/acme-api/issues/7/comments",
+			want:     reaction,
+			response: list,
+			call: func(f *fixture) error {
+				_, err := f.Client.ListCommentsAfter(t.Context(), testRepo, 7, 0)
+				return err
+			},
+		},
+		{
+			name:     "ListCommentedIssues",
+			path:     "/repos/acme/acme-api/issues/comments",
+			want:     reaction,
+			response: list,
+			call: func(f *fixture) error {
+				_, err := f.Client.ListCommentedIssues(t.Context(), testRepo, time.Time{})
+				return err
+			},
+		},
+		{
+			name:     "AddCommentReaction",
+			path:     "/repos/acme/acme-api/issues/comments/9/reactions",
+			want:     reaction,
+			response: object,
+			call: func(f *fixture) error {
+				return f.Client.AddCommentReaction(t.Context(), testRepo, 9, github.ReactionEyes)
+			},
+		},
+		{
+			name:     "PostComment",
+			path:     "/repos/acme/acme-api/issues/7/comments",
+			want:     v3,
+			response: object,
+			call: func(f *fixture) error {
+				_, err := f.Client.PostComment(t.Context(), testRepo, 7, body(t, "report"))
+				return err
+			},
+		},
+		{
+			name:     "AuthenticatedUser",
+			path:     "/user",
+			want:     v3,
+			response: object,
+			call: func(f *fixture) error {
+				_, err := f.Client.AuthenticatedUser(t.Context())
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t, respondJSON(http.StatusOK, tc.response))
+			if err := tc.call(f); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			req := f.Only(t)
+			if req.Path != tc.path {
+				t.Fatalf("path = %q, want %q", req.Path, tc.path)
+			}
+			if got := req.Header.Get("Accept"); got != tc.want {
+				t.Errorf("Accept = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestEveryEndpointGoesThroughTheSDK is AC-D1.8's greppable half: no
 // hand-rolled net/http request survives in this package, and none of the
 // Link-header helpers the SDK replaced is still sitting there dead.
