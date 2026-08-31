@@ -60,4 +60,32 @@
 // expose a way to: the clone's method set is the S-6 allowlist and every
 // mutating operation belongs to a worktree. The guarantee is asserted end to
 // end, across a full turn, against a deliberately dirtied fixture (AC-3.10).
+// # Sub-issues are filed after the run's own push, never before
+//
+// A Plan run writes plan_brief.md and one file per user story; litefactory
+// files those stories as GitHub sub-issues and writes the links back into the
+// brief's Story Index. That phase runs between [save] and [finish], and it is
+// deliberately last: report.Story.DetailSHA pins each sub-issue's "technical
+// detail" link to a commit, and a permalink into a commit that is not yet on
+// the remote is a guaranteed 404. So the phase does nothing at all unless the
+// run's own commit and push both succeeded, and its write-back is a second
+// commit rather than a fold into the run's — a run's report must list what
+// claude did, not what litefactory did afterwards.
+//
+// Nothing the phase does can change the run's own outcome. It never writes
+// result.Changes, SHAAfter, CommitSHA, Committed, Pushed, Err, Outcome or
+// Reason; a forge outage during creation leaves a succeeded run succeeded.
+//
+// It never asks what mode the run was in, because it cannot: a free-text
+// comment spawns a run in mode infer and claude self-routes by reading
+// CLAUDE.md. Presence of the artifacts is the whole test, which is the same
+// rule the mode gates use — state is inferred from artifacts, not
+// self-reported.
+//
+// Known hazard, not currently handled: story ids are unique within a plan but
+// not across plans. Two Plan sessions on the same task branch on the same day
+// resolve to the same session directory, so a story id reused between them
+// would collide — the second run's marker matches the first run's sub-issue
+// and the story is skipped as already filed. One plan per branch per day is
+// the assumption; nothing enforces it.
 package turn

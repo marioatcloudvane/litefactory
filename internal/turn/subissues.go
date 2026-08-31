@@ -116,13 +116,24 @@ func fileStoryIssues(
 		// build on top of.
 		return result
 	}
-	if result.Changed && !result.Pushed {
-		// This run's own push failed, so HEAD is not confirmed on the remote
-		// (see [save]). Rendering a Detail link against it would be exactly
-		// the guaranteed-404 permalink report.Story.DetailSHA's doc comment
-		// warns against. The next turn to reach this task's worktree — a
-		// retry of this same push, or an unrelated later turn — carries the
-		// same commit forward, and this phase runs again then.
+	if result.Err != nil {
+		// [save] failed, and every way it can fail leaves this phase with
+		// nothing it may safely build on. The two are worth naming apart.
+		//
+		// A push failure leaves HEAD unconfirmed on the remote, so a Detail
+		// link pinned to it is exactly the guaranteed-404 permalink
+		// report.Story.DetailSHA's doc comment warns against.
+		//
+		// A commit failure is worse and does not set Changed, which is why
+		// testing Changed here was not enough: the per-story files are then
+		// not in git at all, and this phase would file real sub-issues from
+		// content no commit holds. Its own write-back commit stages with
+		// git add --all, so it would also sweep claude's still-uncommitted
+		// work into a commit no runs row names.
+		//
+		// Either way the work is not lost. The next turn to reach this
+		// task's worktree — a retry, or an unrelated later turn — carries it
+		// forward, and this phase runs again then.
 		return result
 	}
 

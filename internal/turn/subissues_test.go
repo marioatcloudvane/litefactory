@@ -728,3 +728,98 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestFileStoryIssuesSkipsWhenTheRunsOwnCommitFailed closes CR-B-002.
+//
+// The guard here used to be `result.Changed && !result.Pushed`, which reads as
+// "the push failed" and covers exactly that. It does not cover [save]'s *other*
+// failure: when Worktree.Commit itself errors, save returns with Err set but
+// Changed, Pushed and SHAAfter all still at their zero values, so that
+// condition was false and the phase ran anyway.
+//
+// That mattered for two reasons, and the second is the worse one. The
+// per-story files are not in git at all, so the phase would file real GitHub
+// sub-issues from content no commit holds. And its own write-back stages with
+// git add --all, so it would sweep claude's still-uncommitted work into a
+// second commit that no runs row names — while the run itself is reported as a
+// commit failure.
+//
+// The commit is broken from inside the run, after claude has written the
+// session files, by holding the index lock: git add cannot take it, so the
+// commit fails while everything before it has already succeeded. That is the
+// only ordering that isolates the commit the way
+// TestExecutePushFailurePreservesTheCommit isolates the push.
+func TestFileStoryIssuesSkipsWhenTheRunsOwnCommitFailed(t *testing.T) {
+	t.Parallel()
+
+	creator := newFakeSubIssueCreator()
+	renderer := newSpyRenderer(t)
+
+	dir := testSessionDir(t)
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeSessionFile(t, req, dir, "plan_brief.md", planBrief("C1"))
+		writeSessionFile(t, req, dir, "C1.md", storyFile("C1"))
+		lockIndex(t, req.WorktreePath)
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
+	f.opts.SubIssueCreator = creator
+	f.opts.SubIssueRenderer = renderer
+
+	result := f.execute(f.request())
+
+	switch {
+	case result.Err == nil:
+		t.Fatalf("the run's commit was sabotaged but Err is nil: %+v\nlogs:\n%s", result, f.logs)
+	case result.Committed:
+		t.Errorf("Committed = true after the index lock was held")
+	}
+	if creator.calls != 0 {
+		t.Errorf("CreateSubIssues was called %d times after the run's own commit failed; "+
+			"the phase must file nothing from content no commit holds", creator.calls)
+	}
+	if seen := renderer.storiesSeen(); len(seen) != 0 {
+		t.Errorf("RenderSubIssue was called for %d stories after the run's own commit failed", len(seen))
+	}
+	// No commitCount assertion here, deliberately: it counts commits on the
+	// origin, and a run whose commit failed never pushed, so the branch does
+	// not exist there at all. That absence is the same proof — there is no
+	// write-back commit because there is no branch to carry one.
+	if result.Pushed {
+		t.Error("Pushed = true after the commit failed")
+	}
+}
+
+// lockIndex takes git's index lock in worktree and never releases it, which
+// makes the next `git add` in that worktree fail. It resolves the real git
+// directory first: a linked worktree's .git is a file naming it, not the
+// directory itself, and the index lives beside the index the file points at.
+func lockIndex(t *testing.T, worktree string) {
+	t.Helper()
+
+	gitPath := filepath.Join(worktree, ".git")
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		t.Fatalf("stat %s: %v", gitPath, err)
+	}
+
+	gitDir := gitPath
+	if !info.IsDir() {
+		contents, err := os.ReadFile(gitPath) //nolint:gosec // a test-owned path
+		if err != nil {
+			t.Fatalf("read %s: %v", gitPath, err)
+		}
+		pointer, ok := strings.CutPrefix(strings.TrimSpace(string(contents)), "gitdir:")
+		if !ok {
+			t.Fatalf("%s is a file but does not name a gitdir: %q", gitPath, contents)
+		}
+		gitDir = strings.TrimSpace(pointer)
+	}
+
+	lock := filepath.Join(gitDir, "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatalf("take the index lock at %s: %v", lock, err)
+	}
+	t.Cleanup(func() { _ = os.Remove(lock) })
+}
