@@ -661,3 +661,199 @@ ADVISORY_ONLY — 4 suggestions noted (CR-A-006 through CR-A-009), none blocking
 acceptance criteria (AC-E1.1, AC-E1.2, AC-E1.4, AC-E1.5, AC-E1.10) pass; AC-E1.6, AC-E1.7, AC-E1.9
 reconfirmed as already verified and unchanged. No Go file modified; `CLAUDE.md`'s Implement gate
 untouched. Proceeding — no re-review cycle needed for this docs change.
+
+
+---
+
+# Code Review — User Story D1 (Adopt a GitHub SDK)
+# Commits: `f9e5d7d`, `09f5088`, `296dfc1` | Diff: `5b40c87..296dfc1` | Branch: `lf/7-headless-mode-should-ask-via-a-comment`
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: CLEAN
+
+---
+
+## Scope
+
+Files touched (confirmed by `git diff --name-only 5b40c87..HEAD`): `go.mod`, `go.sum`,
+`internal/github/{client,client_test,comments,doc,errors,github_test,issues,pagination,
+pagination_test,repo,sdk_test,surface_test,user}.go`, plus the new `internal/github/sdk_test.go`
+and the deletion of `internal/github/pagination_internal_test.go`. Nothing outside
+`internal/github` and the two `go.mod`/`go.sum` files changed — AC-D1.7's file-boundary half holds.
+
+This is the highest-stakes review in the plan per its own framing (D1 reverses a documented
+`# No SDK` policy, retires guard tests, and touches the package that keeps the bot credential out
+of logs), so every priority item the orchestrator flagged was verified directly against the diff
+and, where practical, against the SDK's own source in the module cache — not against the task
+report's claims alone.
+
+## Verification performed
+
+- `gofmt -l ./internal/github/` — clean.
+- `go vet ./internal/github/...` — clean.
+- `go test -race -cover ./internal/github/...` — green, `coverage: 93.1% of statements`.
+- `git diff --name-only 5b40c87..HEAD` — confirms the file-boundary claim independently.
+- `grep -rn "\.Reveal()" internal/github/*.go | grep -v _test.go` — exactly one hit.
+- `grep -n "^type.*interface" internal/github/*.go | grep -v _test.go` — no hits.
+- Read `github.com/google/go-github/v90@v90.0.0`'s own source (module cache) for `bareDo`,
+  `AcceptedError`, `Label`, and the rate-limit pre-flight check, to verify three of the four
+  behaviour deltas against the SDK's actual code rather than the commit message's description of it.
+- `golangci-lint` is not installed in this environment, so `make lint`'s "0 issues" claim could not
+  be independently re-run; nothing found by hand-reading the diff would trip `staticcheck`,
+  `errcheck`, `govet`, `ineffassign`, or `unused`.
+
+## Priority 1 — AC-D1.6, the credential guarantee
+
+**Confirmed.** `internal/github/client.go:155`:
+
+```go
+options = append(options, gogithub.WithAuthToken(opts.Token.Reveal()))
+```
+
+is the only line in any non-test file containing `.Reveal()` (grep-confirmed). `surface_test.go`'s
+`TestRevealIsCalledExactlyOnce` (`:169-202`) still walks every non-test `.go` file, still fails the
+build if `.Reveal()` appears more than once or on a line not containing `credentialSite =
+"gogithub.WithAuthToken("` (`:158`). The rework is exactly the shape the pre-flight notes predicted:
+the anchor moved from the literal `"Authorization"` to the SDK's credential option, the line-based
+assertion moved with it, and the guarantee ("fails the build if `.Reveal()` moves or gains a
+sibling") is unchanged in strength.
+
+The companion `TestTheCredentialPathIsTheSDKs` (`:212-226`) is the right complement: it actually
+calls `gogithub.NewClient(gogithub.WithAuthToken(...))` and asserts `credentialSite` still names
+`WithAuthToken`, so a future SDK rename that broke the anchor would be a compile/test failure rather
+than a guard that keeps passing against a string that no longer authenticates anything. This closes
+exactly the gap the plan's design hint warned about.
+
+## Priority 2 — AC-D1.5, no forge abstraction
+
+**Confirmed.** `TestNoForgeAbstraction` (`surface_test.go:110-149`) is untouched in mechanism: it
+still reads every non-test `.go` file in the package directory and fails on any declared interface
+or a `Capabilities` type, and still fails outright if `forge.go` exists. Independently grepped for
+`^type.*interface` across non-test files in `internal/github` — no hits. `client.go`'s doc comment
+(`:64-69`) states the design choice explicitly: `api *gogithub.Client` is a field, not an embedded
+type, which `TestClientMethodSetIsPinned`'s new `NumMethod()` equality check (`surface_test.go:99-102`)
+also polices — embedding would have promoted go-github's entire service surface onto
+`github.Client` and silently defeated the surface-pinning assertion above it.
+
+## Priority 3 — AC-D1.7, package boundary and error taxonomy
+
+**File boundary confirmed** by direct `git diff --name-only`, independent of the task report.
+
+**Error taxonomy confirmed intact**, field-for-field, in `errors.go`: `APIError` (Method, URL,
+StatusCode, Message, DocumentationURL, RequestID, Err), `UnauthorizedError`, `ForbiddenError`,
+`NotFoundError`, `ValidationError` + `ValidationDetail` (Resource, Field, Code, Message),
+`RateLimitError` (RetryAfter, Reset, Limit, Remaining, Resource, Secondary), and every sentinel —
+`ErrUninitialized`, `ErrInvalidArgument`, `ErrUnauthorized`, `ErrForbidden`, `ErrNotFound`,
+`ErrUnprocessable`, `ErrRateLimited`, `ErrUnexpectedStatus`, `ErrTooManyPages` — all present with
+identical semantics to what the plan's brief lists. `classify` (`errors.go:290-353`) derives
+classification from status code and headers itself rather than delegating to the SDK's own
+recognition, exactly as T-D1.5 required, and `TestNoSDKErrorTypeReachesACaller`
+(`sdk_test.go:30-133`) asserts the negative — none of `*gogithub.ErrorResponse`,
+`*gogithub.RateLimitError`, `*gogithub.AbuseRateLimitError`, `*gogithub.TwoFactorAuthError`,
+`*gogithub.AcceptedError` is reachable via `errors.As` on any error this package returns — across
+nine distinct status/header shapes including the 202 and two-factor cases.
+
+## Priority 4 — the four deliberate behaviour deltas
+
+**(1) Accept header change.** Verified as SDK-inherent rather than a choice this package made: the
+issue and reaction services in go-github take no request option to override their Accept header, so
+there is no supported way to pin it back to the pre-migration value. It is measured (not assumed)
+per-endpoint in `TestTheAcceptHeaderIsTheSDKs` (`sdk_test.go:229-339`) against a real httptest
+server, and the response bodies are unaffected — same JSON, same fields read. This is documentation
+of an unavoidable wire-visible change, not a regression, and treating an unexpected Accept header
+as a build-time pin (per the commit's own reasoning: better caught here than met as a 415 in
+production) is the correct response to it. Benign.
+
+**(2) 202 handling.** Verified against go-github's own source: `bareDo` in `github.go:1291-1300`
+reads the response body into `AcceptedError.Raw` and always returns a non-nil `*Response` alongside
+it (`newResponse(resp)` is built before `CheckResponse` runs), so `classify`'s fallback
+(`errors.go:304-310`, `httpResp := failure.response; if httpResp == nil && resp != nil { httpResp =
+resp.Response }`) reliably has a response to classify from. The result — `*APIError` with
+`ErrUnexpectedStatus`, `StatusCode` 202 — is a reasonable, typed outcome and is exercised by both
+`TestNoSDKErrorTypeReachesACaller`'s `"202"` case and the doc comment's own reasoning. No endpoint
+this package currently calls returns 202 in practice, so this is a latent-but-tested edge, not a
+current-traffic regression. Benign.
+
+**(3) Off-host/scheme-changed Link header.** This is not merely equivalent to the retired guard, it
+is measurably stronger, and the tests prove it rather than assert it. `TestNextPageLinkToAnotherHostCannotMoveTheWalk`
+(`pagination_test.go:163-207`) stands up a second real `httptest.Server` and asserts it receives
+zero requests when the primary server's Link header points at it — the credential is not merely
+refused from travelling there, it is structurally incapable of doing so, because go-github extracts
+only a page *number* from the Link header and re-applies it to the client's own configured base URL.
+`TestNextPageLinkOnADifferentSchemeCannotMoveTheWalk` (`:214-240`) covers the downgrade case the
+same way. Confirmed benign, and an improvement over the pre-migration explicit-check design.
+
+**(4) String-shaped 422 `errors` entries dropped.** `validationDetails` (`errors.go:447-467`)
+drops any entry with empty Resource/Field/Code, which is what the hand-rolled decoder did too per
+its own comment, and `TestValidationErrorSurvivesAnUnexpectedErrorsShape`
+(`client_test.go:482-499`) exercises exactly this shape and confirms the top-level `Message` is
+still carried — only the per-field breakdown is lost, and only for a shape GitHub sends
+occasionally and inconsistently. Consistent with the pre-migration behaviour. Benign.
+
+## Priority 5 — pagination.go and its tests
+
+**Confirmed gone.** `pagination.go` (80 lines) now contains only `pageFunc`/`fetchPages`; the old
+`nextLink`, `cutLinkValue`, `hasRel`, and the same-host check are absent, and its doc comment
+explicitly records the trade being made. `TestEveryEndpointGoesThroughTheSDK`
+(`sdk_test.go:349-403`) greps every non-test file for both hand-rolled `net/http` call sites
+(`http.NewRequest`, `.RoundTrip(`, etc.) and for the removed helper names — a second, independent
+verification of the same claim I re-ran by hand with `grep`.
+
+**No pagination-behaviour test was deleted rather than adapted.** The only deletion is
+`pagination_internal_test.go`, which held `TestNextLink`/`TestNextLinkTerminates` — internal unit
+tests of the Link-header parsing helpers that no longer exist, so nothing survives to test.
+`pagination_test.go` retains `TestPaginationIsBounded` (maxPages/`ErrTooManyPages`, still asserting
+a bounded, non-zero request count against a server that offers a next page forever) and
+`TestListIssuesFollowsLinkPagination` (ordering across three pages, with per-page query-string
+survival asserted). Behaviourally equivalent coverage, adapted to the new mechanism rather than
+weakened.
+
+## Priority 6 — doc.go's rewritten `# No SDK` section
+
+**Confirmed.** `doc.go:24-56` distinguishes the documented trigger (a third pagination special
+case, which the prose states plainly "did not fire" — "the Link-header reader handled every
+endpoint this package called, right up to the day it was deleted") from the actual trigger
+(sub-issues, an owner decision, on the record via the tripwire that raised the question). The
+six-versus-seven discrepancy is reconciled explicitly at `:53-56`, naming all seven endpoints and
+identifying `BaseURL` as the accessor that is not one of them. The version pin (`v90.0.0`,
+2026-08-04, checked against `proxy.golang.org` on 2026-08-31) and its reasoning are recorded per
+AC-D1.1, matching the pre-flight notes verbatim.
+
+## Priority 7 — T-D1.9's rework of the surface-count guard
+
+**Confirmed**, and reviewed via `git show 09f5088` directly rather than the task report's summary.
+The commit message quotes the retired test's own failure message ("An eighth is a reason to
+re-open the SDK question, not to add a method quietly") and states plainly that the tripwire
+worked. The renamed `TestClientMethodSetIsPinned` keeps the full pinned-list-and-fail-on-mismatch
+shape ("any change to the method set, in either direction, still fails the build") and adds one
+assertion the SDK migration made necessary — `typ.NumMethod() != len(want)` — which guards against
+exactly the embedding failure mode Priority 2 above discusses. The property the plan asked to be
+preserved ("the value was never the number seven, it was that growth is noticed") survives
+unweakened.
+
+## Cross-story summary
+
+D1 is a clean, self-contained migration: no caller outside `internal/github` needed to change
+(confirmed by the file-boundary diff), the credential and forge-abstraction guarantees that made
+this the plan's highest-stakes review both hold under direct inspection rather than by trusting the
+task report, and every one of the four flagged behaviour deltas was independently checked against
+the SDK's own source or a real transport and found benign or a net improvement. Test quality is
+unusually high throughout — real `httptest` servers rather than faked transports, a second real
+server to prove the credential structurally cannot travel off-host, and source-grepping guards
+(`TestEveryEndpointGoesThroughTheSDK`, `TestNoForgeAbstraction`, `TestRevealIsCalledExactlyOnce`)
+that fail on the shape of the code rather than only on its behaviour. No boundary in this diff
+looked risky enough to note beyond what is already covered above.
+
+## BLOCKING findings
+
+None.
+
+## ADVISORY findings
+
+None. The four behaviour deltas the engineer flagged are documented, tested against real or
+source-verified SDK behaviour, and judged benign above rather than raised as advisories — there is
+nothing here that warrants a follow-up.
+
+## Verdict
+
+CLEAN — No findings. Proceeding to environment setup.

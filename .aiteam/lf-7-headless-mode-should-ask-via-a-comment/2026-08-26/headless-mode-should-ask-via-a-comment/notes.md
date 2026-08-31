@@ -586,3 +586,87 @@ survives; only the anchor moves.
 
 `WithTransport` is the hook for T-D1.11's faked-transport tests, and `WithURLs`
 replaces whatever `BaseURL()` overriding the tests do today.
+
+---
+
+## D1 — implemented (2026-08-31)
+
+T-D1.4 through T-D1.11, on top of the pre-flight commit `5b40c87`. Three commits:
+`f9e5d7d` (the migration itself), `09f5088` (T-D1.9, the surface-guard rework),
+`296dfc1` (a follow-up fix pinning the Accept header per endpoint after the
+first pass left it at the SDK's default). Not pushed.
+
+**Files changed:** `go.mod`/`go.sum` (the pin); `internal/github/{client,errors,
+pagination,issues,comments,user,repo,doc}.go`; `internal/github/{surface_test,
+client_test,pagination_test,github_test}.go` reworked; `internal/github/sdk_test.go`
+new; `internal/github/pagination_internal_test.go` deleted (tested only the
+removed Link-header helpers). **Nothing outside `internal/github` changed** —
+verified by the implementation engineer and independently re-verified by the
+code reviewer via `git diff --name-only`.
+
+**AC-D1.6, the credential guarantee, holds.** Exactly one `.Reveal()` call site
+in the package (`client.go:155`), feeding `gogithub.WithAuthToken(...)`.
+`TestRevealIsCalledExactlyOnce`'s anchor moved from `Authorization` to that call
+and the test was not weakened. A companion test,
+`TestTheCredentialPathIsTheSDKs`, compiles against `WithAuthToken` directly so a
+future SDK rename can't leave the grep-based guard passing against a dead
+anchor.
+
+**AC-D1.5 holds** — no interface entered any non-test file; `TestNoForgeAbstraction`
+is unweakened.
+
+**AC-D1.7 holds** — the new `errors.go` preserves every exported type, field and
+sentinel of the old error taxonomy (`APIError`, `UnauthorizedError`,
+`ForbiddenError`, `NotFoundError`, `ValidationError`+`ValidationDetail`,
+`RateLimitError` with all six fields, and all nine sentinels). No caller outside
+the package changed.
+
+**Four deliberate, tested behaviour deltas**, all judged benign or a net
+improvement by the reviewer:
+1. Accept header: `application/vnd.github+json` → `application/vnd.github.v3+json`,
+   plus a `squirrel-girl-preview` override the SDK sends on five of seven
+   endpoints (its issue/reaction services). Pinned per endpoint by
+   `TestTheAcceptHeaderIsTheSDKs`.
+2. HTTP 202 was previously a success path; the SDK's `AcceptedError` is now
+   mapped to `*APIError`/`ErrUnexpectedStatus` rather than leaked. No endpoint
+   this package calls actually returns 202 in practice.
+3. An off-host/scheme-changed `Link` header used to fail with `ErrInvalidArgument`
+   explicitly; now the SDK simply can't reach it — only a page number survives
+   in `Response.NextPage`. Verified **stronger**: a real second `httptest.Server`
+   in the test receives zero requests.
+4. String-shaped entries in a 422 `errors` array are still dropped, deliberately
+   — `ValidationDetail.Code` is what the reporter branches on and the message
+   text is already on `APIError.Message`.
+
+**One judgment call kept:** `WithDisableRateLimitCheck()` stays enabled. Without
+it, go-github remembers a 403/429 locally and refuses the *next* call without
+asking GitHub — a form of backoff that belongs to the daemon, one layer up, not
+to this package (which retries and sleeps nowhere, by design). Pinned by
+`TestARateLimitDoesNotStopTheNextCall`.
+
+**T-D1.9** retired `TestClientMethodSetIsTheSevenEndpoints`; the replacement,
+`TestClientMethodSetIsPinned`, still fails on any silent surface change and adds
+a count check that would also catch method promotion via embedding (relevant
+because `Client` now wraps `*gogithub.Client` as an unexported field, never
+embedded — a `go vet`/reviewer-checked choice that keeps the SDK's own method
+set from leaking onto litefactory's `*Client`).
+
+**Verification, independently run twice** (once by the implementing engineer,
+once by the code reviewer): `gofmt -l .` clean, `go vet ./...` clean,
+`go test -race -cover ./...` green across every package
+(`internal/github` at 93.1% coverage), `make lint` (golangci-lint) 0 issues.
+
+**Code review: CLEAN.** Fifth block appended to `CODE_REVIEW.md` (now 859
+lines); the first four blocks are untouched — verified their header lines still
+start at 1, 164, 283, 423. No BLOCKING, no ADVISORY findings, so nothing to
+carry forward under "Code Review Advisories" here.
+
+One `internal/harness` test (`TestRunTimeoutKillsTheWholeSubtree`) flaked once
+mid-session on an unrelated fixture (`sleeper pgid ""`); `internal/harness` was
+not touched by this story and the test passed on every other run, including
+three targeted re-runs. Recorded so a future run does not chase it as a D1
+regression.
+
+**Remaining in the plan: C1 only.** D1 was the last blocker in C1's dependency
+chain (`T-D1.5`, `T-D1.6` gate `C1`'s error handling and credential path); C1
+can now proceed once a human opens Implement for it.

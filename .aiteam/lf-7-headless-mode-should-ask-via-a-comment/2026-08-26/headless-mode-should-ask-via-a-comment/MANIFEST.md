@@ -14,14 +14,18 @@
   out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
   unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
   `plan_brief.md` plus one sub-issue per story)*
-- [ ] **Implement** — code + tests *(**five of seven stories delivered across five runs; box stays
-  unticked because two remain**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
+- [ ] **Implement** — code + tests *(**six of seven stories delivered across six runs; box stays
+  unticked because one remains**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
   reviewed CLEAN, docs tasks closed 2026-08-30), **B1** (`ebf8d17`), **E1** (run 5, all 13 files,
-  zero Go — see below). Open: **D1**, **C1**.
+  zero Go — see below), **D1** (run 6, `f9e5d7d`/`09f5088`/`296dfc1`, XL — GitHub SDK migration,
+  reviewed CLEAN, `go test -race -cover ./...` green, 93.1% coverage on `internal/github` — see
+  below). Open: **C1**.
   **The first attempt's account of why nothing shipped was itself wrong** — there was never a
   diverged Go tree (a diffstat read backwards), and `.claude/` was never unwritable (an approval
   prompt collapsing to "denied" in a headless run). Both premises are struck; see `notes.md`.
-  `APP_CONTEXT.md` **exists and is current**. See `DRIFT_REPORT.md` and `notes.md`)*
+  `APP_CONTEXT.md` **exists and is current** — not yet regenerated for D1's SDK migration; that is
+  the next Implement run's job, or C1's, whichever comes first. See `DRIFT_REPORT.md` and
+  `notes.md`)*
 - [x] **Spike** — `SPIKE.md` *(done — 2026-08-27)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -347,6 +351,37 @@ asked for; nothing here licenses starting the next one.
   `plan_brief.md` to read. **Zero Go — `git diff --stat` shows no `.go` file** (AC-E1.10). Reviewed
   against AC-E1.1 through AC-E1.10; see `notes.md` for the full verification. Not pushed — the owner
   pushes after verifying.
+
+- 2026-08-31 — **Implement, Story D1 only — delivered.** The XL story, full GitHub SDK migration
+  (N7 = (a)). **Pre-flight (T-D1.0..T-D1.3) done first, interactively, with live network access**:
+  pinned `github.com/google/go-github/v90 v90.0.0` against `proxy.golang.org` (newest and only
+  version of the newest major), confirmed sub-issue support by reading v90.0.0's own source
+  (`SubIssueService`, five methods, the `sub_issue_id`-vs-issue-number trap named for C1), re-pinned
+  all five `internal/github` citations against `71cd53b`, and recorded the migration decision
+  (`5b40c87`). **Then the code (T-D1.4..T-D1.11)**, dispatched separately: all seven endpoints
+  (`ListCommentsAfter`, `ListCommentedIssues`, `PostComment`, `AddCommentReaction`, `ListIssues`,
+  `GetIssue`, `AuthenticatedUser`) migrated to the SDK; `pagination.go`'s Link-header helper removed
+  entirely (`nextPage`/`nextLink`/`cutLinkValue`/`hasRel`/the old `Client.do`/`Client.endpoint`); the
+  error taxonomy remapped at the package boundary so every exported type, field and sentinel is
+  unchanged and **no caller outside `internal/github` changed** (verified independently by both the
+  engineer and the reviewer via `git diff --name-only`). **The credential guarantee (AC-D1.6) was
+  re-established, not removed**: `TestRevealIsCalledExactlyOnce` survives with its anchor moved from
+  the old `Authorization` header line to the new single `.Reveal()` site feeding
+  `gogithub.WithAuthToken(...)`, plus a new companion test pinning that call directly. **The forge
+  abstraction did not sneak in** (AC-D1.5) — `Client` wraps `*gogithub.Client` as an unexported
+  field, never embedded, and `TestNoForgeAbstraction` is unweakened. `TestClientMethodSetIsTheSevenEndpoints`
+  was retired deliberately (T-D1.9) and replaced with `TestClientMethodSetIsPinned`, which still
+  fails on any silent surface growth. `doc.go`'s `# No SDK` section was rewritten to `# The SDK`,
+  correctly distinguishing the documented trigger (a third pagination special case) that never fired
+  from the actual trigger (sub-issues + an owner decision), and reconciling "six" against "seven".
+  Four small, deliberate, tested behaviour deltas were found and judged benign or a net improvement
+  by the reviewer (Accept header value, 202 handling, off-host Link-header handling now structurally
+  stronger, string-shaped 422 entries still dropped) — see `notes.md` for detail. `go-code-reviewer`
+  returned **CLEAN**, no BLOCKING or ADVISORY findings; fifth block appended to `CODE_REVIEW.md`.
+  `gofmt -l .`, `go vet ./...`, and `go test -race -cover ./...` all clean/green, independently run
+  twice. Commits `f9e5d7d`, `09f5088`, `296dfc1` on top of the pre-flight commit `5b40c87`. Not
+  pushed — the owner pushes after verifying. **C1 is now the only story left in the plan**, and D1
+  was the last item blocking it.
 
 ## Notes
 
