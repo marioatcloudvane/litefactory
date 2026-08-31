@@ -670,3 +670,129 @@ regression.
 **Remaining in the plan: C1 only.** D1 was the last blocker in C1's dependency
 chain (`T-D1.5`, `T-D1.6` gate `C1`'s error handling and credential path); C1
 can now proceed once a human opens Implement for it.
+
+---
+
+## C1 pre-flight — T-C1.1, and two conflicts the implementer must resolve deliberately
+
+2026-08-31, interactive session, before any C1 code. T-C1.1 is the task the plan
+says must be done against live documentation with no code before it, and
+AC-C1.1 states plainly that a `[W]`-sourced claim is not sufficient evidence for
+any assertion in this story. So it was done here.
+
+### T-C1.1 — the sub-issue contract, verified against live GitHub documentation
+
+Source: `https://docs.github.com/en/rest/issues/sub-issues?apiVersion=2022-11-28`,
+fetched 2026-08-31. This supersedes the `[W]` block in `RESEARCH_BRIEF.md`, which
+was written with web tools disabled.
+
+| Operation | Method | Path |
+|---|---|---|
+| Add sub-issue | `POST` | `/repos/{owner}/{repo}/issues/{issue_number}/sub_issues` |
+| Remove sub-issue | `DELETE` | `/repos/{owner}/{repo}/issues/{issue_number}/sub_issue` *(singular)* |
+| List sub-issues | `GET` | `/repos/{owner}/{repo}/issues/{issue_number}/sub_issues` |
+| Reprioritize | `PATCH` | `/repos/{owner}/{repo}/issues/{issue_number}/sub_issues/priority` |
+| Get parent | `GET` | `/repos/{owner}/{repo}/issues/{issue_number}/parent` |
+
+**C1 needs only `Add`** — and `List`, for the idempotency check in T-C1.6.
+
+Documented facts that matter:
+
+- **Add returns `201 Created`**; failure modes are `403`, `404`, `410`, `422`.
+- **The docs carry an explicit secondary-rate-limit warning on Add**: *"Creating
+  content too quickly using this endpoint may result in secondary rate limiting."*
+  **This is the documented basis for T-C1.7**, and it is about *secondary* limits,
+  which are not the primary hourly quota.
+- **No documented maximum** on sub-issues per parent, and **no documented nesting
+  depth limit**. Absence of a stated limit is not a guarantee of no limit; treat a
+  `422` as the real answer.
+- Docs reference API version `2026-03-10`. go-github v90 declares
+  `apiVersionMax: api20260310` (`github.go`), so the SDK is current with the
+  documentation. **No preview/beta header is required** — no GA-or-preview banner
+  appears on the page.
+
+### AC-C1.1a — `sub_issue_id` semantics, confirmed specifically
+
+**This is the acceptance criterion with its own ID because getting it wrong links
+the wrong issue silently, and both identifiers are integers.**
+
+Live documentation, verbatim, for `Add`'s body parameter:
+
+> `sub_issue_id` (integer, required) — *"The id of the sub-issue to add. The
+> sub-issue must belong to the same repository owner as the parent issue."*
+
+And for the path parameter:
+
+> `issue_number` (integer, required) — *"The number identifying the issue."*
+
+**So: the parent is addressed by its issue NUMBER, in the path. The child is
+addressed by its database ID, in the body.** Two different identifier kinds, in
+one call, both integers. Confirmed independently in the SDK's own source in the
+D1 pre-flight above — the docs and the SDK agree.
+
+**One small piece of luck worth using.** In go-github v90 the two are different Go
+types:
+
+```go
+type Issue struct {
+    ID     *int64 `json:"id,omitempty"`     // what sub_issue_id wants
+    Number *int   `json:"number,omitempty"` // what the path wants
+    ...
+}
+type SubIssueRequest struct {
+    SubIssueID int64 `json:"sub_issue_id"`
+    ...
+}
+```
+
+`SubIssueRequest.SubIssueID` is `int64` and `Issue.Number` is `*int`, so passing
+the number where the ID belongs **requires writing an explicit `int64(...)`
+conversion**. That is a speed bump, not a guarantee — `int` and `int64` convert
+freely and the parent's `issueNumber` parameter is itself `int64`. **A test that
+creates an issue whose ID and Number deliberately differ is the only real
+protection**, and it belongs in T-C1.12.
+
+The creation path is therefore: `Issues.Create` → take the returned `*Issue.ID` →
+pass it as `SubIssueRequest.SubIssueID` alongside the *parent's number*.
+
+### Conflict 1 — T-C1.7 versus D1's rate-limit decision. Do not resolve it silently.
+
+T-C1.7 says *"Use the SDK's retry support if it has one."* **The SDK has one**:
+`WithMaxSecondaryRateLimitRetryAfterDuration(d)` caps how long the client will
+honour a `Retry-After`, and the SDK tracks `secondaryRateLimitReset` internally.
+
+**But D1 deliberately turned that machinery off**, and the reasoning is committed
+in `internal/github/client.go`:
+
+> Client-side rate-limit bookkeeping is off. The SDK will otherwise remember a
+> 403/429 and refuse the *next* call without asking GitHub, which is a form of
+> backoff — and backoff below the daemon is exactly what this package does not do
+> (see the package documentation). The daemon owns the wait because only it knows
+> what else is queued.
+
+That decision was reviewed CLEAN. **C1 must not quietly delete
+`WithDisableRateLimitCheck()` to satisfy T-C1.7** — that reverses a reviewed
+decision from the story immediately before it, in a diff about sub-issues, which
+is exactly the kind of silent reversal the plan's tripwires exist to catch.
+
+**The resolution that honours both:** `internal/github` keeps its no-backoff
+posture and continues to *surface* rate-limit errors through the existing error
+taxonomy. **T-C1.7's "partial-failure handling" is then satisfied by resumability
+rather than by sleeping** — bulk creation reports what it created, and the
+idempotent re-run of T-C1.6 completes the rest. That is a stronger answer than
+backoff anyway: it survives the process being killed, which a sleep does not, and
+this run has now been killed by a timeout twice.
+
+If the implementer disagrees, that is a decision to state in `doc.go` and the
+commit message — not one to make by deleting a line.
+
+### Conflict 2 — two `MarkerPrefix` constants already exist
+
+`internal/turn/classify.go:28` and `internal/report/marker.go:21` **both** declare
+`const MarkerPrefix = "<!-- lf:"`. `internal/report/marker.go:58` builds the
+existing status marker as `<!-- lf:status task=%s run=%d -->`.
+
+T-C1.6's idempotency check needs a *story* marker in the same family. **Follow the
+existing convention and put the builder in `internal/report` beside the status
+one** — do not invent a third prefix constant, and do not add a fourth
+`MarkerPrefix` declaration.
