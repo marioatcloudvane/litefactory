@@ -187,7 +187,7 @@ deliberately rather than editing the test.
 | `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` |
 | `store/store_test.go` | FK enforcement, migrate idempotency, `AdvanceWatermark` never rewinds, `AllocateRun` refuses a replay, `CompleteRunReport` is one transaction |
 | `daemon/clock_test.go` | only `Daemon.Tick` (never a helper, never a function literal) reads the daemon's clock |
-| `turn/gate_test.go` | `prepareClone` and `commitAndPush` are the only two call sites of `CloneGate.Acquire`, one acquisition each; the claude run itself is never inside a critical section |
+| `turn/gate_test.go` | `prepareClone`, `commitAndPush` and `commitStoryIndex` are the only three call sites of `CloneGate.Acquire`, one acquisition each (a registered-set check, not three hardcoded names); the claude run itself is never inside a critical section |
 | `daemon/gate_internal_test.go`, `daemon/pool_internal_test.go`, `daemon/inflight_internal_test.go` | the gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs`, `enter`/`leave` are a true check-and-insert |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 
@@ -270,12 +270,19 @@ deliberately rather than editing the test.
   joined by `internal/daemon/clock_test.go` (parses the AST to confirm only
   `Daemon.Tick` reads the injected clock, and that no function literal reads it
   either) and the critical-section check in `internal/turn/gate_test.go`
-  (`TestCriticalSectionsAreSingleAcquisitions`: `prepareClone` and
-  `commitAndPush` each call `CloneGate.Acquire` exactly once, twice total in the
-  package). Parsing the package's own AST with `go/ast` to pin who is allowed to
-  call what is now an established shape for this kind of test in this codebase,
-  not a one-off. Adding an exported method, an interface, an import, or a new
-  call site can fail the build. That is the feature.
+  (`TestCriticalSectionsAreSingleAcquisitions`). This one is no longer two
+  hardcoded names — it is two registries, `sections` (function name → the file
+  it must be declared in: `prepareClone`, `commitAndPush`, `commitStoryIndex`)
+  and `gated` (call name → the set of sections it may appear in: `fetch`,
+  `freezeSlug`, `ensureWorktree` in `prepareClone`; `Commit`, `Push` in
+  `commitAndPush` **or** `commitStoryIndex`), plus a package-wide check that the
+  total `Acquire` call count equals the number of registered sections. That
+  combination is what still catches a new ungated git write section on its own
+  name, which is how `commitStoryIndex` itself arrived on a merge from main.
+  Parsing the package's own AST with `go/ast` to pin who is allowed to call what
+  is an established shape for this kind of test in this codebase, not a
+  one-off. Adding an exported method, an interface, an import, or a new call
+  site — or a new critical section — can fail the build. That is the feature.
 
 ---
 
@@ -305,20 +312,21 @@ deliberately rather than editing the test.
   four fixed goroutines — `harness/runner.go` (exactly two, one per pipe,
   neither able to outlive `Run`), `daemon/daemon.go` (one, the loop), and
   `cmd/litefactory/main.go` (one, the second-signal watcher) — plus **at most
-  `max_concurrent_runs` turn workers** (`internal/daemon/pool.go`). That setting
-  is validated to `MinConcurrentRuns..MaxConcurrentRuns` (1..16) and is **refused,
-  never clamped**, outside that range, so the hard ceiling on the whole process is
-  twenty goroutines. The one named termination condition for the worker pool is
-  `Daemon.Quiesce` (`internal/daemon/pool.go`) — not a `select` on shutdown, and
-  not a sleep. **As of this update `Tick` does not yet dispatch to the pool**
-  (nothing calls `pool.try`), so today the true number of live goroutines is
-  still four; the pool exists and is tested but is not yet load-bearing. See
-  `$session/IMPLEMENTATION_PLAN.md` (T-PAR-5, 6, 7, 8, 9, 13, 15, 22) for the
-  commit that wires it. **This paragraph disagrees with
-  `lf-setup/IMPLEMENTATION_PLAN.md:58`**, which still states the old four-goroutine
-  inventory as final; reconciling the two documents is tracked as T-PAR-44 and is
-  not done — trust this file over that line until it is. If you add a goroutine,
-  say in a comment what bounds its lifetime.
+  `max_concurrent_runs` turn workers**, dispatched from `Daemon.offer`
+  (`internal/daemon/tick.go`) via `pool.try` (`internal/daemon/pool.go`). That
+  setting is validated to `MinConcurrentRuns..MaxConcurrentRuns` (1..16) and is
+  **refused, never clamped**, outside that range, so the hard ceiling on the
+  whole process is twenty goroutines. **This is now load-bearing, not aspirational:**
+  `Tick` (`internal/daemon/tick.go`) dispatches turns onto real goroutines and
+  returns without waiting for them — see "Concurrent turns" below for the shape.
+  The one named termination condition for the worker pool is `Daemon.Quiesce`
+  (`internal/daemon/pool.go`) — not a `select` on shutdown, and not a sleep.
+  **This paragraph may still disagree with `lf-setup/IMPLEMENTATION_PLAN.md:58`**,
+  which stated the old four-goroutine inventory as final; reconciling the two
+  documents was tracked as T-PAR-44 and its status was not reverified for this
+  update — trust this file over that line unless you have checked T-PAR-44's
+  disposition yourself. If you add a goroutine, say in a comment what bounds its
+  lifetime.
 - **A bad outcome is a value, not an error.** Across `turn`, `harness` and
   `daemon`, an operation that *happened and went badly* returns a result whose
   field says how; the `error` return is reserved for "could not be conducted or
@@ -443,43 +451,116 @@ Things that are easy to get wrong:
 
 ---
 
-## In progress: concurrent turns
+## Concurrent turns
 
-**`Tick` is still synchronous.** This session (`lf/parallelization`, twelve
-commits, `1d2890c..HEAD`) landed the independently-green preparatory two-thirds
-of the parallelization plan and deliberately stopped before the commit that
-makes dispatch asynchronous. A future engineer reading the code must not
-conclude the daemon already runs turns in parallel — it does not yet. `pool.try`,
-`inflight.enter`/`leave` and `store.ListBacklogSessions` all exist, are unit
-tested, and **have no production call site**. The poll cursor is still held
-back per outstanding session rather than being a pure watermark. The remaining
-work — splitting `Tick` into discovery and per-session dispatch, wiring the
-pool and the in-flight set, switching the cursor to the backlog-driven scheme —
-is `internal/daemon/tick_test.go`'s red commit: `$session/IMPLEMENTATION_PLAN.md`
-tasks T-PAR-5, 6, 7, 8, 9, 13, 15, 22, and everything listed downstream of it in
-that plan's "Not done" section.
+**The daemon runs turns in parallel now.** `Daemon.Tick` (`internal/daemon/tick.go`)
+splits into a synchronous **discovery** phase and an asynchronous **dispatch**
+phase, both still on the Tick goroutine, followed by a worker goroutine per
+dispatched session. `Tick` returns without waiting for the turns it dispatched
+— a thirty-minute run on one issue no longer stops another being noticed thirty
+seconds later. Production call sites now exist for everything the previous
+version of this section warned had none: `Daemon.offer` calls
+`d.inflight.enter(...)` then `d.pool.try()` before spawning the worker, and
+`Daemon.discover`/`Daemon.backlog` call `store.ListBacklogSessions`. Read
+`internal/daemon/doc.go` before touching any of this — it is the specification,
+not this summary.
 
-What already exists and must not be reinvented when that commit lands:
+What changed structurally:
+
+- **The poll cursor is a pure monotonic watermark.** The old hold-back to the
+  oldest unfinished issue is gone — it used to re-list that issue every tick,
+  which rewound discovery for every other repository at the same time.
+  Re-discovery of outstanding work now comes from `sessions.needs_poll`, unioned
+  into discovery alongside the forge listings. A backlogged session's
+  `github.Issue` is fetched lazily, in `Daemon.materialise`, only once the
+  dispatcher has already taken a slot for it — which is what bounds the extra
+  cost at `max_concurrent_runs` issue reads per tick, however deep the backlog.
+- **`TickResult` was reshaped, not synchronised.** `Bootstrapped`, `Comments`,
+  `Runs` and `Replies` are gone — they described what the *work* did, and the
+  work now happens on goroutines that outlive the tick, so counting it would
+  need a mutex guarding a snapshot of an unfinished computation. `Dispatched`
+  (a rename of `Runs`) and `InFlight` are new and describe the *decision*,
+  which is entirely the Tick goroutine's own. `Deferred` now means "eligible
+  sessions that found no free slot **or** were held back by a mid-tick backoff
+  arming" — not "no session, this tick did nothing" (that is `Skipped`). No
+  `TickResult` field is written by more than one goroutine; that is deliberate
+  and is what makes it `-race`-checkable rather than mutex-guarded.
+- **The in-flight set, not the store's session lock, is what serialises one
+  session's turns within a process.** `d.inflight.enter` is a check-and-insert
+  on the Tick goroutine at dispatch (`Daemon.offer`); `d.inflight.leave` runs
+  after the report has posted — in the worker's deferred call, which fires
+  after `d.work` returns — which is wider than `turn.Execute` alone. The
+  watermark for a comment advances inside `CompleteRunReport`, so releasing at
+  `Execute`'s return (rather than after the report) would leave the session
+  momentarily unlocked and unconsumed, which is exactly the state discovery
+  reads as eligible. `sessions.lock_owner` in the store is unchanged and is now
+  **defence in depth**: within one process the in-flight set already prevents
+  two sibling workers from both reaching `AcquireSessionLock`, so
+  `DispositionLocked` is reachable only from a second daemon *process*.
+- **Dispatch is a two-level round-robin over a materialised eligible set.**
+  Repositories rotate against each other; sessions rotate within a repository.
+  Queues are sorted by repository id and the rotation resumes at the first id
+  greater than the last dispatched, wrapping — a genuine cyclic successor
+  (fixed by CR-A-003; the earlier version fell back to index 0 when the
+  last-dispatched repository had dropped out of the eligible set, over-serving
+  the lowest id). With S free slots and R repositories holding work: S ≥ R
+  gives every repository ⌊S/R⌋ or ⌈S/R⌉ slots in the same tick; S < R serves
+  every repository within ⌈R/S⌉ ticks. `internal/daemon/doc.go` states the
+  policy by name and the four things it explicitly does **not** promise
+  (not proportional, not preemptive, not a priority system, not fair over an
+  individual session's queued comments) — read there rather than re-deriving
+  it.
+- **The rate-limit backoff is checked at two points, never one:** the top of
+  `Tick`, and again in `Daemon.offer`, as the last statement before the `go`
+  — because a worker's 429 can arm the hold (via `Daemon.rateLimited`) while
+  the dispatch loop is still running, and a tick that only checked at the top
+  would keep starting runs into a forge that is refusing them. The instant
+  compared is `tickAt`, never `d.now()` — nothing below `Daemon.Tick` may read
+  the clock (AC-PAR-7.2; `TestClockIsReadOnlyFromTick` fails the build if it
+  does). The backoff owns no `CancelFunc` and touches no worker's context: it
+  gates the dispatch of *new* runs only, and turns already in flight run to
+  their end untouched (AC-PAR-4.3).
+
+What already exists and must not be reinvented:
 
 | File | Role |
 |---|---|
 | `internal/daemon/gate.go` | `cloneGate` — per-clone git serialisation, keyed on `store.Repo.Path`. A 1-buffered channel per clone, acquired with `select` on `ctx.Done()` — **never** a `sync.Mutex`, because `Lock` is uninterruptible and would blow `Daemon.Quiesce`'s shutdown grace budget. Consumed only through the `turn.CloneGate` interface declared on `turn.Options`; `internal/git` declares nothing and knows nothing about it |
-| `internal/daemon/pool.go` | `pool` — a buffered-channel semaphore plus a `sync.WaitGroup`, sized from `config.MaxConcurrentRuns`. `try()` is non-blocking and is meant to be called only from the dispatch loop on the Tick goroutine. Exports `Daemon.Quiesce(ctx)` — the **only** exported API this feature adds, and the intended seam for a future "what is in flight" view. Production shutdown goes through the unconditional `pool.wait()`, never through `quiesce`/`Quiesce` — see the doc comment on `pool.wait` for why a `select` on `ctx.Done()` there would abandon every worker |
-| `internal/daemon/inflight.go` | `inflight` — the in-memory per-session mutual-exclusion set for one daemon *process* ("not this session, not now"). Distinct from and wider than `sessions.lock_owner` in the store, which is durable, cross-process, and held only across `turn.Execute` |
-| `internal/store/migrations/0002_session_backlog.sql` | `sessions.needs_poll` (partial index on `= 1`), plus `store.SetSessionNeedsPoll` / `ClearSessionNeedsPoll` / `ListBacklogSessions`. Set for every dispatched session before its worker starts, cleared only by a fully drained, error-free turn — as a statement, never a `defer` (a `defer` would clear it on error paths too, which is the stale-*false* the design forbids) |
-| `config.MaxConcurrentRuns` | `max_concurrent_runs` in `config.yaml`, default `config.DefaultMaxConcurrentRuns` (3 — a conservative placeholder, not a measurement; the sizing probe was never run), range `config.MinMaxConcurrentRuns`..`config.MaxMaxConcurrentRuns` (1..16), refused outside it rather than clamped. Re-validated and re-floored in `daemon.Options.validate` and `pool.newPool` — clamped/refused at three layers total |
+| `internal/daemon/pool.go` | `pool` — a buffered-channel semaphore plus a `sync.WaitGroup`, sized from `config.MaxConcurrentRuns`. `try()` is non-blocking, called only from `Daemon.offer` on the Tick goroutine, and is now load-bearing: every dispatched turn runs on a worker goroutine this claims. Exports `Daemon.Quiesce(ctx)` — the **only** exported API this feature adds. Production shutdown goes through the unconditional `pool.wait()`, never through `quiesce`/`Quiesce` — see the doc comment on `pool.wait` for why a `select` on `ctx.Done()` there would abandon every worker |
+| `internal/daemon/inflight.go` | `inflight` — the in-memory per-session mutual-exclusion set for one daemon *process* ("not this session, not now"). Distinct from and wider than `sessions.lock_owner` in the store — see above |
+| `internal/store/migrations/0002_session_backlog.sql` | `sessions.needs_poll` (partial index on `= 1`), plus `store.SetSessionNeedsPoll` / `ClearSessionNeedsPoll` / `ListBacklogSessions`. Set for every session dispatch takes off the eligible set — dispatched **or** deferred for want of a slot (`Daemon.markBacklog`, called from both `Daemon.offer` and `Daemon.deferRest`) — cleared only by a fully drained, error-free turn, as a statement, never a `defer` (a `defer` would clear it on error paths too, which is the stale-*false* the design forbids) |
+| `config.MaxConcurrentRuns` | `max_concurrent_runs` in `config.yaml`, default `config.DefaultMaxConcurrentRuns` (3 — a conservative placeholder, not a measurement; sizing probe P5 was never run — recorded in `internal/config/config.go`'s struct doc comment and in the shipped template comment in `internal/config/template.go`, the two durable in-tree homes of that provenance), range `config.MinMaxConcurrentRuns`..`config.MaxMaxConcurrentRuns` (1..16), refused outside it rather than clamped. Re-validated and re-floored in `daemon.Options.validate` and `pool.newPool` — refused/floored at three layers total |
 | `internal/repos/collision.go` | `ValidateWorktreeRoots` / `ValidateNewWorktreeRoot` — refuses two registered repos from mapping one issue number to one worktree directory, since a worktree path carries the issue number but not the repository. Enforced at daemon startup and at `repo add`, before any row is written (AC-PAR-4.8) |
 
 Things that are easy to get wrong here:
 
-- **The two critical sections the clone gate protects are CS1 and CS2, and
-  nothing else.** CS1 is `fetch` → `freezeSlug` → `ensureWorktree`, taken as one
-  section by `prepareClone` in `internal/turn/prepare.go`. CS2 is `Commit` →
-  `Push`, taken by `commitAndPush` in `internal/turn/harvest.go`. The `claude`
-  run itself deliberately sits **outside** both — that gap is the entire source
-  of surviving parallelism (AC-PAR-3.2), and `internal/turn/gate_test.go`
-  (`TestClaudeRunsOutsideTheCloneGate`) checks it directly. Do not widen either
-  section to "be safe".
+- **The clone gate protects three critical sections, not two.** CS1 is
+  `fetch` → `freezeSlug` → `ensureWorktree`, taken as one acquisition by
+  `prepareClone` in `internal/turn/prepare.go`. CS2 is `Commit` → `Push`, taken
+  by `commitAndPush` in `internal/turn/harvest.go`. **CS3** is `Commit` → `Push`
+  for the plan's Story Index rewrite, taken by `commitStoryIndex` in
+  `internal/turn/subissues.go` — added on a merge from main that brought in
+  `internal/turn/subissues.go` with an ungated third git write section, caught
+  by `TestCriticalSectionsAreSingleAcquisitions`. CS3 cannot be folded into
+  CS2: the `CreateSubIssues` forge round-trip sits between the run's own push
+  (CS2) and the Story Index commit (CS3), and cannot be moved out from between
+  them in either direction — sub-issues may only be filed once CS2's commit is
+  on the remote for their detail links to resolve against, and the rewrite CS3
+  publishes is made of the issue numbers that forge call returns. One
+  acquisition spanning both would hold the clone across an unbounded network
+  call, closing for every sibling turn exactly the gap AC-PAR-3.2 exists to
+  keep open. The `os.WriteFile` of `plan_brief.md` and the `CreateSubIssues`
+  call both stay **outside** the gate, for the same reason. The `claude` run
+  itself deliberately sits outside all three sections — that gap is the entire
+  source of surviving parallelism (AC-PAR-3.2), and
+  `internal/turn/gate_test.go` (`TestClaudeRunsOutsideTheCloneGate`) checks it
+  directly. Do not widen any of the three "to be safe".
+- **`TestCriticalSectionsAreSingleAcquisitions` is a registry, not a hardcoded
+  pair.** It is `sections` (function name → the file it must be declared in)
+  and `gated` (call name → the set of sections it may appear in), plus a
+  package-wide check that total `Acquire` calls equal the number of registered
+  sections. A fourth, ungated git write section fails on its own name, the way
+  `commitStoryIndex` itself would have.
 - **A nil `CloneGate` is a startup error, not a degraded no-op**
   (`turn.Options.validate`). The measured failure rates it prevents — 75% on a
   contended `fetch`, 0.75% on `worktree add` — would look healthy for a long
@@ -491,22 +572,65 @@ Things that are easy to get wrong here:
   would return instantly and abandon every in-flight worker while still reading
   like a join. `Daemon.Quiesce` (which does take a context) is the caller-facing
   version; production shutdown never goes through it.
-- **`markBacklog`'s call site is provisional.** Today discovery and dispatch are
-  the same event, so marking every discovered task as needing a poll
-  (`internal/daemon/tick.go:386`) is correct. Once T-PAR-5/6/22 split discovery
-  from dispatch, the mark must also cover "eligible but the pool was full" — see
-  code-review advisory CR-A-001 in this session's `CODE_REVIEW.md`. This is
-  forward-looking guidance, not a defect in what is currently committed.
+- **`pool.try`'s contract:** every `true` return is owed exactly one
+  `pool.done()`. The normal discharge is the worker's first deferred call
+  (first, so it runs last, after every other defer the worker registers). The
+  only other permitted discharge is an immediate undo on the same goroutine
+  when it turns out no worker is started at all — `Daemon.offer` does both: it
+  takes a slot, then reads the issue and re-checks the backoff, and calls
+  `d.pool.done()` immediately on the path where the issue read fails, the
+  issue turns out closed, or the backoff armed mid-tick. Do not repeat the
+  older claim that a `true` return which never reaches a `go` silently leaks a
+  slot forever — that branch is now covered.
 - **A standing rate-limit backoff cannot self-clear with zero repos
   registered** (CR-A-002, `tick.go` `poll` / `backoff.go` `clear`) — assessed as
   benign (no repos means no traffic the backoff protects), documented rather
-  than fixed.
+  than fixed. Still open, still accepted.
 - **`internal/daemon/clock_test.go`** pins that only `Daemon.Tick` reads the
   injected clock — not a helper, not a function literal — because a `d.now()`
   read from inside a dispatched worker would make the number of clock readings
-  depend on dispatch order instead of being deterministic. This check was
-  landed ahead of the `Tick` split it guards, deliberately, so it is a
-  guardrail for that change rather than an audit after it.
+  depend on dispatch order instead of being deterministic. Everything below
+  `Tick`, including `Daemon.offer` and every worker, is handed `tickAt`
+  instead.
+- **Goroutine inventory is now four fixed plus at most `max_concurrent_runs`
+  turn workers** (hard ceiling 20) — see "Style" above. `Daemon.Quiesce` is the
+  single named termination condition for the pool.
+- **The daemon's mutable state is: the backoff, the in-flight set, the pool,
+  and the dispatch rotation cursors** (last-dispatched repository id, and
+  last-dispatched session id per repository). The cursors live on `*Daemon`
+  because they must survive between ticks, and deliberately have no mutex —
+  only `Daemon.dispatch`, on the Tick goroutine, ever touches them.
+
+### Tests in `internal/daemon` and `internal/turn` worth knowing about
+
+New files: `internal/daemon/dispatch_test.go`, `concurrency_test.go`,
+`crossrepo_test.go`, `fairness_test.go`, `refill_test.go`, `sequential_test.go`,
+and `internal/turn/concurrent_execute_test.go`.
+
+- `f.settle()` (`internal/daemon/fixture_test.go`) is **one tick plus
+  `Daemon.Quiesce`** — the primitive a test uses whenever it needs to observe
+  what a dispatched turn did, not just that `Tick` returned.
+- `f.plantCursor()` is the old "settle" — the first tick of a daemon's life,
+  expected to find nothing, that initialises the poll cursor to "now" (AC-2.9)
+  so a pre-existing issue is not listed. A future engineer reaching for
+  "the cursor-planting helper" by its old name will find the wrong function.
+- `f.turns.triggers()` is sorted — a set assertion across sessions, since
+  dispatch order across sessions is the scheduler's business.
+  `f.turns.triggersFor(sessionID)` preserves call order — within one session,
+  order *is* the invariant.
+- **House rule: no `time.Sleep`, no `Eventually`, no wall-clock polling** in
+  this package's concurrency tests. Rendezvous on channels, wait with
+  `Quiesce`, and bound every rendezvous with a timeout that fails with a
+  message naming what was waited for.
+- **Durable lesson (cost a flaky test): no observable in this package means
+  "a worker has released its slot".** The forge post, the watermark write and
+  the "turn complete" log line all happen strictly *before* the worker's
+  deferred `inflight.leave` and `pool.done()` (see `Daemon.offer`'s dispatch
+  goroutine: `defer d.pool.done()` then `defer d.inflight.leave(...)` then
+  `d.work(ctx, t)` — the pool release fires last because it is registered
+  first). A test that needs a freed slot must retry over real ticks, which is
+  also faithful to the design: dispatch has no queue, so a freed slot is taken
+  by whichever tick runs next, not by whoever posted first.
 
 ---
 
@@ -528,7 +652,7 @@ Things that are easy to get wrong here:
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
 | run `claude` | `internal/harness` | The only place |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
-| decide *when* work happens | `internal/daemon` | `Tick` is an ordinary synchronous method, callable straight from a test |
+| decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
