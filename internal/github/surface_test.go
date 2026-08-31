@@ -45,17 +45,23 @@ func TestPostCommentTakesARedactedBody(t *testing.T) {
 	}
 }
 
-// TestClientMethodSetIsTheSevenEndpoints pins the API surface. A small,
-// countable set is the reason this package is net/http rather than an SDK
-// dependency, and one arriving quietly is the moment that trade is worth
-// revisiting — so the count is asserted rather than assumed.
+// TestClientMethodSetIsPinned pins the API surface. It is the reworked form of
+// TestClientMethodSetIsTheSevenEndpoints, and the rework is the point.
 //
-// The seventh was added on 2026-08-25 as a decision, not a convenience: issues
-// and comments are indexed separately and lag separately, so a second,
-// independent path to a new comment is worth one request per repository per
-// tick. See [github.Client.ListCommentedIssues] for the measurement. Seven
-// still does not pay for an SDK.
-func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
+// That test said: "A countable endpoint set is what makes raw net/http the
+// right call here. An eighth is a reason to re-open the SDK question, not to
+// add a method quietly." The tripwire did its job. The question was re-opened
+// and answered (D1): sub-issues are a capability this package could not express
+// with hand-rolled request shapes nobody here can verify, and the owner chose
+// github.com/google/go-github. So the *reason* the old assertion gave is spent
+// — seven no longer has to pay for anything.
+//
+// The guard is kept because the reason was never the number. What it actually
+// buys is that the surface cannot grow silently: this is the list of things
+// litefactory can do to a forge, and it is what LF-18 will have to extract a
+// protocol from. Adding a method is still a decision someone has to write down,
+// which is now a one-line edit here rather than an argument about a dependency.
+func TestClientMethodSetIsPinned(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
@@ -80,9 +86,19 @@ func TestClientMethodSetIsTheSevenEndpoints(t *testing.T) {
 
 	if !slices.Equal(got, want) {
 		t.Fatalf("github.Client method set changed.\n got: %s\nwant: %s\n\n"+
-			"A countable endpoint set is what makes raw net/http the right call here. "+
-			"An eighth is a reason to re-open the SDK question, not to add a method quietly.",
+			"This list is what litefactory can do to a forge, and what LF-18 has to "+
+			"extract a protocol from. Growing it is fine; growing it silently is not — "+
+			"add the method to want, with the endpoint it calls.",
 			strings.Join(got, ", "), strings.Join(want, ", "))
+	}
+
+	// The SDK client is a field on github.Client and never an embedded type.
+	// Embedding it would promote go-github's whole method set — Repositories,
+	// Actions, Git, every service on it — onto this type, and the assertion
+	// above would then be pinning a surface that is not the one callers see.
+	if typ.NumMethod() != len(want) {
+		t.Errorf("github.Client has %d methods but %d are pinned; an embedded type is "+
+			"promoting methods onto it", typ.NumMethod(), len(want))
 	}
 }
 
