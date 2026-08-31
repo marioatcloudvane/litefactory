@@ -24,6 +24,19 @@ const MaxBackoff = time.Hour
 // Retry-After is advice about the current window, and a limit that is still
 // firing after that window has passed is one litefactory is contributing to.
 //
+// # It gates dispatch and cancels nothing (AC-PAR-4.3)
+//
+// Everything a backoff owns is in the four fields below: a count, two instants
+// and a duration. There is deliberately no context.CancelFunc here and no
+// handle on anything running, and none may be added — a rate limit met while
+// turns are in flight must not cancel their contexts or kill their claude
+// processes. What it does instead is refuse *new* dispatch, at the two points
+// [Daemon.Tick] and [Daemon.offer] check [backoff.hold] (AC-PAR-4.4). A run
+// that is already past the forge's refusal has work in a worktree that a
+// cancellation would throw away, and it will finish or fail on its own.
+//
+// TestBackoffTouchesNoContext holds that shape structurally.
+//
 // A backoff is safe for concurrent use.
 type backoff struct {
 	mu       sync.Mutex

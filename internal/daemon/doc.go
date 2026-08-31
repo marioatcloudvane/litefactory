@@ -46,6 +46,61 @@
 // and left only once its report has posted, so two turns for one session can
 // never overlap however many are in flight for other sessions.
 //
+// # The dispatch policy: two-level round-robin
+//
+// The policy is named here because a fairness rule nobody can find is a rule
+// nobody can rely on (AC-PAR-2.1). It is implemented by [Daemon.dispatch],
+// which describes the mechanism and points back at this section for what the
+// mechanism is for.
+//
+// Two levels rotate. Repositories rotate against each other: a tick starts from
+// the cyclic successor of the repository this daemon last dispatched from, and
+// takes one candidate from each in turn. Sessions rotate within a repository:
+// each repository is walked from just after the session id it last dispatched,
+// ascending by session id and wrapping.
+//
+// # What it guarantees
+//
+// With S free slots and R repositories holding eligible work:
+//
+//   - When S ≥ R, every one of those repositories gets ⌊S/R⌋ or ⌈S/R⌉ slots in
+//     the same tick. Nobody waits behind a busier neighbour.
+//   - When S < R, the repository cursor advances past the ones already served,
+//     so every repository is served within ⌈R/S⌉ ticks. That is the whole of
+//     starvation-freedom: a repository's wait is bounded by a number it can be
+//     told in advance, whatever the other repositories are doing.
+//
+// The order comes from the two cursors and from ascending repository id, and
+// not from [store.DB.ListRepos] — which sorts by owner, name and path, and
+// whose order [Daemon.dispatch] therefore discards. Renaming a repository, or
+// changing that ORDER BY, changes nothing about what eventually runs
+// (AC-PAR-2.3).
+//
+// # What it does not promise
+//
+// Four things, spelled out so that nobody reads more into the guarantee than is
+// there:
+//
+//  1. It is not proportional. A repository with a hundred eligible issues and a
+//     repository with one get the same share of the slots. That is a choice:
+//     starvation-freedom was preferred to throughput, because the failure it
+//     rules out — a busy repository that permanently drowns out a quiet one —
+//     is the one an operator cannot work around, and the cost is only that the
+//     busy repository drains more slowly.
+//  2. It is not preemptive. A thirty-minute run holds its slot for thirty
+//     minutes. Round-robin governs who gets a *free* slot and never who keeps a
+//     taken one, so with max_concurrent_runs at 3 and three long runs in
+//     flight, nothing else starts until one of them ends. That is correct
+//     behaviour and not starvation: the bound is on waiting for a *free* slot,
+//     and there is no free slot to wait for.
+//  3. It is not a priority system. There is no way to make a repository or an
+//     issue go first, and none is planned — a priority would be the one input
+//     that could reintroduce starvation.
+//  4. It is not fair over comments. The rotation is over sessions, so a session
+//     with five queued comments is served once per turn of the wheel and not
+//     five times. Its comments are then drained in order within that one turn,
+//     which is a different guarantee (AC-PAR-1.4) and not this one.
+//
 // # A task's comment queue stops at the first comment that was not consumed
 //
 // This is the one rule in this package that is not obvious and is expensive to
@@ -76,6 +131,14 @@
 // with the cursor and every watermark exactly as they were (AC-2.12). Any
 // other transport failure ends the tick without persisting the cursor, so the
 // next one redoes the work (AC-2.13). Neither is fatal.
+//
+// The hold is checked at two points and never at one: at the top of
+// [Daemon.Tick], and again immediately before each dispatch, because a worker
+// that met a 429 arms it while the dispatch loop is still running (AC-PAR-4.4).
+// It gates the *dispatch of new runs* and nothing else: the backoff holds an
+// instant, owns no CancelFunc and touches no worker's context, so the turns
+// already in flight run to their end and their claude processes are left alone
+// (AC-PAR-4.3).
 //
 // # Shutdown
 //

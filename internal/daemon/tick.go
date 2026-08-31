@@ -46,7 +46,14 @@ type TickResult struct {
 	Duration time.Duration
 
 	// Skipped reports that the tick did nothing because a rate-limit backoff
-	// is still in force, and RetryAt is when ticks resume (AC-2.12).
+	// was already in force when it began, and RetryAt is when ticks resume
+	// (AC-2.12).
+	//
+	// It says nothing about a hold that armed *while* the tick was running —
+	// a worker's 429 can do that, and [Daemon.offer] stops dispatching when it
+	// does (AC-PAR-4.4). Such a tick polled, discovered and may have started
+	// runs, so calling it skipped would be false; what it did not dispatch is
+	// counted under Deferred instead.
 	Skipped bool
 	RetryAt time.Time
 
@@ -69,9 +76,11 @@ type TickResult struct {
 	// earlier tick. It is a reading taken on the Tick goroutine, so it is a
 	// number for the log rather than a promise about the next instant.
 	InFlight int
-	// Deferred is how many eligible sessions found no free slot. They are not
-	// queued: each keeps its backlog flag and is reconsidered from scratch, in
-	// rotation order, by the next tick.
+	// Deferred is how many eligible sessions this tick took out of the eligible
+	// set and did not run — because the pool had no free slot, or because a
+	// rate-limit backoff armed under the dispatch loop. They are not queued:
+	// each keeps its backlog flag and is reconsidered from scratch, in rotation
+	// order, by the next tick.
 	Deferred int
 
 	// Cursor is the poll cursor as it stands after the tick. A failed tick
@@ -577,29 +586,20 @@ type task struct {
 // of the eligible sessions get one of the free slots, and starts a worker for
 // each of them.
 //
-// # Two-level round-robin (RD-1)
+// # The policy is stated in the package documentation
 //
-// Repositories are visited from the one after the repository the last dispatch
-// came from, one candidate each per pass; within a repository, sessions are
-// visited from just after the session id that repository last dispatched,
-// ascending and wrapping. Dispatch continues until the candidates run out or
-// the pool refuses a slot.
+// The two-level round-robin — what it guarantees and, just as importantly, the
+// four things it does not promise — is written once, in doc.go under "The
+// dispatch policy" (AC-PAR-2.1). It is the statement of the policy; this
+// comment is the mechanism that implements it, and deliberately does not repeat
+// it, because two copies of a fairness argument are two things to keep in step.
 //
-// With S free slots and R repositories holding eligible work, every repository
-// gets ⌊S/R⌋ or ⌈S/R⌉ slots in the same tick when S ≥ R. When S < R the repo
-// cursor advances past the ones already served, so every repository is served
-// within ⌈R/S⌉ ticks. Because the order comes from the cursors and not from
-// [store.DB.ListRepos], reordering that listing changes nothing about what
-// eventually runs (AC-PAR-2.3).
-//
-// What it does not promise, so that nobody reads more into it than is there:
-// it is not proportional (a repository with a hundred eligible issues and one
-// with a single issue get the same share); it is not preemptive (a thirty-minute
-// run holds its slot for thirty minutes — round-robin governs who gets a *free*
-// slot, never who keeps a taken one); it is not a priority system; and it is not
-// fair over comments, because the rotation is over sessions, so a session with
-// five queued comments is served once per turn of the wheel rather than five
-// times.
+// The mechanism is three parts: repositories are walked from the cyclic
+// successor of the one this daemon last dispatched from, one candidate each per
+// pass; within a repository, sessions are walked from just after the session id
+// that repository last dispatched, ascending and wrapping; and the walk stops
+// when the candidates run out, when the pool refuses a slot, or when a
+// rate-limit backoff arms under it (AC-PAR-4.4).
 //
 // # The cursors need no synchronisation
 //
@@ -612,6 +612,17 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 	if len(queues) == 0 {
 		return
 	}
+
+	// Ascending repository id, which is the order the repo rotation below turns
+	// in. It is imposed here rather than taken from [store.DB.ListRepos], whose
+	// own ORDER BY is owner/name/path and is nobody's idea of a rotation: with
+	// the sort, reordering that listing — or renaming a repository — provably
+	// changes nothing about what eventually runs (AC-PAR-2.3), and the resume
+	// below becomes a genuine cyclic successor rather than a scan of whatever
+	// order the rows arrived in.
+	slices.SortFunc(queues, func(a, b *repoQueue) int {
+		return cmp.Compare(a.repo.ID, b.repo.ID)
+	})
 
 	// Where the per-repo session cursor says each repository should start
 	// reading. A repository that has never dispatched, or whose last dispatched
@@ -629,13 +640,22 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 		}
 	}
 
-	// (lastRepoIndex + 1) mod len(queues), resolved by repository id rather than
-	// held as an index: the eligible set is rebuilt every tick and an index into
-	// last tick's slice would name a different repository in this one.
+	// The cyclic successor of the repository this daemon last dispatched from:
+	// the first id greater than it, wrapping to the lowest when there is none.
+	//
+	// Resolved by id rather than held as an index, because the eligible set is
+	// rebuilt every tick and an index into last tick's slice would name a
+	// different repository in this one. And resolved as a *successor* rather
+	// than as "the one after the match" (CR-A-003): the repository last
+	// dispatched from need not be in this tick's eligible set at all — it may
+	// have gone quiet, or been deregistered — and matching on it would then find
+	// nothing and fall back to index 0, re-serving the lowest id more often than
+	// the rotation intends. Asking for the successor needs no match, so churn
+	// costs the rotation nothing.
 	start := 0
 	for i, q := range queues {
-		if q.repo.ID == d.lastRepoID {
-			start = (i + 1) % len(queues)
+		if q.repo.ID > d.lastRepoID {
+			start = i
 			break
 		}
 	}
@@ -654,10 +674,20 @@ func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.
 			case offerDispatched:
 				d.lastRepoID = q.repo.ID
 				d.repoSessionCursor[q.repo.ID] = c.session.ID
-			case offerFull:
+			case offerFull, offerHeld:
 				// No queue, by design: everything still standing keeps its
 				// backlog flag and is reconsidered from scratch next tick,
 				// against fresh fairness and backoff state.
+				//
+				// The two endings share this one line because they owe the
+				// candidates still standing exactly the same thing, and
+				// [Daemon.deferRest] is the only path that pays it. A tick
+				// stopped by the backoff is deliberately *not* reported as a
+				// skipped tick: TickResult.Skipped means a tick that did
+				// nothing at all, and this one polled, discovered and may
+				// already have started runs. What it left behind is counted
+				// under Deferred, which is precisely what happened to those
+				// sessions — eligible, not run, still carrying needs_poll.
 				d.deferRest(ctx, queues, result)
 				return
 			case offerSkipped:
@@ -677,6 +707,11 @@ const (
 	offerSkipped
 	// offerFull: the pool refused a slot, which ends the dispatch pass.
 	offerFull
+	// offerHeld: a rate-limit backoff armed while this tick was still
+	// dispatching, so no further run may start (AC-PAR-4.4). It ends the
+	// dispatch pass exactly as offerFull does; it is a separate value because
+	// the reason is different and the log line has to say which it was.
+	offerHeld
 )
 
 // offer tries to turn one candidate into a running turn.
@@ -698,6 +733,10 @@ const (
 // slot check would add one for the candidate that found the pool full, and
 // reading it before the in-flight check would add one per tick per session
 // already running — which is the cost the in-flight set exists to avoid.
+//
+// A third guard sits below both of them and below the issue read, immediately
+// above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
+// first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
 	if !d.inflight.enter(c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
@@ -739,6 +778,57 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 				slog.Any("error", err))
 		}
 		return offerSkipped
+	}
+
+	// AC-PAR-4.4, the second of the backoff's two checks — the first being at
+	// the top of [Daemon.Tick]. It is here because a hold can arm *during* a
+	// tick: a worker that met a 429 arms it through [Daemon.rateLimited] while
+	// this dispatch loop is still running, and a tick that had only checked at
+	// the top would carry on starting runs into a forge that is refusing them.
+	//
+	// # It is the last statement before the `go`, not the first in this function
+	//
+	// The materialise above may read an issue from the forge, which is the
+	// widest window in the whole dispatch path for a hold to arm inside. A check
+	// placed at the top of this function would leave exactly that window open,
+	// and the invariant would then be "no `go` unless the backoff was clear a
+	// network round trip ago". Here it is the statement above the dispatch
+	// point, so the invariant is the plain one: no `go` while a hold stands.
+	//
+	// It costs at most one GetIssue per tick, because the first held check ends
+	// the dispatch pass outright.
+	//
+	// # The instant is the tick's own, and that is sufficient
+	//
+	// tickAt, never d.now() — nothing below [Daemon.Tick] may read the clock
+	// (AC-PAR-7.2, and TestClockIsReadOnlyFromTick fails the build if it does).
+	// That is not a compromise here, because every arming this check exists to
+	// catch is made with the *same* instant: a worker arms with [task.tickAt],
+	// and the materialise branch above arms with this very tickAt. The hold that
+	// results stands until tickAt+delay with delay at least a second, so
+	// hold(tickAt) sees it. A hold left over from an earlier tick was armed at an
+	// earlier instant still, so tickAt only ever understates how much of it has
+	// elapsed — this check errs towards refusing to dispatch, which is the safe
+	// direction for a forge that is refusing calls.
+	//
+	// # Nothing here touches a worker (AC-PAR-4.3)
+	//
+	// The backoff holds an instant and nothing else: no CancelFunc, no context,
+	// no handle on anything already running. The turns in flight keep running and
+	// their claude processes are left alone. This gates the dispatch of new runs,
+	// and that is the whole of what a rate limit costs.
+	if retryAt, held := d.backoff.hold(tickAt); held {
+		// The same undo as the materialise branch above, for the same reason:
+		// [pool.try] said yes and no worker will run, so the slot goes back
+		// here, on this goroutine, before anything else can be refused one.
+		d.pool.done()
+		d.inflight.leave(c.session.ID)
+		result.Deferred++
+		c.log.InfoContext(ctx, "a rate limit armed the backoff while this tick was still "+
+			"dispatching; no further run starts. This task keeps its backlog flag and the next "+
+			"tick reconsiders it; the turns already in flight are untouched",
+			slog.Time("retry_at", retryAt.UTC()))
+		return offerHeld
 	}
 
 	// The dispatch point. ctx is passed in as an argument rather than captured,

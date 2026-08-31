@@ -71,11 +71,25 @@ func newPool(size int) *pool {
 // was about to dispatch is deferred to the next tick rather than queued, for
 // the reason in the type comment.
 //
-// A true return has already registered the worker with the join, so it must be
-// followed immediately by the `go` that runs it, whose *first* deferred call is
-// [pool.done] — first, so that it runs last, after every other defer the worker
-// registers. A true return that never reaches a `go` leaks a slot for the life
-// of the process.
+// A true return has already registered the worker with the join, and is owed
+// exactly one [pool.done]. There are two permitted ways to discharge that debt
+// and no third:
+//
+//  1. The worker's own first deferred call — first, so that it runs last, after
+//     every other defer the worker registers, or a returning [pool.wait] would
+//     not mean what it says. This is the normal discharge, and the reason a true
+//     return should be followed immediately by the `go` that runs it.
+//  2. An immediate undo on this same goroutine, when it turns out no worker is
+//     started at all. [Daemon.offer] is the caller that does both: it takes a
+//     slot, then reads the issue and re-checks the rate-limit backoff, and
+//     either of those may end with nothing to run — a closed issue, a forge that
+//     would not answer, a hold armed under the dispatch loop. It calls done()
+//     straight away in those branches, which is exact rather than merely
+//     tolerable: the Add and the Done are both on the Tick goroutine, and
+//     [pool.wait] runs only after the last Tick has returned.
+//
+// Anything else — a true return that reaches neither of those — leaks a slot for
+// the life of the process.
 //
 // try is called only from the dispatch loop, on the Tick goroutine, and so is
 // never concurrent with [pool.wait] or with itself. That is what satisfies
