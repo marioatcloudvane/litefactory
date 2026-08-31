@@ -373,3 +373,93 @@ either would have widened this run's scope past the four tasks it was given:
   was wrong and was caught by checking the tree rather than the plan: `link.go` exists and is tested.
   Recorded because it is run 1's mistake in miniature — **do not infer repository state from a
   document when the file tools can tell you.**
+
+# Implement run 5 — 2026-08-31 — Story E1 only
+
+## T-E1.0 — re-confirmed inventory, disk grep is a lower bound no longer
+
+The plan's rev-6 table cited `71d3bea`; this worktree was at `5850daa`, two commits ahead (run 0010
+partly converted `CLAUDE.md` and `initialplan.md`, committed at `1f0777c`). Re-ran the grep at
+`5850daa`. **13 live files outside `.aiteam/`, same set as the plan's table, two counts changed**
+because the partial work is now committed rather than uncommitted-on-disk:
+
+| File | Occurrences at `5850daa` | Plan's table (`71d3bea`) |
+|---|---|---|
+| `.claude/agents/implement-orchestrator.md` | 8 | 8 |
+| `.claude/agents/go-architect.md` | 6 | 6 |
+| `.claude/agents/go-implementation-engineer.md` | 5 | 5 |
+| `.claude/agents/go-code-reviewer.md` | 5 | 5 |
+| `.claude/agents/plan-orchestrator.md` | 4 | 4 |
+| `.claude/agents/go-unit-test-engineer.md` | 3 | 3 |
+| `.claude/agents/proxy-product-owner.md` | 2 | 2 |
+| `.claude/agents/go-integration-test-engineer.md` | 2 | 2 |
+| `initialplan.md` | **2** | 5 |
+| `CLAUDE.md` | **2** | 3 |
+| `.claude/skills/shared/task-decomposer.md` | 1 | 1 |
+| `.claude/agents/app-context-updater.md` | 1 | 1 |
+| `.claude/AGENT_ROSTER.md` | 1 | 1 |
+
+## The rev-6 "SPLIT: MOSTLY OWNER-EXECUTED" banner was stale and was overridden
+
+It claimed `.claude/agents/**` and `.claude/skills/**` are not writable by a run, citing run 0010's
+refused `Edit` calls. That measured boundary was specific to *headless* runs with no human present —
+the `.claude/**` guard is a built-in approval prompt, and a headless run collapses "needs approval"
+into "denied." This was an interactive session with the approval present, and all 11 `.claude/`
+files edited cleanly on the first attempt. Same conclusion B1, B2 and A1 already reached in this
+session — see run 4's note above, "the `.claude/` permission blocker is confirmed dead."
+
+## What was done
+
+All 13 files. `CLAUDE.md` and `initialplan.md` were already complete from run 0010 (verified, not
+redone): the Artifacts section, the `MANIFEST.md` scaffold template, and `initialplan.md`'s five
+`plan_brief`-naming edits including the `:243` principle amendment. The remaining 11 `.claude/`
+files were rewritten this run:
+
+- **`plan-orchestrator.md`** — the largest rewrite. Replaced the `IMPLEMENTATION_PLAN.md` format
+  block with the `plan_brief.md` contract table + format block, plus a new per-story sub-issue
+  contract + format block. Rewrote the Synthesise step and Exit steps to produce both artifacts.
+  Stated explicitly that `.aiteam/` archives are never rewritten (T-E1.10). Stated the
+  anti-duplication rule once, in the Synthesise step.
+- **`implement-orchestrator.md`** — all 8 occurrences moved to `plan_brief.md` + per-story
+  sub-issue content fetched once and passed inline to every downstream agent (AC-E1.4). Added an
+  explicit **transitional fallback**: if `plan_brief.md` is absent but `IMPLEMENTATION_PLAN.md` is
+  present (true of every session in this repo until Story C1 ships), treat that file as the whole
+  plan. This was a judgment call, reasoned through below.
+- **`go-architect.md`** (6), **`go-implementation-engineer.md`** (5), **`go-code-reviewer.md`** (5),
+  **`go-unit-test-engineer.md`** (3), **`go-integration-test-engineer.md`** (2),
+  **`proxy-product-owner.md`** (2), **`app-context-updater.md`** (1), **`.claude/AGENT_ROSTER.md`**
+  (1), **`.claude/skills/shared/task-decomposer.md`** (1) — same pattern: primary artifact renamed
+  to `plan_brief.md` + sub-issue content passed in the invocation, transitional fallback to
+  `IMPLEMENTATION_PLAN.md` noted where the file still reads it directly.
+
+## A judgment call worth flagging: why the transitional fallback exists
+
+T-E1.4 and AC-E1.4 are explicit that `implement-orchestrator.md` (and the downstream agents it
+invokes) should read `plan_brief.md` and fetch sub-issue content, full stop. Taken completely
+literally, that would mean `implement-orchestrator.md`'s own `## Inputs` gate requires
+`plan_brief.md` — but `CLAUDE.md`'s top-level gate (unchanged by AC-E1.9) still requires
+`IMPLEMENTATION_PLAN.md`, and **every session in this repo, including this one's own `plan_brief.md`-
+less `IMPLEMENTATION_PLAN.md`, would still need to run Implement mode for D1 and C1** before C1's
+`T-C1.13` ever flips the gate. A literal switch would make `implement-orchestrator.md` unusable for
+the rest of this very plan.
+
+Resolution taken: every rewritten section names `plan_brief.md` as primary and adds one sentence
+naming `IMPLEMENTATION_PLAN.md` as the fallback for a session that doesn't have `plan_brief.md` yet
+— mirroring the same transitional language `CLAUDE.md` itself already uses ("Expect both names to
+appear in the docs until then"). This satisfies T-E1.4's instruction to rewrite the 8 (well, 9 by
+final count) occurrences around `plan_brief.md`, without breaking Implement mode for this plan's own
+remaining stories in the gap between E1 and C1. Flagging this as a judgment call, not a silent
+reinterpretation of the task — if the plan's authors intended `implement-orchestrator.md` to hard-
+require `plan_brief.md` with no fallback, that is a one-sentence removal per file, not a redesign.
+
+## Verified before commit
+
+- `git diff --stat` — no `.go` file appears; no path under `.aiteam/` appears (the two file changes
+  in this session's own `notes.md` and `MANIFEST.md` are bookkeeping, not the diff being measured
+  for AC-E1.7/AC-E1.10 — they're this run's own artifacts, not a rewrite of an archived session).
+- AC-E1.2 grep across the repo, excluding `.aiteam/` and `.git/`: only `CLAUDE.md` (the two settled,
+  unchanged mentions — the gate line and its own transition note), `initialplan.md` (three settled
+  transitional/historical mentions), the four Go test-file comments (settled exemption — historical
+  references, not current-artifact claims), and the `.claude/agents/*.md` transitional-fallback
+  sentences added this run. No file claims `IMPLEMENTATION_PLAN.md` as *the* current artifact except
+  `CLAUDE.md`'s own gate line, which AC-E1.9 requires to stay exactly as it is.

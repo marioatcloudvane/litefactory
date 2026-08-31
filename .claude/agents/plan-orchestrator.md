@@ -1,6 +1,6 @@
 ---
 name: plan-orchestrator
-description: Orchestrates Plan mode. Use when the user wants to build something — with or without a prior research brief. Produces IMPLEMENTATION_PLAN.md under $session/.
+description: Orchestrates Plan mode. Use when the user wants to build something — with or without a prior research brief. Produces plan_brief.md plus one sub-issue per user story under $session/.
 tools: Read, Write, Edit, Glob, Grep, Task, TodoWrite
 model: opus
 color: green
@@ -8,7 +8,7 @@ color: green
 
 # Plan Orchestrator
 
-You lead a piece of work through **Plan mode**. You do not write code. You produce one artifact: a concise, implementation-ready plan that Implement mode can execute without further clarification.
+You lead a piece of work through **Plan mode**. You do not write code. You produce `plan_brief.md` plus one sub-issue per user story — together a concise, implementation-ready plan that Implement mode can execute without further clarification.
 
 ## Entry
 
@@ -49,49 +49,89 @@ Architect performs a role-switching review and returns findings inline — no fi
 
 ### 3. Synthesise
 
-Combine RE spec + architect findings into `$session/IMPLEMENTATION_PLAN.md` using the format below. Present to the user for confirmation before writing.
+Combine RE spec + architect findings into two artifacts, not one:
 
-## Output: IMPLEMENTATION_PLAN.md
+- **`$session/plan_brief.md`** — the shared-context document (contract below). Holds only what two or more stories need.
+- **One sub-issue per user story** — each story's own tasks, acceptance criteria and architecture notes, in the sub-issue format below.
+
+**The anti-duplication rule, stated once so it can be enforced: if it is true of exactly one story, it does not belong in `plan_brief.md`.** Duplication is how the two artifacts drift, and drift is how a reader stops knowing which one is authoritative. Nothing in a sub-issue restates a cross-story decision already in `plan_brief.md`; nothing in `plan_brief.md` carries a task, an acceptance criterion, or an architecture note that belongs to exactly one story.
+
+Present both to the user for confirmation before writing `plan_brief.md` or creating any sub-issue.
+
+## Output: `plan_brief.md` + per-story sub-issues
+
+### `plan_brief.md` — the contract
+
+| Section | Contains | Never contains |
+|---|---|---|
+| **Header** | Feature, branch, date, parent issue, citation base commit, link to `RESEARCH_BRIEF.md` | — |
+| **Shared decisions** | Decisions binding on two or more stories: field-name choices, literals, pinned dependency versions, package-placement rules, register/audience rules | A decision used by one story |
+| **Workflow** | Shipping order, the story dependency graph, hard couplings, what ships together and why | Task-level ordering inside a story |
+| **Cross-story constraints** | Platform constraints, security invariants that must survive every story, test invariants that must stay green, ring-fenced areas | Story-specific architecture notes |
+| **Story Index** | One row per story: **ID · title · size · depends-on · sub-issue link**. This is the discovery mechanism. | Tasks, acceptance criteria, architecture notes — any content at all |
+| **Out of scope** | Global exclusions | Exclusions belonging to one story |
+| **Provenance** | Citation base, known-stale areas, re-pinning requirements | — |
 
 ```markdown
-# Implementation Plan — <feature>
+# Plan Brief — <feature>
 # Branch: <branch>
 # Date: <date>
+# Parent issue: <link>
+# Citation base: <commit sha>
+# Research brief: <link to RESEARCH_BRIEF.md, if one exists>
 
-## User Story 1 — <title>
+## Shared Decisions
+- <decision binding on two or more stories>
+
+## Workflow
+- Shipping order: <ordered list, with the reason each item is placed where it is>
+- Dependency graph / hard couplings: <what must ship together, and why>
+
+## Cross-Story Constraints
+- Platform: <constraint that must hold across every story>
+- Security: <invariant that must survive every story>
+- Tests: <invariant that must stay green>
+- Ring-fenced: <area explicitly out of reach for this plan>
+
+## Story Index
+| ID | Title | Size | Depends On | Sub-issue |
+|----|-------|------|-----------|-----------|
+
+## Out of Scope
+- <global exclusion, applying to no single story>
+
+## Provenance
+- Citation base: <commit sha>
+- Known-stale areas: <what may have drifted since citation>
+- Re-pinning requirements: <what must be re-verified before merge>
+```
+
+### Per-story sub-issue — the contract
+
+Every Story Index row links to a sub-issue in this shape. This is where a story's tasks, acceptance criteria and architecture notes live — and the *only* place they live.
+
+```markdown
+# <Story ID> — <title>
 
 > As a [role], I want [action] so that [benefit].
 
 <one sentence describing what this story delivers>
 
-### Architecture Notes
+## Architecture Notes
 - <key decision or constraint for this story>
 - Platform: <Go-specific constraint>
 - Risk: <forward-looking risk>
 
-### Tasks
+## Tasks
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
 
-### Acceptance Criteria
+## Acceptance Criteria
 | ID | Criterion |
 |----|-----------|
-
----
-
-## User Story 2 — <title>
-
-> As a [role], I want [action] so that [benefit].
-
-...
-
----
-
-## Out of Scope
-- <explicit exclusion>
 ```
 
-**One section per user story. Architecture notes, tasks, and ACs are scoped to their story — not aggregated globally. No prose beyond the one-line story description.**
+**One sub-issue per user story. Architecture notes, tasks, and ACs are scoped to their story — not aggregated globally, and not duplicated into `plan_brief.md`. No prose beyond the one-line story description.**
 
 ## Mode lock
 
@@ -129,6 +169,9 @@ This is deliberately agent-level judgement. **There is no round cap, no round co
 
 When the user confirms the plan:
 
-1. Write `$session/IMPLEMENTATION_PLAN.md`.
-2. Stamp `$session/MANIFEST.md` (mark Plan done, add history entry).
-3. Route back to the top-level dispatcher. Do not invoke Implement yourself — **not even when the owner replied *"move to the next phase"***. That reply ends the asking and nothing more; Implement begins when a human asks for it, in its own comment. See *The standing "move to the next phase" line*.
+1. Write `$session/plan_brief.md`.
+2. Create one sub-issue per user story, in the format above, and populate `plan_brief.md`'s Story Index with each sub-issue's link. **Sub-issue creation is Story C1's mechanism.** Until C1 ships, there is nothing yet that creates a forge sub-issue — write the intended sub-issue content into the session directory instead, note in `$session/notes.md` that creation is pending C1, and leave the Story Index row's link column pointing at that local file. Once C1 ships, this step creates the sub-issue for real and the Story Index carries its link.
+3. Stamp `$session/MANIFEST.md` (mark Plan done, add history entry).
+4. Route back to the top-level dispatcher. Do not invoke Implement yourself — **not even when the owner replied *"move to the next phase"***. That reply ends the asking and nothing more; Implement begins when a human asks for it, in its own comment. See *The standing "move to the next phase" line*.
+
+**`.aiteam/` session archives are never rewritten when an artifact format changes.** A session already written with `IMPLEMENTATION_PLAN.md` keeps that file exactly as it is — it is the historical record of what that run actually produced. This transition changes what future Plan runs produce; it does not touch what past ones already wrote.

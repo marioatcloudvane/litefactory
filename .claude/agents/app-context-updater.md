@@ -116,7 +116,7 @@ grep -rn '"github.com/aws/aws-sdk-go\|"github.com/stripe/stripe-go\|"github.com/
 Read `.aiteam/APP_CONTEXT.md` and any `APP_CONTEXT_<service>.md` files.
 
 ### Step 2 — Identify what changed
-Read `$session/IMPLEMENTATION_PLAN.md`. From the user stories and tasks, identify:
+Read `$session/plan_brief.md`'s Story Index and each story's sub-issue (or, in a transitional session, `$session/IMPLEMENTATION_PLAN.md`). From the user stories and tasks, identify:
 - Which packages were created or modified
 - Which new utilities or abstractions were introduced
 - Any new external services integrated

@@ -47,4 +47,4 @@ Return a markdown table. Example:
 | T-3 | Unit tests for POST /users | test | T-2 | US-1 | S |
 | T-4 | Integration test: user creation end-to-end | test | T-2 | US-1 | S |
 
-The plan orchestrator will incorporate this table directly into `IMPLEMENTATION_PLAN.md`.
+The plan orchestrator will incorporate this table directly into the relevant story's sub-issue — task tables are per-story content and never appear in `plan_brief.md` (its Story Index carries identity and location only).

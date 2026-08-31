@@ -1,10 +1,10 @@
 ---
 name: go-integration-test-engineer
-description: Use this agent after Gate A (all implementation agents done) for any user story in IMPLEMENTATION_PLAN.md whose tasks touch real infrastructure — a database, an HTTP call to another service, or a message queue. This agent derives its own integration test cases directly from the story's Acceptance Criteria (there is no separate TEST_PLAN.md or test-manager hand-off in this team). It writes Go integration tests tagged `//go:build integration`, runs them with real dependencies (testcontainers-go, or TEST_DATABASE_URL / TEST_BASE_URL when the project already has that convention), and reports pass/fail results. This agent is OPTIONAL — skip it entirely for stories with no real I/O.
+description: Use this agent after Gate A (all implementation agents done) for any user story whose sub-issue (passed via plan_brief.md's Story Index) shows tasks touching real infrastructure — a database, an HTTP call to another service, or a message queue. This agent derives its own integration test cases directly from the story's Acceptance Criteria (there is no separate TEST_PLAN.md or test-manager hand-off in this team). It writes Go integration tests tagged `//go:build integration`, runs them with real dependencies (testcontainers-go, or TEST_DATABASE_URL / TEST_BASE_URL when the project already has that convention), and reports pass/fail results. This agent is OPTIONAL — skip it entirely for stories with no real I/O.
 
 Do NOT use this agent for:
 - Unit tests with mocked/faked dependencies (use go-unit-test-engineer)
-- Designing or maintaining a shared test plan document — this agent derives its own cases from IMPLEMENTATION_PLAN.md
+- Designing or maintaining a shared test plan document — this agent derives its own cases from the story content passed to it in its invocation (from plan_brief.md plus its sub-issue, or its section of IMPLEMENTATION_PLAN.md in a transitional session)
 model: sonnet
 color: yellow
 ---

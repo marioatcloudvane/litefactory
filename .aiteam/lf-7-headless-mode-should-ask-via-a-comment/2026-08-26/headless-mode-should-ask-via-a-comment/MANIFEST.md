@@ -14,9 +14,10 @@
   out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
   unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
   `plan_brief.md` plus one sub-issue per story)*
-- [ ] **Implement** — code + tests *(**four of seven stories delivered across four runs; box stays
-  unticked because three remain**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
-  reviewed CLEAN, docs tasks closed 2026-08-30), **B1** (`ebf8d17`). Open: **D1**, **C1**, **E1**.
+- [ ] **Implement** — code + tests *(**five of seven stories delivered across five runs; box stays
+  unticked because two remain**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
+  reviewed CLEAN, docs tasks closed 2026-08-30), **B1** (`ebf8d17`), **E1** (run 5, all 13 files,
+  zero Go — see below). Open: **D1**, **C1**.
   **The first attempt's account of why nothing shipped was itself wrong** — there was never a
   diverged Go tree (a diffstat read backwards), and `.claude/` was never unwritable (an approval
   prompt collapsing to "denied" in a headless run). Both premises are struck; see `notes.md`.
@@ -327,6 +328,25 @@ asked for; nothing here licenses starting the next one.
   golden — landed at `e4a8d29`. T-B2.1 was B2's last open task and this run delivered it. **The `.claude/` permission blocker is confirmed dead for the second
   time today** — both writes landed first try; it was an approval prompt collapsing to "denied" in a
   headless run, never a deny rule. Not pushed — the owner pushes after verifying.
+
+- 2026-08-31 — **Implement, Story E1 only — delivered.** All 13 of E1's files. T-E1.0 re-confirmed
+  the file inventory against `5850daa` (two counts changed from the plan's `71d3bea`-cited table
+  because run 0010's partial conversion of `CLAUDE.md` and `initialplan.md` is now committed at
+  `1f0777c` — both were already complete and were verified, not redone). The remaining 11
+  `.claude/agents/*.md` and `.claude/skills/shared/task-decomposer.md` / `.claude/AGENT_ROSTER.md`
+  files were rewritten to `plan_brief.md` + one sub-issue per story, replacing every
+  `IMPLEMENTATION_PLAN.md` format block and reference with the contract from the plan's rev-4
+  table, plus a per-story sub-issue contract, the anti-duplication rule (AC-E1.5), and an explicit
+  statement that `.aiteam/` archives are never rewritten (AC-E1.7/T-E1.10). **Rev-6's "SPLIT: MOSTLY
+  OWNER-EXECUTED" banner was confirmed stale and overridden** — every `.claude/` write landed on the
+  first attempt, consistent with B1/B2/A1 already having established the same in this session.
+  **One judgment call, recorded in `notes.md`**: `implement-orchestrator.md` and its downstream
+  agents name `plan_brief.md` as primary but keep a one-sentence transitional fallback to
+  `IMPLEMENTATION_PLAN.md`, because `CLAUDE.md`'s gate (AC-E1.9, correctly left unflipped) still
+  requires `IMPLEMENTATION_PLAN.md` and this very plan's remaining stories (D1, C1) have no
+  `plan_brief.md` to read. **Zero Go — `git diff --stat` shows no `.go` file** (AC-E1.10). Reviewed
+  against AC-E1.1 through AC-E1.10; see `notes.md` for the full verification. Not pushed — the owner
+  pushes after verifying.
 
 ## Notes
 
