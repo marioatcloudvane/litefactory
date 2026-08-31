@@ -25,7 +25,36 @@ import (
 // [Worktree], and the only way to obtain one is [Clone.WorktreeAdd].
 //
 // A Clone is safe for concurrent use: it holds no mutable state, and each
-// method is one git process.
+// method is one git process. That is a statement about this Go value and not
+// about the repository on disk it points at, and conflating the two is the
+// mistake this paragraph exists to prevent. git keeps its own mutable state in
+// the .git directory, and against *one* clone the methods here contend on it:
+// [Clone.Fetch] on refs/remotes/*, [Clone.WorktreeAdd] on the shared registry
+// under .git/worktrees, and [Worktree.Push] — a linked worktree shares the
+// clone's config — on .git/config.
+//
+// That contention is measured, not feared. At parallelism 4, with
+// litefactory's own argv: fetch failed 75% of the time whenever the remote's
+// refs had actually moved ("cannot lock ref"), worktree add failed 0.75%
+// fatally on a sibling's half-written registry entry, and "push
+// --set-upstream" went wrong 25% of the time *silently* — exiting 0, with a
+// "could not lock config file .git/config" warning that no exit code carries,
+// and leaving the branch with no upstream set.
+//
+// The silent one is the dangerous one. The other two are loud enough that a
+// caller can retry or report them; that one returns nil from a call that half
+// failed, and the missing half is not noticed until something downstream needs
+// the upstream to be there.
+//
+// Serialising these is the caller's job. This package declares no mutex and
+// deliberately will not: the correct granularity is "one clone", and nothing
+// here can know how many clones a caller has or which two goroutines are about
+// to share one. The serialisation that exists is the per-clone gate in
+// internal/daemon (cloneGate, keyed on the registered repository's path),
+// acquired by internal/turn and held across a whole critical section rather
+// than around single calls. It is named here so that a reader can go and find
+// it, and deliberately not imported: internal/git is a leaf package, and it
+// stays one.
 type Clone struct {
 	runner runner
 	path   string

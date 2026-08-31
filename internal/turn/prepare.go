@@ -126,6 +126,10 @@ func prepare(
 	// prepared cannot be found as its own predecessor. The terminal-status
 	// filter would exclude it anyway — it is inserted as running — and both are
 	// kept: one of them is an ordering that a later edit could quietly reverse.
+	//
+	// Both stay exact with N turns in flight, because neither depends on how
+	// many there are: the rows a sibling worker writes are never in this result
+	// set. See [previousRun] for why.
 	previous, resume, err := previousRun(ctx, opts, session, segment)
 	if err != nil {
 		return nil, err
@@ -308,10 +312,29 @@ func prepareClone(
 // already say it, and a column would be a second copy of the same fact to keep
 // in step.
 //
-// A row still marked running is not evidence. It is either this daemon's own
-// run, which cannot be its own predecessor, or a run a killed daemon left
-// behind — and that one becomes failed, and therefore terminal, the moment
-// reconciliation sees it (D-B).
+// A row still marked running is not evidence, and the argument for that has to
+// be made against the real concurrency model rather than the one this code was
+// written under. It is not "one turn at a time in this process" any more; it is
+// one worker per session, with up to max_concurrent_runs sessions in flight at
+// once. Under that model a running row can be three things, and none of them is
+// a predecessor.
+//
+// It can be this daemon's own run, which cannot be its own predecessor. The
+// call site reads before the row is inserted, and the terminal-status filter
+// would exclude it even if a later edit reversed that order.
+//
+// It can be a run a killed daemon left behind, which becomes failed — and so
+// terminal, and so eligible — the moment reconciliation sees it (D-B).
+//
+// It can be a sibling worker's run, and that one cannot reach this result set
+// at all. ListRuns is scoped to this session, the loop below narrows again to
+// run.SegmentID == segment.ID, and a segment belongs to exactly one session: a
+// concurrent worker is by construction on a *different* session and therefore
+// touching different rows entirely. A sibling on the *same* session does not
+// exist to worry about — the daemon's in-flight set admits one worker per
+// session, and the cross-process store lock refuses a second process besides.
+// Adding workers does not weaken any of this; it only makes it worth writing
+// down.
 //
 // Note what this is not: proof. The rows are here and the transcript is on
 // whichever machine wrote it, under whichever working directory it ran in. A

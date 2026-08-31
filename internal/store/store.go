@@ -21,6 +21,25 @@
 // concurrent use. The pool is capped at a single connection (SQLite is a file,
 // not a server), so concurrent callers queue rather than contend.
 //
+// That sentence is load-bearing now, where it used to be incidental. Up to
+// max_concurrent_runs turn workers plus the daemon's tick goroutine reach these
+// accessors at the same instant in production; before concurrent dispatch it
+// was one goroutine's worth of theory, and nothing would have noticed if it
+// stopped being true.
+//
+// The cap stays at one. Raising it is out of scope for concurrent dispatch and
+// is not the free throughput it looks like: database/sql opens a transaction
+// with a deferred BEGIN, so a transaction that reads and then writes has to
+// upgrade to a write lock partway through, and SQLite refuses that upgrade with
+// SQLITE_BUSY immediately rather than waiting — busy_timeout does not apply to
+// an upgrade, because waiting there could deadlock. The result would be
+// spurious "database is locked" failures under exactly the load a second
+// connection was added to serve. If the cap is ever raised, then the cap,
+// BEGIN IMMEDIATE on every read-then-write transaction, and per-connection
+// verification of the DSN pragmas (see [Open], which today proves them on the
+// one connection there is) move as a single decision. Any one of the three
+// alone leaves the other two wrong.
+//
 // Nullable columns map to Go as follows, uniformly:
 //
 //   - Timestamps are [time.Time]. The zero time means SQL NULL. Times are

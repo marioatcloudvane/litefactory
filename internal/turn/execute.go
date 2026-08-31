@@ -369,7 +369,17 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	}
 	if !acquired {
 		result.Disposition = DispositionLocked
-		logger.Info("task is locked by another daemon instance; leaving the comment for a later tick")
+		// "process", and no longer "instance". The word is the whole message.
+		// Within one process this branch is unreachable: a session is entered
+		// in the daemon's in-flight set before it is dispatched and left only
+		// once its report has posted, so a second worker for this session
+		// cannot exist to lose this race. Reaching here therefore means one of
+		// exactly two things — a genuinely second daemon process against this
+		// $LF_HOME, or a bug in the dispatcher — and an operator will not reach
+		// the second reading on their own unless the line rules out the naive
+		// one. The store lock is defence in depth here, not the intra-process
+		// mechanism; see the comment on AcquireSessionLock above.
+		logger.Info("task is locked by another daemon process; leaving the comment for a later tick")
 		return result, nil
 	}
 	// AC-3.3: every exit path, including a panic and a non-zero claude exit.
