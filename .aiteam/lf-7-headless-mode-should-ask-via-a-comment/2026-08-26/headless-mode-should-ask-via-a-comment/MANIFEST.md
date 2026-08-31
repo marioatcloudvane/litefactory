@@ -14,8 +14,7 @@
   out, **D1 is XL**. **7 stories, unchanged**: S0 · B1 · B2 · A1 · E1 · D1 · C1 — **all fully
   unblocked**. **This artifact is scheduled for deletion by its own Story E1** — N3 replaced it with
   `plan_brief.md` plus one sub-issue per story)*
-- [ ] **Implement** — code + tests *(**six of seven stories delivered across six runs; box stays
-  unticked because one remains**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
+- [x] **Implement** — code + tests *(**all seven stories delivered; the box is ticked 2026-08-31**. Done: **S0** and **B2** (`e4a8d29`), **A1** (run 2, Go + tests,
   reviewed CLEAN, docs tasks closed 2026-08-30), **B1** (`ebf8d17`), **E1** (run 5, all 13 files,
   zero Go — see below), **D1** (run 6, `f9e5d7d`/`09f5088`/`296dfc1`, XL — GitHub SDK migration,
   reviewed CLEAN, `go test -race -cover ./...` green, 93.1% coverage on `internal/github` — see
@@ -589,3 +588,83 @@ orchestrator's job and this run did not block on it. No `.aiteam/rulebook.md` ei
 
 Research is closed. Per *One Run, One Mode*, Plan does not follow from this automatically — it
 needs its own comment from a human.
+
+---
+
+## 2026-08-31 — Implement closes. All seven stories delivered.
+
+**C1 shipped, and with it the whole plan.** `95f76bb` (T-C1.1 pre-flight) · `301683e` (T-C1.8) ·
+`7232442` (the Go: T-C1.3, .4, .6, .7, .11, .12) · `bb615e0` (T-C1.13, the gate flip).
+
+**Then the plan's own gap opened, and closing it was the day's real work.** C1's code review came
+back **BLOCKING** (CR-B-001): `CreateSubIssues` and `RenderSubIssue` had no caller outside their own
+tests. The capability was real, tested and clean — and orphaned. Nothing in Go read a session's
+artifacts after a run, so **AC-C1.3 and AC-C1.3a could not hold**, and the gate flip was exactly the
+window **AC-C1.8** names as a failing outcome.
+
+**That was a defect in the plan, not in the code.** C1's task table never said how the capability
+gets invoked. Rev-3's `T-C1.2`, `T-C1.5`, `T-C1.9` and `T-C1.10` were reassigned to D1 and E1 and
+never replaced; the wiring fell through that gap.
+
+**The owner approved the wiring as new scope.** An architect pass wrote
+`ARCHITECT_SUBISSUE_WIRING.md` — ten acceptance criteria `AC-W1..AC-W10`, five explicit deferrals —
+settling three questions the plan never asked:
+
+- **Locating `$session/`**: derive, don't scan, the way `report.Run.briefLink` already does. Go does
+  not know the feature slug and never will.
+- **Ordering**: two commits, two pushes. `report.Story.DetailSHA` may only pin a commit that is on
+  the remote, so creation cannot precede push. Folding the write-back into the run's own commit
+  would also make its report list a file claude never touched.
+- **Detecting a Plan run**: don't. Gate on artifact presence — `initialplan.md:243`'s standing
+  principle already answered it.
+
+Built as `85c58cd`: new `internal/planbrief` leaf package, `internal/turn/subissues.go`, wired at
+`internal/daemon/setup.go:210-211`.
+
+**A second BLOCKING finding followed, and it was the sharper one.** CR-B-002: the phase's guard was
+`result.Changed && !result.Pushed`, which reads as "the push failed" and covers only that. `save`'s
+*commit* failing returns with `Err` set but `Changed`, `Pushed` and `SHAAfter` all at zero — so the
+guard was false and the phase ran on never-committed content. It would have filed **real GitHub
+sub-issues from content no commit holds**, and its `git add --all` write-back would have swept
+claude's uncommitted work into a commit no runs row names. Fixed at `4a95dc2` by keying off
+`result.Err`, which also covers the fetch failure ahead of both. The regression test breaks the
+commit for real by holding git's index lock; against the old guard it records
+`CreateSubIssues was called 1 times`.
+
+Both findings verified closed on re-review (`69a7322`). **Eight review blocks now, appended never
+rewritten**, per the owner's standing instruction.
+
+**Cross-story criteria that only hold now:**
+
+- **AC-E1.2** — the criterion written to hold after E1 **+** C1. The only live mentions of
+  `IMPLEMENTATION_PLAN.md` outside `.aiteam/` are the two required to survive: `initialplan.md:243`'s
+  preserved principle and `plan-orchestrator.md:188`'s archives statement. Every transitional
+  fallback E1 left behind was swept by T-C1.13. The four Go test comments remain the settled
+  exemption; no `.go` file was touched for it.
+- **AC-C1.7** — `CLAUDE.md:163` requires `$session/plan_brief.md`.
+- **AC-C1.8** — the flip did not merge before creation worked. It was pushed only after the wiring
+  existed and both blocking findings were closed.
+
+**Verification at `69a7322`:** `gofmt` clean, `go vet` clean, `go test -race -cover ./...` green
+across 19 packages. `internal/planbrief` 90.5%, `internal/turn` 85.8%, `internal/github` 91.4%.
+
+### What a reader should know that the artifacts do not say
+
+- **The plan's citations went stale three times.** `71d3bea` was wrong for D1 and for E1, and rev 6's
+  "owner-executed" banners were wrong for four stories. Every story here re-pinned its own citations
+  before editing. **Treat a plan's line numbers as a lower bound, never as fact.**
+- **Two runs were killed by `timeout_seconds: 1800`** before this session. Both left the tree green
+  by luck, not design. The resumability posture in the sub-issue phase is a direct response.
+- **`.aiteam/APP_CONTEXT.md` still does not exist**, and is now further behind: it has never seen the
+  asking runtime, the SDK migration, or the sub-issue phase.
+
+### Left open, deliberately
+
+- **CR-A-011** — `ParseStoryIndex` fails the whole table on one malformed row rather than skipping
+  it. Judged defensible for a file that gets rewritten; recorded rather than fixed.
+- **AC-W10** — two Plan sessions on the same branch and day. Untested; the hazard is documented in
+  `internal/turn/doc.go`. One plan per branch per day is an assumption nothing enforces.
+- **CR-A-004, CR-A-005** — advisories from the A1/B1 reviews, still unaddressed.
+- The five deferrals named in `ARCHITECT_SUBISSUE_WIRING.md`.
+
+**Implement is closed.** Per *One Run, One Mode*, nothing follows from this automatically.
