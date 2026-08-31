@@ -1069,3 +1069,222 @@ should not proceed on C1 until the sequencing gap is fixed or the gate flip is r
 (CR-A-010) noted, not blocking. Routing CR-B-001 back for a decision between the two required-fix paths
 above — this is as much a scope/sequencing question for the orchestrator (and likely the user) as it is
 a single engineer's fix, since no task in C1's table assigned the missing wiring.
+
+
+---
+
+# Code Review — Sub-issue wiring phase (closing CR-B-001)
+# Commit: `85c58cd` | Diff base: `87906b5..85c58cd` | Branch: `lf/7-headless-mode-should-ask-via-a-comment`
+# Worktree: /Users/mariomh/.lf-worktrees/litefactory/task-7
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: BLOCKING
+
+---
+
+## Scope
+
+One commit, `85c58cd`, on top of `87906b5` (the C1 review that raised CR-B-001). New files:
+`internal/planbrief/{doc,errors,index,storyfile}.go` (+tests), `internal/turn/subissues.go` (+tests).
+Modified: `internal/daemon/setup.go`, `internal/naming/aiteam.go` (+tests), `internal/turn/execute.go`,
+`internal/turn/harvest.go`, `internal/github/subissues.go` (CR-A-010's fix).
+
+Cross-checked against `ARCHITECT_SUBISSUE_WIRING.md` (AC-W1..AC-W10, three "questions" Q1–Q3, the
+Failure-modes table, and the Deferred section) and against the sixth block's CR-B-001 finding above,
+which this commit exists to close.
+
+## Verification performed
+
+- `gofmt -l .` — clean. `go vet ./...` — clean.
+- `go test -race ./...` — all 19 packages green (`internal/planbrief` is new and passes).
+- `go test -race -v -run 'TestNoForgeAbstraction|TestRevealIsCalledExactlyOnce|TestTheCredentialPathIsTheSDKs|TestClientMethodSetIsPinned' ./internal/github/...` — all four PASS individually. None of the four
+  guard tests was edited in this diff (confirmed against the diff stat: `internal/github/surface_test.go`
+  does not appear).
+- **CR-B-001 reachability, traced end to end.** `grep -rn "turn.Options{\|NewExecutor("` outside test
+  files finds exactly one production construction site: `internal/daemon/setup.go:200`. Read it in full:
+  `client, err := github.New(...)` and `renderer, err := report.New(...)` are the same two values already
+  built (and already used to construct `reporter` for the run's own comment) a few lines above, and both
+  are passed as `turn.Options.SubIssueCreator: client` / `SubIssueRenderer: renderer` — real, non-nil,
+  fully-constructed values on every path through `Open` that does not already return an error. Neither is
+  ever nil-substituted for a "degraded" daemon mode. Followed the chain from there:
+  `daemon.Open` → `turn.Options{SubIssueCreator, SubIssueRenderer}` → `daemon.NewExecutor` →
+  `turn.Execute` → `runAndHarvest` (`internal/turn/harvest.go:77`, unconditionally on the success path,
+  between `save()` and `finish()`) → `fileStoryIssues` (`internal/turn/subissues.go:102`) →
+  `opts.SubIssueCreator.CreateSubIssues` / `opts.SubIssueRenderer.RenderSubIssue`. Every hop is a real,
+  non-test call site. This is genuinely reachable from a running daemon, not merely from a test — **the
+  reachability half of CR-B-001 is closed.**
+- **The `sub_issue_id`-vs-`issue_number` trap, traced at the production call sites (not just the fake).**
+  `internal/naming/ref.go:27-29`: `Ref.Issue` is documented as "the issue number." In
+  `internal/turn/subissues.go:163`, `CreateSubIssues(ctx, github.RepoFromRef(prep.ref), prep.ref.Issue,
+  specs)` passes `prep.ref.Issue` — the number — as `parent`. Inside
+  `internal/github/subissues.go:336-355`, the created issue's `ID` (the database id `CreateIssue`
+  returned) is what gets passed to `AddSubIssue`'s `subIssueID` parameter, and `parent` (still the
+  number) stays the path parameter throughout `ListSubIssues`, `AddSubIssue` and `CreateSubIssues`. The
+  test fake (`fakeSubIssueCreator`, `nextID: 9001` vs `nextNum: 41`, distinct counters) matches this
+  exactly. No swap anywhere in the production path.
+- Read `internal/planbrief/index.go` and `storyfile.go` in full: `ParseStoryIndex`/`RewriteSubIssueCell`
+  locate columns by lower-cased header name (`columnIndex`), not fixed position; `RewriteSubIssueCell`
+  round-trips via `strings.Split`/`strings.Join` on `"\n"`, which is lossless for any input, and touches
+  only the one row's one cell — no content loss on rewrite. `ParseStoryFile` never rewrites anything (it
+  only feeds `buildSubIssueSpec`); the per-story `.md` files on disk are never modified by this phase.
+- Read `internal/naming/aiteam.go`'s diff: `AITeamBranchDir` is exactly the additive export the
+  architecture asked for, and `AITeamSessionDir` is refactored to call it rather than duplicating the
+  `branchDirName`/`validatePathSegment` pair — zero behaviour change, confirmed by `TestAITeamSessionDir`
+  still passing unmodified in assertion shape.
+- Read `internal/turn/subissues_test.go` in full (730 lines): AC-W1 (`TestFileStoryIssuesFilesTheMissingSubIssue`), AC-W2 (`TestFileStoryIssuesResumesOnALaterUnrelatedTurn`, second turn touches nothing in
+  `plan_brief.md` and still resolves it), AC-W3 (`TestFileStoryIssuesRerunIsANoOp`), AC-W4
+  (`TestFileStoryIssuesOneMissingStoryFileDoesNotBlockSiblings`), AC-W5
+  (`TestFileStoryIssuesDetailLinkIsPinnedToAPushedSHA`, asserts against the real pushed sha via
+  `cat-file -e` on the origin), AC-W6 (`TestFileStoryIssuesLeavesTheRunsOwnReportUntouched`), AC-W7
+  (`TestFileStoryIssuesFailureLeavesTheRunResultUnchanged`), AC-W9
+  (`TestFileStoryIssuesCallsCreateSubIssuesExactlyOnce`) are each covered by a test that is actually
+  named for the criterion and asserts the specific thing the criterion requires — not just a passing
+  suite. AC-W8's guard-test greenness is verified above.
+
+## BLOCKING findings
+
+### CR-B-002: The ordering guard covers a push failure but not a commit failure — `fileStoryIssues` can run when `save()` never made a commit at all
+**File:** `internal/turn/subissues.go:119-127`, cross-referenced against `internal/turn/harvest.go:226-241`
+(`save()`'s commit step) and `internal/git/commit.go:118-169` (`Worktree.Commit`).
+**Story:** Sub-issue wiring phase / `ARCHITECT_SUBISSUE_WIRING.md` Q2 ("two commits, two pushes... never
+attempted before push1 succeeds").
+**Category:** Error handling / Ordering and non-interference (task item 3)
+**Finding:** The design is explicit that `fileStoryIssues` must run "strictly after `save()`'s commit and
+push have both succeeded — never before." The implementation's guard is:
+
+```go
+if result.Changed && !result.Pushed {
+    return result
+}
+```
+
+This correctly covers the push-failure path (`Changed=true`, `Pushed=false`, `Err` set at
+`harvest.go:263`) and the "nothing changed" path (`Changed=false`, no error). It does **not** cover the
+third path: `save()`'s own commit attempt failing. `Worktree.Commit` (`internal/git/commit.go:143-169`)
+first runs `git add --all` (which stages everything, including files a later `git commit` invocation
+never lands), then runs `git commit` itself; if that second subprocess call errors — a transient process
+failure, a disk or lock issue, a cancelled context — `save()` returns at `harvest.go:236-241` with
+`result.Err` set, having never reached the code that sets `Changed`, `Committed`, `Pushed`, `SHAAfter` or
+`CommitSHA` (`harvest.go:243-250`). Those fields are still at their zero values from before `save()` was
+called (confirmed: nothing between `Execute`'s initial `Result{}` construction and this call sets any of
+them). So at the point `fileStoryIssues` runs, `result.Changed == false` and `result.Pushed == false`,
+and the guard's condition `result.Changed && !result.Pushed` evaluates `false && true == false` — it
+does **not** block. `fileStoryIssues` proceeds to read `plan_brief.md` straight off disk
+(`os.ReadFile`, bypassing git entirely) and, if it parses, calls `CreateSubIssues` — creating real,
+permanent GitHub issues from content that was never confirmed committed, let alone pushed — and then
+attempts its own `commit2` via `prep.worktree.Commit`.
+
+That second `Commit` call runs `git add --all` again over the same dirty worktree: because the first
+commit's `git add --all` already staged claude's original changes and the second `git commit` invocation
+is what actually failed, those changes are still sitting in the worktree (staged or not) when
+`fileStoryIssues`'s own commit runs. If the underlying failure was transient, this second commit can
+succeed — landing and pushing claude's entire original diff, folded together with the Story Index
+rewrite, under the litefactory-authored summary `"litefactory: record this plan's sub-issue links in the
+Story Index"` rather than claude's own summary. None of this is reflected in `result.CommitSHA` (stays
+empty, since `save()` never set it), so `finish()`'s `opts.DB.SetRunCommit` is never called and the
+`runs` row records no commit even though one exists on the remote branch. Meanwhile `result.Succeeded()`
+is false (`Err != nil`), so the run is reported to the human as a commit failure — which is true of
+*this run's own* attempt, but misleading about the actual state of the branch: work the report implies
+is only "safe in the worktree" (per `save()`'s own `AC-3.24` framing) may in fact already be on the
+remote, mislabeled, and with GitHub issues already filed against it.
+
+This is exactly the class of problem `ARCHITECT_SUBISSUE_WIRING.md`'s Q2 reasoning was built to prevent
+("the run's own report must describe only what claude did" / "failure containment... must never
+retroactively touch a run that already succeeded" — the mirror image also applies to a run that failed),
+and the failure-mode table in the architecture doc (`Failure modes and their effect on the reported
+outcome`) never separately enumerates "`save()`'s commit itself errors" as a case — only "push2 fails" and
+"commit2 fails" are covered for the *second* commit, and the *first* commit's own commit-step failure
+(as opposed to its push-step failure) is not accounted for in the gating logic at all. The gap is
+untested: `internal/turn/subissues_test.go` has tests for `ListSubIssues` failing and `CreateIssue`
+failing mid-batch (`TestFileStoryIssuesFailureLeavesTheRunResultUnchanged`), and AC-W5's test proves the
+guard holds when `save()`'s *push* fails is never exercised either — there is no test in this file that
+simulates `save()`'s own `Worktree.Commit` returning an error and then asserts `fileStoryIssues` does
+nothing.
+**Required fix:** Broaden the guard to key off `result.Err` directly rather than the narrower
+`Changed && !Pushed` special case — `save()` sets `result.Err` on both its failure paths (commit failure
+at `harvest.go:237` and push failure at `harvest.go:263`), and leaves it nil on both success paths
+(pushed, and unchanged). A guard of `if result.Err != nil { return result }` (or `result.Err != nil ||
+(result.Changed && !result.Pushed)`, if the latter is kept for its explanatory value) covers every case
+`save()` can return, including the untested commit-failure path, without weakening the cases already
+handled correctly. Add a test alongside `TestFileStoryIssuesFailureLeavesTheRunResultUnchanged` that
+makes `save()`'s own commit fail (a `runner` stub or worktree fixture that errors on the commit
+subprocess) and asserts `fileStoryIssues` makes no `CreateSubIssues` call and produces no second commit.
+
+## ADVISORY findings
+
+### CR-A-011: `ParseStoryIndex` fails the whole table on one malformed row, rather than skipping that row
+**File:** `internal/planbrief/index.go:75-79` (`ParseStoryIndex`), `:168-179` (`rowFromCells`)
+**Story:** Sub-issue wiring phase / `internal/planbrief`
+**Category:** Idiom / consistency with the phase's own stated resilience principle
+**Finding:** `ParseStoryIndex` returns `ErrMalformedRow` — failing the entire parse, for every story in
+the file — the moment one data row's ID cell is empty (`rowFromCells`, `index.go:177-179`). The phase
+that calls this (`fileStoryIssues`, `subissues.go:145-149`) treats any parse error as "nothing to do
+this turn" and returns, so one row with an empty ID cell silently blocks *every* story in that
+`plan_brief.md` from being filed, on this turn and every retry until the file is hand-fixed — which is
+the same "one broken story must not starve seven working ones" problem
+`ARCHITECT_SUBISSUE_WIRING.md`'s step 4 explicitly designed around for a missing/malformed *per-story
+file*, just one layer up, at the Story Index table itself. The architecture doc doesn't explicitly
+require per-row resilience at the table-parsing level (only at the per-story-file level), so this isn't
+a deviation from an explicit requirement, but it sits in tension with the principle the rest of this
+phase applies consistently. In practice this needs a hand-edited or corrupted Story Index to trigger,
+since `plan-orchestrator.md`'s own contract always writes an ID per row.
+**Suggestion:** Either skip and log a data row with no ID cell (consistent with how a missing per-story
+file is handled) rather than failing the whole parse, or, if failing closed is the deliberate choice for
+a table that's supposed to be well-formed by contract, say so in `ParseStoryIndex`'s doc comment so a
+future reader doesn't assume it follows the same per-row tolerance the rest of the phase does.
+
+### CR-A-012: The two-plan-sessions-same-day edge case has no callout in `internal/turn/doc.go`
+**File:** `internal/turn/doc.go` (unchanged by this diff)
+**Story:** Sub-issue wiring phase
+**Category:** Standards / documentation completeness
+**Finding:** `ARCHITECT_SUBISSUE_WIRING.md`'s Deferred section says the story-id-collision case (two Plan
+sessions on one branch, same day, reusing a story id) is "worth a one-line callout in
+`internal/turn/doc.go` if this phase is built, not a behaviour to design around now." This phase was
+built; the callout wasn't added. This is explicitly framed by the architect as a nice-to-have rather
+than a requirement ("worth doing" / AC-W10 already documents it as out of scope), so it's advisory, not
+blocking.
+**Suggestion:** Add the one-line callout the architecture note suggested, next to wherever
+`internal/turn/doc.go` already documents mode inference, so a future reader of that file (rather than
+this session's architecture note) learns about the limitation too.
+
+## AC-W10 judgement
+
+AC-W10 (two Plan sessions, same task branch, same calendar date) is listed by
+`ARCHITECT_SUBISSUE_WIRING.md` both as an acceptance criterion *and*, in the same document's Deferred
+section, as an explicitly out-of-scope edge case with a named root cause (`StoryMarker` only carries
+`task=<ref>` and `story=<ID>`, so a colliding id from an earlier still-open session would misread as
+already filed) and a stated reason it isn't worth designing around now. Leaving it untested is
+defensible here: the same document that poses it as a criterion also tells the implementer not to build
+for it, names precisely what would have to change to support it, and documents the interim behaviour
+(misread as filed, not corrupted) rather than leaving it silently unspecified. This is a case of an
+architect naming a real gap and choosing not to close it, not an implementer skipping a requirement.
+
+## Cross-story summary
+
+The wiring itself is sound and is now genuinely reachable from a real daemon — CR-B-001's central charge
+(github.CreateSubIssues and report.RenderSubIssue "had no caller outside their own tests") is fixed:
+there is exactly one production construction site for `turn.Options`, it populates both dependencies with
+the same client and renderer already built for the run's own report, and the call chain from there to
+`CreateSubIssues`/`RenderSubIssue` is unconditional on every non-abandoned turn. The
+`sub_issue_id`-vs-`issue_number` trap remains correctly guarded at every hop in the new code, matching
+the fake's deliberately distinct id/number fixtures. `internal/planbrief` is a clean, leaf, lossless
+parser exactly as scoped. AC-W1 through AC-W9 each have a test named for the criterion and asserting the
+specific thing it requires, not just a green suite.
+
+The one place this phase's own ordering guard falls short of its own stated design (Q2: "never attempted
+before push1 succeeds") is the untested seam between `save()`'s commit step failing outright and its push
+step failing — the guard was written for the latter and silently also has to cover the former, and
+currently does not. This is a narrow window (a commit-subprocess failure, not a push failure, which is
+the more common real-world failure) but it is exactly the kind of gap this review's brief asked to be
+checked hardest: whether "the phase must not create anything" actually holds when `save()` did not
+succeed, in every way `save()` can fail, not only the one way that was tested.
+
+## Verdict
+
+BLOCKING — 1 issue (CR-B-002) must be resolved before this phase can be considered to fully close
+CR-B-001. **CR-B-001 itself (the reachability/wiring gap the sixth review block raised) is CLOSED**:
+`CreateSubIssues` and `RenderSubIssue` are now reachable from a real daemon, unconditionally, from a
+single verified production call site, with no caller-side nil-substitution — AC-C1.3 and AC-C1.3a can
+now hold in the way this commit's design intended. What remains is a narrower, newly-introduced ordering
+gap (CR-B-002) in the phase built to close CR-B-001, not a recurrence of CR-B-001 itself. 2 advisories
+(CR-A-011, CR-A-012) noted, not blocking.
