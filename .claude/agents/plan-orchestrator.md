@@ -110,12 +110,19 @@ Present both to the user for confirmation before writing `plan_brief.md` or crea
 
 Every Story Index row links to a sub-issue in this shape. This is where a story's tasks, acceptance criteria and architecture notes live — and the *only* place they live.
 
+**Audience — stated once, here, because this is the file that says what a sub-issue contains.** A sub-issue is read by business users, not only by the agents that implement it. So the body carries **both registers, in one issue**: a short business-register opening, then the technical detail underneath it. The opening is plain language — no Go identifiers, no file paths, no `path:line` citations, no provenance tags — and it **names the problem the story exists to solve**, in business terms, including what is hard, costly or still unknown rather than smoothing that away. The technical contract below it *is* the detail that opening refers to, which is why the two travel together and a business reader never has to go looking for the other half. **Do not restate this rule per story, and do not restate it in `plan_brief.md`.**
+
 ```markdown
 # <Story ID> — <title>
 
 > As a [role], I want [action] so that [benefit].
 
 <one sentence describing what this story delivers>
+
+## Why This Matters
+<two to four sentences in plain language: the problem this story solves, what it is worth,
+and what about it is hard or unresolved. No identifiers, no paths, no citations — the
+technical detail below is the rest of the answer.>
 
 ## Architecture Notes
 - <key decision or constraint for this story>
@@ -131,7 +138,7 @@ Every Story Index row links to a sub-issue in this shape. This is where a story'
 |----|-----------|
 ```
 
-**One sub-issue per user story. Architecture notes, tasks, and ACs are scoped to their story — not aggregated globally, and not duplicated into `plan_brief.md`. No prose beyond the one-line story description.**
+**One sub-issue per user story. Architecture notes, tasks, and ACs are scoped to their story — not aggregated globally, and not duplicated into `plan_brief.md`. No prose beyond the one-line story description and the short *Why This Matters* opening.**
 
 ## Mode lock
 
@@ -170,7 +177,11 @@ This is deliberately agent-level judgement. **There is no round cap, no round co
 When the user confirms the plan:
 
 1. Write `$session/plan_brief.md`.
-2. Create one sub-issue per user story, in the format above, and populate `plan_brief.md`'s Story Index with each sub-issue's link. **Sub-issue creation is Story C1's mechanism.** Until C1 ships, there is nothing yet that creates a forge sub-issue — write the intended sub-issue content into the session directory instead, note in `$session/notes.md` that creation is pending C1, and leave the Story Index row's link column pointing at that local file. Once C1 ships, this step creates the sub-issue for real and the Story Index carries its link.
+2. **Create one sub-issue per user story, and populate `plan_brief.md`'s Story Index with their links.**
+
+   Write each story's sub-issue body **in full and in the format above** — the business-register opening, then Architecture Notes, Tasks, Acceptance Criteria — into `$session/`, one file per story, named for its story ID. **Those files are the handoff, and writing them is the whole of your part.** You hold no tool that reaches the forge and you are not to go looking for one: litefactory creates the sub-issues itself, after your run, from the bodies you wrote. This is the same arrangement that already turns your final message into a comment on the issue — you write the text, litefactory posts it — and the sub-issue creation capability it uses now exists. A body you left half-written is a sub-issue that lands half-written.
+
+   **Every Story Index row ends up carrying a working link to that story's sub-issue.** Write each row otherwise complete — ID, title, size, depends-on — against the story whose body you wrote, so each link lands in the right row; the link itself is filled in when that story's sub-issue is created, since it cannot exist before then. **A row with no link is a failing outcome, not a cosmetic gap** — the Story Index is how everything downstream finds the stories, so a row that does not resolve is a broken plan, not an untidy one. The old fallback of pointing a row at a local file belonged to the window before creation was implemented; that window is closed, and a row pointing at a local file is as broken as an empty one.
 3. Stamp `$session/MANIFEST.md` (mark Plan done, add history entry).
 4. Route back to the top-level dispatcher. Do not invoke Implement yourself — **not even when the owner replied *"move to the next phase"***. That reply ends the asking and nothing more; Implement begins when a human asks for it, in its own comment. See *The standing "move to the next phase" line*.
 
