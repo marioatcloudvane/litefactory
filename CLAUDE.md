@@ -115,7 +115,7 @@ Plan mode writes **`$session/plan_brief.md`** — one short shared-context docum
 
 The brief stays a file in the repo, so it is versioned, diffable and reviewable. The sub-issues are not — a sub-issue is editable by anyone with write access, so the per-story plan of record is mutable and unversioned. That is a real, accepted cost; keeping the brief in git is what limits its blast radius, and is a large part of why the brief — not the sub-issues — is what a mode gate checks for. Gates stay local file-existence checks; no mode gate makes a network call.
 
-**Transition, in progress.** Until now Plan mode produced a single `$session/IMPLEMENTATION_PLAN.md` containing every story in full. `plan_brief.md` is the incoming replacement and lands first; the Implement mode gate below still names `IMPLEMENTATION_PLAN.md` and is flipped to `plan_brief.md` in a later shipment, together with the mechanism that creates the sub-issues. Expect both names to appear in the docs until then. Sessions already archived under `.aiteam/` keep whatever artifact they were written with — **archives are never rewritten to match a new format.**
+**The single-file plan is retired.** Plan mode used to write one document holding every story in full. It no longer does: a Plan run writes `plan_brief.md` and creates the per-story sub-issues described above, and the Implement mode gate below requires `plan_brief.md`. Sessions archived under `.aiteam/` before that change keep whatever artifact they were written with — **archives are never rewritten to match a new format** — so an older session directory is a record of what that run produced, not a description of the current shape.
 
 To derive the session path:
 ```
@@ -160,7 +160,7 @@ Each feature on the same branch and day gets its own isolated directory — no a
 A mode can only be entered when its prerequisite artifact exists in the current session:
 
 - **Plan** requires `$session/RESEARCH_BRIEF.md`.
-- **Implement** requires `$session/IMPLEMENTATION_PLAN.md`.
+- **Implement** requires `$session/plan_brief.md`.
 - **Research** has no prerequisite.
 - **Spike** has no prerequisite.
 

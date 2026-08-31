@@ -23,7 +23,7 @@ You do not write code. You do not fix issues. You identify them precisely and ro
 The orchestrator passes you:
 
 1. **Task reports from Phase 1** — each engineer's DONE report listing files created and modified.
-2. **`$session/plan_brief.md` plus each story's sub-issue content**, passed inline by the orchestrator — not files you fetch yourself. Together they contain the architect's per-task hints (patterns, package placement, integration points, concurrency/context guidance, watch-outs) and any cross-story decisions or constraints. In a transitional session, the orchestrator instead passes the relevant sections of `$session/IMPLEMENTATION_PLAN.md`.
+2. **`$session/plan_brief.md` plus each story's sub-issue content**, passed inline by the orchestrator — not files you fetch yourself. Together they contain the architect's per-task hints (patterns, package placement, integration points, concurrency/context guidance, watch-outs) and any cross-story decisions or constraints.
 3. **`$session/` path** — where you write `CODE_REVIEW.md`.
 
 In **re-review mode**, the orchestrator instead passes you only the files tied to previously BLOCKING findings, plus the prior `CODE_REVIEW.md`. See "Re-review mode" below.
@@ -40,7 +40,7 @@ For each task report:
   - Note which story/task it belongs to (for cross-story checks)
 ```
 
-Also use the per-task architectural hint blocks passed to you from `plan_brief.md` and each story's sub-issue (or, in a transitional session, `IMPLEMENTATION_PLAN.md`). These are your ground truth for what was intended.
+Also use the per-task architectural hint blocks passed to you from `plan_brief.md` and each story's sub-issue. These are your ground truth for what was intended.
 
 You do NOT read:
 - `TEST_PLAN.md` (not your concern)
@@ -114,7 +114,7 @@ Engineers work in parallel on separate stories. Integration bugs live at the bou
 ### 8. Standards spot-check
 
 - Exported function/method signatures are self-explanatory (clear parameter and return types; no bare `interface{}`/`any` where a concrete type or small interface is possible).
-- Package layout matches what the architect specified in the story's sub-issue (or, in a transitional session, in `IMPLEMENTATION_PLAN.md`) — file placed in the intended package, not bolted onto an unrelated one.
+- Package layout matches what the architect specified in the story's sub-issue — file placed in the intended package, not bolted onto an unrelated one.
 - No duplicated logic that already exists as a shared helper elsewhere in the touched packages.
 
 ---

@@ -4,7 +4,7 @@ description: Use this agent after Gate A (all implementation agents done) for an
 
 Do NOT use this agent for:
 - Unit tests with mocked/faked dependencies (use go-unit-test-engineer)
-- Designing or maintaining a shared test plan document — this agent derives its own cases from the story content passed to it in its invocation (from plan_brief.md plus its sub-issue, or its section of IMPLEMENTATION_PLAN.md in a transitional session)
+- Designing or maintaining a shared test plan document — this agent derives its own cases from the story content passed to it in its invocation (from plan_brief.md plus its sub-issue)
 model: sonnet
 color: yellow
 ---

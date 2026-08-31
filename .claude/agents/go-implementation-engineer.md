@@ -28,7 +28,7 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 
 2. **`go.mod` and 2–3 neighboring source files** — determine what the project already uses: HTTP router/framework (stdlib `net/http`, chi, echo, gin, ...), DB layer (`database/sql`, sqlx, pgx, gorm, ent, ...), logging, config loading. Follow what's already there — introducing a second framework or a competing DB library is an architectural decision, not yours to make.
 
-3. **Your assigned user story** — passed to you in your invocation, not a file you open yourself: user story, architecture notes, task list, acceptance criteria (the content of that story's sub-issue, or its section of `IMPLEMENTATION_PLAN.md` in a transitional session). Do not read other stories.
+3. **Your assigned user story** — passed to you in your invocation, not a file you open yourself: user story, architecture notes, task list, acceptance criteria (the content of that story's sub-issue). Do not read other stories.
 
 4. **Architectural hints for your tasks** — the per-task guidance block from go-architect: package placement, layer boundaries, patterns to follow, integration points, watch-outs. Follow these exactly.
 
@@ -61,7 +61,7 @@ You are invoked in exactly one of three modes, stated explicitly by the orchestr
   ```
   Report back that `BUG_REPORT.md` is written. Do not invoke any other agent.
 
-**Setup-only mode** — used in Phase 2 (environment setup) when a fresh test database is requested. Read the schema requirements passed to you in the orchestrator's invocation (or, in a transitional session, `IMPLEMENTATION_PLAN.md`), create the test database, and run all migrations using the project's existing migration tool (check `go.mod` / Makefile / `internal/db` for what's already in use — golang-migrate, goose, atlas, a custom runner; do not introduce a new one). Seed the minimum data the orchestrator's instruction describes (e.g. a test user/account matching `$TEST_USER`). Confirm success and report back the `TEST_DATABASE_URL` connection string — never log or persist credentials beyond that. Do not invoke any other agent.
+**Setup-only mode** — used in Phase 2 (environment setup) when a fresh test database is requested. Read the schema requirements passed to you in the orchestrator's invocation, create the test database, and run all migrations using the project's existing migration tool (check `go.mod` / Makefile / `internal/db` for what's already in use — golang-migrate, goose, atlas, a custom runner; do not introduce a new one). Seed the minimum data the orchestrator's instruction describes (e.g. a test user/account matching `$TEST_USER`). Confirm success and report back the `TEST_DATABASE_URL` connection string — never log or persist credentials beyond that. Do not invoke any other agent.
 
 ## Progress tracking
 
