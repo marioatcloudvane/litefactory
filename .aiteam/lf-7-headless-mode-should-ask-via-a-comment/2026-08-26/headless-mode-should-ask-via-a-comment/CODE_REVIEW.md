@@ -857,3 +857,215 @@ nothing here that warrants a follow-up.
 ## Verdict
 
 CLEAN — No findings. Proceeding to environment setup.
+
+
+---
+
+# Code Review — User Story C1 (The plan ships as one GitHub sub-issue per user story)
+# Commits: `7232442`, `301683e`, `bb615e0` | Diff base: `95f76bb..bb615e0` | Branch: `lf/7-headless-mode-should-ask-via-a-comment`
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: BLOCKING
+
+---
+
+## Scope
+
+Three commits on top of `95f76bb` (T-C1.1, live-docs pre-flight, previously reviewed and out of
+scope here):
+
+- **`7232442`** (Go, T-C1.3/.4/.6/.7/.11/.12) — new: `internal/github/subissues.go`,
+  `internal/github/subissues_test.go`, `internal/report/subissue.go`,
+  `internal/report/subissue_test.go`, `internal/report/testdata/subissue.golden`. Modified:
+  `internal/github/issues.go` (`Issue.ID int64`, `CreateIssue`, title/body size checks),
+  `internal/github/repo.go` (`checkIssueID`), `internal/github/doc.go`, `internal/github/surface_test.go`
+  (`TestClientMethodSetIsPinned`'s `want` list), `internal/report/marker.go` (`StoryMarker`).
+- **`301683e`** (Docs, T-C1.8) — `.claude/agents/plan-orchestrator.md` only.
+- **`bb615e0`** (Docs, T-C1.13, the gate flip) — `CLAUDE.md`, `initialplan.md`, and six
+  `.claude/agents/*.md` files.
+
+Cross-checked against `IMPLEMENTATION_PLAN.md` (User Story C1, T-C1.1–T-C1.13, AC-C1.1–AC-C1.10) and
+`notes.md`'s "C1 pre-flight" section (the live-docs sub-issue contract, AC-C1.1a's ID-vs-Number trap,
+and the two conflicts the implementer was told to resolve deliberately rather than reverse).
+
+## Verification performed
+
+- `gofmt -l .` — no output, clean.
+- `go vet ./...` — clean.
+- `go test -race -cover ./...` — all 18 packages pass, no race reported (re-run fresh, uncached, for
+  `internal/github` and `internal/report`: both green).
+- `make lint` (golangci-lint v2.13.1) — `0 issues.`
+- `go test -race -run 'TestRevealIsCalledExactlyOnce|TestTheCredentialPathIsTheSDKs|TestNoForgeAbstraction'
+  -v ./internal/github/...` — all three PASS, run individually to confirm they weren't merely swept up
+  by the full-suite pass.
+- Read `internal/github/subissues.go` in full: confirmed no import of `internal/report` (only
+  `internal/redact`), confirmed `checkSubIssueSpecs` calls `hasMarkerLine(spec.Body.String(),
+  spec.Marker)` before any request is sent — the marker-prefix validation is real, not merely asserted
+  in the commit message.
+- `grep -n "issueJSON(" internal/github/subissues_test.go` and read
+  `TestTheSubIssueRequestCarriesTheChildsDatabaseID` in full: every fixture pairs a distinct id/number
+  (9001/42, 9002/43, 9003/44, 8001/41) — no fixture anywhere sets id == number for a story also tested
+  for attachment, so the AC-C1.1a trap is genuinely guarded, not just claimed guarded.
+- `grep -rn "MarkerPrefix\s*=" --include="*.go" .` — exactly two declarations,
+  `internal/turn/classify.go:28` and `internal/report/marker.go:21`, both pre-existing. No third
+  `MarkerPrefix` was added.
+- `grep -n "WithDisableRateLimitCheck" internal/github/client.go` — still present (`:141`); `grep -n
+  "time.Sleep\|Retry\|retry" internal/github/subissues.go internal/github/subissues_test.go` — the only
+  hits are doc-comment prose and a test asserting `RateLimitError.RetryAfter` is surfaced, not slept on.
+  Conflict 1 was resolved as the pre-flight decided, not reversed.
+- Read `internal/report/marker.go` in full (current state, not just the diff): `StoryMarker` sits beside
+  `StatusMarker`/`ReplyMarker` in the same file, same `MarkerPrefix`. Conflict 2 resolved as decided.
+- `grep -n "convertIssue\|Issue{" internal/github/*.go` (non-test) — every `Issue{}` construction in the
+  package uses named fields; adding `Issue.ID` cannot have broken a positional literal because none
+  exist. `convertIssue`'s nil-payload guard (`if payload == nil { return Issue{} }`) is unchanged and
+  covers the new field the same way it covers the rest.
+- `grep -rln "IMPLEMENTATION_PLAN" --include="*" .` (repo-wide) and inspected every hit outside
+  `.aiteam/`: `initialplan.md:243` (historical citation, tense-only change verified below),
+  `.claude/agents/plan-orchestrator.md:188` (archives-never-rewritten sentence, names the retired
+  filename explicitly), four pre-existing Go test-file comments (`cmd_logs_test.go`,
+  `toolprofiles_test.go`, `meta_test.go`, `report_test.go`), and the two new hits in
+  `internal/report/subissue_test.go:39` and `internal/report/testdata/subissue.golden:7` — both are the
+  fabricated fixture path `.../add-dry-run-to-task-clean/.../IMPLEMENTATION_PLAN.md`, an invented
+  example story's "technical detail" link, not a claim that `IMPLEMENTATION_PLAN.md` is the current
+  artifact. Matches the implementer's claimed grep exactly, with the same reasoning for the exemption.
+- `git diff` on `initialplan.md`'s two touched paragraphs, read in full: the pre-check paragraph loses
+  exactly the one parenthetical named in the commit message, and the state-inference paragraph's only
+  change is "is moving from" → "moved from" — the historical `IMPLEMENTATION_PLAN.md` citation and every
+  other word are untouched.
+- `git show bb615e0 --stat` — confirmed no `.go` file appears in that commit's diff (eight files, all
+  `.md`).
+- **Wiring check (the finding below):** `grep -rn "CreateSubIssues\|SubIssueSpec\|RenderSubIssue"
+  --include="*.go" .` outside test files — every hit is inside `internal/github/subissues.go`,
+  `internal/github/issues.go`'s doc comments, or `internal/report/subissue.go`/`marker.go`'s doc
+  comments. No caller anywhere in `internal/daemon`, `internal/turn`, `internal/cli`, or `cmd/`. Read
+  `internal/turn/report.go` in full: the one existing "final message becomes a comment" mechanism
+  (`Poster.PostComment` / `Renderer.RenderRun`/`RenderReply`, driven by `Reporter.ReportRun` off a
+  captured `harness` `Result`) has no sub-issue counterpart, and nothing in `internal/daemon` or
+  `internal/turn` scans `$session/` for files (`grep -rn "ReadDir\|Glob(\|filepath.Walk"` in both
+  packages, non-test, returns nothing).
+
+## BLOCKING findings
+
+### CR-B-001: The docs commits assert sub-issue creation works end-to-end; nothing wires it up
+**File:** `.claude/agents/plan-orchestrator.md:179-183` (added in `301683e`); `CLAUDE.md:115` (rewritten
+in `bb615e0`); cross-referenced against `internal/turn/report.go` (unchanged) and the absence of any
+caller of `internal/github.CreateSubIssues` / `internal/report.Reporter.RenderSubIssue` outside
+`internal/github` and `internal/report` themselves.
+**Story:** C1 / T-C1.8 and T-C1.13
+**Category:** Cross-story consistency / accuracy of a production-facing claim
+**Finding:** `301683e` rewrote plan-orchestrator's Exit step to state, in the present tense and without
+qualification:
+
+> Write each story's sub-issue body in full and in the format above ... into `$session/`, one file per
+> story, named for its story ID. Those files are the handoff, and writing them is the whole of your
+> part. You hold no tool that reaches the forge and you are not to go looking for one: **litefactory
+> creates the sub-issues itself, after your run, from the bodies you wrote.** This is the same
+> arrangement that already turns your final message into a comment on the issue — you write the text,
+> litefactory posts it — **and the sub-issue creation capability it uses now exists.**
+
+`bb615e0` then baked the same claim into `CLAUDE.md` itself, the file every mode gate is read from:
+
+> **The single-file plan is retired.** ... a Plan run writes `plan_brief.md` **and creates the
+> per-story sub-issues described above**, and the Implement mode gate below requires `plan_brief.md`.
+
+Both statements are false as shipped. `7232442` built `internal/github.CreateSubIssues` and
+`internal/report.Reporter.RenderSubIssue` at the library level — well-designed, well-tested, verified
+clean above — but **nothing in this repository calls either of them outside their own package's
+tests.** There is no daemon hook, CLI command, or any other mechanism that reads the per-story files
+plan-orchestrator is now instructed to write to `$session/`, turns them into `report.Story` values, and
+posts them via `github.CreateSubIssues`. The analogy the doc draws — "the same arrangement that already
+turns your final message into a comment" — does not hold on inspection: that existing mechanism
+(`internal/turn/report.go`'s `Reporter.ReportRun`) posts from the harness's captured `Result` (exit code
++ final assistant message text), not from files written to `$session/`; there is no generic
+file-in-`$session/`-becomes-forge-post pipeline for it to be "the same arrangement" as. The task table
+for C1 (T-C1.3, .4, .6, .7, .11, .12) built the Go capability; no task anywhere in C1 built or asked for
+the piece that invokes it after a real Plan-mode run.
+
+The practical consequence, if the gate ships as-is: a real `/plan` run today follows
+`plan-orchestrator.md`'s instructions, writes one file per story under `$session/`, and — because
+nothing reads them — never gets a working sub-issue link for a single row. `plan_brief.md`'s Story Index
+ships with either no links or links the orchestrator has no way to have obtained honestly, directly
+failing **AC-C1.3a** ("Every Story Index row in `plan_brief.md` carries a working sub-issue link. A row
+without one is a failing outcome"). And because `bb615e0` flips `CLAUDE.md`'s Implement gate to
+`plan_brief.md` on the strength of this same false claim, it violates the story's own explicit
+condition, stated in the Architecture Notes and restated as **AC-C1.8**: *"The gate flip did not merge
+before sub-issue creation worked. A window in which the gate names an artifact whose stories have
+nowhere to live is a failing outcome."* Sub-issue creation does not work end-to-end — only one of its
+two halves (the Go client) does — so the gate flip is exactly the failing outcome AC-C1.8 was written to
+prevent, and it shipped anyway, gated on a documentation claim rather than on the thing the claim
+describes.
+
+This is a sequencing failure, not a coding bug: the Go work (`7232442`) is sound, and the docs work
+(`301683e`, `bb615e0`) is internally consistent and well-written — it is simply describing a system that
+does not exist yet.
+**Required fix:** One of two paths, and it is a planning decision as much as an engineering one, not a
+single file's bug fix:
+1. Add and land the missing piece — something (a daemon hook, a CLI subcommand invoked at the end of a
+   Plan-mode session, or equivalent) that reads the per-story files `plan-orchestrator.md` now instructs
+   the agent to write, builds `report.Story` values from them, and calls `Reporter.RenderSubIssue` then
+   `Client.CreateSubIssues` against the parent issue — before the gate flip is allowed to stand. This is
+   new scope C1's task table never assigned; it needs its own task (and probably its own architect
+   hint), not a quiet patch.
+2. Or, revert `bb615e0`'s gate flip (`CLAUDE.md`'s Implement gate back to `IMPLEMENTATION_PLAN.md`,
+   restore the six agent files' transitional fallbacks) and rewrite `301683e`'s Exit-step claim to
+   describe the Go capability honestly as built-but-not-yet-invoked, until the wiring above exists.
+
+Either way, the current state — gate flipped, docs asserting a working mechanism, no code path that
+makes it true — cannot stand as the closing commit of this feature.
+
+## ADVISORY findings
+
+### CR-A-010: `SubIssueSpec.Marker`'s doc comment claims a stricter check than `checkSubIssueSpecs` performs
+**File:** `internal/github/subissues.go:79` (doc comment) and `:453` (the actual check, inside
+`checkSubIssueSpecs`)
+**Story:** C1 / T-C1.11
+**Category:** Idiom / accuracy of doc comment vs. implementation
+**Finding:** `SubIssueSpec.Marker`'s doc comment states the contract precisely: *"It must be what Body
+begins with, and that is checked rather than trusted."* The actual check is
+`hasMarkerLine(spec.Body.String(), spec.Marker)`, which iterates every line of `Body` and returns true
+if **any** line has `Marker` as a prefix — not specifically the first line. A `Body` whose marker sits on
+line two (with, say, a stray blank or comment line before it) would pass this validation despite not
+"beginning with" the marker at byte zero, contradicting both the doc comment here and the byte-zero
+invariant `report/marker.go` documents for the self-filter (S-8): "both renderers write it at byte zero
+and nothing else in a body may begin a line with it." In practice `Reporter.RenderSubIssue` always
+places the marker at byte zero, so this gap is not currently reachable through the one caller-path that
+exists, and `findSubIssue`'s use of the same helper against real GitHub bodies is a deliberately looser
+search (any line, since a human could have edited the issue) — so this is not raised as BLOCKING. But
+the specific safety property `checkSubIssueSpecs` is documented as enforcing ("that is checked rather
+than trusted") is not the property it actually enforces, which matters once anything else starts
+constructing a `SubIssueSpec` (see CR-B-001 — the eventual caller that reads files from `$session/` is
+exactly the kind of new code that could get this wrong).
+**Suggestion:** Either tighten the check to `strings.HasPrefix(spec.Body.String(), spec.Marker)` for
+this specific validation (distinct from `findSubIssue`'s intentionally looser any-line search), or
+soften the doc comment to say what is actually checked ("appears at the start of some line" rather than
+"is what Body begins with").
+
+---
+
+## Cross-story summary
+
+The Go half of this story (`7232442`) is excellent: the AC-C1.1a identifier trap is documented, tested
+with three-way-distinguishable fixtures, and given its own validator (`checkIssueID` alongside
+`checkIssueNumber`) so the two identifier kinds are named at every call site; both of C1's pre-flight
+conflicts (no backoff — resumability instead; no third `MarkerPrefix`) were honoured exactly as the
+pre-flight instructed rather than silently reversed; `internal/github` still imports nothing from
+`internal/report`, preserving `TestNoForgeAbstraction`; and all four independently-run verification
+commands (`gofmt`, `go vet`, `go test -race -cover`, `make lint`) are clean. The docs commits
+(`301683e`, `bb615e0`) are individually well-written, internally consistent, and the 18 transitional-
+fallback removals in `bb615e0` are exact, unweakened edits with no `.go` file touched.
+
+The failure is at the boundary between the two: the docs commits describe C1 as a closed loop — a Plan
+run writes files, litefactory turns them into sub-issues, the Story Index resolves — and gate the whole
+feature's completion on that description being true, when only the Go-library half of it exists. This
+is the one place in this story where "review the docs commits for an overclaim about something that
+already works end-to-end" (this review's own brief) turns up a real gap, and it is the load-bearing one:
+AC-C1.8 names this exact scenario as the failing outcome the story was structured to prevent, and it is
+the scenario the story shipped in.
+
+## Verdict
+
+BLOCKING — 1 issue (CR-B-001) must be resolved before this story can close; testing/environment setup
+should not proceed on C1 until the sequencing gap is fixed or the gate flip is reverted. 1 advisory
+(CR-A-010) noted, not blocking. Routing CR-B-001 back for a decision between the two required-fix paths
+above — this is as much a scope/sequencing question for the orchestrator (and likely the user) as it is
+a single engineer's fix, since no task in C1's table assigned the missing wiring.
