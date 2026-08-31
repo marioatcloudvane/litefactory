@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	gogithub "github.com/google/go-github/v90/github"
+
+	"github.com/cloudvane/litefactory/internal/redact"
 )
 
 // StateOpen is the one issue state litefactory acts on.
@@ -19,6 +22,20 @@ const StateOpen = "open"
 
 // Issue is a GitHub issue. Pull requests never appear here — see [Client.ListIssues].
 type Issue struct {
+	// ID is the issue's database id: the identifier GitHub mints for the
+	// object, which is not its number.
+	//
+	// The two are separate fields because GitHub's sub-issue API addresses the
+	// parent by its *number*, in the path, and the child by its *id*, in the
+	// body — both int64, both integers on the wire, and passing one where the
+	// other belongs links the wrong issue with no error at all (AC-C1.1a).
+	// Keeping both on this struct is what lets [Client.CreateSubIssues] hand
+	// each of the two calls the identifier it actually wants, and
+	// TestTheSubIssueRequestCarriesTheChildsDatabaseID is what proves it does.
+	//
+	// Nothing outside sub-issue creation reads it; it rides on the payload
+	// every other field here comes from, so it costs no extra request.
+	ID int64
 	// Number is the issue number, the one that appears in the task ref.
 	Number int
 	// Title is the issue title. The feature slug is derived from it.
@@ -233,6 +250,7 @@ func convertIssue(payload *gogithub.Issue) Issue {
 		return Issue{}
 	}
 	return Issue{
+		ID:        payload.GetID(),
 		Number:    payload.GetNumber(),
 		Title:     payload.GetTitle(),
 		Body:      payload.GetBody(),
@@ -284,4 +302,122 @@ func labelNames(payloads []*gogithub.Label) []string {
 		names = append(names, payload.Name)
 	}
 	return names
+}
+
+// IssueTitleSizeLimit is the largest issue title this package will send, in
+// bytes.
+//
+// It is litefactory's own ceiling rather than a documented GitHub one: the
+// create-issue endpoint does not publish a maximum title length, and inventing
+// a number and calling it GitHub's would be a claim nobody here verified. What
+// this does is refuse locally what would otherwise come back as a 422 with no
+// explanation, and bound what a title can be before it stops being a title.
+//
+// internal/report cuts a story title to a quarter of this before it ever
+// reaches here. The headroom between the two is deliberate: redaction runs
+// after that cut and replaces a matched token with a longer literal, so a title
+// can only grow on its way to this check.
+const IssueTitleSizeLimit = 1024
+
+// CreateIssue opens an issue and returns it, carrying both the number GitHub
+// gave it and its database id.
+//
+// # Both identifiers, on purpose
+//
+// The returned [Issue.ID] is what [Client.AddSubIssue] needs and the returned
+// [Issue.Number] is what a link and a task ref need. They are different
+// identifiers for the same object, and the sub-issue API asks for one of each
+// in a single call, so this returns both rather than making a caller fetch the
+// issue a second time to learn the other (AC-C1.1a).
+//
+// A response carrying neither is refused as an unexpected status rather than
+// returned as a zero-valued issue: an id of 0 handed to the attach step would
+// address no issue at all, and "the sub-issue was linked to nothing" is not a
+// failure that should have to be discovered by looking at the forge.
+//
+// # The parameter types are the point
+//
+// Both the title and the body are [redact.Body], for the reason
+// [Client.PostComment]'s body is: that type has no exported constructor, so the
+// only way to obtain one carrying text is [redact.Redactor.Apply], and "create
+// an issue whose title or body has not been through the S-7 pass" is not an
+// expressible program (AC-4.6). A title is as public as a body and is quoted in
+// every notification GitHub sends about the issue.
+func (c *Client) CreateIssue(ctx context.Context, repo Repo, title, body redact.Body) (Issue, error) {
+	if err := repo.Validate(); err != nil {
+		return Issue{}, err
+	}
+	if err := checkIssueTitle(title); err != nil {
+		return Issue{}, fmt.Errorf("github: create issue in %s: %w", repo, err)
+	}
+	if err := checkIssueBody(body); err != nil {
+		return Issue{}, fmt.Errorf("github: create issue in %s: %w", repo, err)
+	}
+
+	payload, _, err := do(ctx, c, func(ctx context.Context) (*gogithub.Issue, *gogithub.Response, error) {
+		// Every other field of CreateIssueRequest is omitempty, so this
+		// marshals to exactly {"title": …, "body": …}: no labels, no
+		// assignees, no milestone. A sub-issue is filed by litefactory and
+		// belongs to whoever the plan is for, and assigning or labelling it
+		// here would be litefactory deciding something nobody asked it to.
+		return c.api.Issues.Create(ctx, repo.Owner, repo.Name, gogithub.CreateIssueRequest{
+			Title: title.String(),
+			Body:  gogithub.Ptr(body.String()),
+		})
+	})
+	if err != nil {
+		return Issue{}, fmt.Errorf("github: create issue in %s: %w", repo, err)
+	}
+	if payload.GetID() == 0 || payload.GetNumber() == 0 {
+		return Issue{}, fmt.Errorf("github: create issue in %s: %w: response carried no issue id or number",
+			repo, ErrUnexpectedStatus)
+	}
+
+	issue := convertIssue(payload)
+	// Info, not debug: this is the one call in this package that creates
+	// something durable on the forge, and the record of what it created is
+	// worth having in daemon.log without turning debug on.
+	c.logger().InfoContext(ctx, "github: created issue",
+		slog.String("repo", repo.String()),
+		slog.Int("issue", issue.Number),
+		slog.Int64("issue_id", issue.ID),
+	)
+	return issue, nil
+}
+
+// checkIssueTitle refuses a title that cannot be sent as one.
+//
+// A newline is refused rather than stripped: this package does not silently
+// rewrite what a caller asked it to publish, and internal/report already
+// one-lines a title before it gets here, so a multi-line one arriving means the
+// caller skipped the renderer — which is exactly what should fail loudly.
+func checkIssueTitle(title redact.Body) error {
+	switch {
+	case !title.Valid():
+		return fmt.Errorf("%w: title did not come from redact.Apply", ErrInvalidArgument)
+	case title.Len() == 0:
+		return fmt.Errorf("%w: title is empty", ErrInvalidArgument)
+	case title.Len() > IssueTitleSizeLimit:
+		return fmt.Errorf("%w: title is %d bytes, the limit is %d",
+			ErrInvalidArgument, title.Len(), IssueTitleSizeLimit)
+	case strings.ContainsAny(title.String(), "\r\n"):
+		return fmt.Errorf("%w: title contains a line break", ErrInvalidArgument)
+	}
+	return nil
+}
+
+// checkIssueBody refuses a body that cannot be sent as one. An issue body is
+// held to the same size limit as a comment, which is the limit internal/report
+// assembles against.
+func checkIssueBody(body redact.Body) error {
+	switch {
+	case !body.Valid():
+		return fmt.Errorf("%w: body did not come from redact.Apply", ErrInvalidArgument)
+	case body.Len() == 0:
+		return fmt.Errorf("%w: body is empty", ErrInvalidArgument)
+	case body.Len() > CommentSizeLimit:
+		return fmt.Errorf("%w: body is %d bytes, the limit is %d",
+			ErrInvalidArgument, body.Len(), CommentSizeLimit)
+	}
+	return nil
 }

@@ -66,12 +66,20 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 
 	want := []string{
 		"AddCommentReaction",  // POST …/issues/comments/{id}/reactions
+		"AddSubIssue",         // POST /repos/{o}/{r}/issues/{n}/sub_issues
 		"AuthenticatedUser",   // GET  /user
+		"CreateIssue",         // POST /repos/{o}/{r}/issues
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
 		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=open
+		"ListSubIssues",       // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
+		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
+		// once, then CreateIssue and AddSubIssue per story that needs them.
+		// It is pinned all the same, because "file a plan on the forge" is a
+		// thing litefactory can do to a forge and LF-18 will have to say how.
+		"CreateSubIssues",
 		// BaseURL reads a field rather than calling the API.
 		"BaseURL",
 	}

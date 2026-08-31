@@ -51,9 +51,32 @@
 // credential path is one thing to guard.
 //
 // (The prose here said "six endpoints" while the surface test said seven. Seven
-// was correct: ListCommentsAfter, ListCommentedIssues, PostComment,
-// AddCommentReaction, ListIssues, GetIssue and AuthenticatedUser. BaseURL is
-// the eighth method and reads a field.)
+// was correct at the time D1 landed: ListCommentsAfter, ListCommentedIssues,
+// PostComment, AddCommentReaction, ListIssues, GetIssue and AuthenticatedUser.
+// Three more arrived with the story the SDK was adopted for, below; the current
+// list is TestClientMethodSetIsPinned's, which is the one that fails when it
+// stops being true.)
+//
+// # Sub-issues, and two identifiers that look alike
+//
+// C1 is what the SDK was adopted for: a plan ships as one GitHub issue per user
+// story, each attached to the issue the plan was asked for on. Three endpoints
+// do it — CreateIssue, AddSubIssue, ListSubIssues — and CreateSubIssues files a
+// whole plan out of them.
+//
+// The sharp edge is not the transport. The add endpoint addresses the *parent*
+// by its issue number, in the path, and the *child* by its database id, in the
+// body. Both are integers, both are int64 by the time they reach the SDK, and
+// swapping them links a real issue to the wrong parent and returns 201. Nothing
+// in the type system separates them, so [Issue] carries the id alongside the
+// number and a test — not a convention — is what holds the two apart. See
+// subissues.go, which says which is which at every call site.
+//
+// A plan is also a loop of writes against an endpoint GitHub documents a
+// secondary rate limit on. This package still does not wait: CreateSubIssues
+// stops at the first failure, reports what it filed, and is re-runnable,
+// finding its own earlier work through the marker each body carries. Resuming
+// beats sleeping here because it survives the process being killed.
 //
 // # Identity is numeric
 //

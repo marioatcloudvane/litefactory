@@ -85,3 +85,17 @@ func checkCommentID(id int64) error {
 	}
 	return nil
 }
+
+// checkIssueID rejects an issue database id no forge would ever mint.
+//
+// It is separate from [checkIssueNumber] rather than a widening of it because
+// the two identify an issue in different ways — the number is what appears in a
+// URL and a task ref, the id is GitHub's own object identifier — and the
+// sub-issue API wants one of each in a single call. Two validators mean the two
+// values are named at every call site that uses them (AC-C1.1a).
+func checkIssueID(id int64) error {
+	if id <= 0 {
+		return fmt.Errorf("github: issue id %d: %w: must be positive", id, ErrInvalidArgument)
+	}
+	return nil
+}

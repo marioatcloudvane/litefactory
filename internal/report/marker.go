@@ -69,3 +69,28 @@ func StatusMarker(ref naming.Ref, run int) string {
 func ReplyMarker(ref naming.Ref) string {
 	return fmt.Sprintf("%sreply task=%s -->", MarkerPrefix, ref)
 }
+
+// StoryMarker renders the marker for the sub-issue a user story ships as:
+//
+//	<!-- lf:story task=github:acme/acme-api#123 story=C1 -->
+//
+// It carries the *parent* task ref — the issue the plan was asked for on — and
+// the story's own id within that plan. The pair is the identity of one
+// sub-issue: it is what a later run looks for among the parent's sub-issues
+// before creating anything, so that a bulk creation interrupted halfway can be
+// re-run without filing every story a second time (AC-C1.4).
+//
+// Both halves are interpolated verbatim, so both are validated first. The ref
+// is [naming.Ref.Validate]'s job, as it is for [StatusMarker]; the story id is
+// [Reporter.RenderSubIssue]'s, which refuses anything outside the shape a plan
+// gives a story. That is what confines the marker to characters which cannot
+// close the HTML comment early and leave the rest of it rendered on the page.
+//
+// It begins with [MarkerPrefix] like the other two, which has a second
+// consequence here that it does not have for a comment: a sub-issue *body*
+// carrying this marker is a body the self-filter reads as litefactory's own, so
+// the daemon will not take a story it wrote itself as an instruction to run
+// (S-8, AC-2.14).
+func StoryMarker(ref naming.Ref, storyID string) string {
+	return fmt.Sprintf("%sstory task=%s story=%s -->", MarkerPrefix, ref, storyID)
+}
