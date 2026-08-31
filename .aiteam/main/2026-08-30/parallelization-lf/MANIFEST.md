@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
-- [~] **Implement** — code + tests *(partial — sequencing steps 1-9 landed green; stopped at the red-commit boundary before T-PAR-9, by owner instruction)*
+- [x] **Implement** — code + tests *(done — run 2 crossed the red-commit boundary; concurrent dispatch is live and the suite is green)*
 - [x] **Spike** — `SPIKE.md` *(done — the two empirical gates)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -80,3 +80,28 @@ What should change:
 3. Different repositories are polled/worked concurrently.
 4. Different issues within the same repo run concurrently — a run on issue #7
    must not block a new issue #8 in the same repo from starting.
+
+- 2026-08-31 — Implement, run 2. Crossed the red-commit boundary. Five commits on
+  `lf/parallelization` after the `origin/main` merge at `6f068f5`:
+  `f0aa5a2` (the clone gate's third critical section — a real bug the merge
+  introduced, caught by the package's own structural test), `f565ba2` (the
+  necessarily-red commit: T-PAR-5, 6, 7, 8, 9, 13, 15, 22 as one unit),
+  `256a8d9` (T-PAR-35, T-PAR-23, CR-A-003), `80fbfad` (the code review record)
+  and `480bc47` (T-PAR-10, 14, 16, 17, 24, 25 — the concurrency criteria tests).
+
+  **Concurrent dispatch is live.** `Daemon.offer` calls `inflight.enter` then
+  `pool.try` and spawns the worker; `Tick` returns without waiting for it. The
+  poll cursor is a pure monotonic watermark and re-discovery runs off
+  `sessions.needs_poll`.
+
+  `go test -race ./...` green across all 19 packages; `internal/daemon` green
+  over 20 consecutive runs; gofmt and vet clean. Code review verdict
+  **ADVISORY_ONLY** — 0 blocking; CR-A-001 and CR-A-003 closed in code, CR-A-002
+  accepted and documented.
+
+  One flaky test was found and fixed by construction rather than by luck: the
+  AC-PAR-1.6 refill test had treated a posted report as if it meant a freed
+  slot, which it does not. See `notes.md`.
+
+  Not done: T-PAR-21, 33 (daemon-driven part), 36, 37, 38 and the whole of
+  User Story 7 (T-PAR-41..46, the written record). See `DRIFT_REPORT.md`.
