@@ -86,3 +86,119 @@ explicitly.
 **CLEAN** — delivered matches the plan. The one substantial addition (CS3) was
 forced by code that arrived from `origin/main` after the plan was written, and it
 extends an existing task rather than inventing a new direction.
+
+---
+
+# Drift Report — parallelization-lf (run 3)
+# Branch: lf/parallelization | Date: 2026-08-31
+
+Run 3 covers **User Story 7 — "The record"** (T-PAR-41..46) and nothing else.
+Runs 1 and 2 landed Stories 1-6; this run landed the written record of them.
+
+## Delivered as planned
+
+- **T-PAR-41** — `.aiteam/AC_AMENDMENTS.md`'s header widened to admit
+  acceptance criteria, decisions, rulings and deferrals; "the AC id" generalised
+  to "the identifier (`AC`, `D`, `P`, `SD`, …)"; the `Status` vocabulary extended
+  with *ruled*, *amended*, *reviewed, unchanged* and *deferred*; the ***Applies
+  to*** line added for entries that settle rather than amend. The rejected
+  sibling `DECISION_AMENDMENTS.md` is recorded with the reason, naming the two
+  earlier session-local ledgers that were specified and never written.
+- **T-PAR-42** — 17 entries. AC-PAR-8.1 (the D-X ruling, with the record
+  correction that D-X was never superseded), AC-PAR-8.2 (the AC-FC-2.6
+  distinction, recorded as *not* an amendment), RD-6's no-`recover()` ruling
+  against AC-3.3, and RD-12's AC-2.8 payoff with AC-2.9 recorded as reviewed and
+  unchanged. Of the 21 identifiers AC-PAR-8.3 names: **16 amended** (AC-2.1,
+  2.8, 2.12, 2.13, 2.17, 2.21, 3.1, 3.5, 3.8, 3.9, 3.10, 3.20, 3.22, D-A, D-B,
+  P-3), **2 ruled** (D-X, AC-3.3), **5 reviewed and left standing** with reasons
+  (AC-2.9, AC-3.2, D-7, SD-1, AC-FC-2.6). No identifier was left unaccounted for.
+- **T-PAR-43** — pointer lines under the AC-2 and AC-3 tables in
+  `lf-setup/IMPLEMENTATION_PLAN.md`, verbatim in form from the `:237` precedent.
+- **T-PAR-44** — the RD-11 corrections. Four sites were already paid off in
+  run 2 (`daemon/doc.go`, `turn/doc.go`, `daemon.go`'s goroutine inventory and
+  its mutable-state paragraph, `tick.go`'s log line) and were verified rather
+  than rewritten. The four outstanding ones landed: `turn/execute.go`'s log line,
+  `git/clone.go`'s concurrency claim with the measured contention figures,
+  `store/store.go`'s now-load-bearing queueing sentence, and `turn/prepare.go`'s
+  `previousRun` justification restated against N in-flight sessions.
+- **T-PAR-45** — both tests, in `internal/daemon/record_test.go`. Each was
+  deliberately broken and observed to fail before being reverted and committed.
+- **T-PAR-46** — the deferral register: the per-repo bound (with the one-extra-
+  counter seam described against the real `Daemon.offer`), the
+  `naming.WorktreePath` repo component, the LF-11 view, and the `runs` owner
+  column recorded as *rejected* rather than deferred. `Daemon.Quiesce` is
+  documented as the sole exported API the feature adds, production-used and not
+  a test seam, and named as the LF-11 attachment point.
+- **The Sequencing constraint was honoured** — T-PAR-41, 42 and 43 landed as one
+  commit (`5c48b4d`). The ledger was never left widened-without-entries or
+  entries-without-pointers.
+
+## Added scope
+
+- **A fifth pointer line**, under `lf-setup`'s Settled Decisions table. The plan
+  specified pointers under the AC-2 and AC-3 tables only, but D-A, D-B and D-7
+  were amended and D-X ruled on — all of which live in that table. Leaving it
+  unpointed would have left the record in exactly the state the ledger's own
+  rule forbids, which is what the "land 41/42/43 together" note exists to
+  prevent. In-spirit, not a new direction.
+- **A fifth RD-11 site: `tick.go`'s `TickResult.Repos` doc comment**, which
+  claimed one listing per repository was "the whole per-tick API cost (AC-2.8)".
+  Not in the RD-11 table, but false, and false about a criterion this very story
+  amends. Corrected in `0c29ff1` under AC-PAR-8.4's plain wording.
+- **CR-A-004 taken rather than filed** (`cfe14fb`). The review found the new
+  `clone.go` paragraph merged two distinct measurements (37% printed the
+  config-lock error, 25% lost the upstream) into one sentence, over-claiming a
+  co-occurrence `SPIKE.md` explicitly says was never chased. An advisory would
+  normally be recorded and deferred; it was fixed because a fresh overclaim in
+  the story that exists to end overclaiming is the defect class itself.
+
+## Dropped or deferred
+
+- Nothing in T-PAR-41..46 was dropped.
+- **AC-FC-2.6's missing test seam was recorded, not fixed.** Its subject ships as
+  `daemon.ListingOverlap`, a bare exported const with no `daemon.Options`
+  override — so the criterion names a constant that does not exist under that
+  name (`config.go:63` still says `CursorLookback`) *and* the seam it promised
+  was never built. Both predate this work and neither is in the RD-11 table, so
+  the ledger entry records them honestly and the code was left alone. Fixing it
+  would have been scope creep; it is written down in `notes.md` for a later pass.
+
+## Architectural deviations
+
+- **`lf-setup:58` got a pointer line, not a rewrite.** The RD-11 table said
+  "reconcile both to the RD-10 text" for the two live goroutine inventories. The
+  `APP_CONTEXT.md` bullet — a living document — carries the reconciled text and
+  its previous hedge ("this paragraph may still disagree… T-PAR-44's status was
+  not reverified") is gone. The `lf-setup` statement is in an **archived plan**,
+  and both `CLAUDE.md` and the ledger's own header forbid editing an archive into
+  agreement with the present: "an old plan that has been edited into agreement
+  with the present is no longer evidence of anything." It therefore keeps its
+  original sentence and gains a pointer naming the one canonical text, which now
+  lives in the ledger. The plan's requirement — one text, not two disagreeing
+  ones — is met; the mechanism is the repository's existing convention rather
+  than the literal rewrite the table implied.
+- **Two engineers on one user story**, split by disjoint file ownership (the
+  `.aiteam/` record vs. the `internal/` doc comments) rather than the usual one
+  engineer per story. Process, not product; it kept the 41→42→43 chain inside a
+  single agent while the independent T-PAR-44 pass ran beside it.
+
+## Three plan claims the tree contradicted
+
+Recorded because the record is this story's subject, and because the engineers
+corrected the prose rather than copying the plan:
+
+1. **RD-9's secondary-limit probe has not shipped.** T-PAR-36 is known-open;
+   `RateLimitError.Secondary` is logged and nothing more. The deferral entry says
+   the plan *expresses* the dispatch-time ceiling, not that it exists.
+2. **AC-FC-2.6's subject is `daemon.ListingOverlap`, not `CursorLookback`**, and
+   it carries no `Options` override. See above.
+3. **The shutdown join is `defer d.pool.wait()` in `loop` plus `close(done)` in
+   `Run`'s wrapper goroutine**, not the two defers in `loop` the plan describes.
+   Same effect; the ledger describes what is there.
+
+## Verdict
+
+**CLEAN** — delivered matches the plan. The three additions are all corrections
+of the same class the story was written to make, found while making it, and the
+one methodological deviation (`lf-setup:58` pointed at rather than rewritten)
+follows the repository's own archive rule over the plan's looser wording.

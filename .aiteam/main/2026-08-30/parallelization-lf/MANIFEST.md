@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `IMPLEMENTATION_PLAN.md` *(done)*
-- [x] **Implement** — code + tests *(done — run 2 crossed the red-commit boundary; concurrent dispatch is live and the suite is green)*
+- [x] **Implement** — code + tests *(done — run 3 landed User Story 7, the written record. All 46 tasks complete; suite green under -race)*
 - [x] **Spike** — `SPIKE.md` *(done — the two empirical gates)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -105,3 +105,37 @@ What should change:
 
   Not done: T-PAR-21, 33 (daemon-driven part), 36, 37, 38 and the whole of
   User Story 7 (T-PAR-41..46, the written record). See `DRIFT_REPORT.md`.
+- 2026-08-31 — **Implement run 3 — User Story 7, "The record" (T-PAR-41..46).**
+  Seven commits, `195a0f4..b4f1f77`. The story is documentation: it wrote the
+  written record of the concurrency feature runs 1 and 2 shipped.
+  `.aiteam/AC_AMENDMENTS.md` went from an acceptance-criteria-only ledger to one
+  admitting **amendments, rulings, reviews and deferrals** (69 → ~1350 lines):
+  the D-X ruling with the correction that D-X was never superseded, the
+  AC-FC-2.6 distinction recorded as explicitly *not* an amendment, 16 amended
+  criteria, 2 rulings, 5 reviewed-and-left-standing, and a deferral register.
+  Five pointer lines were added to two archived plans, which keep their original
+  text — the convention is that an archive edited into agreement with the
+  present is no longer evidence. The four outstanding RD-11 doc sites were
+  corrected (`git/clone.go`, `store/store.go`, `turn/execute.go`,
+  `turn/prepare.go`), plus a fifth found in passing (`tick.go`'s
+  `TickResult.Repos`); four more had already been paid off in run 2 and were
+  verified rather than rewritten.
+  **Tests: 19 packages green under `-race`, 0 failed, no escalation.**
+  T-PAR-45 added `internal/daemon/record_test.go` — two structural tests, each
+  deliberately broken and observed to fail before being committed.
+  Code review **ADVISORY_ONLY**, zero BLOCKING. CR-A-004 (false precision: two
+  distinct push measurements folded into one sentence) was **taken rather than
+  filed**, because a fresh overclaim inside the story that exists to end
+  overclaiming is the defect class itself.
+  Drift **CLEAN**. Three additions, all in-class: a fifth pointer line under
+  `lf-setup`'s Settled Decisions table, the `tick.go` site, and the CR-A-004 fix.
+  One methodological deviation: `lf-setup:58` was pointed at rather than
+  rewritten, following the repository's archive rule over the plan's looser
+  "reconcile both" wording.
+  Three plan claims the tree contradicted and the record now states correctly:
+  RD-9's secondary-limit probe has not shipped (T-PAR-36 open); AC-FC-2.6's
+  subject ships as `daemon.ListingOverlap`, not `CursorLookback`, and never got
+  the `Options` seam it promised; and the shutdown join is one defer in `loop`
+  plus `close(done)` in `Run`'s wrapper, not two defers in `loop`.
+  Known-open and untouched by design: T-PAR-21, 33, 36, 37, 38, CR-A-002.
+  **Not pushed** — the branch has no upstream; the owner pushes after a rebuild.
