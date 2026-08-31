@@ -78,6 +78,12 @@ const subIssueCommitSummary = "litefactory: record this plan's sub-issue links i
 // only commit1's fields, so a litefactory-authored edit folded into it would
 // make the report claim something claude never did.
 //
+// Because the forge round-trip sits between the two, commit2 and push2 are
+// also the turn's *third* critical section against the registered clone —
+// [commitStoryIndex], which is where the clone gate is taken and where the
+// reasoning for a third section rather than a wider second one is written
+// down.
+//
 // # What this must never touch
 //
 // result.Changes, result.SHAAfter, result.CommitSHA, result.Committed,
@@ -96,7 +102,8 @@ const subIssueCommitSummary = "litefactory: record this plan's sub-issue links i
 // already about to be reported as having succeeded, must not be turned into
 // a failure by something that happens after its own work is done. A batch
 // that stops partway, a write-back that cannot be committed, a push that
-// cannot reach the remote — all of them leave real, already-filed GitHub
+// cannot reach the remote, a clone gate that cannot be taken because the
+// daemon is shutting down — all of them leave real, already-filed GitHub
 // issues in place and an unresolved Story Index row for the next turn on this
 // task to pick up, whatever that next turn turns out to be.
 func fileStoryIssues(
@@ -188,6 +195,93 @@ func fileStoryIssues(
 		return result
 	}
 
+	sha, ok := commitStoryIndex(ctx, opts, prep, log)
+	if !ok {
+		return result
+	}
+
+	log.Info("filed the plan's sub-issues",
+		slog.Int("stories", len(specs)),
+		slog.String("commit", sha))
+	return result
+}
+
+// planbriefFileMode is the permission plan_brief.md is rewritten with — the
+// same permissive-but-not-executable mode `git add` itself would leave a
+// text file at, so a rewrite by litefactory cannot narrow what claude's own
+// writes to the file left it at.
+const planbriefFileMode = 0o644
+
+// commitStoryIndex is the turn's third critical section against the registered
+// clone: commit2 and push2 — the Story Index rewrite [fileStoryIssues] has
+// just written into this task's worktree — taken as one acquisition of
+// [Options.CloneGate], exactly as [commitAndPush] takes commit1 and push1.
+//
+// # Why this is a third section and not a fold into commitAndPush
+//
+// A turn with two git sections would be tidier, and it is not available. The
+// [SubIssueCreator.CreateSubIssues] round-trip sits between the two commits
+// and cannot be moved out from between them in either direction: commit1 must
+// already be on the remote before a single sub-issue may be filed, because
+// each one's technical-detail link is a permalink into it (a 404 otherwise —
+// report.Story.DetailSHA), and the rewrite this commits is made *of* the issue
+// numbers that round-trip returns. Folding the two commits into one
+// acquisition would therefore mean holding the clone gate across an unbounded
+// call to GitHub, which is the one thing the design refuses: the parallelism
+// this feature exists to deliver is the gap between the sections (AC-PAR-3.2),
+// and one slow forge would close that gap for every sibling turn on the same
+// clone. Three short sections with a network call outside all of them is the
+// trade; internal/turn/gate_test.go registers three for that reason and fails
+// on a fourth.
+//
+// # One acquisition, not two
+//
+// The commit and the push are one holder's, given back by one deferred release
+// when this returns (AC-PAR-3.3). They are one publication, so releasing
+// between them would let a sibling's push interleave with nothing gained. The
+// push is also the operation the gate is measured to be needed for, and this
+// one is no different from commit1's: at parallelism 4 on git 2.50.1, 60 of
+// 240 concurrent "push --set-upstream" from one clone lost the race for
+// .git/config and left the branch with no upstream at all, while still exiting
+// 0.
+//
+// # What stays outside, deliberately
+//
+// The [os.WriteFile] of plan_brief.md stays in [fileStoryIssues], above this
+// call. It writes a file inside this task's own worktree, which no sibling
+// turn shares and no sibling turn's git touches, so gating it would lengthen
+// the section without excluding anything. The forge call stays outside for the
+// reason above. This section is as short as the other two on purpose.
+//
+// # No deadline is imposed here
+//
+// As in [prepareClone] and [commitAndPush], the context is passed through
+// untouched, so the push's own 120 seconds start when it execs and not when
+// this turn joined the queue behind a sibling (AC-PAR-3.6).
+//
+// # Failure containment
+//
+// Every failure is a log line and ok == false — never an error and never a
+// mutation of the run's result — which is why this returns a bool rather than
+// an error at all. That is [fileStoryIssues]'s rule, and it extends to failing
+// to take the gate, which [commitAndPush] instead records on the result: a
+// cancelled acquisition here is the daemon shutting down while this turn
+// queued behind a sibling's git, and by this point the run's own work is
+// committed, pushed and about to be reported as a success, and the sub-issues
+// are already filed on GitHub. Turning that into a failed run would be
+// reporting the wrong answer to the issue. What is left undone is an
+// unresolved Story Index row, which the next turn on this task picks up.
+func commitStoryIndex(ctx context.Context, opts Options, prep *preparation, log *slog.Logger) (string, bool) {
+	release, err := opts.CloneGate.Acquire(ctx, prep.repo.Path)
+	if err != nil {
+		log.Error("take the clone gate to commit the Story Index rewrite",
+			slog.String("clone", prep.repo.Path),
+			slog.String("worktree", prep.worktree.Path()),
+			slog.Any("error", err))
+		return "", false
+	}
+	defer release()
+
 	commit, err := prep.worktree.Commit(ctx, git.CommitOptions{
 		Summary: subIssueCommitSummary,
 		Task:    prep.ref.String(),
@@ -198,13 +292,13 @@ func fileStoryIssues(
 	if err != nil {
 		log.Error("commit the Story Index rewrite",
 			slog.String("worktree", prep.worktree.Path()), slog.Any("error", err))
-		return result
+		return "", false
 	}
 	if !commit.Committed {
 		// Worktree.Commit stages everything and finds no diff — a retry that
 		// found nothing left to do, the same AC-3.23 shape [save] itself
-		// relies on. Nothing to push.
-		return result
+		// relies on. Nothing to push, and nothing worth an error line.
+		return "", false
 	}
 
 	if err := prep.worktree.Push(ctx, opts.remote()); err != nil {
@@ -212,20 +306,11 @@ func fileStoryIssues(
 			slog.String("branch", prep.session.Branch),
 			slog.String("worktree", prep.worktree.Path()),
 			slog.Any("error", err))
-		return result
+		return "", false
 	}
 
-	log.Info("filed the plan's sub-issues",
-		slog.Int("stories", len(specs)),
-		slog.String("commit", commit.SHA))
-	return result
+	return commit.SHA, true
 }
-
-// planbriefFileMode is the permission plan_brief.md is rewritten with — the
-// same permissive-but-not-executable mode `git add` itself would leave a
-// text file at, so a rewrite by litefactory cannot narrow what claude's own
-// writes to the file left it at.
-const planbriefFileMode = 0o644
 
 // locateSessionDir finds this task's aiteam session directory: the
 // repository-relative directory [naming.AITeamSessionDir] would have named

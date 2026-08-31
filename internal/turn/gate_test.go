@@ -7,8 +7,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -144,41 +146,80 @@ func TestExecuteRequiresACloneGate(t *testing.T) {
 //
 // A behavioural test for "the gate was not released between these two calls" is
 // awkward to write and easy to write wrongly. What is actually being defended
-// is a shape: the git of a turn is exactly two critical sections, each one
-// acquisition with one deferred release, and the calls that must not escape one
-// are called from nowhere else in the package. That is a property of the syntax
-// tree, so it is asserted against the syntax tree.
+// is a shape: the git of a turn is a small, named, registered set of critical
+// sections, each one acquisition with one deferred release, and every git call
+// that must be serialised is called from inside one of them and from nowhere
+// else in the package. That is a property of the syntax tree, so it is asserted
+// against the syntax tree.
 //
-// If this fails, someone split a section — most likely by gating each git call
-// separately, which reintroduces the resolveBranchStart-then-worktree-add
-// window the section exists to close.
+// # Why three sections and not two
+//
+// It was two — [prepareClone] and [commitAndPush] — and this test hardcoded
+// that. It is now three. [commitStoryIndex] publishes the sub-issue phase's
+// Story Index rewrite, and it could not be folded into [commitAndPush] because
+// a call to GitHub sits between them and cannot be moved out from between them
+// in either direction: the sub-issues may only be filed once commit1 is on the
+// remote for their detail links to resolve against, and the rewrite commit2
+// publishes is made of the issue numbers that call returns. One acquisition
+// spanning both would hold the clone across an unbounded forge round-trip,
+// closing for every sibling turn the exact gap AC-PAR-3.2 exists to keep open.
+// So the honest model is "a registered set of sections", not "two", and the
+// test is written that way.
+//
+// # Where the teeth are
+//
+// Generalising the model must not soften it, so the assertions are per call
+// rather than per section:
+//
+//   - Each gated call is allowed in a named set of sections and refused
+//     everywhere else. A new, ungated git write section — which is precisely
+//     how [commitStoryIndex] arrived, on a merge from main — fails here, on the
+//     new function's name.
+//   - Each gated call must appear in *every* section that claims it, so a
+//     section that quietly stops covering one is a failure rather than a
+//     silently narrowed guarantee.
+//   - The package-wide acquisition count must equal the number of registered
+//     sections, so a fourth acquisition anywhere fails until someone adds it to
+//     the sections map below on purpose and writes down why.
+//
+// If this fails, someone either added an ungated section or split an existing
+// one — most likely by gating each git call separately, which reintroduces the
+// resolveBranchStart-then-worktree-add window the section exists to close.
 func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	t.Parallel()
 
-	sections := map[string]struct {
-		file string
-		// exclusive names the calls that may appear inside this section and
-		// nowhere else in the package's non-test files.
-		exclusive []string
-	}{
-		"prepareClone": {
-			file:      "prepare.go",
-			exclusive: []string{"fetch", "freezeSlug", "ensureWorktree"},
-		},
-		"commitAndPush": {
-			file:      "harvest.go",
-			exclusive: []string{"Commit", "Push"},
-		},
+	// sections is every function in this package that may take the clone gate,
+	// mapped to the file it must be declared in.
+	sections := map[string]string{
+		"prepareClone":     "prepare.go",
+		"commitAndPush":    "harvest.go",
+		"commitStoryIndex": "subissues.go",
+	}
+
+	// gated names each call that must not happen outside a critical section,
+	// mapped to the sections it may appear in. Commit and Push have two homes
+	// because the turn publishes twice — see this test's doc comment for why
+	// the second publication cannot join the first.
+	gated := map[string][]string{
+		"fetch":          {"prepareClone"},
+		"freezeSlug":     {"prepareClone"},
+		"ensureWorktree": {"prepareClone"},
+		"Commit":         {"commitAndPush", "commitStoryIndex"},
+		"Push":           {"commitAndPush", "commitStoryIndex"},
 	}
 
 	funcs := packageFuncs(t)
-	for name, section := range sections {
+
+	// Map iteration order is not stable, and a failure message list that
+	// reorders between runs is a failure message that is harder to diff.
+	for _, name := range slices.Sorted(maps.Keys(sections)) {
+		file := sections[name]
 		fn, ok := funcs[name]
 		if !ok {
-			t.Fatalf("%s is not declared in package turn; CS1 and CS2 are named functions on purpose", name)
+			t.Fatalf("%s is not declared in package turn; every critical section is a named function on purpose", name)
 		}
-		if fn.file != section.file {
-			t.Errorf("%s is declared in %s, want %s", name, fn.file, section.file)
+		if fn.file != file {
+			t.Errorf("%s is declared in %s, want %s", name, fn.file, file)
 		}
 
 		if got := countCalls(fn.decl, "Acquire"); got != 1 {
@@ -192,32 +233,45 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 			t.Errorf("%s calls release() %d times outside a defer, want 0: "+
 				"a release that is not deferred is a release an early return skips", name, immediate)
 		}
+	}
 
-		for _, call := range section.exclusive {
-			for other, decl := range funcs {
-				if other == name {
-					continue
-				}
-				if countCalls(decl.decl, call) > 0 {
-					t.Errorf("%s calls %s, but %s may only be called from inside %s: "+
-						"moving it out of the critical section is what this test exists to catch",
-						other, call, call, name)
-				}
+	for _, call := range slices.Sorted(maps.Keys(gated)) {
+		allowed := make(map[string]bool, len(gated[call]))
+		for _, name := range gated[call] {
+			if _, ok := sections[name]; !ok {
+				t.Fatalf("%s is allowed to call %s but is not a registered section; "+
+					"a call may only be permitted inside a section this test also checks", name, call)
 			}
-			if countCalls(fn.decl, call) == 0 {
-				t.Errorf("%s does not call %s; the section no longer covers it", name, call)
+			allowed[name] = true
+		}
+
+		for _, other := range slices.Sorted(maps.Keys(funcs)) {
+			calls := countCalls(funcs[other].decl, call)
+			if allowed[other] {
+				if calls == 0 {
+					t.Errorf("%s does not call %s; the section no longer covers it", other, call)
+				}
+				continue
+			}
+			if calls > 0 {
+				t.Errorf("%s calls %s, but %s may only be called from inside %s: "+
+					"moving it out of a critical section — or adding a new, ungated one — "+
+					"is what this test exists to catch",
+					other, call, call, strings.Join(gated[call], " or "))
 			}
 		}
 	}
 
-	// Two sections, and no third acquisition hiding anywhere else.
+	// One acquisition per registered section, and no further acquisition hiding
+	// anywhere else in the package.
 	total := 0
 	for _, fn := range funcs {
 		total += countCalls(fn.decl, "Acquire")
 	}
-	if total != 2 {
-		t.Errorf("package turn acquires the clone gate %d times, want exactly 2 "+
-			"(one for prepareClone, one for commitAndPush)", total)
+	if total != len(sections) {
+		t.Errorf("package turn acquires the clone gate %d times, want exactly %d "+
+			"(one each for %s)", total, len(sections),
+			strings.Join(slices.Sorted(maps.Keys(sections)), ", "))
 	}
 }
 
@@ -320,7 +374,11 @@ func TestClaudeRunsOutsideTheCloneGate(t *testing.T) {
 	if deadlined != 0 {
 		t.Errorf("%d acquisitions carried an ambient deadline, want 0 (AC-PAR-3.6)", deadlined)
 	}
-	// Two turns, two sections each, one clone.
+	// Two turns, one clone, two sections each: prepareClone and commitAndPush.
+	// The turn's third section, commitStoryIndex, does not fire here — this
+	// fixture wires no SubIssueCreator or SubIssueRenderer, so fileStoryIssues
+	// returns on its first guard and never reaches a plan_brief.md to publish.
+	// A fixture that wired them and produced a Story Index would make this 6.
 	if got := acquisitions[f.storeRepo.Path]; got != 4 {
 		t.Errorf("the clone at %s was entered %d times, want 4 (two turns × two sections)",
 			f.storeRepo.Path, got)
@@ -460,6 +518,9 @@ func TestConcurrentTurnsAgainstTwoClones(t *testing.T) {
 		t.Errorf("acquisitions span %d clones, want %d: the gate is keyed on the clone path",
 			len(acquisitions), len(fixtures))
 	}
+	// Two sections per turn, for the same reason as in
+	// TestClaudeRunsOutsideTheCloneGate: no fixture here wires the sub-issue
+	// phase's dependencies, so commitStoryIndex never runs.
 	for _, f := range fixtures {
 		if got := acquisitions[f.storeRepo.Path]; got != 2*len(issues) {
 			t.Errorf("the clone at %s was entered %d times, want %d (three turns × two sections)",

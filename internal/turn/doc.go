@@ -57,8 +57,21 @@
 // parallelism 4: three quarters of concurrent fetches failing to lock a
 // remote-tracking ref, "worktree add" dying on a sibling's half-written
 // registry entry, "push --set-upstream" exiting 0 without writing an upstream.
-// So the git of a turn is two short critical sections, [prepareClone] and
-// [commitAndPush], and the claude run sits between them and inside neither.
+// So the git of a turn is three short critical sections — [prepareClone],
+// [commitAndPush] and [commitStoryIndex] — and the claude run sits between the
+// first two and inside none of them.
+//
+// The third is separate rather than folded into the second because a call to
+// GitHub sits between them and cannot be moved: [commitStoryIndex] publishes
+// the Story Index rewrite, and that rewrite is made of the issue numbers
+// CreateSubIssues returns, which in turn may only be asked for once
+// [commitAndPush] has put commit1 on the remote for the sub-issues to link
+// into. One acquisition spanning both would therefore hold the clone across an
+// unbounded forge round-trip, which is exactly the gap every sibling turn on
+// that clone is parallel in. Three short sections around the network call is
+// the trade, and internal/turn/gate_test.go pins the count at three so a
+// fourth has to be registered deliberately.
+//
 // The gate is injected rather than owned here for the same reason the clock is
 // not here: internal/daemon decides when turns happen, and how many at once is
 // part of when.
@@ -89,7 +102,11 @@
 // the remote is a guaranteed 404. So the phase does nothing at all unless the
 // run's own commit and push both succeeded, and its write-back is a second
 // commit rather than a fold into the run's — a run's report must list what
-// claude did, not what litefactory did afterwards.
+// claude did, not what litefactory did afterwards. That second commit and its
+// push are the turn's third critical section against the clone
+// ([commitStoryIndex]); everything else the phase does, including the forge
+// call and the rewrite of plan_brief.md inside this task's own worktree, is
+// outside the gate.
 //
 // Nothing the phase does can change the run's own outcome. It never writes
 // result.Changes, SHAAfter, CommitSHA, Committed, Pushed, Err, Outcome or
