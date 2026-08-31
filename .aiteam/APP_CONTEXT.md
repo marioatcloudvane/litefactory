@@ -321,12 +321,14 @@ deliberately rather than editing the test.
   returns without waiting for them — see "Concurrent turns" below for the shape.
   The one named termination condition for the worker pool is `Daemon.Quiesce`
   (`internal/daemon/pool.go`) — not a `select` on shutdown, and not a sleep.
-  **This paragraph may still disagree with `lf-setup/IMPLEMENTATION_PLAN.md:58`**,
-  which stated the old four-goroutine inventory as final; reconciling the two
-  documents was tracked as T-PAR-44 and its status was not reverified for this
-  update — trust this file over that line unless you have checked T-PAR-44's
-  disposition yourself. If you add a goroutine, say in a comment what bounds its
-  lifetime.
+  **The two documents are reconciled.** The one canonical text is the goroutine
+  inventory entry in `.aiteam/AC_AMENDMENTS.md`;
+  `lf-setup/IMPLEMENTATION_PLAN.md:60` keeps its original sentence and carries a
+  pointer to it. That sentence's `logs -f` tailer was the error — there is no
+  such goroutine, `litefactory logs -f` re-reads the run's JSONL synchronously on
+  the command's own goroutine — and the fourth fixed one is `main`'s
+  second-signal watcher, which this file had right all along. If you add a
+  goroutine, say in a comment what bounds its lifetime.
 - **A bad outcome is a value, not an error.** Across `turn`, `harness` and
   `daemon`, an operation that *happened and went badly* returns a result whose
   field says how; the `error` return is reserved for "could not be conducted or

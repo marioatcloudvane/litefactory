@@ -1179,3 +1179,165 @@ escape it was rejected for. What needed restating rather than changing is SD-1's
 *scope*: the sweep is per-run, so with N runs in flight there are N independent
 sweeps, and "the process subtree" in SD-1's text means one run's subtree, never
 the daemon's.
+
+---
+
+# Deferrals
+
+Things considered during a piece of work, deliberately not done, and **not
+rejected** either — recorded with the reason, and with what would have to be
+true to do them. A deferral that is really a rejection says so; the two are not
+the same and conflating them costs the next person a day.
+
+## Deferred: a per-repo concurrency bound (`repo add --max-parallel N`)
+
+- **Deferred:** 2026-08-31, plan
+  `.aiteam/main/2026-08-30/parallelization-lf/IMPLEMENTATION_PLAN.md` (D2,
+  AC-PAR-8.6)
+- **Status:** deferred, not rejected
+
+`max_concurrent_runs` is **one daemon-wide number shared by every registered
+repository**. A per-repo bound — a repository that should never have more than
+one turn against it, next to one that can take four — was asked about, judged
+not needed yet, and left out. Nothing about the shipped design forecloses it,
+and that is deliberate rather than lucky, so here is the seam.
+
+**Where it goes.** The global bound is consulted **at dispatch**, not at
+discovery and not when a session is created: `Daemon.offer`
+(`internal/daemon/tick.go`) takes a slot from `d.pool.try()` as the third of
+three guards, immediately before the `go`. `Daemon.dispatch` above it already
+walks repositories in a round-robin, one candidate per repository per pass, and
+already has `q.repo.ID` in hand at the moment it decides. A per-repo bound is
+therefore **one extra counter checked beside the global slot take**: a
+`map[int64]int` of in-flight turns per repository, incremented where `dispatch`
+records `offerDispatched` and decremented in the worker's defer beside
+`pool.done()`, with a repository at its bound `continue`-ing to the next
+repository in the rotation rather than ending the pass the way a full pool does.
+
+**Why that composes rather than fights.** Two properties have to hold for it,
+and both do today:
+
+1. **Every bound in this design is consulted at dispatch, and none of them
+   mutates the configured value.** The plan's secondary-rate-limit response
+   (RD-9 — after a secondary limit clears, cap the first dispatch window at one
+   slot, then return to `max_concurrent_runs`) is specified in exactly that
+   shape for exactly this reason. *It has not shipped* — `T-PAR-36` was not
+   done, and `github.RateLimitError.Secondary` is currently logged and nothing
+   more — but when it does, it is a ceiling read in the dispatch loop, not a
+   write to the pool's size. Bounds that are all read in one place compose by
+   `min`; bounds that mutate shared state do not compose at all.
+2. **There is no queue.** A dispatch either starts now or the session keeps its
+   `needs_poll` flag and is reconsidered from scratch next tick. Nothing has been
+   committed to a repository in advance, so a new bound can change its mind every
+   tick without anything having to be un-decided.
+
+**What it would cost that this entry cannot pay for you:** a `repos` column and
+a migration, a `repo add --max-parallel` flag, validation (does a per-repo bound
+above `max_concurrent_runs` mean anything?), and a fairness question the current
+round-robin does not have to answer — whether a repository at its own bound
+should yield its rotation turn or hold it.
+
+## Deferred: a repository component in `naming.WorktreePath`
+
+- **Deferred:** 2026-08-31, plan
+  `.aiteam/main/2026-08-30/parallelization-lf/IMPLEMENTATION_PLAN.md` (AC-PAR-4.8,
+  AC-PAR-8.6)
+- **Status:** deferred; the hazard it would fix is closed by refusal instead
+
+`naming.WorktreePath(worktreeRoot, issue)` returns
+`<worktree_root>/task-<issue>`. It carries the issue number and **not** the
+repository, so two registered repositories sharing a `worktree_root` map their
+respective issue #4 to one directory on disk. Sequentially that was a mess
+waiting to happen; concurrently it is two `claude` processes in one working
+tree.
+
+The obvious fix — put owner/name into the path — was not taken. It is a
+**migration** question, not a naming one: every worktree that already exists on
+disk is at the old path, and changing the derivation relocates all of them.
+`WorktreePath` is also pure, deterministic and recomputable from its inputs
+after a database loss, which is a property worth more than the convenience of
+fixing this in one line, and a repository component makes the input set larger.
+
+What shipped instead is **refusal**: `internal/repos/collision.go`
+(`ValidateWorktreeRoots`, `ValidateNewWorktreeRoot`) refuses two registered
+repositories that would resolve one issue number to one worktree directory —
+checked at daemon startup **and** at `repo add`, both before any row is written
+(AC-PAR-4.8). That closes the hazard completely for any configuration
+litefactory will accept, at the price of refusing a configuration that a
+repo-qualified path would have allowed. `naming.WorktreePath` is unchanged.
+
+If the deferral is ever taken up, the work is the migration, not the derivation.
+
+## Deferred: the LF-11 in-flight view
+
+- **Deferred:** 2026-08-31, plan
+  `.aiteam/main/2026-08-30/parallelization-lf/IMPLEMENTATION_PLAN.md` (AC-PAR-8.6)
+- **Status:** deferred — out of scope here, and the likely next request
+
+There is no way to ask a running daemon what it is doing right now.
+`litefactory status`, a `blocked` state, `/retry` and `/reset` are all LF-11 and
+all still out of scope; the daemon logs a per-tick `in_flight` count and that is
+the whole of the observability this change adds.
+
+This is the request that will arrive next, because concurrency is what makes it
+interesting: with one turn at a time, "what is running" was answerable by
+reading the last log line.
+
+## Rejected, not deferred: an owner column on `runs`
+
+- **Rejected:** 2026-08-31, plan
+  `.aiteam/main/2026-08-30/parallelization-lf/IMPLEMENTATION_PLAN.md` (RD-8,
+  AC-PAR-8.6)
+- **Status:** rejected — recorded here so it is not re-proposed as an oversight
+
+Adding `runs.owner` (which daemon instance, or which worker, owns a `running`
+row) was considered and refused.
+
+Ownership is already **derivable**: `runs.session_id` → `sessions.lock_owner`,
+for exactly as long as the lock is held — which is exactly as long as ownership
+means anything. A `runs` row whose session is unlocked is not owned by anybody;
+that is what `ReconcileOrphans` is for.
+
+The only thing a real owner column would buy is **mid-life reclaim or a TTL** —
+taking a run away from a worker that is presumed stuck — and RD-7 rules that
+out. It is the one operation that could put two `claude` processes into one
+worktree, "wedged forever" is not reachable in the first place (every blocking
+call in a worker is deadline-bounded from exec time), and it would cost the
+identity contract that `ReconcileOrphans` and every log line depend on.
+
+The migration budget went to `sessions.needs_poll`, which is load-bearing: it is
+the only thing that re-finds an issue once the poll cursor stopped holding back
+for it. `UNIQUE (session_id, trigger_comment_id)` and `UNIQUE (session_id,
+ordinal)` continue to do the real work of refusing a replay, which is the job an
+owner column is usually reached for.
+
+## Recorded: `Daemon.Quiesce` is the seam, and it is not test-only
+
+- **Recorded:** 2026-08-31, plan
+  `.aiteam/main/2026-08-30/parallelization-lf/IMPLEMENTATION_PLAN.md`
+  (AC-PAR-8.6)
+- **Status:** recorded — deliberately exported, deliberately singular
+
+`Daemon.Quiesce(ctx)` is the **only exported API this feature adds**. Three
+things about it belong in the deferral register rather than only at its
+definition, because they are about what should happen *next* rather than about
+what it does:
+
+1. **It is not a test-only export.** It is used in production, in the shutdown
+   join — which reaches it through the unexported `pool.wait` underneath it, not
+   through `Quiesce` itself, and `internal/daemon/pool.go` explains at length why
+   that path must not take a context. Removing `Quiesce` as "only tests call it"
+   would be wrong on the facts and would take the join's caller-facing half with
+   it.
+2. **It is the natural seam for the deferred LF-11 view.** "Wait until this
+   daemon is idle" and "tell me what this daemon is doing" are the same question
+   asked at two levels of detail, and they should not have two exported ways to
+   be asked. **Extend `Quiesce` rather than adding a second entry point.**
+3. **Call it between ticks, not during one.** It is safe from any goroutine, but
+   a dispatch starting at the same instant is a `WaitGroup` `Add` racing a
+   `Wait`, which is a misuse the runtime is entitled to panic on.
+
+The doc comments on `pool.wait`, `pool.quiesce` and `Daemon.Quiesce`
+(`internal/daemon/pool.go`) make the mechanical case in full and are the
+authority on it. This entry records only what they cannot: that the export was a
+decision, and which future request it is waiting for.
