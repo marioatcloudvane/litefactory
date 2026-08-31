@@ -417,3 +417,247 @@ blocks the diff.
 ADVISORY_ONLY — 2 suggestions noted (CR-A-004, CR-A-005). All checked acceptance criteria
 (AC-B1.5, AC-B2.9, AC-A1.14, AC-A1.15, AC-A1.7, AC-A1.21) pass. No Go file modified; `CLAUDE.md`
 unmodified. Proceeding — no re-review cycle needed for this docs change.
+
+---
+
+# Code Review — User Story E1 (`plan_brief.md` replaces `IMPLEMENTATION_PLAN.md`)
+# Commit: `0ab746d` | Diff: `5850daa..0ab746d` | Branch: `lf/7-headless-mode-should-ask-via-a-comment`
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: ADVISORY_ONLY
+
+## Scope
+
+`git diff --name-only 5850daa 0ab746d -- '*.go'` is empty — confirmed no Go file is touched
+(AC-E1.10). This is a documents-only review: 13 files changed (2 of them this session's own
+`MANIFEST.md`/`notes.md` bookkeeping, not in scope), 11 live `.claude/**` and repo-level files
+reviewed against Story E1 in `IMPLEMENTATION_PLAN.md` (L993–1153): `.claude/agents/plan-orchestrator.md`,
+`.claude/agents/implement-orchestrator.md`, `.claude/agents/go-architect.md`,
+`.claude/agents/go-implementation-engineer.md`, `.claude/agents/go-code-reviewer.md`,
+`.claude/agents/go-unit-test-engineer.md`, `.claude/agents/go-integration-test-engineer.md`,
+`.claude/agents/proxy-product-owner.md`, `.claude/agents/app-context-updater.md`,
+`.claude/AGENT_ROSTER.md`, `.claude/skills/shared/task-decomposer.md`. `CLAUDE.md` and
+`initialplan.md` do not appear in this diff — they were edited in an earlier commit (run 0010,
+before `5850daa`) and are correctly excluded from E1's own diff. No build, no tests, no lint apply
+to Markdown.
+
+## Priority 1 — AC-E1.5, the anti-duplication rule
+
+`plan-orchestrator.md`'s new `plan_brief.md` contract table (lines ~63–71) and its format block
+(lines ~73–121) mirror the architect's contract table (`IMPLEMENTATION_PLAN.md` L1107–1115)
+essentially verbatim, including every "Never contains" column. The anti-duplication rule is stated
+once, prominently, ahead of the contract: *"if it is true of exactly one story, it does not belong
+in `plan_brief.md`"* (matches the plan's own L1117–1119 wording almost exactly). The Story Index
+format is `| ID | Title | Size | Depends On | Sub-issue |` — no Tasks/AC/Architecture-Notes column,
+correctly carrying identity and location only.
+
+The per-story sub-issue format block reinforces this from the other side: *"This is where a story's
+tasks, acceptance criteria and architecture notes live — and the *only* place they live"* and closes
+with *"not aggregated globally, and not duplicated into `plan_brief.md`."* A competent agent
+following this template has both the rule stated in prose and a template shape that structurally
+has nowhere to put per-story content except the sub-issue — the `plan_brief.md` format block
+contains no per-story-shaped section (no free-text area under Shared Decisions, Workflow, or
+Cross-Story Constraints large enough to informally house a story's task list without visibly
+breaking the section's own stated purpose). I judge this contract sound: it invites compliance, not
+drift. Only a mild suggestion below (CR-A-006).
+
+## Priority 2 — the transitional-fallback judgment call
+
+Traced all 17 occurrences of "transitional" across `implement-orchestrator.md` (8),
+`go-code-reviewer.md` (3), `go-implementation-engineer.md` (2), `go-unit-test-engineer.md` (2),
+`app-context-updater.md` (1), `go-integration-test-engineer.md` (1), plus a structurally distinct
+one in `plan-orchestrator.md`'s Exit step 2 (sub-issue creation deferred to C1, not an
+`IMPLEMENTATION_PLAN.md`-read fallback).
+
+**Precedence is unambiguous everywhere.** Every instance reads as "primary artifact, or — in a
+transitional session — fallback artifact." None inverts this or suggests checking
+`IMPLEMENTATION_PLAN.md` first. The one place that actually branches on file presence
+(`implement-orchestrator.md`'s `## Inputs`, first bullet) states it explicitly: *"If `plan_brief.md`
+is absent and `IMPLEMENTATION_PLAN.md` is present, treat that single file as the whole plan."*
+`plan_brief.md` wins whenever it exists — stated once, in the one place that needs to branch;
+every other file's mention is documentation of what it might receive, not independent branching
+logic. That centralization is good design: only one file (`implement-orchestrator.md`) has to get
+the conditional right.
+
+**Each instance is additive and removable without semantic re-reasoning** — confirmed by reading
+every occurrence in context. Most are parenthetical asides — `(or, in a transitional session,
+`IMPLEMENTATION_PLAN.md`)` — appended to a sentence that reads correctly with the parenthetical
+simply deleted. A few are full standalone sentences (`go-code-reviewer.md:26`,
+`implement-orchestrator.md:16`, and the `implement-orchestrator.md` Inputs-bullet paragraph),
+equally clean to delete wholesale. Nowhere does removing the fallback require rewriting the
+surrounding clause or making a new judgment call about what should replace it — C1 does not have to
+re-reason about any of these files, only excise a clause.
+
+**However, the wording is not one uniform template**, which is the one thing I'd push back on in the
+notes.md rationale's "one-sentence removal per file" framing. I count three distinct phrasings in
+use:
+1. `(or, in a transitional session, `X`)` — the majority (11 of 17).
+2. `..., or its section of `IMPLEMENTATION_PLAN.md` in a transitional session)` — reordered, embedded
+   mid-parenthetical rather than appended (`go-implementation-engineer.md:31`,
+   `go-integration-test-engineer.md:7`).
+3. Standalone sentences with their own phrasing (`go-code-reviewer.md:26`,
+   `implement-orchestrator.md:16` and the `## Inputs` paragraph at `implement-orchestrator.md:12`).
+
+A single find-and-replace regex will not catch all three shapes; C1's `T-C1.13` will need at least
+two or three passes (or a manual per-file check) rather than one. This does not block testing —
+every instance is still a clean, self-contained deletion once found — so I'm filing it as advisory,
+not blocking. See CR-A-007.
+
+## Priority 3 — AC-E1.4, the invocation-content contract
+
+Confirmed both sides of this contract agree, file by file:
+
+- `implement-orchestrator.md`'s `## Inputs` states it fetches each story's sub-issue *up front*, once,
+  and that "every downstream agent below receives its story's content **in its invocation**, never a
+  forge link it must fetch itself (AC-E1.4)."
+- Every downstream agent's "what you receive" language matches: `go-architect.md` ("Your primary
+  input"), `go-implementation-engineer.md` ("passed to you in your invocation, not a file you open
+  yourself"), `go-code-reviewer.md` ("passed inline by the orchestrator — not files you fetch
+  yourself"), `go-unit-test-engineer.md` and `go-integration-test-engineer.md` (content "passed to
+  you in your invocation" / "in its invocation"). No downstream file retains language implying it
+  reads `plan_brief.md`, a sub-issue, or a forge link itself.
+
+One nuance worth naming, not a mismatch: `implement-orchestrator.md`'s Phase 3 line ("Pass each
+agent `plan_brief.md` plus every story's sub-issue content ... and let it select its own stories")
+hands **every** story's sub-issue content to both `go-unit-test-engineer` and
+`go-integration-test-engineer` uniformly, then relies on the agent to self-filter — appropriate for
+`go-unit-test-engineer` (which covers all stories), but for `go-integration-test-engineer` (which
+"covers only the stories flagged in Phase 2") this means handing over sub-issue content for stories
+it will discard. This exact pattern existed before E1 with the single-file `IMPLEMENTATION_PLAN.md`
+(where "pass the full file" was free — one file, no assembly cost); under the new model the
+orchestrator explicitly assembles per-story content, so it is now cheap and more precise to filter
+to the Phase-2-flagged subset before invoking `go-integration-test-engineer`. Not a contract
+violation — AC-E1.4 only requires content to arrive in the invocation, and it does — but an easy
+efficiency win. See CR-A-008.
+
+## Priority 4 — cross-file consistency
+
+Grepped every touched file for `sub-issue`, `Story Index`, and `plan_brief.md` (`sub-issue` never
+appears as `sub issue` or `story issue` anywhere — terminology is uniform). Counted 11 files using
+the vocabulary consistently: `plan_brief.md` is always the shared-context artifact, `Story Index` is
+always the discovery table, `sub-issue` is always the per-story content home. No file invents a
+fourth artifact name or a competing term for any of these.
+
+One drift found, pre-existing rather than introduced by this diff — see CR-A-009 below.
+
+## Priority 5 — AC-E1.1
+
+`grep -n "IMPLEMENTATION_PLAN" .claude/agents/plan-orchestrator.md` returns exactly one line, `:177`:
+*"`.aiteam/` session archives are never rewritten when an artifact format changes ... A session
+already written with `IMPLEMENTATION_PLAN.md` keeps that file exactly as it is..."* — this is the
+T-E1.10 statement, correct and required. No `IMPLEMENTATION_PLAN.md` format block remains anywhere
+in the file; the entire old format block (feature/branch/date header through the per-story sections)
+was replaced by the `plan_brief.md` format block and the separate per-story sub-issue format block.
+**AC-E1.1 holds.**
+
+## Repo-wide AC-E1.2 re-check
+
+`grep -rln "IMPLEMENTATION_PLAN" --include="*.md" .` (excluding `.aiteam/`) returns exactly:
+`CLAUDE.md`, `initialplan.md`, and the 8 `.claude/agents/*.md` files carrying the transitional
+fallback reviewed above under Priority 2. No other live file surfaced. This matches the
+already-verified state and confirms no new permanent current-artifact claim was introduced.
+**AC-E1.2 continues to hold** (scoped, as instructed, to "after E1 + C1" — these transitional
+mentions are expected at this point, not violations).
+
+## ADVISORY findings
+
+### CR-A-006: Sub-issue template has no inline anti-duplication reminder
+**File:** `.claude/agents/plan-orchestrator.md:~100-121` (per-story sub-issue format block)
+**Story:** E1 / T-E1.1
+**Category:** Consistency / defense-in-depth
+**Finding:** The anti-duplication rule is stated once in prose above the two format blocks, and the
+prose framing of each template ("and the *only* place they live" / "Never contains: ... any content
+at all") is strong. But neither fenced template itself carries an inline bracketed reminder (e.g.
+`[do not restate a plan_brief.md Shared Decision here]`) the way other templates in this codebase
+(e.g. go-architect's hint block) use bracketed guidance text throughout.
+**Suggestion:** Optional: add a one-line bracketed reminder inside the `## Architecture Notes`
+placeholder of the sub-issue template, so an agent skimming only the fenced block (not the prose
+above it) still sees the rule. Not required — the current prose is already explicit enough that I
+would not block on this.
+
+### CR-A-007: Transitional-fallback wording uses three distinct templates, not one
+**File:** `.claude/agents/implement-orchestrator.md`, `go-code-reviewer.md`,
+`go-implementation-engineer.md`, `go-unit-test-engineer.md`, `go-integration-test-engineer.md`,
+`app-context-updater.md` (17 occurrences total)
+**Story:** E1 / T-E1.4, T-E1.5, T-E1.6, T-E1.7
+**Category:** Cross-story / maintainability
+**Finding:** See Priority 2 analysis above. Three distinct phrasing shapes are used for what is
+conceptually the same fallback clause: `(or, in a transitional session, X)`, a reordered variant
+embedded mid-parenthetical (`go-implementation-engineer.md:31`, `go-integration-test-engineer.md:7`),
+and freestanding sentences (`go-code-reviewer.md:26`, `implement-orchestrator.md:16` and its
+`## Inputs` paragraph). Each instance is individually self-contained and mechanically deletable, but
+a single regex/script pass will not catch all three shapes — the notes.md rationale's framing
+("a one-sentence removal per file") slightly understates the mechanical work: it is closer to "one
+clause removal per occurrence, using at least three matcher patterns," across 17 occurrences in 6
+files.
+**Suggestion:** Not required before testing proceeds — this is a note for whoever executes
+`T-C1.13`. Either standardize on the single dominant `(or, in a transitional session, X)` phrasing
+now (a small follow-up edit, since 11 of 17 already use it), or leave as-is and have `T-C1.13` budget
+for a per-file check rather than a single global find-and-replace.
+
+### CR-A-008: `go-integration-test-engineer` receives all stories' sub-issue content, not just the flagged subset
+**File:** `.claude/agents/implement-orchestrator.md:144`
+**Story:** E1 / T-E1.4 (Phase 3 invocation)
+**Category:** Performance / precision
+**Finding:** *"Pass each agent `$session/plan_brief.md` plus every story's sub-issue content ... and
+let it select its own stories: `go-unit-test-engineer` covers all stories,
+`go-integration-test-engineer` covers only the stories flagged in Phase 2."* Under the new
+per-story-sub-issue model the orchestrator explicitly assembles what it hands over (unlike the old
+single-file `IMPLEMENTATION_PLAN.md`, where "pass the whole file" was the only option). Handing
+`go-integration-test-engineer` every story's content when it will use only a Phase-2-flagged subset
+is unnecessary context volume, not a correctness bug — AC-E1.4 is still satisfied.
+**Suggestion:** When Phase 2 has already identified which stories touch real dependencies, pass
+`go-integration-test-engineer` only those stories' sub-issue content instead of the full set. Small,
+non-blocking efficiency improvement.
+
+### CR-A-009: `go-architect.md`'s own invocation description doesn't match how it's actually invoked
+**File:** `.claude/agents/go-architect.md:1` (frontmatter trigger conditions), `:57`
+(Required Reading Process, item 5)
+**Story:** E1 / T-E1.5 — pre-existing, not newly introduced by this diff
+**Category:** Cross-story / documentation accuracy
+**Finding:** `go-architect.md` item 5 now reads: *"`plan_brief.md` plus the per-story sub-issues -
+Your primary input. You will annotate each story's tasks with architectural guidance that folds into
+its sub-issue's Architecture Notes..."* — implying the architect reads (and possibly writes into) an
+already-existing `plan_brief.md` and its sub-issues. Its frontmatter trigger examples similarly
+describe being invoked "After a plan_brief.md and its per-story sub-issues have been drafted."
+But per `plan-orchestrator.md`'s actual choreography (`## Choreography`, step 2, "Architect review"),
+`go-architect` is invoked with only `$session/feature-spec.md` and the platform-constraints skill
+path — **before** `plan_brief.md` or any sub-issue exists — and "returns findings inline — no files
+written." The plan-orchestrator itself does the folding into `plan_brief.md` and the sub-issues in
+step 3 ("Synthesise"), combining "RE spec + architect findings."
+I traced this back through the diff: the same shape of claim existed in the pre-E1 text too
+("`IMPLEMENTATION_PLAN.md` - Your primary input. You will annotate tasks in this plan..." and
+frontmatter examples describing "Here's the `IMPLEMENTATION_PLAN.md` file with all the user stories
+and tasks" as already existing) — so this is **not a regression introduced by this diff**; the
+implementer performed a faithful rename of an already-inconsistent description rather than
+introducing new drift. Flagging per the review brief's instruction to surface cross-file drift
+regardless of origin.
+**Suggestion:** Not blocking — no behavioral contract is broken (the actual invocation, in
+`plan-orchestrator.md`, is correct and unambiguous, and that's the file every other agent's
+"what I receive" language correctly agrees with). Worth a follow-up docs fix to `go-architect.md`'s
+own self-description to say it receives `feature-spec.md` and returns findings inline for the
+orchestrator to fold into `plan_brief.md`/sub-issues — but that's pre-existing debt, not new debt
+from E1, so I'm not routing it back to this story's engineer.
+
+## Cross-story summary
+
+This is a careful, faithful execution of a 13-file, 13-task rename-and-restructure story. The
+`plan_brief.md` contract table and format block reproduce the architect's specification field-for-
+field; the anti-duplication rule (AC-E1.5) is stated once and reinforced structurally in both
+templates; every downstream agent's stated inputs match what `implement-orchestrator.md` promises to
+hand it (AC-E1.4); terminology (`plan_brief.md`, `sub-issue`, `Story Index`) is uniform across all 11
+touched files; `plan-orchestrator.md` carries no `IMPLEMENTATION_PLAN.md` format block (AC-E1.1); the
+repo-wide grep confirms no new permanent current-artifact claim exists outside the expected
+transitional set (AC-E1.2). The transitional-fallback judgment call is sound in substance — every
+instance is additive, unambiguous about precedence, and removable without re-reasoning — but its
+wording is inconsistent enough across three phrasing templates that `T-C1.13` should expect a
+per-occurrence pass rather than a single mechanical script. The one real drift found
+(`go-architect.md`'s self-description vs. its actual invocation contract) predates this diff and
+was carried through by a faithful rename rather than introduced by it.
+
+## Verdict
+
+ADVISORY_ONLY — 4 suggestions noted (CR-A-006 through CR-A-009), none blocking. All checked
+acceptance criteria (AC-E1.1, AC-E1.2, AC-E1.4, AC-E1.5, AC-E1.10) pass; AC-E1.6, AC-E1.7, AC-E1.9
+reconfirmed as already verified and unchanged. No Go file modified; `CLAUDE.md`'s Implement gate
+untouched. Proceeding — no re-review cycle needed for this docs change.
