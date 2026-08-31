@@ -1288,3 +1288,140 @@ single verified production call site, with no caller-side nil-substitution — A
 now hold in the way this commit's design intended. What remains is a narrower, newly-introduced ordering
 gap (CR-B-002) in the phase built to close CR-B-001, not a recurrence of CR-B-001 itself. 2 advisories
 (CR-A-011, CR-A-012) noted, not blocking.
+
+---
+
+# Code Review — CR-B-002 re-review (commit-failure guard)
+# Commit: `4a95dc2` | Diff base: `85c58cd..4a95dc2` | Branch: `lf/7-headless-mode-should-ask-via-a-comment`
+# Worktree: /Users/mariomh/.lf-worktrees/litefactory/task-7
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: CLEAN
+
+---
+
+## Scope
+
+Re-review of the CR-B-002 fix only, per the prior block's `Required fix`. Three files changed:
+`internal/turn/subissues.go` (the guard), `internal/turn/subissues_test.go` (a regression test plus a
+`lockIndex` helper), `internal/turn/doc.go` (package documentation, also closing CR-A-012). No other file
+in the CR-B-002 finding's blast radius changed.
+
+## CR-B-002 — RESOLVED
+
+**File:** `internal/turn/subissues.go:119`
+
+The guard now reads `if result.Err != nil { return result }`, replacing `result.Changed &&
+!result.Pushed`. This was checked against `save()` (`internal/turn/harvest.go:212-279`) exhaustively —
+every path `save()` can return by, enumerated:
+
+1. `runResult.Outcome == harness.OutcomeAbandoned` (`harvest.go:220-224`) — returns before touching
+   `result` at all. Not relevant to the guard: `fileStoryIssues` has its own earlier, identical check
+   (`subissues.go:113`) and never reaches the `Err` guard on this path.
+2. `prep.worktree.Commit` errors (`harvest.go:236-241`) — `result.Err` set, `Changes`/`SHAAfter`/
+   `CommitSHA`/`Committed`/`Changed`/`Pushed` all left at zero value. This is the CR-B-002 gap. New guard
+   blocks it (`Err != nil`).
+3. Commit succeeds, no diff (`!result.Changed`, `harvest.go:252-258`) — `result.Err` stays nil (nothing
+   sets it on this path; confirmed by reading every assignment to `result.Err` in the package — the only
+   two writes are the commit-error and push-error branches). New guard does not block it — correctly, this
+   is the resumability path.
+4. Commit succeeds with a diff, push fails (`harvest.go:260-269`) — `result.Err` set. Blocked, same as
+   before.
+5. Commit succeeds with a diff, push succeeds (`harvest.go:270-278`) — `result.Err` stays nil. Not
+   blocked — correctly, this is the normal success path the phase exists to serve.
+
+Traced `result.Err`'s only two writers in the whole package back to `runAndHarvest` (`harvest.go:31-79`):
+before `save()` runs, `result` is built fresh in `execute.go:270-283` (`Err` untouched, zero value) and
+only `Disposition`/`Harness`/`Outcome`/`Reason`/`LogPath`/`Run` are set between construction and the call
+to `save`. The one path that sets `result.Err` before `save` — `runErr != nil` at `harvest.go:52-58` (the
+subprocess never started) — returns straight through `finish` and never reaches `fileStoryIssues` at all.
+So `result.Err` at the point `fileStoryIssues` reads it is governed entirely by what `save()` itself just
+did, on every call site. **Answering the review brief's question 2 directly: there is no path where
+`result.Err` is non-nil while the commit and push both genuinely succeeded** — the fix is not overbroad.
+
+Confirmed the fields the doc comment (`subissues.go:80-90`) says the guard protects — `Changes`,
+`SHAAfter`, `CommitSHA`, `Committed`, `Pushed`, `Err`, `Outcome`, `Reason` — are in fact never written by
+`fileStoryIssues`: grepped every `result.` reference in the file; the only two are the `result.Err != nil`
+read at line 119 and the `result.SHAAfter` read at line 167, and `result` (passed by value) is returned
+unmodified on all fifteen return statements.
+
+**Regression test.** `TestFileStoryIssuesSkipsWhenTheRunsOwnCommitFailed` (`subissues_test.go:734-789`)
+holds git's index lock (`lockIndex`, `:789-822`) from inside the stub run, after `writeSessionFile` has
+written `plan_brief.md` and the per-story file but before the daemon's own commit. Traced
+`Worktree.Commit` (`internal/git/commit.go:133-169`): it calls `w.Status` first (`git status --porcelain
+-z`, a read that does not require the index lock to succeed) to discover the two new files, then `git add
+--all` — which does require the lock and is where this fails
+(`internal/git/commit.go:148-150`) — before ever reaching `git commit`. So the sabotage lands exactly on
+the commit step, not on status collection or on push, matching what the test's own doc comment claims.
+
+`lockIndex` resolves the real git directory via the worktree's `.git` file (`gitdir: ...` pointer,
+`subissues_test.go:800-810`) rather than assuming `.git` is a directory — correct for a linked worktree,
+where `.git` is a file and the index lives under the directory it names, not under `<worktree>/.git`
+itself. Ran the test: it passes as written.
+
+Independently re-verified the claim that this test fails against the old guard: reverted
+`subissues.go`'s condition to `result.Changed && !result.Pushed` in a scratch edit (immediately reverted,
+working tree left clean — `git status --porcelain` confirms no diff remains) and re-ran the single test.
+It fails with exactly the two lines quoted in the review brief:
+```
+CreateSubIssues was called 1 times after the run's own commit failed; the phase must file nothing from content no commit holds
+RenderSubIssue was called for 1 stories after the run's own commit failed
+```
+Confirmed true, not false.
+
+**`commitCount` omission.** The test's comment explains it deliberately skips a commit-count assertion
+because the branch never reaches the origin when the commit fails, asserting `!result.Pushed` instead.
+Checked `commitCount` (`subissues_test.go:254-262`): it runs `git rev-list --count refs/heads/<branch>`
+against the origin via `Repo.GitIn`, whose doc comment states a non-zero exit fails the test with the
+command and stderr (`internal/gittest/gittest.go:102-114`). A branch that was never pushed has no such ref
+on the origin, so calling `commitCount` here would `t.Fatalf` on the missing-ref error rather than
+returning a meaningful number — the test could not use it even if it wanted to. `!result.Pushed` is the
+correct, and only available, substitute. Adequate, not a gap.
+
+**`TestFileStoryIssuesResumesOnALaterUnrelatedTurn`** (`subissues_test.go:334-381`, pre-existing, unchanged
+by this diff) still passes and still means what its name says: run 2's stub writes nothing
+(`second.Changed` is asserted false at line 371), `second.Succeeded()` is asserted true at line 367 —
+and `Succeeded()` (`internal/turn/result.go:216-220`) requires `Err == nil` — so this is exactly the
+`Err` nil / `Changed` false / `Pushed` false cell of the table above, and the test's final assertion
+(line 377-380) confirms the phase still resolves `plan_brief.md` on that turn. The new guard does not
+regress this path.
+
+## CR-B-001 — still CLOSED
+
+Not in scope for this diff (`subissues.go`'s wiring — `opts.SubIssueCreator`/`opts.SubIssueRenderer`
+construction and the single production call site in `runAndHarvest`) — none of that changed between
+`85c58cd` and `4a95dc2`. No regression found.
+
+## CR-A-012 — RESOLVED
+
+`internal/turn/doc.go` gained the section the sixth block's advisory asked for, placed alongside the
+existing mode-inference documentation as suggested. Checked its four specific claims against the code:
+
+- "runs between `[save]` and `[finish]`" — matches `harvest.go:76-78` exactly
+  (`result = save(...)`; `result = fileStoryIssues(...)`; `return finish(...)`).
+- "never writes result.Changes, SHAAfter, CommitSHA, Committed, Pushed, Err, Outcome or Reason" — matches
+  the grep above; the function only ever reads two of those eight and returns `result` unmodified.
+- "it cannot [ask what mode the run was in]... a free-text comment spawns a run in mode infer" — matches
+  pre-existing, unchanged documentation at `doc.go:17` and the `InferMode` return at
+  `execute.go:218-221`.
+- "one plan per branch per day is the assumption; nothing enforces it" — matches the CR-A-012 finding
+  itself and the architecture note's Deferred section it was drawn from; nothing in the diff contradicts
+  it.
+
+All four claims hold.
+
+## CR-A-011 — left open, judged defensible
+
+Not fixed, as flagged by the requester. `ParseStoryIndex` (`internal/planbrief/index.go`) still fails the
+whole table on one malformed row. This was already ADVISORY, not BLOCKING, and the prior block's own
+text noted it isn't a deviation from an explicit architectural requirement — only a tension with a
+principle applied one layer up. Leaving it open here is consistent with that framing; restating it would
+add nothing not already on record at CR-A-011 above. No action needed.
+
+## Verdict
+
+CLEAN — CR-B-002 is CLOSED: the guard now blocks every failure path `save()` can produce
+(`result.Err != nil` is both necessary and sufficient, verified against all five of `save()`'s return
+paths) while still permitting the one path that must go through, the later-unrelated-turn resumability
+case. CR-B-001 remains CLOSED (untouched by this diff). CR-A-012 is CLOSED. CR-A-011 remains open as an
+ADVISORY, unchanged, left open deliberately. No new findings. Testing may proceed.
