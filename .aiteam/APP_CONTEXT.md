@@ -106,6 +106,35 @@ tried and rejected, and what breaks if you do the obvious thing.
 
 ---
 
+## The amendment ledger and the archive rule
+
+- **`.aiteam/AC_AMENDMENTS.md` is where a decision goes when a later feature
+  changes it.** A reader asking "what happened to AC-3.1?" or "what happened to
+  D-X?" has exactly one place to look — not the plan that first stated it, not
+  this file, that ledger. It outgrew being acceptance-criteria-only and now
+  admits four kinds of entry: **amendments** (a criterion's wording or meaning
+  changed), **rulings** (a `D-*` decision or an invariant interpreted before
+  work could proceed — the original text stands, this file says what it was
+  held to mean and why), **reviews** (examined, deliberately left alone, with
+  the reason it survives written down), and **deferrals** (considered, not
+  done, not rejected — their own section at the bottom). An entry that
+  *settles* a question rather than *amending* a criterion carries an *Applies
+  to* line instead of "used to say"/"now says". Several invariants stated
+  elsewhere in this file, and in archived plans, are amended there — check the
+  ledger before relying on a criterion or decision from an old plan.
+- **Archives are never edited into agreement with the present.** An old plan
+  keeps its original text even once later work amends, reverses or rules on
+  something it says — an edited archive is no longer evidence of what was
+  actually decided at the time. The correction goes in the ledger; the archived
+  document gets a one-line *pointer* added under the table or statement it
+  concerns, and nothing else changes. This is counter-intuitive and easy to
+  violate with good intentions ("just fix the stale sentence while I'm here") —
+  don't. `lf-setup/IMPLEMENTATION_PLAN.md`'s AC-2 table, AC-3 table, Settled
+  Decisions table and its goroutine-inventory statement carry these pointers,
+  as does `comment-intent/IMPLEMENTATION_PLAN.superseded.md`.
+
+---
+
 ## Security invariants — enforced by tests, not by convention
 
 These are not style rules. Each has a test or a type that fails if you break it.
@@ -190,6 +219,8 @@ deliberately rather than editing the test.
 | `turn/gate_test.go` | `prepareClone`, `commitAndPush` and `commitStoryIndex` are the only three call sites of `CloneGate.Acquire`, one acquisition each (a registered-set check, not three hardcoded names); the claude run itself is never inside a critical section |
 | `daemon/gate_internal_test.go`, `daemon/pool_internal_test.go`, `daemon/inflight_internal_test.go` | the gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs`, `enter`/`leave` are a true check-and-insert |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
+| `daemon/record_test.go` (`TestNoStaleConcurrencyStatementSurvives`) | no `.go` file outside `.aiteam` says "locked by another daemon instance" — a sibling goroutine within one process is the real contender now, not a second daemon (AC-PAR-8.4) |
+| `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's `IMPLEMENTATION_PLAN.md`/`feature-spec.md` introduce carries the `AC-PAR-` prefix — parsed from the plan's AC tables and the spec's checklist, not grepped for the bare pattern (AC-PAR-8.7) |
 
 ---
 
@@ -564,10 +595,19 @@ Things that are easy to get wrong here:
   sections. A fourth, ungated git write section fails on its own name, the way
   `commitStoryIndex` itself would have.
 - **A nil `CloneGate` is a startup error, not a degraded no-op**
-  (`turn.Options.validate`). The measured failure rates it prevents — 75% on a
-  contended `fetch`, 0.75% on `worktree add` — would look healthy for a long
-  time under a silent no-op and then start posting fatal git errors that read
-  like flakes.
+  (`turn.Options.validate`). The measured failure rates it prevents, at
+  parallelism 4 against one clone — 75% on a contended `fetch`, 0.75% on
+  `worktree add`, and `push --set-upstream` leaving 25% of branches with no
+  upstream set while exiting 0 (a `could not lock config file` error printed in
+  37% of runs, more often than the loss itself — the gap between the two counts
+  was never chased; see `internal/git/clone.go`'s doc comment for the full
+  writeup) — would look healthy for a long time under a silent no-op and then
+  start posting fatal git errors that read like flakes. `internal/git`
+  declares no mutex and stays a leaf: `Fetch`, `WorktreeAdd` and `Push` all
+  contend against one clone's `.git` state (refs/remotes, the worktrees
+  registry, `.git/config`), and serialising them across concurrent turns is
+  the caller's job — done here by the per-clone `cloneGate`, never by
+  `internal/git` itself.
 - **`pool.wait()` takes no context and must not be given one.** It is called
   from `loop`'s defer, at the moment the loop's own context is *already*
   cancelled — that is why `loop` is returning. A `select` on `ctx.Done()` there
@@ -667,6 +707,19 @@ Before you touch the store:
   *off*, per connection — without it every `REFERENCES` is decorative),
   `journal_mode(WAL)` so `litefactory logs` can read while the daemon writes,
   `busy_timeout`, `synchronous(NORMAL)`.
+- **The cap stays at one, and is load-bearing now rather than incidental**: up
+  to `max_concurrent_runs` turn workers plus the daemon's tick goroutine reach
+  the store at the same instant in production, so concurrent callers queue
+  rather than contend (`store.go`'s doc comment). Raising it is out of scope
+  and is not the free throughput it looks like — `database/sql` opens a
+  transaction with a deferred `BEGIN`, so a transaction that reads and then
+  writes has to upgrade to a write lock partway through, and SQLite refuses
+  that upgrade with `SQLITE_BUSY` immediately rather than waiting
+  (`busy_timeout` does not apply to an upgrade, since waiting there could
+  deadlock). **The single-connection cap, `BEGIN IMMEDIATE` on every
+  read-then-write transaction, and per-connection verification of the DSN
+  pragmas move as one decision** — any one of the three alone leaves the other
+  two wrong.
 - **Migrations are hand-rolled and embedded** —
   `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
   filename prefix, one transaction each, recorded in `schema_migrations`. A new
