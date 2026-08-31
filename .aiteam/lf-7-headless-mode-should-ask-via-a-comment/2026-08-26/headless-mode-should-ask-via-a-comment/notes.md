@@ -463,3 +463,126 @@ require `plan_brief.md` with no fallback, that is a one-sentence removal per fil
   references, not current-artifact claims), and the `.claude/agents/*.md` transitional-fallback
   sentences added this run. No file claims `IMPLEMENTATION_PLAN.md` as *the* current artifact except
   `CLAUDE.md`'s own gate line, which AC-E1.9 requires to stay exactly as it is.
+
+---
+
+## D1 pre-flight — T-D1.0, T-D1.1, T-D1.2, T-D1.3
+
+2026-08-31, interactive session, before any D1 code was written. These four tasks
+are the ones the plan says must be done with live access and never guessed, so
+they were done here and the findings recorded before an implementation agent was
+dispatched.
+
+### T-D1.0 — citations re-pinned
+
+Re-checked against `71cd53b` (the plan cites `71d3bea`, five commits stale). All
+five citations are valid:
+
+| Citation | State at `71cd53b` |
+|---|---|
+| `internal/github/doc.go:11` `# No SDK` | present; says *"Six endpoints do not justify a dependency"* |
+| `internal/github/surface_test.go:56` `TestClientMethodSetIsTheSevenEndpoints` | present |
+| `internal/github/surface_test.go:92` `TestNoForgeAbstraction` | present |
+| `internal/github/surface_test.go:137` `TestRevealIsCalledExactlyOnce` | present; asserts `.Reveal()` appears exactly once and only on a line containing `Authorization` (`:156-167`) |
+| `internal/github/pagination.go` | present; Link-header helpers `nextPage:62`, `nextLink:80`, `cutLinkValue:100`, `hasRel:123`, plus generic `fetchPages:24` |
+
+**The "six versus seven" discrepancy the plan flags is real and confirmed**:
+`doc.go:13` says six, `surface_test.go:56` says seven. The eight `func (c *Client)`
+methods on disk are `BaseURL` (an accessor, not an endpoint) plus seven real
+endpoints: `ListCommentsAfter`, `ListCommentedIssues`, `PostComment`,
+`AddCommentReaction`, `ListIssues`, `GetIssue`, `AuthenticatedUser`. **Seven is
+correct; `doc.go`'s "six" is the stale number.** T-D1.8 reconciles it.
+
+### T-D1.1 — the version pin
+
+**`github.com/google/go-github/v90 v90.0.0`.**
+
+Chosen against `proxy.golang.org` on 2026-08-31, not from memory:
+
+- `v90.0.0`, published 2026-08-04, is the newest major. `v91`, `v92`, `v93` return
+  *"no matching versions"*. `v90/@v/list` returns `v90.0.0` alone — no patch
+  releases, so `v90.0.0` is both newest and only.
+- go-github ships one major per release, so "newest major" is "newest version".
+- Its own `go.mod` requires `go 1.25.0`; litefactory is on `go 1.26`. Compatible.
+- Transitive deps: `github.com/google/go-cmp v0.7.0` (**already a direct dep of
+  litefactory at the same version — no new version in the graph**) and
+  `github.com/google/go-querystring v1.2.0` (new, indirect).
+- Licence: **BSD-3-Clause**, `Copyright (c) 2013 The go-github AUTHORS`. Permissive,
+  no notice obligation beyond retaining the licence. The repo does **not** vendor
+  (no `vendor/`), so the module-cache checkout is the whole of the vendoring step.
+
+`v85.0.0` is worth noting as an oddity: its proxy origin `Ref` is
+`refs/heads/master` rather than `refs/tags/v85.0.0`, unlike every neighbouring
+major. Not our pin, but a reason not to reach for v85 if a downgrade is ever
+considered.
+
+### T-D1.2 — sub-issue support, confirmed against the pinned module
+
+Confirmed by reading `v90.0.0`'s own source in the module cache — **not** from
+documentation, and not from the `[W]`-sourced block in `RESEARCH_BRIEF.md`.
+
+`github/sub_issue.go` exists and `SubIssueService` is wired onto the client
+(`github/github.go:248` declares the field, `:701` constructs it), so it reaches
+callers as `client.SubIssue`. Five methods, covering everything C1 needs:
+
+| Method | Signature shape |
+|---|---|
+| `Add` | `(ctx, owner, repo string, issueNumber int64, body SubIssueRequest)` |
+| `Remove` | `(ctx, owner, repo string, issueNumber int64, subIssue SubIssueRequest)` |
+| `ListByIssue` | `(ctx, owner, repo string, issueNumber int64, opts *ListOptions)` |
+| `Reprioritize` | `(ctx, owner, repo string, issueNumber int64, body SubIssueRequest)` |
+| `GetParentIssue` | `(ctx, owner, repo string, subIssueNumber int64)` |
+
+**Parent linkage: `Add`, with `SubIssueRequest.ReplaceParent` to move a sub-issue
+that already has a parent.**
+
+**The `sub_issue_id`-versus-issue-number trap the plan names is real, and the SDK
+makes it explicit rather than removing it:**
+
+```go
+type SubIssueRequest struct {
+    SubIssueID    int64  `json:"sub_issue_id"`             // Required: The ID of the sub-issue
+    AfterID       *int64 `json:"after_id,omitempty"`
+    BeforeID      *int64 `json:"before_id,omitempty"`
+    ReplaceParent *bool  `json:"replace_parent,omitempty"`
+}
+```
+
+The **parent** is addressed by its `issueNumber`; the **child** is addressed by
+`SubIssueID`, which is the issue's database `id`, not its number. `GetParentIssue`
+then takes a `subIssueNumber` — a *number* again. So the two identifier kinds sit
+side by side in one API and the compiler cannot tell them apart: both are `int64`.
+**This is C1's single sharpest edge.** The SDK's field name and comment are the
+warning; nothing enforces it.
+
+**No fallback needed.** Sub-issues are supported natively, so the generic-request
+escape hatch named in AC-D1.2 is not required and was not exercised.
+
+### T-D1.3 — the migration decision, recorded
+
+Already settled at N7 = (a), full migration. Recorded here with the reasoning the
+plan asks for: **one credential path is one thing to guard.** A hybrid would leave
+two HTTP stacks, two error taxonomies and two credential paths, and the third of
+those is what makes AC-D1.6 hard to hold. The rejection of the hybrid is a
+security argument, not a tidiness one.
+
+### The credential path — the design fact T-D1.6 turns on
+
+**v90's constructor is not the classic `NewClient(*http.Client) *Client`.** It is:
+
+```go
+func NewClient(opts ...ClientOptionsFunc) (*Client, error)
+```
+
+— variadic options, **and it returns an error**. Relevant options:
+`WithAuthToken(token string)`, `WithHTTPClient`, `WithTransport`, `WithTimeout`,
+`WithUserAgent`, `WithURLs(baseURL, uploadURL *string)`, `WithEnterpriseURLs`.
+
+**`WithAuthToken(token string)` is the single credential site**, and it takes a
+plain `string`. So the reworked `TestRevealIsCalledExactlyOnce` should re-aim its
+line assertion from `Authorization` to that call — one `.Reveal()` in the package,
+on the line handing the token to `github.WithAuthToken`. The guard's shape
+survives; only the anchor moves.
+
+`WithTransport` is the hook for T-D1.11's faked-transport tests, and `WithURLs`
+replaces whatever `BaseURL()` overriding the tests do today.
