@@ -479,3 +479,165 @@ resolved. Proceeding to environment setup / testing.
 
 Verdict for the run: **ADVISORY_ONLY**, zero blocking findings. Two of the three
 advisories are closed in code; one is accepted and documented.
+
+---
+---
+
+# Code Review — run 3 (User Story 7, "The record")
+# Reviewed by: go-code-reviewer
+# Date: 2026-08-31
+# Status: ADVISORY_ONLY
+
+## Scope
+
+Five commits, `195a0f4..b6dfe2c` (`7094758..HEAD`), the documentation story
+correcting the RD-11 site inventory of stale concurrency-model prose left by
+the two prior runs. This is not a code-behaviour review: the only executable
+diff is `internal/daemon/record_test.go` (new); everything else touched is
+doc comments, one log string, and Markdown. The review axis is truth — does
+what the record now says match what the code does — not the usual seven-point
+implementation checklist, per the orchestrator's framing for this story.
+
+## Method
+
+Read the full diff of all nine touched files (`git diff 7094758..HEAD`) and
+checked every added factual claim against the code or data it describes:
+
+- `internal/git/clone.go`'s three contention figures (75% fetch, 0.75%
+  worktree add, 25% push) against `.aiteam/main/2026-08-30/parallelization-lf/SPIKE.md`,
+  confirming each number is attached to the operation and contended file the
+  spike actually measured it against.
+- `clone.go`'s "the silent one is the dangerous one" claim against
+  `internal/git/push.go`'s `Push`/`confirmUpstream`, which already carries
+  this reasoning in full (pre-existing, unmodified by this story).
+- `internal/store/store.go`'s new paragraph on deferred `BEGIN`, `SQLITE_BUSY`
+  on lock-upgrade, and per-connection pragma verification, against `Open`
+  (`SetMaxOpenConns(1)`, the `PRAGMA foreign_keys` read-back) and against the
+  one `BeginTx(ctx, nil)` call site in the package (a default/deferred
+  transaction, which is exactly the case the new paragraph is warning about
+  if the cap is ever raised).
+- `internal/turn/prepare.go`'s `previousRun` argument under N concurrent
+  sessions, against `store.DB.ListRuns(ctx, sessionID)`'s signature (confirmed
+  session-scoped) and the loop's `run.SegmentID == segment.ID` narrowing —
+  both narrowings the comment leans on hold exactly as stated.
+- `internal/daemon/tick.go`'s `TickResult.Repos` comment (`commentedIssues`'s
+  second listing plus one `GetIssue` per uncovered number; `backlog`'s
+  zero-quota discovery and `materialise`'s lazy fetch bounding the extra cost
+  to at most `max_concurrent_runs` issue reads) against `commentedIssues`,
+  `backlog`, `offer` and `materialise` in the same file — `materialise` only
+  calls `GetIssue` when `!c.resolved`, and `offer` only reaches `materialise`
+  after `pool.try()` has already taken a slot, so the bound is real.
+- The ledger's goroutine inventory entry (`.aiteam/AC_AMENDMENTS.md:268`)
+  against an independent `go func`/`go <call>(` census of the whole tree:
+  found exactly the two harness pipe readers (`internal/harness/runner.go:627,628`),
+  the daemon tick loop (`internal/daemon/daemon.go:531`), the turn worker
+  (`internal/daemon/tick.go:845`, bounded by the pool), the pool's `quiesce`
+  helper (`internal/daemon/pool.go:150`, deliberately excluded and explained
+  at the call site), and `main`'s second-signal watcher
+  (`cmd/litefactory/main.go:132`). This matches the ledger's "four fixed,
+  plus at most `max_concurrent_runs`, `pool.quiesce` excluded" claim exactly.
+- Cross-document consistency between `internal/daemon/doc.go`,
+  `internal/daemon/pool.go`, `internal/daemon/daemon.go`'s `Run` doc comment,
+  `.aiteam/APP_CONTEXT.md`, `.aiteam/AC_AMENDMENTS.md`, and the two pointer
+  lines added to archived plans — all describe the same dispatch model, the
+  same goroutine count, and the same `Daemon.Quiesce` termination condition,
+  in compatible language.
+- The cited line numbers in the ledger and the two pointer-line targets
+  (`lf-setup:31`, `:429`, `:60`; `comment-intent:19`, `:25`/`:29`, `:484`) —
+  spot-checked all of them against the actual files; every one lands on the
+  quoted text.
+- The `../../../AC_AMENDMENTS.md` relative link from both
+  `.aiteam/main/2026-08-23/lf-setup/` and
+  `.aiteam/main/2026-08-25/comment-intent/` — both are three levels below
+  `.aiteam/`, so both resolve correctly.
+- `internal/daemon/record_test.go` in full: ran
+  `go test ./internal/daemon/... -run 'TestNoStaleConcurrencyStatementSurvives|TestIntroducedCriteriaCarryTheParPrefix' -v`
+  (both pass), then independently reimplemented the two table/checklist
+  parsers in a throwaway program to confirm they extract 44 criteria from
+  both `IMPLEMENTATION_PLAN.md` and `feature-spec.md` (matching the
+  engineer's report and comfortably above the `minExpected = 30` floor), that
+  none lack the `AC-PAR-` prefix, and specifically that `AC-PAR-8.2`'s own
+  bolded in-prose reference to `**AC-FC-2.6**` is correctly excluded by the
+  checklist regex's anchor-on-the-first-bold-span rule. Also grepped the
+  whole tree outside `.aiteam/` for the literal phrase `"locked by another
+  daemon instance"` — zero matches — confirming test 1 passes for the right
+  reason rather than by scanning nothing (`scanned == 0` guard also
+  verified present and would fail loudly if the walk broke).
+- Scope discipline: `git diff --numstat 7094758..HEAD` on the five non-test,
+  non-Markdown files shows a single hunk each, and every hunk is a comment
+  block or (in `execute.go`) one log string. No production logic changed.
+  `gofmt -l` and `go vet` are clean on all touched Go files.
+
+## BLOCKING findings
+
+None.
+
+## ADVISORY findings
+
+### CR-A-004: `clone.go`'s push-contention sentence states a relationship between two SPIKE numbers that the SPIKE explicitly left unresolved
+
+**File:** `internal/git/clone.go:36-42`
+**Story:** US-007 / T-PAR-44
+**Category:** Cross-story / Idiom (doc precision)
+
+**Finding:** The new package doc says push "went wrong 25% of the time
+*silently* — exiting 0, with a 'could not lock config file .git/config'
+warning that no exit code carries, and leaving the branch with no upstream
+set." The 25% figure is exactly `SPIKE.md`'s "60 of 240 branches ended with
+no `branch.<name>.remote` entry at all" — correctly attributed to push/config
+contention. But the sentence also attaches "exiting 0, with a ... warning" to
+that same 25%, when the warning was printed in a *different*, larger
+population: 89 of 240 (37%), per the same spike. `SPIKE.md`'s own "Not done"
+section says plainly: "The 89-errors-vs-60-missing-entries gap in P2c was not
+chased. Both numbers are bad; the exact accounting does not change the
+conclusion." The spike deliberately declined to assert that the 60
+no-upstream branches are a subset of the 89 warned ones — it's a very
+plausible inference (a lost config write is the only known cause of a
+missing entry, and it always prints that warning), but it is an inference,
+not a measured fact, and `clone.go` now states it as one, seamlessly folded
+into a single 25%-characterized sentence. This is exactly the shape of risk
+this story exists to guard against: a precise-sounding number attached to
+more certainty than the underlying measurement supports.
+
+**Suggestion:** Either cite both figures separately (89/240 printed the
+warning; 60/240, a subset not independently confirmed by the spike, ended
+with no upstream at all) or soften the connective tissue — e.g. "silently:
+zero non-zero exits, a warning that carries no exit code, and 25% of
+branches left with no upstream recorded" — so the sentence doesn't imply the
+warning and the missing-upstream outcome were confirmed to co-occur in
+exactly that quarter of runs. Not blocking: the practical conclusion (push
+--set-upstream must be treated as unreliable and verified independently,
+which `push.go` already does via `confirmUpstream`) is unaffected either way.
+
+## Cross-story summary
+
+This story reads as unusually well self-verified. Every load-bearing number
+it introduces traces to a concrete artifact (`SPIKE.md`, a `go func` census,
+an independent reimplementation of the test's own parsers) and checks out.
+The five RD-11 doc sites this story owned (`clone.go`, `store.go`,
+`execute.go`'s log line, `prepare.go`, `tick.go`'s `Repos` comment) are all
+now internally consistent with the actual dispatch code in
+`internal/daemon/tick.go`, `daemon.go` and `pool.go`, and with each other.
+The two doc sites the story's own note flagged as already-fixed by earlier
+runs (`internal/daemon/doc.go`'s "ordinary synchronous method", AC-PAR-8.5;
+`internal/turn/doc.go`'s "the lock is the concurrency model") were spot-checked
+and both still hold, and both were confirmed to predate `7094758` by `git
+blame`/`git log -S`, so they are correctly out of this run's scope rather
+than silently unaddressed. The `.aiteam/AC_AMENDMENTS.md` line-number
+citations and the two archived-plan pointer lines all land exactly on the
+quoted text, and the relative link depth resolves correctly from both
+archive directories. `record_test.go` is a genuine structural gate rather
+than a test that happens to pass today: it fails loudly if the tree scan
+finds nothing, if the criteria parser stops matching, or if the AC-PAR-
+prefix rule is violated, and its `.aiteam/` exclusion and session-directory
+scoping mean it will not spuriously break when an unrelated future session
+is added to the tree. The one advisory (CR-A-004) is a precision nit in a
+sentence whose practical conclusion is correct and already backed
+independently by `push.go`'s exit-code-independent check.
+
+## Verdict
+
+ADVISORY_ONLY — 1 new advisory (CR-A-004, a doc sentence that folds two
+distinct SPIKE measurements into one confidence-bearing number without
+flagging that their co-occurrence was never chased). Zero BLOCKING findings.
+Proceeding to environment setup / testing.

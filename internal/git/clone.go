@@ -37,9 +37,13 @@ import (
 // litefactory's own argv: fetch failed 75% of the time whenever the remote's
 // refs had actually moved ("cannot lock ref"), worktree add failed 0.75%
 // fatally on a sibling's half-written registry entry, and "push
-// --set-upstream" went wrong 25% of the time *silently* — exiting 0, with a
-// "could not lock config file .git/config" warning that no exit code carries,
-// and leaving the branch with no upstream set.
+// --set-upstream" left 25% of branches with no upstream set at all — while
+// exiting 0 every single time.
+//
+// A "could not lock config file .git/config" error was printed in more runs
+// still (37%) than ended up missing an upstream (25%). The gap between those
+// two numbers was never chased: both are bad, and the exact accounting does
+// not change what a caller has to do about it.
 //
 // The silent one is the dangerous one. The other two are loud enough that a
 // caller can retry or report them; that one returns nil from a call that half

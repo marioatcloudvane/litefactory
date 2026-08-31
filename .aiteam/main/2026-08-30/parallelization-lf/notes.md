@@ -199,3 +199,36 @@ resolved by making the second authoritative. The committed result was reviewed
 directly rather than trusted from either agent's report. The run-1 note about
 parallel engineers sharing one working tree applies to agents that outlive their
 orchestrator too: **check for survivors before relaunching work.**
+
+## Code Review Advisories — run 3 (User Story 7, the record)
+
+Verdict **ADVISORY_ONLY**, zero BLOCKING. The reviewer independently re-derived
+the story's factual claims rather than reading them: it re-ran the `go func`
+census against the ledger's goroutine inventory, reimplemented `record_test.go`'s
+two parsers to confirm they find 44 criteria and not zero, and checked every
+cited line number lands on the text it quotes. All held.
+
+- **CR-A-004 — false precision in `internal/git/clone.go`.** The new contention
+  paragraph folded two distinct `SPIKE.md` measurements into one sentence: 89/240
+  runs (37%) printed the `could not lock config file .git/config` error, while
+  60/240 (25%) ended with no upstream entry. The sentence characterised the 25%
+  figure by *both*, implying a co-occurrence the data does not establish —
+  `SPIKE.md:119` says explicitly that "the 89-errors-vs-60-missing-entries gap in
+  P2c was not chased".
+  **Taken, not deferred.** In a story whose entire purpose is a record that does
+  not overclaim, a freshly-written overclaim is the defect class itself. The two
+  numbers are now reported separately, with the unchased gap named as unchased.
+  The practical conclusion is unchanged and remains independently backed by
+  `push.go`'s exit-code-independent `confirmUpstream` check.
+
+## Findings recorded, deliberately not acted on
+
+- **`internal/config/config.go:63` names `CursorLookback`**, a constant that
+  exists nowhere in the tree — AC-FC-2.6's subject ships as
+  `daemon.ListingOverlap` (`internal/daemon/tick.go:205`), a bare exported const
+  with **no `daemon.Options` override**, so the criterion's promised test seam
+  was never built either. Both facts predate this work and neither is in the
+  RD-11 table, so US-7 recorded them in the AC-FC-2.6 ledger entry rather than
+  fixing them. A later pass should either rename the doc reference or give
+  `ListingOverlap` the seam AC-FC-2.6 specified; doing it here would have been
+  scope creep.
