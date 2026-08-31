@@ -36,7 +36,13 @@ import (
 const (
 	testOwnerName = "acme"
 	testRepoName  = "acme-api"
-	testIssue     = 123
+	// testOtherRepoName is the second repository a cross-repository test
+	// registers (AC-PAR-1.3, 5.1, 5.2, 5.3, 2.2, 2.3), via [fixture.secondRepo].
+	// Same owner as the primary repository: what distinguishes the two
+	// repositories in every one of those criteria is the repository, not the
+	// forge account, and a shared owner keeps that the only variable.
+	testOtherRepoName = "other-api"
+	testIssue         = 123
 
 	ownerLogin = "marioatcloudvane"
 	ownerID    = int64(4242)
@@ -135,6 +141,19 @@ type fakeComment struct {
 // it, and a connection that is hung up has to surface as a transport error. A
 // fake that returned those values directly would assert that this package
 // handles what it was handed, not what GitHub sends.
+// repoState is one registered repository's mutable issues and comments inside
+// the fake forge.
+//
+// It is what makes a second repository more than a name: AC-PAR-1.3, 5.1, 5.2
+// and 2.2/2.3 are all about work in one repository not affecting discovery of
+// another, and that can only be asserted against a second repository that can
+// actually hold issues and comments of its own rather than the always-empty
+// stub the O(registered repos) tests used until now.
+type repoState struct {
+	issues   []fakeIssue
+	comments []fakeComment
+}
+
 type forgeServer struct {
 	t      *testing.T
 	server *httptest.Server
@@ -144,9 +163,14 @@ type forgeServer struct {
 	// of the wire, and no test depends on the wall clock.
 	now func() time.Time
 
-	mu            sync.Mutex
-	issues        []fakeIssue
-	comments      []fakeComment
+	mu sync.Mutex
+	// repos is keyed on "owner/name". Every registered repository gets an
+	// entry lazily, through [forgeServer.state], the first time anything
+	// touches it — including a repository nothing is ever added to, which is
+	// what keeps the existing O(registered repos) tests passing unchanged.
+	repos map[string]*repoState
+	// nextCommentID is shared across every repository, exactly as GitHub's own
+	// comment ids are: one global sequence, never reset per repository.
 	nextCommentID int64
 
 	// Recorded traffic.
@@ -184,14 +208,32 @@ func (f *forgeServer) record(issue int, action string) {
 	f.orderIssues = append(f.orderIssues, issue)
 }
 
+// state answers the repository's mutable state, creating an empty one on
+// first touch. The caller holds f.mu.
+func (f *forgeServer) state(owner, name string) *repoState {
+	key := owner + "/" + name
+	rs, ok := f.repos[key]
+	if !ok {
+		rs = &repoState{}
+		f.repos[key] = rs
+	}
+	return rs
+}
+
 // issueOfComment answers which issue a comment belongs to, so that a reaction —
 // which arrives carrying only a comment id — can be attributed. The caller holds
 // f.mu. A comment the fixture never registered is attributed to issue 0, which
 // no projection asks for.
+//
+// It searches every registered repository because a reaction's URL carries
+// only a comment id (GitHub's own shape) and comment ids are unique across
+// the whole fake forge, never per repository.
 func (f *forgeServer) issueOfComment(id int64) int {
-	for i := range f.comments {
-		if f.comments[i].ID == id {
-			return f.comments[i].issue
+	for _, rs := range f.repos {
+		for i := range rs.comments {
+			if rs.comments[i].ID == id {
+				return rs.comments[i].issue
+			}
 		}
 	}
 	return 0
@@ -200,32 +242,24 @@ func (f *forgeServer) issueOfComment(id int64) int {
 func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	t.Helper()
 
-	f := &forgeServer{t: t, now: now, nextCommentID: 500_000}
+	f := &forgeServer{t: t, now: now, repos: make(map[string]*repoState), nextCommentID: 500_000}
 
+	// Every route is keyed on {owner}/{repo} rather than the one repository
+	// this package used to hard-code, so that a second registered repository
+	// is a real repository — its own issues, its own comments — and not the
+	// always-empty stub the O(registered repos) tests used to be the only
+	// thing exercising. [forgeServer.state] creates an empty [repoState] on
+	// first touch, which is what keeps a repository nothing was ever added to
+	// behaving exactly as the old stub did: a listing that counts and returns
+	// nothing.
 	mux := http.NewServeMux()
-	base := "/repos/" + testOwnerName + "/" + testRepoName
-	mux.HandleFunc("GET "+base+"/issues", f.handleListIssues)
-	mux.HandleFunc("GET "+base+"/issues/{number}", f.handleGetIssue)
-	mux.HandleFunc("GET "+base+"/issues/comments", f.handleListRepoComments)
-	mux.HandleFunc("GET "+base+"/issues/{number}/comments", f.handleListComments)
-	mux.HandleFunc("POST "+base+"/issues/{number}/comments", f.handlePostComment)
-	mux.HandleFunc("POST "+base+"/issues/comments/{id}/reactions", f.handleReaction)
-	// A second registered repository, for the O(registered repos) assertion. It
-	// has no issues: what is being counted is the number of listings, not what
-	// they return.
-	other := "/repos/" + testOwnerName + "/other-api"
-	mux.HandleFunc("GET "+other+"/issues", func(w http.ResponseWriter, _ *http.Request) {
-		f.mu.Lock()
-		f.listIssues++
-		f.mu.Unlock()
-		writeJSON(w, http.StatusOK, []fakeIssue{})
-	})
-	mux.HandleFunc("GET "+other+"/issues/comments", func(w http.ResponseWriter, _ *http.Request) {
-		f.mu.Lock()
-		f.listRepoComments++
-		f.mu.Unlock()
-		writeJSON(w, http.StatusOK, []fakeComment{})
-	})
+	const repos = "/repos/{owner}/{repo}"
+	mux.HandleFunc("GET "+repos+"/issues", f.handleListIssues)
+	mux.HandleFunc("GET "+repos+"/issues/{number}", f.handleGetIssue)
+	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
+	mux.HandleFunc("GET "+repos+"/issues/{number}/comments", f.handleListComments)
+	mux.HandleFunc("POST "+repos+"/issues/{number}/comments", f.handlePostComment)
+	mux.HandleFunc("POST "+repos+"/issues/comments/{id}/reactions", f.handleReaction)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
@@ -242,7 +276,7 @@ func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
 	call := f.listIssues
 	f.sinceValues = append(f.sinceValues, r.URL.Query().Get("since"))
 	hook := f.onListIssues
-	issues := slices.Clone(f.issues)
+	issues := slices.Clone(f.state(r.PathValue("owner"), r.PathValue("repo")).issues)
 	f.mu.Unlock()
 
 	if hook != nil && hook(w, call) {
@@ -283,7 +317,7 @@ func (f *forgeServer) handleListComments(w http.ResponseWriter, r *http.Request)
 	call := f.listComments
 	hook := f.onListComments
 	var out []fakeComment
-	for _, c := range f.comments {
+	for _, c := range f.state(r.PathValue("owner"), r.PathValue("repo")).comments {
 		if c.issue == number {
 			out = append(out, c)
 		}
@@ -307,7 +341,7 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, issue := range f.issues {
+	for _, issue := range f.state(r.PathValue("owner"), r.PathValue("repo")).issues {
 		if issue.Number == number {
 			writeJSON(w, http.StatusOK, issue)
 			return
@@ -321,7 +355,7 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 func (f *forgeServer) handleListRepoComments(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.listRepoComments++
-	comments := slices.Clone(f.comments)
+	comments := slices.Clone(f.state(r.PathValue("owner"), r.PathValue("repo")).comments)
 	f.mu.Unlock()
 
 	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
@@ -390,8 +424,15 @@ func (f *forgeServer) handleReaction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"id": 1, "content": "eyes"})
 }
 
-// addIssue registers an issue, replacing one with the same number.
+// addIssue registers an issue on the primary repository, replacing one with
+// the same number.
 func (f *forgeServer) addIssue(issue fakeIssue) {
+	f.addIssueIn(testOwnerName, testRepoName, issue)
+}
+
+// addIssueIn is [forgeServer.addIssue] against an arbitrary registered
+// repository, for a test with more than one (AC-PAR-1.3, 5.1, 2.2, 2.3).
+func (f *forgeServer) addIssueIn(owner, name string, issue fakeIssue) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if issue.State == "" {
@@ -403,89 +444,124 @@ func (f *forgeServer) addIssue(issue fakeIssue) {
 	if issue.CreatedAt.IsZero() {
 		issue.CreatedAt = issue.UpdatedAt
 	}
-	for i := range f.issues {
-		if f.issues[i].Number == issue.Number {
-			f.issues[i] = issue
+	rs := f.state(owner, name)
+	for i := range rs.issues {
+		if rs.issues[i].Number == issue.Number {
+			rs.issues[i] = issue
 			return
 		}
 	}
-	f.issues = append(f.issues, issue)
+	rs.issues = append(rs.issues, issue)
 }
 
-// addComment appends a comment to an issue and touches the issue's update time,
-// which is what GitHub does — measured on issue #4, whose comment landed at
-// 19:14:47Z and whose issue read 19:14:48Z.
+// addComment appends a comment to an issue on the primary repository and
+// touches the issue's update time, which is what GitHub does — measured on
+// issue #4, whose comment landed at 19:14:47Z and whose issue read 19:14:48Z.
 //
 // What GitHub does *not* guarantee is that the issue listing reflects that
 // bump before the poll cursor has moved past it. Tests that care about the lag
 // say so explicitly, with [forgeServer.staleIssue] or by backdating a comment,
 // rather than having the fixture pretend it always happens.
 func (f *forgeServer) addComment(issue int, id int64, author fakeUser, body string) {
-	f.addCommentAt(issue, id, author, body, f.now())
+	f.addCommentIn(testOwnerName, testRepoName, issue, id, author, body, f.now())
 }
 
-// addCommentAt writes a comment stamped at an arbitrary time. Backdating one is
-// how a test models an index that caught up late: the comment is real and its
-// timestamp is old, so only a listing window that reaches back far enough will
-// return it.
+// addCommentTo is [forgeServer.addComment] against an arbitrary registered
+// repository, stamped at the fixture's current clock reading.
+func (f *forgeServer) addCommentTo(owner, name string, issue int, id int64, author fakeUser, body string) {
+	f.addCommentIn(owner, name, issue, id, author, body, f.now())
+}
+
+// addCommentAt writes a comment on the primary repository stamped at an
+// arbitrary time. Backdating one is how a test models an index that caught up
+// late: the comment is real and its timestamp is old, so only a listing
+// window that reaches back far enough will return it.
 func (f *forgeServer) addCommentAt(issue int, id int64, author fakeUser, body string, at time.Time) {
+	f.addCommentIn(testOwnerName, testRepoName, issue, id, author, body, at)
+}
+
+// addCommentIn is [forgeServer.addCommentAt] against an arbitrary registered
+// repository, for a test with more than one.
+func (f *forgeServer) addCommentIn(
+	owner, name string, issue int, id int64, author fakeUser, body string, at time.Time,
+) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.comments = append(f.comments, fakeComment{
+	rs := f.state(owner, name)
+	rs.comments = append(rs.comments, fakeComment{
 		ID: id, Body: body, User: author, CreatedAt: at, UpdatedAt: at, issue: issue,
-		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d",
-			testOwnerName, testRepoName, issue),
+		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d", owner, name, issue),
 	})
-	for i := range f.issues {
-		if f.issues[i].Number == issue {
-			f.issues[i].UpdatedAt = at
+	for i := range rs.issues {
+		if rs.issues[i].Number == issue {
+			rs.issues[i].UpdatedAt = at
 		}
 	}
 }
 
-// closeIssue closes an issue the way a human does: its state changes and its
-// update time moves with it. Everything about it stays on the forge, and
-// handleGetIssue keeps serving it — closed is a state, not a deletion.
+// closeIssue closes an issue on the primary repository the way a human does:
+// its state changes and its update time moves with it. Everything about it
+// stays on the forge, and handleGetIssue keeps serving it — closed is a
+// state, not a deletion.
 func (f *forgeServer) closeIssue(number int) {
+	f.closeIssueIn(testOwnerName, testRepoName, number)
+}
+
+// closeIssueIn is [forgeServer.closeIssue] against an arbitrary registered
+// repository.
+func (f *forgeServer) closeIssueIn(owner, name string, number int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for i := range f.issues {
-		if f.issues[i].Number == number {
-			f.issues[i].State = "closed"
-			f.issues[i].UpdatedAt = f.now()
+	rs := f.state(owner, name)
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].State = "closed"
+			rs.issues[i].UpdatedAt = f.now()
 			return
 		}
 	}
-	f.t.Fatalf("no issue %d to close", number)
+	f.t.Fatalf("no issue %d to close in %s/%s", number, owner, name)
 }
 
-// setLabels replaces an issue's labels, the way a maintainer relabeling it on
-// GitHub does, and touches its update time the same way [forgeServer.addComment]
-// does for a comment: relabeling is a real edit to the issue, and a tick that
-// filtered on `since` has to see it (AC-2.10).
+// setLabels replaces an issue's labels on the primary repository, the way a
+// maintainer relabeling it on GitHub does, and touches its update time the
+// same way [forgeServer.addComment] does for a comment: relabeling is a real
+// edit to the issue, and a tick that filtered on `since` has to see it
+// (AC-2.10).
 func (f *forgeServer) setLabels(number int, labels ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for i := range f.issues {
-		if f.issues[i].Number == number {
-			f.issues[i].Labels = toFakeLabels(labels...)
-			f.issues[i].UpdatedAt = f.now()
+	rs := f.state(testOwnerName, testRepoName)
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].Labels = toFakeLabels(labels...)
+			rs.issues[i].UpdatedAt = f.now()
 			return
 		}
 	}
 	f.t.Fatalf("no issue %d to relabel", number)
 }
 
+// staleIssue backdates an issue's UpdatedAt on the primary repository.
 func (f *forgeServer) staleIssue(number int, at time.Time) {
+	f.staleIssueIn(testOwnerName, testRepoName, number, at)
+}
+
+// staleIssueIn is [forgeServer.staleIssue] against an arbitrary registered
+// repository — and, unlike a fresh comment, it leaves nothing else about the
+// issue touched, which is what AC-PAR-5.2 needs: proof that re-discovery
+// through the backlog costs the issue's UpdatedAt nothing.
+func (f *forgeServer) staleIssueIn(owner, name string, number int, at time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for i := range f.issues {
-		if f.issues[i].Number == number {
-			f.issues[i].UpdatedAt = at
+	rs := f.state(owner, name)
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].UpdatedAt = at
 			return
 		}
 	}
-	f.t.Fatalf("no issue %d to backdate", number)
+	f.t.Fatalf("no issue %d to backdate in %s/%s", number, owner, name)
 }
 
 func (f *forgeServer) snapshot() (posted []string, reacted []int64, order []string) {
@@ -1093,6 +1169,69 @@ func (f *fixture) sessionOf(issue int) store.Session {
 		f.t.Fatalf("read the session for issue %d: %v", issue, err)
 	}
 	return session
+}
+
+// secondRepo registers a second repository on this fixture's forge, sharing
+// its one httptest.Server and its one github.Client — production has one
+// client per daemon, not one per repository, so a cross-repository test has
+// to reach a second repository through the same client the first one uses.
+// [forgeServer]'s routes are keyed on {owner}/{repo}, which is what makes
+// this a real, independent repository rather than the always-empty stub the
+// O(registered repos) tests used before AC-PAR-1.3 needed a working one.
+func (f *fixture) secondRepo() store.Repo {
+	f.t.Helper()
+
+	repo, err := f.db.UpsertRepo(f.t.Context(), store.Repo{
+		Path:          f.repo.Path + "-2",
+		Forge:         store.ForgeGitHub,
+		Owner:         testOwnerName,
+		Name:          testOtherRepoName,
+		RemoteURL:     "git@github.com:" + testOwnerName + "/" + testOtherRepoName + ".git",
+		BaseBranch:    "main",
+		FeaturePrefix: naming.DefaultFeaturePrefix,
+		WorktreeRoot:  f.repo.WorktreeRoot + "-2",
+	})
+	if err != nil {
+		f.t.Fatalf("register the second repository: %v", err)
+	}
+	return repo
+}
+
+// sessionIn is [fixture.sessionOf] for an issue on a repository other than
+// the fixture's primary one.
+func (f *fixture) sessionIn(repo store.Repo, issue int) store.Session {
+	f.t.Helper()
+
+	session, err := f.db.GetSessionByTaskRef(f.t.Context(),
+		store.TaskRef(store.ForgeGitHub, repo.Owner, repo.Name, issue))
+	if err != nil {
+		f.t.Fatalf("read the session for %s/%s#%d: %v", repo.Owner, repo.Name, issue, err)
+	}
+	return session
+}
+
+// watermarkIn is [fixture.watermark] for an issue on a repository other than
+// the fixture's primary one.
+func (f *fixture) watermarkIn(repo store.Repo, issue int) int64 {
+	f.t.Helper()
+
+	session, err := f.db.GetSessionByTaskRef(f.t.Context(),
+		store.TaskRef(store.ForgeGitHub, repo.Owner, repo.Name, issue))
+	if errors.Is(err, store.ErrNotFound) {
+		return -1
+	}
+	if err != nil {
+		f.t.Fatalf("read the session: %v", err)
+	}
+
+	watermark, exists, err := f.db.GetWatermark(f.t.Context(), session.ID)
+	if err != nil {
+		f.t.Fatalf("read the watermark: %v", err)
+	}
+	if !exists {
+		return -1
+	}
+	return watermark.LastCommentID
 }
 
 // watermark reads how far through the task's comments litefactory has got. It
