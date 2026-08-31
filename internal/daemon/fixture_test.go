@@ -167,7 +167,34 @@ type forgeServer struct {
 
 	// order records the sequence of externally visible actions, so that "the
 	// reaction happened before the run" is an assertion rather than a hope.
-	order []string
+	//
+	// orderIssues is the issue each entry belongs to, held in step with it.
+	// Global order stopped being assertable when turns became concurrent — three
+	// issues interleave, and which of them reacts first is the scheduler's
+	// business — but the order of the actions *within* one issue is still the
+	// invariant, and [forgeServer.orderFor] is how it is read back.
+	order       []string
+	orderIssues []int
+}
+
+// record appends one externally visible action, attributed to an issue. The
+// caller holds f.mu.
+func (f *forgeServer) record(issue int, action string) {
+	f.order = append(f.order, action)
+	f.orderIssues = append(f.orderIssues, issue)
+}
+
+// issueOfComment answers which issue a comment belongs to, so that a reaction —
+// which arrives carrying only a comment id — can be attributed. The caller holds
+// f.mu. A comment the fixture never registered is attributed to issue 0, which
+// no projection asks for.
+func (f *forgeServer) issueOfComment(id int64) int {
+	for i := range f.comments {
+		if f.comments[i].ID == id {
+			return f.comments[i].issue
+		}
+	}
+	return 0
 }
 
 func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
@@ -329,7 +356,7 @@ func (f *forgeServer) handlePostComment(w http.ResponseWriter, r *http.Request) 
 		id := f.nextCommentID
 		f.postedBodies = append(f.postedBodies, payload.Body)
 		f.postedIssues = append(f.postedIssues, number)
-		f.order = append(f.order, fmt.Sprintf("post:%d", id))
+		f.record(number, fmt.Sprintf("post:%d", id))
 		f.mu.Unlock()
 		writeJSON(w, http.StatusCreated, fakeComment{
 			ID:        id,
@@ -358,7 +385,7 @@ func (f *forgeServer) handleReaction(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.reactionCalls++
 	f.reactedTo = append(f.reactedTo, id)
-	f.order = append(f.order, fmt.Sprintf("react:%d", id))
+	f.record(f.issueOfComment(id), fmt.Sprintf("react:%d", id))
 	f.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{"id": 1, "content": "eyes"})
 }
@@ -465,6 +492,27 @@ func (f *forgeServer) snapshot() (posted []string, reacted []int64, order []stri
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.postedBodies), slices.Clone(f.reactedTo), slices.Clone(f.order)
+}
+
+// orderFor is [forgeServer.snapshot]'s order projected onto one issue.
+//
+// With turns running concurrently the global sequence is a merge of however many
+// issues were in flight, in whatever order the scheduler produced — so
+// "the reaction happened before the run" is only an assertion when it is asked
+// about one issue at a time. Everything a single turn does is still strictly
+// ordered, because a session's turns are serialised by the daemon's in-flight
+// set; this is the projection that makes that visible.
+func (f *forgeServer) orderFor(issue int) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	out := make([]string, 0, len(f.order))
+	for i, entry := range f.order {
+		if f.orderIssues[i] == issue {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func (f *forgeServer) counts() (issues, comments, posts, reactions int) {
@@ -589,8 +637,9 @@ type fakeExecutor struct {
 	mu       sync.Mutex
 	fn       func(ctx context.Context, req turn.Request) (turn.Result, error)
 	requests []turn.Request
-	order    *[]string
-	orderMu  *sync.Mutex
+	// forge is where the ordering record lives, so that a turn and the
+	// reaction that preceded it land in one sequence attributable to one issue.
+	forge *forgeServer
 }
 
 func (e *fakeExecutor) Execute(ctx context.Context, req turn.Request) (turn.Result, error) {
@@ -599,10 +648,10 @@ func (e *fakeExecutor) Execute(ctx context.Context, req turn.Request) (turn.Resu
 	fn := e.fn
 	e.mu.Unlock()
 
-	if e.order != nil {
-		e.orderMu.Lock()
-		*e.order = append(*e.order, fmt.Sprintf("turn:%d", req.Trigger.CommentID))
-		e.orderMu.Unlock()
+	if e.forge != nil {
+		e.forge.mu.Lock()
+		e.forge.record(req.Issue.Number, fmt.Sprintf("turn:%d", req.Trigger.CommentID))
+		e.forge.mu.Unlock()
 	}
 	return fn(ctx, req)
 }
@@ -613,10 +662,40 @@ func (e *fakeExecutor) calls() []turn.Request {
 	return slices.Clone(e.requests)
 }
 
+// triggers is every comment id a turn was started for, sorted.
+//
+// Sorted, because the call order into Execute is the dispatch order across
+// sessions and that is nondeterministic once turns are concurrent: two issues
+// dispatched by one tick reach here in whichever order the runtime scheduled
+// them. An unsorted list would make every assertion using this flaky. What this
+// answers is "which turns ran", which is a set.
+//
+// Where the order is the point — two comments on one issue, which must run in
+// ascending comment id order (AC-PAR-1.4) — use [fakeExecutor.triggersFor],
+// which answers about one session and does not sort.
 func (e *fakeExecutor) triggers() []int64 {
-	ids := make([]int64, 0, len(e.calls()))
-	for _, req := range e.calls() {
+	calls := e.calls()
+	ids := make([]int64, 0, len(calls))
+	for _, req := range calls {
 		ids = append(ids, req.Trigger.CommentID)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// triggersFor is the comment ids a turn was started for on one session, in the
+// order Execute was called with them.
+//
+// Deliberately not sorted: within a session the ordering *is* the invariant.
+// The daemon's in-flight set holds a session from dispatch until its report has
+// posted, so a session's turns are strictly sequential, and sorting this would
+// sort away the only thing it exists to show.
+func (e *fakeExecutor) triggersFor(sessionID int64) []int64 {
+	var ids []int64
+	for _, req := range e.calls() {
+		if req.SessionID == sessionID {
+			ids = append(ids, req.Trigger.CommentID)
+		}
 	}
 	return ids
 }
@@ -786,7 +865,7 @@ func newFixture(t *testing.T) *fixture {
 		filter:   filter,
 		reporter: reporter,
 	}
-	f.turns = &fakeExecutor{fn: f.ranSuccessfully, order: &forge.order, orderMu: &forge.mu}
+	f.turns = &fakeExecutor{fn: f.ranSuccessfully, forge: forge}
 	f.daemon = f.newDaemon(daemon.Options{})
 	return f
 }
@@ -876,19 +955,52 @@ func (f *fixture) tickErr() (daemon.TickResult, error) {
 	return f.daemon.Tick(f.t.Context())
 }
 
-// settle runs the tick that plants the poll cursor.
+// settle runs one tick and waits for every turn it dispatched to finish.
 //
-// It is the first tick of a daemon's life and it is expected to find nothing:
-// AC-2.9 initialises the cursor to "now", so an issue that already existed is
-// not listed. Every test that wants to observe a first sight therefore settles
-// first and registers its issue afterwards — which is also the order in which
-// this happens on a real machine.
-func (f *fixture) settle() {
+// This is the primitive nearly every test in this package needs, and it took
+// the name settle from the cursor-planting helper — now [fixture.plantCursor] —
+// because *this* is what settling means once a tick returns before its work is
+// done. Reading the database on the line after a bare [fixture.tick] asserts on
+// a turn that may not have started yet.
+//
+// It is [daemon.Daemon.Quiesce], and nothing else. No time.Sleep, no polling
+// loop, no eventually-helper: the pool's WaitGroup already knows the exact
+// moment the last worker returned, and anything that guessed at it instead
+// would make every test built on it a coin flip that usually lands the right
+// way up. A test's own context is what bounds the wait, so a worker that never
+// finishes fails the test rather than hanging the suite for ten minutes.
+//
+// Quiesce is called between ticks, never during one, which is exactly the
+// contract its doc comment asks for: Tick has returned before this line runs.
+func (f *fixture) settle() daemon.TickResult {
 	f.t.Helper()
 
 	result := f.tick()
+	if err := f.daemon.Quiesce(f.t.Context()); err != nil {
+		f.t.Fatalf("Quiesce after a tick: %v\nlogs:\n%s", err, f.logs)
+	}
+	return result
+}
+
+// plantCursor runs the tick that plants the poll cursor.
+//
+// It is the first tick of a daemon's life and it is expected to find nothing:
+// AC-2.9 initialises the cursor to "now", so an issue that already existed is
+// not listed. Every test that wants to observe a first sight therefore plants
+// the cursor first and registers its issue afterwards — which is also the order
+// in which this happens on a real machine.
+//
+// It used to be called settle, and the rename is the point: it says what it
+// does, and it frees the name for [fixture.settle], which is about waiting for
+// dispatched work rather than about the cursor. It goes through settle itself
+// so that a tick which unexpectedly did dispatch something is still joined
+// before the test carries on.
+func (f *fixture) plantCursor() {
+	f.t.Helper()
+
+	result := f.settle()
 	if result.Issues != 0 {
-		f.t.Fatalf("the settling tick listed %d issues, want none", result.Issues)
+		f.t.Fatalf("the cursor-planting tick listed %d issues, want none", result.Issues)
 	}
 }
 
@@ -967,10 +1079,18 @@ func (f *fixture) assignedIssueBy(author fakeUser, title, body string) {
 func (f *fixture) session() store.Session {
 	f.t.Helper()
 
+	return f.sessionOf(testIssue)
+}
+
+// sessionOf is [fixture.session] for a test that registered more than one
+// issue — which is every test about two tasks running at once.
+func (f *fixture) sessionOf(issue int) store.Session {
+	f.t.Helper()
+
 	session, err := f.db.GetSessionByTaskRef(f.t.Context(),
-		store.TaskRef(store.ForgeGitHub, testOwnerName, testRepoName, testIssue))
+		store.TaskRef(store.ForgeGitHub, testOwnerName, testRepoName, issue))
 	if err != nil {
-		f.t.Fatalf("read the session: %v", err)
+		f.t.Fatalf("read the session for issue %d: %v", issue, err)
 	}
 	return session
 }

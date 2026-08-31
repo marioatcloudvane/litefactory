@@ -341,6 +341,28 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 
 	// AC-3.1: the lock comes before preparation, so two daemons cannot both
 	// fetch, both create the worktree and both start claude in it.
+	//
+	// # What this lock is now for, and what it is not (RD-3)
+	//
+	// It is the *cross-process* mechanism, and only that. It is durable, it
+	// survives a crash, and it is what stops a second litefactory process
+	// against the same $LF_HOME from touching this worktree and this runs row.
+	// That role is unchanged.
+	//
+	// What it is no longer doing is serialising the turns of one daemon. The
+	// daemon keeps an in-memory set of the sessions it has a turn in flight for
+	// (internal/daemon/inflight.go), enters a session before dispatching it and
+	// leaves it only once the report has posted — which is wider than this lock,
+	// because the watermark advances after the post, and this lock is released
+	// when Execute returns. That set is checked and inserted on the daemon's one
+	// Tick goroutine, so two sibling workers of the same daemon can never both
+	// arrive here for the same session.
+	//
+	// Within a process, then, this has become defence in depth against a
+	// dispatcher bug rather than the primary mechanism, and DispositionLocked
+	// below is reachable only from a second process. Say it here, because the
+	// obvious reading of the code is the wrong one: nothing about "the database
+	// holds a lock" suggests that it is not what the concurrency rests on.
 	acquired, err := opts.DB.AcquireSessionLock(ctx, session.ID, opts.InstanceID)
 	if err != nil {
 		return result, fmt.Errorf("acquire the lock on task %s: %w", ref, err)

@@ -26,19 +26,16 @@ import (
 // show up as a run or a reply where this test expects neither.
 func TestATagOnlyCommentStartsNoRunAndIsConsumed(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 90, owner(), turn.AskTag)
 
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 0 {
-		t.Errorf("ran %d turns for a tag-only comment, want none", result.Runs)
-	}
-	if result.Replies != 0 {
-		t.Errorf("posted %d replies for a tag-only comment, want none", result.Replies)
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns for a tag-only comment, want none", len(calls))
 	}
 	if got := f.watermark(); got != 90 {
 		t.Errorf("watermark is %d, want 90 — the comment must still be consumed", got)

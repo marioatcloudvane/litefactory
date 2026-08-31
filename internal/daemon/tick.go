@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,13 +16,33 @@ import (
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
-// TickResult is what one tick did. It is returned so that a test can assert on
-// a tick without reading log lines, and so that the loop has something to
-// summarise.
+// TickResult is what one tick did.
+//
+// It is returned so that a test can assert on a tick without reading log lines,
+// and so that the loop has something to summarise.
+//
+// # Every field is written by the Tick goroutine and by nothing else (RD-5)
+//
+// A tick no longer performs the turns it finds; it discovers them and hands
+// them to workers that outlive it. Counting what those workers went on to do —
+// comments examined, replies posted, tasks bootstrapped — would mean either a
+// mutex around this struct or a race. Neither is worth having: a mutexed
+// counter read at the end of a tick is a snapshot of an unfinished computation,
+// whose value depends on how the scheduler happened to interleave, and a test
+// asserting on it would be asserting on timing.
+//
+// So the counters that described the *work* are gone, and what remains
+// describes the *decision*, which is entirely the Tick goroutine's own: how
+// many repositories were polled, how many issues came back, how many turns were
+// dispatched, how many were left for the next tick. What the work did is
+// asserted where it actually happens — on the forge, in the store, and in the
+// executor the fixture substitutes.
 type TickResult struct {
 	// StartedAt is when the tick began, from the daemon's clock.
 	StartedAt time.Time
-	// Duration is how long it took.
+	// Duration is how long it took. It is the duration of discovery and
+	// dispatch, not of the turns dispatched — those are still running when it
+	// is measured.
 	Duration time.Duration
 
 	// Skipped reports that the tick did nothing because a rate-limit backoff
@@ -31,21 +53,25 @@ type TickResult struct {
 	// Repos is how many registered repositories were polled — one bounded,
 	// logged query each, which is the whole per-tick API cost (AC-2.8).
 	Repos int
-	// Issues is how many non-pull-request issues came back across them.
+	// Issues is how many non-pull-request issues came back across them. It
+	// counts what the forge listings returned, so a session reached only
+	// through the local backlog is not one of them.
 	Issues int
-	// Bootstrapped is how many tasks were seen for the first time and had a
-	// watermark planted without any of their existing comments being processed
-	// (AC-2.10). A first sight can still run the issue body, which counts in
-	// Runs and not here (AC-2.16b).
-	Bootstrapped int
-	// Comments is how many comments above a watermark were examined.
-	Comments int
-	// Runs is how many turns were executed, and Replies how many run-less
-	// replies were posted (AC-2.18, AC-2.20).
-	Runs    int
-	Replies int
-	// Deferred is how many tasks stopped their comment queue early, leaving a
-	// comment for a later tick. See [Daemon.drain].
+	// Dispatched is how many turns this tick handed to a worker.
+	//
+	// It is the old Runs counter under the name it always deserved: Runs was
+	// incremented as soon as [turn.Execute] returned and before its disposition
+	// was looked at, so it never meant "ran" — it meant "handed over". Now the
+	// handing over is a `go`, and the count is taken by the goroutine doing it.
+	Dispatched int
+	// InFlight is how many turns this daemon had running when the tick finished
+	// dispatching — the ones it just started plus any still going from an
+	// earlier tick. It is a reading taken on the Tick goroutine, so it is a
+	// number for the log rather than a promise about the next instant.
+	InFlight int
+	// Deferred is how many eligible sessions found no free slot. They are not
+	// queued: each keeps its backlog flag and is reconsidered from scratch, in
+	// rotation order, by the next tick.
 	Deferred int
 
 	// Cursor is the poll cursor as it stands after the tick. A failed tick
@@ -54,16 +80,24 @@ type TickResult struct {
 	Cursor store.PollCursor
 }
 
-// Tick runs one poll cycle.
+// Tick runs one poll cycle: discover what has work, then dispatch as much of it
+// as there are free slots for.
 //
-// It is exported and synchronous on purpose: the loop is a thin wrapper around
-// it, and everything worth asserting about polling can be asserted by calling
-// this and looking at the database, with no clock to wait for.
+// It is exported and synchronous on purpose — the loop is a thin wrapper around
+// it — but "synchronous" now covers the decision only. A tick returns as soon
+// as it has dispatched, without waiting for any turn it started, which is the
+// whole point of the split: a thirty-minute run on issue #7 no longer stops
+// issue #8 being noticed thirty seconds later (AC-PAR-1.1).
 //
-// An error means the tick did not complete. The poll cursor is not persisted,
-// so the next tick asks for the same window again; every watermark already
-// advanced stays advanced, because a watermark only moves after the comment it
-// covers has genuinely been dealt with.
+// What a test asserts on therefore divides in two. What the tick decided is in
+// the returned [TickResult] the instant this returns. What the turns did is
+// visible once they have finished, which is what [Daemon.Quiesce] is for.
+//
+// An error means the tick did not complete: discovery failed, or shutdown
+// arrived. The poll cursor is not persisted, so the next tick asks for the same
+// window again; every watermark already advanced stays advanced, because a
+// watermark only moves after the comment it covers has genuinely been dealt
+// with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
 
@@ -88,22 +122,32 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	}
 
 	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor}
-	// pending is the update time of the earliest issue whose comment queue did
-	// not drain. The cursor is held back to it so that issue is listed again;
-	// otherwise `since` would move past it and the unconsumed comment would
-	// never be seen a second time.
-	var pending time.Time
 
-	if err := d.poll(ctx, repos, listingWindow(cursor), &result, &pending); err != nil {
+	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
+	if err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
 
-	next := startedAt
-	if !pending.IsZero() && pending.Before(next) {
-		next = pending
-	}
-	persisted := store.PollCursor{TasksUpdatedSince: next, LastTickAt: d.now()}
+	// The context handed to every worker is this one — the daemon's, which
+	// lives as long as the process does. It is deliberately not wrapped in a
+	// WithTimeout or a WithCancel first: a tick-scoped context given to a
+	// goroutine that outlives the tick would cancel every run at the instant
+	// discovery finished. The bound on a worker is not this context but the
+	// deadline on every call it makes (git, claude, the forge), and shutdown
+	// reaches it because cancelling *this* context cancels all of them at once.
+	d.dispatch(ctx, queues, startedAt, &result)
+	result.InFlight = d.inflight.size()
+
+	// The cursor is a pure watermark now: it advances to this tick's start time
+	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
+	// Holding it back to the oldest issue that did not finish was the only way
+	// to re-find that issue while there was no local record of one, and it
+	// pinned the whole fleet — one busy repository rewound discovery for every
+	// other. sessions.needs_poll is that local record, and [Daemon.discover]
+	// unions it with the listings, so re-discovery no longer needs the cursor's
+	// help. See [store.DB.ListBacklogSessions].
+	persisted := store.PollCursor{TasksUpdatedSince: startedAt, LastTickAt: d.now()}
 	if err := d.db.SetPollCursor(ctx, persisted); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, err
@@ -114,12 +158,10 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	d.log.InfoContext(ctx, "tick complete",
 		slog.Int("repos", result.Repos),
 		slog.Int("issues", result.Issues),
-		slog.Int("bootstrapped_tasks", result.Bootstrapped),
-		slog.Int("comments", result.Comments),
-		slog.Int("runs", result.Runs),
-		slog.Int("replies", result.Replies),
-		slog.Int("deferred_tasks", result.Deferred),
-		slog.Time("cursor", next.UTC()),
+		slog.Int("dispatched", result.Dispatched),
+		slog.Int("in_flight", result.InFlight),
+		slog.Int("deferred_sessions", result.Deferred),
+		slog.Time("cursor", startedAt.UTC()),
 		slog.String("duration", result.Duration.String()))
 	return result, nil
 }
@@ -158,29 +200,46 @@ func listingWindow(cursor store.PollCursor) time.Time {
 	return cursor.TasksUpdatedSince.Add(-ListingOverlap)
 }
 
-// poll walks every registered repository (D-A, AC-2.8).
+// discover walks every registered repository and every session the store says
+// still owes the daemon a look, and returns what is eligible to run, grouped by
+// repository (D-A, AC-2.8).
+//
+// It is the first of the two phases a tick is made of, and it runs to
+// completion before anything is dispatched. Dispatching as it discovered — what
+// this function used to do, inside the `for _, repo := range repos` below — is
+// unconditionally starving with a daemon-wide cap: repository 1 fills every
+// slot before repository 2's listing has even been issued. Separating the walk
+// from the decision is what makes the round-robin in [Daemon.dispatch] possible;
+// reordering the loop could not have.
 //
 // One listing per repository, so the tick's API cost is O(registered repos) and
 // each call logs what it cost — that is the criterion, not "one API call".
 // Issue *search* would collapse it into one request and was dropped: its query
 // string caps at 256 characters, it is eventually consistent, and it runs on a
 // thirtieth of the quota.
-func (d *Daemon) poll(
+//
+// An error here ends the tick. Everything this function does is on the Tick
+// goroutine, before any task has been touched: the cursor is not persisted and
+// no watermark has moved, so there is nothing to undo.
+func (d *Daemon) discover(
 	ctx context.Context,
 	repos []store.Repo,
 	since time.Time,
 	result *TickResult,
-	pending *time.Time,
-) error {
+) ([]*repoQueue, error) {
 	// cleared makes the resume happen at most once per tick, on the first
 	// listing that answers. Everything in this loop runs on the Tick goroutine,
 	// which is what makes an unguarded bool the right thing here — and which is
 	// also why [backoff.clear] is called from here and nowhere below.
 	cleared := false
 
+	queues := make([]*repoQueue, 0, len(repos))
+	byRepo := make(map[int64]*repoQueue, len(repos))
+	seen := make(map[int64]bool)
+
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		// One child logger per repository, derived once here and handed down, so
 		// that every line below this point says which repository it came from
@@ -198,9 +257,13 @@ func (d *Daemon) poll(
 		}
 
 		forgeRepo := github.Repo{Owner: repo.Owner, Name: repo.Name}
+		q := &repoQueue{repo: repo, forgeRepo: forgeRepo, log: repoLog}
+		queues = append(queues, q)
+		byRepo[repo.ID] = q
+
 		issues, err := d.forge.ListIssues(ctx, forgeRepo, since)
 		if err != nil {
-			return fmt.Errorf("list the issues of %s touched since %s: %w",
+			return nil, fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
 		}
 		if !cleared {
@@ -215,51 +278,209 @@ func (d *Daemon) poll(
 		}
 		commented, err := d.commentedIssues(ctx, repoLog, forgeRepo, since, issues)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		issues = append(issues, commented...)
 		result.Issues += len(issues)
 
 		for _, issue := range issues {
-			deferred, err := d.processIssue(ctx, repo, forgeRepo, issue, repoLog, result)
+			c, err := d.sight(ctx, q, issue)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if deferred {
-				result.Deferred++
-				if pending.IsZero() || issue.UpdatedAt.Before(*pending) {
-					*pending = issue.UpdatedAt
-				}
+			if c == nil || seen[c.session.ID] {
+				continue
 			}
+			seen[c.session.ID] = true
+			q.candidates = append(q.candidates, c)
 		}
+	}
+
+	if err := d.backlog(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
+
+	// Ascending session id within a repository, because that is the order the
+	// per-repo session cursor rotates through and it has to be the same order on
+	// every tick. It cannot come from the listings: the forge returns issues by
+	// update time, and the backlog union appends to the end.
+	for _, q := range queues {
+		slices.SortFunc(q.candidates, func(a, b *candidate) int {
+			return cmp.Compare(a.session.ID, b.session.ID)
+		})
+	}
+	return queues, nil
+}
+
+// backlog adds the sessions the store says are still owed a look and that the
+// forge listings did not already return (RD-2).
+//
+// This is the local half of discovery and it costs no API quota at all: one
+// indexed query over the sessions carrying needs_poll. It is what replaces
+// holding the poll cursor back — the cursor is now monotonic, so an issue busy
+// for longer than [ListingOverlap] is no longer re-listed by timestamp, and
+// this is how it is found again (AC-PAR-5.2).
+//
+// A backlogged session arrives here without its [github.Issue], and stays that
+// way: the fetch happens in [Daemon.materialise], only for a session the
+// dispatcher has actually taken a slot for. That is what bounds the extra API
+// cost at max_concurrent_runs issue reads per tick however deep the backlog has
+// grown, instead of one per flagged row.
+//
+// A session whose repository is not registered any more, or is on a forge this
+// build does not support, is left alone: there is nothing that could be done
+// with it, and its flag is harmless where it stands.
+func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]bool) error {
+	sessions, err := d.db.ListBacklogSessions(ctx)
+	if err != nil {
+		return fmt.Errorf("list the sessions that still need a poll: %w", err)
+	}
+	for _, session := range sessions {
+		if seen[session.ID] {
+			continue
+		}
+		q := byRepo[session.RepoID]
+		if q == nil {
+			d.log.DebugContext(ctx, "a session still needs a poll but its repository is no longer "+
+				"pollable; leaving its backlog flag where it stands",
+				slog.Int64("session_id", session.ID),
+				slog.Int64("repo_id", session.RepoID))
+			continue
+		}
+		ref, err := naming.ParseRef(session.TaskRef)
+		if err != nil {
+			return fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
+		}
+		seen[session.ID] = true
+		q.candidates = append(q.candidates, q.candidate(session, ref))
 	}
 	return nil
 }
 
-// task is one issue's context for the duration of a tick.
-type task struct {
+// sight turns one issue from a listing into a candidate, or into nothing.
+//
+// # A closed issue is left alone
+//
+// Closing an issue is how litefactory is told to stop working on it, so an
+// issue that is not open is skipped here (AC-2.22). Here, because this is where
+// the two discovery paths meet: `state=open` on the issue listing covers one of
+// them, but [Daemon.commentedIssues] reaches an issue through GetIssue, which
+// never sees that query — a filter on the query alone would leave the faster
+// path wide open.
+//
+// And *before* [store.DB.GetOrCreateSession], so that a comment on an issue
+// closed two months ago leaves no sessions row and no watermarks row behind.
+// A skip that first created the task it was refusing to work on would put rows
+// in the database for every closed issue anyone ever comments on. The backlog
+// path re-checks the same thing in [Daemon.materialise], where the session
+// already exists and the only question left is whether to run.
+func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
+	if issue.State != github.StateOpen {
+		q.log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
+			"litefactory is told to stop working on it",
+			slog.Int("issue", issue.Number),
+			slog.String("state", issue.State))
+		return nil, nil
+	}
+
+	session, err := d.db.GetOrCreateSession(ctx, q.repo, issue.Number)
+	if err != nil {
+		return nil, fmt.Errorf("find the task for %s#%d: %w", q.forgeRepo, issue.Number, err)
+	}
+	// Parsed on the Tick goroutine, like everything else that names a task: the
+	// ref is what a task's logger is decorated with, and a worker that had to
+	// derive its own identity before it could report a failure would have
+	// nothing to report it under.
+	ref, err := naming.ParseRef(session.TaskRef)
+	if err != nil {
+		return nil, fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
+	}
+	c := q.candidate(session, ref)
+	c.issue = issue
+	c.resolved = true
+	return c, nil
+}
+
+// candidate is one session discovery found eligible, before the dispatcher has
+// decided whether to run it.
+//
+// It is the discovery phase's output and the dispatch phase's input, and it
+// exists rather than a [task] because half of a candidate's issue may not have
+// been fetched yet: a session reached only through the backlog has no
+// [github.Issue] until [Daemon.materialise] reads one for it.
+type candidate struct {
 	repo      store.Repo
 	forgeRepo github.Repo
-	issue     github.Issue
 	session   store.Session
 	ref       naming.Ref
 
 	// log is the task's own child logger, carrying the canonical ref and the
-	// session id so that every line emitted for this task says which task it
-	// belongs to (AC-PAR-7.1). It is derived in [Daemon.processIssue] once the
-	// ref has been parsed, because the ref is what identifies a task and there
-	// is nothing to name one by before then. Anything below [Daemon.poll] logs
-	// through this or through a child of it, never through the daemon's own
-	// logger — with two tasks in flight at once, an undecorated line is
-	// attributable only by guesswork.
+	// session id (AC-PAR-7.1). It is derived here rather than in the worker so
+	// that every line about this task — including the ones saying it was skipped
+	// or deferred and so never became a task at all — is attributable.
 	log *slog.Logger
 
-	// tickAt is the instant the tick began, copied in rather than read when it
-	// is wanted. [Daemon.now] is the clock seam the tests substitute, and the
-	// test clock advances a whole second on every reading — so only [Daemon.Tick]
-	// may turn it, and anything below [Daemon.poll] that needs an instant takes
-	// this one. The backoff is what needs it: see [Daemon.rateLimited].
-	tickAt time.Time
+	// issue is the forge's view of the issue, and resolved says whether it has
+	// been read. Discovery through a listing already has it in hand; discovery
+	// through the backlog does not, and [Daemon.materialise] is what fills it in.
+	issue    github.Issue
+	resolved bool
+}
+
+// repoQueue is one repository's eligible sessions plus the rotation state used
+// to walk them.
+//
+// Candidates are held ascending by session id, and next is where the per-repo
+// session cursor says this tick should start reading. taken counts how many
+// have been handed out, so the walk wraps once and stops rather than looping.
+type repoQueue struct {
+	repo      store.Repo
+	forgeRepo github.Repo
+	log       *slog.Logger
+
+	candidates []*candidate
+	next       int
+	taken      int
+}
+
+// candidate builds a candidate belonging to this repository, with no issue read
+// for it yet.
+func (q *repoQueue) candidate(session store.Session, ref naming.Ref) *candidate {
+	return &candidate{
+		repo:      q.repo,
+		forgeRepo: q.forgeRepo,
+		session:   session,
+		ref:       ref,
+		// The per-task child, derived from the repository's own so that a line
+		// carries both. The ref cannot be named any earlier than this.
+		log: q.log.With(
+			slog.String("task", ref.String()),
+			slog.Int64("session_id", session.ID)),
+	}
+}
+
+// pop hands out the next candidate in rotation order, or nil once this
+// repository has offered all of them.
+func (q *repoQueue) pop() *candidate {
+	if q.taken >= len(q.candidates) {
+		return nil
+	}
+	c := q.candidates[(q.next+q.taken)%len(q.candidates)]
+	q.taken++
+	return c
+}
+
+// rest is every candidate pop has not handed out yet, which is what the
+// dispatcher has to account for when it stops early.
+func (q *repoQueue) rest() []*candidate {
+	if q.taken >= len(q.candidates) {
+		return nil
+	}
+	out := make([]*candidate, 0, len(q.candidates)-q.taken)
+	for i := q.taken; i < len(q.candidates); i++ {
+		out = append(out, q.candidates[(q.next+i)%len(q.candidates)])
+	}
+	return out
 }
 
 // commentedIssues finds the issues that received a comment since the cursor and
@@ -322,82 +543,311 @@ func (d *Daemon) commentedIssues(
 	return extra, nil
 }
 
-// processIssue finds or creates the task for one issue and drains its comment
-// queue, reporting whether the queue stopped early.
+// task is one issue's context for the duration of a turn.
 //
-// # A closed issue is left alone
+// It is built on the Tick goroutine, by [Daemon.materialise], and then handed to
+// exactly one worker. Nothing on it is shared with another goroutine and nothing
+// on it is written after the `go`, which is what makes it safe to pass by
+// pointer with no lock anywhere near it.
+type task struct {
+	repo      store.Repo
+	forgeRepo github.Repo
+	issue     github.Issue
+	session   store.Session
+	ref       naming.Ref
+
+	// log is the task's own child logger, carrying the canonical ref and the
+	// session id so that every line emitted for this task says which task it
+	// belongs to (AC-PAR-7.1). It is the candidate's, carried through. Anything
+	// below [Daemon.dispatch] logs through this or through a child of it, never
+	// through the daemon's own logger — with two tasks in flight at once, an
+	// undecorated line is attributable only by guesswork.
+	log *slog.Logger
+
+	// tickAt is the instant the tick that dispatched this task began, copied in
+	// rather than read when it is wanted. [Daemon.now] is the clock seam the
+	// tests substitute, and the test clock advances a whole second on every
+	// reading — so only [Daemon.Tick] may turn it, and anything a worker needs
+	// an instant for takes this one. The backoff is what needs it: see
+	// [Daemon.rateLimited].
+	tickAt time.Time
+}
+
+// dispatch is the second of the two phases a tick is made of: it decides which
+// of the eligible sessions get one of the free slots, and starts a worker for
+// each of them.
 //
-// Closing an issue is how litefactory is told to stop working on it, so an
-// issue that is not open is skipped here and nowhere else (AC-2.22). Here,
-// because this is where the two discovery paths meet: `state=open` on the
-// issue listing covers one of them, but [Daemon.commentedIssues] reaches an
-// issue through GetIssue, which never sees that query — a filter on the query
-// alone would leave the faster path wide open.
+// # Two-level round-robin (RD-1)
 //
-// And *before* [store.DB.GetOrCreateSession], so that a comment on an issue
-// closed two months ago leaves no sessions row and no watermarks row behind.
-// A skip that first created the task it was refusing to work on would put
-// rows in the database for every closed issue anyone ever comments on.
-func (d *Daemon) processIssue(
-	ctx context.Context,
-	repo store.Repo,
-	forgeRepo github.Repo,
-	issue github.Issue,
-	log *slog.Logger,
-	result *TickResult,
-) (bool, error) {
+// Repositories are visited from the one after the repository the last dispatch
+// came from, one candidate each per pass; within a repository, sessions are
+// visited from just after the session id that repository last dispatched,
+// ascending and wrapping. Dispatch continues until the candidates run out or
+// the pool refuses a slot.
+//
+// With S free slots and R repositories holding eligible work, every repository
+// gets ⌊S/R⌋ or ⌈S/R⌉ slots in the same tick when S ≥ R. When S < R the repo
+// cursor advances past the ones already served, so every repository is served
+// within ⌈R/S⌉ ticks. Because the order comes from the cursors and not from
+// [store.DB.ListRepos], reordering that listing changes nothing about what
+// eventually runs (AC-PAR-2.3).
+//
+// What it does not promise, so that nobody reads more into it than is there:
+// it is not proportional (a repository with a hundred eligible issues and one
+// with a single issue get the same share); it is not preemptive (a thirty-minute
+// run holds its slot for thirty minutes — round-robin governs who gets a *free*
+// slot, never who keeps a taken one); it is not a priority system; and it is not
+// fair over comments, because the rotation is over sessions, so a session with
+// five queued comments is served once per turn of the wheel rather than five
+// times.
+//
+// # The cursors need no synchronisation
+//
+// lastRepoID and repoSessionCursor live on [Daemon], which invites the
+// assumption that they are shared state. They are not: they are read and written
+// only from here, [Daemon.Tick] is never called concurrently with itself, and a
+// worker cannot reach them. There is deliberately no mutex, because adding one
+// would say the opposite.
+func (d *Daemon) dispatch(ctx context.Context, queues []*repoQueue, tickAt time.Time, result *TickResult) {
+	if len(queues) == 0 {
+		return
+	}
+
+	// Where the per-repo session cursor says each repository should start
+	// reading. A repository that has never dispatched, or whose last dispatched
+	// session is gone, starts at its lowest session id.
+	for _, q := range queues {
+		last, ok := d.repoSessionCursor[q.repo.ID]
+		if !ok {
+			continue
+		}
+		for i, c := range q.candidates {
+			if c.session.ID > last {
+				q.next = i
+				break
+			}
+		}
+	}
+
+	// (lastRepoIndex + 1) mod len(queues), resolved by repository id rather than
+	// held as an index: the eligible set is rebuilt every tick and an index into
+	// last tick's slice would name a different repository in this one.
+	start := 0
+	for i, q := range queues {
+		if q.repo.ID == d.lastRepoID {
+			start = (i + 1) % len(queues)
+			break
+		}
+	}
+
+	for progress := true; progress; {
+		progress = false
+		for i := range queues {
+			q := queues[(start+i)%len(queues)]
+			c := q.pop()
+			if c == nil {
+				continue
+			}
+			progress = true
+
+			switch d.offer(ctx, c, tickAt, result) {
+			case offerDispatched:
+				d.lastRepoID = q.repo.ID
+				d.repoSessionCursor[q.repo.ID] = c.session.ID
+			case offerFull:
+				// No queue, by design: everything still standing keeps its
+				// backlog flag and is reconsidered from scratch next tick,
+				// against fresh fairness and backoff state.
+				d.deferRest(ctx, queues, result)
+				return
+			case offerSkipped:
+			}
+		}
+	}
+}
+
+// offerResult is what came of trying to dispatch one candidate.
+type offerResult int
+
+const (
+	// offerDispatched: a worker is running this candidate's turn.
+	offerDispatched offerResult = iota
+	// offerSkipped: this candidate is not runnable right now and no slot was
+	// consumed, so the dispatch pass carries on with the next one.
+	offerSkipped
+	// offerFull: the pool refused a slot, which ends the dispatch pass.
+	offerFull
+)
+
+// offer tries to turn one candidate into a running turn.
+//
+// # The order of the two guards is deliberate
+//
+// [inflight.enter] is checked before [pool.try], and the order is not
+// interchangeable. Both can refuse, and each refusal has to undo whatever the
+// other already did: a slot taken and then refused entry leaks that slot for the
+// life of the process, and a session entered and then refused a slot is wedged
+// until something leaves it. Entering first makes the common refusal — a full
+// pool — cost one [inflight.leave] on a set this goroutine owns, which cannot go
+// wrong. The other order would put the more dangerous undo on the more frequent
+// path.
+//
+// The issue read for a backlogged session comes last, after the slot is held,
+// and that placement is what makes the bound exact: at most max_concurrent_runs
+// GetIssue calls per tick, however deep the backlog is. Reading it before the
+// slot check would add one for the candidate that found the pool full, and
+// reading it before the in-flight check would add one per tick per session
+// already running — which is the cost the in-flight set exists to avoid.
+func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	if !d.inflight.enter(c.session.ID) {
+		// AC-PAR-5.3: a session this daemon is already running a turn for is
+		// skipped, and skipping it posts nothing and moves no watermark. Its
+		// backlog flag is standing — the tick that dispatched it set it, and
+		// only that worker's clean drain may clear it — so nothing is owed here.
+		c.log.DebugContext(ctx, "skipping a task that already has a turn in flight; "+
+			"its own worker still owes it the drain")
+		return offerSkipped
+	}
+
+	// Before anything that could fail, and before the worker exists (RD-2). Every
+	// session this tick took out of the eligible set is marked, not only the ones
+	// that get a slot: a session deferred for want of a slot has to be found
+	// again next tick, and with the poll cursor monotonic this flag is the only
+	// thing that will find it.
+	d.markBacklog(ctx, c.log, c.session.ID)
+
+	if !d.pool.try() {
+		d.inflight.leave(c.session.ID)
+		result.Deferred++
+		c.log.InfoContext(ctx, "no free slot for this task; it keeps its backlog flag and the "+
+			"next tick reconsiders it against fresh state")
+		return offerFull
+	}
+
+	t, err := d.materialise(ctx, c, tickAt)
+	if t == nil || err != nil {
+		// The one release that is not a worker's defer. It is exactly the undo
+		// of the [pool.try] above — the slot goes back and the join's count comes
+		// down — and it is here rather than inside a goroutine because there is
+		// no turn to run: the issue was closed, or the forge would not say.
+		d.pool.done()
+		d.inflight.leave(c.session.ID)
+		if err != nil {
+			d.rateLimited(ctx, c.log, tickAt, err)
+			c.log.ErrorContext(ctx, "could not read the issue behind a task that still needs a "+
+				"poll; it keeps its backlog flag and the next tick tries again",
+				slog.Any("error", err))
+		}
+		return offerSkipped
+	}
+
+	// The dispatch point. ctx is passed in as an argument rather than captured,
+	// so that what the worker holds is unmistakably the daemon's long-lived
+	// context and not something a later edit could narrow to the tick's.
+	go func(ctx context.Context, t *task) {
+		// First, so that it runs last: every other defer this worker registers
+		// has to have finished before the slot is given back, or a join that
+		// returned would not mean what it says.
+		defer d.pool.done()
+		// RD-3: the session is left after the report has posted, not after the
+		// turn has run. The watermark for a comment advances inside
+		// CompleteRunReport, so leaving at Execute's return would put the session
+		// momentarily unlocked and unconsumed — which is exactly the state
+		// discovery reads as eligible.
+		defer d.inflight.leave(t.session.ID)
+		d.work(ctx, t)
+	}(ctx, t)
+
+	result.Dispatched++
+	return offerDispatched
+}
+
+// deferRest accounts for every candidate still standing when the pool ran out
+// of slots (CR-A-001).
+//
+// Discovery and dispatch used to be the same event, so marking a session at the
+// moment it was found was the same as marking it at the moment it was run. They
+// are two events now, and this is the half that would otherwise be lost: a
+// session that was eligible, was never offered a slot, and whose issue may not
+// be touched again before the poll cursor has moved past it.
+func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *TickResult) {
+	for _, q := range queues {
+		for _, c := range q.rest() {
+			d.markBacklog(ctx, c.log, c.session.ID)
+			result.Deferred++
+		}
+	}
+}
+
+// materialise turns a candidate into the task a worker is handed, reading the
+// issue behind it if discovery did not already have one.
+//
+// A nil task with a nil error means there is nothing to run: the issue has been
+// closed since it was flagged, which is how litefactory is told to stop working
+// on it (AC-2.22). The session keeps its backlog flag, and the next tick's
+// listing — or this same check — clears it by draining an empty queue.
+//
+// It runs on the Tick goroutine, so [naming.ParseRef] and the whole of task
+// construction stay where a test can count them, and no worker has to work out
+// its own identity before it can log.
+func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time) (*task, error) {
+	issue := c.issue
+	if !c.resolved {
+		// Lazily, and only now that a slot is held: see [Daemon.offer] for why
+		// this is the last thing that happens rather than the first.
+		fetched, err := d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		if err != nil {
+			return nil, fmt.Errorf("read %s#%d, which still needs a poll: %w",
+				c.forgeRepo, c.session.IssueNumber, err)
+		}
+		issue = fetched
+	}
 	if issue.State != github.StateOpen {
-		log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
-			"litefactory is told to stop working on it",
-			slog.Int("issue", issue.Number),
+		c.log.DebugContext(ctx, "a task that still needs a poll is no longer open; nothing runs",
 			slog.String("state", issue.State))
-		return false, nil
+		return nil, nil
 	}
 
-	session, err := d.db.GetOrCreateSession(ctx, repo, issue.Number)
-	if err != nil {
-		return false, fmt.Errorf("find the task for %s#%d: %w", forgeRepo, issue.Number, err)
-	}
-	ref, err := naming.ParseRef(session.TaskRef)
-	if err != nil {
-		return false, fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
-	}
-	t := &task{
-		repo:      repo,
-		forgeRepo: forgeRepo,
+	return &task{
+		repo:      c.repo,
+		forgeRepo: c.forgeRepo,
 		issue:     issue,
-		session:   session,
-		ref:       ref,
-		tickAt:    result.StartedAt,
-		// The per-task child, derived from the repository's own so that a line
-		// carries both. See [task.log]; the ref cannot be named any earlier
-		// than this.
-		log: log.With(
-			slog.String("task", ref.String()),
-			slog.Int64("session_id", session.ID)),
-	}
+		session:   c.session,
+		ref:       c.ref,
+		log:       c.log,
+		tickAt:    tickAt,
+	}, nil
+}
 
-	// The dispatch point (RD-2). Everything above this line is discovery —
-	// finding the session and naming the task — and everything below it is the
-	// work itself, which is what a worker goroutine is handed once [Daemon.Tick]
-	// is split. The flag is set here, before any of that work begins, so that no
-	// abnormal exit between this line and a clean drain can lose the session.
-	// See [Daemon.markBacklog].
-	d.markBacklog(ctx, t)
-
-	watermark, exists, err := d.db.GetWatermark(ctx, session.ID)
+// work is everything one dispatched turn does, and it is the whole of what runs
+// on a worker goroutine.
+//
+// It returns nothing. There is nobody left to return to — the tick that
+// dispatched it has long since gone — so every outcome is a log line and a row
+// in the database, which is where the assertions were always going to have to
+// be. What used to escalate out of here and end the tick now ends this task's
+// turn and no other: with two turns in flight, one repository's failed comment
+// listing is not a reason to stop the other.
+//
+// Three bounded ways out, which is what makes the pool's join terminate: the
+// comment list is exhausted, a comment was left unconsumed, or the context is
+// done.
+func (d *Daemon) work(ctx context.Context, t *task) {
+	watermark, exists, err := d.db.GetWatermark(ctx, t.session.ID)
 	if err != nil {
-		return false, fmt.Errorf("read the watermark of task %s: %w", ref, err)
+		d.stopped(ctx, t, "could not read this task's watermark", err)
+		return
 	}
 
 	var deferred bool
 	if !exists {
-		err = d.bootstrap(ctx, t, result)
+		err = d.bootstrap(ctx, t)
 	} else {
-		deferred, err = d.drain(ctx, t, watermark.LastCommentID, result)
+		deferred, err = d.drain(ctx, t, watermark.LastCommentID)
 	}
 	if err != nil {
-		return deferred, err
+		d.stopped(ctx, t, "this task's turn could not be completed", err)
+		return
 	}
 	if !deferred {
 		// The one clear site, and deliberately a statement on the success path
@@ -405,7 +855,27 @@ func (d *Daemon) processIssue(
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
 	}
-	return deferred, nil
+}
+
+// stopped is how a worker ends badly.
+//
+// It arms the backoff if what refused the turn was the forge over quota —
+// [Daemon.leave] does the same for a refusal met per comment, and this covers
+// the listings a worker makes for itself, which used to unwind into
+// [Daemon.observe] and no longer can. Shutdown is discriminated from a failure,
+// because a worker abandoned by a signal has not gone wrong.
+//
+// Either way the session keeps its backlog flag, which is what brings the next
+// tick back to it.
+func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		t.log.DebugContext(ctx, "shutdown ended this task's turn; it still needs a poll, so "+
+			"the next start comes back to it")
+		return
+	}
+	d.rateLimited(ctx, t.log, t.tickAt, err)
+	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
+		slog.Any("error", err))
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -419,7 +889,7 @@ func (d *Daemon) processIssue(
 // issue asked for it: see [Daemon.runIssueBody] for the gate (AC-2.16a–d) and
 // `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
 // (AC-2.16) was reversed. Existing comments are still never replayed.
-func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) error {
+func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
 	if err != nil {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
@@ -436,7 +906,6 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 	if err != nil {
 		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
-	result.Bootstrapped++
 
 	t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
 		slog.Int("existing_comments", len(comments)),
@@ -445,7 +914,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 
 	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
 	// for why that order is the whole of "exactly once".
-	return d.runIssueBody(ctx, t, comments, result)
+	return d.runIssueBody(ctx, t, comments)
 }
 
 // runIssueBody runs the issue body as the task's first instruction, when the
@@ -455,11 +924,13 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 //
 // Four conditions, all of them required:
 //
-//  1. The issue is open. Not checked here: [Daemon.processIssue] returns before
-//     GetOrCreateSession on anything that is not open (AC-2.22), so an issue
-//     that is not open can never reach a bootstrap at all. Re-checking it would
-//     be a second place to keep in step with the first, and the first is the
-//     one that also stops the session row being written.
+//  1. The issue is open. Not checked here: [Daemon.sight] returns before
+//     GetOrCreateSession on anything that is not open (AC-2.22), and
+//     [Daemon.materialise] re-checks it for a session reached through the
+//     backlog, so an issue that is not open can never reach a bootstrap at all.
+//     Re-checking it a third time would be another place to keep in step with
+//     those two, and the first of them is the one that also stops the session
+//     row being written.
 //  2. The issue is assigned to the owner, matched on the numeric user id and
 //     never on a handle (D-I). This is the authorisation, and it is the whole
 //     reason the old ban could be lifted: anyone can open an issue, but only
@@ -502,7 +973,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task, result *TickResult) err
 //
 // There is no comment to react to, and reacting to the issue would be an eighth
 // forge endpoint for a cosmetic gain. AC-2.17 stays comment-only.
-func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment, result *TickResult) error {
+func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) error {
 	var refusal string
 	switch {
 	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
@@ -552,7 +1023,7 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		slog.String("command", command.Name),
 		slog.String("kind", command.Kind.String()))
 	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login}
-	return d.run(ctx, t, trigger, command, log, result)
+	return d.run(ctx, t, trigger, command, log)
 }
 
 // drain processes the comments above the watermark, in ascending id order
@@ -569,14 +1040,15 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 // So after every comment the watermark itself is read back. Not a return value,
 // not an inference from an error: the store, which is the only thing that knows
 // whether a later tick will see this comment again. The first comment it has
-// not moved past ends this task's queue. Other tasks in the same tick are
-// unaffected, and the tick holds its cursor back to this issue's update time so
-// that the comment is listed again.
+// not moved past ends this task's queue. Other tasks are unaffected — they are
+// other goroutines now — and the session keeps its sessions.needs_poll flag,
+// which is what brings the next tick's discovery back to it. The poll cursor
+// does not: it advances past this issue whatever happened here (T-PAR-13).
 //
 // It is also what makes a contended per-task lock behave: nothing was consumed,
 // so the queue stops and a later tick retries, with no queue and no "busy"
 // reply (AC-3.1).
-func (d *Daemon) drain(ctx context.Context, t *task, watermark int64, result *TickResult) (bool, error) {
+func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, error) {
 	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, watermark)
 	if err != nil {
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
@@ -586,10 +1058,9 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64, result *Ti
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if err := d.handleComment(ctx, t, c, result); err != nil {
+		if err := d.handleComment(ctx, t, c); err != nil {
 			return false, err
 		}
-		result.Comments++
 
 		consumed, err := d.consumed(ctx, t.session.ID, c.ID)
 		if err != nil {
@@ -624,40 +1095,44 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // forge's listings can still see (RD-2).
 //
 //	Protocol — one write site, one clear rule. The tick sets needs_poll = 1
-//	for every session it dispatches, before the worker starts. The worker
-//	clears it only on a fully drained, error-free drain/bootstrap. Stale-true
-//	is safe and self-healing (the next tick re-lists, finds nothing above the
-//	watermark, clears). Stale-false is impossible. That asymmetry is the same
-//	posture as AdvanceWatermark's never-rewind: a bad outcome leaves the record
-//	pointing at *more* work, never less.
+//	for every session it takes out of the eligible set, before the worker
+//	starts. The worker clears it only on a fully drained, error-free
+//	drain/bootstrap. Stale-true is safe and self-healing (the next tick
+//	re-lists, finds nothing above the watermark, clears). Stale-false is
+//	impossible. That asymmetry is the same posture as AdvanceWatermark's
+//	never-rewind: a bad outcome leaves the record pointing at *more* work,
+//	never less.
 //
-// Nothing reads the flag yet. This lands while [Daemon.Tick] is still
-// synchronous and the poll cursor is still held back to a deferred issue, so
-// every session marked here is one the cursor re-finds by itself. That
-// redundancy is the point: the write side is in place, and exercised, before
-// the tick that stops holding the cursor back comes to depend on it — T-PAR-13
-// is what gives [store.DB.ListBacklogSessions] its consumer.
+// It takes a session id and the logger the caller has already decorated,
+// because it is called before there is a task: a candidate the dispatcher
+// deferred for want of a slot never becomes one, and it is exactly as owed a
+// second look as one that ran (CR-A-001).
+//
+// It is written unconditionally, never skipped on the grounds that the session
+// row read this tick already said needs_poll. Between that read and this write a
+// worker from an earlier tick can have finished and cleared the flag, and
+// declining to set it then is the stale-false the protocol forbids. One
+// idempotent UPDATE is the cheaper mistake.
 //
 // A store failure is logged and goes no further. The flag is a re-discovery
 // hint rather than the work, so failing the turn over one would trade
-// everything the tick has already done for a hint, and today the hold-back
-// still covers the session either way. It is logged at error level all the
-// same, because a lost *set* is the dangerous direction: once the cursor is
-// monotonic, this line is the only thing that will explain a session that went
-// quiet. Shutdown is not that failure — the tick is abandoned, its cursor is
-// never persisted, and the next start lists the session again — so it is
-// discriminated here the way [Daemon.leave] discriminates it.
-func (d *Daemon) markBacklog(ctx context.Context, t *task) {
-	err := d.db.SetSessionNeedsPoll(ctx, t.session.ID)
+// everything the tick has already done for a hint. It is logged at error level
+// all the same, because a lost *set* is the dangerous direction: now that the
+// cursor is monotonic, this line is the only thing that will explain a session
+// that went quiet. Shutdown is not that failure — the tick is abandoned, its
+// cursor is never persisted, and the next start lists the session again — so it
+// is discriminated here the way [Daemon.leave] discriminates it.
+func (d *Daemon) markBacklog(ctx context.Context, log *slog.Logger, sessionID int64) {
+	err := d.db.SetSessionNeedsPoll(ctx, sessionID)
 	if err == nil {
 		return
 	}
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
-		t.log.DebugContext(ctx, "shutdown interrupted marking this task as still needing a poll; "+
+		log.DebugContext(ctx, "shutdown interrupted marking this task as still needing a poll; "+
 			"the tick is abandoned and its cursor is not persisted, so the next start lists it again")
 		return
 	}
-	t.log.ErrorContext(ctx, "could not mark this task as still needing a poll; the turn carries on, "+
+	log.ErrorContext(ctx, "could not mark this task as still needing a poll; the turn carries on, "+
 		"but a later tick may have nothing local telling it to come back",
 		slog.Any("error", err))
 }
@@ -692,7 +1167,7 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 // comment stays unconsumed, which [Daemon.drain] detects and turns into a retry
 // on a later tick — including a rate limit, which arms the backoff where it was
 // met and then leaves by that same door. See [Daemon.leave].
-func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, result *TickResult) error {
+func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) error {
 	log := t.log.With(
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
@@ -734,10 +1209,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment, r
 	d.acknowledge(ctx, t, c.ID)
 
 	if !command.Spawns() {
-		return d.reply(ctx, t, c, command, log, result)
+		return d.reply(ctx, t, c, command, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login}
-	return d.run(ctx, t, trigger, command, log, result)
+	return d.run(ctx, t, trigger, command, log)
 }
 
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on
@@ -761,7 +1236,6 @@ func (d *Daemon) reply(
 	c github.Comment,
 	command turn.Command,
 	log *slog.Logger,
-	result *TickResult,
 ) error {
 	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
@@ -773,7 +1247,6 @@ func (d *Daemon) reply(
 		return d.leave(ctx, t, log, "could not reply to "+command.Name, d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		result.Replies++
 		log.InfoContext(ctx, "replied to a command litefactory does not act on",
 			slog.String("command", command.Name),
 			slog.String("kind", command.Kind.String()),
@@ -801,7 +1274,6 @@ func (d *Daemon) run(
 	trigger turn.Trigger,
 	command turn.Command,
 	log *slog.Logger,
-	result *TickResult,
 ) error {
 	// The tool profile is resolved here, before anything is locked, fetched or
 	// written: a refusal has to be run-less (AC-3.7), and by the time
@@ -811,7 +1283,7 @@ func (d *Daemon) run(
 	// tool surface it used.
 	tools := d.resolveTools(t.issue.Labels)
 	if tools.refused() {
-		return d.refuseTools(ctx, t, trigger, tools, log, result)
+		return d.refuseTools(ctx, t, trigger, tools, log)
 	}
 	if tools.Profile != "" {
 		log = log.With(slog.String("tool_profile", tools.Profile))
@@ -850,7 +1322,6 @@ func (d *Daemon) run(
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
 	}
-	result.Runs++
 
 	if turnResult.Disposition == turn.DispositionLocked {
 		// RD-4: a lock lost to a second process is promoted from a drop to a
@@ -860,8 +1331,14 @@ func (d *Daemon) run(
 		// saying so here rather than inferring it from the drain's bookkeeping is
 		// what keeps it true when the drain is no longer what notices. One
 		// idempotent UPDATE, on a path only a contended task ever takes.
-		d.markBacklog(ctx, t)
-		log.InfoContext(ctx, "task is locked by another daemon instance; leaving the comment for a later tick")
+		d.markBacklog(ctx, log, t.session.ID)
+		// Another *process*, and no longer merely another instance. The in-flight
+		// set is checked and inserted on the Tick goroutine and Tick is never
+		// concurrent with itself, so two workers of this daemon can never both
+		// reach AcquireSessionLock for one session: within this process the store
+		// lock has become defence in depth. A second daemon against the same
+		// $LF_HOME is the only thing left that can produce this. See [inflight].
+		log.InfoContext(ctx, "task is locked by another daemon process; leaving the comment for a later tick")
 		return nil
 	}
 
@@ -915,7 +1392,6 @@ func (d *Daemon) refuseTools(
 	trigger turn.Trigger,
 	decision toolDecision,
 	log *slog.Logger,
-	result *TickResult,
 ) error {
 	log = log.With(slog.String("tools_refusal", decision.Refusal.String()))
 	if decision.MiscasedPrefix {
@@ -951,7 +1427,6 @@ func (d *Daemon) refuseTools(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		result.Replies++
 		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
 			"resolve to a configured tool profile",
 			slog.Int64("reply_comment_id", posted.CommentID))
@@ -968,7 +1443,8 @@ func (d *Daemon) refuseTools(
 //
 // A rate limit used to be the exception, returned so that it escalated five
 // frames — handleComment, drain, processIssue, poll — into [Daemon.Tick]'s
-// error branch, where the backoff was armed. It now arms the backoff here,
+// error branch, where the backoff was armed. There is no such chain left:
+// those five frames are a worker's now, and a worker returns to nobody. It now arms the backoff here,
 // through [Daemon.rateLimited], and then takes the ordinary path. That is a
 // simplification rather than a concession: a return-value chain cannot cross a
 // goroutine boundary, and nothing was gained by unwinding, because the hold is

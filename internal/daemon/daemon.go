@@ -258,6 +258,20 @@ type Daemon struct {
 	backoff  backoff
 	inflight inflight
 	pool     *pool
+
+	// lastRepoID and repoSessionCursor are the two levels of the dispatch
+	// rotation (RD-1): the repository the last dispatch came from, and per
+	// repository the session id it last dispatched.
+	//
+	// They live here because they have to survive between ticks — that is the
+	// whole of what makes service bounded rather than merely fair within one
+	// tick — and being on Daemon alongside the mutex-guarded backoff and the
+	// channel-guarded pool invites the assumption that they are shared too. They
+	// are not, and they deliberately have no mutex: they are read and written
+	// only by [Daemon.dispatch], on the Tick goroutine, which is never
+	// concurrent with itself, and no worker can reach them.
+	lastRepoID        int64
+	repoSessionCursor map[int64]int64
 }
 
 // New builds a daemon from its dependencies.
@@ -306,6 +320,8 @@ func New(opts Options) (*Daemon, error) {
 		now:          now,
 		ticks:        opts.Ticks,
 		pool:         newPool(maxRuns),
+
+		repoSessionCursor: make(map[int64]int64),
 	}, nil
 }
 

@@ -22,13 +22,14 @@ import (
 // comment queue, and the turn itself.
 func TestEveryLineBelowPollNamesItsTask(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight, which bootstraps the watermark
+	f.settle() // first sight, which bootstraps the watermark
 
 	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
-	if result := f.tick(); result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
+	f.settle()
+	if got := f.turns.triggers(); len(got) != 1 {
+		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", len(got), f.logs)
 	}
 
 	wantRepo := "repo=" + testOwnerName + "/" + testRepoName

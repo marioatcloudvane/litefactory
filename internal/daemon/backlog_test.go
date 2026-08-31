@@ -10,11 +10,10 @@ import (
 )
 
 // The backlog flag is sessions.needs_poll, the durable re-discovery axis a
-// concurrent tick needs (RD-2). These tests pin the write protocol rather than
-// anything that reads it — nothing does yet, deliberately: the flag lands while
-// Tick is still synchronous and the poll cursor is still held back to a
-// deferred issue, so the redundancy is what makes the change safe to land on
-// its own.
+// concurrent tick needs (RD-2). These tests pin the write protocol; the read
+// side is now live — the poll cursor is monotonic and [daemon.Daemon.discover]
+// unions the forge listings with the flagged sessions, so this flag is what
+// brings a tick back to work it did not finish.
 //
 // The property under test is the asymmetry, and only the asymmetry. A flag left
 // standing on a session that turned out to have no work is self-healing: a
@@ -27,12 +26,12 @@ import (
 // comment that ran, reported and was consumed, with nothing left behind.
 func TestACleanDrainClearsTheBacklogFlag(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 201, owner(), "/spike add the endpoint")
-	f.tick()
+	f.settle()
 
 	if got := f.watermark(); got != 201 {
 		t.Fatalf("watermark is %d, want 201: the comment must actually have been consumed", got)
@@ -47,13 +46,16 @@ func TestACleanDrainClearsTheBacklogFlag(t *testing.T) {
 // path: the watermark was planted, no comment was owed, nothing is left.
 func TestACleanBootstrapClearsTheBacklogFlag(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 
-	result := f.tick()
+	result := f.settle()
 
-	if result.Bootstrapped != 1 {
-		t.Fatalf("bootstrapped %d tasks, want 1", result.Bootstrapped)
+	if result.Dispatched != 1 {
+		t.Fatalf("dispatched %d tasks, want 1", result.Dispatched)
+	}
+	if got := f.watermark(); got != 0 {
+		t.Fatalf("watermark is %d, want 0: the first sight must have planted one", got)
 	}
 	if session := f.session(); session.NeedsPoll {
 		t.Errorf("needs_poll is set after a clean bootstrap\nlogs:\n%s", f.logs)
@@ -61,11 +63,17 @@ func TestACleanBootstrapClearsTheBacklogFlag(t *testing.T) {
 }
 
 // TestAFailedBootstrapLeavesTheBacklogFlagSet is the evidence that the flag is
-// set at the dispatch point rather than after the work: the tick never reaches
-// the end of the bootstrap, and the session still carries the flag.
+// set at the dispatch point rather than after the work: the worker never
+// reaches the end of the bootstrap, and the session still carries the flag.
+//
+// The tick itself succeeds now. Dispatch severed the return-value chain that
+// used to carry a worker's failure up into Tick's error branch, and that is the
+// design: with two turns in flight, one task's refused comment listing is not a
+// reason to end the other's tick. What the failure leaves behind is this flag
+// and a logged line, which is what the next tick reads.
 func TestAFailedBootstrapLeavesTheBacklogFlagSet(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 
 	// The bootstrap's own listing of the existing comments is the first
@@ -78,9 +86,8 @@ func TestAFailedBootstrapLeavesTheBacklogFlagSet(t *testing.T) {
 		return true
 	}
 
-	if _, err := f.tickErr(); err == nil {
-		t.Fatalf("Tick succeeded; the bootstrap listing was refused\nlogs:\n%s", f.logs)
-	}
+	f.settle()
+
 	if got := f.watermark(); got != -1 {
 		t.Fatalf("watermark is %d, want -1: nothing was planted", got)
 	}
@@ -98,9 +105,9 @@ func TestAFailedBootstrapLeavesTheBacklogFlagSet(t *testing.T) {
 // mechanism clears the flag with no compensating write anywhere.
 func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 211, owner(), "/spike first")
 	f.forge.addComment(testIssue, 212, owner(), "/spike second")
@@ -114,10 +121,11 @@ func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 		return true
 	}
 
-	result := f.tick()
+	f.settle()
 
-	if result.Deferred != 1 {
-		t.Fatalf("tick deferred %d tasks, want 1\nlogs:\n%s", result.Deferred, f.logs)
+	if got := f.watermark(); got >= 211 {
+		t.Fatalf("watermark is %d, want below 211: the drain must have stopped on it\nlogs:\n%s",
+			got, f.logs)
 	}
 	if session := f.session(); !session.NeedsPoll {
 		t.Fatalf("needs_poll is clear after a drain that stopped on an unconsumed comment\n"+
@@ -125,7 +133,7 @@ func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 	}
 
 	f.forge.onPostComment = nil
-	f.tick()
+	f.settle()
 
 	if got := f.watermark(); got != 212 {
 		t.Fatalf("watermark is %d after the retry, want 212", got)
@@ -141,9 +149,9 @@ func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 // nothing ran, nothing was consumed, and the session must be reconsidered.
 func TestALockedTaskLeavesTheBacklogFlagSet(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 221, owner(), "/spike while the task is busy")
 	f.turns.set(func(ctx context.Context, req turn.Request) (turn.Result, error) {
@@ -151,7 +159,7 @@ func TestALockedTaskLeavesTheBacklogFlagSet(t *testing.T) {
 	})
 
 	bootstrapped := f.watermark()
-	f.tick()
+	f.settle()
 
 	if got := f.watermark(); got != bootstrapped {
 		t.Fatalf("watermark is %d, want %d: a contended lock consumes nothing", got, bootstrapped)

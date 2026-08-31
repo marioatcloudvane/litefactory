@@ -29,16 +29,13 @@ func TestLabelSelectsProfileForTheNextRun(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.issueWithLabels("Add a /health endpoint", "lf:tools=research")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 501, owner(), "/spike add a health endpoint")
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
-	}
 	calls := f.turns.calls()
 	if len(calls) != 1 {
 		t.Fatalf("the executor was called %d times, want 1", len(calls))
@@ -66,12 +63,12 @@ func TestNoLabelRequestCarriesTodaysEmptySurface(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 502, owner(), "/spike add a health endpoint")
-	f.tick()
+	f.settle()
 
 	calls := f.turns.calls()
 	if len(calls) != 1 {
@@ -93,13 +90,13 @@ func TestRelabelThenComment(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	// First comment, before any label: the ordinary, unprofiled surface.
 	f.forge.addComment(testIssue, 601, owner(), "/spike look at the endpoint")
-	f.tick()
+	f.settle()
 	if got := f.turns.calls()[0].ToolProfile; got != "" {
 		t.Fatalf("the first run already carries a profile %q; the fixture is not testing what it claims", got)
 	}
@@ -107,20 +104,14 @@ func TestRelabelThenComment(t *testing.T) {
 	// The label changes. No comment follows it, so nothing must run — only a
 	// comment triggers a turn.
 	f.relabel("lf:tools=research")
-	afterRelabel := f.tick()
-	if afterRelabel.Runs != 0 {
-		t.Errorf("a relabel with no comment ran %d turns, want none", afterRelabel.Runs)
-	}
+	f.settle()
 	if len(f.turns.calls()) != 1 {
 		t.Fatalf("the executor was called an extra time after a bare relabel")
 	}
 
 	// Now a second comment. The label that was already there widens this run.
 	f.forge.addComment(testIssue, 602, owner(), "/spike widen the endpoint")
-	result := f.tick()
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns after the comment following a relabel, want 1", result.Runs)
-	}
+	f.settle()
 	calls := f.turns.calls()
 	if len(calls) != 2 {
 		t.Fatalf("the executor was called %d times in total, want 2", len(calls))
@@ -186,12 +177,12 @@ func TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.daemon = f.newDaemon(daemon.Options{ToolProfiles: tc.profiles})
-			f.settle()
+			f.plantCursor()
 			f.issueWithLabels("Add a /health endpoint", tc.labels...)
-			f.tick() // first sight
+			f.settle() // first sight
 
 			f.forge.addComment(testIssue, 900, owner(), "/spike add a health endpoint")
-			result := f.tick()
+			f.settle()
 
 			if calls := f.turns.calls(); len(calls) != 0 {
 				t.Errorf("the executor ran %d turns, want none: a permission refusal must be "+
@@ -199,9 +190,6 @@ func TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark(t *testing.T) {
 			}
 			if runs := f.runs(); len(runs) != 0 {
 				t.Errorf("%d run rows exist, want none: nothing may be allocated for a refusal", len(runs))
-			}
-			if result.Replies != 1 {
-				t.Errorf("posted %d replies, want 1", result.Replies)
 			}
 			posted, _, _ := f.forge.snapshot()
 			if len(posted) != 1 {
@@ -244,12 +232,12 @@ func TestMalformedLabelReplyNeverEchoesInjectedText(t *testing.T) {
 			f.daemon = f.newDaemon(daemon.Options{
 				ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 			})
-			f.settle()
+			f.plantCursor()
 			f.issueWithLabels("Add a /health endpoint", "lf:tools="+tc.value)
-			f.tick()
+			f.settle()
 
 			f.forge.addComment(testIssue, 950, owner(), "/spike add a health endpoint")
-			f.tick()
+			f.settle()
 
 			posted, _, _ := f.forge.snapshot()
 			if len(posted) != 1 {
@@ -278,12 +266,12 @@ func TestAmbiguousLabelsNameNeitherLabel(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile(), "build": buildProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.issueWithLabels("Add a /health endpoint", "lf:tools=research", "lf:tools=build")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 960, owner(), "/spike add a health endpoint")
-	f.tick()
+	f.settle()
 
 	posted, _, _ := f.forge.snapshot()
 	if len(posted) != 1 {
@@ -306,9 +294,9 @@ func TestFailedReplyPostLeavesTheCommentUnconsumed(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.issueWithLabels("Add a /health endpoint", "lf:tools=nosuch")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 970, owner(), "/spike add a health endpoint")
 
@@ -317,10 +305,11 @@ func TestFailedReplyPostLeavesTheCommentUnconsumed(t *testing.T) {
 		return true
 	}
 	bootstrapped := f.watermark()
-	result := f.tick()
+	f.settle()
 
-	if result.Deferred != 1 {
-		t.Errorf("tick deferred %d tasks, want 1", result.Deferred)
+	if session := f.session(); !session.NeedsPoll {
+		t.Errorf("needs_poll is clear after a reply that could not be posted; the comment is "+
+			"unconsumed and the session must be reconsidered\nlogs:\n%s", f.logs)
 	}
 	if got := f.watermark(); got != bootstrapped {
 		t.Errorf("watermark moved to %d after a failed reply post; it must stay at %d", got, bootstrapped)
@@ -331,10 +320,7 @@ func TestFailedReplyPostLeavesTheCommentUnconsumed(t *testing.T) {
 
 	// A later tick retries the post.
 	f.forge.onPostComment = nil
-	retry := f.tick()
-	if retry.Replies != 1 {
-		t.Errorf("the retried tick posted %d replies, want 1", retry.Replies)
-	}
+	f.settle()
 	if got := f.watermark(); got != 970 {
 		t.Errorf("watermark after the retry = %d, want 970", got)
 	}
@@ -355,7 +341,7 @@ func TestIssueBodyToolsRefusalPostsNothing(t *testing.T) {
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
-	f.settle()
+	f.plantCursor()
 	f.forge.addIssue(fakeIssue{
 		Number:    testIssue,
 		Title:     "Add a /health endpoint",
@@ -365,11 +351,8 @@ func TestIssueBodyToolsRefusalPostsNothing(t *testing.T) {
 		Labels:    toFakeLabels("lf:tools=nosuch"),
 	})
 
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 0 {
-		t.Errorf("ran %d turns from a body whose label does not resolve, want none", result.Runs)
-	}
 	if len(f.turns.calls()) != 0 {
 		t.Error("the executor was called for a body-triggered tools refusal")
 	}
@@ -389,10 +372,7 @@ func TestIssueBodyToolsRefusalPostsNothing(t *testing.T) {
 	}
 
 	f.forge.addComment(testIssue, 980, owner(), "/spike try again")
-	second := f.tick()
-	if second.Replies != 1 {
-		t.Fatalf("the following comment produced %d replies, want 1: it must be refused on the thread", second.Replies)
-	}
+	f.settle()
 	posted, _, _ := f.forge.snapshot()
 	if len(posted) != 1 || !strings.Contains(posted[0], "nosuch") {
 		t.Errorf("the comment's refusal reply = %v, want one naming %q", posted, "nosuch")

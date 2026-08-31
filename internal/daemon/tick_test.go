@@ -22,20 +22,16 @@ import (
 // with a long-running issue replays every `/spike` anyone ever wrote on it.
 func TestFirstSightBootstrapConsumesNothing(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addComment(testIssue, 10, owner(), "/spike do the first thing")
 	f.forge.addComment(testIssue, 20, stranger(), "any progress?")
 	f.forge.addComment(testIssue, 30, owner(), "/spike do the second thing")
 
-	result := f.tick()
+	result := f.settle()
 
-	if result.Bootstrapped != 1 {
-		t.Errorf("bootstrapped %d tasks, want 1", result.Bootstrapped)
-	}
-	if result.Runs != 0 || result.Comments != 0 {
-		t.Errorf("processed %d comments and %d runs on first sight, want none",
-			result.Comments, result.Runs)
+	if result.Dispatched != 1 {
+		t.Errorf("dispatched %d tasks, want 1 — a first sight is work like any other", result.Dispatched)
 	}
 	if got := f.watermark(); got != 30 {
 		t.Errorf("watermark is %d, want 30 — the highest comment that already existed", got)
@@ -53,18 +49,18 @@ func TestFirstSightBootstrapConsumesNothing(t *testing.T) {
 // past it in the same transaction that recorded the report.
 func TestInstructionRunsAndIsReported(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
-	result := f.tick()
+	result := f.settle()
 
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
+	if result.Dispatched != 1 {
+		t.Fatalf("dispatched %d turns, want 1\nlogs:\n%s", result.Dispatched, f.logs)
 	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{40}) {
-		t.Errorf("turn triggers %v, want [40]", got)
+		t.Fatalf("turn triggers %v, want [40]\nlogs:\n%s", got, f.logs)
 	}
 	if got := f.turns.calls()[0].Command.Text; got != "add a health endpoint" {
 		t.Errorf("instruction text is %q", got)
@@ -83,6 +79,7 @@ func TestInstructionRunsAndIsReported(t *testing.T) {
 	if !slices.Equal(reacted, []int64{40}) {
 		t.Errorf("reacted to %v, want [40]", reacted)
 	}
+	order = f.forge.orderFor(testIssue)
 	reactAt := slices.Index(order, "react:40")
 	turnAt := slices.Index(order, "turn:40")
 	if reactAt < 0 || turnAt < 0 || reactAt > turnAt {
@@ -107,19 +104,19 @@ func TestInstructionRunsAndIsReported(t *testing.T) {
 // leaves the question of what kind of work this is to the run itself.
 func TestFreeTextRunsWithTheModeLeftToTheAgent(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	const body = "draft some mockups for the settings screen\n\n- one per state"
 	f.forge.addComment(testIssue, 41, owner(), body)
-	result := f.tick()
+	result := f.settle()
 
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
+	if result.Dispatched != 1 {
+		t.Fatalf("dispatched %d turns, want 1\nlogs:\n%s", result.Dispatched, f.logs)
 	}
-	if result.Replies != 0 {
-		t.Errorf("posted %d replies, want none — free text is answered by the run report", result.Replies)
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{41}) {
+		t.Fatalf("turn triggers %v, want [41]\nlogs:\n%s", got, f.logs)
 	}
 
 	call := f.turns.calls()[0]
@@ -150,12 +147,12 @@ func TestFreeTextRunsWithTheModeLeftToTheAgent(t *testing.T) {
 // criterion asks for it: the daemon is fed a comment it posted itself.
 func TestDaemonDoesNotReactToItsOwnComment(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
-	f.tick()
+	f.settle()
 
 	posted, _, _ := f.forge.snapshot()
 	if len(posted) != 1 {
@@ -167,13 +164,10 @@ func TestDaemonDoesNotReactToItsOwnComment(t *testing.T) {
 	f.forge.addComment(testIssue, 50, bot(), posted[0])
 
 	before := len(f.turns.calls())
-	result := f.tick()
+	f.settle()
 
 	if got := len(f.turns.calls()); got != before {
 		t.Errorf("ran %d turns from litefactory's own comment, want none", got-before)
-	}
-	if result.Runs != 0 {
-		t.Errorf("tick reported %d runs, want 0", result.Runs)
 	}
 	if got := f.watermark(); got != 50 {
 		t.Errorf("watermark is %d, want 50 — its own comment is consumed, not left to be re-seen", got)
@@ -204,12 +198,12 @@ func TestDaemonDoesNotReactToItsOwnComment(t *testing.T) {
 // was pressed.
 func TestOwnerQuoteReplyStartsARun(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 40, owner(), "/spike add a health endpoint")
-	f.tick()
+	f.settle()
 
 	posted, _, _ := f.forge.snapshot()
 	if len(posted) != 1 {
@@ -222,10 +216,7 @@ func TestOwnerQuoteReplyStartsARun(t *testing.T) {
 		"\n\nnow do the same for the readiness endpoint"
 	f.forge.addComment(testIssue, 41, owner(), quoted)
 
-	result := f.tick()
-	if result.Runs != 1 {
-		t.Fatalf("the owner's quote-reply ran %d turns, want 1\nlogs:\n%s", result.Runs, f.logs)
-	}
+	f.settle()
 	if got := f.turns.triggers(); !slices.Contains(got, int64(41)) {
 		t.Errorf("turn triggers %v, want the quote-reply (41) among them", got)
 	}
@@ -254,13 +245,13 @@ func TestOwnerQuoteReplyStartsARun(t *testing.T) {
 // was posted from is not the one the identities table names.
 func TestOwnCommentUnderAHumanAccountIsStillDropped(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 41, owner(),
 		turn.MarkerPrefix+"status task=github:acme/acme-api#123 run=1 -->\n\nRun 1 succeeded.")
-	f.tick()
+	f.settle()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns from a marked comment, want none", len(calls))
@@ -275,16 +266,16 @@ func TestOwnCommentUnderAHumanAccountIsStillDropped(t *testing.T) {
 // the order is imposed rather than assumed.
 func TestCommentsAreProcessedInAscendingIDOrder(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	// Added out of order, as an eventually consistent API might return them.
 	f.forge.addComment(testIssue, 70, owner(), "/spike third")
 	f.forge.addComment(testIssue, 50, owner(), "/spike first")
 	f.forge.addComment(testIssue, 60, owner(), "/spike second")
 
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{50, 60, 70}) {
 		t.Errorf("turns ran for %v, want [50 60 70]", got)
@@ -305,9 +296,9 @@ func TestCommentsAreProcessedInAscendingIDOrder(t *testing.T) {
 // noticed.
 func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 11, owner(), "/spike first")
 	f.forge.addComment(testIssue, 12, owner(), "/spike second")
@@ -323,7 +314,7 @@ func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	}
 
 	bootstrapped := f.watermark()
-	result := f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{11}) {
 		t.Fatalf("turns ran for %v; the queue must stop at comment 11, not go on to 12 and 13", got)
@@ -331,17 +322,20 @@ func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	if got := f.watermark(); got != bootstrapped {
 		t.Errorf("watermark moved to %d after a failed report; it must stay at %d", got, bootstrapped)
 	}
-	if result.Deferred != 1 {
-		t.Errorf("tick deferred %d tasks, want 1", result.Deferred)
+	if session := f.session(); !session.NeedsPoll {
+		t.Errorf("needs_poll is clear after a queue that stopped early; the flag is what a "+
+			"monotonic cursor leaves behind to come back for\nlogs:\n%s", f.logs)
 	}
 	if runs := f.runs(); len(runs) != 1 || runs[0].Status == store.RunReported {
 		t.Errorf("runs after the failed report: %+v; the run must stay unreported", runs)
 	}
 
-	// The cursor is held back to the issue's update time, so the same comments
-	// are listed again rather than being filtered out by `since`.
+	// The poll cursor has moved past this issue's update time, so the listings
+	// cannot bring it back. The backlog flag is what does, and it is the whole
+	// point of AC-PAR-5.2: no change to UpdatedAt, and the comment is still
+	// found again.
 	f.forge.onPostComment = nil
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 11, 12, 13}) {
 		t.Errorf("turns ran for %v, want [11 11 12 13]: 11 retried, then 12 and 13", got)
@@ -399,9 +393,9 @@ func (r *scriptedReporter) Consume(ctx context.Context, sessionID, commentID int
 // and the watermark is what the loop asks.
 func TestQueueStopsWhenAPostedReportWasNotRecorded(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 21, owner(), "/spike first")
 	f.forge.addComment(testIssue, 22, owner(), "/spike second")
@@ -410,7 +404,7 @@ func TestQueueStopsWhenAPostedReportWasNotRecorded(t *testing.T) {
 	reporter := &scriptedReporter{inner: f.reporter, failOn: 21}
 	f.daemon = f.newDaemon(daemon.Options{Reporter: reporter})
 
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{21}) {
 		t.Fatalf("turns ran for %v; comment 22 must not be touched after 21 was not consumed", got)
@@ -428,9 +422,9 @@ func TestQueueStopsWhenAPostedReportWasNotRecorded(t *testing.T) {
 // reply, and the comment comes back on a later tick.
 func TestLockedTaskLeavesTheCommentUnconsumed(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 31, owner(), "/spike while the task is busy")
 	f.forge.addComment(testIssue, 32, owner(), "/spike and again")
@@ -440,7 +434,7 @@ func TestLockedTaskLeavesTheCommentUnconsumed(t *testing.T) {
 		return f.turnResult(ctx, req, turn.DispositionLocked, harness.OutcomeSucceeded)
 	})
 
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{31}) {
 		t.Errorf("turns ran for %v, want [31]: a locked task stops its own queue", got)
@@ -454,7 +448,7 @@ func TestLockedTaskLeavesTheCommentUnconsumed(t *testing.T) {
 
 	// A later tick retries, which is the whole point of not consuming it.
 	f.turns.set(f.ranSuccessfully)
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{31, 31, 32}) {
 		t.Errorf("turns ran for %v, want [31 31 32]", got)
@@ -469,10 +463,10 @@ func TestLockedTaskLeavesTheCommentUnconsumed(t *testing.T) {
 // task's work in the same tick.
 func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addIssue(fakeIssue{Number: 124, Title: "Another task", User: stranger()})
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 61, owner(), "/spike on the locked task")
 	f.forge.addComment(124, 62, owner(), "/spike on the free task")
@@ -484,10 +478,14 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 		return f.ranSuccessfully(ctx, req)
 	})
 
-	result := f.tick()
+	f.settle()
 
-	if result.Deferred != 1 {
-		t.Errorf("deferred %d tasks, want 1", result.Deferred)
+	if session := f.sessionOf(testIssue); !session.NeedsPoll {
+		t.Errorf("needs_poll is clear on the locked task; it consumed nothing and must be "+
+			"reconsidered\nlogs:\n%s", f.logs)
+	}
+	if session := f.sessionOf(124); session.NeedsPoll {
+		t.Errorf("needs_poll is set on the task that drained cleanly\nlogs:\n%s", f.logs)
 	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{61, 62}) {
 		t.Errorf("turns ran for %v, want [61 62]: the second task is unaffected", got)
@@ -509,7 +507,7 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 // to anyone is a note to himself and not an order.
 func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.forge.addIssue(fakeIssue{
 		Number: testIssue,
 		Title:  "Please do this",
@@ -517,12 +515,12 @@ func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
 		User:   owner(), // the owner's own words, and still not enough
 	})
 
-	f.tick() // first sight
+	f.settle() // first sight
 	// Touch the issue so it is listed a second time: a first sight and an
 	// ordinary sighting are different code paths, and the body must start
 	// nothing on either.
 	f.forge.addComment(testIssue, 141, stranger(), "bumping this")
-	f.tick()
+	f.settle()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns from an unassigned issue body, want none", len(calls))
@@ -551,21 +549,14 @@ func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
 // takes drain, which never looks at the body.
 func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	const body = "/spike add a /health endpoint that returns 200"
 	f.assignedIssue("Add a /health endpoint", body)
 
-	result := f.tick()
+	result := f.settle()
 
-	if result.Bootstrapped != 1 {
-		t.Errorf("bootstrapped %d tasks, want 1", result.Bootstrapped)
-	}
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns on first sight, want 1: the body is the first instruction\nlogs:\n%s",
-			result.Runs, f.logs)
-	}
-	if result.Comments != 0 {
-		t.Errorf("examined %d comments, want none — there are none, and the body is not one", result.Comments)
+	if result.Dispatched != 1 {
+		t.Errorf("dispatched %d tasks, want 1", result.Dispatched)
 	}
 
 	calls := f.turns.calls()
@@ -608,12 +599,8 @@ func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 	}
 
 	// And again. Nothing looks at the body a second time.
-	second := f.tick()
+	f.settle()
 
-	if second.Runs != 0 {
-		t.Errorf("the second tick ran %d turns, want none: a planted watermark takes drain, "+
-			"which never reads the body", second.Runs)
-	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
 		t.Errorf("turns ran for %v, want [0]: the body fires exactly once", got)
 	}
@@ -634,7 +621,7 @@ func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 // the question means anything.
 func TestFirstSightPlantsTheWatermarkBeforeTheBodyRuns(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
 
 	duringRun := int64(-2)
@@ -643,7 +630,7 @@ func TestFirstSightPlantsTheWatermarkBeforeTheBodyRuns(t *testing.T) {
 		return f.ranSuccessfully(ctx, req)
 	})
 
-	f.tick()
+	f.settle()
 
 	if duringRun != 0 {
 		t.Errorf("the watermark read %d while the body was running, want 0: it is planted first, "+
@@ -665,10 +652,10 @@ func TestFirstSightPlantsTheWatermarkBeforeTheBodyRuns(t *testing.T) {
 // follows is read normally.
 func TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
 
-	f.tick()
+	f.settle()
 
 	runs := f.runs()
 	if len(runs) != 1 {
@@ -688,7 +675,7 @@ func TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt(t *testing.T) {
 	// The part that bites: a comment written afterwards must still be seen.
 	f.forge.addComment(testIssue, 617_004, owner(), "/spike and now the readiness probe")
 
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{0, 617004}) {
 		t.Errorf("turns ran for %v, want [0 617004]: the body run must not swallow later comments", got)
@@ -719,20 +706,14 @@ func TestABodyThatCommandsNothingStartsNothingAndPostsNothing(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
-			f.settle()
+			f.plantCursor()
 			f.assignedIssue("Add a /health endpoint", tc.body)
 
-			result := f.tick()
+			result := f.settle()
 
-			if result.Bootstrapped != 1 {
-				t.Fatalf("bootstrapped %d tasks, want 1: the task is still created and watermarked",
-					result.Bootstrapped)
-			}
-			if result.Runs != 0 {
-				t.Errorf("ran %d turns from a body that commands nothing, want none", result.Runs)
-			}
-			if result.Replies != 0 {
-				t.Errorf("posted %d replies to an issue body, want none", result.Replies)
+			if result.Dispatched != 1 {
+				t.Fatalf("dispatched %d tasks, want 1: the task is still created and watermarked",
+					result.Dispatched)
 			}
 			if calls := f.turns.calls(); len(calls) != 0 {
 				t.Errorf("the executor was called %d times, want none", len(calls))
@@ -761,15 +742,15 @@ func TestABodyThatCommandsNothingStartsNothingAndPostsNothing(t *testing.T) {
 // (AC-2.10) and the next one does.
 func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
 	f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
 
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 0 {
+	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns on an issue that already has a comment, want none\nlogs:\n%s",
-			result.Runs, f.logs)
+			len(calls), f.logs)
 	}
 	if got := f.watermark(); got != 220 {
 		t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
@@ -778,7 +759,7 @@ func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
 	// And its comments go on working the way they always have.
 	f.forge.addComment(testIssue, 221, owner(), "/spike do it now then")
 
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{221}) {
 		t.Errorf("turns ran for %v, want [221]: the comments drain as they do today", got)
@@ -792,7 +773,7 @@ func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
 // litefactory.
 func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.forge.addIssue(fakeIssue{
 		Number:    testIssue,
 		Title:     "Add a /health endpoint",
@@ -801,14 +782,17 @@ func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
 		Assignees: []fakeUser{stranger()},
 	})
 
-	result := f.tick()
+	result := f.settle()
 
-	if result.Bootstrapped != 1 {
-		t.Fatalf("bootstrapped %d tasks, want 1", result.Bootstrapped)
+	if result.Dispatched != 1 {
+		t.Fatalf("dispatched %d tasks, want 1", result.Dispatched)
 	}
-	if result.Runs != 0 {
+	if got := f.watermark(); got != 0 {
+		t.Fatalf("watermark is %d, want 0: the task is still created and watermarked", got)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns on an issue assigned to somebody else, want none\nlogs:\n%s",
-			result.Runs, f.logs)
+			len(calls), f.logs)
 	}
 	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
 		t.Errorf("posted %d comments and %d reactions, want none", len(posted), len(reacted))
@@ -828,7 +812,7 @@ func TestPullRequestsAreFilteredAndEachRepoCostsOneQuery(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("register the second repository: %v", err)
 	}
-	f.settle()
+	f.plantCursor()
 
 	before, _, _, _ := f.forge.counts()
 	if before != 2 {
@@ -847,7 +831,7 @@ func TestPullRequestsAreFilteredAndEachRepoCostsOneQuery(t *testing.T) {
 		PullRequest: map[string]any{"url": "https://api.github.com/pulls/999"},
 	})
 
-	result := f.tick()
+	result := f.settle()
 
 	if issues, _, _, _ := f.forge.counts(); issues-before != 2 {
 		t.Errorf("the tick made %d issue listings for 2 registered repositories, want 2", issues-before)
@@ -874,22 +858,19 @@ func TestPullRequestsAreFilteredAndEachRepoCostsOneQuery(t *testing.T) {
 // and the watermark always ends up past it.
 func TestRunlessCommandsReplyAndAdvanceTheWatermark(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 81, owner(), "/plan the work") // known, not yet supported
 	f.forge.addComment(testIssue, 82, owner(), "/frobnicate")    // not in the vocabulary
 	f.forge.addComment(testIssue, 83, owner(), "/spike")         // no text
 	f.forge.addComment(testIssue, 84, owner(), "  \n\t ")        // nothing in it
 
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 0 {
-		t.Errorf("ran %d turns, want none", result.Runs)
-	}
-	if result.Replies != 3 {
-		t.Errorf("posted %d replies, want 3 — an empty comment draws none", result.Replies)
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns, want none", len(calls))
 	}
 	posted, reacted, _ := f.forge.snapshot()
 	if len(posted) != 3 {
@@ -911,12 +892,12 @@ func TestRunlessCommandsReplyAndAdvanceTheWatermark(t *testing.T) {
 // TestThirdPartyCommentIsRecordedAndTriggersNothing is AC-2.15.
 func TestThirdPartyCommentIsRecordedAndTriggersNothing(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 91, stranger(), "/spike do my bidding")
-	f.tick()
+	f.settle()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns for a third party, want none", len(calls))
@@ -958,15 +939,15 @@ func (f unreactiveForge) AddCommentReaction(
 // missing 👀 is a cosmetic loss; refusing the run over one would be a real one.
 func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.daemon = f.newDaemon(daemon.Options{
 		Forge: unreactiveForge{Forge: f.client, err: errors.New("reactions are disabled on this issue")},
 	})
-	f.tick()
+	f.settle()
 
 	f.forge.addComment(testIssue, 101, owner(), "/spike carry on regardless")
-	f.tick()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{101}) {
 		t.Fatalf("turns ran for %v, want [101]: a failed reaction must not abort the turn", got)
@@ -985,7 +966,7 @@ func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 // TestRateLimitBacksOffAndResumes is AC-2.12.
 func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addComment(testIssue, 111, owner(), "/spike after the limit clears")
 
@@ -1024,7 +1005,7 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 
 	// The next tick is skipped without going near the network.
 	issuesAfterLimit, _, _, _ := f.forge.counts()
-	skipped := f.tick()
+	skipped := f.settle()
 	if !skipped.Skipped {
 		t.Error("the tick after a rate limit was not skipped")
 	}
@@ -1037,12 +1018,12 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 
 	// Past the backoff, polling resumes on its own with nothing lost.
 	f.clock.advance(retryAfter + time.Second)
-	resumed := f.tick()
+	resumed := f.settle()
 	if resumed.Skipped {
 		t.Fatal("the daemon did not resume after the backoff expired")
 	}
-	if resumed.Bootstrapped != 1 {
-		t.Errorf("bootstrapped %d tasks on resuming, want 1", resumed.Bootstrapped)
+	if resumed.Dispatched != 1 {
+		t.Errorf("dispatched %d tasks on resuming, want 1", resumed.Dispatched)
 	}
 	if !strings.Contains(f.logs.String(), "backing off") {
 		t.Error("the backoff was not logged")
@@ -1050,18 +1031,31 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 }
 
 // TestTransportErrorLeavesCursorAndWatermarksUnchanged is AC-2.13.
+//
+// The drop is on the repository's issue listing, which is discovery — the Tick
+// goroutine, before any task has been touched. That is the only kind of failure
+// that still ends a tick, and it is deliberately the only kind: nothing has been
+// dispatched, no watermark has moved, and the cursor is not persisted, so the
+// next tick asks for the same window and redoes the work.
+//
+// A transport error met *inside* a turn no longer reaches here at all. It ends
+// that one worker, leaves the session's backlog flag standing and lets every
+// other turn in flight carry on, which is what
+// TestAFailedBootstrapLeavesTheBacklogFlagSet pins.
 func TestTransportErrorLeavesCursorAndWatermarksUnchanged(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight; the cursor is now persisted
+	f.settle() // first sight; the cursor is now persisted
 
 	cursorBefore := f.cursor()
 	watermarkBefore := f.watermark()
 	f.forge.addComment(testIssue, 121, owner(), "/spike after the network comes back")
 
-	f.forge.onListComments = func(w http.ResponseWriter, call int) bool {
-		if call != 2 {
+	// The third issue listing of this test: one for the cursor-planting tick,
+	// one for the first sight, and this one.
+	f.forge.onListIssues = func(w http.ResponseWriter, call int) bool {
+		if call != 3 {
 			return false
 		}
 		hangUp(t, w)
@@ -1084,8 +1078,8 @@ func TestTransportErrorLeavesCursorAndWatermarksUnchanged(t *testing.T) {
 	}
 
 	// The next tick redoes the work.
-	f.forge.onListComments = nil
-	f.tick()
+	f.forge.onListIssues = nil
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{121}) {
 		t.Errorf("turns ran for %v after recovery, want [121]", got)
@@ -1102,7 +1096,7 @@ func TestCursorIsInitialisedToNowAndSurvivesRestart(t *testing.T) {
 	// be replayed: the cursor is planted at now, not at the beginning of time.
 	f.issue("An issue that predates the daemon")
 
-	firstEver := f.tick()
+	firstEver := f.settle()
 	if firstEver.Cursor.TasksUpdatedSince.IsZero() {
 		t.Fatal("the first-ever tick left the cursor at the beginning of history")
 	}
@@ -1120,7 +1114,7 @@ func TestCursorIsInitialisedToNowAndSurvivesRestart(t *testing.T) {
 	// A new daemon over the same database is a restart in every way that
 	// matters here: it holds no state of its own.
 	f.daemon = f.newDaemon(daemon.Options{InstanceID: "daemon-instance-restarted"})
-	f.tick()
+	f.settle()
 
 	sinceValues := f.forge.since()
 	if len(sinceValues) != 2 {
@@ -1145,19 +1139,19 @@ func TestCursorIsInitialisedToNowAndSurvivesRestart(t *testing.T) {
 // and it is never seen again.
 func TestTheListingWindowOverlapsSoALateIndexCannotLoseAComment(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Logging improvements")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	// Two minutes before now: comfortably behind the cursor, comfortably
 	// inside the overlap.
 	late := f.clock.Now().Add(-2 * time.Minute)
 	f.forge.addCommentAt(testIssue, 41, owner(), "/spike make the logs readable", late)
 
-	result := f.tick()
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1 — the comment predates the cursor and only the overlap reaches it\nlogs:\n%s",
-			result.Runs, f.logs)
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{41}) {
+		t.Fatalf("turns ran for %v, want [41] — the comment predates the cursor and only the "+
+			"overlap reaches it\nlogs:\n%s", got, f.logs)
 	}
 	if got := f.watermark(); got != 41 {
 		t.Errorf("watermark is %d, want 41", got)
@@ -1172,7 +1166,7 @@ func TestTheFirstEverTickDoesNotReachBack(t *testing.T) {
 	f := newFixture(t)
 	f.issue("An issue that predates the daemon")
 
-	firstEver := f.tick()
+	firstEver := f.settle()
 	if firstEver.Issues != 0 {
 		t.Errorf("the first-ever tick listed %d issues, want none", firstEver.Issues)
 	}
@@ -1190,7 +1184,7 @@ func TestTheFirstEverTickDoesNotReachBack(t *testing.T) {
 // per issue that moved. Nothing scales with the number of comments.
 func TestTickCostIsBoundedByTheRepoCount(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	issuesBefore, commentsBefore, _, _ := f.forge.counts()
 
 	f.issue("Add a /health endpoint")
@@ -1198,7 +1192,7 @@ func TestTickCostIsBoundedByTheRepoCount(t *testing.T) {
 		f.forge.addComment(testIssue, id, stranger(), "chatter")
 	}
 
-	f.tick()
+	f.settle()
 
 	issues, comments, _, _ := f.forge.counts()
 	if issues-issuesBefore != 1 {
@@ -1219,9 +1213,9 @@ func TestTickCostIsBoundedByTheRepoCount(t *testing.T) {
 // depends on an issue's update time moving.
 func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Logging improvements")
-	f.tick() // first sight
+	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 41, owner(), "/spike make the logs readable")
 	// Then push the issue's update time back into the past, which is what an
@@ -1229,11 +1223,11 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 	// now bring this issue back through that listing.
 	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
 
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 1 {
-		t.Fatalf("ran %d turns, want 1 — the comment listing is the only way this could be found\nlogs:\n%s",
-			result.Runs, f.logs)
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{41}) {
+		t.Fatalf("turns ran for %v, want [41] — the comment listing is the only way this could "+
+			"be found\nlogs:\n%s", got, f.logs)
 	}
 	if got := f.watermark(); got != 41 {
 		t.Errorf("watermark is %d, want 41", got)
@@ -1270,7 +1264,7 @@ func (f closedListingForge) ListIssues(context.Context, github.Repo, time.Time) 
 func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 	t.Run("found by the comment listing", func(t *testing.T) {
 		f := newFixture(t)
-		f.settle()
+		f.plantCursor()
 		f.forge.addIssue(fakeIssue{
 			Number: testIssue,
 			Title:  "Add a /health endpoint",
@@ -1281,7 +1275,7 @@ func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 		f.forge.addComment(testIssue, 50, owner(), "/spike do the thing anyway")
 
 		_, commentListingsBefore, _, _ := f.forge.counts()
-		result := f.tick()
+		result := f.settle()
 
 		// The issue listing asks for open issues and does not return it, so
 		// this is the comment listing's find — reached through GetIssue, which
@@ -1295,7 +1289,7 @@ func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 
 	t.Run("found by the issue listing", func(t *testing.T) {
 		f := newFixture(t)
-		f.settle()
+		f.plantCursor()
 
 		closed := github.Issue{
 			Number:    testIssue,
@@ -1308,7 +1302,7 @@ func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{Forge: f.client, issue: closed}})
 
 		_, commentListingsBefore, _, _ := f.forge.counts()
-		result := f.tick()
+		result := f.settle()
 
 		if result.Issues != 1 {
 			t.Fatalf("the tick saw %d issues, want 1: the issue listing handed it one\nlogs:\n%s",
@@ -1328,15 +1322,18 @@ func assertClosedIssueWasLeftAlone(
 ) {
 	t.Helper()
 
-	if result.Bootstrapped != 0 {
-		t.Errorf("bootstrapped %d tasks from a closed issue, want none", result.Bootstrapped)
-	}
-	if result.Comments != 0 || result.Runs != 0 || result.Replies != 0 {
-		t.Errorf("processed %d comments, %d runs and %d replies on a closed issue, want none",
-			result.Comments, result.Runs, result.Replies)
+	if result.Dispatched != 0 {
+		t.Errorf("dispatched %d turns for a closed issue, want none", result.Dispatched)
 	}
 	if result.Deferred != 0 {
-		t.Errorf("deferred %d tasks on a closed issue, want none — nothing was left waiting", result.Deferred)
+		t.Errorf("deferred %d sessions on a closed issue, want none — nothing was left waiting", result.Deferred)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns on a closed issue, want none", len(calls))
+	}
+	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
+		t.Errorf("posted %d comments and %d reactions on a closed issue, want none",
+			len(posted), len(reacted))
 	}
 
 	// No session and no watermark: the skip happens before GetOrCreateSession,

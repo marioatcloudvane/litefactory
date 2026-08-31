@@ -29,9 +29,9 @@ import (
 // it would violate the daemon's own constraint.
 func TestStartReportsAnAbandonedRunAndDoesNotRerunIt(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 
 	session := f.session()
 	f.forge.addComment(testIssue, 200, owner(), "/spike the run that was killed")
@@ -92,7 +92,7 @@ func TestStartReportsAnAbandonedRunAndDoesNotRerunIt(t *testing.T) {
 
 	// And it is not re-run: the comment is below the watermark, so it is never
 	// handed to a turn again.
-	f.tick()
+	f.settle()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns after reconciliation, want none — an abandoned run is never retried", len(calls))
@@ -117,9 +117,9 @@ func TestStartReportsAnAbandonedRunAndDoesNotRerunIt(t *testing.T) {
 // convenience filter to Start.
 func TestAnAbandonedRunIsReconciledEvenWhenItsIssueWasClosed(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick() // first sight, while the issue is still open
+	f.settle() // first sight, while the issue is still open
 
 	session := f.session()
 	f.forge.addComment(testIssue, 200, owner(), "/spike the run that was killed")
@@ -159,11 +159,8 @@ func TestAnAbandonedRunIsReconciledEvenWhenItsIssueWasClosed(t *testing.T) {
 
 	// The tick that follows is where AC-2.22 takes over: the issue is closed
 	// now, so nothing more happens on it, and the abandoned run is not re-run.
-	result := f.tick()
+	f.settle()
 
-	if result.Runs != 0 {
-		t.Errorf("ran %d turns on a closed issue after reconciliation, want none", result.Runs)
-	}
 	if calls := f.turns.calls(); len(calls) != 0 {
 		t.Errorf("ran %d turns after reconciliation, want none", len(calls))
 	}
@@ -254,9 +251,9 @@ func (e *blockingExecutor) Execute(ctx context.Context, _ turn.Request) (turn.Re
 // reconciles the row it left behind.
 func TestRunExitsWithinThreeSecondsOfSIGTERM(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 	f.forge.addComment(testIssue, 210, owner(), "/spike a run that will not stop")
 
 	executor := &blockingExecutor{started: make(chan struct{}, 1), release: make(chan struct{})}
@@ -337,9 +334,9 @@ func TestRunStopsWithoutTicking(t *testing.T) {
 // everything else in this package tests Tick directly.
 func TestRunTicksFromItsTickSource(t *testing.T) {
 	f := newFixture(t)
-	f.settle()
+	f.plantCursor()
 	f.issue("Add a /health endpoint")
-	f.tick()
+	f.settle()
 	f.forge.addComment(testIssue, 220, owner(), "/spike from the loop")
 
 	ticks := make(chan time.Time)
@@ -354,10 +351,17 @@ func TestRunTicksFromItsTickSource(t *testing.T) {
 	// is the synchronisation point rather than a sleep.
 	ticks <- time.Now()
 
-	cancel()
+	// Closing the source is what joins the turns. loop returns when the channel
+	// closes, and its deferred pool.wait() cannot return until every worker it
+	// dispatched has finished — so by the time Run returns, the turn this test
+	// is about has run to completion. Cancelling instead would race the
+	// dispatch: a worker not yet scheduled would find its context already done
+	// and correctly do nothing.
+	close(ticks)
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	cancel()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{220}) {
 		t.Errorf("the loop ran turns for %v, want [220]", got)

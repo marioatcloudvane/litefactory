@@ -332,7 +332,9 @@ WHERE id = ? AND lock_owner = ?`,
 // silence on the thread, which AC-4.1 forbids.
 //
 // The protocol has one write site and one clear rule: the tick sets the flag
-// for every session it dispatches, before the worker starts, and only
+// for every session it takes out of the eligible set — the ones it dispatches,
+// before the worker starts, and the ones it defers for want of a free slot —
+// and only
 // [DB.ClearSessionNeedsPoll] on a fully drained, error-free turn takes it back
 // off. Setting it on a session that already carries it is a no-op, so the call
 // needs no read first. A session that does not exist is [ErrNotFound].
