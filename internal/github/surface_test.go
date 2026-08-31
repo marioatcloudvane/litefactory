@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	gogithub "github.com/google/go-github/v90/github"
+
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/redact"
 )
@@ -130,10 +132,24 @@ func TestNoForgeAbstraction(t *testing.T) {
 	}
 }
 
+// credentialSite is the one call in this package that is allowed to see the raw
+// token: go-github's single credential option, which installs a RoundTripper
+// setting the Authorization header on every request.
+//
+// It replaced the literal "Authorization" as the anchor when D1 moved the
+// transport to the SDK and the hand-written header disappeared with it. The
+// guard's shape is unchanged; only what it points at moved.
+const credentialSite = "gogithub.WithAuthToken("
+
 // TestRevealIsCalledExactlyOnce keeps the credential boundary greppable and
 // small. secrets.Token.Reveal is the deliberate act of handling the raw value,
-// and in this package there is exactly one legitimate reason to do it: setting
-// the Authorization header.
+// and in this package there is exactly one legitimate reason to do it: handing
+// the token to the SDK at construction, on the line named by credentialSite.
+//
+// This fails the build if Reveal appears anywhere else, or more than once, or
+// on a line that is not that call — including the shape where the token is
+// pulled into a local variable first, which is how it would end up somewhere a
+// %v could reach it.
 func TestRevealIsCalledExactlyOnce(t *testing.T) {
 	t.Parallel()
 
@@ -155,9 +171,9 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 		for i, line := range strings.Split(string(contents), "\n") {
 			if strings.Contains(line, ".Reveal()") {
 				sites = append(sites, name+":"+strings.TrimSpace(line))
-				if !strings.Contains(line, "Authorization") {
-					t.Errorf("%s:%d reveals the token outside the Authorization header: %s",
-						name, i+1, strings.TrimSpace(line))
+				if !strings.Contains(line, credentialSite) {
+					t.Errorf("%s:%d reveals the token somewhere other than %s: %s",
+						name, i+1, credentialSite, strings.TrimSpace(line))
 				}
 			}
 		}
@@ -166,5 +182,29 @@ func TestRevealIsCalledExactlyOnce(t *testing.T) {
 	if len(sites) != 1 {
 		t.Errorf("found %d calls to Reveal, want exactly 1:\n%s",
 			len(sites), strings.Join(sites, "\n"))
+	}
+}
+
+// TestTheCredentialPathIsTheSDKs is the other half of the guard above, and the
+// half a line-based grep cannot give: the anchor it greps for has to still be
+// the thing that authenticates a request.
+//
+// If go-github renamed or removed WithAuthToken, TestRevealIsCalledExactlyOnce
+// would keep passing against a string that no longer means anything — the
+// credential could then be routed some other way and the guard would not
+// notice. This makes that a compile error instead.
+func TestTheCredentialPathIsTheSDKs(t *testing.T) {
+	t.Parallel()
+
+	client, err := gogithub.NewClient(gogithub.WithAuthToken("ghp_not-a-real-token"))
+	if err != nil {
+		t.Fatalf("gogithub.NewClient with the credential option: %v", err)
+	}
+	if client == nil {
+		t.Fatal("gogithub.NewClient returned no client")
+	}
+	if !strings.Contains(credentialSite, "WithAuthToken") {
+		t.Errorf("credentialSite = %q, which no longer names the SDK's credential option",
+			credentialSite)
 	}
 }

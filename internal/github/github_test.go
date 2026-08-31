@@ -23,6 +23,12 @@ import (
 // object, a Link header the parser does not recognise, a body that is encoded
 // but never sent — are exactly the things a hand-rolled RoundTripper stub would
 // paper over.
+//
+// It is a better choice since D1, not a worse one. The request shapes and the
+// header parsing are go-github's now, and a RoundTripper fake would let this
+// suite assert what this package *asked* for rather than what actually went on
+// the wire. github.Options.HTTPClient is the seam, and it is the same one the
+// daemon's fixture uses.
 
 const (
 	// testToken stands in for the bot credential. It is distinctive so that

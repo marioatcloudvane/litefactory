@@ -2,7 +2,6 @@ package github
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -35,27 +34,17 @@ func RepoFromRef(ref naming.Ref) Repo {
 // Validate checks that both components can be interpolated into a request path
 // as they stand.
 //
-// This is what makes [Client.endpoint] safe without escaping. The accepted set
-// is GitHub's own owner and repository charset, which contains no '/', no '%'
-// and nothing else that would change the shape of a URL — so a repository named
+// The SDK interpolates the owner and name into its path template verbatim, so
+// this is still the check that keeps a request on the endpoint it names — it
+// did not become the SDK's job when the transport did. The accepted set is
+// GitHub's own owner and repository charset, which contains no '/', no '%' and
+// nothing else that would change the shape of a URL, so a repository named
 // "../../user" cannot be used to reach another endpoint.
 func (r Repo) Validate() error {
 	if err := checkPathSegment("repository owner", r.Owner); err != nil {
 		return err
 	}
 	return checkPathSegment("repository name", r.Name)
-}
-
-// repoPath builds the /repos/{owner}/{repo} prefix. The components have been
-// through [Repo.Validate], so no escaping is involved (see [Client.endpoint]).
-func repoPath(repo Repo) string {
-	return "/repos/" + repo.Owner + "/" + repo.Name
-}
-
-// issuePath builds the /repos/{owner}/{repo}/issues/{number} prefix that the
-// issue-scoped endpoints share.
-func issuePath(repo Repo, issue int) string {
-	return repoPath(repo) + "/issues/" + strconv.Itoa(issue)
 }
 
 // checkPathSegment rejects a value that is not usable verbatim as one path
