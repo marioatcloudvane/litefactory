@@ -1,5 +1,12 @@
 ---
 name: go-code-reviewer
+# tools is explicit so that this agent cannot spawn a sub-agent of its own.
+# Task is deliberately absent: every extra level of nesting adds a suspend/wake
+# round-trip that has to complete before the run's process exits, and a run on
+# issue #8 died with a go-architect -> Explore call still mid-flight, so the
+# architect never reported and the plan was never written. Depth is what costs
+# a run its artifact, not breadth. Do the looking yourself.
+tools: Read, Write, Glob, Grep, Bash, TodoWrite
 description: Use this agent after Gate A (all implementation agents done) and before environment setup. Reads all files committed in Phase 1 against the architectural hints passed to it by the orchestrator (from plan_brief.md plus each story's sub-issue), then checks for cross-story consistency, Go idiom/style, error handling, concurrency safety, resource management, security, and performance anti-patterns. Writes $session/CODE_REVIEW.md classifying findings as BLOCKING or ADVISORY. Routes back to the implement-orchestrator.
 
 Do NOT use this agent for:
