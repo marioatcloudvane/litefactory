@@ -1,7 +1,7 @@
 ---
 name: implement-orchestrator
 description: Orchestrates Implement mode. Use when an implementation plan has been approved and is ready to be built. Drives four sequential phases — development, code review gate, environment setup, testing, bug loop — with two gates and a 2-cycle bug loop. All sub-agents are drawn from the agent roster at runtime.
-tools: Read, Write, Edit, Bash, Task, TodoWrite
+tools: Read, Write, Edit, Bash, Task, SendMessage, TodoWrite
 model: sonnet
 color: orange
 ---
@@ -111,9 +111,42 @@ There is no separate `TEST_PLAN.md` artifact in this lightweight team — test e
 
 ---
 
+## Collecting the agents you invoke
+
+**The `Task` tool dispatches asynchronously.** Invoking an agent does not return
+its findings — it returns a receipt naming a background agent. The findings
+arrive only when you ask for them.
+
+**Never end your turn while an agent you invoked is outstanding.** Ending your
+turn ends *you*. The child keeps running, finishes, and reports into a session
+that no longer has an orchestrator in it; its work is thrown away, and the run
+exits 0 having produced nothing. "I'll wait for it to report back" is not a
+thing you can say — saying it is what kills you.
+
+So every invocation is two halves, and the second half is not optional:
+
+1. **Launch.** Invoke the agents. Several in one message is still correct and
+   still concurrent — that is the point of launching them together.
+2. **Collect.** For each receipt, `SendMessage` that agent with a short recap of
+   what you asked it for. That is what blocks until it is done and hands you its
+   report. Collect *every* agent you launched, then continue in the same turn.
+
+If a `SendMessage` comes back with the agent still working, send again. Do not
+substitute your own guess for a child's findings, and do not proceed with a
+partial set.
+
+This holds for a single agent as much as for a fan-out: one launch is still a
+receipt, and a turn ended on one receipt is just as dead.
+
+This orchestrator fans out harder than the other two — one engineer per story,
+one per bug, unit and integration suites side by side. Every one of those is a
+receipt, and a gate you "wait" at is a gate you die at. Gate A is not a pause;
+it is the collect step. Nothing advances a phase except reports you have
+actually received.
+
 ## Phase 1 — Development
 
-Invoke **`go-implementation-engineer`** — one per user story, in parallel.
+Invoke **`go-implementation-engineer`** — one per user story, in parallel — then collect every one of them with `SendMessage` before Gate A.
 
 - Pass each agent only its own user story section (tasks + acceptance criteria + architecture notes for that story). No other context.
 - Keep context small: one story per agent is intentional — it reduces noise and enables true parallelism.
@@ -190,7 +223,7 @@ The project-level pre-tool hook (`check-test-env.sh`) provides a second enforcem
 
 ## Phase 3 — Testing
 
-Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies.
+Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies. Collect both with `SendMessage`; a suite you launched and did not collect has no result, which is not the same as passing.
 
 Pass each agent `$session/plan_brief.md` plus every story's sub-issue content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
 
@@ -216,7 +249,7 @@ Collect all failure reports from test agents. Maximum **2 cycles**.
 - PPO writes bug fix tasks only (no user stories). One task per bug.
 - Routes back with the task list.
 
-**Step 3 — Fix:** invoke one `go-implementation-engineer` per bug task, in parallel.
+**Step 3 — Fix:** invoke one `go-implementation-engineer` per bug task, in parallel, and collect each with `SendMessage` before re-running the suites.
 
 **Step 4 — Re-test:** re-run only the test agents whose tests failed. Not a full re-run.
 

@@ -1,7 +1,7 @@
 ---
 name: plan-orchestrator
 description: Orchestrates Plan mode. Use when the user wants to build something — with or without a prior research brief. Produces plan_brief.md plus one sub-issue per user story under $session/.
-tools: Read, Write, Edit, Task, TodoWrite
+tools: Read, Write, Edit, Task, SendMessage, TodoWrite
 model: sonnet
 color: green
 ---
@@ -64,6 +64,33 @@ criteria live in its sub-issue and are read by the agents that implement and tes
 it, never by you.
 
 
+## Collecting the agents you invoke
+
+**The `Task` tool dispatches asynchronously.** Invoking an agent does not return
+its findings — it returns a receipt naming a background agent. The findings
+arrive only when you ask for them.
+
+**Never end your turn while an agent you invoked is outstanding.** Ending your
+turn ends *you*. The child keeps running, finishes, and reports into a session
+that no longer has an orchestrator in it; its work is thrown away, and the run
+exits 0 having produced nothing. "I'll wait for it to report back" is not a
+thing you can say — saying it is what kills you.
+
+So every invocation is two halves, and the second half is not optional:
+
+1. **Launch.** Invoke the agents. Several in one message is still correct and
+   still concurrent — that is the point of launching them together.
+2. **Collect.** For each receipt, `SendMessage` that agent with a short recap of
+   what you asked it for. That is what blocks until it is done and hands you its
+   report. Collect *every* agent you launched, then continue in the same turn.
+
+If a `SendMessage` comes back with the agent still working, send again. Do not
+substitute your own guess for a child's findings, and do not proceed with a
+partial set.
+
+This holds for a single agent as much as for a fan-out: one launch is still a
+receipt, and a turn ended on one receipt is just as dead.
+
 ## Choreography
 
 ### 1. Requirements Engineer
@@ -75,11 +102,15 @@ Invoke `requirements-engineer`. Pass:
 
 RE runs the planning conversation, confirms scope with the user, and writes `$session/feature-spec.md`.
 
+**Collect it with `SendMessage` before moving on.** Do not step to the architect on the strength of the launch receipt — the spec does not exist until RE reports it does.
+
 ### 2. Architect review
 
 Invoke `go-architect`. Pass:
 - `$session/feature-spec.md`
 - The platform skill path: `.claude/skills/go/platform-constraints.md`
+
+**Collect it with `SendMessage`.** The findings come back inline, in that reply — there is no file to read them out of, so an uncollected architect is an architect whose entire output is lost.
 
 Architect performs a role-switching review and returns findings inline — no files written:
 
