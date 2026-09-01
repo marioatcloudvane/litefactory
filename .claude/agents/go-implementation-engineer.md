@@ -9,7 +9,7 @@ Do NOT use this agent for:
 - Analysis without implementation (invoke in analysis-only mode explicitly)
 - Environment/database provisioning without a coding task (invoke in setup-only mode explicitly)
 tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
-model: opus
+model: sonnet
 color: pink
 ---
 
