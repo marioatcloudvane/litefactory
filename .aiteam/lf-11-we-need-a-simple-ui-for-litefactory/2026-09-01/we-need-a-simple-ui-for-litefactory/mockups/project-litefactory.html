@@ -5,23 +5,38 @@
 <title>litefactory — Projects / litefactory</title>
 <style>
   :root{
-    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
-    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+    --bg:#ffffff;--surface:#f6f7f8;--surface-2:#eef0f2;--border:#e1e4e8;
+    --text:#1b1e23;--muted:#6b7280;
+    --graphite:#2f333a;--graphite-2:#3a3f47;--graphite-3:#565c66;
+    --graphite-text:#e7e9eb;--graphite-muted:#9aa1ab;
+    --accent:#3d8f7f;--success:#2f8f4e;--warning:#a8791f;--error:#b23b2e;
   }
   *{box-sizing:border-box;}
+  html,body{height:100%;}
   body{margin:0;background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
-  header.topbar{display:flex;align-items:center;justify-content:space-between;
-    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
-  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
-  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
-    border-bottom:2px solid transparent;}
-  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
-  nav.tabs a:hover{color:var(--text);}
-  main{padding:28px 24px;max-width:900px;margin:0 auto;}
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    display:flex;min-height:100vh;}
+  aside.sidebar{width:212px;flex:0 0 212px;background:var(--graphite);color:var(--graphite-text);
+    display:flex;flex-direction:column;min-height:100vh;position:sticky;top:0;align-self:flex-start;}
+  .sidebar-top{padding:20px 18px 16px;border-bottom:1px solid var(--graphite-2);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--graphite-text);text-decoration:none;font-size:15px;display:block;}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--graphite-muted);margin-top:8px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.nav-primary{padding:14px 10px;display:flex;flex-direction:column;gap:2px;}
+  nav.nav-primary a{padding:9px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:14px;
+    border-left:3px solid transparent;}
+  nav.nav-primary a.active{background:var(--graphite-2);color:#fff;border-left-color:var(--accent);}
+  nav.nav-primary a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-spacer{flex:1;}
+  .sidebar-bottom{padding:10px;border-top:1px solid var(--graphite-2);display:flex;flex-direction:column;gap:2px;}
+  .sidebar-bottom a{padding:8px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:13px;
+    display:flex;align-items:center;gap:8px;}
+  .sidebar-bottom a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom a.active{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom .icon{font-size:14px;}
+
+  .main-wrap{flex:1;min-width:0;}
+  main{padding:28px 32px;max-width:900px;margin:0 auto;}
   .breadcrumb{color:var(--muted);font-size:13px;margin-bottom:16px;}
   .breadcrumb a{color:var(--muted);text-decoration:none;}
   .breadcrumb a:hover{color:var(--accent);}
@@ -31,7 +46,7 @@
   .row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
     border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);}
   .row:last-child{border-bottom:none;}
-  .row:hover{background:#24272c;}
+  .row:hover{background:var(--surface);}
   .row .left{display:flex;align-items:center;gap:12px;}
   .row .issue{font-weight:500;font-size:14.5px;}
   .row .title{color:var(--muted);font-size:13px;}
@@ -46,18 +61,22 @@
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="dashboard.html">litefactory</a>
-  <div class="status"><span class="dot"></span> daemon running</div>
-</header>
+<aside class="sidebar">
+  <div class="sidebar-top">
+    <a class="brand" href="dashboard.html">litefactory</a>
+    <div class="status"><span class="dot"></span> daemon running</div>
+  </div>
+  <nav class="nav-primary">
+    <a href="projects.html" class="active">Projects</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <div class="sidebar-bottom">
+    <a href="logs.html"><span class="icon">&#8801;</span> Daemon log</a>
+    <a href="settings.html" class="gear"><span class="icon">&#9881;</span> Settings</a>
+  </div>
+</aside>
 
-<nav class="tabs">
-  <a href="projects.html" class="active">Projects</a>
-  <a href="projects.html">Runs</a>
-  <a href="logs.html">Logs</a>
-  <a href="settings.html">Settings</a>
-</nav>
-
+<div class="main-wrap">
 <main>
   <div class="breadcrumb">
     <a href="projects.html">&larr; Projects</a><span class="sep">/</span><span class="current">litefactory</span>
@@ -104,6 +123,7 @@
 
   <footer class="note">Clickdummy — static mockup. Only #11 links through to a run detail in this demo; the others are stand-ins. Part of the UI research brief for issue #11.</footer>
 </main>
+</div>
 
 </body>
 </html>

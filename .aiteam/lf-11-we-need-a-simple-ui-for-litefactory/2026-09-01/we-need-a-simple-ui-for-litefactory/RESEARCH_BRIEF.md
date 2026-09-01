@@ -222,12 +222,12 @@ Pass 2 (focus on daemon/server, config, logs, store).
 
 The requester's follow-up on the issue asked for real, clickable HTML
 mockups rather than the ASCII wireframes below ("i wanted a real html
-output as clickable thing, not an asci art"). Six static, self-contained
-HTML files were produced under `mockups/` in this session directory,
-covering the same four UI concepts as the wireframes below — the drilldown
-concept (sketch 3) is expanded into its three linked states (repo list →
-sessions for a repo → run detail with log), matching the three-level
-hierarchy the wireframe itself already showed as a single sequence:
+output as clickable thing, not an asci art"). Eight static, self-contained
+HTML files exist under `mockups/` in this session directory, covering the
+same four UI concepts as the wireframes below — the drilldown concept
+(sketch 3) is expanded into its three linked states (repo list → sessions
+for a repo → run detail with log), matching the three-level hierarchy the
+wireframe itself already showed as a single sequence:
 
 - `mockups/dashboard.html` — concept 1, the landing/"greeting" view.
 - `mockups/settings.html` — concept 2, the `config.yaml` settings editor
@@ -237,31 +237,81 @@ hierarchy the wireframe itself already showed as a single sequence:
   `mockups/project-side-project.html` — concept 3, level 2: sessions/issues
   for a given repo (three repos shown, including an empty-state example for
   `side-project`).
-- `mockups/run-11.html` — concept 3, level 3: a single run's detail and its
-  log tail, combined into one screen exactly as the original wireframe drew
-  it.
-- `mockups/logs.html` — concept 4, the daemon log viewer.
+- `mockups/run-11.html` — concept 3, level 3: a single run's detail, with
+  its log split into per-agent tabs (see below).
+- `mockups/logs.html` — concept 4, the daemon's own operational log viewer.
 
 Each file is fully self-contained (inline `<style>`, no external CSS/JS, no
 build step) and opens directly via `file://` — double-click or drag into a
-browser. They use the palette specified below (background `#16181c`, panel
-`#1f2226`, accent `#5fb3a3`, etc.) and are populated with the same plausible
-placeholder content the wireframes used (fake repos, fake issues, fake log
-lines), so they read as real screens rather than empty templates. Navigation
-between them is real `<a href="...">` linking to the sibling file in the
-same folder — clicking "litefactory" on the dashboard's activity list or the
-projects list actually opens `project-litefactory.html`, and its `#11` row
-opens `run-11.html` — with no backend behind any of it; this is a static
-clickdummy for design review, not a working app, consistent with Research
-mode's remit (no Go code, no daemon changes).
+browser. Navigation between them is real `<a href="...">` linking to the
+sibling file in the same folder — clicking "litefactory" on the dashboard's
+activity list or the projects list actually opens `project-litefactory.html`,
+and its `#11` row opens `run-11.html` — with no backend behind any of it;
+this is a static clickdummy for design review, not a working app, consistent
+with Research mode's remit (no Go code, no daemon changes).
+
+**Revision 2 (this run):** the requester left four remarks on the first
+HTML-mockup revision (issue comment), all incorporated across all eight
+files so the set stays internally consistent:
+
+1. **Palette flipped from dark to light.** The whole set now uses a white
+   (`#ffffff`) page background as the base, with graphite (`#2f333a` /
+   `#3a3f47`) demoted to an accent — specifically the sidebar's background,
+   plus header bars, active-state highlighting, and the settings "Save"
+   button. Body text is near-black (`#1b1e23`) on white; panels/tiles use a
+   light gray surface (`#f6f7f8`); a muted teal (`#3d8f7f`) remains for
+   status dots, links, and the active-tab underline, at the same sparing
+   density as the prior dark palette's accent use. This directly reverses
+   the earlier dark/anthracite-primary direction — read as a correction of
+   the first mockup revision, not an alternative to it.
+2. **Top tab-bar navigation replaced with a left sidebar**, present
+   identically on all eight pages: a fixed 212px graphite column running the
+   full viewport height, holding the brand/status at top, the primary nav
+   in the middle, and a footer pinned to the bottom via a flex spacer.
+3. **Settings demoted to a gear icon at the sidebar's bottom**, visually
+   separated from the primary nav by a border and by sitting in its own
+   `sidebar-bottom` block below a flex spacer — no longer a peer tab next to
+   "Projects."
+4. **Top-level nav trimmed to "Projects" only** — the previous "Runs" and
+   "Logs" top-level tabs are gone; drilling into a repo already reaches its
+   runs (unchanged three-level `Repo → Session → Run` hierarchy). The
+   daemon's own log view (`logs.html`) still exists and is still reachable,
+   but per the request it is deliberately **not** a primary-nav item.
+   **Working assumption `[O]`, not confirmed by the requester**: it's reachable
+   two ways instead — a small secondary link in the sidebar footer (next to,
+   but visually lighter than, the Settings gear) and a plain-text link from
+   the dashboard ("View the daemon's own operational log") and from Settings
+   ("Diagnostics — view the daemon's own operational log"). Plan mode should
+   confirm this placement rather than assume it's final.
+5. **Per-run log view (`mockups/run-11.html`) now splits into per-agent
+   tabs** instead of one interleaved stream, addressing "I want to see how
+   it is progressing, not everything in one log but per agent." Three tabs —
+   `orchestrator`, `codebase-tour`, `web-researcher` — each with its own
+   scrollable log pane and a small status dot (teal = running, green = done
+   next to each tab label). Agent names are not invented generically; they
+   are litefactory's own aiteam sub-agent roster (the same names this very
+   research run's own orchestrator/codebase-tour/web-researcher used),
+   chosen because it's the most concrete, grounded example of "subagents and
+   the like" available and because a Research-mode run is what issue #11
+   itself is. **Tab switching is implemented with a pure-CSS
+   radio-input/label/sibling-selector pattern — no JavaScript** — consistent
+   with the "no fancy shit" / no-build-step direction; a real implementation
+   would presumably drive the tab list from whichever agents actually ran a
+   given run, which may be a different roster per run (e.g. Implement mode's
+   `go-architect`/`go-implementation-engineer`/`go-unit-test-engineer`
+   instead of Research mode's roster) — this mockup shows one concrete
+   instance, not a claim that the tab set is fixed.
 
 **These HTML mockups supersede the ASCII wireframes below as the primary
-way to review the visual design.** The wireframes are left in place, not
-deleted, because they still carry useful annotation (the reasoning behind
-each layout choice, which store type each view maps to, what a `[tail]`
-toggle would need) that the HTML files intentionally don't repeat — read the
-HTML files for "what it looks like," read the prose under each wireframe
-below for "why it's built that way."
+way to review the visual design** — including the wireframes' palette and
+navigation description, which the mockups above now deliberately diverge
+from following the requester's feedback. The wireframes are left in place,
+not deleted, because they still carry useful annotation (the reasoning
+behind each layout choice, which store type each view maps to, what a
+`[tail]` toggle would need) that the HTML files intentionally don't repeat —
+read the HTML files for "what it looks like," read the prose under each
+wireframe below for "why it's built that way," and read this section, not
+the wireframes' palette line, for the current color/navigation decisions.
 
 ## UI Concept Sketches (ASCII wireframes — superseded for visual review, see above)
 

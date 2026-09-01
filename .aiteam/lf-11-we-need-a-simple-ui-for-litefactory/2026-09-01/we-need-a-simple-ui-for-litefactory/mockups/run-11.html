@@ -5,23 +5,38 @@
 <title>litefactory — litefactory / #11</title>
 <style>
   :root{
-    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
-    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+    --bg:#ffffff;--surface:#f6f7f8;--surface-2:#eef0f2;--border:#e1e4e8;
+    --text:#1b1e23;--muted:#6b7280;
+    --graphite:#2f333a;--graphite-2:#3a3f47;--graphite-3:#565c66;
+    --graphite-text:#e7e9eb;--graphite-muted:#9aa1ab;
+    --accent:#3d8f7f;--success:#2f8f4e;--warning:#a8791f;--error:#b23b2e;
   }
   *{box-sizing:border-box;}
+  html,body{height:100%;}
   body{margin:0;background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
-  header.topbar{display:flex;align-items:center;justify-content:space-between;
-    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
-  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
-  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
-    border-bottom:2px solid transparent;}
-  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
-  nav.tabs a:hover{color:var(--text);}
-  main{padding:28px 24px;max-width:900px;margin:0 auto;}
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    display:flex;min-height:100vh;}
+  aside.sidebar{width:212px;flex:0 0 212px;background:var(--graphite);color:var(--graphite-text);
+    display:flex;flex-direction:column;min-height:100vh;position:sticky;top:0;align-self:flex-start;}
+  .sidebar-top{padding:20px 18px 16px;border-bottom:1px solid var(--graphite-2);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--graphite-text);text-decoration:none;font-size:15px;display:block;}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--graphite-muted);margin-top:8px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.nav-primary{padding:14px 10px;display:flex;flex-direction:column;gap:2px;}
+  nav.nav-primary a{padding:9px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:14px;
+    border-left:3px solid transparent;}
+  nav.nav-primary a.active{background:var(--graphite-2);color:#fff;border-left-color:var(--accent);}
+  nav.nav-primary a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-spacer{flex:1;}
+  .sidebar-bottom{padding:10px;border-top:1px solid var(--graphite-2);display:flex;flex-direction:column;gap:2px;}
+  .sidebar-bottom a{padding:8px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:13px;
+    display:flex;align-items:center;gap:8px;}
+  .sidebar-bottom a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom a.active{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom .icon{font-size:14px;}
+
+  .main-wrap{flex:1;min-width:0;}
+  main{padding:28px 32px;max-width:900px;margin:0 auto;}
   .headrow{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
   .breadcrumb{color:var(--muted);font-size:13px;}
   .breadcrumb a{color:var(--muted);text-decoration:none;}
@@ -31,34 +46,58 @@
   .runstatus{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--accent);}
   .runmeta{color:var(--muted);font-size:13px;margin:14px 0 18px;display:flex;gap:22px;}
   .runmeta .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
-  .logpanel{background:#101215;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+
+  .logpanel{background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
   .logpanel-head{display:flex;align-items:center;justify-content:space-between;
-    padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);font-size:13px;color:var(--muted);}
-  .btn{background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:10px 16px;border-bottom:1px solid var(--border);background:var(--graphite);color:var(--graphite-text);font-size:13px;}
+  .btn{background:transparent;border:1px solid var(--graphite-3);color:var(--graphite-text);
     padding:5px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;text-decoration:none;}
-  .btn.on{border-color:var(--accent);color:var(--accent);}
+  .btn.on{border-color:var(--accent);color:#9fe0d1;}
+
+  /* per-agent tabs — pure CSS, radio + label, no JS */
+  .agent-tabs{position:relative;}
+  .agent-tabs input[type=radio]{position:absolute;opacity:0;pointer-events:none;}
+  .tab-bar{display:flex;gap:2px;border-bottom:1px solid var(--border);padding:0 12px;background:var(--surface);}
+  .tab-bar label{padding:10px 14px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;
+    display:inline-flex;align-items:center;gap:7px;}
+  .tab-bar label:hover{color:var(--text);}
+  .tab-dot{width:6px;height:6px;border-radius:50%;display:inline-block;background:var(--muted);}
+  .tab-dot.running{background:var(--accent);}
+  .tab-dot.ok{background:var(--success);}
+  #tab-orch:checked ~ .tab-bar label[for=tab-orch],
+  #tab-tour:checked ~ .tab-bar label[for=tab-tour],
+  #tab-web:checked ~ .tab-bar label[for=tab-web]{color:var(--text);border-bottom-color:var(--accent);font-weight:600;}
+  .tab-panel{display:none;}
+  #tab-orch:checked ~ #panel-orch,
+  #tab-tour:checked ~ #panel-tour,
+  #tab-web:checked ~ #panel-web{display:block;}
+
   .loglines{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
     line-height:1.85;padding:14px 16px;overflow-x:auto;}
   .loglines .ts{color:var(--muted);}
   .loglines .src{color:var(--accent);margin:0 8px;}
-  .loglines .src.daemon{color:#7d94d1;}
+  .loglines .src.daemon{color:#3a5fa8;}
   footer.note{margin-top:28px;color:var(--muted);font-size:12px;}
 </style>
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="dashboard.html">litefactory</a>
-  <div class="status"><span class="dot"></span> daemon running</div>
-</header>
+<aside class="sidebar">
+  <div class="sidebar-top">
+    <a class="brand" href="dashboard.html">litefactory</a>
+    <div class="status"><span class="dot"></span> daemon running</div>
+  </div>
+  <nav class="nav-primary">
+    <a href="projects.html" class="active">Projects</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <div class="sidebar-bottom">
+    <a href="logs.html"><span class="icon">&#8801;</span> Daemon log</a>
+    <a href="settings.html" class="gear"><span class="icon">&#9881;</span> Settings</a>
+  </div>
+</aside>
 
-<nav class="tabs">
-  <a href="projects.html" class="active">Projects</a>
-  <a href="projects.html">Runs</a>
-  <a href="logs.html">Logs</a>
-  <a href="settings.html">Settings</a>
-</nav>
-
+<div class="main-wrap">
 <main>
   <div class="headrow">
     <div class="breadcrumb">
@@ -80,23 +119,57 @@
       <span>run log — litefactory #11</span>
       <a class="btn on" href="run-11.html">follow: on</a>
     </div>
-    <div class="loglines">
-      <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>poll: found issue #11, no open run</div>
-      <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>worktree created at .lf-worktrees/litefactory/task-11</div>
-      <div><span class="ts">14:02:12</span><span class="src">claude</span>session start, model=sonnet</div>
-      <div><span class="ts">14:02:14</span><span class="src">claude</span>reading CLAUDE.md</div>
-      <div><span class="ts">14:02:19</span><span class="src">claude</span>tool: Read internal/cli/cmd_daemon.go</div>
-      <div><span class="ts">14:02:24</span><span class="src">claude</span>tool: Read internal/config/config.go</div>
-      <div><span class="ts">14:02:31</span><span class="src">claude</span>tool: Grep "ListenAndServe" across internal/</div>
-      <div><span class="ts">14:02:40</span><span class="src">claude</span>tool: Read internal/store/store.go</div>
-      <div><span class="ts">14:02:52</span><span class="src">claude</span>drafting research brief&hellip;</div>
-      <div><span class="ts">14:03:10</span><span class="src">claude</span>tool: Write RESEARCH_BRIEF.md</div>
-      <div style="color:var(--muted);">&hellip;</div>
+
+    <div class="agent-tabs">
+      <input type="radio" name="agenttab" id="tab-orch" checked>
+      <input type="radio" name="agenttab" id="tab-tour">
+      <input type="radio" name="agenttab" id="tab-web">
+
+      <div class="tab-bar">
+        <label for="tab-orch"><span class="tab-dot running"></span>orchestrator</label>
+        <label for="tab-tour"><span class="tab-dot ok"></span>codebase-tour</label>
+        <label for="tab-web"><span class="tab-dot ok"></span>web-researcher</label>
+      </div>
+
+      <div class="tab-panel loglines" id="panel-orch">
+        <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>poll: found issue #11, no open run</div>
+        <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>worktree created at .lf-worktrees/litefactory/task-11</div>
+        <div><span class="ts">14:02:12</span><span class="src">orchestrator</span>classified request as Research, session scaffolded</div>
+        <div><span class="ts">14:02:13</span><span class="src">orchestrator</span>invoking codebase-tour and web-researcher concurrently</div>
+        <div><span class="ts">14:02:52</span><span class="src">orchestrator</span>codebase-tour returned findings inline (see tab)</div>
+        <div><span class="ts">14:03:40</span><span class="src">orchestrator</span>web-researcher returned findings inline (see tab)</div>
+        <div><span class="ts">14:03:41</span><span class="src">orchestrator</span>synthesizing RESEARCH_BRIEF.md</div>
+        <div><span class="ts">14:03:58</span><span class="src">orchestrator</span>writing mockups/*.html</div>
+        <div><span class="ts">14:04:20</span><span class="src">orchestrator</span>brief complete, handing back to dispatcher</div>
+        <div style="color:var(--muted);">&hellip;</div>
+      </div>
+
+      <div class="tab-panel loglines" id="panel-tour">
+        <div><span class="ts">14:02:14</span><span class="src">codebase-tour</span>Pass 1: mapping repo layout</div>
+        <div><span class="ts">14:02:19</span><span class="src">codebase-tour</span>tool: Read internal/cli/cmd_daemon.go</div>
+        <div><span class="ts">14:02:24</span><span class="src">codebase-tour</span>tool: Read internal/config/config.go</div>
+        <div><span class="ts">14:02:31</span><span class="src">codebase-tour</span>tool: Grep "ListenAndServe" across internal/</div>
+        <div><span class="ts">14:02:40</span><span class="src">codebase-tour</span>tool: Read internal/store/store.go</div>
+        <div><span class="ts">14:02:45</span><span class="src">codebase-tour</span>Pass 2: focused read of daemon/config/store/logs</div>
+        <div><span class="ts">14:02:50</span><span class="src">codebase-tour</span>findings ready — returning inline to orchestrator</div>
+        <div style="color:var(--muted);">&hellip; agent finished</div>
+      </div>
+
+      <div class="tab-panel loglines" id="panel-web">
+        <div><span class="ts">14:02:15</span><span class="src">web-researcher</span>WebSearch: "Go stdlib ServeMux vs chi 2025"</div>
+        <div><span class="ts">14:02:22</span><span class="src">web-researcher</span>WebSearch: "htmx license size current version"</div>
+        <div><span class="ts">14:02:30</span><span class="src">web-researcher</span>WebFetch: Pico.css docs — theming via custom properties</div>
+        <div><span class="ts">14:02:38</span><span class="src">web-researcher</span>WebSearch: "gopkg.in/yaml.v3 maintenance status"</div>
+        <div><span class="ts">14:02:44</span><span class="src">web-researcher</span>found: yaml.v3 archived 2025-04-01, recommends goccy/go-yaml</div>
+        <div><span class="ts">14:02:50</span><span class="src">web-researcher</span>findings ready — returning inline to orchestrator</div>
+        <div style="color:var(--muted);">&hellip; agent finished</div>
+      </div>
     </div>
   </div>
 
-  <footer class="note">Clickdummy — static mockup. The "follow" toggle and log content are illustrative, not live. Part of the UI research brief for issue #11.</footer>
+  <footer class="note">Clickdummy — static mockup. The "follow" toggle, tab switching (pure CSS, no JS) and log content are illustrative, not live. Part of the UI research brief for issue #11.</footer>
 </main>
+</div>
 
 </body>
 </html>

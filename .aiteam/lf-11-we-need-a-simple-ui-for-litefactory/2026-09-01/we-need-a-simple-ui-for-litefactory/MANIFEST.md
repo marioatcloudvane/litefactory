@@ -58,6 +58,33 @@ asked for; nothing here licenses starting the next one.
   supersede the ASCII wireframes for visual review; the wireframes and the
   rest of the brief (implementation options, security, open questions) were
   left intact. No code, no daemon changes — still Research mode. Status changed from INCOMPLETE to Complete.
+- 2026-09-01 — Research follow-up run (visual revision, headless): requester
+  left four remarks on the HTML mockups (issue comment) — too dark, wants a
+  sidebar with settings pinned at the bottom behind a gear icon, wants the
+  top-level nav trimmed to just "Projects," and wants the run/log view split
+  into per-agent tabs instead of one interleaved stream. No new
+  `codebase-tour`/`web-researcher` pass — this is a visual-design revision
+  of existing mockups, not new technical research; the brief and mockups
+  already had everything needed. All eight `mockups/*.html` files rewritten
+  for internal consistency: light theme (white background, graphite demoted
+  to an accent — sidebar, header bars, active states, one muted teal accent
+  color retained for status/links); a fixed left sidebar (present, byte-for-
+  byte identical structure, on every page) replacing the old top tab-bar,
+  with primary nav trimmed to "Projects" only and Settings moved to a
+  gear-icon link pinned to the sidebar's bottom via a flex spacer, separated
+  by a border from the primary nav; the daemon's own log view (`logs.html`)
+  kept reachable but deliberately off the primary nav — placed as a
+  secondary sidebar-footer link plus plain-text links from the dashboard and
+  Settings pages (a working assumption, flagged as unconfirmed, since the
+  requester didn't specify where it should live once demoted from top-level
+  nav); and `run-11.html`'s single log stream split into three per-agent
+  tabs (`orchestrator`, `codebase-tour`, `web-researcher` — litefactory's
+  own aiteam roster, chosen as the most concrete real example available)
+  with pure-CSS radio/label tab switching, no JavaScript. Updated
+  `RESEARCH_BRIEF.md`'s "Clickable HTML mockups" section in place to
+  describe the revision and supersede its own prior palette/nav description;
+  left the ASCII-wireframe section and the rest of the brief untouched. No
+  code, no daemon changes — still Research mode.
 
 ## Notes
 

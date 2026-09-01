@@ -5,38 +5,57 @@
 <title>litefactory — Dashboard</title>
 <style>
   :root{
-    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
-    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+    --bg:#ffffff;--surface:#f6f7f8;--surface-2:#eef0f2;--border:#e1e4e8;
+    --text:#1b1e23;--muted:#6b7280;
+    --graphite:#2f333a;--graphite-2:#3a3f47;--graphite-3:#565c66;
+    --graphite-text:#e7e9eb;--graphite-muted:#9aa1ab;
+    --accent:#3d8f7f;--success:#2f8f4e;--warning:#a8791f;--error:#b23b2e;
   }
   *{box-sizing:border-box;}
+  html,body{height:100%;}
   body{margin:0;background:var(--bg);color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    display:flex;min-height:100vh;}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
-  header.topbar{display:flex;align-items:center;justify-content:space-between;
-    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
-  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
-  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
-  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
-    border-bottom:2px solid transparent;}
-  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
-  nav.tabs a:hover{color:var(--text);}
-  main{padding:28px 24px;max-width:960px;margin:0 auto;}
+
+  aside.sidebar{width:212px;flex:0 0 212px;background:var(--graphite);color:var(--graphite-text);
+    display:flex;flex-direction:column;min-height:100vh;position:sticky;top:0;align-self:flex-start;}
+  .sidebar-top{padding:20px 18px 16px;border-bottom:1px solid var(--graphite-2);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--graphite-text);text-decoration:none;font-size:15px;display:block;}
+  .status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--graphite-muted);margin-top:8px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.nav-primary{padding:14px 10px;display:flex;flex-direction:column;gap:2px;}
+  nav.nav-primary a{padding:9px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:14px;
+    border-left:3px solid transparent;}
+  nav.nav-primary a.active{background:var(--graphite-2);color:#fff;border-left-color:var(--accent);}
+  nav.nav-primary a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-spacer{flex:1;}
+  .sidebar-bottom{padding:10px;border-top:1px solid var(--graphite-2);display:flex;flex-direction:column;gap:2px;}
+  .sidebar-bottom a{padding:8px 12px;border-radius:6px;color:var(--graphite-muted);text-decoration:none;font-size:13px;
+    display:flex;align-items:center;gap:8px;}
+  .sidebar-bottom a:hover{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom a.active{background:var(--graphite-2);color:#fff;}
+  .sidebar-bottom .icon{font-size:14px;}
+
+  .main-wrap{flex:1;min-width:0;}
+  main{padding:28px 32px;max-width:960px;margin:0 auto;}
   h1{font-size:22px;font-weight:600;margin:0 0 4px;}
   .sub{color:var(--muted);font-size:14px;margin-bottom:20px;}
-  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0 28px;}
-  .tile{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0 10px;}
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
   .tile .label{font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;}
   .tile .value{font-size:19px;margin-top:8px;}
   .tile .sub2{font-size:12px;color:var(--muted);margin-top:2px;}
+  .daemonlog-link{margin:0 0 28px;}
+  .daemonlog-link a{color:var(--muted);text-decoration:none;font-size:13px;}
+  .daemonlog-link a:hover{color:var(--accent);}
   h2.section{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
     margin:0 0 10px;font-weight:600;}
   .list{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
   .row{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
     border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);}
   .row:last-child{border-bottom:none;}
-  .row:hover{background:#24272c;}
+  .row:hover{background:var(--surface);}
   .row .left{display:flex;align-items:center;gap:10px;}
   .row .repo{font-weight:500;}
   .row .meta{color:var(--muted);font-size:13px;}
@@ -50,18 +69,22 @@
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="dashboard.html">litefactory</a>
-  <div class="status"><span class="dot"></span> daemon running</div>
-</header>
+<aside class="sidebar">
+  <div class="sidebar-top">
+    <a class="brand" href="dashboard.html">litefactory</a>
+    <div class="status"><span class="dot"></span> daemon running</div>
+  </div>
+  <nav class="nav-primary">
+    <a href="projects.html">Projects</a>
+  </nav>
+  <div class="sidebar-spacer"></div>
+  <div class="sidebar-bottom">
+    <a href="logs.html"><span class="icon">&#8801;</span> Daemon log</a>
+    <a href="settings.html" class="gear"><span class="icon">&#9881;</span> Settings</a>
+  </div>
+</aside>
 
-<nav class="tabs">
-  <a href="projects.html">Projects</a>
-  <a href="projects.html">Runs</a>
-  <a href="logs.html">Logs</a>
-  <a href="settings.html">Settings</a>
-</nav>
-
+<div class="main-wrap">
 <main>
   <h1>Good evening.</h1>
   <p class="sub">3 repos watched &middot; 1 run in progress &middot; 2 queued</p>
@@ -83,6 +106,8 @@
       <div class="sub2">next in 12s</div>
     </div>
   </div>
+
+  <div class="daemonlog-link"><a href="logs.html">View the daemon's own operational log &rarr;</a></div>
 
   <h2 class="section">Recent activity</h2>
   <div class="list">
@@ -122,6 +147,7 @@
 
   <footer class="note">Clickdummy — static mockup, no live data. Part of the UI research brief for issue #11.</footer>
 </main>
+</div>
 
 </body>
 </html>
