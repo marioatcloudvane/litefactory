@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>litefactory — Settings</title>
+<style>
+  :root{
+    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
+    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  header.topbar{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
+  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
+    border-bottom:2px solid transparent;}
+  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
+  nav.tabs a:hover{color:var(--text);}
+  main{padding:28px 24px;max-width:760px;margin:0 auto;}
+  .headrow{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  h1{font-size:22px;font-weight:600;margin:0;}
+  .actions{display:flex;gap:8px;}
+  .btn{background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:7px 14px;border-radius:6px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn.primary{background:var(--accent);color:#10231f;border-color:var(--accent);font-weight:600;}
+  .btn:hover{border-color:var(--accent);}
+  .warn{display:flex;gap:8px;background:#241f16;border:1px solid #3a3020;color:var(--warning);
+    padding:10px 14px;border-radius:6px;font-size:13px;margin:16px 0 24px;}
+  fieldset{border:1px solid var(--border);border-radius:8px;padding:16px 18px 18px;margin:0 0 18px;}
+  legend{padding:0 6px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);}
+  .field{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0;}
+  .field label{font-size:14px;color:var(--text);}
+  .field .hint{font-size:12px;color:var(--muted);display:block;margin-top:2px;}
+  .field input, .field select{
+    background:#141619;border:1px solid var(--border);color:var(--text);
+    padding:7px 10px;border-radius:5px;font-size:13px;width:260px;font-family:inherit;
+  }
+  .field input.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .field input:disabled{color:var(--muted);}
+  .field .display-only{width:260px;font-size:13px;color:var(--muted);}
+  details{border:1px solid var(--border);border-radius:8px;margin-bottom:18px;}
+  summary{padding:12px 16px;cursor:pointer;font-size:13px;color:var(--text);list-style:none;}
+  summary::-webkit-details-marker{display:none;}
+  summary:before{content:"\25B8  ";color:var(--muted);}
+  details[open] summary:before{content:"\25BE  ";}
+  textarea.mono{
+    width:100%;min-height:220px;background:#101215;border:1px solid var(--border);
+    color:var(--text);border-radius:0 0 7px 7px;border-top:1px solid var(--border);
+    padding:14px 16px;font-size:12.5px;line-height:1.6;box-sizing:border-box;resize:vertical;
+  }
+  footer.note{margin-top:28px;color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="dashboard.html">litefactory</a>
+  <div class="status"><span class="dot"></span> daemon running</div>
+</header>
+
+<nav class="tabs">
+  <a href="projects.html">Projects</a>
+  <a href="projects.html">Runs</a>
+  <a href="logs.html">Logs</a>
+  <a href="settings.html" class="active">Settings</a>
+</nav>
+
+<main>
+  <div class="headrow">
+    <h1>Settings</h1>
+    <div class="actions">
+      <a class="btn" href="settings.html">Revert</a>
+      <a class="btn primary" href="settings.html">Save</a>
+    </div>
+  </div>
+
+  <div class="warn">
+    &#9888; Read-only fields below are masked or omitted &mdash; secrets are never stored in
+    config.yaml; see Keychain.
+  </div>
+
+  <fieldset>
+    <legend>General</legend>
+    <div class="field">
+      <label for="poll">poll_interval_seconds</label>
+      <input id="poll" type="text" value="30">
+    </div>
+    <div class="field">
+      <label for="conc">max_concurrent_runs</label>
+      <input id="conc" type="text" value="2">
+    </div>
+    <div class="field">
+      <label for="branch">default_base_branch</label>
+      <input id="branch" type="text" value="main">
+    </div>
+    <div class="field">
+      <label for="prefix">feature_prefix</label>
+      <input id="prefix" type="text" value="lf/">
+    </div>
+    <div class="field">
+      <label for="loglevel">log_level</label>
+      <select id="loglevel">
+        <option>debug</option>
+        <option selected>info</option>
+        <option>warn</option>
+        <option>error</option>
+      </select>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>GitHub</legend>
+    <div class="field">
+      <label for="apibase">api_base</label>
+      <input id="apibase" type="text" value="https://api.github.com">
+    </div>
+    <div class="field">
+      <label>token source</label>
+      <span class="display-only">keychain: litefactory/gh-bot (not shown)</span>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Claude</legend>
+    <div class="field">
+      <label for="binary">binary</label>
+      <input id="binary" type="text" value="claude">
+    </div>
+    <div class="field">
+      <label for="model">model</label>
+      <input id="model" type="text" value="sonnet">
+    </div>
+    <div class="field">
+      <label for="timeout">timeout_seconds</label>
+      <input id="timeout" type="text" value="1800">
+    </div>
+    <div class="field">
+      <label>tool_ceiling</label>
+      <span class="display-only">advanced &mdash; edit raw YAML below</span>
+    </div>
+  </fieldset>
+
+  <details>
+    <summary>Raw config.yaml (advanced, preserves comments)</summary>
+    <textarea class="mono" spellcheck="false"># litefactory configuration
+# Secrets are never stored here — see Keychain (github.token_keychain).
+
+poll_interval_seconds: 30
+max_concurrent_runs: 2
+default_base_branch: main
+feature_prefix: lf/
+worktree_root: ~/.lf-worktrees
+worktree_retain_days: 14
+log_level: info
+
+github:
+  api_base: https://api.github.com
+  token_keychain:
+    service: litefactory
+    account: gh-bot
+  # token_env: LITEFACTORY_GH_TOKEN
+
+claude:
+  binary: claude
+  model: sonnet
+  timeout_seconds: 1800
+  tool_ceiling: 40
+  tool_profiles:
+    default: standard
+</textarea>
+  </details>
+
+  <footer class="note">Clickdummy — static mockup, Save/Revert are non-functional. Part of the UI research brief for issue #11.</footer>
+</main>
+
+</body>
+</html>

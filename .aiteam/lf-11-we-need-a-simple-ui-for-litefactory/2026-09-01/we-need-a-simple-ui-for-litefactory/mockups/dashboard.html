@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>litefactory — Dashboard</title>
+<style>
+  :root{
+    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
+    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  header.topbar{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
+  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
+    border-bottom:2px solid transparent;}
+  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
+  nav.tabs a:hover{color:var(--text);}
+  main{padding:28px 24px;max-width:960px;margin:0 auto;}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:20px;}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0 28px;}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 16px;}
+  .tile .label{font-size:11px;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;}
+  .tile .value{font-size:19px;margin-top:8px;}
+  .tile .sub2{font-size:12px;color:var(--muted);margin-top:2px;}
+  h2.section{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+    margin:0 0 10px;font-weight:600;}
+  .list{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;
+    border-bottom:1px solid var(--border);text-decoration:none;color:var(--text);}
+  .row:last-child{border-bottom:none;}
+  .row:hover{background:#24272c;}
+  .row .left{display:flex;align-items:center;gap:10px;}
+  .row .repo{font-weight:500;}
+  .row .meta{color:var(--muted);font-size:13px;}
+  .row .arrow{color:var(--muted);}
+  .badge{font-size:12px;padding:2px 4px;}
+  .badge.running{color:var(--accent);}
+  .badge.ok{color:var(--success);}
+  .badge.fail{color:var(--error);}
+  footer.note{margin-top:28px;color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="dashboard.html">litefactory</a>
+  <div class="status"><span class="dot"></span> daemon running</div>
+</header>
+
+<nav class="tabs">
+  <a href="projects.html">Projects</a>
+  <a href="projects.html">Runs</a>
+  <a href="logs.html">Logs</a>
+  <a href="settings.html">Settings</a>
+</nav>
+
+<main>
+  <h1>Good evening.</h1>
+  <p class="sub">3 repos watched &middot; 1 run in progress &middot; 2 queued</p>
+
+  <div class="grid3">
+    <div class="tile">
+      <div class="label">Active now</div>
+      <div class="value">litefactory</div>
+      <div class="sub2">#11 running&hellip;</div>
+    </div>
+    <div class="tile">
+      <div class="label">Today</div>
+      <div class="value">7 runs</div>
+      <div class="sub2">6 ok &middot; 1 fail</div>
+    </div>
+    <div class="tile">
+      <div class="label">Poll</div>
+      <div class="value">every 30s</div>
+      <div class="sub2">next in 12s</div>
+    </div>
+  </div>
+
+  <h2 class="section">Recent activity</h2>
+  <div class="list">
+    <a class="row" href="run-11.html">
+      <div class="left">
+        <span class="badge running">&#9679;</span>
+        <span class="repo">litefactory #11</span>
+        <span class="meta">running</span>
+      </div>
+      <div class="meta">started 2m ago&nbsp;&nbsp;&rarr;</div>
+    </a>
+    <a class="row" href="project-litefactory.html">
+      <div class="left">
+        <span class="badge ok">&#10003;</span>
+        <span class="repo">litefactory #9</span>
+        <span class="meta">done</span>
+      </div>
+      <div class="meta">14m ago&nbsp;&nbsp;&rarr;</div>
+    </a>
+    <a class="row" href="project-nginx-router.html">
+      <div class="left">
+        <span class="badge fail">&#10007;</span>
+        <span class="repo">nginx-router #3</span>
+        <span class="meta">failed</span>
+      </div>
+      <div class="meta">1h ago&nbsp;&nbsp;&rarr;</div>
+    </a>
+    <a class="row" href="project-litefactory.html">
+      <div class="left">
+        <span class="badge ok">&#10003;</span>
+        <span class="repo">litefactory #7</span>
+        <span class="meta">done</span>
+      </div>
+      <div class="meta">3h ago&nbsp;&nbsp;&rarr;</div>
+    </a>
+  </div>
+
+  <footer class="note">Clickdummy — static mockup, no live data. Part of the UI research brief for issue #11.</footer>
+</main>
+
+</body>
+</html>

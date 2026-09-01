@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>litefactory — litefactory / #11</title>
+<style>
+  :root{
+    --bg:#16181c;--panel:#1f2226;--border:#2b2f36;--text:#e6e6e6;--muted:#8b9099;
+    --accent:#5fb3a3;--success:#5fae6b;--warning:#d1a34c;--error:#c9614f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  header.topbar{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  a.brand{font-weight:600;letter-spacing:.02em;color:var(--text);text-decoration:none;font-size:15px;}
+  .status{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;}
+  nav.tabs{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--border);background:var(--panel);}
+  nav.tabs a{padding:10px 14px;color:var(--muted);text-decoration:none;font-size:14px;
+    border-bottom:2px solid transparent;}
+  nav.tabs a.active{color:var(--text);border-bottom-color:var(--accent);}
+  nav.tabs a:hover{color:var(--text);}
+  main{padding:28px 24px;max-width:900px;margin:0 auto;}
+  .headrow{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+  .breadcrumb{color:var(--muted);font-size:13px;}
+  .breadcrumb a{color:var(--muted);text-decoration:none;}
+  .breadcrumb a:hover{color:var(--accent);}
+  .breadcrumb .sep{margin:0 6px;}
+  .breadcrumb .current{color:var(--text);}
+  .runstatus{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--accent);}
+  .runmeta{color:var(--muted);font-size:13px;margin:14px 0 18px;display:flex;gap:22px;}
+  .runmeta .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  .logpanel{background:#101215;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .logpanel-head{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 16px;border-bottom:1px solid var(--border);background:var(--panel);font-size:13px;color:var(--muted);}
+  .btn{background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:5px 12px;border-radius:6px;font-size:12.5px;cursor:pointer;text-decoration:none;}
+  .btn.on{border-color:var(--accent);color:var(--accent);}
+  .loglines{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
+    line-height:1.85;padding:14px 16px;overflow-x:auto;}
+  .loglines .ts{color:var(--muted);}
+  .loglines .src{color:var(--accent);margin:0 8px;}
+  .loglines .src.daemon{color:#7d94d1;}
+  footer.note{margin-top:28px;color:var(--muted);font-size:12px;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="dashboard.html">litefactory</a>
+  <div class="status"><span class="dot"></span> daemon running</div>
+</header>
+
+<nav class="tabs">
+  <a href="projects.html" class="active">Projects</a>
+  <a href="projects.html">Runs</a>
+  <a href="logs.html">Logs</a>
+  <a href="settings.html">Settings</a>
+</nav>
+
+<main>
+  <div class="headrow">
+    <div class="breadcrumb">
+      <a href="projects.html">Projects</a><span class="sep">/</span>
+      <a href="project-litefactory.html">litefactory</a><span class="sep">/</span>
+      <span class="current">#11</span>
+    </div>
+    <div class="runstatus">&#9679; running</div>
+  </div>
+
+  <div class="runmeta">
+    <span>branch: <span class="mono">lf/11-we-need-a-simple-ui</span></span>
+    <span>started: 2m ago</span>
+    <span>run 0001</span>
+  </div>
+
+  <div class="logpanel">
+    <div class="logpanel-head">
+      <span>run log — litefactory #11</span>
+      <a class="btn on" href="run-11.html">follow: on</a>
+    </div>
+    <div class="loglines">
+      <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>poll: found issue #11, no open run</div>
+      <div><span class="ts">14:02:11</span><span class="src daemon">daemon</span>worktree created at .lf-worktrees/litefactory/task-11</div>
+      <div><span class="ts">14:02:12</span><span class="src">claude</span>session start, model=sonnet</div>
+      <div><span class="ts">14:02:14</span><span class="src">claude</span>reading CLAUDE.md</div>
+      <div><span class="ts">14:02:19</span><span class="src">claude</span>tool: Read internal/cli/cmd_daemon.go</div>
+      <div><span class="ts">14:02:24</span><span class="src">claude</span>tool: Read internal/config/config.go</div>
+      <div><span class="ts">14:02:31</span><span class="src">claude</span>tool: Grep "ListenAndServe" across internal/</div>
+      <div><span class="ts">14:02:40</span><span class="src">claude</span>tool: Read internal/store/store.go</div>
+      <div><span class="ts">14:02:52</span><span class="src">claude</span>drafting research brief&hellip;</div>
+      <div><span class="ts">14:03:10</span><span class="src">claude</span>tool: Write RESEARCH_BRIEF.md</div>
+      <div style="color:var(--muted);">&hellip;</div>
+    </div>
+  </div>
+
+  <footer class="note">Clickdummy — static mockup. The "follow" toggle and log content are illustrative, not live. Part of the UI research brief for issue #11.</footer>
+</main>
+
+</body>
+</html>

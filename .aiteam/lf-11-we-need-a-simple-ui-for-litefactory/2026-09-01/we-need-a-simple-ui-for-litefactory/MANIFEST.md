@@ -41,7 +41,23 @@ asked for; nothing here licenses starting the next one.
   questions carried forward for Plan mode, including the store's missing
   `ListSessionsByRepo`-style accessor, the "project" terminology mapping,
   the SQLite single-connection cap under UI load, and the socket-vs-browser
-  binding tension. Status changed from INCOMPLETE to Complete.
+  binding tension.
+- 2026-09-01 — Research follow-up run: requester asked (issue comment) for
+  real, clickable HTML mockups instead of the brief's ASCII wireframes. No
+  new `codebase-tour`/`web-researcher` pass — nothing about the codebase or
+  external libraries changed since the prior run, and the existing brief
+  already had the palette/layout/feature set needed. Wrote six
+  self-contained, `file://`-openable HTML files under `mockups/`, covering
+  the same four UI concepts (dashboard, settings, projects, daemon log),
+  with the projects concept's three-level drilldown expanded into linked
+  pages (repo list → per-repo session list, three repos including one empty
+  state → a run's detail+log). Files are cross-linked with plain `<a href>`
+  tags so the flow dashboard → projects → a repo → a run's log is actually
+  clickable, with no backend behind it. Added a "Clickable HTML mockups"
+  section to `RESEARCH_BRIEF.md` pointing at the files and stating they
+  supersede the ASCII wireframes for visual review; the wireframes and the
+  rest of the brief (implementation options, security, open questions) were
+  left intact. No code, no daemon changes — still Research mode. Status changed from INCOMPLETE to Complete.
 
 ## Notes
 

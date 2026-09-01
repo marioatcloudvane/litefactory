@@ -16,6 +16,14 @@ output, not re-verified live by this run's own sub-agent calls), with a small
 number of items marked `[O]` where they are read directly off the request
 text rather than researched.
 
+**Follow-up run (this revision):** the requester asked, in a follow-up
+comment, for real clickable HTML mockups in place of the ASCII wireframes
+below. No new codebase or web research was needed for this — nothing about
+the codebase or external libraries changed — so this revision only adds the
+`mockups/` HTML files and the section describing them; the rest of the brief
+(codebase context, implementation options, security section, open
+questions) is unchanged from the prior revision.
+
 ## Request
 
 From github issue #11 (verbatim intent, lightly organized) `[O]`:
@@ -210,7 +218,52 @@ Pass 2 (focus on daemon/server, config, logs, store).
   real weight: there is no existing precedent in this codebase pulling the
   decision one way or the other.
 
-## UI Concept Sketches
+## Clickable HTML mockups `[O]`
+
+The requester's follow-up on the issue asked for real, clickable HTML
+mockups rather than the ASCII wireframes below ("i wanted a real html
+output as clickable thing, not an asci art"). Six static, self-contained
+HTML files were produced under `mockups/` in this session directory,
+covering the same four UI concepts as the wireframes below — the drilldown
+concept (sketch 3) is expanded into its three linked states (repo list →
+sessions for a repo → run detail with log), matching the three-level
+hierarchy the wireframe itself already showed as a single sequence:
+
+- `mockups/dashboard.html` — concept 1, the landing/"greeting" view.
+- `mockups/settings.html` — concept 2, the `config.yaml` settings editor
+  (structured fields + collapsible raw-YAML fallback).
+- `mockups/projects.html` — concept 3, level 1: the repo list.
+- `mockups/project-litefactory.html`, `mockups/project-nginx-router.html`,
+  `mockups/project-side-project.html` — concept 3, level 2: sessions/issues
+  for a given repo (three repos shown, including an empty-state example for
+  `side-project`).
+- `mockups/run-11.html` — concept 3, level 3: a single run's detail and its
+  log tail, combined into one screen exactly as the original wireframe drew
+  it.
+- `mockups/logs.html` — concept 4, the daemon log viewer.
+
+Each file is fully self-contained (inline `<style>`, no external CSS/JS, no
+build step) and opens directly via `file://` — double-click or drag into a
+browser. They use the palette specified below (background `#16181c`, panel
+`#1f2226`, accent `#5fb3a3`, etc.) and are populated with the same plausible
+placeholder content the wireframes used (fake repos, fake issues, fake log
+lines), so they read as real screens rather than empty templates. Navigation
+between them is real `<a href="...">` linking to the sibling file in the
+same folder — clicking "litefactory" on the dashboard's activity list or the
+projects list actually opens `project-litefactory.html`, and its `#11` row
+opens `run-11.html` — with no backend behind any of it; this is a static
+clickdummy for design review, not a working app, consistent with Research
+mode's remit (no Go code, no daemon changes).
+
+**These HTML mockups supersede the ASCII wireframes below as the primary
+way to review the visual design.** The wireframes are left in place, not
+deleted, because they still carry useful annotation (the reasoning behind
+each layout choice, which store type each view maps to, what a `[tail]`
+toggle would need) that the HTML files intentionally don't repeat — read the
+HTML files for "what it looks like," read the prose under each wireframe
+below for "why it's built that way."
+
+## UI Concept Sketches (ASCII wireframes — superseded for visual review, see above)
 
 Four wireframes below, in the requested dark/anthracite palette. All are
 plain server-rendered HTML — no client-side app framework, no JS build step
