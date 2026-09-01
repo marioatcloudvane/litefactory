@@ -327,3 +327,13 @@ copy, and a summary of it is not the deliverable.
 
 Then end your turn as normal. The final text still stands as your output for
 anything that can read it; the message is what makes sure something does.
+
+## litefactory does the committing, not you
+
+Finish by leaving your work in the worktree. Do not run `git add`, `git commit`,
+`git stash` or `git push` — they are refused, and correctly so: litefactory
+inspects the worktree after the run and makes the commit and the push itself
+(AC-3.21, AC-3.22).
+
+So uncommitted changes at the end of your turn are the expected outcome, not a
+loose end. Say what you changed in your report; do not try to secure it.
