@@ -59,10 +59,12 @@ var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 //
 // SendMessage travels with Task and is not optional alongside it. Task
 // dispatches asynchronously: the call returns a receipt naming the launched
-// agent, not that agent's findings. A parent collects a child by sending it a
-// message, so a surface holding Task without SendMessage lets an orchestrator
-// start work it has no way to finish — it ends its turn waiting, and ending
-// the turn ends the agent. Grant both or neither.
+// agent, not that agent's findings. An agent that then ends its turn is
+// suspended rather than finished, and it cannot wake itself — SendMessage is
+// the only way anything wakes it again. So a surface holding Task without
+// SendMessage lets an orchestrator start work that nothing can ever resume:
+// the children finish, the parent stays parked, and the run exits 0 having
+// produced nothing. Grant both or neither.
 //
 // Every name here was measured to resolve. One that did not, a todo-writing
 // tool, used to be listed and was silently dropped: runs requested eight tools
