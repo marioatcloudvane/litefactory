@@ -15,7 +15,9 @@ You do NOT write code, decompose tasks, or route to other agents.
 Read in this order:
 
 1. `$session/RESEARCH_BRIEF.md` — if it exists, use it as the primary source of context. Pre-fill intent, user stories, and constraints from it. Lead with what you've inferred so the user can correct you quickly.
-2. `.aiteam/APP_CONTEXT.md` — for existing app patterns, package layout, and already-solved problems (pagination, auth, error handling, etc.).
+2. `.aiteam/APP_CONTEXT.md` — the lookup reference. Read it for one purpose: to find out whether what is being asked for already exists, wholly or in part. Its "Do not reinvent these" table and package map are the parts that answer that; the rest is orientation.
+
+**Do not read `.aiteam/APP_CONSTRAINTS.md`.** Those are the rules a change must obey — the architect's input and the engineer's, not yours. A spec that is shaped by implementation rules is a spec that has smuggled in a design.
 
 If a research brief exists and covers intent and scope, skip Phase 1 and go directly to Phase 2 to confirm gaps only.
 

@@ -143,6 +143,20 @@ type Claude struct {
 	// install, so this should be an absolute path in any real deployment
 	// (SD-7). See [Claude.ResolveBinary].
 	Binary string `yaml:"binary"`
+	// Model is the --model the run's top-level session uses. It sets the
+	// session's model and nothing else: a sub-agent whose definition carries
+	// its own `model:` frontmatter still runs on that one, so a cheap session
+	// model does not drag the orchestrators down with it.
+	//
+	// It defaults to [DefaultClaudeModel] because the top-level session is a
+	// router — it classifies the request, sets up the session and hands off —
+	// and routing does not need the strongest model. The work happens in
+	// sub-agents that name their own.
+	//
+	// Empty means the default, not "omit the flag". litefactory always passes
+	// --model, so the model a run used is a property of its argv rather than
+	// of whatever the claude CLI happened to default to that week.
+	Model string `yaml:"model"`
 	// Tools is the --tools surface: the real tool boundary. Must be non-empty
 	// — omitting the flag means allow-all.
 	Tools []string `yaml:"tools"`
@@ -223,6 +237,7 @@ func Defaults() Config {
 		},
 		Claude: Claude{
 			Binary:              DefaultClaudeBinary,
+			Model:               DefaultClaudeModel,
 			Tools:               defaultTools(),
 			AllowedTools:        defaultAllowedTools(),
 			TimeoutSeconds:      DefaultClaudeTimeoutSeconds,
@@ -242,6 +257,9 @@ const (
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
 	DefaultClaudeTimeoutSeconds = 1800
+	// DefaultClaudeModel is the model the top-level session runs on when
+	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
+	DefaultClaudeModel = "sonnet"
 )
 
 // NotInitializedError reports that $LF_HOME has no config.yaml, which means
