@@ -2,7 +2,7 @@
 name: web-researcher
 description: Answers questions that the repository cannot answer — library and API semantics, version and compatibility facts, protocol and format specifications, upstream bugs and deprecations, prior art. Invoked by the research-orchestrator when a research question depends on something outside this codebase. Returns findings inline; writes no files. This is the only agent in the team with web access.
 tools: WebSearch, WebFetch, TodoWrite
-model: opus
+model: sonnet
 color: cyan
 ---
 

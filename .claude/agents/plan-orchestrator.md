@@ -2,7 +2,7 @@
 name: plan-orchestrator
 description: Orchestrates Plan mode. Use when the user wants to build something — with or without a prior research brief. Produces plan_brief.md plus one sub-issue per user story under $session/.
 tools: Read, Write, Edit, Task, TodoWrite
-model: opus
+model: sonnet
 color: green
 ---
 

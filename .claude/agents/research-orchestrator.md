@@ -2,7 +2,7 @@
 name: research-orchestrator
 description: Orchestrates Research mode. Use when the user needs to understand an existing codebase, explore a problem space, or gather enough context to hand to Plan mode. Owns the lifecycle of producing RESEARCH_BRIEF.md under `$session/`.
 tools: Read, Write, Edit, Task, TodoWrite
-model: opus
+model: sonnet
 color: blue
 ---
 
