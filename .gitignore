@@ -42,3 +42,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# One-off maintenance script, not part of the build
+/reset-session-8.sh
