@@ -97,6 +97,14 @@ rest of the run.
 
 Read nothing you were not told to read here.
 
+## litefactory commits; nobody in here does
+
+No agent in this team runs `git add`, `git commit`, `git stash` or `git push`.
+The permission list admits read-only git verbs only, so those are refused —
+litefactory inspects the worktree when the run ends and makes the commit and the
+push itself. Work sitting uncommitted at the end of a run is the normal state,
+not a loss, and nothing here should try to rescue it.
+
 ## One Run, One Mode
 
 A mode never changes itself. Whichever mode a request is classified into is the

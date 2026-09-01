@@ -90,6 +90,23 @@ supposed to end, and a file appearing is not the report you need anyway. See
 *The agents you invoke are asynchronous* below for what to do instead.
 
 
+### litefactory does the committing, not you
+
+Do not run `git add`, `git commit`, `git stash`, `git checkout` or `git push`,
+and do not ask a sub-agent to run them for you. They are refused: the permission
+list admits read-only git verbs and nothing else, on purpose. litefactory
+inspects the worktree after the run and makes the commit and the push itself
+(AC-3.21, AC-3.22), so work left uncommitted in the worktree is not work at
+risk — it is the normal state at the end of a run, and it is what litefactory
+expects to find.
+
+This is worth knowing rather than discovering. A run on issue #10 spent part of
+a thirty-minute budget probing for a git write form that would be allowed —
+`git add && git commit`, then `git add`, then `git commit -am "test"` — was
+refused three times, and then hit the wall. Every denial was correct. The
+information was simply nowhere in these instructions.
+
+
 ## App context
 
 **Do not read `.aiteam/APP_CONTEXT.md` or `.aiteam/APP_CONSTRAINTS.md`, and do not pass their contents to anyone.** Every agent that needs them reads them itself: the implementation engineer reads `APP_CONTEXT.md` (the lookup file) at the start of its story and consults `APP_CONSTRAINTS.md` by section when a rule is in play. Passing the content down puts it in your context *and* theirs, for no decision of yours.
