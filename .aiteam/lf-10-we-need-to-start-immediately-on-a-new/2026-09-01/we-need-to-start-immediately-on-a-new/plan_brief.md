@@ -138,9 +138,9 @@ story is in that story's sub-issue instead.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Say out loud why an issue body did not run | S | — | _(link filled in on creation; body: `US-1.md`)_ |
-| US-2 | Re-check the issue body after a late assignment | L | US-1 (soft) | _(link filled in on creation; body: `US-2.md`)_ |
-| US-3 | Let the owner's own issues run their body despite comments | S | US-2 (hard) | _(link filled in on creation; body: `US-3.md`)_ |
+| US-1 | Say out loud why an issue body did not run | S | — | https://github.com/marioatcloudvane/litefactory/issues/20 |
+| US-2 | Re-check the issue body after a late assignment | L | US-1 (soft) | https://github.com/marioatcloudvane/litefactory/issues/21 |
+| US-3 | Let the owner's own issues run their body despite comments | S | US-2 (hard) | https://github.com/marioatcloudvane/litefactory/issues/22 |
 
 The research brief calls these Story A, Story B and Story C respectively. Its Story C
 ("visible refusals posted to the thread") was dissolved by the owner's correction and
