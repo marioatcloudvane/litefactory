@@ -82,6 +82,27 @@ func defaultAllowedTools() []string {
 		"Bash(git diff:*)",
 		"Bash(git log:*)",
 		"Bash(git show:*)",
+		// The four below answer "where am I and what is tracked here", which
+		// the aiteam manifest instructs every run to work out before it does
+		// anything else: the session directory is derived from the branch name.
+		// Without them the instruction and the permission list contradict each
+		// other, and the run pays a denial and a re-plan to discover it. All
+		// four are read-only.
+		//
+		// git rev-parse is here for the same reason even though it is
+		// auto-approved as a safe read today: what that classifier admits is
+		// not ours to depend on, and a rule we wrote is a rule we can reason
+		// about.
+		"Bash(git rev-parse:*)",
+		"Bash(git ls-tree:*)",
+		"Bash(git merge-base:*)",
+		"Bash(git rev-list:*)",
+		// mkdir creates the session directory the manifest requires. It can
+		// only add directories — there is no destructive form of it — which is
+		// why it is admitted where cat, tee and the redirection operators are
+		// not: those write file contents, and writing file contents is what
+		// the Write tool is for and where its permission rules apply.
+		"Bash(mkdir:*)",
 		"Bash(go build:*)",
 		"Bash(go test:*)",
 		"Bash(go vet:*)",
