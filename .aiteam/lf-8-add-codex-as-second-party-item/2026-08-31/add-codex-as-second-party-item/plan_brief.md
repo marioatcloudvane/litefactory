@@ -214,14 +214,14 @@ left as commentary.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Codex CLI probe | L | — | |
-| US-4 | Store schema: tool-aware session identity | M | — | |
-| US-5 | Vendor-neutral Runner interface + factory | L | US-4 (bulk); US-1 (3 gated tasks) | |
-| US-2 | Per-turn label routing | M | US-5 | |
-| US-3 | Mid-session tool-switch refusal | S | US-2, US-4 | |
-| US-6 | Capability-tier vocabulary | M | US-5 (bulk); US-1 (1 gated task) | |
-| US-7 | Per-tool permission profiles | M | US-5 (bulk); US-1 (2 gated tasks) | |
-| US-8 | Root `AGENTS.md` | S | US-1 (soft, content only) | |
+| US-1 | Codex CLI probe | L | — | https://github.com/marioatcloudvane/litefactory/issues/12 |
+| US-4 | Store schema: tool-aware session identity | M | — | https://github.com/marioatcloudvane/litefactory/issues/13 |
+| US-5 | Vendor-neutral Runner interface + factory | L | US-4 (bulk); US-1 (3 gated tasks) | https://github.com/marioatcloudvane/litefactory/issues/14 |
+| US-2 | Per-turn label routing | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/15 |
+| US-3 | Mid-session tool-switch refusal | S | US-2, US-4 | https://github.com/marioatcloudvane/litefactory/issues/16 |
+| US-6 | Capability-tier vocabulary | M | US-5 (bulk); US-1 (1 gated task) | https://github.com/marioatcloudvane/litefactory/issues/17 |
+| US-7 | Per-tool permission profiles | M | US-5 (bulk); US-1 (2 gated tasks) | https://github.com/marioatcloudvane/litefactory/issues/18 |
+| US-8 | Root `AGENTS.md` | S | US-1 (soft, content only) | https://github.com/marioatcloudvane/litefactory/issues/19 |
 
 ## Out of Scope
 
