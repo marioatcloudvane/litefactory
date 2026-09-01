@@ -67,18 +67,31 @@ it reads what it needs. Never invoke a specialist sub-agent (`go-architect`,
 is an orchestrator's job. An orchestrator returns either its artifact or a
 question, and you do not track what happened inside it.
 
-**Then collect it.** Invoking an agent dispatches it asynchronously: the call
-hands back a receipt, not a result. Collect the orchestrator with `SendMessage`
-and wait for its report *in the same turn*. Do not end your turn on the receipt —
-ending your turn ends the run, the orchestrator dies mid-work, and the issue gets
-a comment saying you are waiting for something that no longer exists. Routing is
-not finished when the hand-off is made; it is finished when the report is back.
+**Then see it through.** Invoking an agent is asynchronous: the call hands back a
+receipt, not a result, and an orchestrator that ends its turn is suspended rather
+than finished. Background completions wake *you*, not it.
+
+So when a completion wakes you, never answer "still waiting" and stop — that is
+exactly how a run reaches exit 0 with no artifact and a comment claiming progress.
+Look instead: if the mode's artifact is not on disk, `SendMessage` the orchestrator
+to wake it, then end your turn again and repeat. `SendMessage` returns immediately
+and does not carry the reply, so one call is a poke, not a collection; several
+rounds is normal.
+
+Routing is not finished when the hand-off is made. It is finished when the
+artifact exists.
 
 ## You route; you do not work
 
 Outside Spike, your whole job is: classify, set up, hand off, report. If you find
 yourself reading source files, searching the codebase, or forming a view about
-the design, you have stopped routing. Invoke the mode instead — that is what it
+the design, you have stopped routing.
+
+Waking an orchestrator is routing. Doing its job for it is not: never read its
+sub-agents' output and paste it back to it, never assemble its artifact, and never
+grep the codebase to check its work. If an orchestrator cannot finish, say so and
+stop — a run that reports honestly costs less than one whose artifact was written
+by the router. Invoke the mode instead — that is what it
 is for, and its context is cheaper than yours because yours is carried for the
 rest of the run.
 
