@@ -221,6 +221,7 @@ If `.aiteam/rulebook.md` exists, the shared scanner skills (`architecture-scanne
 | `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `plan_brief.md` plus one sub-issue per user story |
 | `implement-orchestrator` | implement-orchestrator | `agents/implement-orchestrator.md` | Orchestrates Implement mode — code + tests, green |
 | `codebase-tour` | codebase-tour | `agents/codebase-tour.md` | Two-pass codebase exploration for Research mode |
+| `web-researcher` | web-researcher | `agents/web-researcher.md` | Answers questions the repo cannot — libraries, versions, specs, prior art. The only agent with web access; needs the `lf:tools=web` label |
 | `requirements-engineer` | requirements | `agents/requirements-engineer.md` | Runs the Plan-mode requirements conversation, writes `feature-spec.md` |
 | `proxy-product-owner` | product-owner | `agents/proxy-product-owner.md` | Breaks `feature-spec.md` into user stories + tasks |
 | `app-context-updater` | app-context-updater | `agents/app-context-updater.md` | Creates/updates `.aiteam/APP_CONTEXT.md` |
