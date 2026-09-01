@@ -1197,6 +1197,10 @@ func TestRunLogsThePathItTook(t *testing.T) {
 // existed, and every run today that carries no lf:tools= label — argv is
 // compared whole, not flag by flag, against the exact sequence the runner
 // built before Tools and AllowedTools existed on the request at all.
+//
+// --model joined that sequence when claude.model did. It is unconditional and
+// sits between --settings and --allowedTools; a change to its position or its
+// value is a change to every run and should have to edit this list to happen.
 func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 	f := newFixture(t, successScript(t))
 	f.run(t)
@@ -1209,11 +1213,51 @@ func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 		"--session-id", testSessionID,
 		"--tools", "Read,Edit",
 		"--settings", filepath.Join(f.home, "claude-settings.json"),
+		"--model", config.DefaultClaudeModel,
 		"--allowedTools", "Read,Edit(./**)",
 		"--strict-mcp-config",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("argv = %q\nwant  %q", got, want)
+	}
+}
+
+// TestRunPassesTheConfiguredModel pins that claude.model reaches argv verbatim.
+// The runner never derives or rewrites it: whatever config validation admitted
+// is what the child is asked to run on, so the recorded command line is an
+// honest record of which model did the work.
+func TestRunPassesTheConfiguredModel(t *testing.T) {
+	f := newFixture(t, successScript(t), func(c *config.Claude) {
+		c.Model = "claude-opus-5"
+	})
+	f.run(t)
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	i := slices.Index(argv, "--model")
+	if i < 0 || i == len(argv)-1 {
+		t.Fatalf("argv carries no --model value: %q", argv)
+	}
+	if got := argv[i+1]; got != "claude-opus-5" {
+		t.Errorf("--model = %q, want %q", got, "claude-opus-5")
+	}
+}
+
+// TestRunDefaultsTheModelWhenUnset covers the config.Claude that was assembled
+// by hand rather than loaded — a test, or an embedder — where Model is the zero
+// value. It must not reach argv empty: "--model" followed by "" is a flag with
+// no value, which claude rejects, and the failure would land at run time on
+// every run rather than at startup on one.
+func TestRunDefaultsTheModelWhenUnset(t *testing.T) {
+	f := newFixture(t, successScript(t)) // fixture leaves Model empty
+	f.run(t)
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	i := slices.Index(argv, "--model")
+	if i < 0 || i == len(argv)-1 {
+		t.Fatalf("argv carries no --model value: %q", argv)
+	}
+	if got := argv[i+1]; got != config.DefaultClaudeModel {
+		t.Errorf("--model = %q, want the default %q", got, config.DefaultClaudeModel)
 	}
 }
 

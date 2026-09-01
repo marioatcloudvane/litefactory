@@ -523,3 +523,75 @@ func TestNormalizeTrimsIncidentalDifferences(t *testing.T) {
 		t.Errorf("Validate after normalize: %v", err)
 	}
 }
+
+// TestModelDefaultsToTheCheapOne pins that an operator who never writes
+// claude.model gets one anyway, and gets the cheap one. The top-level session
+// is a router; the expensive work happens in sub-agents that name their own
+// model, so the default that costs nothing to leave alone should be the
+// default that costs least to run.
+func TestModelDefaultsToTheCheapOne(t *testing.T) {
+	cfg, err := Decode(strings.NewReader("claude:\n  binary: claude\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if cfg.Claude.Model != DefaultClaudeModel {
+		t.Errorf("Model = %q, want the default %q", cfg.Claude.Model, DefaultClaudeModel)
+	}
+	if DefaultClaudeModel != "sonnet" {
+		t.Errorf("DefaultClaudeModel = %q; the default is meant to be the cheap model", DefaultClaudeModel)
+	}
+}
+
+// TestModelIsTakenFromTheFileWhenWritten is the other half: the default exists
+// to be overridden, and a written value must survive decoding unchanged.
+func TestModelIsTakenFromTheFileWhenWritten(t *testing.T) {
+	cfg, err := Decode(strings.NewReader("claude:\n  model: claude-opus-5\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if cfg.Claude.Model != "claude-opus-5" {
+		t.Errorf("Model = %q, want %q", cfg.Claude.Model, "claude-opus-5")
+	}
+}
+
+// TestValidateRejectsBadModels covers the shapes that must never reach argv.
+// The value goes on a command line in the slot immediately after --model, so a
+// leading dash would be read as the next flag and whitespace would split one
+// configured string into two arguments. Neither can come from GitHub — this is
+// operator-authored config — but a boundary that only holds against hostile
+// input is a boundary that fails the day someone pastes a line wrong.
+func TestValidateRejectsBadModels(t *testing.T) {
+	for name, model := range map[string]string{
+		"empty":        "",
+		"blank":        "   ",
+		"leading dash": "-p",
+		"with space":   "claude opus 5",
+		"with comma":   "sonnet,opus",
+		"a path":       "/usr/bin/model",
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := Defaults().Claude
+			c.Model = model
+			errs := validateModel(&c)
+			if len(errs) == 0 {
+				t.Fatalf("model %q was accepted", model)
+			}
+			if !strings.Contains(errs[0].Error(), "claude.model") {
+				t.Errorf("error does not name the key it is about: %v", errs[0])
+			}
+		})
+	}
+}
+
+// TestValidateAcceptsRealModels guards against a regexp so tight it rejects
+// the values the feature exists to carry: both the short aliases and the full
+// model IDs have to pass.
+func TestValidateAcceptsRealModels(t *testing.T) {
+	for _, model := range []string{"sonnet", "opus", "haiku", "claude-opus-5", "claude-haiku-4-5-20251001"} {
+		c := Defaults().Claude
+		c.Model = model
+		if errs := validateModel(&c); len(errs) > 0 {
+			t.Errorf("model %q was rejected: %v", model, errs[0])
+		}
+	}
+}

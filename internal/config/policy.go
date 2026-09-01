@@ -18,6 +18,30 @@ import (
 // surface is made of.
 var toolNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
+// modelNameRE matches a --model value: an alias such as "sonnet" or a full
+// model ID such as "claude-opus-5". It must start with a letter, which keeps a
+// leading-dash value out of the argv slot after --model — where it would be
+// read as a flag rather than as the model — and it admits no whitespace, so
+// one config string can never become two arguments.
+var modelNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
+
+// validateModel checks the --model value.
+//
+// Empty is rejected rather than treated as "omit the flag": [Defaults] fills
+// claude.model in before anything reads it, so an empty value here means the
+// operator wrote one, and writing model: "" is far more likely to be a mistake
+// than a request to let the CLI pick.
+func validateModel(c *Claude) []error {
+	entry := strings.TrimSpace(c.Model)
+	switch {
+	case entry == "":
+		return []error{fmt.Errorf("claude.model: must not be empty; omit the key to get %q", DefaultClaudeModel)}
+	case !modelNameRE.MatchString(entry):
+		return []error{fmt.Errorf("claude.model: %q is not a model name; --model takes an alias such as %q or a full model ID such as \"claude-opus-5\"", c.Model, DefaultClaudeModel)}
+	}
+	return nil
+}
+
 // toolRuleRE matches a permission rule: a tool name, optionally followed by a
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
@@ -161,6 +185,7 @@ func validateNoForbiddenFlag(c *Claude) []error {
 		}
 	}
 	check("claude.binary", c.Binary)
+	check("claude.model", c.Model)
 	check("claude.settings_path", c.SettingsPath)
 	for i, v := range c.Tools {
 		check(fmt.Sprintf("claude.tools[%d]", i), v)
