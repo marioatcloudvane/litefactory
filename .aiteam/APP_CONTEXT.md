@@ -101,6 +101,13 @@ The load-bearing consequences:
   function rather than reimplementing it. `repos` still imports nothing back
   from `daemon`.
 
+- **The issue-body decision is durable, not a single first-sight moment** — a
+  refusal of exactly "not assigned to the owner" on a non-empty, comment-free
+  body whose parsed command spawns something sets `sessions.body_pending`;
+  `Daemon.discover` re-admits that session on every later tick until the flag
+  clears, admission-policed against starving comment-driven work
+  (`internal/daemon/tick.go`).
+
 ### Read the `doc.go` files
 
 Eleven packages carry a `doc.go` whose prose is the real specification for that
@@ -123,6 +130,7 @@ tried and rejected, and what breaks if you do the obvious thing.
 | serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op. The dispatch shape is specified in `internal/daemon/doc.go` |
 | refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
 | mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Written at dispatch, cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
+| mark/clear/list a session still owed a re-ask of its issue body | `internal/store` | `SetSessionBodyPending`, `ClearSessionBodyPending`, `ListBodyPendingSessions` (`internal/store/sessions.go`) over `sessions.body_pending`; cleared on a run, a permanent refusal, or issue close — never from inside the gate itself (SD-H) |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |

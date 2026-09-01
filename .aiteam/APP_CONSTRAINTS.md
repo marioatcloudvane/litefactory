@@ -36,7 +36,7 @@ end to end unless you are the architect.
 | [1. Security](#1-security-sec) | `SEC` | anything near the claude subprocess, the child environment, the token, git writes, identity, or text that leaves the process |
 | [2. Configuration](#2-configuration-cfg--internalconfig) | `CFG` | touching `internal/config`, adding a config key, or resolving a path under `$LF_HOME` |
 | [3. Testing](#3-testing-test) | `TEST` | writing or changing any test |
-| [4. Concurrency and resource discipline](#4-concurrency-and-resource-discipline-conc) | `CONC` | goroutines, shared state across turns, slices crossing a struct boundary, ordering of post/commit |
+| [4. Concurrency and resource discipline](#4-concurrency-and-resource-discipline-conc) | `CONC` | goroutines, shared state across turns, slices crossing a struct boundary, ordering of post/commit, discovery admission |
 | [5. Style and code shape](#5-style-and-code-shape-style) | `STYLE` | always worth a skim; it is short |
 | [6. External binaries](#6-external-binaries-ext) | `EXT` | changing how litefactory invokes `claude` or `git` |
 
@@ -93,10 +93,12 @@ These are not style rules. Each has a test or a type that fails if you break it.
   WorktreeList WorktreeRemove RevParse RemoteURL ConfigGet ShowRef` + `Path`).
   There MUST be no `Commit`, `Checkout`, `Reset`, `Merge` or `Pull` on it, so
   mutating a registered clone stays a compile error.
-- **SEC-8** — Identity MUST be compared numerically and MUST NOT be compared by
-  handle (`internal/github/doc.go`, D-I). Logins are renameable and a
-  fine-grained PAT on a machine user reports type `"User"`.
-- **SEC-9 [enforced]** — `gh` MUST be used for identity discovery only, MUST be
+- **SEC-8 [enforced]** — Identity MUST be compared numerically and MUST NOT be
+  compared by handle (`internal/github/doc.go`, D-I). Logins are renameable and
+  a fine-grained PAT on a machine user reports type `"User"`. The has-comments
+  exemption for an owner-authored issue (`internal/daemon/tick.go`) reuses this
+  same numeric check, with its own zero-id guard.
+- **SEC-9** — `gh` MUST be used for identity discovery only, MUST be
   reached only by `litefactory init`, and its child environment MUST strip
   `GITHUB_TOKEN`/`GH_TOKEN` (`internal/identity`). Otherwise `init` records the
   bot as the owner and the daemon reads its own comments as instructions.
@@ -241,6 +243,10 @@ These are not style rules. Each has a test or a type that fails if you break it.
 - **CONC-6** — Retries and sleeps MUST NOT appear below the daemon.
   `internal/github` retries nothing and sleeps nowhere; backoff is
   `internal/daemon`'s job.
+- **CONC-7 [enforced]** — A discovery union admitting work via a durable retry
+  flag (not a forge listing) MUST be admission-policed against starving the
+  comment-driven path. `Daemon.discover`'s `sessions.body_pending` union
+  (`internal/daemon/tick.go`) is bounded this way; a new union MUST follow suit.
 
 ---
 
@@ -295,9 +301,7 @@ These are not style rules. Each has a test or a type that fails if you break it.
   against and how to re-verify after an upgrade. Two such documents exist and a
   change to how litefactory invokes `claude` SHOULD extend one rather than
   starting a third convention: the `--session-id`/`--resume` contract, and the
-  tool-surface probe. Their paths are in the Story Index of the sessions that
-  produced them; you do not need to read them unless you are changing that
-  invocation.
+  tool-surface probe.
 
 ---
 
@@ -322,5 +326,6 @@ rather than editing the test.
 | `turn/gate_test.go` | `prepareClone`, `commitAndPush` and `commitStoryIndex` are the only three call sites of `CloneGate.Acquire`, one acquisition each (a registered-set check, not three hardcoded names); the claude run itself is never inside a critical section |
 | `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs`, `enter`/`leave` are a true check-and-insert (CONC-2) |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
-| `daemon/record_test.go` (`TestNoStaleConcurrencyStatementSurvives`) | no `.go` file outside `.aiteam` says "locked by another daemon instance" (AC-PAR-8.4) |
-| `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's plan and spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.7) |
+| `daemon/record_test.go` | no `.go` file outside `.aiteam` says "locked by another daemon instance" (AC-PAR-8.4); every acceptance criterion this feature introduced carries the `AC-PAR-` prefix (AC-PAR-8.7) |
+| `daemon/fairness_test.go` | the `sessions.body_pending` discovery union cannot starve comment-driven candidates (CONC-7) |
+| `daemon/tick_test.go` | the has-comments exemption compares only the numeric author id, with a zero-id guard (SEC-8) |

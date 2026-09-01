@@ -1427,3 +1427,97 @@ happened, in a return value) and its own clear conditions (a body that ran, a
 refusal that became permanent, or an issue found closed) was needed instead.
 See `internal/store/migrations/0003_session_body_pending.sql`'s header
 comment for the fuller version of this argument.
+
+---
+
+## AC-2.16d — the comment block is now conditional on who opened the issue
+
+- **First stated in:** `.aiteam/lf-6-first-comment-pickup/2026-08-26/first-comment-pickup/IMPLEMENTATION_PLAN.md`,
+  User Story 3, as AC-2.16d in the amendment above ("AC-2.16 — an issue body
+  may now start a run")
+- **Amended:** 2026-09-01, issue #10 (`we-need-to-start-immediately-on-a-new`),
+  plan
+  `.aiteam/lf-10-we-need-to-start-immediately-on-a-new/2026-09-01/we-need-to-start-immediately-on-a-new/plan_brief.md`,
+  User Story 3
+- **Status:** amended
+
+### It used to say
+
+> AC-2.16d — An issue that already has at least one comment does not fire its
+> body; the comments drain as they do today.
+
+### It now says
+
+> AC-2.16d *(amended)* — An issue that already has at least one comment does
+> not fire its body, **unless every one of those comments was left on an
+> issue the owner opened himself**, in which case the block does not apply and
+> the body still runs as the first instruction, exactly as it would with no
+> comments at all. The comparison is the issue author's numeric user id
+> against the stored owner id (D-I), guarded against a zero id exactly as
+> [`github.Issue.AssignedTo`] is: a deleted author account (id 0) is never
+> treated as the owner's own, even if the stored owner id were somehow also
+> unresolved. The comments still drain afterwards, exactly as they do today.
+
+### Why the change is safe
+
+**This is an exemption from AC-2.16d, not a second way to satisfy AC-2.16a —
+and the two must not be read as contradicting each other.** AC-2.16a — an
+issue that is not assigned to the owner starts nothing, however its body is
+worded, including a body the owner wrote himself — is **untouched and stays
+verbatim**. Assignment remains the sole authorisation for a run to happen at
+all; nothing here changes who may point litefactory at an issue. What changes
+is a separate, later condition that used to apply unconditionally once an
+issue was already assigned: whether an *already-assigned* issue's comment
+history blocks its body from running as the first instruction. Authorship
+decides that second, narrower question and nothing upstream of it — an issue
+the owner wrote but never assigned to himself still starts nothing at all,
+exactly as AC-2.16a already required.
+
+The reasoning AC-2.16d was written on holds only for an issue somebody *else*
+opened. On a stranger's issue, a comment thread is a competing voice: the
+owner did not write the opening post, so replaying it underneath a
+conversation that has since happened would be litefactory answering with the
+wrong instruction, or a second one nobody asked for. That argument has no
+purchase when the owner wrote the issue himself and assigned it to himself —
+both signals already point at the same person, so a comment from somebody
+else on his own request is a remark on it, not a competing instruction to
+prefer instead. The one case AC-2.16d's original argument is strongest for —
+a stranger opens an issue, somebody comments, the owner assigns it afterwards
+— is deliberately **not** touched by this change: nothing runs, and a comment
+is still how the owner gets it moving, exactly as before.
+
+The zero-id guard is required, not decorative, for the same reason
+`AssignedTo`'s is. `t.issue.Author` is the zero `github.User` for a deleted
+account, so `Author.ID` is 0. Litefactory's own stored owner id is never
+expected to be 0 in a running daemon (`turn.Identities.Validate` refuses it),
+but the guard is written defensively rather than relying on that upstream
+check holding forever: without it, a bare `!=` would read `0 != 0` as false
+and treat a stranger's commented-on issue as the owner's own the moment the
+owner id was ever unresolved. Both values being compared — the stored owner
+id and the issue author's id — are already on this exact code path before
+this change (`internal/daemon/tick.go`'s gate reads `OwnerUserID` at the top
+of the switch and `t.issue.Author.ID` a few lines below it, into the run's
+logger), so no new forge request answers this question and no store column
+was added.
+
+Two identity comparisons against the owner now sit on this one code path —
+whether the issue is *assigned* to the owner (AC-2.16a/b, unchanged) and
+whether it was *authored* by the owner (this amendment) — and they are
+deliberately kept as two separate comparisons rather than folded into one
+helper. They answer different questions and can disagree: an issue the owner
+opened but assigned to a colleague is authored-by-owner and not
+assigned-to-owner, and still starts nothing, because assignment is what
+authorises a run and authorship only ever narrows a block that already
+assumed assignment. A shared helper would make the two look interchangeable,
+which they are not.
+
+**One accepted gap, recorded rather than fixed, because it predates this
+change and this story does not touch it:** a body-triggered run under this
+amendment can still only see the comments that were on the issue by the time
+litefactory's first sight of it ran `Daemon.bootstrap` — which plants the
+watermark at the highest existing comment id and discards the comments
+themselves, never handing them to the prompt as history. Comments that arrive
+*after* first sight do reach the prompt as history through the ordinary drain
+path. This is the same bootstrap behaviour AC-2.16b already amended around,
+not a new hole this story opens, and the history block's own source
+attribution already declares that incompleteness where the prompt is built.

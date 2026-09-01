@@ -1166,10 +1166,25 @@ func (d *Daemon) retryIssueBody(ctx context.Context, t *task) (bool, error) {
 //     the owner's account can assign one to the owner. Assigning an issue to
 //     yourself is the act of instruction.
 //  3. Its body has something in it.
-//  4. It has no comments at all. A body is a *first* instruction; an issue that
-//     has already been talked on is one whose conversation is the instruction,
-//     and replaying its opening post underneath that would be a second voice
-//     nobody asked for (AC-2.16d).
+//  4. It has no comments at all — unless every one of them was left on the
+//     owner's own issue, in which case this condition does not apply (issue
+//     #10, User Story 3; AC-2.16d as amended in .aiteam/AC_AMENDMENTS.md). A
+//     body is a *first* instruction; an issue that has already been talked on
+//     is one whose conversation is the instruction, and replaying its opening
+//     post underneath that would be a second voice nobody asked for. That
+//     reasoning does not hold when the owner wrote the issue himself: the
+//     author and the assignee are then the same account, so a stranger's
+//     remark on it is commentary on the owner's own request, not a competing
+//     instruction. This is an exemption from condition 4, decided by
+//     comparing the issue author's numeric id against the stored owner id
+//     (D-I) — it is not a second way to satisfy condition 2. An unassigned
+//     issue the owner wrote himself still starts nothing at all: authorship
+//     never substitutes for assignment (AC-2.16a, untouched). And an issue
+//     whose author account has been deleted — Author.ID is 0, exactly like an
+//     unresolved [github.Issue.Author] — is never treated as the owner's own,
+//     guarded the same way [github.Issue.AssignedTo] guards a zero id: a
+//     bare `!=` would otherwise let an unknown owner id (also 0) match a
+//     deleted account by coincidence.
 //
 // # A refusal for want of assignment is not final
 //
@@ -1234,6 +1249,8 @@ func (d *Daemon) retryIssueBody(ctx context.Context, t *task) (bool, error) {
 func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) (bool, error) {
 	command := turn.ParseCommand(t.issue.Body)
 
+	owner := d.filter.Identities().OwnerUserID
+
 	var refusal string
 	// atInfo is set only by the refusals that follow somebody having
 	// deliberately pointed litefactory at this issue. "Not assigned" fires for
@@ -1243,12 +1260,26 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 	// owner needs when he assigned an issue to himself and nothing happened.
 	atInfo := false
 	switch {
-	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
+	case !t.issue.AssignedTo(owner):
 		refusal = "it is not assigned to the owner"
 	case strings.TrimSpace(t.issue.Body) == "":
 		refusal = "its body is empty"
 		atInfo = true
-	case len(comments) != 0:
+	// The comment block is an authorship EXEMPTION, not an authorship trigger
+	// (issue #10, US-3): assignment above is still the only thing that
+	// authorises a run at all, and this case only ever narrows a refusal that
+	// would otherwise fire. It is skipped when the issue's author is the very
+	// account that just assigned it to itself — comments from anybody else are
+	// then remarks on the owner's own request, not a competing conversation to
+	// defer to. On anyone else's issue the block stands exactly as before.
+	//
+	// owner == 0 is the guard, not a decoration: t.issue.Author is the zero
+	// User for a deleted account, so Author.ID is 0 too, and a bare != would
+	// then be false — treating a stranger's issue as "owner-authored" and
+	// skipping the block it exists to apply. Comparing the id, and only the
+	// id, matches every other identity decision in this package (D-I); Login
+	// is carried through for attribution alone and never compared.
+	case len(comments) != 0 && (owner == 0 || t.issue.Author.ID != owner):
 		refusal = "it already has comments, which are the conversation to follow instead"
 		atInfo = true
 	}

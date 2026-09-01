@@ -737,37 +737,138 @@ func TestABodyThatCommandsNothingStartsNothingAndPostsNothing(t *testing.T) {
 	}
 }
 
-// TestAnIssueWithCommentsDoesNotFireItsBody is AC-2.16d.
+// TestAnIssueWithCommentsDoesNotFireItsBody is AC-2.16d as amended by issue
+// #10, User Story 3: the comment block is now conditional on who opened the
+// issue.
 //
-// A body is a *first* instruction. An issue that has already been talked on has
-// a conversation to follow instead, and replaying its opening post underneath
-// that conversation would be a second voice nobody asked for — quite possibly
-// contradicting the comment that supersedes it. The comments drain exactly as
-// they did before, which is to say the pre-existing ones do not run at all
-// (AC-2.10) and the next one does.
+// A body is a *first* instruction. On somebody else's issue, an issue that has
+// already been talked on has a conversation to follow instead, and replaying
+// its opening post underneath that conversation would be a second voice
+// nobody asked for — quite possibly contradicting the comment that supersedes
+// it. That reasoning does not hold on the owner's own issue: the author and
+// the assignee are the same account, so a stranger's remark on it is
+// commentary on the owner's own request, not a competing instruction, and the
+// block is lifted (AC-3.1–3.6). The comparison is on the numeric author id
+// and never a login (AC-3.4), guarded against a deleted author's zero id
+// exactly as [github.Issue.AssignedTo] guards a zero owner id (AC-3.5) — the
+// three subtests below are the third-party case AC-2.16d always covered, the
+// owner-authored case this story adds, and that guard.
 func TestAnIssueWithCommentsDoesNotFireItsBody(t *testing.T) {
+	t.Run("a stranger's issue with comments still refuses", func(t *testing.T) {
+		f := newFixture(t)
+		f.plantCursor()
+		f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
+		f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
+
+		f.settle()
+
+		if calls := f.turns.calls(); len(calls) != 0 {
+			t.Errorf("ran %d turns on a stranger's issue that already has a comment, want none\nlogs:\n%s",
+				len(calls), f.logs)
+		}
+		if got := f.watermark(); got != 220 {
+			t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
+		}
+
+		// And its comments go on working the way they always have.
+		f.forge.addComment(testIssue, 221, owner(), "/spike do it now then")
+
+		f.settle()
+
+		if got := f.turns.triggers(); !slices.Equal(got, []int64{221}) {
+			t.Errorf("turns ran for %v, want [221]: the comments drain as they do today", got)
+		}
+	})
+
+	// AC-3.1: the owner's own issue, with an existing comment from somebody
+	// else, still runs its body — the comment is a remark on his own request,
+	// not a competing instruction. AC-3.6: nothing here reads a new forge
+	// endpoint to answer this — both the stored owner id and the issue
+	// author's id are already on this code path.
+	t.Run("the owner's own issue with comments runs its body", func(t *testing.T) {
+		f := newFixture(t)
+		f.plantCursor()
+		f.assignedIssueBy(owner(), "Add a /health endpoint", "/spike add a health endpoint")
+		f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
+
+		result := f.settle()
+
+		if result.Dispatched != 1 {
+			t.Fatalf("dispatched %d tasks, want 1", result.Dispatched)
+		}
+		if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+			t.Errorf("turn triggers %v, want [0]: the body runs as the task's first instruction "+
+				"despite the existing comment\nlogs:\n%s", got, f.logs)
+		}
+		// The existing comment predates first sight, so bootstrap already
+		// planted the watermark at its id before the body ran at trigger 0 —
+		// MAX(220, 0) leaves it exactly where bootstrap put it.
+		if got := f.watermark(); got != 220 {
+			t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
+		}
+	})
+
+	// AC-3.5: a deleted author's account reports id 0, exactly like an
+	// unresolved owner id would, and a bare `!=` would misread that
+	// coincidence as "authored by the owner". It must not: the block still
+	// applies, exactly as it does for any other third party.
+	t.Run("a deleted author's issue with comments still refuses", func(t *testing.T) {
+		f := newFixture(t)
+		f.plantCursor()
+		f.forge.addIssue(fakeIssue{
+			Number:    testIssue,
+			Title:     "Add a /health endpoint",
+			Body:      "/spike add a health endpoint",
+			User:      fakeUser{ID: 0, Type: "User"},
+			Assignees: []fakeUser{owner()},
+		})
+		f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
+
+		f.settle()
+
+		if calls := f.turns.calls(); len(calls) != 0 {
+			t.Errorf("ran %d turns on a deleted author's issue that already has a comment, want none\n"+
+				"logs:\n%s", len(calls), f.logs)
+		}
+		if got := f.watermark(); got != 220 {
+			t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
+		}
+	})
+}
+
+// TestAuthorshipExemptionComparesNumericIDNeverLogin is AC-3.4: an author
+// whose login happens to match the owner's, but whose numeric id does not, is
+// not the owner-authored exemption — the comment block still applies exactly
+// as it would for any other stranger.
+//
+// [TestAnIssueWithCommentsDoesNotFireItsBody]'s "owner's own issue" and
+// "stranger's issue" subtests both use fixed fakeUsers whose id and login
+// disagree in the same direction, so neither of them can tell a login-based
+// comparison from an id-based one — both would give the same verdict either
+// way. This is the one shape that can: an id GitHub would never actually
+// reissue, matched against the owner's login on purpose, exactly what a bare
+// login comparison would get wrong and D-I forbids everywhere else in this
+// package.
+func TestAuthorshipExemptionComparesNumericIDNeverLogin(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
-	f.assignedIssue("Add a /health endpoint", "/spike add a health endpoint")
+	f.forge.addIssue(fakeIssue{
+		Number:    testIssue,
+		Title:     "Add a /health endpoint",
+		Body:      "/spike add a health endpoint",
+		User:      fakeUser{ID: 918_273, Login: ownerLogin, Type: "User"},
+		Assignees: []fakeUser{owner()},
+	})
 	f.forge.addComment(testIssue, 220, stranger(), "is anyone looking at this?")
 
 	f.settle()
 
 	if calls := f.turns.calls(); len(calls) != 0 {
-		t.Errorf("ran %d turns on an issue that already has a comment, want none\nlogs:\n%s",
-			len(calls), f.logs)
+		t.Errorf("ran %d turns on an issue authored by an id that does not match the owner's, "+
+			"despite a matching login, want none\nlogs:\n%s", len(calls), f.logs)
 	}
 	if got := f.watermark(); got != 220 {
 		t.Errorf("watermark is %d, want 220 — the highest comment that already existed", got)
-	}
-
-	// And its comments go on working the way they always have.
-	f.forge.addComment(testIssue, 221, owner(), "/spike do it now then")
-
-	f.settle()
-
-	if got := f.turns.triggers(); !slices.Equal(got, []int64{221}) {
-		t.Errorf("turns ran for %v, want [221]: the comments drain as they do today", got)
 	}
 }
 
@@ -869,6 +970,135 @@ func TestALateAssignmentFiresTheBodyOnALaterTick(t *testing.T) {
 	f.settle()
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
 		t.Errorf("turns ran for %v, want [0]: the body fires exactly once", got)
+	}
+}
+
+// TestOwnerOpenedIssueFiresTheBodyOnALaterAssignment is AC-2.2, Workflow 2:
+// the owner opens the issue *himself*, litefactory sees it while it is still
+// unassigned, and only afterwards does he assign it to himself.
+//
+// It is deliberately not the same shape as
+// [TestALateAssignmentFiresTheBodyOnALaterTick], which is Workflow 4 (a
+// stranger opens the issue). The gate is assignment and not authorship, so
+// both workflows have to behave identically — this test is what makes that an
+// assertion rather than an assumption: the owner's own authorship must not be
+// mistaken for the missing assignment, and must not be required for it either.
+func TestOwnerOpenedIssueFiresTheBodyOnALaterAssignment(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	const body = "/spike add a /health endpoint that returns 200"
+	f.forge.addIssue(fakeIssue{
+		Number: testIssue,
+		Title:  "Add a /health endpoint",
+		Body:   body,
+		User:   owner(),
+		// No Assignees: unassigned when litefactory first sees it, exactly as
+		// it is when Mario opens an issue and has not yet assigned it to
+		// himself.
+	})
+
+	f.settle() // first sight: refused for want of assignment
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns before assignment, want none", len(calls))
+	}
+	if !f.session().BodyPending {
+		t.Fatalf("the session is not marked body_pending after a refusal for want of assignment")
+	}
+
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+	f.forge.assign(testIssue, owner())
+
+	f.settle()
+
+	calls := f.turns.calls()
+	if len(calls) != 1 {
+		t.Fatalf("the executor was called %d times after a late assignment, want 1\nlogs:\n%s",
+			len(calls), f.logs)
+	}
+	req := calls[0]
+	if req.Trigger.CommentID != 0 {
+		t.Errorf("trigger comment id is %d, want 0: the body, not a comment", req.Trigger.CommentID)
+	}
+	if req.Trigger.Author != ownerLogin {
+		t.Errorf("trigger author is %q, want %q — the owner is who opened this issue",
+			req.Trigger.Author, ownerLogin)
+	}
+	if req.Command.Kind != turn.KindSpike {
+		t.Errorf("the body parsed to %s, want %s", req.Command.Kind, turn.KindSpike)
+	}
+	if f.session().BodyPending {
+		t.Errorf("the session is still marked body_pending after the body ran")
+	}
+
+	// And it fires only once.
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Errorf("turns ran for %v, want [0]: the body fires exactly once", got)
+	}
+}
+
+// TestALateAssignmentFindingCommentsAlreadyPresentRefusesPermanently is
+// AC-2.9's "permanent refusal" clause exercised through the retry path
+// specifically, rather than through a refusal that never set the flag in the
+// first place (see [TestNoRetryRefusalsNeverMarkBodyPending] for that half).
+//
+// The issue is left unassigned while a third party comments on it — its
+// author is a stranger, so a comment landing before assignment is exactly
+// the case the comment block still has to cover once the owner does assign
+// it. sessions.body_pending must therefore clear on this retry even though
+// the body never ran: the refusal it now meets ("already has comments") is
+// settled for good, and nothing may bring this session back a third time.
+func TestALateAssignmentFindingCommentsAlreadyPresentRefusesPermanently(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{
+		Number: testIssue,
+		Title:  "Add a /health endpoint",
+		Body:   "/spike add a health endpoint",
+		User:   stranger(),
+		// No Assignees: unassigned when litefactory first sees it.
+	})
+
+	f.settle() // first sight: refused for want of assignment
+
+	if !f.session().BodyPending {
+		t.Fatalf("the session is not marked body_pending after a refusal for want of assignment")
+	}
+
+	// A stranger comments while the issue is still unassigned. It drains
+	// normally — comments run regardless of assignment — and is unrelated to
+	// the issue-body decision on its own.
+	f.forge.addComment(testIssue, 900, stranger(), "is anyone looking at this?")
+	f.settle()
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns from a third party's comment alone, want none", len(calls))
+	}
+
+	// The owner assigns it now — too late. The retry gate re-reads the
+	// issue's whole comment history, finds the comment that already landed,
+	// and refuses for good: the issue was never his own, so the comment
+	// block still applies exactly as it would if he had never assigned it at
+	// all.
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+	f.forge.assign(testIssue, owner())
+	f.settle()
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns on an issue whose comments predate its assignment, want none\nlogs:\n%s",
+			len(calls), f.logs)
+	}
+	if f.session().BodyPending {
+		t.Errorf("the session is still marked body_pending after a refusal that has become " +
+			"permanent (a stranger's comment already exists, and the issue is not the owner's own)")
+	}
+
+	// And nothing brings it back a third time.
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+	f.settle()
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns after the flag cleared for good, want none", len(calls))
 	}
 }
 

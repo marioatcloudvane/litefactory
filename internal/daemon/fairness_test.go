@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -130,5 +131,79 @@ func TestReorderingListReposDoesNotChangeWhatRuns(t *testing.T) {
 		t.Errorf("turns ran for %v, want [9101]: the repository with the lower id (zzz-api, "+
 			"registered first) must be visited first, regardless of ListRepos' own alphabetical "+
 			"ordering that would list aaa-api first\nlogs:\n%s", got, f.logs)
+	}
+}
+
+// TestBodyPendingSessionsCannotStarveCommentDrivenWork is AC-2.11: three
+// sessions that never resolve their issue-body decision — each stays
+// unassigned for the whole test — sit in the same repository, same
+// candidate list and same per-repo round-robin as one real, comment-driven
+// session. With a cap of 1 they compete for the daemon's only slot every
+// tick, and the round-robin (RD-1) is what has to answer "does the
+// comment-driven session ever get one, or do the three that never finish
+// crowd it out forever".
+//
+// The comment-driven issue is registered last on purpose, so its session id
+// is the highest of the four: a rotation that simply preferred low ids over
+// high ones — rather than genuinely cycling — would starve it exactly the
+// way this test would catch.
+func TestBodyPendingSessionsCannotStarveCommentDrivenWork(t *testing.T) {
+	f := newFixture(t)
+	f.daemon = f.newDaemon(daemon.Options{MaxConcurrentRuns: 1})
+	f.plantCursor()
+
+	bodyIssues := [3]int{301, 302, 303}
+	for _, num := range bodyIssues {
+		f.forge.addIssue(fakeIssue{
+			Number: num,
+			Title:  "A body-pending task",
+			Body:   "/spike do the thing",
+			User:   stranger(),
+			// No Assignees: this issue is never assigned for the whole test, so
+			// its issue-body decision never resolves either way.
+		})
+	}
+	const commentIssue = 304
+	f.forge.addIssue(fakeIssue{Number: commentIssue, Title: "A comment-driven task", User: stranger(), Body: ""})
+
+	// Bootstrap every session individually — cap 1 and 4 candidates on the
+	// very first tick, so a fixed, deterministic number of settles is used
+	// rather than assuming how many land in one tick's own opportunistic
+	// refill (see TestRepoBStartsWithinTheBoundedNumberOfTicksWhileRepoAIsSaturated
+	// above, which this test follows the shape of).
+	for range len(bodyIssues) + 1 {
+		f.settle()
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns from bootstrapping alone, want none\nlogs:\n%s", len(calls), f.logs)
+	}
+	for _, num := range bodyIssues {
+		if !f.sessionOf(num).BodyPending {
+			t.Fatalf("issue %d is not marked body_pending after its first sight refused for want "+
+				"of assignment", num)
+		}
+		// Push it out of the listing window, so only the body_pending union —
+		// exactly like a late assignment would need to — finds it again.
+		f.forge.staleIssue(num, f.clock.Now().Add(-24*time.Hour))
+	}
+
+	// The comment that makes issue 304 real, contested work, added only now —
+	// after every body-pending session already exists and holds a lower
+	// session id.
+	f.forge.addComment(commentIssue, 9304, owner(), "/spike the real work")
+
+	// The bound this criterion asks for: 4 eligible sessions and a cap of 1
+	// slot means the per-repo round-robin has to visit every one of them
+	// within ⌈4/1⌉ = 4 further ticks (RD-1) — so issue 304's comment must run
+	// inside that many, never indefinitely behind the three that never
+	// resolve.
+	for range len(bodyIssues) + 1 {
+		f.settle()
+	}
+
+	if got := f.turns.triggers(); !slices.Contains(got, int64(9304)) {
+		t.Fatalf("turns ran for %v after the bounded number of ticks; issue %d's comment (9304) "+
+			"must be among them — body-pending sessions must not starve comment-driven work\nlogs:\n%s",
+			got, commentIssue, f.logs)
 	}
 }

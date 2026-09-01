@@ -143,6 +143,26 @@
 // himself is the act of instruction; the issue's author — who may be a
 // stranger — is carried through only as the prompt's attribution.
 //
+// Authorship does decide one narrower question, and it is worth naming
+// because two issues that look identical on the thread — same body, same
+// comments, same assignee — can behave differently depending on who opened
+// them, and that is deliberate rather than an inconsistency to chase down.
+// The "no comments yet" half of the gate applies only when somebody other
+// than the owner opened the issue (issue #10, User Story 3; AC-2.16d as
+// amended). Comments on the owner's own issue are remarks on his own
+// request, not a competing conversation to defer to, so they no longer block
+// his own body from running; comments on anyone else's issue still do,
+// exactly as before. This is an exemption from that one condition, never a
+// second way to satisfy assignment: an issue the owner wrote himself but
+// never assigned to himself still starts nothing, however it reads. The
+// comparison is the numeric author id against the stored owner id, with the
+// same zero-id guard [github.Issue.AssignedTo] already uses, so a deleted
+// account (author id 0) is never mistaken for the owner's own. The one gap
+// this leaves, on purpose: a stranger opens an issue, somebody comments, the
+// owner assigns it afterwards — still nothing runs, and a comment is still
+// how he gets it moving. That is the case the original rule was written for
+// and it is untouched.
+//
 // Assigning an issue *after* litefactory has already seen it is not a special
 // case: the decision is not "ask once, at the instant this task is first
 // seen" but "ask, and keep asking until the answer stops being no". A refusal

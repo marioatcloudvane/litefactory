@@ -433,8 +433,10 @@ func (db *DB) SetSessionBodyPending(ctx context.Context, sessionID int64) error 
 
 // ClearSessionBodyPending takes the flag off a session whose issue-body
 // decision has been settled for good: the body ran, the refusal became
-// permanent (an empty body, or an issue that now has at least one comment —
-// AC-2.16d), or the issue was found closed.
+// permanent (an empty body, or — on an issue authored by somebody other than
+// the owner — an issue that now has at least one comment; AC-2.16d as
+// amended for issue #10, under which a comment on the owner's own issue no
+// longer blocks its body), or the issue was found closed.
 //
 // Clearing a session that is not flagged is not an error. A session that does
 // not exist is [ErrNotFound].

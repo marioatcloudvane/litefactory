@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-09-01, revised in place by runs 0002 and 0003)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done — 2026-09-01, three stories: `US-1.md`, `US-2.md`, `US-3.md`)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done — 2026-09-01, run 0005 interrupted mid-way by a timeout, completed by the resuming run the same day; all three stories shipped, reviewed, and green)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -129,6 +129,38 @@ asked for; nothing here licenses starting the next one.
   and the task is retained in US-2 (T-2.9). Plan is closed; Implement needs its own human comment,
   and the owner's earlier "implement it!" does not carry over, because the gate was shut when it was
   written.
+
+- 2026-09-01 — **Implement run 0005**. Headless, interrupted mid-way by a timeout after
+  committing US-1 and US-2's code (commit `1c78f70`) but before the code-review gate ran
+  for any story and before US-3 was implemented — this History entry and the Implement
+  checkbox above were never written by that run, leaving the box stale against the code
+  actually on disk.
+- 2026-09-01 — **Implement run 0005, resumed and completed** (same day, second pass).
+  Headless, no terminal, no human attached. Re-verified US-1 and US-2 against every AC in
+  `US-1.md`/`US-2.md` by re-reading the committed code and re-running their test suites
+  rather than trusting the interrupted run's state: **no defects found, no changes were
+  necessary.** Implemented US-3 (the has-comments gate becomes conditional on authorship,
+  with the zero-id guard SD-C requires) — `internal/daemon/tick.go`,
+  `internal/daemon/doc.go`, a new `AC_AMENDMENTS.md` entry amending AC-2.16d,
+  `internal/daemon/tick_test.go` split by authorship, and one further doc-comment fix in
+  `internal/store/sessions.go` under SD-E. Ran the Phase 1.5 code-review gate for the
+  first time this session, across the combined US-1 + US-2 + US-3 diff: **ADVISORY_ONLY,
+  0 BLOCKING** (one minor stringly-typed control-flow note in the issue-body gate switch,
+  left as-is, mitigated by an existing regression test). No real external dependency
+  (database, HTTP, queue) is touched by any story — `internal/store`'s work is against
+  this project's own embedded/local store test harness, and SD-D forbids any new forge
+  endpoint — so Phase 2 environment setup was skipped. Phase 3 unit testing found four
+  ACs (AC-2.2, AC-2.9, AC-2.11, AC-3.4) not actually exercised by an existing test and
+  closed the gap with four new tests, no source changes. Full repo-wide
+  `go build ./...`, `go vet ./...` and `go test -race -cover ./...` are clean across all
+  19 packages — **0 failures, bug loop not entered.** `DRIFT_REPORT.md` verdict: **CLEAN**
+  — every task in all three sub-issues is accounted for in the delivered code; the only
+  additions beyond the interrupted run's committed code were AC-coverage test gap-fills,
+  not new scope. `app-context-updater` ran in update mode: `APP_CONTEXT.md` gained the
+  body-pending durability note and the new store-function reuse row; `APP_CONSTRAINTS.md`
+  gained `CONC-7` (admission-policing a discovery union against starvation) and upgraded
+  `SEC-8` to enforced, covering the authorship-exemption check. Nothing was committed or
+  pushed by this run — litefactory commits after the run exits.
 
 ## Notes
 
