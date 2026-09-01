@@ -624,6 +624,161 @@ func TestNeedsPollSurvivesAReMigration(t *testing.T) {
 	}
 }
 
+// TestSessionBodyPendingRoundTrips covers the flag a late assignment needs to
+// be found again through, once the forge's own listings no longer surface a
+// session on their own (AC-2.16b as amended in .aiteam/AC_AMENDMENTS.md).
+func TestSessionBodyPendingRoundTrips(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 21)
+
+	// A session is born clear, exactly as needs_poll is.
+	if session.BodyPending {
+		t.Fatal("a freshly created session is already flagged")
+	}
+
+	if err := db.SetSessionBodyPending(t.Context(), session.ID); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	// Every read path must carry the new column, not just the one by id.
+	byID, err := db.GetSession(t.Context(), session.ID)
+	if err != nil || !byID.BodyPending {
+		t.Fatalf("GetSession = %+v, %v; want BodyPending true", byID, err)
+	}
+	byRef, err := db.GetSessionByTaskRef(t.Context(), session.TaskRef)
+	if err != nil || !byRef.BodyPending {
+		t.Fatalf("GetSessionByTaskRef = %+v, %v; want BodyPending true", byRef, err)
+	}
+	byIssue, err := db.FindSessionByIssue(t.Context(), session.IssueNumber, "", "")
+	if err != nil || !byIssue.BodyPending {
+		t.Fatalf("FindSessionByIssue = %+v, %v; want BodyPending true", byIssue, err)
+	}
+
+	// Setting a flag that is already set is a no-op, so the caller never has to
+	// read the row before writing it.
+	if err := db.SetSessionBodyPending(t.Context(), session.ID); err != nil {
+		t.Fatalf("second set: %v", err)
+	}
+
+	if err := db.ClearSessionBodyPending(t.Context(), session.ID); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if cleared, err := db.GetSession(t.Context(), session.ID); err != nil || cleared.BodyPending {
+		t.Fatalf("flag was not cleared: %+v, %v", cleared, err)
+	}
+	// Clearing an unflagged session is not an error: a stale-true self-heals by
+	// a later tick finding the same settled answer and clearing it again.
+	if err := db.ClearSessionBodyPending(t.Context(), session.ID); err != nil {
+		t.Fatalf("second clear: %v", err)
+	}
+
+	// A session that does not exist must not look like a successful clear.
+	if err := db.SetSessionBodyPending(t.Context(), 9999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("set on a missing session gave %v, want ErrNotFound", err)
+	}
+	if err := db.ClearSessionBodyPending(t.Context(), 9999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("clear on a missing session gave %v, want ErrNotFound", err)
+	}
+}
+
+// TestListBodyPendingSessionsIsCrossRepo mirrors
+// TestListBacklogSessionsIsCrossRepo: the union [Daemon.discover] performs
+// over this list is a view of the whole session set, so a busy repository
+// cannot hold back a late assignment on a session in another one.
+func TestListBodyPendingSessionsIsCrossRepo(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+
+	api := testRepo(t, db, "acme", "api")
+	web := testRepo(t, db, "acme", "web")
+
+	sessionIn := func(repo Repo, issue int) Session {
+		t.Helper()
+		session, err := db.GetOrCreateSession(t.Context(), repo, issue)
+		if err != nil {
+			t.Fatalf("get or create session %s#%d: %v", repo.Slug(), issue, err)
+		}
+		return session
+	}
+	pendingAPI := sessionIn(api, 1)
+	idleAPI := sessionIn(api, 2)
+	pendingWeb := sessionIn(web, 3)
+
+	if pending, err := db.ListBodyPendingSessions(t.Context()); err != nil || len(pending) != 0 {
+		t.Fatalf("a fresh database has pending sessions %+v, %v; want none", pending, err)
+	}
+
+	for _, session := range []Session{pendingAPI, pendingWeb} {
+		if err := db.SetSessionBodyPending(t.Context(), session.ID); err != nil {
+			t.Fatalf("set on %s: %v", session.TaskRef, err)
+		}
+	}
+
+	pending, err := db.ListBodyPendingSessions(t.Context())
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	got := make([]int64, 0, len(pending))
+	repos := make(map[int64]bool)
+	for _, session := range pending {
+		if !session.BodyPending {
+			t.Errorf("the pending set holds %s with BodyPending false", session.TaskRef)
+		}
+		got = append(got, session.ID)
+		repos[session.RepoID] = true
+	}
+	want := []int64{pendingAPI.ID, pendingWeb.ID}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pending set = %v, want %v (ordered by id, unflagged %d excluded)", got, want, idleAPI.ID)
+	}
+	if len(repos) != 2 {
+		t.Fatalf("pending set spans %d repositories, want 2: it is not cross-repo", len(repos))
+	}
+}
+
+// TestBodyPendingIndexIsEmptyWhenIdleAndSurvivesMigration is AC-2.8: the
+// partial index carries nothing while every session's issue-body decision is
+// settled one way or the other, and re-running the migrations does not
+// disturb a flag standing for a late assignment still owed.
+func TestBodyPendingIndexIsEmptyWhenIdleAndSurvivesMigration(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 33)
+
+	var idleCount int
+	err := db.sql.QueryRowContext(t.Context(),
+		`SELECT count(*) FROM sessions WHERE body_pending = 1`).Scan(&idleCount)
+	if err != nil {
+		t.Fatalf("count idle sessions: %v", err)
+	}
+	if idleCount != 0 {
+		t.Fatalf("body_pending carries %d rows with every session idle, want 0", idleCount)
+	}
+
+	if err := db.SetSessionBodyPending(t.Context(), session.ID); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatalf("re-migrate: %v", err)
+	}
+	if got, err := db.GetSession(t.Context(), session.ID); err != nil || !got.BodyPending {
+		t.Fatalf("flag did not survive re-migration: %+v, %v", got, err)
+	}
+
+	// The partial index is what keeps the union Daemon.discover performs
+	// proportional to the pending set rather than to the table.
+	var indexSQL string
+	err = db.sql.QueryRowContext(t.Context(),
+		`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`,
+		"idx_sessions_body_pending").Scan(&indexSQL)
+	if err != nil {
+		t.Fatalf("read index: %v", err)
+	}
+	if !strings.Contains(indexSQL, "body_pending = 1") {
+		t.Fatalf("idx_sessions_body_pending is %q, want a partial index on body_pending = 1", indexSQL)
+	}
+}
+
 // TestBootstrapWatermarkDoesNotConsumeComments is AC-2.10: a task seen for the
 // first time skips its whole history rather than replaying it as instructions.
 func TestBootstrapWatermarkDoesNotConsumeComments(t *testing.T) {

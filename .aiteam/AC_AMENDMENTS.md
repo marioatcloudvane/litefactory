@@ -1341,3 +1341,89 @@ The doc comments on `pool.wait`, `pool.quiesce` and `Daemon.Quiesce`
 (`internal/daemon/pool.go`) make the mechanical case in full and are the
 authority on it. This entry records only what they cannot: that the export was a
 decision, and which future request it is waiting for.
+
+---
+
+## AC-2.16b — the body decision is durable, not "on first sight"
+
+- **First stated in:** `.aiteam/lf-6-first-comment-pickup/2026-08-26/first-comment-pickup/IMPLEMENTATION_PLAN.md`,
+  User Story 3, as AC-2.16b in the amendment above ("AC-2.16 — an issue body
+  may now start a run")
+- **Amended:** 2026-09-01, issue #10 (`we-need-to-start-immediately-on-a-new`),
+  plan
+  `.aiteam/lf-10-we-need-to-start-immediately-on-a-new/2026-09-01/we-need-to-start-immediately-on-a-new/plan_brief.md`,
+  User Story 2
+- **Status:** amended
+
+### It used to say
+
+> AC-2.16b — An open issue assigned to the owner, with a non-empty body and no
+> comments, runs its body as the first instruction on first sight — exactly
+> once, verified by ticking again.
+
+### It now says
+
+> AC-2.16b — An open issue assigned to the owner, with a non-empty body and no
+> comments, runs its body as the first instruction — on first sight if it is
+> already assigned by then, or on a later tick once it is, whichever comes
+> first. "Exactly once" no longer follows from asking the question only once;
+> it follows from `UNIQUE (session_id, trigger_comment_id)` on the runs table,
+> which refuses a second row at trigger id 0 for the same session regardless
+> of how many times the question is asked, and from
+> [turn.Execute] degrading that refusal to `DispositionAlreadyRan` rather than
+> erroring — the same mechanism that already covers a replayed comment.
+
+### Why the change is safe
+
+The complaint this amendment answers is issue #10 itself: an owner opens an
+issue, litefactory notices it before he assigns it to himself, and the
+assignment — the act AC-2.16a already treats as the whole of the
+authorisation — is silently too late, because the gate was only ever asked at
+the instant of first sight. The owner then has to add a comment to get the
+same body run a second way, which defeats the point of AC-2.16b existing at
+all.
+
+Nothing about *who* may start a run changes. AC-2.16a is untouched: an issue
+never assigned to the owner still starts nothing, however long it stays open.
+AC-2.16c and AC-2.16d are untouched too — an empty body, a body that parses to
+nothing that spawns, and an issue that already has at least one comment are
+still refused, and none of those three refusals is ever retried, because none
+of them can become true differently later: an empty body stays empty, a
+command that spawns nothing on this body will spawn nothing on the same body
+again, and comments only accumulate. The one fact that *can* become true after
+it was checked is assignment — the owner can assign an issue any time after
+opening it — so it is the one refusal now held open, in
+`sessions.body_pending`, and asked again.
+
+The narrowing is deliberately tight: the retry is marked only when the refusal
+was exactly "not assigned to the owner", the body is non-empty, the issue has
+no comments, and the parsed command spawns something, all four checked at the
+moment of the refusal (`turn.ParseCommand` moved above the gate switch in
+`Daemon.runIssueBody` for exactly this reason — it has to be available at
+refusal time, not only at run time). An issue that would never have run its
+body anyway does not get asked again just because it might one day be
+assigned.
+
+The re-ask is bounded the same way the rest of discovery already is.
+`sessions.body_pending` is unioned into `Daemon.discover` exactly like
+`sessions.needs_poll` — no forge listing, one indexed query — and the
+candidate it produces carries no fetched issue until `Daemon.materialise`
+reads one, lazily, only once the dispatcher has taken a pool slot for it: the
+per-tick cost stays at `max_concurrent_runs` issue reads regardless of how
+deep the pending set grows, exactly as it already does for the backlog. The
+flag competes for the same slots comment-driven work does, folded into the
+very same candidate list and the very same two-level round-robin the package
+already documents, so it cannot starve anything and cannot be starved by
+anything — no priority scheme was added, and none was needed.
+
+`needs_poll` was considered and rejected as the vehicle for this, on the
+record: `Daemon.work` clears it unconditionally on any clean, undeferred turn,
+including one wholly unrelated to the body (a third-party comment that
+triggers nothing still drains cleanly), which would silently erase the retry
+the very tick it was set on, or the next unrelated one to touch the session.
+A dedicated column with its own write site (`Daemon.work`, never
+`Daemon.runIssueBody` or `Daemon.bootstrap` themselves — they only report what
+happened, in a return value) and its own clear conditions (a body that ran, a
+refusal that became permanent, or an issue found closed) was needed instead.
+See `internal/store/migrations/0003_session_body_pending.sql`'s header
+comment for the fuller version of this argument.

@@ -235,6 +235,15 @@ func listingWindow(cursor store.PollCursor) time.Time {
 // string caps at 256 characters, it is eventually consistent, and it runs on a
 // thirtieth of the quota.
 //
+// A third union, alongside the forge listings and [Daemon.backlog], is
+// [Daemon.bodyPending]: sessions the store says still have an open
+// issue-body decision — a body refused for want of assignment, on an issue
+// GitHub does not document as touching updated_at when it is later assigned
+// (AC-2.16b as amended in .aiteam/AC_AMENDMENTS.md). It costs no API quota,
+// exactly like the backlog union, and it feeds the same candidate list and
+// the same round-robin, so a body-pending session is admitted in the same
+// order as everything else and cannot starve comment-driven work.
+//
 // An error here ends the tick. Everything this function does is on the Tick
 // goroutine, before any task has been touched: the cursor is not persisted and
 // no watermark has moved, so there is nothing to undo.
@@ -316,6 +325,9 @@ func (d *Daemon) discover(
 	if err := d.backlog(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
+	if err := d.bodyPending(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 
 	// Ascending session id within a repository, because that is the order the
 	// per-repo session cursor rotates through and it has to be the same order on
@@ -360,6 +372,56 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 		if q == nil {
 			d.log.DebugContext(ctx, "a session still needs a poll but its repository is no longer "+
 				"pollable; leaving its backlog flag where it stands",
+				slog.Int64("session_id", session.ID),
+				slog.Int64("repo_id", session.RepoID))
+			continue
+		}
+		ref, err := naming.ParseRef(session.TaskRef)
+		if err != nil {
+			return fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
+		}
+		seen[session.ID] = true
+		q.candidates = append(q.candidates, q.candidate(session, ref))
+	}
+	return nil
+}
+
+// bodyPending adds the sessions the store says still have an open issue-body
+// decision, and that neither the forge listings nor [Daemon.backlog] already
+// returned (AC-2.16b as amended in .aiteam/AC_AMENDMENTS.md).
+//
+// A session is only ever marked this way by [Daemon.setBodyPending], called
+// from [Daemon.work] when [Daemon.runIssueBody] refused a body for want of
+// assignment and nothing else — see that function for the full narrowing.
+// Assignment is not confirmed to move an issue's updated_at, so once
+// sessions.needs_poll is cleared after a clean first sight, the forge
+// listings may never surface this session again on their own; this union is
+// the only channel left that will.
+//
+// It costs no API quota, exactly like [Daemon.backlog], for the same reason:
+// one indexed query over sessions.body_pending, and the [candidate] it builds
+// carries no [github.Issue] until [Daemon.materialise] reads one for it,
+// lazily and only for a session the dispatcher actually took a slot for
+// (AC-2.10 in this story's plan). Merging into the very same candidates slice
+// as everything else is what answers the admission question: a body-pending
+// session rotates through [Daemon.dispatch]'s two-level round-robin exactly
+// as a comment-driven one does, so it can be deferred by a full pool like any
+// other candidate but can never be starved by one — the next tick tries again
+// in the same order, against the same fairness guarantee the package
+// documents.
+func (d *Daemon) bodyPending(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]bool) error {
+	sessions, err := d.db.ListBodyPendingSessions(ctx)
+	if err != nil {
+		return fmt.Errorf("list the sessions with a pending issue-body decision: %w", err)
+	}
+	for _, session := range sessions {
+		if seen[session.ID] {
+			continue
+		}
+		q := byRepo[session.RepoID]
+		if q == nil {
+			d.log.DebugContext(ctx, "a session has a pending issue-body decision but its repository is "+
+				"no longer pollable; leaving the flag where it stands",
 				slog.Int64("session_id", session.ID),
 				slog.Int64("repo_id", session.RepoID))
 			continue
@@ -885,6 +947,14 @@ func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *Tic
 // on it (AC-2.22). The session keeps its backlog flag, and the next tick's
 // listing — or this same check — clears it by draining an empty queue.
 //
+// A session reached here carrying [store.Session.BodyPending] has its
+// issue-body decision settled here too, and nowhere else: a closed issue
+// never runs its body, and this is the one place a body-pending candidate
+// reached through [Daemon.bodyPending] is confirmed still open or found
+// otherwise — there is no separate close-check for that union, by design,
+// because this one already covers every unresolved candidate whichever of
+// the two unions it came from.
+//
 // It runs on the Tick goroutine, so [naming.ParseRef] and the whole of task
 // construction stay where a test can count them, and no worker has to work out
 // its own identity before it can log.
@@ -903,6 +973,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	if issue.State != github.StateOpen {
 		c.log.DebugContext(ctx, "a task that still needs a poll is no longer open; nothing runs",
 			slog.String("state", issue.State))
+		if c.session.BodyPending {
+			d.clearBodyPending(ctx, c.log, c.session.ID)
+		}
 		return nil, nil
 	}
 
@@ -930,6 +1003,19 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 // Three bounded ways out, which is what makes the pool's join terminate: the
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
+//
+// A fourth thing happens here, and only here: a session the store still marks
+// [store.Session.BodyPending] gets one more look at its issue body, in the
+// drain arm, after a clean and undeferred drain (AC-2.16b as amended). It is
+// guarded on that flag — never asked unconditionally — so the session that
+// was never refused this way, or whose refusal was long since settled one way
+// or the other, pays nothing for it: no extra forge call, no extra write
+// (AC-2.10). This is also the one write site for
+// [store.DB.SetSessionBodyPending] and [store.DB.ClearSessionBodyPending], for
+// the same reason [Daemon.clearBacklog] is: [Daemon.bootstrap] and
+// [Daemon.runIssueBody] only ever report what happened, in their return
+// value, and it is this function that turns that report into the durable
+// flag.
 func (d *Daemon) work(ctx context.Context, t *task) {
 	watermark, exists, err := d.db.GetWatermark(ctx, t.session.ID)
 	if err != nil {
@@ -939,9 +1025,24 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 
 	var deferred bool
 	if !exists {
-		err = d.bootstrap(ctx, t)
+		var retry bool
+		retry, err = d.bootstrap(ctx, t)
+		if err == nil && retry {
+			d.setBodyPending(ctx, t.log, t.session.ID)
+		}
 	} else {
 		deferred, err = d.drain(ctx, t, watermark.LastCommentID)
+		if err == nil && !deferred && t.session.BodyPending {
+			var retry bool
+			retry, err = d.retryIssueBody(ctx, t)
+			if err == nil {
+				if retry {
+					d.setBodyPending(ctx, t.log, t.session.ID)
+				} else {
+					d.clearBodyPending(ctx, t.log, t.session.ID)
+				}
+			}
+		}
 	}
 	if err != nil {
 		d.stopped(ctx, t, "this task's turn could not be completed", err)
@@ -987,10 +1088,18 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // issue asked for it: see [Daemon.runIssueBody] for the gate (AC-2.16a–d) and
 // `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
 // (AC-2.16) was reversed. Existing comments are still never replayed.
-func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
+//
+// The returned bool is [Daemon.runIssueBody]'s own — whether this task's
+// refusal is worth asking again on a later tick — carried straight through
+// rather than acted on here. [Daemon.work] is the one place that turns a true
+// into sessions.body_pending, for the same reason [Daemon.markBacklog] is a
+// caller's write rather than a callee's: the write has to happen exactly
+// once, from one call site, whichever of bootstrap's first sight or a later
+// retry through [Daemon.work]'s drain arm is what asked the question.
+func (d *Daemon) bootstrap(ctx context.Context, t *task) (bool, error) {
 	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
 	if err != nil {
-		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
+		return false, fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
 
 	var highest int64
@@ -1002,7 +1111,7 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 
 	watermark, created, err := d.db.BootstrapWatermark(ctx, t.session.ID, highest)
 	if err != nil {
-		return fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
+		return false, fmt.Errorf("bootstrap the watermark of task %s: %w", t.ref, err)
 	}
 
 	t.log.InfoContext(ctx, "first sight of a task; its existing comments are skipped",
@@ -1011,7 +1120,29 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 		slog.Bool("created", created))
 
 	// Only now, with the watermark planted and logged. See [Daemon.runIssueBody]
-	// for why that order is the whole of "exactly once".
+	// for why that order still matters even though this call site is no longer
+	// the only one.
+	return d.runIssueBody(ctx, t, comments)
+}
+
+// retryIssueBody re-asks the issue-body gate for a task the store still marks
+// [store.Session.BodyPending]: a body refused earlier for want of assignment
+// (see [Daemon.runIssueBody]) that may have been assigned since. It is called
+// from [Daemon.work]'s drain arm, guarded on that flag, so the overwhelming
+// majority of sessions — every one that was never refused this way, or whose
+// refusal was already settled for good — never reach it.
+//
+// It asks for the issue's whole comment history, not merely what
+// [Daemon.drain] just walked above the watermark: the gate's "no comments"
+// fact means no comments at all, and a watermark left at 0 is not proof of
+// that once a comment can have been consumed by that same drain call without
+// being reported on. A fresh, full listing is the only way to answer the same
+// question [Daemon.bootstrap] answered at first sight, asked again.
+func (d *Daemon) retryIssueBody(ctx context.Context, t *task) (bool, error) {
+	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
+	if err != nil {
+		return false, fmt.Errorf("list the comments of task %s to re-check its issue body: %w", t.ref, err)
+	}
 	return d.runIssueBody(ctx, t, comments)
 }
 
@@ -1025,10 +1156,10 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //  1. The issue is open. Not checked here: [Daemon.sight] returns before
 //     GetOrCreateSession on anything that is not open (AC-2.22), and
 //     [Daemon.materialise] re-checks it for a session reached through the
-//     backlog, so an issue that is not open can never reach a bootstrap at all.
-//     Re-checking it a third time would be another place to keep in step with
-//     those two, and the first of them is the one that also stops the session
-//     row being written.
+//     backlog or through [Daemon.bodyPending], so an issue that is not open
+//     can never reach this function at all. Re-checking it a third time would
+//     be another place to keep in step with those two, and the first of them
+//     is the one that also stops the session row being written.
 //  2. The issue is assigned to the owner, matched on the numeric user id and
 //     never on a handle (D-I). This is the authorisation, and it is the whole
 //     reason the old ban could be lifted: anyone can open an issue, but only
@@ -1040,15 +1171,44 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //     and replaying its opening post underneath that would be a second voice
 //     nobody asked for (AC-2.16d).
 //
-// # Watermark first, then run
+// # A refusal for want of assignment is not final
 //
-// [Daemon.bootstrap] plants the watermark before calling this, and that
-// ordering is what makes "fires exactly once" a property of the control flow
-// rather than of a check: the next tick finds a watermark and takes
-// [Daemon.drain], so this function is unreachable a second time. A crash
-// between the two leaves a `running` row that startup reconciliation reports as
-// abandoned (AC-2.21) — which is the failure mode to prefer over a body that
-// silently runs twice.
+// Every other refusal here is settled for good the moment it is made: an
+// empty body stays empty, and comments only accumulate, so nothing about
+// those two changes with time. Assignment is the one fact litefactory might
+// see become true after it already checked it — the owner can assign an
+// issue any time after opening it, and GitHub does not document what bumps an
+// issue's updated_at, so nothing guarantees a forge listing will ever bring
+// this session back on its own (AC-2.16b as amended in
+// .aiteam/AC_AMENDMENTS.md). That is the one refusal this function reports as
+// worth asking again, through its bool return rather than a store write of
+// its own — see [Daemon.bootstrap] and [Daemon.work] for who actually writes
+// sessions.body_pending, and why it is not this function.
+//
+// The report is narrow on purpose: true only when the refusal is exactly
+// "not assigned", the body is non-empty, the issue has no comments, and the
+// parsed command spawns something. [turn.ParseCommand] is called above this
+// gate's switch for exactly this reason — the fourth fact has to be available
+// at the moment a refusal is classified, not only at the moment a body is
+// about to run. An issue whose body is empty, or that already has comments,
+// or whose command would spawn nothing anyway, is never marked: retrying it
+// later could only ever find the same refusal again.
+//
+// # Reachable a second time, on purpose
+//
+// [Daemon.bootstrap] still plants the watermark before calling this on first
+// sight, for the reason it always did: a crash between the two leaves a
+// `running` row that startup reconciliation reports as abandoned (AC-2.21) —
+// the failure mode to prefer over a body that silently runs twice. But this
+// function is no longer unreachable after first sight: [Daemon.work]'s drain
+// arm calls back into it, through [Daemon.retryIssueBody], on every later
+// tick that sessions.body_pending still stands. "Fires exactly once" is
+// therefore no longer a property of the control flow here — it is the runs
+// table's: `UNIQUE (session_id, trigger_comment_id)` refuses a second row at
+// trigger id 0 for this session, and [turn.Execute] degrades that refusal to
+// [turn.DispositionAlreadyRan] rather than erroring, exactly as a replayed
+// comment already does. The gate above decides whether to *try* the run; the
+// constraint is what makes trying more than once safe.
 //
 // # The trigger
 //
@@ -1071,20 +1231,45 @@ func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
 //
 // There is no comment to react to, and reacting to the issue would be an eighth
 // forge endpoint for a cosmetic gain. AC-2.17 stays comment-only.
-func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) error {
+func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Comment) (bool, error) {
+	command := turn.ParseCommand(t.issue.Body)
+
 	var refusal string
+	// atInfo is set only by the refusals that follow somebody having
+	// deliberately pointed litefactory at this issue. "Not assigned" fires for
+	// almost every open issue in every registered repository (see
+	// [Daemon.sight]) and is not a refusal in the owner's sense — nobody asked
+	// for anything — so it stays at Debug. The other two are the trace the
+	// owner needs when he assigned an issue to himself and nothing happened.
+	atInfo := false
 	switch {
 	case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
 		refusal = "it is not assigned to the owner"
 	case strings.TrimSpace(t.issue.Body) == "":
 		refusal = "its body is empty"
+		atInfo = true
 	case len(comments) != 0:
 		refusal = "it already has comments, which are the conversation to follow instead"
+		atInfo = true
 	}
 	if refusal != "" {
-		t.log.DebugContext(ctx, "not running the issue body on first sight; "+refusal,
-			slog.Int("existing_comments", len(comments)))
-		return nil
+		// Narrow on purpose: only "not assigned", and only alongside every other
+		// fact that makes retrying it worthwhile. The switch above stops at the
+		// first case that matches, so a body that is also empty or also on an
+		// issue with comments never reaches "not assigned" — these three checks
+		// are independent of one another rather than nested.
+		retry := refusal == "it is not assigned to the owner" &&
+			strings.TrimSpace(t.issue.Body) != "" &&
+			len(comments) == 0 &&
+			command.Spawns()
+		lvl := slog.LevelDebug
+		if atInfo {
+			lvl = slog.LevelInfo
+		}
+		t.log.Log(ctx, lvl, "not running the issue body; "+refusal,
+			slog.Int("existing_comments", len(comments)),
+			slog.Bool("retry", retry))
+		return retry, nil
 	}
 
 	log := t.log.With(
@@ -1093,7 +1278,6 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		slog.Int64("author_user_id", t.issue.Author.ID),
 		slog.String("author", t.issue.Author.Login))
 
-	command := turn.ParseCommand(t.issue.Body)
 	if command.Kind == turn.KindNone {
 		// A body with nothing to act on. The gate above has already refused an
 		// empty one, so what reaches here is a body whose whole content was the
@@ -1101,8 +1285,8 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		// tag grants permission and gives no instruction (AC-A1.9). It ends here
 		// silently, exactly as an empty body would — there is no comment to
 		// answer on the body path, and an issue is not a question.
-		log.DebugContext(ctx, "the issue body has nothing to act on; nothing runs")
-		return nil
+		log.InfoContext(ctx, "the issue body has nothing to act on; nothing runs")
+		return false, nil
 	}
 	if !command.Spawns() {
 		// /plan, /frobnicate, a bare /spike: nothing runs, and — unlike the
@@ -1110,18 +1294,18 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 		// reply would be litefactory answering a question nobody asked it, on
 		// an issue whose author may not even have meant the first line as a
 		// command.
-		log.DebugContext(ctx, "the issue body names a command that spawns nothing; "+
+		log.InfoContext(ctx, "the issue body names a command that spawns nothing; "+
 			"nothing runs and nothing is posted",
 			slog.String("command", command.Name),
 			slog.String("kind", command.Kind.String()))
-		return nil
+		return false, nil
 	}
 
 	log.InfoContext(ctx, "running the issue body as the task's first instruction",
 		slog.String("command", command.Name),
 		slog.String("kind", command.Kind.String()))
 	trigger := turn.Trigger{CommentID: 0, Body: "", Author: t.issue.Author.Login}
-	return d.run(ctx, t, trigger, command, log)
+	return false, d.run(ctx, t, trigger, command, log)
 }
 
 // drain processes the comments above the watermark, in ascending id order
@@ -1254,6 +1438,49 @@ func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 	if err := d.db.ClearSessionNeedsPoll(ctx, t.session.ID); err != nil {
 		t.log.WarnContext(ctx, "could not clear this task's backlog flag after a clean drain; "+
 			"a later tick re-lists it, finds nothing above its watermark and clears it then",
+			slog.Any("error", err))
+	}
+}
+
+// setBodyPending records that this task's issue-body decision is still open:
+// [Daemon.runIssueBody] refused to run the body for want of assignment, and
+// only for that reason, with every other narrowing fact in place too (see
+// that function's doc comment). It is called from [Daemon.work], never from
+// [Daemon.runIssueBody] or [Daemon.bootstrap] themselves, for the same reason
+// [Daemon.markBacklog] is a caller's write: it is the one write site,
+// regardless of which of the two call sites — first sight, or a later retry —
+// asked the question.
+//
+// A store failure is logged and goes no further, for the same reason
+// [Daemon.markBacklog] treats one the same way: the flag is a re-discovery
+// hint, not the work itself, and this task has already been given its answer
+// for this tick. It is logged at error level because losing a *set* here is
+// the dangerous direction — a late assignment that this line failed to record
+// may never be noticed, since assignment is not confirmed to move the issue's
+// own updated_at.
+func (d *Daemon) setBodyPending(ctx context.Context, log *slog.Logger, sessionID int64) {
+	if err := d.db.SetSessionBodyPending(ctx, sessionID); err != nil {
+		log.ErrorContext(ctx, "could not mark this task's issue body for a later retry; a "+
+			"later assignment may go unnoticed",
+			slog.Any("error", err))
+	}
+}
+
+// clearBodyPending takes the flag off a session whose issue-body decision has
+// been settled for good: the body ran, the refusal became permanent (an empty
+// body, or an issue that now has at least one comment), or the issue was
+// found closed in [Daemon.materialise].
+//
+// Losing a clear here leaves a stale-true flag, which is safe and
+// self-healing in the same shape [Daemon.clearBacklog]'s asymmetry describes:
+// the next tick that finds this session through [Daemon.bodyPending] asks the
+// gate again, finds the same settled answer, and clears it then. That costs
+// one extra listing and one extra gate check, never a comment, so it is a
+// warning and not an error.
+func (d *Daemon) clearBodyPending(ctx context.Context, log *slog.Logger, sessionID int64) {
+	if err := d.db.ClearSessionBodyPending(ctx, sessionID); err != nil {
+		log.WarnContext(ctx, "could not clear this task's pending issue-body flag; a later tick "+
+			"re-checks it and finds the same settled answer",
 			slog.Any("error", err))
 	}
 }

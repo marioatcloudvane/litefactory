@@ -248,11 +248,20 @@ type PromptInput struct {
 	// note as something the conversation has already been told, and this drops
 	// the comment note as something that does not exist; together they leave
 	// nothing to frame, so the Context section is omitted altogether and the
-	// prompt is the header and the instruction. That combination is not
-	// reachable today — a body fires at most once per issue, so a body-
-	// triggered run is always the first run of its conversation — but the
-	// resume fallback in internal/turn rebuilds this same input with Resume
-	// flipped to false, and the flip has to stay the whole of the difference.
+	// prompt is the header and the instruction. That combination used to be
+	// unreachable — a body fired at most once per issue and only on first
+	// sight, so a body-triggered run was always the first run of its
+	// conversation — but it is reachable now: internal/daemon may re-ask its
+	// issue-body gate on a later tick, after an earlier refusal for want of
+	// assignment, so a body can now run as a *later* message in a conversation
+	// that already has a comment-triggered run in it (Daemon.runIssueBody in
+	// internal/daemon; see .aiteam/AC_AMENDMENTS.md's amendment to AC-2.16b).
+	// Resume true and BodyIsInstruction true together is what that looks like
+	// here, and this omission is exactly what it should render: nothing left
+	// to frame, because the conversation already has the issue and there is no
+	// comment. The resume fallback in internal/turn rebuilds this same input
+	// with Resume flipped to false regardless of which combination produced
+	// it, and the flip still has to stay the whole of the difference.
 	BodyIsInstruction bool
 
 	// MayAsk says this run may stop and ask the owner a question instead of

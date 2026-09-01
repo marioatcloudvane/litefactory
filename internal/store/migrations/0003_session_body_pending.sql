@@ -1,0 +1,52 @@
+-- 0003_session_body_pending — sessions.body_pending, the durable memory that
+-- lets a late assignment start the work (issue #10, AC-2.16b as amended in
+-- .aiteam/AC_AMENDMENTS.md).
+--
+-- Discovery asks the issue-body question once, at first sight
+-- ([Daemon.bootstrap] calling [Daemon.runIssueBody]). If the answer at that
+-- instant is "not assigned to the owner" — and only that answer, and only when
+-- the body is non-empty, the issue has no comments yet, and the parsed command
+-- would spawn something — the question is worth asking again: the owner may
+-- assign the issue a minute, an hour or a day later, and GitHub does not
+-- document what bumps an issue's updated_at, so the daemon cannot rely on
+-- either forge listing to notice that assignment happened at all. This column
+-- is what asks again, on every later tick, until the answer stops being "not
+-- yet".
+--
+-- Why not needs_poll: it was checked directly against the code rather than
+-- assumed, and reusing it does not work, for three independent reasons.
+--
+--   1. clearBacklog fires unconditionally inside Daemon.work whenever a turn
+--      was not deferred, and deferred is only ever assigned a true value from
+--      Daemon.drain — Daemon.bootstrap returns an error alone. A retry flag
+--      set inside the same bootstrap call that refused the body would be wiped
+--      by that same call's own clearBacklog before the tick that set it even
+--      finished.
+--   2. needs_poll is cleared by an unrelated, successful drain too — a
+--      third-party comment on the same issue, which triggers nothing, still
+--      reaches a clean drain and clears the flag. A shared column would lose
+--      the retry to a comment that has nothing to do with it.
+--   3. needs_poll's whole contract is stale-true self-healing: a flag left
+--      standing costs one extra listing that finds nothing and clears itself.
+--      A body-retry flag has no such self-healing shape — "not assigned" can
+--      stay true forever on an issue nobody ever assigns to the owner, and
+--      that has to be a durable, correct, indefinitely-standing 1, not a hint
+--      that decays.
+--
+-- A boolean, not an age or an attempt count: no age cap and no new config key
+-- are wanted (see the plan this migration belongs to) — the flag is retried on
+-- every tick the union in Daemon.discover finds it standing, for as long as it
+-- takes the owner to assign the issue, and nothing here is meant to time that
+-- out.
+--
+-- The 0 backfill is correct rather than merely convenient, exactly as 0002's
+-- was: this column tracks a decision made from this point forward, and there
+-- is nothing to preserve for a session that predates it.
+ALTER TABLE sessions ADD COLUMN body_pending INTEGER NOT NULL DEFAULT 0;
+
+-- Partial index: it holds only the sessions with an open issue-body question,
+-- so the union Daemon.discover performs alongside ListBacklogSessions costs
+-- the size of that set rather than the size of the table, and the steady
+-- state — every session's body decision settled one way or the other — carries
+-- no index entries at all (AC-2.8).
+CREATE INDEX idx_sessions_body_pending ON sessions (id) WHERE body_pending = 1;

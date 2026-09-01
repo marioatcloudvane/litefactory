@@ -544,9 +544,14 @@ func TestAnUnassignedIssueBodyStartsNothing(t *testing.T) {
 // is then asserted to be that stranger: the prompt's attribution is what makes
 // running someone else's words safe, so losing it would be the bug.
 //
-// "Exactly once" is asserted by ticking again, and it is a property of the
-// control flow rather than of a check — the second tick finds a watermark and
-// takes drain, which never looks at the body.
+// "Exactly once" is asserted by ticking again. It is not a property of the
+// control flow here any more — a session may now have its issue body re-asked
+// from drain, guarded on sessions.body_pending — but this run succeeded on
+// first sight, so that flag was never set and the second tick's drain finds
+// nothing to retry. What still makes a second execution impossible even if it
+// were retried is the runs table's `UNIQUE (session_id, trigger_comment_id)`;
+// see [TestALateAssignmentFiresTheBodyOnALaterTick] for the case that
+// exercises the retry path this test deliberately does not reach.
 func TestAnAssignedIssueBodyRunsOnceAsTheFirstInstruction(t *testing.T) {
 	f := newFixture(t)
 	f.plantCursor()
@@ -796,6 +801,152 @@ func TestANonOwnerAssigneeDoesNotFireTheBody(t *testing.T) {
 	}
 	if posted, reacted, _ := f.forge.snapshot(); len(posted) != 0 || len(reacted) != 0 {
 		t.Errorf("posted %d comments and %d reactions, want none", len(posted), len(reacted))
+	}
+}
+
+// TestALateAssignmentFiresTheBodyOnALaterTick is AC-2.1 and AC-2.2, and it is
+// the defect behind issue #10 itself: litefactory notices an issue before the
+// owner assigns it to himself, and the body must still run once he does, on a
+// later tick, with no comment required.
+//
+// The issue's update time is deliberately never touched by the assignment
+// (see [forgeServer.assign]) and is pushed further into the past before it,
+// so the only thing that can bring this session back is the union
+// [Daemon.discover] performs over [store.DB.ListBodyPendingSessions] — this
+// is not "the body ran eventually because a listing helped", it is "the body
+// ran because the daemon remembered to ask again".
+func TestALateAssignmentFiresTheBodyOnALaterTick(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	const body = "/spike add a /health endpoint that returns 200"
+	f.forge.addIssue(fakeIssue{
+		Number: testIssue,
+		Title:  "Add a /health endpoint",
+		Body:   body,
+		User:   stranger(),
+		// No Assignees: unassigned when litefactory first sees it.
+	})
+
+	f.settle() // first sight: refused for want of assignment
+
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatalf("ran %d turns before assignment, want none", len(calls))
+	}
+	if !f.session().BodyPending {
+		t.Fatalf("the session is not marked body_pending after a refusal for want of assignment")
+	}
+
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+	f.forge.assign(testIssue, owner())
+
+	f.settle()
+
+	calls := f.turns.calls()
+	if len(calls) != 1 {
+		t.Fatalf("the executor was called %d times after a late assignment, want 1\nlogs:\n%s",
+			len(calls), f.logs)
+	}
+	req := calls[0]
+	if req.Trigger.CommentID != 0 {
+		t.Errorf("trigger comment id is %d, want 0: the body, not a comment", req.Trigger.CommentID)
+	}
+	if req.Trigger.Author != strangerLogin {
+		t.Errorf("trigger author is %q, want %q — the issue's author, not the owner",
+			req.Trigger.Author, strangerLogin)
+	}
+	if req.Command.Kind != turn.KindSpike {
+		t.Errorf("the body parsed to %s, want %s", req.Command.Kind, turn.KindSpike)
+	}
+	if got := f.watermark(); got != 0 {
+		t.Errorf("watermark is %d after the body ran, want 0", got)
+	}
+	if f.session().BodyPending {
+		t.Errorf("the session is still marked body_pending after the body ran")
+	}
+
+	// And it fires only once: a comment-less tick after the run must not run
+	// it again.
+	f.settle()
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{0}) {
+		t.Errorf("turns ran for %v, want [0]: the body fires exactly once", got)
+	}
+}
+
+// TestNoRetryRefusalsNeverMarkBodyPending is AC-2.7: a refusal for an empty
+// body and a refusal because the issue already has comments must never leave
+// sessions.body_pending set, whether or not the issue happens to be assigned
+// — retrying either would only ever find the same refusal again, since an
+// empty body stays empty and comments only accumulate.
+func TestNoRetryRefusalsNeverMarkBodyPending(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		assigned      bool
+		body          string
+		commentBefore bool
+	}{
+		{name: "unassigned, empty body", assigned: false, body: ""},
+		{name: "unassigned, already has a comment", assigned: false, body: "/spike do it", commentBefore: true},
+		{name: "assigned, empty body", assigned: true, body: ""},
+		{name: "assigned, already has a comment", assigned: true, body: "/spike do it", commentBefore: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.plantCursor()
+			issue := fakeIssue{
+				Number: testIssue,
+				Title:  "Add a /health endpoint",
+				Body:   tc.body,
+				User:   stranger(),
+			}
+			if tc.assigned {
+				issue.Assignees = []fakeUser{owner()}
+			}
+			f.forge.addIssue(issue)
+			if tc.commentBefore {
+				f.forge.addComment(testIssue, 900, stranger(), "is anyone looking at this?")
+			}
+
+			f.settle()
+
+			if f.session().BodyPending {
+				t.Fatalf("body_pending is set after a refusal that must never be retried\nlogs:\n%s", f.logs)
+			}
+			if calls := f.turns.calls(); len(calls) != 0 {
+				t.Fatalf("ran %d turns, want none", len(calls))
+			}
+		})
+	}
+}
+
+// TestBodyPendingClearsWhenTheIssueIsClosed is AC-2.9: a closed issue leaves
+// no pending state behind, discovered only through the very union that
+// exists to bring a body-pending session back.
+func TestBodyPendingClearsWhenTheIssueIsClosed(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.forge.addIssue(fakeIssue{
+		Number: testIssue,
+		Title:  "Add a /health endpoint",
+		Body:   "/spike add a health endpoint",
+		User:   stranger(),
+	})
+
+	f.settle() // first sight: refused for want of assignment
+
+	if !f.session().BodyPending {
+		t.Fatalf("the session is not marked body_pending after a refusal for want of assignment")
+	}
+
+	f.forge.staleIssue(testIssue, f.clock.Now().Add(-24*time.Hour))
+	f.forge.closeIssue(testIssue)
+
+	f.settle()
+
+	if f.session().BodyPending {
+		t.Errorf("the session is still marked body_pending on an issue found closed")
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Errorf("ran %d turns on a closed issue, want none", len(calls))
 	}
 }
 

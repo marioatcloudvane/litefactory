@@ -21,7 +21,11 @@
 //     AC-2.8).
 //  2. Union that with the sessions the store says still need a poll, which
 //     costs no API quota and is what finds work the listings can no longer
-//     reach (RD-2, [store.DB.ListBacklogSessions]).
+//     reach (RD-2, [store.DB.ListBacklogSessions]), and again with the
+//     sessions still carrying an open issue-body decision — also no API
+//     cost — which is what finds a task the owner assigned after litefactory
+//     had already looked at it once ([store.DB.ListBodyPendingSessions]; see
+//     "An issue body can run once" below).
 //  3. For each, find or create the task and name it. Nothing has been acted on
 //     yet: what discovery produces is a set of candidates.
 //
@@ -123,6 +127,54 @@
 // That single check is also what makes a contended per-task lock behave as
 // AC-3.1 requires: nothing was consumed, so the queue stops and a later tick
 // retries, with no queue and no "busy" reply.
+//
+// # An issue body can run once, as the task's first instruction — and the question is durable, not a single moment
+//
+// The comment queue is not the only way a run starts. On a task's first
+// sight — before any of its existing comments are read — [Daemon.runIssueBody]
+// looks at the issue itself and treats its body as the first instruction, when
+// all of these hold: the issue is assigned to the owner, matched on the
+// numeric user id and never on a handle; its body is not empty or whitespace;
+// and it has no comments yet, because an issue that has already been talked on
+// has a conversation to follow instead of a body to replay underneath it.
+//
+// The gate is assignment, not authorship. Anyone may open an issue, but only
+// the owner's own account can assign one to the owner, and assigning it to
+// himself is the act of instruction; the issue's author — who may be a
+// stranger — is carried through only as the prompt's attribution.
+//
+// Assigning an issue *after* litefactory has already seen it is not a special
+// case: the decision is not "ask once, at the instant this task is first
+// seen" but "ask, and keep asking until the answer stops being no". A refusal
+// made for want of assignment — and only that refusal, and only when the body
+// is non-empty, the issue has no comments, and the parsed command spawns
+// something — is recorded on the session (sessions.body_pending) and asked
+// again on every later tick, because GitHub does not document what bumps an
+// issue's updated_at and assignment is not confirmed to be among the actions
+// that do: the forge's own listings may never bring this task back on their
+// own once its watermark is planted. [Daemon.discover] unions the sessions
+// still carrying that flag into what it found, at no API cost, exactly the
+// way it already does for [store.DB.ListBacklogSessions]; the flag is what
+// [Daemon.work]'s drain arm checks before it asks [Daemon.runIssueBody] a
+// second time, so an ordinary session — never refused this way, or already
+// settled one way or the other — pays nothing for the possibility. The flag
+// clears the moment the body runs, the moment its refusal becomes permanent
+// (an empty body, or comments that have since arrived), or the moment the
+// issue is found closed. See ".aiteam/AC_AMENDMENTS.md" for the amendment to
+// AC-2.16b this durability corrects, and [Daemon.runIssueBody] for the full
+// narrowing.
+//
+// Every branch that declines to run the body logs why, and not all of them at
+// the same level. A refusal that follows the owner having pointed litefactory
+// at this issue — an empty body, an issue that already has comments, a body
+// that parses to nothing to act on, or a named command that spawns nothing —
+// logs at Info, because it is the only trace of that decision the owner can
+// otherwise not tell apart from litefactory simply not running. The "not
+// assigned to the owner" branch stays at Debug: it fires for nearly every open
+// issue in nearly every registered repository on nearly every tick
+// ([Daemon.sight]), and it is not a refusal in the owner's sense, since nobody
+// asked litefactory for anything — even on the ticks where it is being asked
+// again for a session already marked body_pending.
 //
 // # Failure is a state to survive, not a reason to die
 //

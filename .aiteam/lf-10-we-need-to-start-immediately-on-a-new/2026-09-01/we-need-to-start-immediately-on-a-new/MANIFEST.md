@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-09-01, revised in place by runs 0002 and 0003)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done — 2026-09-01, three stories: `US-1.md`, `US-2.md`, `US-3.md`)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -83,7 +83,65 @@ asked for; nothing here licenses starting the next one.
   open and belonging to Plan rather than to him.** Research remains closed; Plan needs its own human
   comment.
 
+- 2026-09-01 — **Plan** complete. Headless. Reached from the owner's comment *"implement it!"*, which
+  points at Implement; the Implement gate requires `plan_brief.md` and only `RESEARCH_BRIEF.md`
+  existed, so per `CLAUDE.md`'s missing-gate rule this run fell back to Plan rather than asking
+  (nobody can answer in a headless run). Wrote `plan_brief.md` plus three sub-issues — `US-1.md`
+  (the brief's Story A1), `US-2.md` (Story A2/R-body′), `US-3.md` (Story B/SD-2). The brief's Story C
+  stays dissolved.
+  **The substantive work of this run is that OQ-6 was decided *against* the research brief's own
+  recommendation.** Run 0003 recommended mechanism (c) — keep `sessions.needs_poll` set, narrowed to
+  plausible candidates — and explicitly left it to Plan to check that against the mechanism's real
+  shape. It was checked and it does not hold, for three reasons verified in this worktree: (1) a mark
+  set inside `runIssueBody` is **wiped by the same tick**, because `Daemon.work` calls `clearBacklog`
+  unconditionally whenever `!deferred` (`internal/daemon/tick.go:950-955`), `deferred` is only ever
+  assigned from `drain` (`:944`), and `bootstrap` (`:942`) returns an error alone — the code names
+  `:954` "the one clear site" in its own comment; (2) `needs_poll` is *also* cleared inside `run`
+  (`:1432`), so an unrelated comment-triggered run on the same session would silently destroy the
+  state — a correctness bug, not a style objection; (3) `needs_poll`'s documented contract is
+  self-healing stale-true (`0002_session_backlog.sql:21-24`) and a body-retry flag never self-heals.
+  **Adopted instead: a dedicated `sessions.body_pending` column via `0003_*.sql`**, doing double duty
+  as the discovery trigger (unioned into `discover` at no API cost) and as the free short-circuit
+  guarding a body-gate call added to the **drain** arm of `work` — because bringing the session back
+  is useless on its own, `drain` never touching the body being the second half of the defect the
+  brief had folded into the first. The ledger's migration-budget precedent
+  (`.aiteam/AC_AMENDMENTS.md:1286-1312`) was weighed and judged not to apply: the cheaper option is
+  broken, not merely uglier. Retry marking narrowed to the **not-assigned** branch only, plus
+  non-empty body, zero comments and a spawning command — which needs `ParseCommand` moved above the
+  gate (pure function, free, but load-bearing for the index bound). Empty-body and has-comments
+  refusals are **not** retried; the second is monotonic, the first is a deliberate narrowing whose
+  consequence is recorded in US-2 (**issue #10 itself is the empty-body case, so US-2 alone would not
+  have started it**). Bound on runaway retries: no age cap and no config key — the flag clears on run,
+  on permanent refusal, and on close, and per-tick cost stays at `max_concurrent_runs` issue reads
+  because `materialise`'s `GetIssue` (`:896`) happens *after* `offer` takes a pool slot (`:766`),
+  confirming `APP_CONTEXT.md`'s claim against source. Residual recorded as an explicit task
+  (T-2.7): body-pending sessions compete for the same pool slots as comment-driven work, so cost is
+  bounded but *latency* is not, and an admission order is owed.
+  **Citation rot: six new instances found, all in the brief's own text**, breaking run 0003's clean
+  streak — `tick.go:940-948`→`:940-944` (bootstrap-vs-drain), `:1043-1051`→`:1046-1055` ("watermark
+  first"), `:1505-1511`→`:1510-1515` (`refuseTools` Info branch), `:1107-1118`→`:1105`/log `:1113`
+  (`!Spawns()`), `classify.go:343-352`→`:352-356` (the Info precedent),
+  `classify_test.go:521-552`→`:528` (`TestSelfDropIsLogged`). None changes a conclusion; all are
+  tabulated in `plan_brief.md`'s *Provenance*. **One claimed drift was itself wrong and is recorded
+  because it nearly deleted a task**: the architecture review reported that
+  `internal/harness/prompt.go`'s "not reachable today" claim no longer exists and advised dropping
+  the rewrite. It was read directly — the text **is present and the brief's `:247-256` is exact** —
+  and the task is retained in US-2 (T-2.9). Plan is closed; Implement needs its own human comment,
+  and the owner's earlier "implement it!" does not carry over, because the gate was shut when it was
+  written.
+
 ## Notes
+
+**Plan-run assumptions**, recorded because this was headless and nobody could be asked. The
+load-bearing one: **an issue whose body was empty at first sight is deliberately not retried**, so
+filling in a body later does not auto-start it — the owner comments, which already works. This was
+taken on the dispatching instruction rather than from the owner's own words, and it is the narrowing
+that keeps every empty issue in the repository out of the new partial index. It is stated in US-2's
+*Architecture Notes* together with the fact that issue #10 is itself that case. Second: an **age cap**
+on retries was considered and deferred rather than dropped, on the grounds that it would need a
+config key and config in this codebase is not free. Third: the three-story split, and the decision to
+keep US-2 whole rather than splitting its store plumbing from its control flow, is Plan's judgement —
+splitting would ship a column nothing reads, and dead code is a worse artifact than one large story.
 
 Feature slug supplied by the runner: `we-need-to-start-immediately-on-a-new`. Nobody can answer a
 question in this run, so open questions are recorded in the brief rather than asked.

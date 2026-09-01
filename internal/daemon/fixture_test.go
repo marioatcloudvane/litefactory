@@ -542,6 +542,28 @@ func (f *forgeServer) setLabels(number int, labels ...string) {
 	f.t.Fatalf("no issue %d to relabel", number)
 }
 
+// assign sets an issue's assignees on the primary repository, the way GitHub
+// does when the owner assigns himself — and, deliberately, without touching
+// its update time the way [forgeServer.setLabels] does for a relabel.
+// Research behind AC-2.16b's amendment established that GitHub does not
+// document what bumps an issue's updated_at, and assignment is not among the
+// actions this fixture models as one that does; a test that wants a late
+// assignment noticed through anything other than
+// [store.DB.ListBodyPendingSessions] would be testing a channel this feature
+// does not rely on.
+func (f *forgeServer) assign(number int, assignees ...fakeUser) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rs := f.state(testOwnerName, testRepoName)
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].Assignees = assignees
+			return
+		}
+	}
+	f.t.Fatalf("no issue %d to assign", number)
+}
+
 // staleIssue backdates an issue's UpdatedAt on the primary repository.
 func (f *forgeServer) staleIssue(number int, at time.Time) {
 	f.staleIssueIn(testOwnerName, testRepoName, number, at)

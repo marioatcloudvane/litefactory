@@ -53,6 +53,12 @@ type Session struct {
 	// of anything the forge's timestamp-indexed listings can still see. See
 	// [DB.SetSessionNeedsPoll].
 	NeedsPoll bool
+	// BodyPending marks a session whose issue-body decision is still open: a
+	// refusal to run the body for want of assignment that is worth asking
+	// again on a later tick, because the owner may assign the issue after
+	// litefactory first saw it (AC-2.16b as amended in
+	// .aiteam/AC_AMENDMENTS.md). See [DB.SetSessionBodyPending].
+	BodyPending bool
 	// CreatedAt and UpdatedAt are bookkeeping.
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -412,18 +418,92 @@ func (db *DB) ListBacklogSessions(ctx context.Context) ([]Session, error) {
 	return out, nil
 }
 
+// SetSessionBodyPending marks a session whose issue-body decision is still
+// open: the body was refused for want of assignment, and only for that
+// reason, with the body non-empty, no comments yet, and a command that would
+// spawn something — see [Daemon.runIssueBody] in internal/daemon for where
+// that narrowing is decided.
+//
+// It has the same protocol as [DB.SetSessionNeedsPoll]: setting a session that
+// already carries the flag is a no-op, so the call needs no read first, and a
+// session that does not exist is [ErrNotFound].
+func (db *DB) SetSessionBodyPending(ctx context.Context, sessionID int64) error {
+	return db.setSessionBodyPending(ctx, sessionID, true)
+}
+
+// ClearSessionBodyPending takes the flag off a session whose issue-body
+// decision has been settled for good: the body ran, the refusal became
+// permanent (an empty body, or an issue that now has at least one comment —
+// AC-2.16d), or the issue was found closed.
+//
+// Clearing a session that is not flagged is not an error. A session that does
+// not exist is [ErrNotFound].
+func (db *DB) ClearSessionBodyPending(ctx context.Context, sessionID int64) error {
+	return db.setSessionBodyPending(ctx, sessionID, false)
+}
+
+func (db *DB) setSessionBodyPending(ctx context.Context, sessionID int64, pending bool) error {
+	verb := "clear"
+	if pending {
+		verb = "set"
+	}
+	res, err := db.sql.ExecContext(ctx,
+		`UPDATE sessions SET body_pending = ?, updated_at = ? WHERE id = ?`,
+		pending, FormatTime(nowUTC()), sessionID)
+	if err != nil {
+		return fmt.Errorf("store: %s body_pending on session %d: %w", verb, sessionID, err)
+	}
+	return requireAffected(res, fmt.Sprintf("store: %s body_pending on session %d", verb, sessionID))
+}
+
+// ListBodyPendingSessions returns every session still carrying an open
+// issue-body decision, ordered by id.
+//
+// It is the union [Daemon.discover] adds alongside [DB.ListBacklogSessions]:
+// costs no API quota, is deliberately cross-repo for the same reason the
+// backlog is, and reads a partial index covering exactly the flagged rows, so
+// the steady state — every body decision settled — costs nothing to check
+// (AC-2.8).
+//
+// It returns sessions, not issues, for the same reason ListBacklogSessions
+// does: the caller fetches the forge issue lazily, only once the dispatcher
+// has actually selected the session to run.
+func (db *DB) ListBodyPendingSessions(ctx context.Context) ([]Session, error) {
+	rows, err := db.sql.QueryContext(ctx,
+		`SELECT `+sessionColumns+` FROM sessions WHERE body_pending = 1 ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list body-pending sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Session
+	for rows.Next() {
+		session, err := scanSession(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: list body-pending sessions: %w", err)
+		}
+		out = append(out, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list body-pending sessions: %w", err)
+	}
+	return out, nil
+}
+
 // sessionColumns is the column list every session read shares, in the order
 // scanSession expects.
 const sessionColumns = `
     id, repo_id, issue_number, task_ref, feature_slug, branch, worktree_path,
-    state, lock_owner, lock_acquired_at, created_at, updated_at, needs_poll`
+    state, lock_owner, lock_acquired_at, created_at, updated_at, needs_poll,
+    body_pending`
 
 // prefixedSessionColumns is sessionColumns qualified for a join.
 const prefixedSessionColumns = `
     sessions.id, sessions.repo_id, sessions.issue_number, sessions.task_ref,
     sessions.feature_slug, sessions.branch, sessions.worktree_path,
     sessions.state, sessions.lock_owner, sessions.lock_acquired_at,
-    sessions.created_at, sessions.updated_at, sessions.needs_poll`
+    sessions.created_at, sessions.updated_at, sessions.needs_poll,
+    sessions.body_pending`
 
 func scanSession(s scanner) (Session, error) {
 	return scanSessionWith(s)
@@ -447,7 +527,7 @@ func scanSessionWith(s scanner, extra ...any) (Session, error) {
 	dest := []any{
 		&session.ID, &session.RepoID, &session.IssueNumber, &session.TaskRef,
 		&slug, &branch, &worktreePath, &state, &lockOwner, &lockAt,
-		&createdAt, &updatedAt, &session.NeedsPoll,
+		&createdAt, &updatedAt, &session.NeedsPoll, &session.BodyPending,
 	}
 	dest = append(dest, extra...)
 

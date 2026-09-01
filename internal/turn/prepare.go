@@ -152,8 +152,17 @@ func prepare(
 	// A trigger id of 0 is the issue body rather than a comment (see
 	// [Trigger.CommentID]): the run was started by assigning the issue, so the
 	// body is the instruction and must not also be framed as third-party
-	// material to evaluate (D-N, AC-2.25). The condition is decided here, once;
-	// harness does the rest of it.
+	// material to evaluate (D-N, AC-2.25). The condition is decided here, once
+	// per turn; harness does the rest of it.
+	//
+	// It says nothing about whether this run is the first of its conversation.
+	// internal/daemon may re-ask its issue-body gate on a later tick than the
+	// one that first saw the issue (Daemon.runIssueBody, guarded on
+	// sessions.body_pending), so a body-triggered turn can now arrive here
+	// after this same session already has a comment-triggered run behind it,
+	// with resume computed true just above because of it. bodyIsInstruction
+	// and resume are independent facts about this one turn, not a claim about
+	// which came first.
 	bodyIsInstruction := req.Trigger.CommentID == 0
 
 	// Permission to ask is the conjunction, assembled here and handed to the

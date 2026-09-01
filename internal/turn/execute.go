@@ -182,13 +182,24 @@ type Trigger struct {
 	// the runs row, and that uniqueness is the whole crash-replay guarantee
 	// (AC-3.4).
 	//
-	// Zero is not a comment. It is the issue body, run as the first instruction
-	// on an issue assigned to the owner (AC-2.16b), and it is deliberately not
+	// Zero is not a comment. It is the issue body, run as an instruction on an
+	// issue assigned to the owner (AC-2.16b) — on first sight if the issue was
+	// already assigned then, or on a later tick once it is, whichever comes
+	// first (Daemon.runIssueBody in internal/daemon; see
+	// .aiteam/AC_AMENDMENTS.md's amendment to AC-2.16b). It is deliberately not
 	// the issue's own forge id: reporting a run advances the comment watermark
 	// to this value, so any positive id here would push the watermark past
 	// every comment the issue will ever receive and swallow them all. Zero
-	// makes that advance a MAX(0, 0) no-op (AC-2.23) while the runs table's
-	// (session, trigger comment) uniqueness still fires a body exactly once.
+	// makes that advance a MAX(0, 0) no-op (AC-2.23).
+	//
+	// A body may now be *asked for* more than once per session — internal/daemon
+	// re-asks its gate on a later tick when an earlier refusal was for want of
+	// assignment — but it still runs at most once: the runs table's
+	// `UNIQUE (session_id, trigger_comment_id)` refuses a second row at trigger
+	// id 0, and [Execute] degrades that refusal to [DispositionAlreadyRan]
+	// rather than erroring, exactly as a replayed comment already does. Asking
+	// twice is safe *because* of that constraint now, not because the question
+	// was only ever asked once.
 	//
 	// Negative is neither, and is refused.
 	CommentID int64
