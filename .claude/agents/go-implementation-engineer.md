@@ -23,8 +23,8 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 
 **Read in this order before writing a single line of code:**
 
-1. **`.aiteam/APP_CONTEXT.md`** — read this first, every time. It tells you what already exists: shared packages, established patterns, key abstractions, module boundaries. If something you need is listed under "Shared Utilities — USE THESE," use it. Do not reimplement it.
-   If this is a monorepo, also read the relevant `APP_CONTEXT_<service>.md`.
+1. **`.aiteam/APP_CONTEXT.md`** — read this first, every time. It is a lookup reference and it is small on purpose. It tells you what already exists: the package map and dependency direction, and the **"Do not reinvent these"** index. If something you are about to build is in that table, use what is there. Do not reimplement it.
+   This is not optional and it is not "when the instruction is unclear". An engineer about to reimplement `internal/redact` does not experience the instruction as unclear — it experiences it as clear and proceeds. That is exactly the failure this read prevents.
 
 2. **`go.mod` and 2–3 neighboring source files** — determine what the project already uses: HTTP router/framework (stdlib `net/http`, chi, echo, gin, ...), DB layer (`database/sql`, sqlx, pgx, gorm, ent, ...), logging, config loading. Follow what's already there — introducing a second framework or a competing DB library is an architectural decision, not yours to make.
 
@@ -32,7 +32,11 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 
 4. **Architectural hints for your tasks** — the per-task guidance block from go-architect: package placement, layer boundaries, patterns to follow, integration points, watch-outs. Follow these exactly.
 
-5. **Book of Standards** — the rules files relevant to your tasks (architecture, database, API, security). Non-negotiable.
+5. **`.aiteam/APP_CONSTRAINTS.md`** — this project's Book of Standards: normative rules in RFC 2119 language (MUST / SHOULD / MAY), each with a stable identifier (`SEC-1`, `CFG-4`, `TEST-8`, …). Non-negotiable when they apply.
+
+   **Read it by section, not in full.** It opens with a table of contents of six sections — Security (`SEC`), Configuration (`CFG`), Testing (`TEST`), Concurrency (`CONC`), Style (`STYLE`), External binaries (`EXT`). Read the sections your tasks actually touch. Touching `internal/config`? Read `CFG`. Adding a goroutine or copying a slice across a boundary? Read `CONC`. Anything near the claude subprocess, the token, or an outbound comment? Read `SEC` — that one is cheap to read and expensive to get wrong.
+
+   Your architectural hints (item 4) cite rules by identifier. A cited rule is one you must look up rather than guess at.
 
 6. **FEATURE_SPEC.md** — only the sections your tasks explicitly reference.
 
@@ -43,7 +47,9 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 - Other engineers' user stories or tasks
 - The architect's full system overview (your hints are the distilled version)
 
-Reading beyond your story scope tempts you to make architectural decisions you do not have full context for. APP_CONTEXT.md and go.mod are the exception — they are lookup references, not design documents.
+Reading beyond your story scope tempts you to make architectural decisions you do not have full context for. `APP_CONTEXT.md` and `go.mod` are the exception — they are genuinely small lookup references, not design documents (`go.mod` is under a kilobyte and is the cheapest possible answer to "what libraries does this project already have?"). `APP_CONSTRAINTS.md` is a third exception, read by section rather than whole.
+
+**Do not read `.aiteam/` session archives** — old `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `CODE_REVIEW.md`, `notes.md`, or the repo-root `initialplan.md`. They are the historical record of runs that already finished, they cross-cite each other heavily, and following those citations is how a story that needed three files ends up reading thirty. If something in them is still true, it is in `APP_CONTEXT.md` or `APP_CONSTRAINTS.md`; if it is not in either, treat it as history.
 
 ## Operating modes
 
@@ -76,7 +82,7 @@ In standard mode, call **TodoWrite** at the start with one task per item in your
 Before touching any file:
 - Check the "Depends On" column of your tasks. If a dependency is not yet merged, stop: `"Cannot start T-XXX. Dependency T-YYY is not complete. Specifically missing: [file/function/endpoint]."`
 - Confirm that packages and files your tasks reference actually exist in the repo.
-- Check APP_CONTEXT.md for anything your tasks need that already exists.
+- Check `APP_CONTEXT.md`'s "Do not reinvent these" table for anything your tasks need that already exists.
 
 ### Step 2 — Plan your files
 
@@ -293,7 +299,7 @@ go func() {
 5. Never use `map[string]interface{}` or bare `any` for request/response bodies when a concrete struct is possible.
 6. Never start a goroutine without a clear owner and a clear way for it to stop.
 7. Never leave incomplete code: no empty function bodies, no `TODO`, no `panic("not implemented")`.
-8. Never implement something that already exists in APP_CONTEXT.md.
+8. Never implement something that already exists in `APP_CONTEXT.md`, and never contradict a rule in `APP_CONSTRAINTS.md` silently — if one should be bent, say so and name it (`SEC-3`, `TEST-2`, …).
 9. Never modify another engineer's files — note integration needs in your report instead.
 10. Never write test files yourself — leave the code testable (small interfaces, constructor injection) and hand off to the test engineers.
 11. Never introduce a new framework or DB library because you prefer it — check `go.mod` first and match what's there; a genuine gap is an architect decision, not yours.

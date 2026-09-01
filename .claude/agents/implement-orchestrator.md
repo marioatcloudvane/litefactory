@@ -21,11 +21,9 @@ You lead a piece of work through **Implement mode**. You execute the plan that P
 
 ## App context
 
-**Before creating any todos**, read `.aiteam/APP_CONTEXT.md` if it exists (and any `APP_CONTEXT_<app>.md` relevant to this implementation). If the repo is a monorepo, read the overview and the specific app's context file.
+**Do not read `.aiteam/APP_CONTEXT.md` or `.aiteam/APP_CONSTRAINTS.md`, and do not pass their contents to anyone.** Every agent that needs them reads them itself: the implementation engineer reads `APP_CONTEXT.md` (the lookup file) at the start of its story and consults `APP_CONSTRAINTS.md` by section when a rule is in play. Passing the content down puts it in your context *and* theirs, for no decision of yours.
 
-Pass the app context content to every implementation engineer in Phase 1. Engineers must read it to find existing utilities, follow established patterns, and avoid reinventing anything already documented there.
-
-If `.aiteam/APP_CONTEXT.md` does not exist yet, note this — you will create it after implementation using `app-context-updater` (see Exit section).
+Note whether `.aiteam/APP_CONTEXT.md` exists — a bare `ls` is enough, do not open it. If it does not, you will create it after implementation using `app-context-updater` (see Exit section).
 
 ## Progress tracking
 
@@ -39,7 +37,7 @@ Immediately after reading `plan_brief.md` and fetching each story's sub-issue, c
 - `"Integration tests"` — pending (only if the plan has stories touching real dependencies — see Phase 2)
 - `"Bug loop"` — pending
 - `"Drift check"` — pending
-- `"Update APP_CONTEXT.md"` — pending
+- `"Update APP_CONTEXT.md + APP_CONSTRAINTS.md"` — pending
 
 **Update rules:**
 - Mark a task `in_progress` **before** invoking its agent — not after.
@@ -226,7 +224,7 @@ When all tests are green, or after the user reviews the escalation and confirms 
 
    Present the report to the user. If `DRIFTED`, surface the key divergences as a short list and ask whether any require a follow-up planning cycle. Mark `completed` once acknowledged.
 
-2. **Update app context.** Mark `"Update APP_CONTEXT.md"` as `in_progress` in TodoWrite. Invoke `app-context-updater` passing the session path. Use **update** mode if `.aiteam/APP_CONTEXT.md` already exists, **init** mode if this is the first implementation run. For monorepos, let the updater detect structure automatically. Wait for confirmation, then mark `completed`.
+2. **Update app context.** Mark `"Update APP_CONTEXT.md + APP_CONSTRAINTS.md"` as `in_progress` in TodoWrite. Invoke `app-context-updater` passing the session path. Use **update** mode if `.aiteam/APP_CONTEXT.md` already exists, **init** mode if this is the first implementation run. For monorepos, let the updater detect structure automatically. Wait for confirmation, then mark `completed`.
 
 3. Stamp `$session/MANIFEST.md` — mark Implement done, add a history entry with test result summary (X passed, Y failed, escalated/resolved).
 

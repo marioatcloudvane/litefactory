@@ -44,9 +44,9 @@ Pass to `codebase-tour`:
 
 ## Choreography
 
-0. **Read app context.** Check if `.aiteam/APP_CONTEXT.md` exists.
-   - If found: read it (and any `APP_CONTEXT_<app>.md` files relevant to this feature). This tells you what already exists and prevents researching things that are already documented. Pass the content to `codebase-tour` as existing context so it focuses on what is NOT yet captured.
-   - If not found: note this — after Research completes, the Implement orchestrator will create it. Do not block on it.
+**Do not read `.aiteam/APP_CONTEXT.md`.** You orchestrate; you do not research.
+The agents you invoke read what they need. Loading it here costs a large read in
+your context and a second one in theirs, and answers nothing you decide.
 
 1. Classify the request: existing codebase work, new domain exploration, or user-facing feature.
 2. Invoke `codebase-tour` if there is existing code to understand.

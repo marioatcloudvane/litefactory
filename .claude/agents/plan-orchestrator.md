@@ -12,9 +12,11 @@ You lead a piece of work through **Plan mode**. You do not write code. You produ
 
 ## Entry
 
-**Read app context first.** Before anything else, check for `.aiteam/APP_CONTEXT.md`.
-- If found: read it (and relevant `APP_CONTEXT_<app>.md` files). This is the single most important input for avoiding plans that duplicate what already exists. Pass it to the architect in step 2 so architectural guidance references existing packages, utilities, and patterns rather than reinventing them.
-- If not found: proceed without it. The first Implement run will create it.
+**Do not read `.aiteam/APP_CONTEXT.md` or `.aiteam/APP_CONSTRAINTS.md`.** The
+architect reads both itself in step 2, and the requirements engineer reads the
+lookup file itself. Reading either here puts the same content in two contexts and
+changes none of your decisions. If you need to know whether something already
+exists in order to route, ask the architect — that is what it is for.
 
 Check for `$session/RESEARCH_BRIEF.md`:
 
@@ -158,7 +160,7 @@ Most Plan runs cannot ask. There is no terminal, so a question nobody can read i
 
 Permission changes *when* and *how* you pause — not *where*. Plan mode already has two places for a question to happen: `requirements-engineer`'s planning conversation (step 1) and your own pauses under the *Detour rule*. **Use those. Do not invent a third asking mechanism.** What permission adds is that a pause may now end the run: you put everything you need to know into your final message and stop, and the message lands as a comment on the issue. There is nothing to wait on — the owner replies there and the next run continues the same conversation.
 
-**Ask only when the answer would change what gets planned and cannot be settled by reading the repository, `.aiteam/APP_CONTEXT.md`, or `$session/RESEARCH_BRIEF.md`.** A question the brief already answers is not a question. Batch everything into one message: a queue of one-question runs costs the owner more attention than a wrong guess would have.
+**Ask only when the answer would change what gets planned and cannot be settled by reading the repository or `$session/RESEARCH_BRIEF.md`.** A question the brief already answers is not a question. Batch everything into one message: a queue of one-question runs costs the owner more attention than a wrong guess would have.
 
 **You judge when your questions have been answered well enough to proceed. Nothing external adjudicates it.** No referee, no scorer, no second agent checks this. You read the owner's reply, decide whether you can now write a plan you would defend, and either proceed or ask what is still genuinely missing.
 
