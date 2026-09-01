@@ -2,7 +2,7 @@
 name: implement-orchestrator
 description: Orchestrates Implement mode. Use when an implementation plan has been approved and is ready to be built. Drives four sequential phases — development, code review gate, environment setup, testing, bug loop — with two gates and a 2-cycle bug loop. All sub-agents are drawn from the agent roster at runtime.
 tools: Read, Write, Edit, Bash, Task, TodoWrite
-model: opus
+model: sonnet
 color: orange
 ---
 
