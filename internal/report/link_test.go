@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -489,3 +490,55 @@ func openFences(body string) int {
 // wraps does not matter: internal/report words the callout from the message,
 // and the gate under test reads [report.Run.Pushed], not the error.
 var errPushDenied = errors.New("git push origin lf/123-add-dry-run-to-task-clean: permission denied (publickey)")
+
+// TestABriefNamedOnAnEarlierDayIsStillLinked is the regression this file exists
+// to hold onto.
+//
+// The brief link used to be derived from the run's own start day, on the
+// assumption that a task finishes on the day its session directory was named.
+// Issue #8 broke that assumption in the most ordinary way available: run 1 at
+// 18:52 UTC on the 31st named the directory, run 2 at 06:10 UTC the next
+// morning wrote the brief into it, and the report of run 2 linked a path with
+// the next day's date in it — a 404, with the real 1072-line brief sitting one
+// directory away. The comment was right that a brief existed and wrong about
+// where, which sent its reader looking for a second artifact that had never
+// been written.
+//
+// So the report is handed the path that was found on disk, and the run's own
+// clock has nothing to do with it. This asserts the case the derivation got
+// wrong: a run days later still links the directory that exists.
+func TestABriefNamedOnAnEarlierDayIsStillLinked(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	// A month after the session directory in testBriefPath was named. Under the
+	// old derivation this rendered ".../2026-06-19/..." and 404ed.
+	run.Result.StartedAt = time.Date(2026, 6, 19, 9, 30, 0, 0, time.UTC)
+	run.Result.FinishedAt = run.Result.StartedAt.Add(time.Minute)
+
+	body := render(t, newReporter(t), run).String()
+	if !strings.Contains(body, testBriefPath) {
+		t.Errorf("the report did not link the brief that exists:\n%s", body)
+	}
+	if strings.Contains(body, "2026-06-19") {
+		t.Errorf("the link carries the run's own day, so it is derived again:\n%s", body)
+	}
+}
+
+// TestARunWithNoBriefLinksNothing covers the other half: an empty BriefPath
+// means the caller looked and found none, and inventing a plausible path for it
+// is exactly the behaviour that produced the 404 above.
+func TestARunWithNoBriefLinksNothing(t *testing.T) {
+	t.Parallel()
+
+	run := successRun()
+	run.BriefPath = ""
+
+	body := render(t, newReporter(t), run).String()
+	if strings.Contains(body, "Research brief") {
+		t.Errorf("a run with no brief still advertised one:\n%s", body)
+	}
+	if strings.Contains(body, "RESEARCH_BRIEF.md") {
+		t.Errorf("a run with no brief still named one:\n%s", body)
+	}
+}
