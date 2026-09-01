@@ -1,1072 +1,581 @@
-# Research Brief — add-codex-as-second-party-item
-
-Issue #8, "Add Codex as second party item". Research run 2026-08-31, headless —
-no human was available to answer a question, so every ambiguity is recorded in
-*Assumptions* or *Open Questions* rather than asked.
+# Research Brief — add-codex-as-second-party-item (redo)
 
 ## Provenance key
+`[V]` verified this run (read directly, path:line cited) · `[W]` web-sourced, second-hand,
+never executed against a real `codex` binary · `[O]` owner-stated (the requester's own words,
+taken as intent, not as settled design) · `[R0]` carried forward unverified from the first
+research pass (2026-08-31) — used only where this run had no way to re-check it.
 
-Every claim below carries one of these. They are not decoration: the difference
-between "I read this file" and "a blog post said so" is the difference between a
-plan that works and a plan that gets rewritten in week two.
+## Why this brief exists
+The first research pass (`git log` — session `2026-08-31`) produced a 1072-line brief that the
+requester says "did not land." Re-reading their follow-up comment `[O]`, the gap was not missing
+information but missing *shape*: they want four specific things investigated on their own terms —
+a per-turn label switch, the `AGENTS.md` convention, the model-naming vocabulary problem, and a
+concrete interface/factory design — not folded into general prose about "Claude Code coupling."
+This redo restructures around exactly those four asks, re-verifies every load-bearing claim from
+the first pass rather than trusting it, and corrects several things the first pass got wrong or
+went stale on (see the correction table in each section and the summary table at the end).
 
-| Tag | Meaning |
-|---|---|
-| `[V]` | **Verified this run** by reading the file in this repository. `path:line` given. |
-| `[R0]` | **Carried forward** from an artifact already in the tree (`APP_CONTEXT.md`, `initialplan.md`, `CLAUDE_CLI_CONTRACT.md`, `AC_AMENDMENTS.md`). Trustworthy, but written by an earlier run. |
-| `[W]` | **Second-hand, unverified.** Web documentation or a third-party writeup. **No `codex` binary was executed during this run** — this agent had no shell. Every `[W]` claim about Codex is documentation, not measurement. |
-| `[O]` | Reported by the owner (the issue text). |
-| `[?]` | **Inference.** Mine, from `[V]`/`[W]` facts. Reasoned, not observed. |
-
-**The single most important caveat in this brief:** litefactory's own stated
-convention for external binaries is *probe read-only in a scratch directory and
-write up the findings, naming the exact version verified against* `[R0]`
-(`APP_CONTEXT.md:405-424`; two such documents already exist). This run could not
-follow that convention — it had no shell. **Everything below about Codex CLI is
-`[W]`.** The first task of any plan must be to convert it to measurement.
+**Also corrected up front:** the litefactory codebase's own migration comments (`0001_init.sql`,
+`segments.go`) refer to "LF-8" as the feature that will let a session grow more than one segment
+(multi-turn resumption / comment coalescing). That is **litefactory's own internal milestone
+numbering**, unrelated to and pre-dating GitHub issue #8 ("Add Codex as second party item") — the
+shared digit is coincidence between two independent numbering schemes. Nothing in those comments
+is Codex-aware groundwork; do not read them that way. `[V]`
 
 ---
 
 ## Request
 
-> Right now, everything only works with Claude Code. Evaluate how to plug-in
-> Codex into litefactory. `[O]`
+> "re-do the research, please. also, the research brief did not land; basically, how i would
+> differentiate between codex and claude is by having a label that says 'Coding Agent: Codex |
+> Claude' and every turn it would be re-read and thus routed. I think we also need to adjust the
+> agents (codex uses agents.md) and another thing - we have currently the modles such as 'Opus' in
+> the agents, so we need to figure out how to deal with that. basically, i would expect to have an
+> interface that i can exchange and we use the interface necessary (from a factory, since we might
+> use different agents and later we also add opencode, ...!)" `[O]`
 
-Read as: OpenAI's **Codex CLI** — the headless terminal coding agent that is the
-nearest peer to the `claude` binary litefactory shells out to today — driven as a
-*second* agent tool alongside Claude Code, not as a replacement. `[?]`
+Unpacked into four investigation threads, each covered as its own section below:
+
+1. A GitHub label, re-read every turn, selecting which coding-agent CLI runs.
+2. `AGENTS.md` (Codex's convention) vs `CLAUDE.md` and the four-mode team it drives.
+3. Model names (`opus`, `sonnet`) baked into `.claude/agents/*.md` frontmatter, and what a
+   tool-neutral equivalent would look like once Codex (GPT-series) and later OpenCode are in the
+   mix.
+4. A pluggable-runner interface with a factory, sized for at least three implementations
+   (Claude Code, Codex, OpenCode).
 
 ---
 
-## Codebase Context
+## 1. Per-turn label-based routing
 
-### 0. Prior intent — this was considered once, deliberately not built, and never revisited
+### The re-read-every-turn mechanism already exists, almost verbatim
+- `internal/daemon/tools.go:29` — prefix `lf:tools=`.
+- `resolveTools(labels []string) toolDecision`, `internal/daemon/tools.go:120-188`. Order of
+  checks: no matching prefix → silent pass-through zero-value; more than one matching label
+  (case-insensitive) → `report.ReplyAmbiguousToolLabels`; malformed value (must match
+  `toolProfileName`, `^[a-z0-9][a-z0-9_-]{0,39}$`, `tools.go:40`) → `report.ReplyMalformedToolLabel`;
+  unknown profile key → `report.ReplyUnknownToolProfile`; otherwise resolved, and the profile's
+  `Tools`/`AllowedTools` slices are copied rather than aliased (`tools.go:178-187`) specifically so
+  a downstream append-in-place can't corrupt the operator's shared map. `[V]`
+- **It is explicitly documented as read fresh, not cached**: `tools.go:88-89` — "The labels are the
+  tick's fresh snapshot and are read again on every tick; nothing here is cached, and no API call
+  is made for them." `[V]`
+- Call sites: `internal/daemon/tick.go:1382` (`tools := d.resolveTools(t.issue.Labels)`), reached
+  once per drained comment via `handleComment` (`tick.go:1268-1314`, call at `:1313`) and once for
+  the issue-body-triggered first run via `runIssueBody` (`tick.go:1074-1125`, call at `:1124`). `[V]`
+- **Granularity nuance, documented as deliberate**: this is "per tick," not strictly "per turn" —
+  `tick.go:1379-1381`: "The labels are this tick's snapshot, so two comments drained in one tick
+  share it." If two comments (two conversational turns) land in a single daemon tick, they share
+  one label read. `[V]`
+- Labels themselves are never persisted in the store (checked the full `0001_init.sql` schema — no
+  labels column anywhere) and are re-fetched from GitHub every tick, either through the tick's
+  `ListIssues` (`tick.go:281`) or a lazy `GetIssue` in `materialise` (`tick.go:891-902`), populated
+  via `internal/github/issues.go:67-77` / `labelNames` at `:260`. `[V]`
 
-`initialplan.md:325-348` `[V]` is a section titled **"12. Harness boundary —
-Claude only"**. It is the only statement of intent in the tree, and it is
-unusually direct:
+**Conclusion:** the plumbing the requester is asking for — "re-read a label every turn and act on
+it" — is not hypothetical; it is the exact shape `lf:tools=` already uses today, down to the
+ambiguity/malformed/unknown-key refusal ladder. A second prefix (e.g. `lf:agent=codex` /
+`lf:agent=claude`, or however Plan mode chooses to spell "Coding Agent: Codex | Claude" as an
+actual label string — see open question below) can reuse `resolveTools`'s exact control flow as
+direct precedent. **What does not exist is anywhere for that decision to go once resolved** — see
+below.
 
-> One interface, one implementation. No registry, no YAML, no second adapter
-> until there's a real reason for one.
->
-> **What this boundary is for, and what it isn't.** It exists so the subprocess
-> handling, event parsing and allowlist logic sit in one file rather than smeared
-> through the reconciler. It is *not* an attempt to anticipate opencode. When a
-> second harness arrives, its needs will change these signatures, and that will
-> be a small honest refactor of one module. Designing for it now would mean
-> guessing, and guesses in an interface are load-bearing forever.
+### What breaks if the label value changes mid-conversation
+This is the load-bearing risk, and it is deeper than "which binary gets exec'd."
 
-Three consequences for this brief:
+- `internal/store/migrations/0001_init.sql:73-80` — `segments.claude_session_id TEXT NOT NULL`. `[V]`
+- `internal/store/segments.go:26-30` — field `ClaudeSessionID`, documented as "the value passed to
+  `claude --session-id`." `[V]`
+- `internal/naming/session.go:56-70` — `ClaudeSessionID(ref, segmentOrdinal)` **derives** a
+  deterministic UUIDv5 over `"<ref>/segment/<ordinal>"` in a pinned namespace, computed by
+  litefactory *before* any CLI runs. `[V]`
+- `internal/turn/prepare.go:109-123` computes/stores this id **unconditionally, every turn**, with
+  no branch on which agent will run. Segment ordinal is always 1 today (migration comment: "M0
+  always creates exactly one segment per session… and never advances past this" — the unrelated,
+  unbuilt "LF-8 multi-turn session" feature noted above is what would change that). `[V]`
+- `internal/turn/prepare.go:190-193` decides cold-vs-resume purely from whether **any** prior run
+  of this session exists, not from what tool produced that prior run. `[V]`
+- Compare to Codex: per web research, Codex's session/thread id runs the **opposite direction** —
+  it is emitted by the CLI at run start and discovered from output; it cannot be supplied upfront
+  the way litefactory pre-computes `ClaudeSessionID`. `[W]`, and the exact ID format/where it
+  surfaces (stdout vs a file) is unconfirmed even in web research — an open question in its own
+  right, not just a litefactory-side gap.
 
-- The absence of an abstraction is a **decision that was taken**, not an
-  oversight. Issue #8 is the "real reason" that clause anticipated. `[?]`
-- The design predicted the cost as **"a small honest refactor of one module"**.
-  Sections 1–12 below are the evidence that this estimate no longer holds — the
-  Claude assumption has since spread to five packages that do not execute the
-  binary, plus the store schema and ten golden files. `[V]`
-- `.aiteam/AC_AMENDMENTS.md` has **no entry** bearing on multi-tool support: not
-  an amendment, not a ruling, not a review, and — checked specifically — not in
-  the Deferrals section (`AC_AMENDMENTS.md:1185-1314`, which covers per-repo
-  concurrency, `naming.WorktreePath`, the LF-11 in-flight view, a rejected
-  `runs.owner` column, and `Daemon.Quiesce`). `[V]` So: **considered at design
-  time, not abstracted, never deferred, never rejected as a feature, never
-  looked at again.**
+**Concretely:** turn N runs Claude under label value `claude`. Turn N+1, label flips to `codex`.
+`prepare.go` sees a prior run exists → decides "resume" → hands a Codex runner a
+`harness.Request{Path: PathResume, ClaudeSessionID: <the pre-computed Claude UUID>}`. That UUID is
+not a Codex thread id, was never produced by Codex, and Codex has no mechanism to accept it as a
+resume token. **This is a new, concrete failure mode the requester's "re-read every turn" design
+introduces**, distinct from anything in the first pass — cold/resume selection and session-id
+derivation are today conditioned on "does history exist," never on "which tool produced it." `[V]`
 
-A repository-wide case-insensitive grep for `codex`, `openai` and `gpt-` returns
-**exactly one file**: this session's own `MANIFEST.md`. `[V]` There is no
-groundwork, no stub, no half-built seam.
+Additionally: `internal/turn/harvest.go:97-146` (`runClaude`) is single-binary-shaped by
+construction — it hard-codes a rerun-cold-on-refusal protocol keyed on
+`harness.ErrSessionNotResumable`, calling `opts.Claude.Run` twice inline. There is exactly one
+`Runner` slot in `turn.Options` (`internal/turn/execute.go:67-69`, field `Claude Runner`), wired
+once at daemon startup (`internal/daemon/setup.go:157-234`). **No per-turn selection between two
+runners exists anywhere in the tree today** — the label-*reading* half is proven-out precedent; the
+routing-to-a-second-runner half is entirely unbuilt. `[V]`
 
-### 1. Where execution actually lives
+**Worth flagging as a small but real positive:** the field is already named `Runner`, and its type
+in `turn.Options` reads as an interface slot rather than a concrete struct pointer. Plan mode
+should read the `Runner` interface's actual method set directly (not assumed here) — if it already
+abstracts over "run something and get a result," adding a second implementation may be more
+tractable than the Request/Result *data shape* suggests. That data shape, however, already leaks a
+vendor-specific name into what should be a neutral boundary: `harness.Request` carries a field
+literally named `ClaudeSessionID`, not e.g. `SessionRef` or `ResumeToken`. An interface with a
+sound method set sitting on top of a request struct with a Claude-named field is only half a seam
+— see section 4.
 
-`internal/harness` is the only package that executes the binary `[R0]`
-(`APP_CONTEXT.md:78-80`), confirmed `[V]`: its import set is `config, naming`
-only. `internal/harness/doc.go` `[V]` is the package's real specification and
-states the invocation verbatim (`doc.go:11-13`):
+### Correction vs. the first pass
+The first pass did not address the label-mechanism question at this level of specificity — it
+treated `lf:tools=` and any agent-routing label as parts of one general "coupling surface." This
+pass finds the label-reading precedent is strong and directly reusable, while the session-identity
+incompatibility is sharper and more concrete than "Claude and Codex have incompatible session-id
+semantics" — it is specifically that litefactory computes the id **before** running anything and
+Codex's id can only be **discovered after**, which is a directional mismatch, not just a format
+mismatch.
 
+---
+
+## 2. `AGENTS.md` vs `CLAUDE.md` and the team mechanism
+
+### What exists today
+- No `AGENTS.md` exists anywhere in this repository (confirmed by direct search). `[V]`
+- `CLAUDE.md` at repo root is the mode router: classifies a request into Research / Plan /
+  Implement / Spike, gates each mode on a prerequisite artifact, scaffolds a session directory, and
+  routes to exactly one of four orchestrator sub-agents — it never invokes a specialist directly.
+  States explicitly "You route; you do not work" and "One Run, One Mode." `[V]`
+- `.claude/agents/*.md` frontmatter configures **real runtime mechanism**, not prose alone: every
+  agent file declares `name:`, `description:`, `model:`; several also declare `tools:` (an enforced
+  restriction on that agent's tool surface). Confirmed examples: `web-researcher.md` →
+  `tools: WebSearch, WebFetch, TodoWrite`, `model: sonnet`; `research-orchestrator.md` →
+  `tools: Read, Write, Edit, Task, TodoWrite`, `model: sonnet`; `requirements-engineer.md` →
+  `tools: Glob, Grep, Read, Write, TodoWrite`, `model: opus`; `go-architect.md` → `model: opus`, no
+  `tools:` override (inherits the default surface). `[V]`
+- `.claude/settings.json` wires a `PreToolUse` hook on the Bash matcher to
+  `check-test-env.sh`, which **blocks** (exit 1) integration-test invocations unless specific env
+  vars are set — an enforced gate at invocation time, not a request written into a prompt. `[V]`
+
+### What a plain-prose `AGENTS.md` cannot replicate
+Three concrete gaps, not one:
+
+1. **Subagent delegation** — Claude Code's Task tool gives an orchestrator an isolated context
+   window, a restricted tool surface, and a model override, invoked programmatically per call. A
+   single merged instructions file has no unit smaller than "the whole document" to delegate a
+   sub-scope to.
+2. **Hooks** — the `PreToolUse` gate above is enforced by the harness at tool-invocation time. A
+   prose instruction ("please don't run integration tests without X set") is not an enforcement
+   mechanism.
+3. **Per-agent model routing** — `opus` for `go-architect`/`requirements-engineer`, `sonnet`
+   elsewhere, is a property of *which specialist is running*, not of the session as a whole. One
+   `AGENTS.md` file has no per-section model dial. `[V]`
+
+**On direct re-inspection this run, the first pass's core claim here holds**: the four-mode team
+(orchestrators + subagents + hooks) is a Claude Code-specific delegation mechanism, and `AGENTS.md`
+alone — as a filename convention for "read this file, prepend it as instructions" — could not
+reproduce it. `[V]`
+
+### But this needs an important qualifier the first pass did not have
+Web research this run (re-verifying, since the first pass flagged single-sourcing here) finds that
+**Codex CLI is not architecturally a single flat agent** as of its current (2026) feature set:
+
+- **`AGENTS.md`** is, on the Codex side, purely a discovery-and-concatenation mechanism — Codex
+  walks the directory tree, finds `AGENTS.md` / `AGENTS.override.md` at each level, and
+  concatenates them root-to-leaf as narrative instruction text. No special syntax for declaring
+  agents, personas, or routing rules. `[W]`
+- **Subagents are a separate, genuinely distinct feature** (a documented `/agent` slash command):
+  Codex "can run subagent workflows by spawning specialized agents in parallel and then collecting
+  their results in one response," and this is reportedly enabled by default, not opt-in. A subagent
+  inherits the parent's model/reasoning-effort unless explicitly overridden. `[W]`, medium-high
+  confidence, but resting on a small number of documentation-page fetches, not a raw page dump
+  verified verbatim, and **never confirmed against a running `codex` binary** (none was executed in
+  this environment — see below).
+- **Hooks are also separate**: shell scripts triggered on lifecycle events
+  (`SessionStart`, `SessionEnd`, `SubagentStart`, `SubagentStop`, `PreToolUse`, `PermissionRequest`,
+  `PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, `Stop`) via `~/.codex/hooks.json`
+  or `config.toml`, disable-able via `[features] hooks = false`. Community sources (not the primary
+  docs) date `PreToolUse`/`PostToolUse` to a specific recent version range and note `PreToolUse`
+  reportedly intercepts only the shell/Bash-equivalent tool, not apply-patch/edit/read/web-fetch/MCP
+  tool calls. `[W]`, lower confidence, version numbers single-sourced from community posts.
+
+**This is a genuine tension between the two research threads in this brief, and it should be
+carried into Plan mode as an open question rather than resolved here**: codebase-tour's finding
+that "Claude's team mechanism has no Codex equivalent" is correct about `AGENTS.md`-as-a-filename,
+but if the subagents/hooks findings hold up, Codex has *its own*, differently-shaped delegation and
+enforcement primitives — just not exposed through `AGENTS.md` itself, and not exposed the same way
+(a slash command a human/agent invokes explicitly, versus Claude Code's programmatic Task-tool
+delegation driven by orchestrator code). Whether Codex's `/agent` subagent feature and hooks are
+rich enough to host something equivalent to litefactory's four-mode team is **not something this
+brief can settle** — it needs a running `codex` binary to probe, which does not exist in this
+environment (confirmed: zero `.go` files in the tree reference "codex" at all, and `which codex`
+could not be run this pass — see section 4's Codex-availability note).
+
+### Correction vs. the first pass
+The first pass's flat "no Codex equivalent" reads as an overstatement in light of this run's web
+research. The corrected framing: `AGENTS.md` itself is thin (a text-concatenation convention), but
+Codex CLI as a whole is not flat — it has separate subagent and hook primitives whose depth
+relative to Claude Code's is genuinely unverified, not merely "absent."
+
+---
+
+## 3. Model naming leaking into agent definitions
+
+### What's actually in this repo
+- Grep of `.claude/agents/*.md` frontmatter for `model:` finds exactly two distinct values:
+  `opus` (`requirements-engineer.md`, `go-architect.md`) and `sonnet` (all 11 other agent files). `[V]`
+- Recent commit subjects (from git log context) name a pattern of pinning specific agents to
+  `sonnet` — "agents: go-implementation-engineer runs on sonnet," "agents: codebase-tour runs on
+  sonnet," and similar for orchestrators/web-researcher. **The commit bodies/diffs themselves could
+  not be independently re-verified this run** (the codebase-tour pass had no shell access this
+  invocation) — this is a genuine gap, not a settled finding, and Plan mode should re-run `git show`
+  on those commits before relying on stated rationale. `[V]` for the frontmatter state as it stands
+  today; **unconfirmed** for the historical rationale.
+
+### A correction that changes the shape of this problem
+The first pass stated flatly, tagged as verified, that **no `--model` flag is ever constructed
+anywhere in the tree**. Direct re-verification this run finds that claim is **wrong as of the
+current tree state**:
+
+- `internal/harness/runner.go:500-506` unconditionally appends `"--model", r.model` to argv. `[V]`
+- `r.model` traces to `opts.Claude.Model` (`runner.go:131`) → `config.Claude.Model`
+  (`config.go:159`) → default `DefaultClaudeModel = "sonnet"` (`config.go:262`), validated by
+  `modelNameRE` (`internal/config/policy.go:21-43`, `^[A-Za-z][A-Za-z0-9._-]*$`). `[V]`
+- The doc comment at `config.go:146-158` is explicit about scope: "It sets the session's model and
+  nothing else: a sub-agent whose definition carries its own `model:` frontmatter still runs on
+  that one… Empty means the default, not 'omit the flag'. litefactory always passes `--model`." `[V]`
+
+**Either this landed in the single day between the two research passes, or the first pass
+mis-verified it — either way, treat the first pass's claim here as superseded.** The practical
+consequence: litefactory already threads a configurable, validated model-name string into argv on
+every single run, unconditionally. This is the closest existing precedent for "a per-run string
+selecting a variant of what executes" — but note it selects a *Claude model tier for the whole
+session*, which is a **different mechanism** from the `.claude/agents/*.md` `model:` frontmatter,
+which lets an individual **delegated sub-agent** override the model for just that delegated call.
+Both exist; they answer different questions ("what model does this whole run use" vs "what model
+does this one specialist use"), and both are Claude-vocabulary today (`sonnet`, `opus`, and the
+`--model` flag's string literally being a Claude Code CLI argument name).
+
+### Codex's own vocabulary (web-sourced, re-verified this run)
+- Current model family: **GPT-5.6**, with three named capability tiers — `gpt-5.6-sol` (flagship),
+  `gpt-5.6-terra` (balanced), `gpt-5.6-luna` (fastest/cheapest) — plus a text-only preview,
+  `gpt-5.3-codex-spark`. Older models (5.5, 5.4, 5.4-mini) are stated to retire Aug 31, 2026. `[W]`,
+  high confidence on naming/existence.
+- Pinning is via `--model`/`-m` flag or `model = "gpt-5.6-terra"` in `config.toml`. `[W]`
+- Per web research, **subagents inherit the parent's model/reasoning-effort unless explicitly
+  overridden** — meaning per-role model-tier pinning is reportedly supported on the Codex side too,
+  structurally similar in shape (though different in mechanism and vocabulary) to Claude Code's
+  `model:` frontmatter on a delegated sub-agent. `[W]`, medium confidence, single-sourced.
+
+### The actual design problem, stated plainly
+"Model" as a config vocabulary term is currently three overlapping but distinct things in this
+repo: (a) the harness's `--model` flag selecting a Claude session-wide tier (`sonnet` by default),
+(b) `.claude/agents/*.md` frontmatter selecting a per-delegated-specialist tier (`opus`/`sonnet`),
+and neither is abstracted away from Claude's own naming scheme. Codex has its own three-tier
+naming (`sol`/`terra`/`luna`) with what looks like the same two-axis shape (session-wide vs
+per-subagent). **What would not survive unchanged into a multi-tool world is the literal string
+vocabulary** (`opus`, `sonnet` vs `gpt-5.6-sol`, `-terra`, `-luna`) — a specialist definition that
+says `model: opus` is meaningless once the tool running it might be Codex or (later) OpenCode.
+
+A workable direction, offered here as a design sketch for Plan mode to evaluate rather than a
+decision: introduce a **tool-neutral capability tier** in agent/specialist definitions (e.g.
+`tier: flagship | balanced | fast`, or reuse `high`/`standard`/`low`) with a small mapping table
+per concrete tool implementation (`flagship → opus` for Claude, `flagship → gpt-5.6-sol` for
+Codex), resolved at dispatch time by whichever implementation the factory selects (section 4). This
+keeps agent definitions vendor-neutral while still letting each tool's own naming evolve
+independently (Codex's tier names alone are due to partially retire by the end of this month per
+the web research above — a vocabulary layer would insulate agent definitions from that churn too).
+
+### `internal/config`'s existing groundwork and its constraint
+- `internal/config/executable.go:78-113` — `ResolveExecutable(key, name, pathEnv)` is already
+  generic over a config key and a binary name; `Claude.ResolveBinary` is a one-line wrapper
+  hardcoding `"claude.binary"`. Real, reusable, unchanged groundwork for "resolve a configured
+  binary path," not specific to model naming. `[V]`
+- `internal/config/policy.go` has **no notion of "agent tool" tiering at all** — `defaultTools()`,
+  `defaultAllowedTools()`, `toolRuleRE`, `profileKeyRE` are entirely about the `--tools`/
+  `--allowedTools` **permission** surface, keyed by `lf:tools=` labels, never about which binary
+  runs or which model it uses. `ToolProfile` has exactly two fields (`Tools`, `AllowedTools`); a
+  profile name never reaches argv as a model or binary selector. `[V]`
+- `internal/config/purity_test.go:29-73` (`TestValidationHasNoThirdPartyImports`) enforces a
+  stdlib-only invariant on `internal/config`, with one named exception (`gopkg.in/yaml.v3` in
+  `config.go`). **Consequence for Codex config**: if Codex's config needs a different format (e.g.
+  TOML, matching its own `config.toml` convention), that decoder cannot live inside
+  `internal/config` — it must either standardize on YAML (joining the one existing exception) or
+  live in a separate package that hands `internal/config` only a resulting typed struct. `[V]`
+- `internal/config/purity_test.go:82-124` (`TestForbiddenFlagIsAbsentFromTheTree`) is a repo-wide
+  grep guarding against an assembled "skip permissions" flag string. A Codex equivalent (its
+  sandbox-bypass flag, if one exists) would need the same protection once Codex code exists in the
+  tree — it doesn't exist yet, confirmed by zero `.go` files referencing "codex" anywhere. `[V]`
+
+### Correction vs. the first pass
+The `--model` flag correction above is the single most consequential fix in this redo — the first
+pass's design reasoning proceeded from "model selection doesn't exist in argv today," when in fact
+it exists, is unconditional, and is validated by regex. Any Plan-mode design must account for a
+flag that is *already* being passed on every run, not one that needs to be added from scratch.
+
+---
+
+## 4. Interface/factory design for pluggable agent tools
+
+### The exact I/O shape `internal/harness` constructs today (re-verified, not copied from the first pass)
+- **argv construction**: `internal/harness/runner.go:481-515`,
+  `func (r *Runner) args(req Request) []string`. Fixed order: `-p`;
+  `--output-format stream-json`; `--verbose`; `--session-id`/`--resume <id>`;
+  `--tools <csv>` (unconditional — an empty value here means allow-all, not "omit the flag");
+  `--settings <path>`; `--model <r.model>` (unconditional, see section 3);
+  optional `--allowedTools <csv>` when non-empty; `--strict-mcp-config` always last.
+  `Runner.surface(req)` (`:534-539`) selects which of two tool-list pairs argv is built from. `[V]`
+- **prompt delivery**: `internal/harness/prompt.go:313`, `BuildPrompt(in PromptInput) (string,
+  error)` — a pure function. Per `doc.go:29-31`, the prompt is delivered on **stdin**, never in
+  argv (an invariant tagged `AC-3.12` in the doc comment). `[V]`
+- **env allowlist**: `internal/harness/env.go` — `:40` fixed `envAllowlist` slice (never
+  `os.Environ()` wholesale); `:68` `AllowedEnvNames()`; `:53` `AnthropicEnvPrefix = "ANTHROPIC_"`;
+  `:58` `fallbackPATH`; `:63` `secretNameRE`; `:88` `buildEnv(parent, forwardAnthropic)`. `[V]`
+- **session/resume**: `naming.ClaudeSessionID` (`internal/naming/session.go:56-70`), stored
+  `NOT NULL` (`0001_init.sql:77`), cold-vs-resume decided in `prepare.go:190-193`, a
+  refusal-and-rerun protocol in `harvest.go:92-146`. `[V]`
+- **output stream parsing**: `internal/harness/stream.go` — `:35-39`
+  `eventTypeSystem`/`eventTypeResult`, `subtypeInit`; `:43` `eventEnvelope{Type, Subtype}`; `:51`
+  `initEvent{Model, Tools, SessionID, CWD, PermissionMode, APIKeySource}`; `:65`
+  `resultEvent{IsError, Result, TotalCostUSD, DurationMS, NumTurns}`; `:97` `consume()`; `:145`
+  `observe()` — a two-event-kind interpreter; everything else is counted, not read. The reader is a
+  `bufio.Reader.ReadBytes` with a 64KiB starting buffer, **deliberately not `bufio.Scanner`**
+  (`doc.go:106-109` — Scanner returns `ErrTooLong` and silently aborts on over-long lines; a
+  72,411-byte line was measured in practice). `[V]`
+- **exit code handling**: `internal/harness/result.go:12-62` (`Outcome` enum, `SignalExitCode =
+  -1`); `RunResult` struct `:73-156` with `Succeeded()`/`Clone()`. `[V]`
+
+### Codex's corresponding shape (web-sourced, never executed here)
+- Invocation: `codex exec "<prompt>"`. Default: progress on stderr, final message on stdout. With
+  `--json`, stdout becomes JSON Lines with event types `thread.started`, `turn.started`,
+  `turn.completed`, `item.completed`, `error`. `-o <file>` writes the final message to a file too;
+  `--output-schema <file>` constrains the final message to a JSON schema. Related flags:
+  `--ephemeral`, `--sandbox workspace-write|danger-full-access`, `--ignore-user-config`,
+  `--ignore-rules`, `--skip-git-repo-check`. `[W]`, medium-high confidence on flag names.
+- Exit codes: `0` on success, non-zero on a `turn.failed`/`error` event or a required MCP server
+  failure. `[W]`, medium confidence — inferred from multiple community sources agreeing, not a
+  directly quoted spec line.
+- Session/resume: `codex exec resume --last "<prompt>"` or `codex exec resume <SESSION_ID>
+  "<prompt>"`. Transcripts persist under `$CODEX_HOME` (default `~/.codex`) unless `--ephemeral`.
+  **The exact session-ID format and where it is surfaced (stdout? a file?) could not be confirmed**
+  from an official source this run — an explicit open question, not an assumption to design
+  against. `[W]`, low confidence on this specific point.
+- Env/config: `CODEX_HOME` holds `config.toml` and credentials; `CODEX_API_KEY` documented for
+  CI/non-interactive auth, `CODEX_ACCESS_TOKEN` for ChatGPT Enterprise. Whether `OPENAI_API_KEY`
+  still works as a fallback, and whether Codex's sandbox filters env vars passed to spawned
+  subprocesses, **could not be confirmed from a primary source** this run — flagged, not guessed
+  at. `[W]`, low confidence on both points.
+- Structured output field shapes: only the JSON Lines **event-type names** above are confirmed; the
+  exact per-event field schema (what `item.completed` actually carries) could not be verified from
+  a directly-opened page. **Do not write a Go parser against an assumed field shape — this needs
+  direct verification against a running `codex exec --json` invocation first.** `[W]`, low
+  confidence on field-level detail specifically.
+
+### Package-map / dependency-arrow grounding (re-verified against the current, much shorter, `APP_CONTEXT.md`)
+Note: the first pass cited `APP_CONTEXT.md` line ranges (`:405-424`, `:342-362`, `:273-274`) that no
+longer exist — the file has since been rewritten down to roughly 170 lines. **Any brief or plan
+citing the old line numbers is citing a document that no longer has those passages; this section
+re-cites against the current file.** `[V]`
+
+Current dependency arrows (`APP_CONTEXT.md:43-67`):
 ```
-<absolute claude> -p --output-format stream-json --verbose \
-  --session-id <uuid> --tools <surface> --settings <file> \
-  --allowedTools <rules...> --strict-mcp-config
+harness → config, naming
+report  → git, harness, naming, redact
+turn    → config, git, github, harness, naming, redact, report, store
+daemon  → config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 ```
-
-argv is built in `internal/harness/runner.go:468-495` `[V]` in fixed order:
-
-| Position | Flag | Governed by |
-|---|---|---|
-| 1 | `-p` | constant |
-| 2 | `--output-format stream-json` | constant |
-| 3 | `--verbose` | constant — **mandatory**; without it `claude` hard-errors and writes nothing to stdout, indistinguishable from a hang (`doc.go:23-24`, SD-7) |
-| 4 | `--session-id <uuid>` **or** `--resume <uuid>` | `req.Path`; `PathResume` ⇒ `--resume` (`runner.go:473-476`) |
-| 5 | `--tools <comma-joined>` | `Runner.surface(req)` (`runner.go:514-519`) — unconditional |
-| 6 | `--settings <path>` | `r.settingsPath` |
-| 7 | `--allowedTools <comma-joined>` | only when non-empty (`runner.go:488-493`) |
-| 8 | `--strict-mcp-config` | constant, always last |
-
-No `--model`, no `--append-system-prompt`, no `--fork-session`. `--continue` is
-**never constructed anywhere in the tree** and is explicitly forbidden
-(`runner.go:446-448`) because it fails *open* where `--resume` fails *closed*
-`[V]`/`[R0]`.
-
-`New()` guards at wiring time (`runner.go:98-164`) `[V]`: `Claude.Tools` must be
-non-empty ("it is the tool boundary"), `TimeoutSeconds > 0`, `settings_path`
-absolute, `$LF_HOME` absolute, binary resolved via `ResolveBinary(pathEnv)`, and
-the ceiling falls back to `Tools` when empty (`runner.go:147-150`).
-
-`Request.validate(ceiling)` (`runner.go:289-350`) `[V]` re-checks immediately
-before argv is built: a **canonical UUID** session id via
-`naming.ValidClaudeSessionID`, `Path` ∈ `{"", cold, resume,
-cold_after_resume_refused}`, worktree absolute + stat + isDir, prompt non-empty,
-and every `Tools` entry present in the ceiling.
-
-### 2. Prompt delivery
-
-`internal/harness/prompt.go` `[V]`. `BuildPrompt(PromptInput) (string, error)` is
-pure — no clock, no filesystem, no environment. The result is piped:
-`cmd.Stdin = strings.NewReader(req.Prompt)` (`runner.go:565`), per AC-3.12,
-because that removes the ~1 MB macOS `ARG_MAX` ceiling and keeps third-party text
-out of every `ps` listing (`doc.go:29-31`).
-
-**There is no system prompt.** Everything — role, mode, rules, task, context — is
-one user turn of Markdown. `[V]` Sections: an `# litefactory run NNNN of <ref>`
-header, bullets (Task / Mode / Feature slug / Branch / Working directory), the
-D-3 feature-slug sentence, optional infer guidance, then
-`headlessRule` | `askingRule` (+ `inferAskingSeam`) + `worktreeRule`, then
-`## Instruction`, then `## Context` with `<note>` blocks. Two shapes, cold and
-resume (`writeResumeHeader`, `prompt.go:564-606`). Caps: issue body 8 KiB,
-comment 8 KiB, title 1 KiB, history 32 KiB; the instruction itself uncapped.
-
-**One line of the prompt names a Claude-specific file.** `writeInferGuidance`
-(`prompt.go:623-634`) tells the agent to read *"this repository's CLAUDE.md"*.
-`[V]` That is the only vendor filename in the prompt text.
-
-### 3. The child environment
-
-`internal/harness/env.go:40-49` `[V]` — an allowlist, never `os.Environ`:
-
-```
-PATH  HOME  USER  SHELL  LANG  LC_ALL  TERM  TMPDIR
-```
-
-Deliberately absent, each with a written reason: `SSH_AUTH_SOCK`, and
-**`CLAUDE_CONFIG_DIR`** — "Setting it breaks Keychain auth even when the
-directory is seeded (SD-4). It is not in this list and must not be added."
 `[V]`
 
-Two entries are Claude-shaped and load-bearing:
-
-- **`USER` is required because Claude Code's auth is the macOS Keychain**
-  (`apiKeySource: "none"`). Without `USER` the run dies with "Not logged in",
-  exit 1 (`env.go:22-25`). `[V]`
-- **`ANTHROPIC_*` is an explicit opt-in carve-out** from `secretNameRE`
-  (`env.go:53,63`), gated by `claude.forward_anthropic_env`, default false, and
-  sorted for determinism (`anthropicEnv`, `env.go:116`). `[V]`
-
-`fallbackPATH = "/usr/bin:/bin:/usr/sbin:/sbin"` (`env.go:58`) — the launchd
-PATH. `[V]`
-
-The stated secret boundary (`doc.go:57-67`) `[V]`: *"Redaction is hygiene, not a
-boundary… The boundary is not giving the subprocess the secret in the first
-place."* Claude's ambient Keychain auth is what makes that affordable — no
-credential is ever handed to the child.
-
-### 4. Session identity and resume
-
-- `naming.ClaudeSessionID(ref, segmentOrdinal)` (`internal/naming/session.go:56-70`)
-  `[V]` — a **UUIDv5** over the string `"<ref>/segment/<ordinal>"` in a pinned
-  namespace `sessionNamespace = uuidV5(dnsNamespace, "litefactory")`
-  (`session.go:18,36`), with the version/variant nibbles pattern-pinned
-  (`session.go:42`).
-- It is **derived before the run** and stored on `segments.claude_session_id`,
-  declared `TEXT NOT NULL` (`0001_init.sql:77`) `[V]`. `store.GetOrCreateSegment`
-  (`segments.go:44`) makes the stored value always win over recomputation.
-- Cold vs resume is decided in `internal/turn/prepare.go:190-193` `[V]` from
-  `previousRun(...)`; the harness turns `PathCold`/`PathResume` into
-  `--session-id`/`--resume`.
-- Refusal is detected **structurally**, never by matching stderr prose:
-  `resumeRefused` (`runner.go:724-729`) is
-  `resuming && Outcome == Failed && Model == "" && ExitCode > 0` →
-  `ErrSessionNotResumable`, and `turn/harvest.go:97-146` reruns **the same row
-  and ordinal** cold with `PathColdAfterResumeRefused`, exactly once. `[V]`
-
-`.aiteam/main/2026-08-25/session-resume/CLAUDE_CLI_CONTRACT.md` `[R0]` (verified
-against `claude 2.1.246`) is the measured contract behind that: reusing
-`--session-id` exits 1 with **zero stdout**; `--resume` resolves `--tools` from
-argv and not from the transcript it continues; `--resume` and `--session-id` are
-mutually exclusive without `--fork-session`; an unknown id exits 1 having emitted
-**one** result event — which is exactly why the refusal test keys on `Model == ""`
-rather than `Events == 0`.
-
-### 5. Permissions, tools, sandbox — the actual security boundary
-
-This is the deepest coupling in the tree and the one least likely to transfer.
-
-`internal/harness/doc.go:33-43` `[V]`, stated as measurement not opinion:
-
-> `--allowedTools` is *additive* to the operator's own `~/.claude/settings.json`.
-> Measured (SD-2): 250 ambient allow-rules leaked through, and Bash executed
-> while absent from `--allowedTools`. Treating it as the sandbox is a hole.
->
-> The boundary is `--tools`, which restricts the built-in tool surface claude may
-> use at all; the init event's `.tools` array reflects it.
-
-Supporting machinery:
-
-- `internal/config/policy.go` `[V]`: `toolNameRE` `^[A-Za-z][A-Za-z0-9_]*$`
-  (`:19`), `toolRuleRE` `^Name(\(qualifier\))?$` (`:23`), `profileKeyRE` (`:30`),
-  `defaultTools()` = `Read Glob Grep Edit Write Bash Task` (`:43` — "the seven
-  names that actually resolve"; `TodoWrite` was measured being silently dropped),
-  `forbiddenFlag()` assembling the skip-permissions flag from two fragments so
-  the whole literal appears nowhere (`:72`), `validateNoForbiddenFlag` (`:155`)
-  covering binary, settings path, tools, allowed tools, ceiling and every
-  profile, `resolveToolCeiling` resolved **once** in `Load` (`config.go:281`).
-- `internal/daemon/tools.go` `[V]`: `toolLabelPrefix = "lf:tools="` (`:29`),
-  `resolveTools(labels)` (`:120-188`) — detected case-insensitively, accepted
-  byte-exact (D-6), ambiguity counted before any label is judged, never resolved
-  by picking or unioning.
-- `internal/harness/settings.go` `[V]`: the staged settings file is **Claude
-  Code's own JSON schema** — `permissions{defaultMode, allow, ask, deny,
-  additionalDirectories}`, `enableAllProjectMcpServers`, `enabledMcpjsonServers`,
-  `includeCoAuthoredBy` (`:48-61`). `DefaultSettings(home)` (`:69`) denies reads
-  of `$LF_HOME`, `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.claude`,
-  `~/.netrc`, `./.env*`. Re-staged before **every** invocation
-  (`runner.go:389`).
-- Three refusal replies exist for label problems: `ReplyUnknownToolProfile`,
-  `ReplyMalformedToolLabel`, `ReplyAmbiguousToolLabels`
-  (`internal/report/reply.go:25-67`). `[V]`
-
-Two residual risks are **accepted and written down**, not solved
-(`doc.go:45-55`) `[V]`: the child runs *inside the worktree*, so it reads that
-branch's `CLAUDE.md`, `.claude/settings.json` and **executes its hooks** — and a
-branch is third-party content; `--strict-mcp-config` closes only the MCP half.
-And `--settings` is additive: a run with `--settings` was verified still
-reporting the operator's personal agents in its init event.
-
-### 6. The JSONL event stream — narrower than it looks
-
-`internal/harness/stream.go` `[V]`. This is the most consequential finding in the
-whole map, and it cuts *in favour* of the work being tractable.
-
-```go
-const ( eventTypeSystem = "system"; eventTypeResult = "result"; subtypeInit = "init" )  // :35-39
-
-type eventEnvelope struct {                       // :43
-	Type    string `json:"type"`
-	Subtype string `json:"subtype"`
-}
-
-type initEvent struct {                           // :51
-	Model          string   `json:"model"`
-	Tools          []string `json:"tools"`
-	SessionID      string   `json:"session_id"`
-	CWD            string   `json:"cwd"`
-	PermissionMode string   `json:"permissionMode"`
-	APIKeySource   string   `json:"apiKeySource"`
-}
-
-type resultEvent struct {                         // :65
-	IsError      bool    `json:"is_error"`
-	Result       string  `json:"result"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	DurationMS   int64   `json:"duration_ms"`
-	NumTurns     int     `json:"num_turns"`
-}
-```
-
-**The harness interprets exactly two event kinds and ignores every other.**
-`observe` (`:145-187`): a non-JSON line is counted as `malformed` and skipped
-(never fatal); any event that is neither `system/init` nor `result` is counted in
-`events` and **no field of it is read**. Every line is written verbatim to
-`NNNN.jsonl` *before* interpretation (`record`/`write`, `:114-138`), so a crash
-of `claude`, of the daemon, or of the machine leaves the events that already
-happened on disk.
-
-Two rules recorded as learned expensively (`stream.go:15-26`) `[V]`:
-`bufio.Scanner` must never be used (over its token limit it returns `ErrTooLong`
-and *stops the loop*, turning "one long tool result" into "the run had no result
-event"; lines of **72,411 bytes** were measured) — the reader is
-`bufio.Reader.ReadBytes` with a 64 KiB starting buffer that is not a limit.
-
-`.subtype` is **never** branched on (`stream.go:62-64`): it reads `"success"`
-even when `is_error` is true (SD-3). `[V]` Session-id confirmation is a
-**warning only** — a mismatch is logged, never an error (`runner.go:672-679`).
-`[V]`
-
-### 7. Outcomes and process control
-
-`internal/harness/result.go:8-38` `[V]` — **five** outcomes, and the distinctions
-are required by S-9 / AC-3.20: `OutcomeSucceeded`, `OutcomeFailed`,
-`OutcomeTimedOut`, `OutcomeAbandoned` (the daemon's context was cancelled — never
-reported as a timeout), `OutcomeNoResult` (clean exit, no terminal event; in the
-spike a stale credential produced ~ten internal retries then silence). This third
-category is why the hard wall-clock timeout is independent of any event-driven
-completion detection (`doc.go:74-80`).
-
-`classify` (`runner.go:813-852`) `[V]`, in order: success; outer context done →
-abandoned; run context `DeadlineExceeded` → timed out; `*exec.ExitError` → failed
-with the status (or `SignalExitCode = -1` if negative); no result event → no
-result; else failed on `is_error`.
-
-`kill.go` `[V]` keys on **pgid, never on a process name**: `killSubtree`
-(`:62`) enumerates the process tree via `/usr/bin/pgrep -P <ppid>` with an
-explicit empty environment (`:171-198`), collects distinct pgids (`:120`),
-SIGTERMs each, sleeps `killGrace = 300ms`, **re-scans** (a tool may spawn between
-enumeration and kill), SIGKILLs, then SIGKILLs the direct pid. Bounds:
-`maxProcessNodes 4096`, `maxProcessDepth 32`, `killScanTimeout 2s`; never signals
-pgid ≤ 1 or its own. The reason is measured (`doc.go:82-90`): `Setpgid` plus
-`kill(-pgid)` does **not** reap Claude's grandchildren — 2 of 2 survivors
-reparented to PID 1 because the Bash tool `setsid`s its shell into a new session
-(SD-1). **This mechanism is vendor-neutral** and would work unchanged for any
-child. `[?]`
-
-### 8. `RunResult` — already most of the way to tool-neutral
-
-`internal/harness/result.go:73-153` `[V]`. 18 fields. The Claude-specific ones
-are `Model`, `Tools`, `SessionID`, `CostUSD`, `IsError`, `NumTurns`, `HasResult`.
-Everything else — `Outcome`, `Reason`, `ExitCode`, `LogPath`, `Command`,
-`ResultText`, `Events`, `Malformed`, `LongestLine`, `Stderr`, `StreamError`,
-`StartedAt`/`FinishedAt`/`Duration` — is vendor-neutral already.
-
-Notably, litefactory **already declined** to depend on Claude's `duration_ms`
-(`result.go:148-152`): *"Duration is the wall clock between them — not the result
-event's `duration_ms`, which excludes process startup and does not exist for a
-run that never finished."* `[V]` That is one gap that does not have to be
-crossed.
-
-One field conflates two things and will matter: `HasResult` documents that when
-false, *"CostUSD, IsError, NumTurns and ResultText are all zero and the run's cost
-is unknown rather than zero — the runs row stores NULL"* (`result.go:119-122`).
-`[V]` It means both "a terminal event arrived" **and** "cost is known". For a
-tool that reports a terminal event but no cost, those separate. `[?]`
-
-### 9. Log rendering — the widest vendor vocabulary outside the harness
-
-`internal/cli/cmd_logs_render.go` `[V]`. This is where Anthropic's schema is
-baked in most deeply, and it is in a package that never touches the binary.
-
-- Kinds: `system text think tool output result user other` (`:26-48`).
-- Protocol constants `eventTypeSystem/Assistant/User`, `subtypeInit` (`:53-58`);
-  `terminalEventType = "result"` lives in `cmd_logs.go:46` and is
-  substring-prechecked by `isTerminalEvent` (`cmd_logs.go:524-537`) to end
-  `--follow`.
-- `logEvent` (`:239-266`) reads fifteen fields: `type, subtype,
-  parent_tool_use_id, session_id, model, tools, cwd, message, text, is_error,
-  result, error, total_cost_usd, duration_ms, num_turns`.
-- `logBlock` (`:277-291`) and the hard-coded **Anthropic content-block
-  vocabulary** (`:381-397`): `"text"`, `"thinking"`, `"redacted_thinking"`,
-  `"tool_use"`, `"tool_result"`.
-- `toolInputKeys` (`:441`) = `command file_path notebook_path path pattern url
-  query description prompt`. `shortID` (`:651-657`) strips the literal prefixes
-  `"toolu_"` and `"sess_"`.
-- `logsMeta` (`cmd_logs.go:394-402`) surfaces `claude_session_id`; the table row
-  is labelled `"claude session"` (`:469`).
-
-Mitigating: an unrecognised event falls to `kindOther` and is **never dropped**
-(`:26-48`). `[V]` A Codex log would render — badly, but visibly. `[?]`
-
-### 10. Reporting
-
-`internal/report/run.go` `[V]`. `metadataList` (`:510-592`) renders Branch,
-Commit, Research brief, Exit status (or "killed by litefactory, so there is no
-exit code" for `SignalExitCode`), Reason, Duration, **Cost** as `$%.4f` when
-`HasResult && CostUSD > 0`, **Model** from the init event, **Tools**, the log
-command and path, and a stream-error note. `toolsEntry` (`:614-657`) prints
-resolved-vs-requested-vs-profile and is documented as the whole detection story
-for a relabel.
-
-Four strings name the vendor in prose the owner reads on the thread `[V]`:
-`"litefactory could not get run %d as far as \`claude\`"` (`:377`),
-`` "`claude` exited with status %d" `` (`:422`),
-`` "ran past `claude.timeout_seconds`" `` (`:429`), and
-`` "usually a stale `claude` credential … Run `claude` once by hand" `` (`:445-446`).
-Ten golden files in `internal/report/testdata/` pin these and pin
-`` - **Model:** `claude-sonnet-4-5` ``.
-
-Caps: `maxResultBytes = 32<<10` (`:25`), `maxFileEntries 200`, `TailLines 40`;
-`truncateEnd` in `internal/report/text.go`.
-
-### 11. Config
-
-`internal/config/config.go:140-188` `[V]`, YAML block `claude:`:
-
-| Field | YAML key | Note |
-|---|---|---|
-| `Binary` | `binary` | default `DefaultClaudeBinary = "claude"` (`:243`) |
-| `Tools` | `tools` | the boundary; non-empty enforced |
-| `AllowedTools` | `allowed_tools` | additive second layer |
-| `SettingsPath` | `settings_path` | defaults to `$LF_HOME/claude-settings.json` (`paths.go:24,93`) |
-| `ToolCeiling` | `tool_ceiling` | resolved once in `Load` |
-| `ToolProfiles` | `tool_profiles` | `map[string]ToolProfile{Tools, AllowedTools}` |
-| `TimeoutSeconds` | `timeout_seconds` | 60–86400 |
-| `ForwardAnthropicEnv` | `forward_anthropic_env` | default false |
-
-**Confirmed, and it refutes the hypothesis in the run brief:** `tool_profiles` is
-about **permissions, not about which binary**. `ToolProfile`
-(`config.go:200-206`) has exactly two fields, both tool lists;
-`validateToolProfiles` checks subset-of-ceiling; the profile name never reaches
-argv (`runner.go:466-467`). `internal/config/toolprofiles_test.go` (17 tests) is
-entirely about permission profiles. **There is no existing notion of an agent
-tool anywhere in `internal/config`.** `[V]`
-
-**The one piece of genuinely generic groundwork that does exist:**
-`config.ResolveExecutable(key, name, pathEnv)` (`executable.go:78`) `[V]` is
-already generic over key and name, and `Executable{Name, Path, FromPATH}` /
-`*ExecutableError{Key, Name, Searched, Err}` are agent-neutral. Only the one-line
-wrapper hardcodes the key:
-
-```go
-// internal/config/executable.go:110-113
-// ResolveBinary locates the configured claude executable.
-func (c Claude) ResolveBinary(pathEnv string) (Executable, error) {
-	return ResolveExecutable("claude.binary", c.Binary, pathEnv)
-}
-```
-
-`executable_test.go:133` already exercises it with the key `"git"`. `[V]` A
-second binary needs no new resolution machinery.
-
-Constraints that bind any config change `[V]`/`[R0]`: `internal/config` is
-stdlib-only apart from `gopkg.in/yaml.v3`, enforced by
-`purity_test.go` → `TestValidationHasNoThirdPartyImports`; the shipped template
-cannot drift from `Defaults()` (`TestDefaultFileMatchesDefaults`); decoding is
-strict (`KnownFields(true)`) so an unknown key is a startup error; validation
-aggregates via `errors.Join`; out-of-range is refused, never clamped.
-
-### 12. Store
-
-`internal/store/migrations/0001_init.sql:84-105` `[V]`:
-
-```sql
-CREATE TABLE runs (
-    id INTEGER PRIMARY KEY,
-    session_id INTEGER NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
-    segment_id INTEGER NOT NULL REFERENCES segments (id) ON DELETE CASCADE,
-    ordinal INTEGER NOT NULL, mode TEXT NOT NULL, trigger_comment_id INTEGER NOT NULL,
-    status TEXT NOT NULL, exit_code INTEGER, error TEXT,
-    started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER,
-    cost_usd REAL,
-    log_path TEXT NOT NULL, commit_sha TEXT, result_comment_id INTEGER,
-    UNIQUE (session_id, trigger_comment_id), UNIQUE (session_id, ordinal));
-```
-
-- `segments.claude_session_id TEXT NOT NULL` (`:77`) is the only *named*
-  Claude column. `[V]`
-- `runs.cost_usd` is nullable (good — "unknown" is already representable) and
-  `runs.exit_code` is nullable. `[V]`
-- **There is no `model` column, no `tool` column, no `agent` column.** Model and
-  tools live only in the `NNNN.meta.json` sidecar. A second tool's runs would be
-  indistinguishable in the database. `[V]`
-- Only two migrations exist; they are hand-rolled, embedded, forward-only, one
-  transaction each. `[R0]`
-
-### 13. The seam that exists today
-
-```go
-// internal/turn/execute.go:24
-type Runner interface {
-	Run(ctx context.Context, req harness.Request) (*harness.RunResult, error)
-}
-```
-`[V]` Wired as `turn.Options.Claude Runner` (`execute.go:69`) from
-`daemon/setup.go:157-162,234`. One method — but **not narrow**: it is typed on
-`harness.Request` (11 fields, including a `ClaudeSessionID` validated as a
-canonical UUIDv5 and a `Path` cold/resume/refused tri-state) and
-`*harness.RunResult` (18 fields), and a second implementation would additionally
-have to honour the `ErrSessionNotResumable` two-return protocol **and write
-`NNNN.jsonl` itself**, because nothing above the harness writes it. `[V]`/`[?]`
-
-Above it, `daemon.Executor` (`daemon/daemon.go:107-109`) is
-`Execute(ctx, turn.Request) (turn.Result, error)` and never sees a
-`harness.Request` — `daemon/fixture_test.go` fakes at that level. `[V]`
-`turn/fixture_test.go:250-267` is the "configurable fake claude"
-(`stubRunner{fn, calls, requests}`), mutex-guarded, recording every request.
-`[V]`
-
-### 14. Surprises outside `harness` and `config`
-
-- **`internal/repos/aiteam.go` hardcodes `CLAUDE.md`** as the aiteam-presence
-  marker used by `repo add` — `MarkerClaudeMD Marker = "CLAUDE.md"` (`:19`),
-  `claudeMDName` (`:27`), `presenceMarker = "aiteam"` (`:43`),
-  `teamMarkerRE` matching `<!-- aiteam:team=go-backend -->` (`:51`). `[V]`
-  Read carefully, this is an **aiteam** coupling that happens to reuse Claude's
-  filename, not a Claude-runtime coupling — but Codex reads `AGENTS.md`, not
-  `CLAUDE.md` `[W]`, so a Codex-only repository would fail registration. `[?]`
-- `internal/cli/router.go:15` — the product tagline says "runs Claude Code".
-  `[V]`
-- Grep sweep: **1012** case-insensitive `claude` occurrences across 126 files
-  (excluding `.aiteam/` and `dist/`). `[V]` Non-test concentrations:
-  `harness/runner.go` 75, `config/policy.go` 31, `config/config.go` 24,
-  `config/validate.go` 20, `harness/settings.go` 19, `config/template.go` 18,
-  `daemon/setup.go` 16, `turn/harvest.go` 15, `store/segments.go` 14,
-  `cli/cmd_daemon.go` 13, `turn/prepare.go` 13, `turn/execute.go` 12,
-  `naming/session.go` 11, `report/run.go` 11, `harness/doc.go` 11.
-  `anthropic|sonnet|opus` in production code is confined to `harness/env.go`
-  (6 sites), `config/config.go:176-187`, `config/template.go:178-200`,
-  `harness/runner.go:160`.
-
-### 15. One drift found in `APP_CONTEXT.md`
-
-`APP_CONTEXT.md:273-274` says *"`go.mod` has exactly three direct requires:
-`go-cmp`, `yaml.v3`, `modernc.org/sqlite`. Keep it that way."* `[R0]` The actual
-`go.mod` `[V]` has **four**: `github.com/google/go-github/v90 v90.0.0` has since
-been added. This matters here only because "no new dependency" reasoning about a
-TOML encoder (§ Constraints) should be argued on its merits rather than on a
-count that has already moved once.
-
----
-
-## Domain / Problem Space — what Codex CLI actually offers
-
-**Everything in this section is `[W]`.** No `codex` binary was executed. Where a
-source conflicts with another I say so. The most detailed source is a
-third-party experiment log covering 81 flag/feature tests against **CLI version
-0.114.0** — useful, but one person's log, not a specification.
-
-### Invocation
-
-`codex exec` is the headless, non-interactive mode: one session run to
-completion, no TUI, exits when the agent decides the task is done. `[W]`
-
-```
-codex exec "task"                       # prompt as argv
-codex exec -                            # prompt from stdin
-codex exec < prompt.txt                 # prompt from stdin
-codex exec "instruction" < context.txt  # argv instruction + stdin context
-```
-
-**Gotcha, measured in the experiment log:** when a prompt argument is *also*
-provided, stdin content is **not** received unless the `-` form is used — the
-resolver prefers the argument. `[W]` This directly affects litefactory's AC-3.12
-invariant (prompt on stdin, never argv); `codex exec -` appears to be the correct
-form, and it is the first thing a probe must confirm.
-
-Flags relevant here `[W]`:
-
-| Flag | Values | Note |
-|---|---|---|
-| `--json` | bool | JSONL events to stdout. Older versions used `--experimental-json` — **version-sensitive** |
-| `-o` / `--output-last-message` | path | final agent message to a file |
-| `--output-schema` | path | JSON Schema constraining the final response |
-| `--sandbox` / `-s` | `read-only` \| `workspace-write` \| `danger-full-access` | default `read-only` |
-| `--ask-for-approval` / `-a` | `untrusted` \| `on-request` \| `never` | in exec, an approval request **fails the run** unless auto-approved |
-| `--cd` / `-C` | path | working directory |
-| `--config` / `-c` | `key=value` | repeatable, dotted paths, beats every config file |
-| `--profile` / `-p` | name | layers `$CODEX_HOME/<name>.config.toml` |
-| `--model` / `-m` | string | model override |
-| `--skip-git-repo-check` | bool | `codex exec` **requires a git repository by default** |
-| `--ephemeral` | bool | do not persist session files |
-| `--ignore-user-config` | bool | skip `$CODEX_HOME/config.toml` — but auth still reads `CODEX_HOME` |
-| `--search` | bool | live web search |
-| `--dangerously-bypass-approvals-and-sandbox` | bool | Codex's own escape hatch |
-
-`--full-auto` is deprecated in favour of explicit `--sandbox`. `[W]`
-
-### The event stream
-
-`--json` writes one JSON object per line to stdout; **progress goes to stderr**
-and the final message to stdout in non-JSON mode. `[W]` The vocabulary:
-
-```
-{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}
-{"type":"turn.started"}
-{"type":"item.started","item":{...}}
-{"type":"item.updated","item":{...}}
-{"type":"item.completed","item":{...}}
-{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}
-{"type":"turn.failed","error":{"message":"model response stream ended unexpectedly"}}
-{"type":"error","message":"stream error: broken pipe"}
-```
-
-Item types and their fields `[W]`: `agent_message{text}`, `reasoning{text}`,
-`command_execution{command, aggregated_output, exit_code, status}`,
-`file_change{changes[{path,kind}], status}`,
-`mcp_tool_call{server, tool, arguments, result, error, status}`,
-`web_search{query}`, `todo_list{items[{text,completed}]}`, `error{message}`.
-Statuses: `in_progress` | `completed` | `failed`.
-
-**What the stream does not carry:** no cost in USD (tokens only), no model name
-(an open upstream issue), no turn count, no tool-surface array, no
-permission-mode field, no `cwd`. `[W]`
-
-### Sessions
-
-- The thread id is emitted **once, at the start**, in `thread.started` — it is
-  *discovered from the output*, not supplied. `[W]`
-- Resume: `codex exec resume <SESSION_ID> "prompt"` or `codex exec resume --last
-  "prompt"`. A third-party source also reports `codex exec --resume-session-id
-  <ID>`; **I could not confirm that flag against the official reference**, which
-  documents only the `resume` subcommand. `[W]`
-- **There is no way to specify a session id upfront for a new session.** A
-  feature request asking for exactly Claude's `--session-id` semantics exists and
-  is closed, with no visible maintainer comment — closed-without-comment is *not*
-  evidence it was implemented. `[W]` The thread id is described as purely
-  client-side, sent to the API only as correlation headers.
-- Sessions persist under `~/.codex/sessions/`. Resuming an **ephemeral** session
-  silently starts a *new* one rather than erroring. `[W]`
-- Resuming replays history: input tokens roughly double each turn. `[W]`
-
-### Permissions
-
-Codex's model is **two orthogonal axes**, not one list:
-
-- `sandbox_mode` — what the agent is *technically capable of*, enforced by the
-  OS: **Apple Seatbelt on macOS**, Landlock + seccomp on Linux. Deny-by-default
-  profile, parameterised writable roots. `[W]`
-- `approval_policy` — when Codex *pauses to ask*. Irrelevant headless beyond
-  "never", since an approval request fails the run. `[W]`
-
-Plus coarse capability toggles in a `[features]` table (`shell_tool`,
-`web_search`, `unified_exec`, `multi_agent`, `hooks`, `memories`,
-`network_proxy`), settable in `config.toml` or via `-c features.shell_tool=false`.
-`[W]` The experiment log confirms `shell_tool` disabled actually removes the tool
-(the model reports it cannot execute shell commands) rather than merely hiding
-it. `[W]` MCP servers additionally support `enabled_tools` / `disabled_tools`
-allow/deny lists. `[W]`
-
-Sandbox specifics that bear on litefactory's worktree design `[W]`:
-
-- In `workspace-write`, **network access is denied by default**; sandboxed
-  processes reach the network only through a configured loopback proxy.
-- `.git/` inside a writable root is carved out **read-only**, to stop the agent
-  planting a git hook that would execute outside the sandbox.
-- **In a git worktree the real git metadata lives in the main repository's
-  `.git`, outside the writable root**, so git operations that write metadata fail
-  with a permission error. The documented workaround is `--add-dir` at the main
-  checkout, or `writable_roots` in `[sandbox_workspace_write]`.
-- The main Codex process runs **unsandboxed**; only the shell commands it spawns
-  are sandboxed. It sets `CODEX_SANDBOX` and `CODEX_SANDBOX_NETWORK_DISABLED` on
-  those children, and strips `DYLD_*` before spawning.
-
-### Config and auth
-
-- `$CODEX_HOME` (default `~/.codex`) is the root for **everything**: `config.toml`,
-  `auth.json`, logs, session transcripts, skills, plugins. `[W]`
-- Precedence, highest first: CLI flags and `-c` overrides → project
-  `.codex/config.toml` → profile file → user `~/.codex/config.toml` → system
-  `/etc/codex/config.toml` → built-in defaults. `[W]`
-- Auth: ChatGPT sign-in writing `$CODEX_HOME/auth.json`, **or** the `CODEX_API_KEY`
-  environment variable (the recommended CI path). The experiment log reports that
-  only `CODEX_API_KEY` overrides stored credentials; `OPENAI_API_KEY` is
-  deprioritised. `[W]`
-- `shell_environment_policy` controls what environment the *agent's* shell
-  commands inherit (`inherit` = `all|core|none`, plus include/exclude filters and
-  explicit `set`), with KEY/SECRET/TOKEN excluded by default. `[W]`
-
-### Instructions
-
-Codex reads **`AGENTS.md`**, merged from repository root down, files nearer the
-working directory overriding earlier ones. `[W]` There is **no
-`--system-prompt`, `--system-prompt-file` or `--append-system-prompt`** — these
-are open feature requests. `[W]`
-
-### Exit codes
-
-Non-zero on failure; git-repo-check failure, missing session, required-MCP
-failure and argument parse errors return 1–2; an invalid `CODEX_API_KEY` gives a
-401 and exit 1. No published table of distinct codes. `[W]` One open upstream
-issue asks for a non-zero exit on SIGINT in exec mode, which implies that is
-currently **not** the case — relevant to litefactory's kill path. `[W]`
-
-### Other surface
-
-`codex app-server --listen stdio://` is a separate, stateful, long-lived
-JSON-RPC 2.0 interface, distinct from `codex exec --json`, and is what the
-official TypeScript SDK is built on. `[W]` It is a genuine third option for the
-seam and is noted as such below.
-
----
-
-## The Gap
-
-Aligned, and cheaply so:
-
-| Concern | Claude Code | Codex CLI | Verdict |
-|---|---|---|---|
-| Headless one-shot | `-p` | `codex exec` | Aligned `[V]`/`[W]` |
-| Prompt on stdin | `cmd.Stdin` | `codex exec -` | Aligned, with the argv-beats-stdin gotcha `[W]` |
-| Machine-readable stream | `--output-format stream-json --verbose` | `--json` | Aligned in *form* — JSONL on stdout `[W]` |
-| Working directory | `cmd.Dir` | `cmd.Dir` or `--cd` | Aligned `[W]` |
-| Absolute binary, no `LookPath` | `config.ResolveExecutable` | same helper, different key | Aligned — the helper is already generic `[V]` |
-| Process-tree kill | pgid sweep via `pgrep` | vendor-neutral mechanism | Aligned `[?]` |
-| Wall-clock timeout | independent of events | independent of events | Aligned `[V]` |
-| Final text | `result.result` | `agent_message.text` or `-o <file>` | Aligned, different extraction `[W]` |
-| Non-zero exit / failure | `classify` on `ExitError` | non-zero on failure | Broadly aligned `[W]` |
-| Ambient auth, no secret to the child | macOS Keychain (`USER` required) | `$CODEX_HOME/auth.json` (`HOME` already allowlisted) | **Aligned, and it preserves the secret boundary** `[?]` |
-
-Genuinely different, in rough order of difficulty:
-
-**G1 — the security boundary does not transfer, at all.** litefactory's real
-sandbox is `--tools`, a *tool-name allowlist* whose vocabulary
-(`Read Glob Grep Edit Write Bash Task`) is Claude Code's, and whose whole
-supporting apparatus — `claude.tools`, `claude.tool_ceiling`,
-`claude.tool_profiles`, `claude.allowed_tools`, the `lf:tools=<profile>` label,
-`resolveTools`, `validateTools`, `validateAllowedTools`, three refusal reply
-kinds, the ceiling re-check in `Request.validate` — is built on it. `[V]` Codex
-has **no equivalent**: it has an OS-enforced sandbox (`sandbox_mode`), an
-orthogonal approval policy, and coarse `[features]` capability toggles. `[W]`
-There is no mapping from `lf:tools=readonly` to a Codex invocation that preserves
-meaning. This is not a translation problem; it is a **product decision about what
-"a tool profile" means when there are two tools.** `[?]`
-
-**G2 — session identity runs in the opposite direction.** litefactory *derives*
-a deterministic UUIDv5 before the run, stores it `NOT NULL`, passes it in, and
-resumes by it. `[V]` Codex *emits* a thread id at run start and offers no way to
-supply one for a new session. `[W]` Consequences: `segments.claude_session_id
-NOT NULL` cannot be satisfied at insert time for a Codex segment; the
-`PathCold`/`PathResume`/`PathColdAfterResumeRefused` tri-state and the
-`resumeRefused` structural test (which keys on `Model == ""`, a field Codex never
-emits) have no analogue; and `naming.ClaudeSessionID`'s pinned-namespace
-determinism buys nothing. `[V]`/`[?]`
-
-**G3 — no cost.** `turn.completed` carries `input_tokens`,
-`cached_input_tokens`, `output_tokens` and nothing else. `[W]` litefactory
-renders `Cost: $%.4f` in every run report and stores `runs.cost_usd`. `[V]` The
-column is already nullable and the report already gates on `HasResult &&
-CostUSD > 0`, so a Codex run degrades to "no cost line" without a schema change —
-but `HasResult` currently means both "terminal event arrived" and "cost known",
-and those separate here. `[V]`/`[?]`
-
-**G4 — no model name, no resolved-tool array.** The init event is where
-litefactory learns what Claude *actually resolved*, which is the whole detection
-story for a mis-set tool surface (`report/run.go:614-657`). `[V]` Codex's stream
-carries neither. `[W]` The run report's Model and Tools lines, and the
-requested-vs-resolved comparison that is litefactory's only evidence a relabel
-took effect, have no Codex equivalent. `[?]`
-
-**G5 — the log renderer speaks Anthropic.** `cmd_logs_render.go` decodes fifteen
-event fields and five Anthropic content-block types, and `shortID` strips the
-literal prefixes `toolu_` / `sess_`. `[V]` Codex's items are a different, flatter
-vocabulary. `[W]` Unknown events fall to `kindOther` and are not dropped, so
-`litefactory logs` on a Codex run would produce something — mostly undifferentiated
-lines. `[?]` Separately, `isTerminalEvent` substring-matches `"result"` to end
-`--follow`; Codex's terminal event is `turn.completed`, so `logs -f` on a Codex
-run would **never terminate**. `[V]`/`[?]`
-
-**G6 — the sandbox actively fights the worktree.** litefactory's entire execution
-model is "run the agent inside a git worktree" `[V]`. In Codex's
-`workspace-write` the worktree's real gitdir is outside the writable root, and
-`.git` is carved read-only anyway `[W]`; and **network is denied by default**,
-which would break any `go build`/`go test` needing a module fetch. `[?]` Claude
-Code imposes none of this. Mitigations exist (`--add-dir`, `writable_roots`,
-`network_access`), but each is a deliberate widening of a sandbox litefactory
-does not currently have to reason about.
-
-**G7 — the product is a Claude-Code-shaped agent team, and that is bigger than
-the harness.** litefactory's value is not "run an LLM in a worktree" — it is
-"run the four-mode aiteam". That team is defined in `.claude/agents/*.md`,
-dispatched through Claude Code's subagent mechanism, gated by `.claude/hooks/`,
-detected by a `CLAUDE.md` at the repo root (`repos/aiteam.go:19,27,43`), and
-delivered as **one user turn with no system prompt** (`prompt.go`). `[V]` Codex
-reads `AGENTS.md`, has no `--append-system-prompt`, and its multi-agent
-capability is an experimental `[features]` flag. `[W]` Running "Research mode"
-under Codex is therefore not a harness change — it is a question about how the
-orchestrator instructions reach a tool that has a different instruction file, a
-different subagent story, and no hook mechanism litefactory is currently relying
-on. **This is the finding most likely to be missed by a plan that starts from
-argv.** `[?]`
-
----
-
-## Options for the seam
-
-### Option A — a second `turn.Runner` implementation, types unchanged
-
-A `harness.CodexRunner` satisfying the existing one-method `turn.Runner`, reusing
-`harness.Request` and `*harness.RunResult` as they stand.
-
-- **Respects the arrows.** `harness → config, naming` is unchanged; no package
-  gains an import. `[V]`
-- **Cheapest to start, and matches `initialplan.md`'s prediction.**
-- **But it does not survive G2.** `harness.Request.ClaudeSessionID` is validated
-  as a canonical UUIDv5 in `Request.validate` `[V]` and Codex cannot be given
-  one `[W]`; a Codex runner would either carry a field it ignores (dishonest, and
-  the id is still written `NOT NULL` to the store) or force the field to change,
-  which is no longer Option A.
-- `harness.Options.Claude` is typed `config.Claude` `[V]` — a second runner
-  cannot be constructed without either a second Options type or reusing a struct
-  named for the other vendor.
-
-### Option B — a normalised internal event model, both tools translate into it
-
-Define litefactory's own event vocabulary; each adapter maps its vendor's stream
-into it; `cmd_logs_render.go` and `report` read only the normalised form.
-
-- **The only option that fixes G5 properly**, and the only one under which
-  `litefactory logs` is honest about a Codex run.
-- **Collides with a stated invariant.** `NNNN.jsonl` is written *verbatim, line by
-  line, before interpretation*, specifically so a crash leaves real evidence on
-  disk (`stream.go:24-26`, `doc.go:111-117`, S-1). `[V]` Normalising in place
-  discards the vendor's own record. The resolution is a **dual artifact** — keep
-  `NNNN.jsonl` raw and vendor-shaped, and put the normalisation in the
-  `NNNN.meta.json` sidecar (which `internal/turn` already writes via
-  `harness.WriteMeta` `[V]`) or a second file. That is more disk and one more
-  thing to keep in step. `[?]`
-- Largest blast radius: `cli`, `report`, ten golden files.
-
-### Option C — keep Claude's shape canonical and map Codex onto it
-
-Synthesise a `system/init` and a `result` event from Codex's stream.
-
-- Smallest change to `report` and `cli`.
-- **Rejected on principle.** It manufactures fields that do not exist — cost,
-  model, resolved tools, `num_turns` — and litefactory's house style is that a
-  bad outcome is a *value* and unknown is *NULL*, never a plausible zero
-  (`result.go:119-122`, and the store's "numbers whose zero is a real value are
-  pointers" rule). `[V]` It would also make Anthropic's 2026 schema litefactory's
-  permanent internal format, which is precisely the "guesses in an interface are
-  load-bearing forever" failure `initialplan.md:348` warns about. `[V]`/`[?]`
-
-### Option D — do not build a seam yet; measure first
-
-Probe `codex exec` read-only in a scratch directory outside the repo and write
-`CODEX_CLI_CONTRACT.md` in the established convention, naming the exact version
-verified against.
-
-- **This is what this codebase's own written convention says to do** before
-  changing how it invokes an external binary (`APP_CONTEXT.md:405-424`); two such
-  documents already exist and the instruction is explicit: *"If you change how
-  litefactory invokes `claude`, add to these rather than starting a third
-  convention."* `[R0]`
-- It costs almost nothing and retires most of the `[W]` risk in this brief —
-  including the four items I could not settle: the stdin form, whether any
-  upfront session id exists, the exit-code table, and whether `--json` or
-  `--experimental-json` is current for the installed version.
-- It is not an alternative to A/B — it is the thing that has to happen before
-  either can be sized honestly.
-
-### Option E — drive `codex app-server` over JSON-RPC instead of `codex exec`
-
-- A stateful, long-lived process with an SDK-backed protocol. `[W]`
-- **Wrong shape for litefactory.** The daemon's model is one subprocess per run,
-  killed by a pgid sweep, bounded by a wall-clock timeout, with a goroutine
-  budget documented as *four fixed plus at most `max_concurrent_runs` workers*
-  and a hard ceiling of twenty (`APP_CONTEXT.md:342-362`). `[R0]` A long-lived
-  JSON-RPC peer per repository breaks that inventory and the kill story.
-  Recorded so it is visibly considered and rejected, not overlooked.
+**A nuance the first pass's blast-radius table did not surface: `internal/report` imports
+`internal/harness` directly**, not only reachably through `turn` — confirmed both from the arrow
+above and a direct grep of the import string across the 26 files that import `internal/harness`,
+including `internal/report/run.go`. Any generalization of the harness boundary is a two-front
+change (`report` and `turn` both consume it directly), not a one-front change reached only through
+`turn`. `[V]` A binding constraint noted alongside it (`APP_CONTEXT.md:77-83`): `report` cannot
+import `turn` (would cycle, since `turn` imports `report` to render replies) — this constrains
+where any Codex-specific reply-rendering logic could physically live.
+
+### Other places assuming Claude is the only vendor, outside `internal/harness` (re-verified, all still current)
+- `internal/repos/aiteam.go:19,27,43` — `MarkerClaudeMD = "CLAUDE.md"`, `claudeMDName =
+  "CLAUDE.md"`, `presenceMarker = "aiteam"`. This is **aiteam-detection** coupling: a repository
+  that only has an `AGENTS.md` (no `CLAUDE.md`) cannot be registered via `repo add` today. `[V]`
+- `internal/cli/router.go:15` — the CLI's own tagline hardcodes "runs Claude Code in git
+  worktrees." `[V]`
+- `internal/cli/cmd_logs.go:398,469` — a `ClaudeSessionID` JSON field and a rendered "claude
+  session" label in log output. `[V]`
+- `internal/report/run.go:377,422,429,445,564` — four vendor-named prose strings in run reports
+  (e.g. `` `claude` exited with status ``), plus a `HasResult && CostUSD > 0` gate controlling
+  whether a Cost line renders at all. `[V]`
+- `internal/config/config.go` — the `Claude` struct (`:140-202`) holds every field under a `claude:`
+  YAML key; the Go type is literally named `Claude`. **No generic `Agent`/`Tool` type exists
+  anywhere in `internal/config` today.** `[V]`
+
+**None of these sit behind `internal/harness`.** An interface drawn at the harness boundary alone —
+however clean — does not touch any of them. Each needs its own seam: the store schema needs a
+tool-discriminator column (or a polymorphic session-identifier type) alongside whatever replaces
+`claude_session_id`; `internal/report`'s prose and cost-gating need to stop assuming one vendor's
+result shape; `internal/cli`'s log rendering and router tagline need to stop assuming one vendor's
+field names; `internal/config` needs an `Agent`/`Tool`-shaped type distinct from `Claude`; and
+`internal/repos`' aiteam-presence detection needs to accept `AGENTS.md` as an alternative marker if
+Codex-only repos are to be onboardable at all.
+
+### What a candidate interface would need — offered as a design sketch, not a decision
+Grounded in the I/O shape above, a `Runner`-shaped interface sitting where `turn.Options.Claude
+Runner` already sits would need, at minimum:
+- A method to run a request and return a normalized result — but the **data types crossing that
+  boundary already leak vendor identity**: `harness.Request` carries a field literally named
+  `ClaudeSessionID`, not something neutral like `SessionRef`. A real interface needs the *data
+  shape*, not just the method signature, generalized — a `SessionRef` (or similar) carrying both an
+  opaque token and a discriminator for which tool produced it, since (per section 1) Claude's token
+  is pre-computable and Codex's is only discoverable after the fact — two genuinely different
+  session-identity *directions*, not just two different string formats.
+- A prompt-delivery method — likely reusable as-is in shape (both tools appear to accept a prompt
+  via stdin/argument), though Codex's exact acceptance mechanism for a prompt build like
+  litefactory's `BuildPrompt` output is unverified.
+- An env-construction method — the allowlist *mechanism* (fixed slice, never `os.Environ()`
+  wholesale) generalizes cleanly; the *prefix* (`ANTHROPIC_` vs whatever Codex needs, plausibly
+  `CODEX_`/`OPENAI_` per the env findings above, themselves unconfirmed against a primary source)
+  does not.
+- An event-stream-to-normalized-result method — Claude's two-event-kind interpreter
+  (`system`/`result`) and Codex's five-event-kind JSON Lines stream
+  (`thread.started`/`turn.started`/`turn.completed`/`item.completed`/`error`) would both need to
+  map onto one shared internal event/outcome vocabulary. This is plausible in shape but the exact
+  Codex field-level schema is unverified (see above), so the mapping itself is speculative until
+  that is resolved.
+- An exit-code/outcome mapping method — both tools appear to use conventional 0/non-zero exit
+  codes, though Codex's non-zero cases are inferred from community sources, not confirmed from a
+  spec.
+
+**Where the factory would live and what selects an implementation**: the natural selector is the
+same per-turn label mechanism from section 1 (`lf:agent=` or equivalent), read through the same
+`resolveTools`-shaped ladder, resolved once per tick alongside the existing tool-profile decision —
+i.e. the same mechanism, not a separate one, since both are "read a label this tick, resolve to a
+typed decision, refuse ambiguity/malformed input the same way." The factory itself would sit
+wherever the `Runner` is currently wired at daemon startup (`internal/daemon/setup.go:157-234`),
+selecting a concrete implementation based on that resolved decision rather than always constructing
+the one Claude `Runner`.
+
+**How much of this is genuinely speculative, stated plainly**: all of the interface method-set
+sketch above is paper design against a tool that has never been executed in this environment. No
+`codex` binary was run this pass — confirmed by grep that zero `.go` files anywhere in the tree
+reference "codex," and `which codex` could not be executed this pass (the codebase-tour sub-agent
+had no shell access this invocation). **The same measurement caveat the first pass carried forward
+still applies and is repeated here, not softened**: every claim about Codex's actual behavior is
+`[W]`, second-hand, and should be converted to direct measurement (a read-only probe run against a
+real `codex` binary) before any of this interface design is finalized.
+
+### `AC_AMENDMENTS.md` — one correction to the first pass
+Grepped this run for "codex," "agent tool," "second tool," "which tool," "multi-tool," "runs.owner,"
+"tool column," "agent column" — **zero hits for anything multi-tool-specific.** The one hit,
+`runs.owner` (`AC_AMENDMENTS.md:1286-1313`, "Rejected, not deferred: an owner column on runs"), is
+about which daemon/worker process owns a currently-running row for mid-life reclaim purposes (ruled
+out by a different, unrelated decision, "RD-7") — a different axis entirely from "which CLI tool
+produced a completed run." **The first pass cited this ruling as precedent relevant to an
+agent/tool discriminator column; it is not, and should not be cited either for or against such a
+column going forward.** `[V]`
 
 ---
 
 ## Constraints & Risks
 
-**Hard constraints any plan must respect** (each has a test that fails):
-
-- `internal/config` is stdlib-only apart from `gopkg.in/yaml.v3`
-  (`purity_test.go`). `[V]`/`[R0]` **There is no TOML encoder in the module and
-  one cannot be added to `internal/config`.** If litefactory needs to stage a
-  `config.toml`, it must either hand-write a small fixed-schema file (feasible —
-  `harness/settings.go` already hand-builds JSON, though via `encoding/json`) or
-  avoid the file entirely using repeated `-c key=value` overrides `[W]`, which
-  keeps everything in argv where it can be logged and reviewed. **`-c` overrides
-  look like the better answer** and would also keep the argv-is-safe-to-print
-  property (`result.go:94-96`). `[?]`
-- The forbidden skip-permissions flag must not appear in any `.go` file, and
-  `validateNoForbiddenFlag` refuses any configured value smuggling it in. `[V]`
-  Codex's analogue (`--dangerously-bypass-approvals-and-sandbox`) should get the
-  same treatment rather than being merely discouraged. `[?]`
-- The shipped `config.yaml` template must decode back to `Defaults()`
-  (`TestDefaultFileMatchesDefaults`); strict decoding means a new key is a
-  startup error if the template is not updated. `[V]`/`[R0]`
-- Untrusted input goes on stdin, never argv (AC-3.12). `[V]` The Codex
-  argv-beats-stdin gotcha `[W]` makes `codex exec -` the only acceptable form,
-  and this must be *verified*, not assumed.
-- The child environment stays an allowlist. Adding `CODEX_HOME` would be a
-  deliberate reversal of the precedent that keeps `CLAUDE_CONFIG_DIR` out
-  (`env.go`) `[V]` — permissible, but it must be argued and written down, not
-  slipped in.
-- Migrations are forward-only, hand-rolled, one file each. `[R0]`
-- `internal/report` may not import `internal/turn`. `[R0]`
-- No mocking framework, no new module for tests. `[R0]`
-
-**Risks, roughly by expected cost:**
-
-1. **G1 has no engineering answer.** Deciding what `lf:tools=` means for a Codex
-   run is a product decision, and it gates the security story. Shipping Codex
-   with a weaker boundary than Claude's, silently, would be the worst outcome
-   available. `[?]`
-2. **Everything about Codex in this brief is `[W]`.** Three of the sources
-   disagree in small ways already (`--json` vs `--experimental-json`;
-   `--disable shell_tool` vs `--disable-feature`; whether
-   `--resume-session-id` exists). A plan built on this brief without a probe will
-   be re-planned. `[?]`
-3. **Codex CLI moves fast.** The most detailed source is version 0.114.0 and
-   describes flags that were renamed or deprecated within recent releases.
-   litefactory already pins measured behaviour to exact `claude` versions
-   (2.1.246, 2.1.247) `[R0]`; a Codex contract document needs the same discipline
-   and will need re-verification more often. `[?]`
-4. **G6 — the sandbox/worktree interaction** could turn out to be the practical
-   blocker rather than a footnote. Unknown until probed. `[?]`
-5. **`logs -f` hanging forever on a Codex run** (G5) is a small bug with an
-   irritating shape: it looks like the daemon is stuck. `[V]`/`[?]`
-6. **Selecting the tool per issue repeats the `lf:tools=` security lesson.** If
-   selection is a label (`lf:agent=codex`), then anyone who can label an issue
-   can choose which sandbox model applies — and D-6's "detected leniently,
-   accepted strictly" and the ceiling-is-the-boundary reasoning must be
-   re-derived for the new axis, not assumed. `[V]`/`[?]`
-
-**What is likely irreversible:**
-
-- The **store migration**. Migrations are forward-only. Whatever shape is chosen
-  for `segments.claude_session_id` (relax to nullable? add
-  `segments.agent_session_id`? add an `agent` column to `runs` or `sessions`?) is
-  the shape litefactory lives with. `[V]`/`[R0]` This deserves the most design
-  attention per line of code of anything in the feature.
-- **Config key names** under strict decoding — renaming `claude:` to something
-  generic is a breaking change to every existing `config.yaml`. `[V]`
-- `naming.ClaudeSessionID`'s **pinned UUIDv5 namespace** must not change:
-  changing it re-keys every existing segment. Renaming the *function* is free;
-  changing the namespace string is not. `[V]`
-
-**What is cheap to try first:** the probe (Option D). It is read-only, outside
-the repo, needs no litefactory code change at all, and answers most of the open
-questions below.
-
----
-
-## Blast radius
-
-Packages that move, with what moves in each `[V]` unless noted:
-
-| Package | What changes | Size |
-|---|---|---|
-| `internal/harness` | new adapter files; `Request`/`Options`/`RunResult` generalisation; a `settings.go` analogue or `-c` override builder; `stream.go` sibling | Large |
-| `internal/config` | new config block; `Claude.ResolveBinary` → generic (one line); template + defaults + `TestDefaultFileMatchesDefaults`; validation; secret-scan coverage | Medium |
-| `internal/store` | migration `0003`; `segments.claude_session_id` nullability or a sibling column; an agent discriminator column; `runs.go` accessors | Medium, **irreversible** |
-| `internal/naming` | `ClaudeSessionID` naming; possibly a no-op for Codex | Small |
-| `internal/turn` | `prepare.go` cold/resume decision; `harvest.go`'s `resumeRefused` protocol; `turnMeta`'s `claude_session_id` JSON key; `turn.Runner`'s types | Medium |
-| `internal/report` | four vendor-named prose strings; Cost/Model/Tools metadata entries; `toolsEntry`; **ten golden files** | Medium |
-| `internal/cli` | `cmd_logs_render.go` block vocabulary; `isTerminalEvent`; the `"claude session"` label; `router.go`'s tagline | Medium |
-| `internal/daemon` | `resolveTools`/`lf:tools=` semantics; tool-selection label if one is added; `setup.go` wiring | Medium |
-| `internal/repos` | `CLAUDE.md` marker vs `AGENTS.md` for aiteam detection | Small but user-visible |
-| tests | `turn/fixture_test.go`'s `stubRunner`; `config/template_test.go`; `purity_test.go`; goldens | Medium |
-
-Packages that do **not** move: `git`, `github`, `secrets`, `redact`, `identity`,
-`launchd`, `logging`, `store`'s concurrency design, and the whole
-concurrent-turns machinery (`gate`, `pool`, `inflight`). `[?]` The scheduler does
-not care which binary a worker runs.
-
----
-
-## Assumptions
-
-Recorded because nobody could be asked. Each is my most reasonable reading; a
-human should correct any that is wrong before Plan mode starts.
-
-1. **"Codex" means OpenAI's Codex CLI in `exec` mode**, not the Codex cloud
-   product, not the IDE extension, not the older 2021 Codex model.
-2. **Second, not replacement.** Claude Code stays the default and every existing
-   run keeps its exact current behaviour. This mirrors AC-2.3's precedent that an
-   unprofiled run's argv must stay byte-identical. `[R0]`
-3. **Selection is per-issue or per-repository, not global.** The value of a
-   second tool is choosing between them; a global switch would be a much smaller
-   feature. I have *not* assumed which mechanism (label, repo config, or config
-   key) — that is an open question.
-4. **The operator authenticates Codex out of band** (`codex login`, writing
-   `$CODEX_HOME/auth.json`), exactly as they already do for Claude's Keychain, so
-   litefactory never handles an OpenAI credential. This preserves the stated
-   secret boundary and is the assumption I would most like confirmed.
-5. **macOS only.** litefactory is a macOS LaunchAgent; Codex's Seatbelt sandbox
-   is the only one that matters.
-6. **The aiteam prompt content is out of scope for the first slice.** G7 is real
-   but is a separate piece of work from making the harness able to run a second
-   binary.
-
----
+1. **Session-identity direction mismatch** (section 1): litefactory pre-computes a session id
+   before running anything; Codex's id can only be discovered after a run starts. A label that
+   changes mid-conversation would hand a Codex runner a Claude-shaped resume token it has no way to
+   honor. This is a design blocker for "re-read every turn," not a cosmetic gap — resolving it
+   requires the store schema and `prepare.go`'s cold/resume decision to become tool-aware, not just
+   the label-reading path.
+2. **Single `Runner` slot, wired once at daemon startup** (section 1, section 4): today there is
+   exactly one, constructed once. Making it per-turn-selectable is new plumbing, not an extension
+   of existing plumbing.
+3. **Two independent direct importers of `internal/harness`** (`turn` and `report` — section 4):
+   any interface change at that boundary is a two-front change.
+4. **Claude-vendor assumptions live outside `internal/harness` too** (section 4): store schema,
+   `internal/report`'s prose/cost-gating, `internal/cli`'s log rendering and tagline,
+   `internal/config`'s `Claude`-named type, and `internal/repos`' `CLAUDE.md`-only detection. An
+   interface at the harness boundary alone does not touch any of these.
+5. **`internal/config`'s stdlib-only purity invariant** (section 3): a Codex config format other
+   than YAML cannot live inside `internal/config` as-is.
+6. **The team mechanism (orchestrators/subagents/hooks) is Claude Code-specific** (section 2), but
+   Codex is reported (unverified against a real binary) to have its own, differently-shaped
+   subagent and hook primitives — the relative depth of the two is a genuine open question, not a
+   settled "Codex has nothing."
+7. **Vendor-specific vocabulary in agent definitions** (section 3): `model: opus`/`sonnet` in
+   `.claude/agents/*.md` frontmatter is meaningless once the executing tool might be Codex (whose
+   own tier names, `sol`/`terra`/`luna`, are themselves due to partially retire within the month per
+   web research) or, later, OpenCode.
+8. **No `codex` binary has been executed in this environment at any point across either research
+   pass.** Every Codex-side claim in this brief is `[W]`, second-hand from documentation, and
+   several specific points (session-ID format/surfacing, exact JSON event field schema,
+   `OPENAI_API_KEY` fallback, sandbox env-var filtering, exact hooks/subagents version history) are
+   explicitly unconfirmed even at the documentation level, not merely unexecuted.
 
 ## Open Questions
 
-For a human. Ordered by how much a wrong answer would cost.
-
-1. **What does a tool profile mean when there are two tools?** (G1) Options
-   include: profiles become Claude-only and a Codex run refuses any `lf:tools=`
-   label; profiles gain a Codex dialect (sandbox mode + features); or a new
-   ceiling concept spans both. This gates the security story and cannot be
-   deferred to implementation.
-2. **What is the selection mechanism, and what is its ceiling?** A label
-   (`lf:agent=codex`) inherits the `lf:tools=` lesson that anyone who can label
-   can choose — so what is the operator-authored boundary that constrains it?
-3. **Is `NNNN.jsonl` a vendor artefact or litefactory's own format?** Option B
-   turns on this and the tree does not settle it: `harness` writes the vendor's
-   raw stream `[V]` while `cli` reads it as Claude's schema `[V]`.
-4. **What happens to `segments.claude_session_id NOT NULL`?** Relax to nullable,
-   add a sibling column, or populate it post-hoc from `thread.started`? The
-   migration is forward-only.
-5. **Should `runs` gain an agent/tool discriminator column?** Today a Codex run
-   and a Claude run are indistinguishable in the database. Note the ledger
-   already records `runs.owner` as *rejected, not deferred*
-   (`AC_AMENDMENTS.md:1286`) `[V]` — worth reading that reasoning before adding
-   a column.
-6. **Is a Codex run without a cost figure acceptable in the run report?** The
-   column is nullable and the report already gates on it, so "no Cost line" is
-   the free answer — but it is a visible reduction in what the thread tells the
-   owner.
-7. **Does `--append-system-prompt`'s absence matter?** litefactory sends no
-   system prompt today `[V]`, so possibly not at all — but G7's team-definition
-   question may reopen it.
-8. **`repos/aiteam.go`'s `CLAUDE.md` marker** — is that a Claude coupling or an
-   aiteam coupling? If aiteam ships an `AGENTS.md` too, this is a two-line
-   change; if not, a Codex-only repository cannot be registered. `[V]`
-9. **`internal/git/exec.go:78-83` uses `exec.LookPath`**, contradicting
-   `APP_CONTEXT.md`'s "Never `exec.LookPath`" and `executable_test.go:131-133`'s
-   comment that "the same helper resolves both executables at startup". `[V]`
-   Which is the intended contract for a *second* agent binary? This is a
-   pre-existing inconsistency this feature would otherwise inherit silently.
-10. **Would a second vendor need an env-prefix carve-out** equivalent to
-    `ANTHROPIC_*` / `forward_anthropic_env`, and does that generalise or become
-    two special cases? `[V]`
-11. **`.aiteam/main/2026-08-26/tool-permissions/TOOL_SURFACE_PROBE.md` was not
-    read this run** (out of the tour's scope). It should be read before G1 is
-    decided.
-
----
+1. What is the literal GitHub label string/scheme Plan mode should use — two separate labels
+   (`Coding Agent: Codex` / `Coding Agent: Claude`) or one prefix+value pair analogous to
+   `lf:tools=<profile>` (e.g. `lf:agent=codex`)? The requester's phrasing ("a label that says
+   'Coding Agent: Codex | Claude'") is compatible with either reading.
+2. How should cold-vs-resume and session-identity be redesigned so that a label change mid-session
+   is either (a) safely refused with a clear message, or (b) safely honored by starting a new
+   segment/session under the new tool rather than attempting to resume under the old one? This is a
+   design decision, not a research fact, and belongs to Plan mode.
+3. Does Codex's `/agent` subagent feature and hooks mechanism have enough depth to host something
+   resembling litefactory's four-mode team, or only enough for much shallower delegation? Requires
+   direct experimentation against a running `codex` binary — not resolvable from documentation
+   alone (web research this run found the two primary sources' framing of "how much delegation
+   Codex has" already in tension with the first pass's flatter characterization).
+4. Exact Codex session-ID format and where it's surfaced (stdout/file) — unconfirmed from a primary
+   source.
+5. Exact per-event JSON field schema for `codex exec --json` — only event-type names confirmed.
+6. Whether `OPENAI_API_KEY` still works as an auth fallback for Codex CLI, and whether/how Codex's
+   sandbox filters env vars passed to spawned subprocesses — both unconfirmed from a primary
+   source.
+7. Rationale behind the three "runs on sonnet" agent-pinning commits — commit bodies were not
+   re-read this pass (no shell access in the codebase-tour sub-agent invocation); Plan mode should
+   `git show` them directly before treating their stated rationale as established.
+8. Whether a `codex` binary is available on `PATH` in the actual execution environment — `which
+   codex` was not run this pass (no shell access in the invoking sub-agent); zero `.go` files
+   reference "codex," confirming no code exists yet, but binary availability itself remains
+   unchecked.
+9. Whether OpenCode (the explicitly named third tool) has per-subagent/per-role model-tier
+   configuration analogous to what's sketched in section 3 — confirmed to exist as a project and to
+   use the `AGENTS.md` convention, but its model-config mechanics were not confirmed from a
+   directly-opened source.
 
 ## Recommended scope for Plan mode
 
-**Recommendation: Option D first, then a narrow Option A/B hybrid.** Do not plan
-the seam from this brief alone — every Codex fact in it is documentation.
+Plan mode should cover:
+- A concrete label scheme and its exact resolution ladder (reusing `resolveTools`'s shape),
+  including the refusal behavior when the label changes mid-conversation in a way that would break
+  session-resume.
+- A store-schema change generalizing `segments.claude_session_id` to a tool-aware session
+  identifier, and the corresponding change to `prepare.go`'s cold/resume decision to condition on
+  which tool produced prior history.
+- A `Runner`-shaped interface redesign whose **data types** (not just method signatures) are
+  vendor-neutral — starting from `harness.Request`'s `ClaudeSessionID` field — plus a factory
+  selecting a concrete implementation from the resolved label decision, wired where
+  `daemon/setup.go` currently constructs the one Claude `Runner`.
+- A tool-neutral capability-tier vocabulary for agent/specialist definitions, plus a per-tool
+  mapping table, replacing the direct `model: opus`/`sonnet` values in `.claude/agents/*.md`.
+- Explicit scoping decisions for the non-`harness` seams named in this brief (`internal/report`,
+  `internal/cli`, `internal/config`, `internal/repos`) — whether they're in-scope for a first slice
+  or deliberately deferred.
 
-### Slice 1 — measure (small; hours, not days)
+Plan mode should **not** attempt to design Codex's own delegation/hooks depth (open question 3) or
+finalize the interface's event-mapping (open question 5) until a read-only probe against a real
+`codex` binary has converted the `[W]`-tagged claims in this brief to `[V]` — consistent with the
+first pass's own recommendation to slice a measurement step first, which this redo reaffirms rather
+than overrides.
 
-Probe `codex exec` read-only in a scratch directory outside the repo and write
-`CODEX_CLI_CONTRACT.md` alongside the two existing contract documents, naming the
-exact version verified against and how to re-verify. `[R0]` It must settle: the
-stdin form; `--json` vs `--experimental-json`; the full event sequence for
-success, model failure, and a killed process; the exit-code table including
-SIGINT/SIGTERM; whether any upfront session id exists and what `resume` actually
-accepts; whether `workspace-write` can write inside a git *worktree* whose gitdir
-is elsewhere; and whether network-denied breaks a `go build`.
+## Assumptions taken (headless run, no human available to ask)
 
-**This slice writes no production Go code**, so it is reversible in full. If it
-finds that G2 or G6 is fatal, the feature stops here having cost almost nothing —
-which is a successful outcome, not a failed one.
-
-### Slice 2 — decide the two questions engineering cannot answer
-
-Open Questions 1 and 2 (the tool-permission boundary, and the selection
-mechanism plus its ceiling). These are product decisions and they gate
-everything. They should be recorded as `D-*` decisions in the amendment ledger,
-because they will need to be cited later.
-
-### Slice 3 — the seam, sized only after 1 and 2
-
-Generalise `harness.Request`/`RunResult`/`Options` to be honestly tool-neutral
-(they are ~80% there already `[V]`), add the Codex adapter, keep `NNNN.jsonl`
-raw and vendor-shaped, and put the normalisation in the meta sidecar. Fix
-`isTerminalEvent` so `logs -f` terminates. Take the store migration only once
-Question 4 is answered.
-
-### Explicitly out of scope for the first plan
-
-- G7, the agent-team question — `AGENTS.md`, subagents, hooks. It is real, it is
-  large, and it deserves its own research run. A plan that folds it in will not
-  ship.
-- Option E (`app-server`). Considered, rejected on the goroutine and kill-story
-  grounds above.
-- Any change to the concurrency machinery. It is genuinely tool-agnostic.
-- Any change that makes an existing Claude run's argv differ by one byte. The
-  AC-2.3 precedent is the right bar. `[R0]`
-
-**Honest sizing.** `initialplan.md:348` predicted "a small honest refactor of one
-module". `[V]` On the evidence above that is no longer true: the Claude
-assumption has spread to `config`, `naming`, `store`, `cli`, `report` and
-`repos`, plus ten golden files and a forward-only migration. The *harness* part
-is a small honest refactor. The rest is a medium feature with one irreversible
-decision in it and one open product question that engineering cannot settle.
+- Treated the requester's comment as a statement of intent/shape, not as a specification to
+  implement literally — e.g. did not assume the exact label string, only that it follows the
+  existing `lf:` prefix convention as the most consistent reading.
+- Where web research and the first pass's findings conflicted (the AGENTS.md/subagents/hooks
+  question), carried both forward as an open tension rather than picking one, since neither is
+  verified against a running binary.
+- Did not attempt to run `which codex` myself (this orchestrator has no shell access); relied on
+  the codebase-tour sub-agent's grep-based confirmation that no Codex code exists in the tree as
+  the closest available signal, and left binary availability as an explicit open question.
