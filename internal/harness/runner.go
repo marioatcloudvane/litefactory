@@ -88,10 +88,13 @@ type Runner struct {
 	// ceiling contains it.
 	ceiling      []string
 	settingsPath string
-	timeout      time.Duration
-	forwardEnv   bool
-	environ      []string
-	logger       *slog.Logger
+	// model is the --model the top-level session runs on. Sub-agents that name
+	// their own model in their definition are unaffected by it.
+	model      string
+	timeout    time.Duration
+	forwardEnv bool
+	environ    []string
+	logger     *slog.Logger
 }
 
 // New resolves the claude binary and returns a ready [Runner].
@@ -119,6 +122,15 @@ func New(opts Options) (*Runner, error) {
 	}
 	if !filepath.IsAbs(settingsPath) {
 		return nil, invalidOptions("claude.settings_path %q must be an absolute path", settingsPath)
+	}
+
+	// Defaulted here as well as in config.Defaults, for the same reason
+	// settingsPath is: a config.Claude assembled by hand rather than loaded
+	// carries a zero Model, and an empty --model value is not a flag claude
+	// will accept.
+	model := opts.Claude.Model
+	if model == "" {
+		model = config.DefaultClaudeModel
 	}
 
 	environ := append([]string(nil), opts.Environ...)
@@ -156,6 +168,7 @@ func New(opts Options) (*Runner, error) {
 		allowedTools: append([]string(nil), opts.Claude.AllowedTools...),
 		ceiling:      append([]string(nil), ceiling...),
 		settingsPath: settingsPath,
+		model:        model,
 		timeout:      time.Duration(opts.Claude.TimeoutSeconds) * time.Second,
 		forwardEnv:   opts.Claude.ForwardAnthropicEnv,
 		environ:      environ,
@@ -484,6 +497,13 @@ func (r *Runner) args(req Request) []string {
 		// is the exact opposite of what an empty list looks like it asks for.
 		"--tools", strings.Join(tools, ","),
 		"--settings", r.settingsPath,
+		// Unconditional, so that the model a run used is a property of this
+		// argv and readable in the recorded command line, rather than of
+		// whatever the CLI defaults to. It sets the top-level session only:
+		// a sub-agent definition carrying its own `model:` frontmatter still
+		// runs on that, which is what lets a cheap router dispatch to
+		// expensive orchestrators.
+		"--model", r.model,
 	}
 	if len(allowedTools) > 0 {
 		// Comma-joined into a single argument rather than passed variadically:

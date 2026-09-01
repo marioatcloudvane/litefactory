@@ -18,6 +18,30 @@ import (
 // surface is made of.
 var toolNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 
+// modelNameRE matches a --model value: an alias such as "sonnet" or a full
+// model ID such as "claude-opus-5". It must start with a letter, which keeps a
+// leading-dash value out of the argv slot after --model — where it would be
+// read as a flag rather than as the model — and it admits no whitespace, so
+// one config string can never become two arguments.
+var modelNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
+
+// validateModel checks the --model value.
+//
+// Empty is rejected rather than treated as "omit the flag": [Defaults] fills
+// claude.model in before anything reads it, so an empty value here means the
+// operator wrote one, and writing model: "" is far more likely to be a mistake
+// than a request to let the CLI pick.
+func validateModel(c *Claude) []error {
+	entry := strings.TrimSpace(c.Model)
+	switch {
+	case entry == "":
+		return []error{fmt.Errorf("claude.model: must not be empty; omit the key to get %q", DefaultClaudeModel)}
+	case !modelNameRE.MatchString(entry):
+		return []error{fmt.Errorf("claude.model: %q is not a model name; --model takes an alias such as %q or a full model ID such as \"claude-opus-5\"", c.Model, DefaultClaudeModel)}
+	}
+	return nil
+}
+
 // toolRuleRE matches a permission rule: a tool name, optionally followed by a
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
@@ -58,6 +82,27 @@ func defaultAllowedTools() []string {
 		"Bash(git diff:*)",
 		"Bash(git log:*)",
 		"Bash(git show:*)",
+		// The four below answer "where am I and what is tracked here", which
+		// the aiteam manifest instructs every run to work out before it does
+		// anything else: the session directory is derived from the branch name.
+		// Without them the instruction and the permission list contradict each
+		// other, and the run pays a denial and a re-plan to discover it. All
+		// four are read-only.
+		//
+		// git rev-parse is here for the same reason even though it is
+		// auto-approved as a safe read today: what that classifier admits is
+		// not ours to depend on, and a rule we wrote is a rule we can reason
+		// about.
+		"Bash(git rev-parse:*)",
+		"Bash(git ls-tree:*)",
+		"Bash(git merge-base:*)",
+		"Bash(git rev-list:*)",
+		// mkdir creates the session directory the manifest requires. It can
+		// only add directories — there is no destructive form of it — which is
+		// why it is admitted where cat, tee and the redirection operators are
+		// not: those write file contents, and writing file contents is what
+		// the Write tool is for and where its permission rules apply.
+		"Bash(mkdir:*)",
 		"Bash(go build:*)",
 		"Bash(go test:*)",
 		"Bash(go vet:*)",
@@ -161,6 +206,7 @@ func validateNoForbiddenFlag(c *Claude) []error {
 		}
 	}
 	check("claude.binary", c.Binary)
+	check("claude.model", c.Model)
 	check("claude.settings_path", c.SettingsPath)
 	for i, v := range c.Tools {
 		check(fmt.Sprintf("claude.tools[%d]", i), v)

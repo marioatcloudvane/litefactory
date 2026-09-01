@@ -94,6 +94,15 @@ claude:
   # and paste the result.
   binary: "%s"
 
+  # model is the --model the run's top-level session uses, and only that
+  # session: a sub-agent whose definition names its own model still runs on
+  # that one. The top-level session is a router -- it classifies the request,
+  # sets up the session directory and hands off to an orchestrator -- so it
+  # does not need the strongest model, while the orchestrators it invokes can
+  # still ask for one. Takes an alias ("sonnet", "opus", "haiku") or a full
+  # model ID ("claude-opus-5").
+  model: "%s"
+
   # tools is the real tool boundary. It becomes --tools, which restricts which
   # built-in tools claude may use at all, and it is what the run's init event
   # reports as the tool surface. Bare tool names only.
@@ -194,6 +203,7 @@ func DefaultFileContents() []byte {
 		d.LogLevel,
 		d.GitHub.APIBase,
 		d.Claude.Binary, d.Claude.Binary,
+		d.Claude.Model,
 		yamlList("tools", d.Claude.Tools),
 		yamlList("allowed_tools", d.Claude.AllowedTools),
 		d.Claude.TimeoutSeconds,
