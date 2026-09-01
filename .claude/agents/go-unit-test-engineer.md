@@ -1,5 +1,12 @@
 ---
 name: go-unit-test-engineer
+# tools is explicit so that this agent cannot spawn a sub-agent of its own.
+# Task is deliberately absent: every extra level of nesting adds a suspend/wake
+# round-trip that has to complete before the run's process exits, and a run on
+# issue #8 died with a go-architect -> Explore call still mid-flight, so the
+# architect never reported and the plan was never written. Depth is what costs
+# a run its artifact, not breadth. Do the looking yourself.
+tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
 description: Use this agent after Gate A (all implementation agents done). Reads the Acceptance Criteria and task table for its assigned user stories, passed to it via $session/plan_brief.md plus each story's sub-issue, and writes Go unit tests covering that behavior. All external dependencies (DB, network, filesystem) are faked or mocked. Runs the tests and reports results with pass/fail counts and failure details.
 
 Do NOT use this agent for:

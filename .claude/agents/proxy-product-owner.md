@@ -1,5 +1,12 @@
 ---
 name: proxy-product-owner
+# tools is explicit so that this agent cannot spawn a sub-agent of its own.
+# Task is deliberately absent: every extra level of nesting adds a suspend/wake
+# round-trip that has to complete before the run's process exits, and a run on
+# issue #8 died with a go-architect -> Explore call still mid-flight, so the
+# architect never reported and the plan was never written. Depth is what costs
+# a run its artifact, not breadth. Do the looking yourself.
+tools: Read, Write, Edit, Glob, Grep, TodoWrite
 description: Use this agent when you have a complete feature-spec.md and need to break it down into precise, actionable user stories with assigned tasks. Invoke after the architect has reviewed the spec, before implementation begins.
 model: sonnet
 color: green

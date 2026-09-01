@@ -1,5 +1,12 @@
 ---
 name: go-integration-test-engineer
+# tools is explicit so that this agent cannot spawn a sub-agent of its own.
+# Task is deliberately absent: every extra level of nesting adds a suspend/wake
+# round-trip that has to complete before the run's process exits, and a run on
+# issue #8 died with a go-architect -> Explore call still mid-flight, so the
+# architect never reported and the plan was never written. Depth is what costs
+# a run its artifact, not breadth. Do the looking yourself.
+tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
 description: Use this agent after Gate A (all implementation agents done) for any user story whose sub-issue (passed via plan_brief.md's Story Index) shows tasks touching real infrastructure — a database, an HTTP call to another service, or a message queue. This agent derives its own integration test cases directly from the story's Acceptance Criteria (there is no separate TEST_PLAN.md or test-manager hand-off in this team). It writes Go integration tests tagged `//go:build integration`, runs them with real dependencies (testcontainers-go, or TEST_DATABASE_URL / TEST_BASE_URL when the project already has that convention), and reports pass/fail results. This agent is OPTIONAL — skip it entirely for stories with no real I/O.
 
 Do NOT use this agent for:
