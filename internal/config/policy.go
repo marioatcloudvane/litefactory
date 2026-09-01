@@ -57,14 +57,22 @@ var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 // so it is a concrete list and never a wildcard. Task is included because
 // aiteam's agents are subagent invocations.
 //
-// These are the seven names that actually resolve. An eighth, a todo-writing
-// tool, used to be listed here and was measured to be silently dropped: runs
-// requested eight tools and the init event reported seven, with no error
-// raised and no todo-shaped name in any log. A list that asks for a tool
-// nobody grants teaches the reader that the list is approximate, which is the
-// last thing the tool boundary should look like.
+// SendMessage travels with Task and is not optional alongside it. Task
+// dispatches asynchronously: the call returns a receipt naming the launched
+// agent, not that agent's findings. A parent collects a child by sending it a
+// message, so a surface holding Task without SendMessage lets an orchestrator
+// start work it has no way to finish — it ends its turn waiting, and ending
+// the turn ends the agent. Grant both or neither.
+//
+// Every name here was measured to resolve. One that did not, a todo-writing
+// tool, used to be listed and was silently dropped: runs requested eight tools
+// and the init event reported seven, with no error raised and no todo-shaped
+// name in any log. SendMessage was probed the same way before being added here
+// — eight requested, eight resolved. A list that asks for a tool nobody grants
+// teaches the reader that the list is approximate, which is the last thing the
+// tool boundary should look like.
 func defaultTools() []string {
-	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"}
+	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task", "SendMessage"}
 }
 
 // defaultAllowedTools is the --allowedTools permission list `init` writes.
@@ -78,6 +86,9 @@ func defaultAllowedTools() []string {
 		"Grep",
 		"Edit",
 		"Write",
+		// Paired with Task on the --tools surface: see [defaultTools]. Without
+		// it an orchestrator can launch a sub-agent and never collect it.
+		"SendMessage",
 		"Bash(git status:*)",
 		"Bash(git diff:*)",
 		"Bash(git log:*)",

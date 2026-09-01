@@ -67,6 +67,13 @@ it reads what it needs. Never invoke a specialist sub-agent (`go-architect`,
 is an orchestrator's job. An orchestrator returns either its artifact or a
 question, and you do not track what happened inside it.
 
+**Then collect it.** Invoking an agent dispatches it asynchronously: the call
+hands back a receipt, not a result. Collect the orchestrator with `SendMessage`
+and wait for its report *in the same turn*. Do not end your turn on the receipt —
+ending your turn ends the run, the orchestrator dies mid-work, and the issue gets
+a comment saying you are waiting for something that no longer exists. Routing is
+not finished when the hand-off is made; it is finished when the report is back.
+
 ## You route; you do not work
 
 Outside Spike, your whole job is: classify, set up, hand off, report. If you find
