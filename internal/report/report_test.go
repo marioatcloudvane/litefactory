@@ -50,11 +50,15 @@ const testLogPath = "/Users/mario/.litefactory/logs/runs/github/acme/acme-api/12
 // whatever machine runs the tests.
 var testRunDay = time.Date(2026, 5, 20, 9, 14, 3, 0, time.UTC)
 
-// testBriefPath is where successRun's brief is derived to be: the branch with
-// its slashes hyphenated and lowercased, the run's day, and the feature slug
-// frozen into that branch. Written out by hand rather than derived, so that a
-// change to the derivation has to be agreed with here as well as in the
-// goldens.
+// testBriefPath is where successRun's brief was found: the branch with its
+// slashes hyphenated and lowercased, the day that session directory was named
+// on, and the feature slug frozen into the branch. The report is handed this
+// path rather than computing it — see report.Run.BriefPath — so a fixture that
+// leaves it empty is a run with no brief, and renders no link.
+//
+// Note that the date here is not required to be the run's own day, and that is
+// the property worth keeping: a task answered days after its session directory
+// was created still links the brief that exists.
 const testBriefPath = ".aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/" +
 	"add-dry-run-to-task-clean/RESEARCH_BRIEF.md"
 
@@ -106,7 +110,8 @@ func successRun() report.Run {
 			{Kind: git.ChangeUntracked, Path: "internal/cli/task_clean_test.go"},
 			{Kind: git.ChangeRenamed, From: "internal/cli/clean.go", Path: "internal/cli/task_clean.go"},
 		},
-		Output: numberedLines("worker: applying edit to internal/cli/task.go", 60),
+		Output:    numberedLines("worker: applying edit to internal/cli/task.go", 60),
+		BriefPath: testBriefPath,
 	}
 }
 

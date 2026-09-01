@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -573,7 +574,32 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		ToolsRequested: append([]string(nil), result.ToolsRequested...),
 		ToolProfile:    result.ToolProfile,
 		WorktreePath:   result.WorktreePath,
+		// Found by looking, not by deriving. internal/report does no I/O, and
+		// the session directory's date is knowable only from the filesystem —
+		// see report.Run.BriefPath for what deriving it used to get wrong.
+		BriefPath: briefPath(result, r.log),
 	}, nil
+}
+
+// briefPath is the repository-relative path of this task's RESEARCH_BRIEF.md,
+// or "" when the task has none — or when there is no worktree left to look in,
+// which is the abandoned-run path, where nothing is linkable anyway.
+func briefPath(result Result, log *slog.Logger) string {
+	if result.WorktreePath == "" {
+		return ""
+	}
+	dir, ok := findSessionDir(
+		result.WorktreePath,
+		result.Branch,
+		result.Ref.Issue,
+		result.Run.StartedAt,
+		naming.ResearchBriefName,
+		log,
+	)
+	if !ok {
+		return ""
+	}
+	return path.Join(dir, naming.ResearchBriefName)
 }
 
 // turnFailure is the failure that was not the run's own, as the report should

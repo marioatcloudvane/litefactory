@@ -143,6 +143,21 @@ type Run struct {
 	// text originating from the forge is ever carried here.
 	ToolsRequested []string
 	ToolProfile    string
+
+	// BriefPath is the repository-relative, slash-separated path of this task's
+	// RESEARCH_BRIEF.md, as found on disk by the caller. Empty means the caller
+	// looked and there is no brief — or had no worktree to look in — and the
+	// report renders no brief link at all.
+	//
+	// It is discovered rather than derived, and that is the whole point. This
+	// package cannot do the discovering: the path carries the date the session
+	// directory was named on, which is knowable only by looking, and looking is
+	// I/O this package promises not to do. Deriving it from the run's own start
+	// day is what it used to do, and it was wrong for every run of a task that
+	// outlived the day its session directory was created — it linked a path
+	// that had never existed while the brief sat one directory away. A report
+	// that names no brief is recoverable; one that names the wrong brief is not.
+	BriefPath string
 }
 
 // logPath returns the absolute path of the run's local log, or "" if it was
@@ -175,26 +190,6 @@ func (r Run) outputText() string {
 		return r.Result.Stderr
 	}
 	return ""
-}
-
-// startedOn returns the day the run happened and whether it is known.
-//
-// It is the date component of the session directory: aiteam names that
-// directory from the machine's local clock on the day the session is opened,
-// and the run's own start time is the same clock on the same day. FinishedAt
-// stands in when a run recorded no start, which is worth a link that is right
-// except across a midnight boundary rather than no link at all.
-func (r Run) startedOn() (time.Time, bool) {
-	if r.Result == nil {
-		return time.Time{}, false
-	}
-	if !r.Result.StartedAt.IsZero() {
-		return r.Result.StartedAt, true
-	}
-	if !r.Result.FinishedAt.IsZero() {
-		return r.Result.FinishedAt, true
-	}
-	return time.Time{}, false
 }
 
 // duration returns the run's wall-clock duration and whether it is known.

@@ -8,13 +8,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/report"
 )
@@ -312,92 +309,23 @@ func commitStoryIndex(ctx context.Context, opts Options, prep *preparation, log 
 	return commit.SHA, true
 }
 
-// locateSessionDir finds this task's aiteam session directory: the
-// repository-relative directory [naming.AITeamSessionDir] would have named
-// when this task's branch was created (Q1 of the architecture note).
+// locateSessionDir finds this task's aiteam session directory: the directory
+// holding the plan_brief.md this turn's Story Index rows came from (Q1 of the
+// architecture note).
 //
-// It is derived, not discovered — the same principle [report.Run.briefLink]
-// already follows for linking RESEARCH_BRIEF.md. The direct guess is the
-// current run's own start day, which is exact and free for the ordinary case:
-// the Plan run that just wrote plan_brief.md is, by construction, running on
-// the same calendar day the session directory was named. Only when that
-// guess misses — a retry days later, after an earlier partial failure — does
-// it fall back to one bounded, one-level [os.ReadDir] of
-// .aiteam/<branchDir>/, checking each date directory's plan_brief.md, newest
-// first.
+// It is [findSessionDir] keyed on plan_brief.md — the same lookup the run
+// report uses for RESEARCH_BRIEF.md, and for the same reason: the session
+// directory's date is the day it was named, which is not reliably the day any
+// later run happens to start.
 func locateSessionDir(prep *preparation, log *slog.Logger) (string, bool) {
-	branch := prep.session.Branch
-	slug, err := naming.SlugFromBranch(branch, prep.ref.Issue)
-	if err != nil {
-		log.Debug("branch was not built by this task's own tooling; nothing to file",
-			slog.String("branch", branch), slog.Any("error", err))
-		return "", false
-	}
-
-	if dir, ok := trySessionDay(prep, branch, slug, prep.run.StartedAt); ok {
-		return dir, true
-	}
-	return fallbackSessionDir(prep, branch, slug, log)
-}
-
-// trySessionDay derives the session directory for one candidate day and
-// reports whether plan_brief.md actually exists there — the "exact and free"
-// half of [locateSessionDir]'s derivation, one [os.Stat] and nothing more.
-func trySessionDay(prep *preparation, branch, slug string, day time.Time) (string, bool) {
-	dir, err := naming.AITeamSessionDir(branch, day, slug)
-	if err != nil {
-		return "", false
-	}
-	planPath := filepath.Join(prep.worktree.Path(), filepath.FromSlash(dir), planbrief.FileName)
-	if _, err := os.Stat(planPath); err != nil {
-		return "", false
-	}
-	return dir, true
-}
-
-// fallbackSessionDir is the bounded, one-level scan [locateSessionDir] falls
-// back to when the run's own start day is not where the session was named —
-// checking every date directory under .aiteam/<branchDir>/ in turn, newest
-// first, for one that actually holds plan_brief.md.
-//
-// It reads exactly one directory, never walks, and stops at the first date
-// that matches — the same discipline internal/repos.DetectAiteam already
-// holds its own directory scan to.
-func fallbackSessionDir(prep *preparation, branch, slug string, log *slog.Logger) (string, bool) {
-	branchDir, err := naming.AITeamBranchDir(branch)
-	if err != nil {
-		return "", false
-	}
-
-	root := filepath.Join(prep.worktree.Path(), filepath.FromSlash(branchDir))
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Debug("list the aiteam branch directory", slog.String("path", root), slog.Any("error", err))
-		}
-		return "", false
-	}
-
-	dates := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			dates = append(dates, entry.Name())
-		}
-	}
-	// Lexicographic order is chronological order for YYYY-MM-DD, so this is
-	// "newest first" with no date parsing needed to sort.
-	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
-
-	for _, date := range dates {
-		day, err := time.ParseInLocation(naming.SessionDateLayout, date, time.Local)
-		if err != nil {
-			continue
-		}
-		if dir, ok := trySessionDay(prep, branch, slug, day); ok {
-			return dir, true
-		}
-	}
-	return "", false
+	return findSessionDir(
+		prep.worktree.Path(),
+		prep.session.Branch,
+		prep.ref.Issue,
+		prep.run.StartedAt,
+		planbrief.FileName,
+		log,
+	)
 }
 
 // buildSubIssueSpecs turns every Story Index row into a [github.SubIssueSpec],

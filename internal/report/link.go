@@ -111,15 +111,23 @@ func validRepoPath(p string) bool {
 // briefLink renders the markdown link to this session's research brief, and
 // reports whether there is one to render.
 //
-// The path is derived, not discovered. Scanning [Run.Files] for the brief would
-// only ever link it on the run that rewrote it, and the run that most needs the
-// link is the one that merely read it — so the path is computed from the branch,
-// the run's own day and the slug frozen into the branch, exactly as CLAUDE.md
-// computes it. That derivation cannot know whether the file is there, which is
-// why the rendered line says so rather than promising a page.
+// The path is discovered by the caller and arrives on [Run.BriefPath] — it is
+// not computed here. It used to be: the session directory was derived from the
+// branch, the run's own start day and the slug frozen into the branch, exactly
+// as CLAUDE.md computes it. That derivation is correct only while a task
+// finishes on the day its session directory was named, and silently wrong
+// afterwards, because the directory keeps the date it was created with. A task
+// answered across midnight got a report linking a date that had never existed,
+// with the real brief one directory away — a link that is confidently wrong,
+// which is worse than none. Scanning [Run.Files] instead is no better: it would
+// link the brief only on the run that rewrote it, and the run that most needs
+// the link is the one that merely read it.
 //
-// It is refused outright in three cases, each of which would otherwise produce a
-// link that is worse than no link:
+// So the answer comes from whoever has the worktree to look in. An empty
+// BriefPath means there is no brief to link, and no link is rendered.
+//
+// It is refused outright in three further cases, each of which would otherwise
+// produce a link that is worse than no link:
 //
 //   - Not pushed. A permalink into a commit that exists only in a local
 //     worktree is a guaranteed 404 — and [Run.Pushed] is false on two ordinary
@@ -131,28 +139,16 @@ func validRepoPath(p string) bool {
 //     while the branch moved and sha_after holds where to. Pinning to CommitSHA
 //     would leave the link blank on precisely the supported path where the work
 //     is real (see git.CommitResult.Head).
-//   - No branch, no day, or a branch this issue's slug cannot be read out of.
+//   - A path [blobURL] will not build a permalink for.
 func (r Run) briefLink() (string, bool) {
-	if !r.Pushed || r.SHAAfter == "" {
+	if !r.Pushed || r.SHAAfter == "" || r.BriefPath == "" {
 		return "", false
 	}
-	day, ok := r.startedOn()
-	if !ok {
-		return "", false
-	}
-	slug, err := naming.SlugFromBranch(r.Branch, r.Ref.Issue)
-	if err != nil {
-		return "", false
-	}
-	brief, err := naming.ResearchBriefPath(r.Branch, day, slug)
-	if err != nil {
-		return "", false
-	}
-	url, ok := blobURL(r.Ref, r.SHAAfter, brief)
+	url, ok := blobURL(r.Ref, r.SHAAfter, r.BriefPath)
 	if !ok {
 		return "", false
 	}
 	// validRepoPath has already refused every character that could close the
 	// code span or the link, so the path needs no further quoting.
-	return "[`" + brief + "`](" + url + ")", true
+	return "[`" + r.BriefPath + "`](" + url + ")", true
 }
