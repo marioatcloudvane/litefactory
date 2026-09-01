@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(redone — 2026-09-01)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(2026-09-01)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -49,6 +49,37 @@ asked for; nothing here licenses starting the next one.
   "LF-8" migration comments refer to litefactory's internal multi-turn-session
   milestone, not this GitHub issue. **Still no `codex` binary was executed** —
   the same measurement caveat from the first pass is repeated, not softened.
+- 2026-09-01 — Plan complete, headless (requester approved moving from Research
+  to Plan; no human available mid-run to ask). `requirements-engineer` wrote
+  `feature-spec.md` (8 user stories, US-1..US-8) directly from
+  `RESEARCH_BRIEF.md`, resolving the brief's two open policy questions with
+  reversible defaults: permission profiles refuse rather than translate across
+  tools (A-3), and session identity splits into an always-computed
+  `session_ref` plus a nullable, tool-reported `resume_token` (A-5). `go-architect`
+  then reviewed the spec and returned five BLOCKING corrections, all folded into
+  `plan_brief.md` and the sub-issues rather than left as commentary: (B1) the
+  migration as drafted is not valid SQLite — fixed to
+  `ADD COLUMN ... NOT NULL DEFAULT 'claude'`; (B2) the spec's own
+  `Permissions.ClaudeTools`/`CodexSandbox` fields would have reintroduced the
+  exact vendor-leak defect (`ClaudeSessionID`) the new `internal/agent` package
+  exists to remove — fixed to an opaque per-kind payload narrowed only inside
+  each implementation; (B3) "closed set of 2 kinds" contradicted the spec's own
+  third-tool sizing test — fixed to registry-driven `Kind` validity; (B4) the
+  Codex probe (US-1) was missing the two questions with actual security
+  consequences (ambient `config.toml` sandbox-widening/MCP autoload,
+  `OPENAI_BASE_URL`-class env vars) — added as US-1 acceptance criteria; (B5)
+  the new `resume_token` column had no validation rule despite being
+  attacker-influenced data bound for argv — added a strict extraction/storage
+  regex, first-event-only acceptance, and a never-in-argv/never-echoed rule.
+  The architect also found US-1 gating 100% of the work was overstated (most of
+  US-4's schema work and the bulk of US-5's interface/factory refactor need no
+  Codex binary at all) and reported no `codex` binary present on the reviewing
+  machine (filesystem checks only; `which codex` was denied by that session's
+  permissions) — `plan_brief.md`'s Workflow section restructures the story
+  order on this basis so the vendor-neutral seam ships even if Codex itself
+  turns out to be unavailable. `plan_brief.md` plus sub-issues `US-1.md`
+  through `US-8.md` written to this session directory; Story Index links are
+  populated once litefactory creates each sub-issue from its body file.
 
 ## Notes
 
