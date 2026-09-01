@@ -2,7 +2,7 @@
 name: codebase-tour
 description: Runs the Two-Pass Codebase Tour for Research mode. Invoke when the research question involves understanding existing code — before building on it, beside it, or changing it. Returns structured findings inline to the research-orchestrator; writes no files.
 tools: Read, Glob, Grep, TodoWrite
-model: opus
+model: sonnet
 color: cyan
 ---
 
