@@ -4,7 +4,7 @@
 
 ## Modes
 
-- [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-09-01, revised in place by run 0002)*
+- [x] **Research** — `RESEARCH_BRIEF.md` *(done — 2026-09-01, revised in place by runs 0002 and 0003)*
 - [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -41,10 +41,74 @@ asked for; nothing here licenses starting the next one.
   lag in this repository's own issue listing. Run 0001's ranking of mechanism (c) revised upward as a
   result. Research remains closed; Plan needs its own human comment.
 
+- 2026-09-01 — Research **run 0003**. Headless. `RESEARCH_BRIEF.md` revised **in place** again after
+  the owner answered open question 1's blocker (he granted the web tools), answered open question 5,
+  **corrected run 0002's reading of open question 4**, and answered run 0002's "problem 1". The
+  substantive work of this run is a **correction, not an addition**. Three outcomes. **(1) SD-3 is
+  superseded by SD-3′.** "I want to see this logged here" meant the **daemon log**, not a comment on
+  the issue thread — *"i ment the log actually, not a comment on git!"*. Run 0002 had assumed the
+  thread and built the reply-kind plumbing, a comment-less posting path, a `0003_*.sql` migration,
+  the once-per-issue durable state and the whole of R11 on top of it. All of that is struck and
+  marked superseded rather than deleted, since the History above narrates run 0002 sizing Story C as
+  "the largest of the three" on its strength. The corrected story is a log-level change: the three
+  gate refusals log at `DebugContext` (`internal/daemon/tick.go:1085-1087, :1104, :1113-1116`), the
+  default level is `info` (`internal/config/config.go:256`, `internal/logging/logging.go:24-25, :38`),
+  and no run or run JSONL exists on a refused body — so `litefactory logs` prints "no runs yet"
+  (`internal/cli/cmd_logs.go:203-209`) and the refusal is **observable nowhere at all**. Promote to
+  `InfoContext` on branches 2–5, keep branch 1 (not assigned) at Debug on volume grounds, and branch
+  6 is **already** Info (`:1505-1511`). The house precedent is AC-S0.4 (`internal/turn/classify.go:343-352`,
+  `classify_test.go:521-527` — "a line only visible under debug is not a line the owner can find").
+  Story C therefore **dissolves into Story A**; no migration, no forge write, no new reply shape.
+  **(2) R11 is retired**, with the reason written out rather than the paragraph removed: a loop needs
+  the output to feed back into the input, a posted comment did that via `len(comments)` at
+  `tick.go:1081`, and a log line has no path back into anything the daemon reads. **(3) Open question
+  1 is closed by research, but not with a yes or a no.** With web access granted, GitHub's Issues
+  docs, Assignees docs, timeline docs, events docs and the Changelog were checked: **GitHub documents
+  nothing about what mutates an issue's `updated_at`**, and there is no authoritative list. The more
+  decisive finding is the fallback: the repository-wide issue-events endpoint
+  (`GET /repos/{owner}/{repo}/issues/events`) does carry `assigned`/`unassigned` events but its
+  **entire parameter list is `owner`, `repo`, `per_page`, `page`** — no `since`, no `sort`, no
+  documented ordering, no documented retention — so it cannot be cursored the way every other
+  listing in this daemon is; and the per-issue timeline is one request per issue per tick. Both
+  escape hatches from R12 are therefore closed, which **reverses run 0001's ranking**: mechanism
+  **(c)** (keep `needs_poll` set, narrowed to plausible candidates) is now the recommendation,
+  because it is the only option resting on no external contract. Two new settled decisions: **SD-4**,
+  "assigned to me and nobody else", which is **already exactly what
+  `t.issue.AssignedTo(d.filter.Identities().OwnerUserID)` does** (`internal/daemon/tick.go:1077`,
+  `internal/github/issues.go:94-104`) and so needs **no code change**; and **SD-5**, the owner's
+  bot-account reasoning, which is correct and enforced (`internal/turn/classify.go:245-253, :263-274,
+  :119-129`) and is now **moot**, because SD-3′ withdrew the premise that litefactory would post at
+  all. Full open-question audit written into the brief in answer to his direct "is everything
+  answered now?": **eight questions ever raised, seven closed, one (OQ-6, which discovery mechanism)
+  open and belonging to Plan rather than to him.** Research remains closed; Plan needs its own human
+  comment.
+
 ## Notes
 
 Feature slug supplied by the runner: `we-need-to-start-immediately-on-a-new`. Nobody can answer a
 question in this run, so open questions are recorded in the brief rather than asked.
+
+**Run 0003: no new citation rot in the brief's own text — the first clean run of this session.** Runs
+0001 and 0002 recorded five instances between them. Run 0003 re-pinned every citation it relied on
+(`runIssueBody` and all its refusal branches, `refuseTools` and its doc comment, `Filter.Classify`,
+`selfReason`, `Identities.Validate`, `Admit`'s AC-S0.4 comment) and found all of them exact; run
+0002's corrections held. One further stale statement was found **outside** the brief:
+`.aiteam/APP_CONTEXT.md:127` is a *third* instance of the "seven endpoints" claim run 0002 found at
+`:212` and `:691`, against twelve pinned methods in `internal/github/surface_test.go:64-109`. It
+changes no conclusion and, per the archive rule, belongs in the ledger rather than in an edit to the
+archived text.
+
+**Run 0003's own assumptions**, recorded in the brief's *Assumptions taken in run 0003*. The two that
+matter: SD-3′ is read as promoting existing log lines to `Info`, **not** as adding a CLI command to
+read `daemon.log` — `litefactory logs` reads run JSONL only (`internal/cli/cmd_logs.go:184-198`) and
+there is no `daemon logs` command, so surfacing the daemon log through the CLI would be a separate
+feature and is not scoped here. And branch 1 (not assigned to the owner) is excluded from SD-3′ on
+volume grounds by run 0003's judgement rather than by the owner's instruction, since it fires for
+most issues in the repository on most ticks.
+
+**Run 0002's load-bearing assumption was wrong and the correction is the main event of run 0003.**
+The note below stands as written and is now answered: the owner did mean the log, and Story C did
+disappear.
 
 **Run 0002 citation rot found (this session's fourth and fifth instances).** Run 0001's own citation
 of `Daemon.refuseTools` had rotted by fourteen lines (`tick.go:1473-1511` → `:1487-1533`), and

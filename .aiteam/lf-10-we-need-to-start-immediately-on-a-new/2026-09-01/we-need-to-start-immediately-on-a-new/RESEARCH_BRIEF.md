@@ -3,21 +3,33 @@
 2026-09-01. Headless. Branch `lf/10-we-need-to-start-immediately-on-a-new`.
 
 - **Run 0001** — first pass. Seven open questions.
-- **Run 0002** — this revision. The owner answered questions 2, 3 and 4 and asked for questions 1
-  and 5 to be explained. Revised in place.
+- **Run 0002** — the owner answered questions 2, 3 and 4 and asked for questions 1 and 5 to be
+  explained. Revised in place.
+- **Run 0003** — this revision. Web tools were granted, so open question 1 was researched properly;
+  the owner answered open question 5, **corrected run 0002's reading of open question 4**, and
+  answered the R11 hazard. Revised in place. Run 0003's substantive work is: **SD-3 is superseded
+  and rewritten** (it is a log line, not a posted comment), **R11 is retired** as an artefact of the
+  superseded reading, **SD-4 and SD-5 are added**, and open question 1 is closed as
+  *undocumented by GitHub* with a different, better-evidenced consequence than either earlier run
+  expected.
 
 **Provenance tags** used throughout:
 
 - `[V]` verified this run by reading the current source at the cited `path:line`.
-- `[O]` reported by the owner on issue #10. Owner statements from run 0002's comment are marked
-  `[O2]` where it matters which run they came from.
+- `[O]` reported by the owner on issue #10. Owner statements are marked `[O2]` / `[O3]` where it
+  matters which run's comment they came from.
 - `[W]` second-hand or external, not verified here.
 - `[A]` carried from an archived `.aiteam/` document, re-checked against source where load-bearing.
+- `[X]` external fact established this run from a cited primary source outside this repository
+  (GitHub's own documentation or changelog). New in run 0003 — it is deliberately *not* `[V]`,
+  because nothing in this worktree proves it, and deliberately not `[W]`, because it is cited.
 
-Every `path:line` in this brief was re-pinned **again** in run 0002 against the current worktree.
+Every `path:line` in this brief was re-pinned **again** in run 0003 against the current worktree.
 Line numbers quoted inside archived `.aiteam/` documents were **not** trusted — this session's own
-history records citation rot three times, and run 0002 found two further instances, one of them in
-run 0001's own text and one in `.aiteam/APP_CONTEXT.md` (see *Archive corrections*).
+history records citation rot five times across runs 0001 and 0002 (see *Archive corrections*). Run
+0003 re-pinned every citation it relies on and found **no new rot in the brief's own text**: the
+run-0002 corrections held. One further stale statement was found in `.aiteam/APP_CONTEXT.md` and is
+recorded below.
 
 ---
 
@@ -53,8 +65,14 @@ back.
 
 **And a second, separate finding that probably explains the owner's own experience: issue #10 has no
 body.** `[O]` A body that is empty or whitespace is refused at `internal/daemon/tick.go:1079`, and
-that refusal is silent — a debug log line and nothing on the thread (AC-2.16c,
-`internal/daemon/tick.go:1084-1088`). `[V]` So even a perfectly assigned, perfectly timed issue #10
+that refusal is silent (AC-2.16c, `internal/daemon/tick.go:1084-1088`). `[V]` **Run 0003 establishes
+that it is silent in the strongest possible sense: it produces no observable output anywhere at
+all.** The refusal logs at `DebugContext`, litefactory runs at `info` by default
+(`internal/config/config.go:256`, `internal/logging/logging.go:24-25, :38`), so the line is dropped
+before it reaches `daemon.log`; and because the branch returns before `d.run(...)` (`:1124`) no
+`runs` row and no run JSONL is created, so `litefactory logs <issue>` prints `"<ref> has no runs
+yet"` (`internal/cli/cmd_logs.go:203-209`). `[V]` Not on the thread, not in the log, not in the CLI.
+**That is what SD-3′ fixes.** So even a perfectly assigned, perfectly timed issue #10
 would have started nothing, and would have said nothing about why. Plain prose *does* spawn a run —
 `Command.Spawns()` is true for `KindFreeText` (`internal/turn/command.go:128`) `[V]` — so it is
 emptiness, not a missing `/spike`, that stopped it.
@@ -78,22 +96,61 @@ ask for but needs:
 - **SD-2 and SD-3 interact badly.** Posting a refusal comment puts a comment on the issue, and
   comments are an input to the body gate. On owner-authored issues — the ones SD-2 exempts — that is
   a comment on every tick, forever. On third-party issues the refusal comment silently closes the
-  body path for good. This is R11, it is the most serious finding of the run, and it makes the
-  once-per-issue mechanism a precondition for SD-3 rather than a refinement of it.
+  body path for good. This was R11, and it was the most serious finding of that run. **Run 0003
+  retires it** — it was produced entirely by a misreading of SD-3 that the owner has now corrected.
+  See *R11, retired*.
 
-**Open question 1 is still open.** The live probe was refused by the permission system and web access
-was unavailable; run 0002 adds no evidence either way and deliberately records no answer from
-memory. What it did establish is that a positive answer would be *necessary but not sufficient*: this
-repository has measured its own issue listing failing to surface a confirmed `updated_at` bump for
-thirty minutes, and an assignment — unlike a comment — has no second listing to fall back on (R12).
+### What run 0003 added
+
+**Three things changed, and one of them changes the shape of the recommended plan.**
+
+1. **SD-3 was read wrongly by run 0002, and is superseded.** The owner has said plainly `[O3]`:
+   *"Question 4: i ment the log actually, not a comment on git!"* So "i want to see this logged here"
+   meant **litefactory's own daemon log**, not a comment on the issue thread. Run 0002 built the
+   reply-kind plumbing, the once-per-issue durable state, the migration and the whole of R11 on top
+   of the wrong reading. The corrected SD-3 is **a log-level change and a log line** — see
+   *SD-3 (superseded)* and *SD-3′ (corrected)*. Story C shrinks from "the largest of the three" to
+   roughly a dozen lines with no migration, no forge write and no new reply shape.
+2. **R11 evaporates**, and so does the migration it forced. Recorded rather than deleted, because it
+   was a real hazard under the reading that produced it.
+3. **Open question 1 is closed — but not with a yes or a no.** GitHub does not document whether an
+   assignment change bumps `updated_at`, anywhere, and there is no authoritative statement either
+   way `[X]`. What run 0003 *did* establish, and what nobody had checked before, is that the
+   fallback everyone assumes exists — a repository-wide issue-events feed litefactory could poll —
+   **has no `since` parameter and no documented ordering** `[X]`. That kills mechanism (b′) "add a
+   forge endpoint" as a cheap escape hatch and, together with R12, makes mechanism **(c)** the
+   recommended one. See *Open question 1, closed*.
+
+**Open question 5 is answered and costs nothing.** *"It should only count when it is assigned to me.
+Not to anyone else."* `[O3]` That is **exactly what the code does today** — SD-4. No change.
+
+**The owner's answer to "problem 1" was correct and is now moot.** SD-5.
 
 ---
 
-## Settled decisions (run 0002)
+## Settled decisions
 
-The owner answered three of run 0001's seven open questions. They are recorded here as decisions,
-with his reasoning, and are **not re-argued** below — where a risk section previously left one of
-them open, it now records the consequence of the decision instead.
+Owner decisions, recorded with his reasoning, and **not re-argued** below — where a risk section
+previously left one of them open, it now records the consequence of the decision instead.
+
+| # | Decision | Run | Status |
+|---|---|---|---|
+| SD-1 | the stampede (R1) is accepted, not mitigated | 0002 | stands |
+| SD-2 | AC-2.16d kept, relaxed for owner-authored issues | 0002 | stands |
+| SD-3 | refusals become visible **on the issue thread** | 0002 | **SUPERSEDED by SD-3′** — the premise was a misreading |
+| SD-3′ | refusals become visible **in the daemon log** | 0003 | stands |
+| SD-4 | "assigned to the owner" means the owner's account only | 0003 | stands — **already the code** |
+| SD-5 | litefactory posts as the bot account, and never triggers itself | 0003 | correct, and **moot** under SD-3′ |
+
+**On superseding rather than editing.** SD-3 is struck through and kept, not deleted. This
+document's own *History* narrates run 0002 building real analysis on the wrong reading — the
+once-per-issue mechanism, the reply-kind plumbing, R11, and a `0003_*.sql` migration — and a reader
+who finds only the corrected version will not understand why the recommended plan shrank by a story.
+That follows the spirit of this repository's amendment ledger, whose whole design is that a
+superseded rule is marked superseded and the reason recorded rather than rewritten away
+(`.aiteam/AC_AMENDMENTS.md`, and the archive rule at `.aiteam/APP_CONTEXT.md:126-134`). `[V]` The
+ledger convention is for `AC_AMENDMENTS.md` specifically; applying it here is run 0003's own choice
+and is recorded as such.
 
 ### SD-1 — the stampede (R1) is ACCEPTED, not mitigated
 
@@ -166,25 +223,249 @@ recommended against scoping an authorship-based trigger. Whether that is a contr
 through in *SD-2 and AC-2.16a: not actually a conflict* below, and the answer is that it is not —
 but the resolution has to be written down rather than assumed.
 
-### SD-3 — refusals become visible on the thread, but not naively
+### ~~SD-3 — refusals become visible on the thread, but not naively~~ — **SUPERSEDED**
 
-**Decision** `[O2]`: *"yes, of course, i want to see this logged here!"*
+> **Superseded by SD-3′ on 2026-09-01 (run 0003). Do not build from this entry.**
+>
+> The decision text was right; run 0002's *interpretation* of it was wrong, and the wrong
+> interpretation is what everything downstream was sized against.
+>
+> **Decision, verbatim** `[O2]`: *"yes, of course, i want to see this logged here!"*
+>
+> **Run 0002's assumption, now falsified:** that "here" meant **the GitHub issue thread**. Run 0002
+> reasoned that a debug log line already existed on every refusal branch and so could not be what he
+> meant. That reasoning was not unreasonable — see SD-3′, where it turns out the debug line really
+> *is* invisible at the default log level — but the conclusion it drew was wrong.
+>
+> **The owner's correction, verbatim** `[O3]`: *"Question 4: i ment the log actually, not a comment
+> on git!"*
+>
+> **What this entry caused, so the reader can discount it wherever it still appears:** a proposed
+> `report.ReplyKind` and its `replyKind()` case; a posting path not keyed on a comment id; a
+> `0003_*.sql` migration carrying "this thread has been told"; the "post first, then commit"
+> ordering requirement; the entire *SD-3: which refusals speak, and how they stay quiet afterwards*
+> section below; and **R11**, run 0002's headline risk. All of it is downstream of a forge write
+> that is no longer proposed. The analysis is kept for the record and is marked where it appears.
 
-**Assumption, recorded explicitly because it changes the size of the work** `[O2]` interpreted: "here"
-is taken to mean **on the GitHub issue thread**. A debug log line into `$LF_HOME/logs` already exists
-for every one of these refusals (`internal/daemon/tick.go:1085-1087, :1104, :1113-1116`) `[V]`, and
-that is not something the owner could "see" in the sense the comment implies. So the request is read
-as: post something on the issue.
+### SD-3′ — refusals become visible **in the daemon log** (run 0003)
 
-**A naive reading of this is bad, and the brief says so plainly.** litefactory polls **every open
-issue in every registered repository** — `Daemon.sight` creates a session row for every open issue in
-the listing window, assigned or not (`internal/daemon/tick.go:394-419`, session created at `:403`)
-`[V]`. The very first refusal branch is "it is not assigned to the owner"
-(`internal/daemon/tick.go:1077`). If a comment were posted on every refusal, litefactory would
-comment on **every issue in the repository**, and under R-body′ it would do so **on every tick**,
-forever. That is precisely the outcome AC-2.16c exists to prevent, and it is not what the owner is
-asking for. The defensible line, and the mechanism that could make it once-only, are worked out in
-*SD-3: which refusals speak, and how they stay quiet afterwards* below.
+**Decision** `[O3]`, reading the two comments together: a refusal on an issue the owner assigned to
+himself must leave a trace **the owner can actually find in litefactory's own log**. Nothing is
+posted to the forge.
+
+**This is a much smaller change than SD-3 was, but it is not a no-op, and the reason is the log
+level.** `[V]`
+
+- **litefactory runs at `info` by default.** `logging.New` builds one `slog.HandlerOptions{Level:
+  opts.Level}` and shares it across both sinks (`internal/logging/logging.go:38, :42, :45`); the
+  zero value is documented as `slog.LevelInfo` (`:24-25`); `ParseLevel` returns `LevelInfo` for the
+  empty string and for a parse error (`:99-108`); `cmd/litefactory/main.go:103-117` falls back to
+  `LevelInfo` on every failure path; and the shipped default is `DefaultLogLevel = "info"`
+  (`internal/config/config.go:256`, applied at `:234`). The only way to change it is the `log_level`
+  key in `$LF_HOME/config.yaml` (`internal/config/config.go:79-81`, template
+  `internal/config/template.go:65-66`, validated `internal/config/validate.go:87, :98-106`). **There
+  is no CLI flag and no environment variable.**
+- **So `DebugContext` never reaches the log the owner reads.** Three of the four silent refusal
+  branches are `DebugContext` calls: `internal/daemon/tick.go:1085-1087` (the assignment /
+  empty-body / has-comments gate), `:1104` (`KindNone`) and `:1113-1116` (`!command.Spawns()`).
+  `[V]` At the default level they are dropped before the JSON handler sees them.
+- **And there is no run log to fall back on either.** All three branches `return nil` *before*
+  `d.run(...)` at `internal/daemon/tick.go:1124`, which is the only path into `turn.Execute`. No
+  `runs` row is allocated and no `NNNN.jsonl` is created. `litefactory logs <issue>` reads the
+  per-run JSONL and **never** `daemon.log` (`internal/cli/cmd_logs.go:184-198, :319-324`) `[V]`, so
+  for a refused issue it prints `"<ref> has no runs yet"` (`:203-209`) and nothing else.
+
+**The honest statement of today's behaviour, which is worse than run 0002 realised:** on the three
+`DebugContext` branches, a refusal produces **no observable output anywhere at all** — nothing on
+the thread, nothing in `daemon.log`, nothing in `litefactory logs`. That is exactly the owner's
+experience on issue #10 and it is the whole of what SD-3′ fixes.
+
+**Where the log actually is, and how the owner reads it.** `[V]`
+
+| | |
+|---|---|
+| Path | `$LF_HOME/logs/daemon.log` — `internal/config/paths.go:20, :22, :73, :75-77` |
+| Format | **JSON lines.** `slog.NewJSONHandler` (`internal/logging/logging.go:45`); a text copy goes to the console only when stdout is a tty (`:42`, `cmd/litefactory/main.go:56-59`) |
+| Redaction | **None, deliberately** — "line-oriented and deliberately unredacted: the local copy is always the full truth (S-7)" (`internal/config/paths.go:75-77`) |
+| Rotation | **None.** Accepted M0 debt, named as such at `internal/launchd/plist.go:58-62` |
+| How to read it | `tail`/`jq` on the file, or run the daemon in the foreground (`litefactory daemon run`) and watch the tty copy. **`litefactory logs` does not show it** and there is no `daemon logs` command — the CLI surface is fixed at `internal/cli/commands.go:9-20` |
+
+**The change SD-3′ asks for is: promote those refusals from `DebugContext` to `InfoContext`, and
+make the lines say enough to be the answer.** No forge write, no reply shape, no migration, no new
+state.
+
+**This is squarely the house rule, not a deviation from it.** The codebase already legislates exactly
+this trade, in almost these words, for the one other place where litefactory silently throws
+something away — `Filter.selfReason` dropping a comment (`internal/turn/classify.go:343-352`) `[V]`:
+
+> Info rather than debug, at the default level, because this is the one verdict that throws a comment
+> away. Silence is the real cost of a misclassification: a comment dropped as self produces no run,
+> no reply and no reaction, so from the thread it is indistinguishable from a daemon that is not
+> running at all. The reason is what makes the next occurrence diagnosable rather than a mystery …
+> (AC-S0.4).
+
+and its test states the level rule outright (`internal/turn/classify_test.go:521-527`) `[V]`:
+
+> the log line is the only trace a human can follow, and it has to name which condition fired. **The
+> level matters as much as the line.** It is asserted against a handler at `slog.LevelInfo`, which is
+> what `litefactory` runs at without `log_level` being set: **a line only visible under debug is not
+> a line the owner can find.**
+
+`Admit`'s own doc comment says the same thing from the other end: "the database says what was
+decided, **the log is what somebody reads when they are asking why nothing happened**" (AC-S0.4,
+`internal/turn/classify.go:291-297`) `[V]`. SD-3′ is that principle applied to the one path that was
+missed.
+
+**One branch is already done.** `Daemon.refuseTools`'s body path — refusal branch 6, the unresolvable
+`lf:tools=` label — **already logs at `InfoContext`** (`internal/daemon/tick.go:1505-1511`) `[V]`,
+and its line already explains itself in full ("Nothing was run and no comment was posted, because
+there is no comment to answer; the next comment on this issue is refused on the thread"). It is the
+in-tree precedent for exactly what SD-3′ wants, on exactly this code path, and it means branch 6
+needs **no change at all** unless the wording is revisited.
+
+### SD-3′ — which branches it covers, and it is all of them
+
+**Run 0002 spent a long section deciding which refusals may *speak on the thread*, because the
+volume of forge comments was the constraint. Under SD-3′ that constraint is gone**, and the answer
+changes accordingly: a log line costs nothing socially, is never seen by a third party, and cannot
+change litefactory's own behaviour. So the question is no longer "which refusals are worth a
+comment" but "which log lines would drown the log".
+
+**The owner's "yes, of course, i want to see this logged here!" was a general answer** `[O2]` — it
+was given to the general question of whether a refusal on the body path should ever be visible, not
+scoped to one branch. Run 0003 therefore reads SD-3′ as covering **all of `runIssueBody`'s refusal
+branches**, and checks each against the volume test rather than against a "does it deserve a
+comment" test.
+
+| # | Branch | Site | Today | Under SD-3′ | Why |
+|---|---|---|---|---|---|
+| 1 | not assigned to the owner | `tick.go:1077`, logged `:1085-1087` | Debug | **stays Debug** | This is the only branch with a volume problem, and it is a real one. `Daemon.sight` creates a session for **every open issue in every registered repository** (`tick.go:394-419`, session at `:403`) `[V]`, so this fires for most issues most of the time — and under R-body′ it fires *on every tick*. Promoting it would flood `daemon.log`, which is unrotated (`internal/launchd/plist.go:58-62`). It is also not a refusal in the owner's sense: nobody asked for anything. |
+| 2 | body empty or whitespace | `:1079`, logged `:1085-1087` | Debug | **Info** | The case the owner actually hit. Assigned by him, expecting work, got nothing. `[O]` |
+| 3 | already has comments (AC-2.16d) | `:1081`, logged `:1085-1087` | Debug | **Info** | Assigned by him; the body was deliberately not run. Under SD-2 this fires only on third-party issues, so its volume is bounded and small. |
+| 4 | body is only the `lf: ask` tag (`KindNone`) | `:1097-1106`, logged `:1104` | Debug | **Info** | Run 0002 deferred this because a *comment* here might confuse more than it helps. That objection was entirely about posting; it does not survive the correction. A log line for an obscure refusal is exactly what a log is for. **OQ5 of run 0002's list is closed by this** — see *Open questions*. |
+| 5 | command spawns nothing (`/plan`, bare `/spike`) | `:1107-1118`, logged `:1113-1116` | Debug | **Info** | Assigned, non-empty, and the first line was a typo or a non-spawning command. |
+| 6 | `lf:tools=` label does not resolve | `internal/daemon/tools.go` → `tick.go:1487-1533`, body branch `:1505-1511` | **already Info** | **no change** | Already done, and already self-explaining. See SD-3′ above. |
+
+**Branch 1 is the one asymmetry and it should be written down rather than left to be rediscovered.**
+The distinction that makes it defensible is the same one run 0002 drew, and it survives the change
+of medium intact: branches 2–6 all require the issue to be **assigned to the owner**, which is the
+signal that somebody deliberately pointed litefactory at it. Branch 1 is the absence of that signal.
+"Not for me" stays quiet; "meant for me, and I still declined" speaks.
+
+**On `internal/daemon/tools.go`'s body-path behaviour, called out separately as asked.** The
+tool-refusal path posts nothing on the body path, by design, and its doc comment names itself "the
+only branch to change if that trade is revisited" (`internal/daemon/tick.go:1480-1486`) `[V]`.
+**Under SD-3′ that trade is not being revisited** — nothing new is posted anywhere, so the branch's
+posting behaviour is untouched, and its logging behaviour is already correct. Plan should leave it
+alone. The one thing worth noting is that under R-body′ this branch becomes reachable on *every*
+tick rather than once (R2), so if Plan later wants a per-tick rate guard on any log line, this is
+the branch that needs it — not because it is loud today but because R-body′ makes it capable of
+being loud. Recorded, not recommended.
+
+### SD-3′ — is it its own story, or a line in Story A?
+
+**It folds into Story A. It should not be its own story.** Reasoning, stated so Plan does not have
+to re-derive it:
+
+- **The code change is roughly a dozen lines in one function.** Four `DebugContext` call sites in
+  `internal/daemon/tick.go` become `InfoContext` (`:1085-1087`, `:1104`, `:1113-1116`), one of them
+  conditionally — branch 1 must stay Debug, which means the single shared log line at `:1084-1088`
+  has to split by which refusal fired, since today all three gate branches share one call site. That
+  split is the only real design decision in the whole of SD-3′, and it is small.
+- **It shares Story A's blast radius exactly.** Story A rewrites the gate at
+  `internal/daemon/tick.go:1074-1125` and the doc comments around it (`:1018-1073`, `:1043-1051`).
+  SD-3′ edits the same twenty lines. Shipping them separately means touching the same function twice
+  and writing the same doc comment twice.
+- **It needs no migration, no new endpoint, no new reply shape and no durable state.** Every reason
+  run 0002 gave for making Story C its own story was a consequence of the forge write.
+- **Its test cost is small and already located.** `TestABodyThatCommandsNothingStartsNothingAndPostsNothing`
+  (`internal/daemon/tick_test.go:696`) and `TestIssueBodyToolsRefusalPostsNothing`
+  (`internal/daemon/tools_test.go:339`) both keep passing unchanged — **"posts nothing" is still
+  true**, which was not the case under SD-3. What is needed is a new assertion in the style of
+  `TestSelfDropIsLogged` (`internal/turn/classify_test.go:521-552`), which asserts a log line's text
+  *and* its `"level":"INFO"` against a handler at `slog.LevelInfo` `[V]`. That test is the template
+  and Plan should say so.
+
+**One caveat against folding.** Story A is behind a mechanism decision (see *Open question 1,
+closed*); SD-3′ is not, and is independently useful *today* — it would have explained issue #10 on
+its own. If Plan wants to ship anything before the mechanism question is resolved, SD-3′ is the
+piece that can go first. That is an argument for sequencing it first *within* Story A, not for
+making it a separate story.
+
+### SD-4 — "assigned to the owner" means the owner's account only (run 0003)
+
+**Decision** `[O3]`, verbatim: *"It should only count when it is assigned to me. Not to anyone else.
+So if an issue is assigend to "maxleo", this is not taken into my litefactory processing."*
+
+**This confirms run 0002's recommendation, and the good news is plain: nothing needs to change.**
+`[V]` The gate today is
+
+```go
+case !t.issue.AssignedTo(d.filter.Identities().OwnerUserID):
+```
+
+at `internal/daemon/tick.go:1077` — re-pinned this run and exact. `Issue.AssignedTo`
+(`internal/github/issues.go:94-104`) matches the **numeric user id** only and treats a zero id as
+matching nothing; `Identities.OwnerUserID` is the one account recorded by `litefactory init`
+(`internal/turn/classify.go:103`, `internal/store/migrations/0001_init.sql:17-25`). So the rule
+already reads: *is the one specific account that ran `litefactory init` on this machine among this
+issue's assignees?* An issue assigned to `maxleo` and nobody else fails that test and starts
+nothing. There is exactly one production call site (`internal/daemon/tick.go:1077`) and
+`TestANonOwnerAssigneeDoesNotFireTheBody` (`internal/daemon/tick_test.go:774`) already pins the
+behaviour. `[V]`
+
+**So SD-4 is a confirmation, not a change.** Plan should scope **no work** for it, and should not
+add a config key, an allowlist, or an "assigned to anybody" mode. Run 0002's *Open question 5,
+explained* section is retained below as the reasoning behind why this is the right rule; it is now
+settled rather than open.
+
+**The `maxleo` aside, addressed because it was raised** `[O3]`: *"However, maxleo might run his own
+instance of a litefactory and thus trigger something on another account!"* **True, and it changes
+nothing here.** Each litefactory installation stores its own owner identity in its own
+`$LF_HOME/litefactory.db` and compares against that one id and no other. A second installation,
+owned by a different account, would independently decide that an issue assigned to *its* owner is
+work for *it*. Nothing in this instance can see, read or be triggered by another instance's
+identity, and nothing in this instance's configuration would need to change to accommodate one. The
+only place two installations meet at all is R9 — two installs assigned to the *same* issue would
+both fire, because `naming.Branch` has no user component — and that was already recorded as an
+accepted risk from issue #6. **This aside needs no design response.**
+
+### SD-5 — litefactory posts as the bot account, and never triggers itself (run 0003)
+
+**The owner's answer to run 0002's "problem 1"** `[O3]`, verbatim: *"no, it should not because the
+bot account (not my personal one!) should comment, never my account; so i think it would not trigger,
+because a post from the bot account so far has never triggered anything!"*
+
+**His reasoning is exactly right, and it is enforced in code rather than by habit.** `[V]`
+Re-verified this run, not carried from run 0002:
+
+- `Filter.Classify` (`internal/turn/classify.go:245-253`) asks `selfReason` **first**, before it
+  asks whether the author is the owner.
+- `Filter.selfReason` (`internal/turn/classify.go:263-274`) is three conditions, any of which is
+  sufficient: the author id equals the stored bot id (`:265`, guarded on the bot id being non-zero,
+  `:260-262`), the forge flagged the author as a bot (`:267`), or a line of the body begins with
+  `<!-- lf:` (`:269`, `HasMarker`, `SelfReasonMarker`).
+- A comment classified `self` is recorded and produces no run, no reply and no reaction
+  (`internal/turn/classify.go:291-297`).
+- And the separation he relies on is not merely conventional: `Identities.Validate`
+  (`internal/turn/classify.go:119-129`) **refuses to construct a `Filter` at all** when
+  `OwnerUserID == BotUserID`, "because an account that is both owner and bot reads its own reports
+  as instructions — the loop this whole task exists to prevent (AC-0.6)".
+
+So: three independent guards, checked before the owner test, backed by a startup refusal. He was
+right on the facts.
+
+**And it no longer applies to anything.** The question he was answering was whether a refusal
+*comment* posted by litefactory would re-trigger the body gate on the next tick — R11. Under SD-3′
+**litefactory posts no comment**, so there is no comment for the self-filter to run against and no
+loop to be closed. The premise was withdrawn by his own correction on question 4, in the same
+message.
+
+**Both things are true and neither cancels the other.** He answered precisely the question that was
+in front of him, correctly, and the machinery he pointed at is real and would have done exactly what
+he said. It simply has nothing to do now. SD-5 is recorded so that if a future change ever *does*
+put litefactory back on the thread on the body path, the answer is already here and does not have to
+be worked out again.
 
 ---
 
@@ -371,9 +652,28 @@ database constraint — and that is true with or without SD-2.
 
 ---
 
-## SD-3: which refusals speak, and how they stay quiet afterwards
+## ~~SD-3: which refusals speak, and how they stay quiet afterwards~~ — **SUPERSEDED (run 0003)**
+
+> **This entire section is downstream of the superseded reading of SD-3 — that litefactory would
+> post a refusal *comment on the issue thread*. It does not. See SD-3′.**
+>
+> **What is still live in it:** the refusal-branch table immediately below (re-pinned in run 0003
+> and correct), and the observation that branch 1 fires for most issues in the repository on most
+> ticks, which is why SD-3′ leaves branch 1 at Debug.
+>
+> **What is dead in it:** everything about posting — the "which refusals speak" line as a *forge*
+> decision, the whole of *At most once per issue*, both storage mechanisms (i) and (ii), the
+> `0003_*.sql` migration, the `report.ReplyKind` and `replyKind()` work, the `ReplyRequest`
+> comment-id obstacle, and *The feedback loop SD-3 and SD-2 create together*. **None of it is
+> proposed any more.**
+>
+> Kept, not deleted, because run 0002's *Recommended scope* sized Story C as "the largest of the
+> three" on the strength of it, and a reader needs to see why that judgement was made and why it no
+> longer holds. The findings themselves were sound; the premise was not.
 
 ### The refusal branches that exist today
+
+**Re-pinned in run 0003 against the current worktree. Still accurate.** `[V]`
 
 Every one re-pinned this run. `[V]` `Daemon.runIssueBody` is `internal/daemon/tick.go:1074-1125`.
 
@@ -466,7 +766,11 @@ new state means `0003_*.sql`. The ledger records that a `runs.owner` column was 
   watermark, so it would need a listing it does not otherwise make. Recorded so Plan does not have to
   rediscover it.
 
-### The feedback loop SD-3 and SD-2 create together — and it is the worst finding of this run
+### ~~The feedback loop SD-3 and SD-2 create together — and it is the worst finding of this run~~ — **RETIRED (run 0003)**
+
+> **This hazard does not exist.** It required litefactory to post a comment; SD-3′ posts nothing.
+> Retained verbatim below, and analysed under *R11, retired*, because it was real under the reading
+> that produced it and because retiring a headline risk silently is worse than showing the working.
 
 **Posting a refusal comment puts a comment on the issue, and comments are an input to the body
 gate.** Tracing it through both branches of SD-2:
@@ -675,20 +979,10 @@ against `updated_at` (`internal/github/issues.go:157-163`), and each tick asks f
 `cursor − 5 minutes` (`internal/daemon/tick.go:205, :213-218`). `[V]`
 
 So the question reduces to one external fact: **does GitHub bump an issue's `updated_at` when its
-assignees change?** `[W]` — this is *not* established anywhere in this tree, and **run 0002 failed to
-establish it either.** See *Open question 1: what was tried* below. It remains the single
-highest-value cheap probe available, because the answer decides the size of the change:
-
-- **If `updated_at` bumps on assignment**: discovery re-lists the issue on a subsequent tick. The
-  change is inside the worker, needs no new endpoint and no new listing, and the per-tick API cost is
-  unchanged. **But see the lag finding below — "on the next tick" is not what this repository has
-  measured, and the caveat is load-bearing.**
-- **If it does not**: the issue is invisible to both existing listings after the cursor has passed
-  it, and the options get materially worse — either keep every unassigned open issue permanently in
-  the `needs_poll` backlog (see *Risks*, R6), or add a forge endpoint (issue events / timeline),
-  which means editing `daemon.Forge` (`internal/daemon/daemon.go:78-84`) **and**
-  `TestClientMethodSetIsPinned` (`internal/github/surface_test.go:64-109`) — a guard that exists
-  precisely so that growing the forge surface is a decision someone has to write down. `[V]`
+assignees change?** **Run 0003 researched this properly, with web access, and the answer is that
+GitHub does not say.** `[X]` See *Open question 1, closed* below for the sources and for what was
+found instead. The consequence for the design is set out there and it is not the branch either
+earlier run expected.
 
 The comment listing cannot help either way: there is no comment.
 
@@ -731,7 +1025,121 @@ index entries at all" (`:42-45`) — is real and unchanged. But it is now a trad
 failure of the alternative, not against a hypothetical one. Plan should weigh (a) and (c) against
 each other properly rather than treating (c) as ruled out.
 
-### Open question 1: what was tried in run 0002, and what stopped it
+### Open question 1, closed (run 0003): what GitHub documents, and what it does not
+
+The owner granted web access for this run — *"Question 1: I added the web tools, so you can now
+answer this question!"* `[O3]` — and the question was researched against GitHub's own documentation
+and changelog. **It produced a real answer, but not the yes-or-no answer that was expected.** All of
+the following is `[X]`: cited to a primary source outside this repository, fetched 2026-09-01,
+against REST API version `2022-11-28`.
+
+#### The direct question: not documented, either way
+
+**GitHub documents nothing about what mutates an issue's `updated_at`.** Checked directly:
+
+- [REST API endpoints for issues](https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28)
+  — `updated_at` appears in the response schema as a field with **no semantics attached**.
+- [REST API endpoints for issue assignees](https://docs.github.com/en/rest/issues/assignees) — the
+  endpoints that add and remove assignees **do not mention `updated_at` at all**.
+- The GitHub Changelog carries no entry on the subject. The only `updated_at`-clarifying changelog
+  entry found is [for the code scanning API,
+  2023-08-07](https://github.blog/changelog/2023-08-07-improving-the-code-scanning-rest-api-updated_at-field/)
+  — a different API, no bearing on Issues, and cited only to show that GitHub *does* publish such
+  clarifications when it makes them, and has not made this one.
+- No GitHub Community discussion or support answer on the specific question was found.
+
+**There is no authoritative list of what does and does not move `updated_at` on an issue.** That is
+itself a finding, and it is stated with high confidence: the absence was checked, not assumed.
+
+**The nearest adjacent evidence, and it is explicitly not an answer.** GitHub's own
+[`actions/stale`](https://raw.githubusercontent.com/actions/stale/main/README.md) README — a
+GitHub-org repository whose entire `days-before-close` arithmetic depends on the behaviour — states
+that *"since adding the stale label will alter the last update date, we can calculate the number of
+days from this date"*. **That establishes that a label change bumps `updated_at`.** It says nothing
+about assignment. Reasoning "labels bump it, therefore assignees do" is an inference across two
+different mutation paths and is recorded here as **low confidence and not a finding**. It is
+suggestive; it is not evidence.
+
+**A second, quieter uncertainty worth carrying:** the `since` parameter is documented as *"Only show
+results that were last updated after the given time"* — a paraphrase. GitHub never writes the token
+`updated_at` in that sentence, and never says what `sort=updated` orders by. Every consumer treats
+`since`, `sort=updated` and the `updated_at` response field as one clock and they almost certainly
+are, but if Plan needs that identity to be load-bearing it rests on a paraphrase.
+
+#### What was found instead, and it is more decisive than the original question
+
+**Run 0003 checked whether the obvious fallback exists — a forge endpoint litefactory could poll for
+assignment events instead of relying on `updated_at`. It does exist, and it cannot be polled.**
+
+| Endpoint | Carries `assigned`/`unassigned`? | Usable as a discovery source? |
+|---|---|---|
+| [`GET /repos/{owner}/{repo}/issues/{n}/timeline`](https://docs.github.com/en/rest/issues/timeline?apiVersion=2022-11-28) | **Yes.** "Timeline Assigned Issue Event" and "Timeline Unassigned Issue Event" are documented return types, each carrying `actor`, `assignee` and `created_at` as **required** fields | **No — it is per-issue.** One API call per issue per tick. litefactory polls every open issue in every registered repository; this is a request-count multiplier, not a listing |
+| [`GET /repos/{owner}/{repo}/issues/events`](https://docs.github.com/en/rest/issues/events?apiVersion=2022-11-28) | **Yes.** "Assigned Issue Event" and "Unassigned Issue Event" are documented return types, carrying `assignee` and `assigner`. Repository-wide | **Barely.** Its **entire parameter list is `owner`, `repo`, `per_page` (max 100), `page`.** There is **no `since` filter and no `sort` parameter**, and **the ordering is not documented in either direction** |
+
+Two further facts about the repo-wide events endpoint, both relevant to Plan:
+
+- **Retention is not documented.** The [2024-11-08 retention
+  changelog](https://github.blog/changelog/2024-11-08-upcoming-changes-to-data-retention-for-events-api-atom-feed-timeline-and-dashboard-feed-features/)
+  cut retention from 90 to 30 days effective 2025-01-30 and enumerates the affected endpoints
+  exhaustively — `/repos/{owner}/{repo}/events` is on that list; **`/repos/{owner}/{repo}/issues/events`
+  is not.** Those are two different APIs one path segment apart, and the 30-day figure must not be
+  allowed to migrate onto the wrong one. But absence from the list is **silence, not a guarantee**:
+  GitHub documents no retention for the Issues events endpoint anywhere.
+- **The timeline endpoint is GA, not a preview.** The current docs page carries no preview media
+  type, and the [2021-10-14 preview promotions
+  changelog](https://github.blog/changelog/2021-10-14-rest-api-preview-promotions/) graduated
+  twenty-three of twenty-five previews, naming the only two survivors as `corsair` and
+  `scarlet-witch`. `mockingbird` is not among them. So `application/vnd.github.mockingbird-preview+json`
+  is no longer required. (This is an inference off a two-item exclusion list, corroborated by the
+  docs page carrying no preview header — high confidence, but it is an inference.)
+
+**No indexing-lag documentation was found**, in either direction. The one community report retrieved
+— [community discussion
+#174956](https://github.com/orgs/community/discussions/174956), opened 2025-09-27, **never answered
+by GitHub staff**, auto-closed as inactive — describes a *different* failure: the REST issue listing
+returning only pull requests and omitting issues entirely, while GraphQL returned correct results.
+That is a correctness report, not a timestamp-lag report, and it is unresolved secondhand evidence.
+It is noted because R12's measured thirty-minute lag in this repository is now the *only* evidence
+about this listing's reliability that anybody has, and it is this project's own.
+
+**What the research could not reach:** stackoverflow.com is not fetchable by the researching agent's
+user agent, so any observed-behaviour reports living there are absent. That is a real gap and is
+stated rather than glossed.
+
+#### What this settles, and what it changes
+
+**OQ1 is closed as a research question and moved out of Open Questions.** Not because it has a yes
+or a no, but because **more searching will not produce one** — GitHub does not document it, and the
+only thing that would settle it is an empirical test. That is a different kind of task from research
+and is recorded as a Plan-time spike below rather than as an unanswered question.
+
+**The consequence for the design is the important part, and it inverts run 0001's ranking
+completely.** Both of the "if it does not bump" escape hatches that runs 0001 and 0002 assumed
+existed have now been examined and neither is cheap:
+
+1. **"Add a forge endpoint (issue events / timeline)"** was recorded as the fallback. It is now
+   materially worse than it looked. The per-issue timeline is one request per issue per tick, which
+   AC-2.24's whole posture argues against. The repo-wide events feed **has no `since` parameter** —
+   so polling it means page-walking from page 1 on every tick and client-side cursoring on
+   `created_at`, **against an ordering GitHub has not committed to in writing**, with undocumented
+   retention. That is not a listing; it is a scrape with a guess about sort order at its centre. And
+   it would still mean growing `daemon.Forge` (`internal/daemon/daemon.go:78-84`) and
+   `TestClientMethodSetIsPinned` (`internal/github/surface_test.go:64-109`) `[V]` — the guard that
+   exists so that growing the forge surface is a decision somebody writes down.
+2. **"Rely on the `updated_at` bump"** is now an *undocumented* dependency rather than an unverified
+   one. Even if a spike confirms the bump today, GitHub has published no contract, so the behaviour
+   could change without a changelog entry — and R12 shows this repository has already measured the
+   listing failing to surface a bump it had itself measured.
+
+**So mechanism (c) — keep `needs_poll` set — is the one run 0003 recommends.** It is the only
+option that depends on **no external contract at all**: a flagged session is unioned back into
+discovery from the local database (`Daemon.backlog`, `internal/daemon/tick.go:350-375`) at no API
+cost (`internal/store/migrations/0002_session_backlog.sql:40-45`) `[V]`. Run 0001 called it "the
+worst of the three"; run 0002 revised that to "the most robust and the most expensive"; **run 0003
+ranks it first**, because the two alternatives both turned out to rest on things GitHub declines to
+promise. Its cost is unchanged and real — see the narrowed variant under *Size and shape*.
+
+### ~~Open question 1: what was tried in run 0002, and what stopped it~~ — superseded by the above, retained for the record
 
 **Attempted, in the order the task specified.** `[V]` for what was attempted; the question itself
 stays `[W]`.
@@ -800,10 +1208,12 @@ Three reconciliations the owner's wording needs:
    (`internal/daemon/tick_test.go:508-535`) and `TestANonOwnerAssigneeDoesNotFireTheBody`
    (`:774`). `[V]` Plan should not re-invent it.
 
-### Open question 5, explained: "assigned to the owner" versus "assigned to anybody"
+### Open question 5, **now settled as SD-4**: "assigned to the owner" versus "assigned to anybody"
 
-The owner asked what this means. It is **left open deliberately** — this section explains it and
-recommends, it does not decide.
+**Decided by the owner in run 0003** `[O3]`: assigned to him specifically. See **SD-4** above for the
+decision and for the finding that it needs no code change. This section is the reasoning that
+produced the recommendation he accepted, and is retained because Plan should carry the argument, not
+just the verdict. It is **no longer an open question**.
 
 **What "the owner" actually is in litefactory.** Not a name, not a handle, not a role someone can
 claim. It is a **numeric GitHub user id**, recorded once and compared exactly. `[V]`
@@ -926,6 +1336,22 @@ authorisation *means*.
   returns nothing in that file — the four apparent hits are the substring "body" inside the word
   "nobody". `[V]`
 
+**Found in run 0003:**
+
+- **A third instance of the stale "seven endpoints" claim.** `.aiteam/APP_CONTEXT.md:127` — the
+  *Do not reinvent these* table — describes `internal/github` as "Concrete `*Client`, **seven
+  endpoints**, `net/http` only". `[V]` Run 0002 found the same claim at `:212` and `:691`;
+  `TestClientMethodSetIsPinned` (`internal/github/surface_test.go:64-109`) pins twelve methods, ten
+  of them endpoint-calling. Changes no conclusion. Per the archive rule
+  (`.aiteam/APP_CONTEXT.md:126-134`) the correction belongs in the ledger, not in an edit to the
+  archived text.
+- **No new rot found in this brief's own citations.** Run 0003 re-pinned `runIssueBody`
+  (`internal/daemon/tick.go:1074-1125`, gate at `:1077/:1079/:1081`, refusal logs at `:1085-1087`,
+  `:1104`, `:1113-1116`, run at `:1120-1124`), `refuseTools` (`:1487-1533`, body branch
+  `:1505-1511`, doc `:1480-1486`), `Filter.Classify` (`internal/turn/classify.go:245-253`),
+  `selfReason` (`:263-274`), `Identities.Validate` (`:119-129`) and `Admit`'s AC-S0.4 comment
+  (`:291-297`). **All exact.** Run 0002's corrections held.
+
 **Found in run 0002:**
 
 - **Run 0001's own citation of `refuseTools` has rotted by fourteen lines.** It cited
@@ -1009,20 +1435,20 @@ recorded anywhere; it is simply never revisited.
 | 1 (comment) | **none** | already shipped |
 | 2 and 4 (late assignment) | one rule change in `internal/daemon`, plus its argument | see below. **No stampede control — SD-1** |
 
-Run 0002 adds two further pieces of work, and they are three separate stories rather than one:
+**Run 0003's sizing. Two stories, not three, and no migration.** Run 0002 recorded three; SD-3′
+collapses the third into the first.
 
 | Story | Depends on | Size |
 |---|---|---|
-| **A — the timing change (R-body′)** | open question 1 for the mechanism choice | the original story; contained in `internal/daemon` if (a), plus a migration if (b) |
-| **B — the SD-2 author exemption** | A (pointless without it) | **small.** One conjunct in the gate; both operands already on the code path (`internal/daemon/tick.go:1077, :1093`). Its cost is in the argument and the doc comments, not the code |
-| **C — SD-3, visible refusals** | **R11: needs its own once-only state before it is safe** | **the largest of the three, and larger than it looks.** New `ReplyKind` + a case in `replyKind()`, a reply path that does not key on a comment id, and new durable state (migration `0003_*.sql`). See *SD-3 → the cost* |
+| **A — the timing change (R-body′), including SD-3′'s visible refusals** | the mechanism choice (below); the log-level part depends on nothing and could ship first | contained in `internal/daemon`. **No migration under mechanism (a) or (c).** The code is small; the cost is in the doc comments and the amendment entries |
+| **B — the SD-2 author exemption** | A (pointless without it) | **small.** One conjunct in the gate; both operands already on the code path (`internal/daemon/tick.go:1077, :1093`) `[V]`. Its cost is in the argument and the doc comments, not the code |
+| ~~C — SD-3, visible refusals~~ | ~~R11~~ | **DISSOLVED (run 0003).** Folded into A. See *SD-3′ — is it its own story*. No `ReplyKind`, no `replyKind()` case, no comment-less reply path, no `0003_*.sql`, no once-only state. Roughly a dozen lines and a log-assertion test |
+| **S — a spike, if Plan wants mechanism (a)** | nothing | ten minutes. Empirically test whether assignment bumps `updated_at`. Only needed if Plan prefers (a) over (c). See below |
 
-Story C should not be shipped in the same change as B without its once-only mechanism. That is R11
-and it is a spam loop, not a rough edge.
+**SD-4 requires no story.** The rule the owner asked for is already the rule the code enforces.
 
-For story A, three mechanisms are available. **This brief does not choose between them — that is
-Plan's job — but the trade-offs are asymmetric enough to be worth stating now, and run 0002 revised
-the ranking.**
+For story A, three mechanisms remain available. **Run 0003 recommends (c) and states why; Plan still
+chooses.**
 
 - **(a) Re-run the body gate from the drain path as well**, relying on the existing
   `UNIQUE (session_id, trigger_comment_id)` and `GetRunByTrigger` for once-ever. Smallest code
@@ -1033,26 +1459,47 @@ the ranking.**
   `internal/turn/prepare.go:152-157`; `internal/harness/prompt.go:251-255`), and the codebase's own
   style rule makes fixing them part of the change (`.aiteam/APP_CONTEXT.md:322-328`). It also adds an
   extra `ListCommentsAfter`-derived comment-count check on the drain path, which drain already has in
-  hand.
+  hand. **Its real weakness is external and now documented: it depends entirely on the issue listing
+  re-surfacing the issue after a late assignment — which requires an `updated_at` bump GitHub does
+  not document (OQ1), delivered promptly by a listing this repository has measured lagging thirty
+  minutes (R12), with no second listing to cover it (R12).** Three unguaranteed things in series.
 - **(b) A new `sessions` column** recording that the body has been considered or has fired
   (migration `0003_*.sql`). More explicit, survives a `runs` table cleanup, and gives an obvious
   place to hang a "considered and refused, do not reconsider" state. Costs a migration; note the
   ledger's precedent that a column was rejected once on migration-budget grounds
-  (`.aiteam/AC_AMENDMENTS.md:1286-1312`).
+  (`.aiteam/AC_AMENDMENTS.md:1286-1312`). **Run 0003 note: (b) does not solve the discovery problem.**
+  It changes how "has it already run" is recorded; it does not change how the daemon comes to look at
+  the issue again. It is a variant of (a) on that axis and inherits (a)'s external dependency. The
+  migration it was going to share with Story C no longer exists, so its cost is now unshared.
 - **(c) Keep `needs_poll` set** for sessions whose body has not fired. Run 0001 assessed this as "the
-  worst of the three"; **run 0002 revises that to "the most robust and the most expensive", and Plan
-  should weigh it against (a) properly rather than treating it as ruled out.** The cost is unchanged
-  and real: `needs_poll` is the dispatch backlog, and this would put *every open unassigned issue in
-  every registered repository* permanently into it, inverting the purpose of the partial index
+  worst of the three"; run 0002 revised that to "the most robust and the most expensive"; **run 0003
+  recommends it.** The cost is unchanged and real: `needs_poll` is the dispatch backlog, and the
+  naive form would put *every open unassigned issue in every registered repository* permanently into
+  it, inverting the purpose of the partial index
   (`internal/store/migrations/0002_session_backlog.sql:42-45`), whose stated design point is that
-  "the steady state — every session idle — carries no index entries at all". What changed is the
-  comparison: (a) and (b) both depend on the forge issue listing re-surfacing the issue after a late
-  assignment, and R12 records that this repository has *measured* that listing failing to do so for
-  thirty minutes on an event whose timestamp bump was itself measured — with no second listing to
-  cover assignment the way one covers comments. (c) is the only option that does not depend on the
-  listing at all. A narrowed variant is worth Plan's attention: flag only sessions that are *plausible
-  candidates* — open, non-empty body, not yet run at trigger 0 — rather than every open issue, which
-  keeps the index small in the common case where most issues are already dealt with.
+  "the steady state — every session idle — carries no index entries at all". `[V]`
+
+  **What changed to make it the recommendation** is not its cost but its competitors'. (a) and (b)
+  both depend on a chain of three things GitHub either does not document or this repository has
+  measured failing. (c) depends on **none of them**: a flagged session is unioned back into
+  discovery from the local database (`Daemon.backlog`, `internal/daemon/tick.go:350-375`) at no API
+  quota cost. It is the only option whose correctness argument is entirely inside this codebase.
+
+  **The narrowed variant is what Plan should actually cost.** Flag only sessions that are *plausible
+  candidates* — open, non-empty body, no run yet at trigger 0 — rather than every open issue. In the
+  steady state on a real repository most issues are either already run, closed, or have an empty
+  body, so the index stays small and the design point of the partial index is bent rather than
+  inverted. This is the piece of design work Plan owes the story, and it is the only genuinely
+  open engineering question left in this brief.
+
+**If Plan prefers (a), it needs a ten-minute spike first, and the brief will not answer it from
+memory.** GitHub does not document the behaviour (OQ1), so the only way to know is to measure it:
+against a scratch repository, `GET /issues/{n}` → record `updated_at` → `POST /issues/{n}/assignees`
+→ `GET /issues/{n}` again. **Test the mutation paths separately** — `POST /assignees`,
+`DELETE /assignees`, `PATCH /issues/{n}` with an `assignees` field, and the GraphQL
+`addAssigneesToAssignable` mutation — because there is no guarantee they share a code path and the
+REST assignees endpoints are documented as a distinct sub-resource. **A positive result is still not
+sufficient**: R12 stands regardless, because it is about the listing and not the timestamp.
 
 ---
 
@@ -1079,18 +1526,27 @@ age, by assignment recency, or an explicit opt-in) are recorded as *not wanted*.
 do is make sure the accepted exposure is visible in the code: a doc comment on the gate saying that
 the number of runs a single assignment gesture can start is deliberately unbounded, and why.
 
-**R2 — the `lf:tools=` silent refusal becomes far more reachable. SD-3 is the answer to it.** `[V]`
-When the trigger comment id is 0, `Daemon.refuseTools` refuses the run, logs it and **posts
-nothing**, because there is no comment to answer (`internal/daemon/tick.go:1487-1533`, the body
-branch at `:1505-1511`). Today the branch is reachable only on a first sight of an assigned issue.
-Under R-body′ it is reachable on any tick, for any assigned issue carrying a malformed or unknown
-`lf:tools=` label — and the owner's experience would be a labelled issue that does nothing, forever,
-silently.
+**R2 — the `lf:tools=` silent refusal becomes far more reachable. Largely already handled; downgraded
+in run 0003.** `[V]` When the trigger comment id is 0, `Daemon.refuseTools` refuses the run, logs it
+and **posts nothing**, because there is no comment to answer (`internal/daemon/tick.go:1487-1533`,
+the body branch at `:1505-1511`). Today the branch is reachable only on a first sight of an assigned
+issue. Under R-body′ it is reachable on any tick, for any assigned issue carrying a malformed or
+unknown `lf:tools=` label.
 
-SD-3 makes this branch speak, which is the right answer. But note the ordering trap: **it is also the
-branch where the SD-2/SD-3 feedback loop is most likely to fire**, because unlike an empty body a
-mis-typed label is a state the owner may leave in place for a while. Without the once-only mechanism
-it would post on every tick until the label is fixed. See *the feedback loop* under SD-3.
+**Run 0003 correction: this branch is not silent.** It logs at **`InfoContext`**
+(`internal/daemon/tick.go:1506-1509`) `[V]`, which is the default level, and its line already says
+what happened and why nothing was posted. So the owner *can* find it in `daemon.log` today. The
+residual risk is only that nothing appears on the *thread* — and under SD-3′ nothing is supposed to.
+**Nothing needs to change here.**
+
+What *does* remain is a volume observation, recorded for Plan rather than as a risk to mitigate:
+under R-body′ this Info line becomes reachable on every tick for as long as a mis-typed label sits in
+place, where today it fires once. Unlike an empty body, a mis-typed label is a state the owner may
+leave alone for a while. If any per-tick log-volume guard is ever wanted, this is the branch that
+needs one. Run 0003 does not recommend building one now — `daemon.log` is unrotated
+(`internal/launchd/plist.go:58-62`) but one line per tick per mislabelled issue is not what fills a
+disk. **The run-0002 version of this paragraph made SD-3's once-only mechanism the answer here; that
+mechanism no longer exists and is no longer needed.**
 
 **R3 — "exactly once" changes register.** `[V]` Today it is a control-flow property, argued at
 `internal/daemon/tick.go:1043-1051`: the watermark is planted before the body runs, so the next tick
@@ -1157,25 +1613,66 @@ installs assigned to the same issue would both fire, since `naming.Branch` has n
 R-body′ widens the window in which that can happen from one instant to indefinitely. Still an
 accepted risk, now slightly larger.
 
-**R11 — the SD-2 × SD-3 comment loop. New in run 0002, and the most serious finding of this run.**
-`[V]` A refusal comment is a comment, and comments are an input to the body gate. On an
-owner-authored issue SD-2 says comments do not block, so the gate refuses again on the next tick and
-posts again — **every tick, forever**. On a third-party issue the refusal comment silently and
-permanently closes the body path for that issue. Neither decision is wrong alone; the loop is
-produced by their conjunction. **The once-per-issue mechanism is not a refinement of SD-3, it is a
-precondition for it**, and the existing reply machinery cannot supply it (`ReportReply` keys its
-idempotency on a comment id that is 0 here — `internal/turn/report.go:254-255, :413-420, :440`). Full
-working under *SD-3 → the feedback loop*.
+**~~R11 — the SD-2 × SD-3 comment loop.~~ RETIRED in run 0003. It does not exist.**
 
-**R12 — no discovery path is guaranteed to notice a late assignment. New in run 0002.** `[V]` Open
-question 1 asks whether `updated_at` moves on assignment; even a yes does not settle whether
-discovery *notices*. This repository has measured its own issue listing failing to surface a
-confirmed `updated_at` bump for thirty minutes across sixty consecutive listings
-(`internal/github/comments.go:121-126`). For comments there is a second, independently indexed
-listing that covers that gap by design (`:124-130`). **An assignment produces no comment, so it has
-no second path.** The consequence for Plan is that mechanism (c) — keeping `needs_poll` set — is no
-longer clearly the worst of the three, because it is the only one that does not depend on a forge
-listing at all. Run 0001's ranking is revised; see *The lag finding*.
+Run 0002 raised R11 as its most serious finding, and it was a correct and careful piece of work
+**under the premise it was given**. The premise was that SD-3 meant litefactory posting a refusal
+*comment on the issue thread*. The owner has corrected that: he meant the log. `[O3]`
+
+**Why the hazard evaporates, stated properly rather than deleted.** R11 was a *loop*, and a loop
+needs the output to feed back into the input. That is exactly what a posted comment did:
+
+- litefactory posts a refusal comment →
+- the comment lands on the issue →
+- the next tick's body gate reads `len(comments)` (`internal/daemon/tick.go:1081`) `[V]` →
+- the gate's decision changes because of litefactory's own output.
+
+**A log line has no such path back.** `daemon.log` is a file under `$LF_HOME/logs`
+(`internal/config/paths.go:75-77`) `[V]`; nothing in `internal/daemon` reads it, nothing in
+`internal/store` records it, and it is not an input to any gate, any classification or any listing.
+The daemon's notion of "existing comments" comes from `ListCommentsAfter` against the forge and from
+the local `comments` table — neither of which a log line touches. Writing to the log therefore
+**cannot** change what the next tick decides. Both rows of run 0002's loop table are void:
+
+| Issue authored by | Under SD-3 (comment) | Under SD-3′ (log line) |
+|---|---|---|
+| someone else | refusal comment silently and permanently closes the body path | **nothing changes.** The gate sees the same comments it saw before |
+| the owner (SD-2 relaxed) | refuses and posts again, every tick, forever | **an Info line repeats while the condition persists.** Repetitive, not a loop, and bounded by how long the owner leaves the issue in that state |
+
+**Note the residual, honestly:** SD-3′ does still produce a *repeating* log line on an owner-authored
+issue whose body refuses on every tick under R-body′. That is R2's volume observation, it is a
+tidiness matter in an unrotated log, and it is categorically not R11 — nothing feeds back, no
+behaviour changes, and no third party sees it.
+
+**What R11's retirement takes with it:** the once-per-issue durable state, the `0003_*.sql`
+migration, the `report.ReplyKind` and `replyKind()` work, the comment-less reply path, and the
+"do not ship C without its once-only mechanism" sequencing constraint. All of it existed to contain
+R11. **See SD-5 for the owner's own answer to this question, which was correct on its own terms and
+is now moot for the same reason.**
+
+**R12 — no discovery path is guaranteed to notice a late assignment. New in run 0002; strengthened
+in run 0003 and now the load-bearing risk of the whole brief.** `[V]` `[X]` Open question 1 asked
+whether `updated_at` moves on assignment; even a yes would not settle whether discovery *notices*.
+This repository has measured its own issue listing failing to surface a confirmed `updated_at` bump
+for thirty minutes across sixty consecutive listings (`internal/github/comments.go:121-126`) `[V]`.
+For comments there is a second, independently indexed listing that covers that gap by design
+(`:124-130`) `[V]`. **An assignment produces no comment, so it has no second path.**
+
+**Run 0003 adds three things and every one of them makes R12 worse, not better:**
+
+1. **GitHub does not document the bump at all** `[X]`, so the first link in the chain is not merely
+   unverified — it is uncontracted, and could change without a changelog entry.
+2. **The obvious second path does not exist in usable form.** The repository-wide issue-events
+   endpoint carries `assigned`/`unassigned` events but **has no `since` parameter and no documented
+   ordering** `[X]`, so it cannot be cursored the way every other listing in this daemon is.
+3. **No external evidence about the listing's reliability was found in either direction** `[X]`, so
+   this repository's own measurement in `internal/github/comments.go:121-126` remains the only
+   evidence anybody has — and it is negative.
+
+**The consequence for Plan is now a recommendation rather than a weighing:** mechanism (c) —
+keeping `needs_poll` set — is the only option that does not depend on a forge listing at all, and
+run 0003 ranks it first. Run 0001's ranking is reversed; see *Open question 1, closed* and *Size and
+shape*.
 
 **R10 — permission surface, stated plainly.** Auto-starting on sight is a wider surface than
 comment-triggered work, but the authorisation itself does not change: it is still one numeric-id
@@ -1201,64 +1698,101 @@ Recorded so Plan does not have to relitigate them:
 - Routing a body through `Filter.Admit`. It refuses a zero comment id by construction
   (`internal/turn/classify.go:313-315`) and `Filter.Classify`'s doc states there is deliberately no
   bare-body overload (`:236-244`). `[V]`
-- A new forge endpoint — **unless** the `updated_at` probe forces it, in which case it stops being
-  out of scope and becomes the main cost of the feature.
+- A new forge endpoint. **Run 0003 hardens this from a conditional into a recommendation.** Run 0002
+  left it conditional on the `updated_at` probe. Research has now established that the only
+  repository-wide alternative — `GET /repos/{owner}/{repo}/issues/events` — **has no `since`
+  parameter, no `sort` parameter and no documented ordering** `[X]`, so polling it means page-walking
+  from page 1 every tick against a sort order GitHub has not committed to, with undocumented
+  retention; and the per-issue timeline endpoint is one request per issue per tick, which is what
+  AC-2.24 exists to avoid. Mechanism (c) reaches the same outcome with no forge surface at all.
+  **Recommended out of scope.**
+- **Posting anything on the issue thread from the body-refusal path.** Formerly the whole of Story C.
+  Removed by the owner's correction of OQ-4 — see *SD-3 (superseded)* and *SD-3′*.
+- **A new `sessions` column / migration `0003_*.sql`.** It existed only to contain R11, which is
+  retired. Mechanism (b) could still want one, but (b) is not recommended.
+- **Anything about other litefactory installations.** Raised by the owner as an aside `[O3]` and
+  answered under SD-4: a second instance has its own owner identity and cannot see or be triggered by
+  this one's. No design response.
 
 ---
 
 ## Open questions
 
-**Closed by run 0002:** OQ2 → SD-1 (accepted). OQ3 → SD-2 (kept, relaxed for owner-authored issues).
-OQ4 → SD-3 (yes, on the thread, with a defensible line and a mandatory once-only mechanism).
+### "Is everything answered now?" — the audit
 
-**Still open:**
+The owner asked directly `[O3]`. **Answer: yes, with one qualification and no blockers.** Every
+question this brief has ever raised is now either settled, dissolved, or is an ordinary engineering
+choice that belongs to Plan rather than to him. **Nothing is waiting on him.**
 
-1. **Does GitHub bump an issue's `updated_at` when its assignees change?** `[W]` **Still open. Run
-   0002 tried to settle it and could not** — the live `gh` probe was refused by the permission
-   system and web access was unavailable in the session. See *Open question 1: what was tried* for
-   exactly what was attempted, what blocked it, and the two read-only commands that would settle it.
-   Not re-asked as a decision for the owner: it is a fact about GitHub, not a preference, and it
-   needs a probe rather than an answer.
+Below is every open question as it stood after run 0002 — run 0002's list, not the manifest's
+summary — plus run 0001's, with a verdict on each.
 
-   **Run 0002 narrowed its consequence, though.** R12 records that even a positive answer does not
-   guarantee timely discovery, because this repository has measured its own issue listing lagging by
-   thirty minutes on a confirmed bump, and assignment has no second listing to fall back on. So the
-   question now sizes the *mechanism choice* rather than deciding *whether the feature is possible*:
-   (a)/(b) if the answer is yes and the lag is tolerable, (c) if it is no — or if the lag is not.
+| # | Question | Raised | Verdict |
+|---|---|---|---|
+| OQ-1 | Does GitHub bump `updated_at` on an assignment change? | 0001 | **Closed by research, not by a yes/no.** GitHub documents nothing, either way `[X]`. More searching will not help. Recorded as an optional ten-minute empirical spike, needed only if Plan prefers mechanism (a). **Not blocking**, because run 0003 recommends (c), which does not depend on the answer |
+| OQ-2 | Should the stampede be contained? | 0001 | **Settled — SD-1.** Accepted, not mitigated. `[O2]` |
+| OQ-3 | Keep the "zero comments" clause? | 0001 | **Settled — SD-2.** Kept, relaxed when the owner authored the issue. `[O2]` |
+| OQ-4 | Should refusals be made visible? | 0001 | **Settled — SD-3′.** Yes, **in the daemon log**. `[O2]` + `[O3]` correction. Run 0002's SD-3 (post on the thread) is superseded |
+| OQ-5 | Assigned to the owner, or to anybody? | 0001 | **Settled — SD-4.** The owner specifically. `[O3]` **And it needs no code change** — the gate already does exactly this |
+| OQ-6 | Which mechanism — (a), (b) or (c)? | 0001/0002 | **Open, and it is Plan's to decide, not the owner's.** Run 0003 recommends **(c)**, narrowed to plausible candidates, because it is the only option resting on no external contract. This is an engineering trade-off inside `internal/daemon`, and it is the one genuinely open design question left |
+| OQ-7 | Bring `internal/daemon/doc.go` up to date? | 0001 | **Settled by recommendation: yes, as a task.** Nobody has objected and there is nothing to object to; the package spec does not mention the issue-body trigger at all (re-verified run 0002). Not a question for the owner |
+| OQ-8 | Should the `lf: ask`-only body (branch 4) speak? | 0002 | **Closed by SD-3′.** Run 0002 deferred it because a *comment* there might confuse. That objection was entirely about posting and does not survive the correction — a log line for an obscure refusal is what a log is for. **Yes, it logs at Info** |
+| — | R11, the SD-2 × SD-3 comment loop | 0002 | **Retired.** Not a question and not a risk. It required a posted comment; nothing is posted |
+| — | The "problem 1" answer (bot account) | 0002 → 0003 | **Confirmed correct and now moot — SD-5.** `[O3]` The self-filter is real and enforced; there is simply no longer a comment for it to act on |
+| — | The `maxleo` other-instance aside | 0003 | **Out of scope, and always was.** A different installation with a different owner identity. No effect on this instance and no design response needed. See SD-4 |
 
-2. **Assignment to the owner specifically, or to anybody?** `[O]` asked for an explanation, which is
-   given under *Open question 5, explained*. **This is the one genuinely open decision left for the
-   owner.** Recommendation there is to keep it as it is — assigned to the stored owner id — with a
-   named allowlist of user ids as the middle option if a second person actually needs to trigger
-   runs, and "assigned to anybody" not recommended in any case, because it is the only one of the
-   three that changes what litefactory's authorisation *means* and it directly weakens the premise
-   SD-1 rests on.
+**Count: eight numbered open questions ever raised. Seven are closed. One (OQ-6) is open and belongs
+to Plan.** Two run-0002 findings (R11, "problem 1") are retired rather than answered, because the
+premise underneath both was withdrawn.
 
-3. **Which mechanism — (a), (b) or (c)?** Depends on (1) and on Plan's appetite for a migration.
-   Note that SD-3 needs a migration anyway (R11), so if stories A and C ship together the migration
-   cost of (b) is partly already paid.
+**The one qualification, stated plainly so it is not mistaken for a blocker.** OQ-1 has no yes-or-no
+answer and never will have one from documentation — GitHub does not publish the behaviour. If Plan
+chooses mechanism (a) it should spend ten minutes measuring it against a scratch repository first. If
+Plan takes run 0003's recommendation and chooses (c), the question does not arise at all. Either way
+**nothing here waits on the owner, and Plan is not blocked.**
 
-4. **Should `internal/daemon/doc.go` be brought up to date as part of this work?** It does not
-   describe the issue-body trigger at all, re-verified in run 0002. Recommend yes, and that it be a
-   task rather than a side-effect. SD-2 raises the stakes: the author-dependent behaviour it
-   introduces will read as non-determinism to anyone who cannot find it written down.
+### The one question that is still genuinely open
 
-5. **Should branch 4 — a body whose only content is the `lf: ask` tag — speak under SD-3?**
-   Marginal, and deliberately not decided here. It clears the volume bar (the issue is assigned and
-   the body is non-empty) but the refusal is obscure enough that a reply may confuse more than it
-   helps. Recommend deferring rather than resolving it in this feature.
+**OQ-6 — which discovery mechanism.** Run 0003 recommends **(c) `needs_poll`, narrowed to plausible
+candidates**, on the grounds that (a) and (b) both depend on a chain of three things GitHub either
+declines to document or this repository has measured failing (see R12). The narrowing — flag only
+sessions that are open, have a non-empty body, and have no run at trigger 0 — is the piece of design
+work Plan owes this story, because the naive form inverts the stated design point of the partial
+index (`internal/store/migrations/0002_session_backlog.sql:42-45`). `[V]`
+
+**This is an engineering decision, not an owner decision.** It does not change what litefactory does
+from the owner's seat; it changes how reliably and how soon it does it.
 
 ---
 
 ## Recommended scope for Plan mode
 
-**Three stories, in this order.**
+**Rewritten in run 0003. Two stories, not three. No migration. No forge write.**
 
-**Story A — the timing change (R-body′).** Turn the issue-body gate from a first-sight moment into a
-durable state test — "open ∧ assigned to the owner ∧ non-empty body ∧ no comments ∧ no run yet at
-trigger 0" — evaluated on every tick that sees the issue, with once-ever enforced by
-`UNIQUE (session_id, trigger_comment_id)`, which already enforces it. Closes workflows 2 and 4 for
-issues with no comments, leaves workflows 1 and 3 untouched.
+**Story A — the timing change (R-body′), with SD-3′ folded in.** Two parts, and the second can ship
+first if Plan wants something in the owner's hands before OQ-6 is decided.
+
+- **A1 — visible refusals (SD-3′).** Promote the issue-body refusals from `DebugContext` to
+  `InfoContext`, so that a refusal on an issue the owner assigned to himself leaves a line he can
+  find in `$LF_HOME/logs/daemon.log`. Today it leaves nothing anywhere: the three gate branches log
+  at Debug (`internal/daemon/tick.go:1085-1087, :1104, :1113-1116`), the default level is `info`
+  (`internal/config/config.go:256`, `internal/logging/logging.go:24-25, :38`), and no run and no run
+  JSONL exists to fall back on, so `litefactory logs <issue>` prints `"<ref> has no runs yet"`
+  (`internal/cli/cmd_logs.go:203-209`). `[V]` **Branch 1 (not assigned to the owner) stays at
+  Debug** — it fires for most issues in the repository on most ticks — which means the single shared
+  log call at `:1084-1088` has to split by which refusal fired. That split is the only design
+  decision in A1. Branch 6 is **already** at Info (`:1505-1511`) and needs nothing. **Nothing is
+  posted to the forge, so `TestABodyThatCommandsNothingStartsNothingAndPostsNothing`
+  (`internal/daemon/tick_test.go:696`) and `TestIssueBodyToolsRefusalPostsNothing`
+  (`internal/daemon/tools_test.go:339`) keep passing unchanged.** The new test should follow
+  `TestSelfDropIsLogged` (`internal/turn/classify_test.go:521-552`), which asserts a line's text
+  *and* its `"level":"INFO"` against a handler at `slog.LevelInfo` — the level is the point, not an
+  incidental. Roughly a dozen lines.
+- **A2 — the durable state test.** Turn the issue-body gate from a first-sight moment into a durable
+  test — "open ∧ assigned to the owner ∧ non-empty body ∧ no comments ∧ no run yet at trigger 0" —
+  evaluated on every tick that sees the issue, with once-ever enforced by
+  `UNIQUE (session_id, trigger_comment_id)`, which already enforces it. Closes workflows 2 and 4 for
+  issues with no comments, leaves workflows 1 and 3 untouched. **Decide OQ-6 first** — see below.
 
 **Story B — the SD-2 author exemption.** Add the disjunct: existing comments stop blocking when the
 issue's author id equals the stored owner id. Small in code, and its whole cost is in the argument:
@@ -1266,26 +1800,39 @@ the AC-2.16d amendment entry, the R4 doc comment at `internal/harness/prompt.go:
 out loud in `internal/daemon/doc.go` that two issues that look identical can behave differently
 according to who opened them.
 
-**Story C — SD-3, visible refusals.** The largest of the three. **Do not ship it without its
-once-only state (R11)** — the SD-2 × SD-3 loop posts a comment on every tick, forever, on exactly the
-issues the owner cares about most. Scope it as: a new `report.ReplyKind` plus its case in
-`replyKind()` (`internal/turn/report.go:612-625`); a posting path that does not key on a triggering
-comment id, because `ReplyRequest.validate` refuses one at zero and both of `ReportReply`'s
-idempotency sources degenerate there (`internal/turn/report.go:254-255, :413-420, :440`); a
-`0003_*.sql` migration carrying "this thread has been told"; and the "post first, then commit"
-ordering every other reporting path uses. Speak only on branches 2, 5 and 6 — never on branch 1
-(not assigned), which fires for most issues in the repository on every tick.
+**~~Story C — SD-3, visible refusals.~~ Dissolved.** It was sized as "the largest of the three" on
+the premise that litefactory would post a comment. It does not. It is now A1, and everything that
+made it large — the `report.ReplyKind` and its `replyKind()` case, a posting path not keyed on a
+comment id, the `0003_*.sql` migration, the once-only state, the "post first, then commit"
+ordering — is **not in scope**. Plan should not carry any of it forward. See *SD-3 (superseded)* for
+what was proposed and why it was dropped.
 
-**Sequence A behind the probe.** Open question 1 is unresolved and run 0002 could not resolve it. It
-is two read-only `gh api` GETs and it is the difference between a contained change inside
-`internal/daemon` and one that grows the forge surface and its pinned method set. **Read R12 before
-choosing** — a positive answer is not sufficient on its own, because the listing this feature depends
-on has been measured lagging thirty minutes in this very repository, with no second listing to cover
-assignment.
+**Decide OQ-6 before A2, and run 0003 recommends mechanism (c).** The recommendation rests on R12:
+mechanisms (a) and (b) both depend on the forge issue listing re-surfacing an issue after a late
+assignment, which needs an `updated_at` bump **GitHub does not document** `[X]`, delivered by a
+listing **this repository has measured lagging thirty minutes** (`internal/github/comments.go:121-126`)
+`[V]`, with **no second listing** to cover it — and the obvious alternative, the repository-wide
+issue-events feed, **has no `since` parameter and no documented ordering** `[X]` and so cannot be
+cursored. Mechanism (c) depends on none of that. **Plan owes the story the narrowing** — flag only
+sessions that are open, have a non-empty body and have no run at trigger 0 — because the naive form
+inverts the partial index's stated design point
+(`internal/store/migrations/0002_session_backlog.sql:42-45`) `[V]`.
+
+**If Plan prefers (a) anyway, spike it first.** Ten minutes against a scratch repository: read
+`updated_at`, change the assignees, read it again — testing `POST /assignees`, `DELETE /assignees`,
+`PATCH /issues/{n}` and the GraphQL mutation separately, since nothing guarantees they share a code
+path. Do not answer it from memory and do not cite this brief as having answered it. **A positive
+result is still not sufficient**, because R12 is about the listing and not the timestamp.
 
 **Do not scope a stampede control.** SD-1: the owner has accepted the exposure and given his
 reasoning. R1's containment options are recorded as *not wanted*. Do document the accepted exposure
 in a comment on the gate.
+
+**Do not scope any change for SD-4.** "Assigned to the owner, and to nobody else" is what
+`internal/daemon/tick.go:1077` already does, via `Issue.AssignedTo`'s numeric-id comparison
+(`internal/github/issues.go:94-104`) `[V]`. No config key, no allowlist, no "assigned to anybody"
+mode. `TestANonOwnerAssigneeDoesNotFireTheBody` (`internal/daemon/tick_test.go:774`) already pins it
+and must keep passing.
 
 **Do not scope:**
 
@@ -1294,7 +1841,13 @@ in a comment on the gate.
   AC-2.16a: not actually a conflict*);
 - anything that re-implements "wait for assignee change" — it already exists;
 - webhooks, issue reactions, or a run-rate limiter (D-X stands);
-- a change to "assigned to anybody" — that is open question 2 and is the owner's to decide.
+- **any forge write on the issue-body refusal path** — SD-3′ posts nothing, and
+  `internal/daemon/tools.go`'s "the only branch to change if that trade is revisited"
+  (`internal/daemon/tick.go:1480-1486`) `[V]` is **not** being revisited;
+- a change to "assigned to anybody" — settled as SD-4, and settled the other way;
+- a log-rotation or log-volume mechanism. `daemon.log` is unrotated by accepted M0 debt
+  (`internal/launchd/plist.go:58-62`) `[V]` and A1 does not materially change that. Recorded under
+  R2 as an observation, not a task.
 
 **Expect these tests to need changing**, because they encode the current behaviour rather than merely
 covering it. All line numbers re-pinned in run 0002. `[V]`
@@ -1307,8 +1860,9 @@ covering it. All line numbers re-pinned in run 0002. `[V]`
 | `TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt` | `:653` | the AC-2.23 `MAX(0,0)` property; should survive, worth re-asserting under R-body′ |
 | **`TestAnIssueWithCommentsDoesNotFireItsBody`** | **`:743`** | **the test SD-2 directly falsifies for owner-authored issues. Story B's primary test change, and run 0001 did not name it** |
 | `TestANonOwnerAssigneeDoesNotFireTheBody` | `:774` | must keep passing unchanged — it is AC-2.16a, which SD-2 does not touch |
-| `TestABodyThatCommandsNothingStartsNothingAndPostsNothing` | `:696` | "posts nothing" is exactly what SD-3 changes for branch 5 |
-| `TestIssueBodyToolsRefusalPostsNothing` | `internal/daemon/tools_test.go:339` | same, for branch 6 |
+| `TestABodyThatCommandsNothingStartsNothingAndPostsNothing` | `:696` | **run 0003: keeps passing unchanged.** Under SD-3 this was going to be falsified; under SD-3′ "posts nothing" is still true, because nothing is posted. Only a log-level assertion is added beside it |
+| `TestIssueBodyToolsRefusalPostsNothing` | `internal/daemon/tools_test.go:339` | **run 0003: keeps passing unchanged**, same reason. Branch 6 already logs at Info and posts nothing; neither fact changes |
+| **new** — a log-level assertion for the refusal lines | new, modelled on `internal/turn/classify_test.go:521-552` | **added in run 0003.** SD-3′'s whole point is the *level*, so the test must assert `"level":"INFO"` against a handler at `slog.LevelInfo`, not merely that a line was emitted. `TestSelfDropIsLogged` is the in-tree template and says so in its own comment: "a line only visible under debug is not a line the owner can find" |
 
 **Expect these doc comments to need rewriting** — under this codebase's rules that is part of the
 change, not cleanup (`.aiteam/APP_CONTEXT.md:322-328`). Re-pinned in run 0002:
@@ -1317,7 +1871,10 @@ change, not cleanup (`.aiteam/APP_CONTEXT.md:322-328`). Re-pinned in run 0002:
   (`:1038-1041`) becomes conditional under SD-2;
 - `internal/daemon/tick.go:1043-1051` — "Watermark first, then run", the exactly-once argument that
   R-body′ falsifies;
-- `internal/daemon/tick.go:1487-1504` and `:1505-1511` — the body-path refusal trade, if SD-3 ships;
+- `internal/daemon/tick.go:1480-1486` and `:1505-1511` — the body-path refusal trade. **Run 0003:
+  under SD-3′ this needs *no* rewrite.** The trade it describes ("this is the only branch to change
+  if that trade is revisited") is about *posting*, and posting is not being revisited. The one thing
+  worth adding is that under R-body′ the branch becomes reachable on every tick rather than once;
 - `internal/turn/execute.go:185-194` — the `MAX(0, 0)` watermark argument;
 - `internal/turn/prepare.go:152-157` — where `bodyIsInstruction` is decided;
 - `internal/harness/prompt.go:226-256`, **especially `:247-256`**, whose "not reachable today" claim
@@ -1329,14 +1886,39 @@ change, not cleanup (`.aiteam/APP_CONTEXT.md:322-328`). Re-pinned in run 0002:
 
 ---
 
+## Assumptions taken in run 0003
+
+Recorded because this is a headless run and nobody could be asked.
+
+- **SD-3′ is read as "promote the existing refusal lines to `Info`", not "add a new log sink, a new
+  file, or a CLI command to read `daemon.log`."** The owner said "the log", and litefactory has
+  exactly one daemon log. Making it *readable through the CLI* would be a new command
+  (`internal/cli/commands.go:9-20` is the whole surface, and `litefactory logs` reads run JSONL only
+  — `internal/cli/cmd_logs.go:184-198`) `[V]`, which is a bigger and different request than the one
+  he made. **If he actually wants `litefactory logs` to show daemon lines, that is a separate
+  feature and this brief does not scope it.**
+- **Branch 1 (not assigned to the owner) is assumed to be excluded from SD-3′.** He asked to see
+  refusals; branch 1 is not a refusal of anything he asked for, and promoting it would put a line in
+  the log for most issues in the repository on most ticks. This is run 0003's judgement, not his
+  instruction, and it is the one place where "all of the refusal branches" was narrowed.
+- **`InfoContext` is assumed to be the right level, not `WarnContext`.** The house precedent is
+  Info — `internal/turn/classify.go:343-352` and `internal/daemon/tick.go:1506` `[V]` — and these
+  are refusals by design, not malfunctions.
+- **Issue #10's body is still assumed empty** `[O]`, taken from the run task description across all
+  three runs and still never verified against the forge from this worktree.
+- **The owner's "is everything answered now?" is read as a request for a verdict, not for more
+  research.** Run 0003 answers it with a per-question audit and a count rather than a narrative.
+
 ## Assumptions taken in run 0002
 
 Recorded because this is a headless run and nobody could be asked.
 
-- **SD-3's "here" means the GitHub issue thread**, not the daemon log. A debug log line already
-  exists on every refusal branch, and it is not something the owner could "see" in the sense his
-  comment implies. If he meant the log, story C disappears entirely — so this assumption is worth
-  confirming before Plan sizes it.
+- ~~**SD-3's "here" means the GitHub issue thread**, not the daemon log.~~ **FALSIFIED by the owner
+  in run 0003** `[O3]`: *"i ment the log actually, not a comment on git!"* Run 0002's own note said
+  "if he meant the log, story C disappears entirely" — and it does. The reasoning that produced the
+  wrong assumption was that a debug line already existed and so could not be what he meant; run 0003
+  found that the debug line is invisible at the default log level, which is why the existing line
+  did not satisfy him and why the corrected reading still requires a change. See *SD-3′*.
 - **The owner's answers are taken as decisions, not as opinions to be re-argued.** SD-1 in particular
   was raised in run 0001, put to him, and reaffirmed; this brief records its premises and does not
   relitigate it.
