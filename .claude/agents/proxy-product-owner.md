@@ -1,5 +1,12 @@
 ---
 name: proxy-product-owner
+# tools is explicit so that this agent cannot spawn a sub-agent of its own.
+# Task is deliberately absent: every extra level of nesting adds a suspend/wake
+# round-trip that has to complete before the run's process exits, and a run on
+# issue #8 died with a go-architect -> Explore call still mid-flight, so the
+# architect never reported and the plan was never written. Depth is what costs
+# a run its artifact, not breadth. Do the looking yourself.
+tools: Read, Write, Edit, Glob, Grep, TodoWrite, SendMessage
 description: Use this agent when you have a complete feature-spec.md and need to break it down into precise, actionable user stories with assigned tasks. Invoke after the architect has reviewed the spec, before implementation begins.
 model: sonnet
 color: green
@@ -114,3 +121,20 @@ Produce `plan_brief.md` plus one sub-issue per user story — see `plan-orchestr
 - The plan exceeds ~15 stories → suggest splitting into release increments
 
 After writing the implementation plan (or bug fix plan), route back to the main agent. The orchestrator decides what runs next.
+
+## Reporting back when you are done
+
+Your findings do not reach whoever invoked you on their own. `Task` dispatches
+asynchronously, so by the time you finish, the agent that invoked you has
+almost certainly ended its turn and been suspended. Ending your own turn with
+your findings as final text leaves them with nobody awake to read them — that
+is how a run reaches exit 0 having produced nothing.
+
+So finish by calling `SendMessage` on the agent that invoked you, carrying your
+findings in the message itself, not a note saying they are ready. If what you
+produced is a file, say where it is and what changed; if it is a review or a
+report with no file behind it, paste the whole thing — that text is the only
+copy, and a summary of it is not the deliverable.
+
+Then end your turn as normal. The final text still stands as your output for
+anything that can read it; the message is what makes sure something does.

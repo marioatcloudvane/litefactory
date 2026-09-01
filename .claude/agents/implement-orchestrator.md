@@ -154,9 +154,13 @@ Two things never to do:
   artifact on a partial set. An artifact that says a report is missing is worth
   more than one that quietly invents it.
 
-The agents you invoke do **not** need `SendMessage` themselves, and it is not a
-fix to give them one. A child reports by ending its turn with its findings as its
-final text, which is what you read. Only the side doing the waking needs the tool.
+The agents you invoke report back with `SendMessage`, addressed to you — they
+each carry the tool for that reason. Ending a turn with findings as final text
+is not enough when the agent that invoked them is suspended, which by then it
+usually is, so the message is what actually delivers the work. Expect their
+findings to arrive that way, and if one has clearly finished without sending
+anything, wake it and ask for the content rather than settling for a summary or
+writing your artifact around the gap.
 
 This orchestrator fans out harder than the other two — one engineer per story,
 one per bug, unit and integration suites side by side. Gate A is not a pause you
