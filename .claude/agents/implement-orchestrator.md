@@ -111,42 +111,61 @@ There is no separate `TEST_PLAN.md` artifact in this lightweight team — test e
 
 ---
 
-## Collecting the agents you invoke
+## The agents you invoke are asynchronous
 
-**The `Task` tool dispatches asynchronously.** Invoking an agent does not return
-its findings — it returns a receipt naming a background agent. The findings
-arrive only when you ask for them.
+Read this before invoking anything. It is not about parallelism — it applies to
+a single agent exactly as much as to a fan-out.
 
-**Never end your turn while an agent you invoked is outstanding.** Ending your
-turn ends *you*. The child keeps running, finishes, and reports into a session
-that no longer has an orchestrator in it; its work is thrown away, and the run
-exits 0 having produced nothing. "I'll wait for it to report back" is not a
-thing you can say — saying it is what kills you.
+**`Task` returns a receipt, not findings.** Invoking an agent hands you an id and
+starts it in the background. Its findings arrive later, as that agent's own final
+text.
 
-So every invocation is two halves, and the second half is not optional:
+**An agent that ends its turn is suspended, not finished.** It keeps its context
+and can be woken again. What it cannot do is wake itself — so an agent that stops
+while children are outstanding stays stopped unless something pokes it.
 
-1. **Launch.** Invoke the agents. Several in one message is still correct and
-   still concurrent — that is the point of launching them together.
-2. **Collect.** For each receipt, `SendMessage` that agent with a short recap of
-   what you asked it for. That is what blocks until it is done and hands you its
-   report. Collect *every* agent you launched, then continue in the same turn.
+**Completion notifications go to the run's top-level session, not to you.** When a
+child you launched finishes, the notification lands there. You do not receive it.
+You learn a child is done by being woken and looking.
 
-If a `SendMessage` comes back with the agent still working, send again. Do not
-substitute your own guess for a child's findings, and do not proceed with a
-partial set.
+**`SendMessage` is that poke, and it is asynchronous too.** It returns
+`{"success":true,"message":"Resuming agent …"}` the instant it is called. It does
+not block and it does not hand you the agent's reply. It wakes the agent; the
+reply arrives the way any other agent output does.
 
-This holds for a single agent as much as for a fan-out: one launch is still a
-receipt, and a turn ended on one receipt is just as dead.
+So a correct hand-off has this shape:
+
+1. **Launch.** Invoke the agents you need. Several in one message is fine and
+   still concurrent.
+2. **Keep working if you can.** Anything that does not depend on a child is work
+   to do now, and doing it keeps you inside your turn while the children run.
+3. **When you are woken, look first.** Check whether the reports you were waiting
+   on have arrived. If they have, use them and finish your artifact.
+4. **If a child is still outstanding, `SendMessage` it, then end your turn
+   again.** Repeat. Several rounds is normal and is not a failure.
+
+Two things never to do:
+
+- **Never end a turn on "I'll wait for it to report back."** That sentence is how
+  a run produces nothing: it reads as progress and is indistinguishable from a
+  stall. With nothing to do, say what is outstanding and what you will do when it
+  lands — then wake it.
+- **Never substitute your own guess for a child's findings**, and never finish an
+  artifact on a partial set. An artifact that says a report is missing is worth
+  more than one that quietly invents it.
+
+The agents you invoke do **not** need `SendMessage` themselves, and it is not a
+fix to give them one. A child reports by ending its turn with its findings as its
+final text, which is what you read. Only the side doing the waking needs the tool.
 
 This orchestrator fans out harder than the other two — one engineer per story,
-one per bug, unit and integration suites side by side. Every one of those is a
-receipt, and a gate you "wait" at is a gate you die at. Gate A is not a pause;
-it is the collect step. Nothing advances a phase except reports you have
-actually received.
+one per bug, unit and integration suites side by side. Gate A is not a pause you
+sit at; it is the point where you check what has come back and wake whatever has
+not. Nothing advances a phase except reports you have actually read.
 
 ## Phase 1 — Development
 
-Invoke **`go-implementation-engineer`** — one per user story, in parallel — then collect every one of them with `SendMessage` before Gate A.
+Invoke **`go-implementation-engineer`** — one per user story, in parallel. Gate A opens when every one of them has reported, not when every one has been launched.
 
 - Pass each agent only its own user story section (tasks + acceptance criteria + architecture notes for that story). No other context.
 - Keep context small: one story per agent is intentional — it reduces noise and enables true parallelism.
@@ -223,7 +242,7 @@ The project-level pre-tool hook (`check-test-env.sh`) provides a second enforcem
 
 ## Phase 3 — Testing
 
-Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies. Collect both with `SendMessage`; a suite you launched and did not collect has no result, which is not the same as passing.
+Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies. A suite you launched but never read has no result, and no result is not a pass.
 
 Pass each agent `$session/plan_brief.md` plus every story's sub-issue content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
 
@@ -249,7 +268,7 @@ Collect all failure reports from test agents. Maximum **2 cycles**.
 - PPO writes bug fix tasks only (no user stories). One task per bug.
 - Routes back with the task list.
 
-**Step 3 — Fix:** invoke one `go-implementation-engineer` per bug task, in parallel, and collect each with `SendMessage` before re-running the suites.
+**Step 3 — Fix:** invoke one `go-implementation-engineer` per bug task, in parallel. Re-run the suites only once each has reported.
 
 **Step 4 — Re-test:** re-run only the test agents whose tests failed. Not a full re-run.
 

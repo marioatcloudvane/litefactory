@@ -64,32 +64,52 @@ criteria live in its sub-issue and are read by the agents that implement and tes
 it, never by you.
 
 
-## Collecting the agents you invoke
+## The agents you invoke are asynchronous
 
-**The `Task` tool dispatches asynchronously.** Invoking an agent does not return
-its findings — it returns a receipt naming a background agent. The findings
-arrive only when you ask for them.
+Read this before invoking anything. It is not about parallelism — it applies to
+a single agent exactly as much as to a fan-out.
 
-**Never end your turn while an agent you invoked is outstanding.** Ending your
-turn ends *you*. The child keeps running, finishes, and reports into a session
-that no longer has an orchestrator in it; its work is thrown away, and the run
-exits 0 having produced nothing. "I'll wait for it to report back" is not a
-thing you can say — saying it is what kills you.
+**`Task` returns a receipt, not findings.** Invoking an agent hands you an id and
+starts it in the background. Its findings arrive later, as that agent's own final
+text.
 
-So every invocation is two halves, and the second half is not optional:
+**An agent that ends its turn is suspended, not finished.** It keeps its context
+and can be woken again. What it cannot do is wake itself — so an agent that stops
+while children are outstanding stays stopped unless something pokes it.
 
-1. **Launch.** Invoke the agents. Several in one message is still correct and
-   still concurrent — that is the point of launching them together.
-2. **Collect.** For each receipt, `SendMessage` that agent with a short recap of
-   what you asked it for. That is what blocks until it is done and hands you its
-   report. Collect *every* agent you launched, then continue in the same turn.
+**Completion notifications go to the run's top-level session, not to you.** When a
+child you launched finishes, the notification lands there. You do not receive it.
+You learn a child is done by being woken and looking.
 
-If a `SendMessage` comes back with the agent still working, send again. Do not
-substitute your own guess for a child's findings, and do not proceed with a
-partial set.
+**`SendMessage` is that poke, and it is asynchronous too.** It returns
+`{"success":true,"message":"Resuming agent …"}` the instant it is called. It does
+not block and it does not hand you the agent's reply. It wakes the agent; the
+reply arrives the way any other agent output does.
 
-This holds for a single agent as much as for a fan-out: one launch is still a
-receipt, and a turn ended on one receipt is just as dead.
+So a correct hand-off has this shape:
+
+1. **Launch.** Invoke the agents you need. Several in one message is fine and
+   still concurrent.
+2. **Keep working if you can.** Anything that does not depend on a child is work
+   to do now, and doing it keeps you inside your turn while the children run.
+3. **When you are woken, look first.** Check whether the reports you were waiting
+   on have arrived. If they have, use them and finish your artifact.
+4. **If a child is still outstanding, `SendMessage` it, then end your turn
+   again.** Repeat. Several rounds is normal and is not a failure.
+
+Two things never to do:
+
+- **Never end a turn on "I'll wait for it to report back."** That sentence is how
+  a run produces nothing: it reads as progress and is indistinguishable from a
+  stall. With nothing to do, say what is outstanding and what you will do when it
+  lands — then wake it.
+- **Never substitute your own guess for a child's findings**, and never finish an
+  artifact on a partial set. An artifact that says a report is missing is worth
+  more than one that quietly invents it.
+
+The agents you invoke do **not** need `SendMessage` themselves, and it is not a
+fix to give them one. A child reports by ending its turn with its findings as its
+final text, which is what you read. Only the side doing the waking needs the tool.
 
 ## Choreography
 
@@ -102,7 +122,7 @@ Invoke `requirements-engineer`. Pass:
 
 RE runs the planning conversation, confirms scope with the user, and writes `$session/feature-spec.md`.
 
-**Collect it with `SendMessage` before moving on.** Do not step to the architect on the strength of the launch receipt — the spec does not exist until RE reports it does.
+**Do not step to the architect on the strength of the launch receipt.** `$session/feature-spec.md` does not exist until RE has reported that it wrote it. If you are woken and it has not, wake RE — see *The agents you invoke are asynchronous*.
 
 ### 2. Architect review
 
@@ -110,7 +130,7 @@ Invoke `go-architect`. Pass:
 - `$session/feature-spec.md`
 - The platform skill path: `.claude/skills/go/platform-constraints.md`
 
-**Collect it with `SendMessage`.** The findings come back inline, in that reply — there is no file to read them out of, so an uncollected architect is an architect whose entire output is lost.
+**The architect writes no file.** Its findings exist only as the text it ends its turn with, so an architect you never read is an architect whose entire output is gone. Wake it until it has reported, and do not proceed on a receipt.
 
 Architect performs a role-switching review and returns findings inline — no files written:
 
