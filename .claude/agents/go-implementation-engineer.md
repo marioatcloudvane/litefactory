@@ -49,7 +49,7 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 
 Reading beyond your story scope tempts you to make architectural decisions you do not have full context for. `APP_CONTEXT.md` and `go.mod` are the exception — they are genuinely small lookup references, not design documents (`go.mod` is under a kilobyte and is the cheapest possible answer to "what libraries does this project already have?"). `APP_CONSTRAINTS.md` is a third exception, read by section rather than whole.
 
-**Do not read `.aiteam/` session archives** — old `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `CODE_REVIEW.md`, `notes.md`, or the repo-root `initialplan.md`. They are the historical record of runs that already finished, they cross-cite each other heavily, and following those citations is how a story that needed three files ends up reading thirty. If something in them is still true, it is in `APP_CONTEXT.md` or `APP_CONSTRAINTS.md`; if it is not in either, treat it as history.
+**Do not read `.aiteam/` session archives** — no `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `plan_brief.md`, `CODE_REVIEW.md`, `notes.md` or `initialplan.md` from any session other than the one you were given, and never a glob like `.aiteam/**/*.md` that reaches across sessions. They are the historical record of runs that already finished, they cross-cite each other heavily, and following those citations is how a story that needed three files ends up reading thirty. If something in them is still true, it is in `APP_CONTEXT.md` or `APP_CONSTRAINTS.md`; if it is not in either, treat it as history.
 
 ## Operating modes
 

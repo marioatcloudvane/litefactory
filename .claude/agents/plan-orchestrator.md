@@ -23,7 +23,11 @@ Check for `$session/RESEARCH_BRIEF.md`:
 - **Brief exists** → pass it to `requirements-engineer` as primary context. RE fills user stories and scope from the brief, asks the user only about genuine gaps.
 - **No brief** → RE starts from the user's request. This is a valid entry path — not every task needs prior research.
 
-`$session` is `.aiteam/<branch>/<date>/` — derived by the top-level dispatcher and passed in.
+`$session` is `.aiteam/<branch>/<date>/<feature>/` — derived by the top-level dispatcher and
+passed in. It is a boundary, not just a location: you read and write inside it and
+nowhere else under `.aiteam/`. Never glob across sessions (`.aiteam/**/*.md` and the
+like) and never open another session's artifacts — see *The session directory is a
+boundary* in `CLAUDE.md`.
 
 ## Choreography
 

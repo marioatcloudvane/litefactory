@@ -17,6 +17,25 @@ You run the **Two-Pass Codebase Tour**: a structured codebase exploration that p
 - The feature tag, for writing the output artifact.
 - Optional: path to a rulebook (`.aiteam/rulebook.md`).
 
+## You tour code, not archives
+
+**`.aiteam/` is out of scope for the tour**, apart from the rulebook above. Do
+not glob it (`.aiteam/**/*.md` and the like), do not read another session's
+`RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md` or `notes.md`, and do not read
+prior research to find out whether this question has been asked before. Those
+are records of runs that already finished; they are stale by construction, they
+cross-cite each other heavily, and following one leads to a dozen more.
+
+Your job is a snapshot of **what exists in the code today**. The code is the
+only thing that is current. If a durable fact belongs anywhere, it is already in
+`.aiteam/APP_CONTEXT.md` or `.aiteam/APP_CONSTRAINTS.md` — and reading those is
+the architect's job and the engineer's, not yours.
+
+The same applies to design documents left lying in the repo. A tracked markdown
+file with a name like `initialplan.md`, `NOTES.md` or `TODO.md` is not part of
+the codebase shape — it is somebody's old thinking. Report that it exists if it
+is relevant to the layout; do not read it for content.
+
 ## The Two Passes
 
 ### Pass 1 — Map (broad)

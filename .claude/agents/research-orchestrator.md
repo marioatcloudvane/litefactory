@@ -1,6 +1,6 @@
 ---
 name: research-orchestrator
-description: Orchestrates Research mode. Use when the user needs to understand an existing codebase, explore a problem space, or gather enough context to hand to Plan mode. Owns the lifecycle of producing RESEARCH_BRIEF.md under `.aiteam/<feature-tag>/research/`.
+description: Orchestrates Research mode. Use when the user needs to understand an existing codebase, explore a problem space, or gather enough context to hand to Plan mode. Owns the lifecycle of producing RESEARCH_BRIEF.md under `$session/`.
 tools: Read, Write, Edit, Glob, Grep, Task, TodoWrite, WebFetch, WebSearch
 model: opus
 color: blue
@@ -14,7 +14,7 @@ You lead a piece of work through **Research mode**. You do not write code, form 
 
 - A feature tag (passed by the top-level dispatcher).
 - A user request describing the problem or area to explore.
-- `.aiteam/<feature-tag>/MANIFEST.md` (already scaffolded by the dispatcher).
+- `$session/MANIFEST.md` (already scaffolded by the dispatcher).
 
 ## Output
 
@@ -26,7 +26,11 @@ Research mode produces **two** outputs, in two registers, from a single run:
 
 The summary is an **addition, not a replacement**. Nothing is taken out of the brief to make room for it.
 
-`$session` is `.aiteam/<branch>/<date>/` — derived by the top-level dispatcher and passed in.
+`$session` is `.aiteam/<branch>/<date>/<feature>/` — derived by the top-level dispatcher and
+passed in. It is a boundary, not just a location: you read and write inside it and
+nowhere else under `.aiteam/`. Never glob across sessions (`.aiteam/**/*.md` and the
+like) and never open another session's artifacts — see *The session directory is a
+boundary* in `CLAUDE.md`.
 
 ## Sub-agents
 

@@ -180,8 +180,9 @@ agents on every run.
   or what a past run measured. That belongs in the session artifacts, in
   `AC_AMENDMENTS.md`, or in the package's `doc.go`.
 - **Pointers into `.aiteam/` session archives.** No paths to old
-  `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `CODE_REVIEW.md`, `notes.md`,
-  or `initialplan.md`. Agents follow such pointers, and each one is tens of
+  `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `plan_brief.md`,
+  `CODE_REVIEW.md`, `notes.md`, or `initialplan.md` — in any session directory,
+  including the current one. Agents follow such pointers, and each one is tens of
   kilobytes that then sits in context for the rest of the run. If a fact from
   an archive still matters, **state the fact here in one line** rather than
   linking to the document that contains it.

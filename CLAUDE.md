@@ -155,6 +155,36 @@ for the feature slug exactly as above.
 
 Each feature on the same branch and day gets its own isolated directory — no artifact collisions when working on two features in parallel.
 
+### The session directory is a boundary, not just a location
+
+`$session` is the only directory under `.aiteam/` that a run reads from or
+writes to. Every other session directory belongs to work that is already
+finished, and is **out of bounds**.
+
+- **Never glob across sessions.** `.aiteam/**/*.md`, `.aiteam/*/*/*/MANIFEST.md`
+  and anything else that matches more than one session directory is forbidden.
+  If you want a file, name its full path inside `$session`.
+- **Never read another session's artifacts** — its `RESEARCH_BRIEF.md`,
+  `IMPLEMENTATION_PLAN.md`, `plan_brief.md`, `feature-spec.md`, `CODE_REVIEW.md`,
+  `notes.md`, `DRIFT_REPORT.md` or `SPIKE.md` — no matter how closely its slug
+  resembles the work in hand. A similar name is the strongest signal that it is
+  a *different* piece of work that already has its own record.
+- **The two files outside `$session` that are in bounds** are
+  `.aiteam/APP_CONTEXT.md` and `.aiteam/APP_CONSTRAINTS.md`, for the agents told
+  to read them, plus `.aiteam/rulebook.md` if it exists. Nothing else at
+  `.aiteam/` root is a read target — `AC_AMENDMENTS.md` is written to, not read.
+
+**Why this is a rule and not a preference.** An archived session is a dense,
+heavily cross-cited record of a run that already finished: opening one leads to
+three more, and a story that needed two files ends up reading thirty. It is also
+stale by construction — an archive is never rewritten when a format or a
+decision changes, so what it says was true *then*. Anything from it that is
+still true today lives in `APP_CONTEXT.md`, `APP_CONSTRAINTS.md`, or the code.
+If it is in none of those, it is history, and history is what `git log` is for.
+
+**"Has this been done before?" is not a reason to cross the boundary.** Ask the
+user, or say in your report that you could not tell. Do not go looking.
+
 ## Mode Gates
 
 A mode can only be entered when its prerequisite artifact exists in the current session:

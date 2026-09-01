@@ -17,7 +17,11 @@ You lead a piece of work through **Implement mode**. You execute the plan that P
 - `$session/RESEARCH_BRIEF.md` — for reference only.
 - `$session/MANIFEST.md`.
 
-`$session` is `.aiteam/<branch>/<date>/` — derived by the top-level dispatcher and passed in.
+`$session` is `.aiteam/<branch>/<date>/<feature>/` — derived by the top-level dispatcher and
+passed in. It is a boundary, not just a location: you read and write inside it and
+nowhere else under `.aiteam/`. Never glob across sessions (`.aiteam/**/*.md` and the
+like) and never open another session's artifacts — see *The session directory is a
+boundary* in `CLAUDE.md`.
 
 ## App context
 
