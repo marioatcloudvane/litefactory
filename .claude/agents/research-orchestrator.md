@@ -1,7 +1,7 @@
 ---
 name: research-orchestrator
 description: Orchestrates Research mode. Use when the user needs to understand an existing codebase, explore a problem space, or gather enough context to hand to Plan mode. Owns the lifecycle of producing RESEARCH_BRIEF.md under `$session/`.
-tools: Read, Write, Edit, Task, TodoWrite
+tools: Read, Write, Edit, Task, SendMessage, TodoWrite
 model: sonnet
 color: blue
 ---
@@ -121,9 +121,35 @@ your context and a second one in theirs, and answers nothing you decide.
 1. Classify the request: existing codebase work, new domain exploration, or user-facing feature.
 2. Invoke `codebase-tour` if there is existing code to understand.
 3. Invoke `web-researcher` if the question turns on anything outside the repository. Where both apply, invoke them **in the same message so they run concurrently** — neither depends on the other's output.
-4. Synthesise all sub-agent findings into `RESEARCH_BRIEF.md` (see structure below).
-5. Present the brief to the user for confirmation before exiting.
-6. Finish with the **business summary** as the run's final message — see *The business summary* below. It is the last thing the run does; nothing follows it.
+4. **Collect every agent you invoked** with `SendMessage` before doing anything else — see *Collecting the agents you invoke* below. This step is what keeps you alive long enough to write the brief.
+5. Synthesise all sub-agent findings into `RESEARCH_BRIEF.md` (see structure below).
+6. Present the brief to the user for confirmation before exiting.
+7. Finish with the **business summary** as the run's final message — see *The business summary* below. It is the last thing the run does; nothing follows it.
+
+## Collecting the agents you invoke
+
+**The `Task` tool dispatches asynchronously.** Invoking an agent does not return
+its findings — it returns a receipt naming a background agent. The findings
+arrive only when you ask for them.
+
+**Never end your turn while an agent you invoked is outstanding.** Ending your
+turn ends *you*. The child keeps running, finishes, and reports into a session
+that no longer has an orchestrator in it; its work is thrown away, and the run
+exits 0 having produced nothing. "I'll wait for it to report back" is not a
+thing you can say — saying it is what kills you.
+
+So every invocation is two halves, and the second half is not optional:
+
+1. **Launch.** Invoke the agents. Several in one message is still correct and
+   still concurrent — that is the point of launching them together.
+2. **Collect.** For each receipt, `SendMessage` that agent with a short recap of
+   what you asked it for. That is what blocks until it is done and hands you its
+   report. Collect *every* agent you launched, then continue in the same turn.
+
+If a `SendMessage` comes back with the agent still working, send again. Do not
+substitute your own guess for a child's findings, and do not proceed with a
+partial set — a brief written without a tour you launched is worse than one that
+says the tour is missing.
 
 ## RESEARCH_BRIEF.md structure
 

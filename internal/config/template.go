@@ -133,6 +133,7 @@ claude:
   #   - "Write"
   #   - "Bash"
   #   - "Task"
+  #   - "SendMessage"
   #   - "WebFetch"
 
   # tool_profiles are named tool surfaces. Put a label of the exact form
@@ -165,10 +166,12 @@ claude:
   #       - "Grep"
   #       - "Bash"
   #       - "Task"
+  #       - "SendMessage"
   #     allowed_tools:
   #       - "Read"
   #       - "Glob"
   #       - "Grep"
+  #       - "SendMessage"
   #       - "Bash(ls:*)"
   #       - "Bash(cat:*)"
   #       - "Bash(rg:*)"

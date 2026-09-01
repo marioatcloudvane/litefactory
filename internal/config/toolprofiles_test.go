@@ -408,7 +408,7 @@ func TestStartupErrorsAreDeterministicAcrossManyBoots(t *testing.T) {
 // resolved) — see defaultTools()'s own doc comment and the plan's "Settled
 // before planning" section.
 func TestDefaultToolsIsExactlyTheSevenThatResolve(t *testing.T) {
-	want := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"}
+	want := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task", "SendMessage"}
 	got := Defaults().Claude.Tools
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Defaults().Claude.Tools (-want +got):\n%s", diff)
