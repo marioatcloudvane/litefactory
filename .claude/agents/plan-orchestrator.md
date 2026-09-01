@@ -26,8 +26,8 @@ Check for `$session/RESEARCH_BRIEF.md`:
 `$session` is `.aiteam/<branch>/<date>/<feature>/` — derived by the top-level dispatcher and
 passed in. It is a boundary, not just a location: you read and write inside it and
 nowhere else under `.aiteam/`. Never glob across sessions (`.aiteam/**/*.md` and the
-like) and never open another session's artifacts — see *The session directory is a
-boundary* in `CLAUDE.md`.
+like) and never open another session's artifacts — see *It is a boundary,
+not just a location* in `.claude/modes/session.md`.
 
 ## You read structure, never content
 
