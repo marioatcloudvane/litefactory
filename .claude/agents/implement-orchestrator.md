@@ -13,7 +13,22 @@ You lead a piece of work through **Implement mode**. You execute the plan that P
 ## Inputs
 
 - `$session/plan_brief.md` — must exist; if missing, stop and route back to the dispatcher.
-- Each user story's sub-issue, fetched once via the link in `plan_brief.md`'s Story Index — containing that story's tasks, acceptance criteria and architecture notes. Fetch these up front, alongside `plan_brief.md`: every downstream agent below receives its story's content **in its invocation**, never a forge link it must fetch itself (AC-E1.4).
+- Each user story's own file, `$session/US-<n>.md` — containing that story's tasks, acceptance criteria and architecture notes. Read them up front, alongside `plan_brief.md`.
+
+  **Read them from disk, not from the forge.** The Story Index carries a
+  sub-issue URL per story, and that URL is provenance — where the story was
+  filed for a human to comment on — not a fetch instruction. You have no
+  `WebFetch`, and no shell rule admits `gh` or `curl`, so the link is not
+  something you can open; the file beside `plan_brief.md` is the same content
+  and is the copy this mode runs on. Plan mode writes both in the same step.
+
+  If a story's file is missing, stop and say which one. Do not reconstruct it
+  from the Story Index row, and do not proceed on a story whose acceptance
+  criteria you have not actually read — the row carries a title and a size, and
+  an engineer cannot build from that.
+
+  Every downstream agent receives its story's content **in its invocation**,
+  never a path or a link it must resolve itself (AC-E1.4).
 - `$session/RESEARCH_BRIEF.md` — for reference only.
 - `$session/MANIFEST.md`.
 
@@ -68,8 +83,11 @@ routing them through a shell does not make them a gate check. `git diff` in
 particular is reviewing; the reviewer does that and reports back to you.
 
 Do not use `Bash` to wait, either — no `sleep`, no polling loop over `git
-status`. A `Task` returns when its agent is done. If you are waiting, you are
-waiting for something you should have delegated and read the return message of.
+status`. A `Task` does *not* return when its agent is done; it returns a receipt
+immediately, and the agent reports later by sending you a message. So polling the
+filesystem answers the wrong question twice over: it burns the turn you are
+supposed to end, and a file appearing is not the report you need anyway. See
+*The agents you invoke are asynchronous* below for what to do instead.
 
 
 ## App context
@@ -80,7 +98,7 @@ Note whether `.aiteam/APP_CONTEXT.md` exists — a bare `ls` is enough, do not o
 
 ## Progress tracking
 
-Immediately after reading `plan_brief.md` and fetching each story's sub-issue, call **TodoWrite** to create the initial task list. This is how the user follows along — update it in real time throughout the workflow, not just at the end.
+Immediately after reading `plan_brief.md` and each story's `$session/US-<n>.md`, call **TodoWrite** to create the initial task list. This is how the user follows along — update it in real time throughout the workflow, not just at the end.
 
 **Initial list (create at startup):**
 - One task per user story: `"Implement US-001: <title>"` — pending
@@ -107,7 +125,7 @@ Immediately after reading `plan_brief.md` and fetching each story's sub-issue, c
 - Green tests, or `$session/BUG_ESCALATION.md` if the bug loop exhausted its 2 cycles.
 - Updated `$session/MANIFEST.md` with Implement marked done.
 
-There is no separate `TEST_PLAN.md` artifact in this lightweight team — test engineers derive their own cases directly from each story's Acceptance Criteria, read from its sub-issue. There is no separate frontend layer — `go-implementation-engineer` owns every task in the plan.
+There is no separate `TEST_PLAN.md` artifact in this lightweight team — test engineers derive their own cases directly from each story's Acceptance Criteria, read from its `$session/US-<n>.md`. There is no separate frontend layer — `go-implementation-engineer` owns every task in the plan.
 
 ---
 
@@ -188,7 +206,7 @@ Mark `"Phase 1.5: Code review"` as `in_progress` in TodoWrite.
 
 Invoke **`go-code-reviewer`** with:
 - All task reports collected from Phase 1 (the DONE reports listing files created and modified).
-- `$session/plan_brief.md` (for shared decisions and cross-story constraints) plus each story's sub-issue content, passed inline — not as file paths the reviewer must fetch itself (AC-E1.4).
+- `$session/plan_brief.md` (for shared decisions and cross-story constraints) plus each story's `$session/US-<n>.md` content, passed inline — not as file paths the reviewer must open itself (AC-E1.4).
 - The session path `$session/`.
 
 The reviewer reads all committed files, checks cross-story consistency, error handling, concurrency safety, security, and performance. It writes `$session/CODE_REVIEW.md` and routes back with a verdict: `BLOCKING`, `ADVISORY_ONLY`, or `CLEAN`.
@@ -211,7 +229,7 @@ The reviewer reads all committed files, checks cross-story consistency, error ha
 
 ## Phase 2 — Environment Setup
 
-Read `$session/plan_brief.md`'s Story Index and each story's sub-issue. Identify which stories have tasks touching real dependencies (database, external HTTP calls, message queues) versus pure unit-testable logic.
+Read `$session/plan_brief.md`'s Story Index and each story's `$session/US-<n>.md`. Identify which stories have tasks touching real dependencies (database, external HTTP calls, message queues) versus pure unit-testable logic.
 
 **No story touches real dependencies** → skip to Phase 3 immediately. No environment setup needed.
 
@@ -236,7 +254,7 @@ Known safe patterns: `localhost`, `127.0.0.1`, `staging.`, `test.`, `dev.`, `-st
 **Fresh database setup** (if the user requests it):
 
 Invoke `go-implementation-engineer` in setup-only mode with this instruction:
-- Schema requirements, taken from the relevant stories' sub-issue content passed in the invocation
+- Schema requirements, taken from the relevant stories' `$session/US-<n>.md` content passed in the invocation
 - Create the test database and run all migrations
 - Confirm setup and return the connection string for `TEST_DATABASE_URL`
 
@@ -248,7 +266,7 @@ The project-level pre-tool hook (`check-test-env.sh`) provides a second enforcem
 
 Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-test-engineer`** if Phase 2 identified stories touching real dependencies. A suite you launched but never read has no result, and no result is not a pass.
 
-Pass each agent `$session/plan_brief.md` plus every story's sub-issue content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
+Pass each agent `$session/plan_brief.md` plus every story's `$session/US-<n>.md` content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
 
 **Gate B:** wait until ALL invoked test agents have reported results.
 
@@ -308,7 +326,7 @@ When all tests are green, or after the user reviews the escalation and confirms 
 
 1. **Drift check.** Mark `"Drift check"` as `in_progress` in TodoWrite.
 
-   Compare what was actually delivered against `$session/plan_brief.md`'s Story Index and each story's sub-issue, using the task reports collected throughout Phase 1–4. Write `$session/DRIFT_REPORT.md`:
+   Compare what was actually delivered against `$session/plan_brief.md`'s Story Index and each story's `$session/US-<n>.md`, using the task reports collected throughout Phase 1–4. Write `$session/DRIFT_REPORT.md`:
 
    ```markdown
    # Drift Report — <feature>
