@@ -66,7 +66,7 @@ func TestInstructionRunsAndIsReported(t *testing.T) {
 		t.Errorf("instruction text is %q", got)
 	}
 
-	posted, reacted, order := f.forge.snapshot()
+	posted, reacted, _ := f.forge.snapshot()
 	if len(posted) != 1 {
 		t.Fatalf("posted %d comments, want exactly one report", len(posted))
 	}
@@ -79,7 +79,7 @@ func TestInstructionRunsAndIsReported(t *testing.T) {
 	if !slices.Equal(reacted, []int64{40}) {
 		t.Errorf("reacted to %v, want [40]", reacted)
 	}
-	order = f.forge.orderFor(testIssue)
+	order := f.forge.orderFor(testIssue)
 	reactAt := slices.Index(order, "react:40")
 	turnAt := slices.Index(order, "turn:40")
 	if reactAt < 0 || turnAt < 0 || reactAt > turnAt {
@@ -688,7 +688,7 @@ func TestABodyRunLeavesTheWatermarkWhereBootstrapPlantedIt(t *testing.T) {
 // TestABodyThatCommandsNothingStartsNothingAndPostsNothing is AC-2.16c.
 //
 // The silence is the point, and it is the one place the body path deliberately
-// differs from the comment path. A `/plan` in a comment draws a reply, because
+// differs from the comment path. A `/status` in a comment draws a reply, because
 // someone typed it at litefactory and deserves an answer. A `/plan` in an issue
 // body may well be a heading in a template — replying to it would be
 // litefactory answering a question nobody asked, on every issue anyone opens
@@ -700,7 +700,7 @@ func TestABodyThatCommandsNothingStartsNothingAndPostsNothing(t *testing.T) {
 	}{
 		{name: "empty", body: ""},
 		{name: "whitespace", body: "  \n\t "},
-		{name: "a command from a later milestone", body: "/plan the work"},
+		{name: "a command from a later milestone", body: "/status"},
 		{name: "a bare spike with no text", body: "/spike"},
 		{name: "a command that is not in the vocabulary", body: "/frobnicate"},
 	} {
@@ -862,10 +862,10 @@ func TestRunlessCommandsReplyAndAdvanceTheWatermark(t *testing.T) {
 	f.issue("Add a /health endpoint")
 	f.settle()
 
-	f.forge.addComment(testIssue, 81, owner(), "/plan the work") // known, not yet supported
-	f.forge.addComment(testIssue, 82, owner(), "/frobnicate")    // not in the vocabulary
-	f.forge.addComment(testIssue, 83, owner(), "/spike")         // no text
-	f.forge.addComment(testIssue, 84, owner(), "  \n\t ")        // nothing in it
+	f.forge.addComment(testIssue, 81, owner(), "/status")     // known, not yet supported
+	f.forge.addComment(testIssue, 82, owner(), "/frobnicate") // not in the vocabulary
+	f.forge.addComment(testIssue, 83, owner(), "/spike")      // no text
+	f.forge.addComment(testIssue, 84, owner(), "  \n\t ")     // nothing in it
 
 	f.settle()
 

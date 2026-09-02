@@ -8,6 +8,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -83,6 +84,11 @@ type Forge interface {
 	AddCommentReaction(ctx context.Context, repo github.Repo, commentID int64, content github.ReactionContent) error
 }
 
+type labelForge interface {
+	AddIssueLabel(ctx context.Context, repo github.Repo, issue int, label string) error
+	RemoveIssueLabel(ctx context.Context, repo github.Repo, issue int, label string) error
+}
+
 // Classifier decides what an inbound comment is and records it, and answers
 // which identities it decides with. *turn.Filter satisfies it.
 //
@@ -120,6 +126,8 @@ type Reporter interface {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	DefaultAgent agent.Kind
+	Classifiers  map[agent.Kind]agent.Classifier
 	// DB is the open, migrated database. Required.
 	DB *store.DB
 
@@ -262,13 +270,15 @@ type Daemon struct {
 	// agents is the set of coding-agent-tool Kinds this daemon has a
 	// [agent.Runner] registered for, as it stood at startup. Read-only after
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
-	agents   turn.RunnerSet
-	interval time.Duration
-	grace    time.Duration
-	log      *slog.Logger
-	lock     *Lock
-	now      func() time.Time
-	ticks    <-chan time.Time
+	agents       turn.RunnerSet
+	classifiers  map[agent.Kind]agent.Classifier
+	defaultAgent agent.Kind
+	interval     time.Duration
+	grace        time.Duration
+	log          *slog.Logger
+	lock         *Lock
+	now          func() time.Time
+	ticks        <-chan time.Time
 
 	backoff  backoff
 	inflight inflight
@@ -315,6 +325,18 @@ func New(opts Options) (*Daemon, error) {
 	if maxRuns == 0 {
 		maxRuns = DefaultConcurrentRuns
 	}
+	defaultAgent := opts.DefaultAgent
+	if defaultAgent == "" {
+		defaultAgent = agent.Kind(store.AgentClaude)
+	}
+	if opts.DefaultAgent != "" {
+		if _, ok := opts.Agents[defaultAgent]; !ok {
+			return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
+		}
+		if _, ok := opts.Classifiers[defaultAgent]; !ok {
+			return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
+		}
+	}
 
 	return &Daemon{
 		db:         opts.DB,
@@ -331,14 +353,16 @@ func New(opts Options) (*Daemon, error) {
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach
 		// back into the registry the process was built with.
-		agents:   maps.Clone(opts.Agents),
-		interval: interval,
-		grace:    grace,
-		log:      opts.Logger,
-		lock:     opts.Lock,
-		now:      now,
-		ticks:    opts.Ticks,
-		pool:     newPool(maxRuns),
+		agents:       maps.Clone(opts.Agents),
+		classifiers:  maps.Clone(opts.Classifiers),
+		defaultAgent: defaultAgent,
+		interval:     interval,
+		grace:        grace,
+		log:          opts.Logger,
+		lock:         opts.Lock,
+		now:          now,
+		ticks:        opts.Ticks,
+		pool:         newPool(maxRuns),
 
 		repoSessionCursor: make(map[int64]int64),
 	}, nil

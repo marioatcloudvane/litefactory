@@ -28,6 +28,7 @@ const (
 	dirMode = os.FileMode(0o700)
 )
 
+// Options configures a Runner.
 type Options struct {
 	Paths   config.Paths
 	Codex   config.Codex
@@ -36,6 +37,7 @@ type Options struct {
 	Logger  *slog.Logger
 }
 
+// Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
 	binary  config.Executable
 	home    string
@@ -46,13 +48,20 @@ type Runner struct {
 	// construction so a later mutation of the config cannot change what an
 	// in-flight run was launched with.
 	writable []string
-	timeout  time.Duration
-	environ  []string
-	logger   *slog.Logger
+	// network reports that the operator lifted the sandbox's network ban.
+	network bool
+	// userConfig reports that the operator let Codex read its own config,
+	// which is also what lets the repository's .codex/skills be seen.
+	userConfig bool
+	timeout    time.Duration
+	environ    []string
+	logger     *slog.Logger
 }
 
+// Sandbox is the Codex-specific permission payload carried by an agent request.
 type Sandbox struct{ Mode string }
 
+// New resolves and validates a Codex runner.
 func New(opts Options) (*Runner, error) {
 	if opts.Logger == nil {
 		return nil, errors.New("invalid codex options: a logger is required")
@@ -86,13 +95,57 @@ func New(opts Options) (*Runner, error) {
 	}
 	return &Runner{binary: binary, home: opts.Paths.Home(), sandbox: opts.Codex.DefaultSandbox,
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
+		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
 		environ: append([]string(nil), opts.Environ...), logger: opts.Logger}, nil
 }
 
+// Binary returns the resolved Codex executable.
 func (r *Runner) Binary() config.Executable { return r.binary }
-func (r *Runner) Timeout() time.Duration    { return r.timeout }
 
+// Timeout returns the wall-clock limit for an invocation.
+func (r *Runner) Timeout() time.Duration { return r.timeout }
+
+// Classify performs a stateless read-only Codex invocation with no writable
+// roots and accepts only an exact terminal mode value.
+func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.Mode, error) {
+	if !filepath.IsAbs(req.WorkingDirectory) || strings.TrimSpace(req.Prompt) == "" {
+		return "", fmt.Errorf("%w: classifier needs an absolute directory and prompt", agent.ErrInvalidRequest)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, "-")
+	//nolint:gosec // binary and args are configuration/constants; untrusted text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, codexEnv(r.environ), strings.NewReader(req.Prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("mode classifier failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	mode, ok := agent.ParseMode(stream.text)
+	if !ok || strings.TrimSpace(stream.text) != string(mode) || !stream.completed || stream.failed {
+		return "", fmt.Errorf("mode classifier returned invalid value")
+	}
+	return mode, nil
+}
+
+// Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -118,6 +171,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if err := os.MkdirAll(filepath.Dir(logPath), dirMode); err != nil {
 		return nil, err
 	}
+	//nolint:gosec // logPath is derived from validated LF_HOME, task ref and run ordinal.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, logMode)
 	if err != nil {
 		return nil, err
@@ -127,6 +181,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	args := r.args(req, sandbox)
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, codexEnv(r.environ), strings.NewReader(req.Prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -185,13 +240,27 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 }
 
 func (r *Runner) args(req agent.Request, sandbox string) []string {
-	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", sandbox}
+	args := []string{"exec", "--json"}
+	// Dropping this is what lets the repository's .codex/skills reach the
+	// model, at the cost of Codex also reading the operator's own
+	// config.toml — one flag, both effects. See config.Codex.AllowUserConfig.
+	if !r.userConfig {
+		args = append(args, "--ignore-user-config")
+	}
+	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	// Before --model and before the subcommand, so the resume form below
 	// still ends with the prompt argument. A read-only run gets them too:
 	// --add-dir names a directory, and it is the sandbox mode that decides
 	// whether anything may be written to it.
 	for _, root := range r.writable {
 		args = append(args, "--add-dir", root)
+	}
+	// -c rather than a flag of its own, because Codex exposes this only as a
+	// config override. It is emitted regardless of sandbox mode: the key is
+	// namespaced to workspace-write and is inert under read-only, so keeping
+	// argv independent of the mode is one less interaction to reason about.
+	if r.network {
+		args = append(args, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	if r.model != "" {
 		args = append(args, "--model", r.model)

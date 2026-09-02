@@ -66,6 +66,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 
 	want := []string{
 		"AddCommentReaction",  // POST …/issues/comments/{id}/reactions
+		"AddIssueLabel",       // POST …/issues/{n}/labels
 		"AddSubIssue",         // POST /repos/{o}/{r}/issues/{n}/sub_issues
 		"AuthenticatedUser",   // GET  /user
 		"CreateIssue",         // POST /repos/{o}/{r}/issues
@@ -75,6 +76,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=open
 		"ListSubIssues",       // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
+		"RemoveIssueLabel",    // DELETE …/issues/{n}/labels/{name}
 		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
 		// once, then CreateIssue and AddSubIssue per story that needs them.
 		// It is pinned all the same, because "file a plan on the forge" is a

@@ -149,6 +149,7 @@ func fileStoryIssues(
 	}
 
 	planPath := filepath.Join(prep.worktree.Path(), filepath.FromSlash(dir), planbrief.FileName)
+	//nolint:gosec // planPath is derived from the validated worktree and fixed session path.
 	data, err := os.ReadFile(planPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -187,6 +188,7 @@ func fileStoryIssues(
 		return result
 	}
 
+	//nolint:gosec // planPath is derived from the validated worktree and fixed session path.
 	if err := os.WriteFile(planPath, rewritten, planbriefFileMode); err != nil {
 		log.Error("write plan_brief.md", slog.String("path", planPath), slog.Any("error", err))
 		return result
@@ -372,6 +374,7 @@ func buildSubIssueSpec(
 	repoRelativePath := path.Join(sessionDir, row.ID+".md")
 	storyPath := filepath.Join(prep.worktree.Path(), filepath.FromSlash(repoRelativePath))
 
+	//nolint:gosec // storyPath is a plan row id under the validated session directory.
 	data, err := os.ReadFile(storyPath)
 	if err != nil {
 		return github.SubIssueSpec{}, fmt.Errorf("read the story file: %w", err)

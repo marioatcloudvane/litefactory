@@ -60,7 +60,7 @@ type StoryRow struct {
 // whose story never gets a sub-issue and nothing says so.
 func ParseStoryIndex(data []byte) ([]StoryRow, error) {
 	lines := strings.Split(string(data), "\n")
-	_, columns, dataStart, err := locateStoryIndex(lines)
+	columns, dataStart, err := locateStoryIndex(lines)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func ParseStoryIndex(data []byte) ([]StoryRow, error) {
 // row going missing says nothing about its siblings.
 func RewriteSubIssueCell(data []byte, storyID, value string) ([]byte, bool, error) {
 	lines := strings.Split(string(data), "\n")
-	_, columns, dataStart, err := locateStoryIndex(lines)
+	columns, dataStart, err := locateStoryIndex(lines)
 	if err != nil {
 		return data, false, err
 	}
@@ -132,7 +132,7 @@ func RewriteSubIssueCell(data []byte, storyID, value string) ([]byte, bool, erro
 // column-name index, and returns the line index the data rows start at — just
 // past the header row and, when there is one, the "|---|---|" separator row
 // beneath it.
-func locateStoryIndex(lines []string) (header []string, columns map[string]int, dataStart int, err error) {
+func locateStoryIndex(lines []string) (columns map[string]int, dataStart int, err error) {
 	start := -1
 	for i, line := range lines {
 		if strings.TrimSpace(line) == storyIndexHeading {
@@ -141,26 +141,26 @@ func locateStoryIndex(lines []string) (header []string, columns map[string]int, 
 		}
 	}
 	if start < 0 {
-		return nil, nil, 0, ErrNoStoryIndex
+		return nil, 0, ErrNoStoryIndex
 	}
 	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
 		start++
 	}
 	if start >= len(lines) || !isTableRow(lines[start]) {
-		return nil, nil, 0, ErrNoStoryIndex
+		return nil, 0, ErrNoStoryIndex
 	}
 
-	header = splitRow(lines[start])
+	header := splitRow(lines[start])
 	columns = columnIndex(header)
 	if _, ok := columns[columnID]; !ok {
-		return nil, nil, 0, fmt.Errorf("%w: no %s column", ErrNoStoryIndex, columnID)
+		return nil, 0, fmt.Errorf("%w: no %s column", ErrNoStoryIndex, columnID)
 	}
 
 	dataStart = start + 1
 	if dataStart < len(lines) && isSeparatorRow(lines[dataStart]) {
 		dataStart++
 	}
-	return header, columns, dataStart, nil
+	return columns, dataStart, nil
 }
 
 // rowFromCells builds one [StoryRow] from a data row's cells, addressed by
