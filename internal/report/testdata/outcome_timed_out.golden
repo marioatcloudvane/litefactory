@@ -3,7 +3,7 @@
 ### litefactory · run 3 · timed out
 
 > [!CAUTION]
-> Run 3 ran past `claude.timeout_seconds` and litefactory killed it after 12.4s. The work it had done up to that point is still in the worktree. Raise the timeout or narrow the task, then comment again.
+> Run 3 ran past the configured timeout for `claude` and litefactory killed it after 12.4s. The work it had done up to that point is still in the worktree. Raise the timeout or narrow the task, then comment again.
 
 - **Branch:** `lf/123-add-dry-run-to-task-clean`
 - **Commit:** none — this run committed nothing

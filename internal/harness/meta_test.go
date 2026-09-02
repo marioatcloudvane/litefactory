@@ -62,9 +62,9 @@ func TestMetaCarriesEveryRequiredKey(t *testing.T) {
 	}
 
 	for _, key := range []string{
-		"run_ordinal", "task_ref", "session_id", "segment_ordinal", "claude_session_id",
-		"mode", "model", "prompt", "worktree_path", "branch", "sha_before", "sha_after",
-		"exit_code", "started_at", "finished_at", "duration_ms", "cost_usd",
+		"run_ordinal", "task_ref", "session_id", "segment_ordinal", "agent", "session_ref",
+		"claude_session_id", "mode", "model", "prompt", "worktree_path", "branch", "sha_before",
+		"sha_after", "exit_code", "started_at", "finished_at", "duration_ms", "cost_usd",
 		"files_touched", "result_comment_id", "error",
 	} {
 		if _, ok := decoded[key]; !ok {
@@ -143,9 +143,10 @@ func TestNewMetaToleratesAMissingResult(t *testing.T) {
 // overlap would not.
 func TestMetaToolsRequestedAndToolProfileComeFromDifferentSources(t *testing.T) {
 	req := metaRequest("/w/task-123")
-	req.Tools = []string{"Read", "Write"}
-	req.AllowedTools = []string{"Read"}
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: []string{"Read", "Write"}, AllowedTools: []string{"Read"}},
+	}
 
 	meta := NewMeta(req, testPrompt, &RunResult{
 		Outcome:  OutcomeSucceeded,
@@ -200,8 +201,10 @@ func TestMetaToolsRequestedAndToolProfileComeFromDifferentSources(t *testing.T) 
 // event still records what it asked for.
 func TestMetaToolsRequestedSurvivesANilResult(t *testing.T) {
 	req := metaRequest("/w/task-123")
-	req.Tools = []string{"Read", "Grep"}
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: []string{"Read", "Grep"}},
+	}
 
 	meta := NewMeta(req, testPrompt, nil)
 
@@ -222,8 +225,10 @@ func TestMetaToolsRequestedSurvivesANilResult(t *testing.T) {
 // seven resolved (IMPLEMENTATION_PLAN.md, "Settled before planning").
 func TestMetaTodoWriteWorkedExample(t *testing.T) {
 	req := metaRequest("/w/task-123")
-	req.Tools = todoWriteRequested
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: todoWriteRequested},
+	}
 
 	meta := NewMeta(req, testPrompt, &RunResult{
 		Outcome:  OutcomeSucceeded,

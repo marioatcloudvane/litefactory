@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -28,9 +30,15 @@ type preparation struct {
 	// (AC-3.24).
 	shaBefore string
 
-	segment  store.Segment
-	run      store.Run
-	request  harness.Request
+	segment store.Segment
+	run     store.Run
+	// runner is the implementation this run is addressed to, resolved from
+	// segment.Agent against opts.Runners while the segment is still in hand.
+	// Resolving it here, rather than at the point runAndHarvest calls it, is
+	// what turns a Kind with no registered implementation into a reportable
+	// failure before a runs row is allocated for it.
+	runner   Runner
+	request  agent.Request
 	prompt   string
 	metaPath string
 
@@ -106,20 +114,60 @@ func prepare(
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
 
-	// The one place in the tree that derives a claude session id. Every later
+	// The one place in the tree that derives a session ref. Every later
 	// consumer — the harness, the run log, the metadata document — reads it back
 	// off the segment below, because GetOrCreateSegment only uses this value
 	// when it creates the row and returns an existing row as stored. Its doc
 	// comment says the stored value wins if the two ever disagree; a resumed run
 	// is what makes that real, since the stored id is the only one that names a
 	// conversation claude can still find.
-	claudeSessionID, err := naming.ClaudeSessionID(ref, store.FirstSegmentOrdinal)
+	sessionRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	if err != nil {
-		return nil, fmt.Errorf("derive the claude session id for task %s: %w", ref, err)
+		return nil, fmt.Errorf("derive the session ref for task %s: %w", ref, err)
 	}
-	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, claudeSessionID)
+	// resolvedKind is what the daemon's label ladder decided (internal/daemon's
+	// Daemon.resolveAgent, stage 1), carried in on req.Agent. Empty means no
+	// Coding Agent label was on the issue, which resolves to the configured
+	// default agent the same way an absent lf:tools= label resolves to the
+	// harness's default surface (AC-2.1) — applied here, once, rather than at
+	// every call site that used to spell out store.AgentClaude by hand.
+	resolvedKind := req.Agent
+	if resolvedKind == "" {
+		resolvedKind = agent.Kind(store.AgentClaude)
+	}
+
+	// GetOrCreateSegment's stored-row-wins semantics are what make this one
+	// call sufficient for both the ordinary path and the switch refusal
+	// below (US-3, AC-3.5): a session with no segment yet is created under
+	// resolvedKind and there is nothing to refuse, and a session whose
+	// segment already exists comes back exactly as stored regardless of
+	// resolvedKind, which is what the comparison below reads. Splitting this
+	// into a check followed by a conditional create would open a window
+	// between the two store calls; this is the single call the store's
+	// BEGIN IMMEDIATE design is built for.
+	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, string(resolvedKind))
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
+	}
+	if segment.Agent != string(resolvedKind) {
+		// A session with no segment yet always matches — GetOrCreateSegment
+		// just created one under resolvedKind — so this is reachable only
+		// when a prior run already committed this conversation to a
+		// different tool (AC-3.3, AC-3.1). Nothing above this point wrote
+		// anything the switch needs to undo: the segment row is the
+		// existing one, untouched, and no runs row has been allocated yet.
+		return nil, &agentSwitchRefusal{owning: segment.Agent, requested: string(resolvedKind)}
+	}
+	kind := agent.Kind(segment.Agent)
+	runner, ok := opts.Runners.runner(kind)
+	if !ok {
+		// Registry-driven, not a hardcoded switch (AC-5.6): a Kind with no
+		// entry in opts.Runners is refused here, before a runs row is
+		// allocated for it, rather than reaching a nil Runner three steps
+		// later. Reportable rather than a bare error, because the issue is
+		// owed an explanation the same way any other preparation failure is
+		// (AC-4.1).
+		return nil, failuref(nil, "no coding-agent-tool implementation is registered for %q", segment.Agent)
 	}
 
 	// Read before the row for this run is inserted, so that the run being
@@ -130,10 +178,18 @@ func prepare(
 	// Both stay exact with N turns in flight, because neither depends on how
 	// many there are: the rows a sibling worker writes are never in this result
 	// set. See [previousRun] for why.
-	previous, resume, err := previousRun(ctx, opts, session, segment)
+	previous, found, err := previousRun(ctx, opts, session, segment)
 	if err != nil {
 		return nil, err
 	}
+	// Tool-aware, and evaluated on its own rather than trusted from the
+	// switch-refusal check above (US-3, AC-3.4): a segment whose agent does
+	// not match resolvedKind never reaches this line today, because that
+	// mismatch already returned an *agentSwitchRefusal — but resumeDecision
+	// reads segment.Agent for itself rather than assuming that invariant, so
+	// the resume decision stays correct even if the two checks are ever
+	// reordered or one of them is reused on its own.
+	resume := resumeDecision(found, segment, resolvedKind)
 
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
 	if err != nil {
@@ -187,9 +243,27 @@ func prepare(
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
 	}
 
-	path := harness.PathCold
+	path := agent.PathCold
 	if resume {
-		path = harness.PathResume
+		path = agent.PathResume
+	}
+
+	// Permissions carries no vendor-named field crossing this boundary
+	// (AC-5.2): the zero value means no profile was resolved, and it is
+	// left that way rather than reached for when req carries no tool
+	// surface at all — which is every run before profiles existed and every
+	// run today whose issue carries no lf:tools= label. When a profile did
+	// resolve one, its payload is narrowed into harness.ToolSurface here and
+	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
+	// exactly the shape this package must not otherwise know.
+	var permissions agent.Permissions
+	if req.Agent == agent.Kind(store.AgentCodex) && req.CodexSandbox != "" {
+		permissions = agent.Permissions{Profile: req.ToolProfile, Payload: codex.Sandbox{Mode: req.CodexSandbox}}
+	} else if len(req.Tools) > 0 || req.ToolProfile != "" {
+		permissions = agent.Permissions{
+			Profile: req.ToolProfile,
+			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
+		}
 	}
 
 	logger.Info("run prepared",
@@ -212,26 +286,29 @@ func prepare(
 		shaBefore:   shaBefore,
 		segment:     segment,
 		run:         run,
+		runner:      runner,
 		prompt:      prompt,
 		metaPath:    metaPath,
 		promptInput: promptInput,
-		request: harness.Request{
-			Ref:             ref,
-			RunOrdinal:      run.Ordinal,
-			SegmentOrdinal:  segment.Ordinal,
-			ClaudeSessionID: segment.ClaudeSessionID,
-			Mode:            req.mode(),
-			Path:            path,
-			WorktreePath:    worktree.Path(),
-			Prompt:          prompt,
-			// Passed straight through: the request's lists are already the
-			// caller's copies of operator-authored configuration, and the
-			// harness re-checks them against its ceiling before it builds argv
-			// (AC-2.6). Empty means this run takes the harness's own surface,
-			// which is every run that carries no tool profile.
-			Tools:        req.Tools,
-			AllowedTools: req.AllowedTools,
-			ToolProfile:  req.ToolProfile,
+		request: agent.Request{
+			Ref:            ref,
+			RunOrdinal:     run.Ordinal,
+			SegmentOrdinal: segment.Ordinal,
+			// Ref is the segments row's own value, never recomputed: if it and
+			// a fresh derivation ever disagree the stored one wins, because it
+			// is the one the tool has already seen. Resume is the tool's own
+			// reported handle, absent until a real run reports one — Claude
+			// has none of its own, since its --session-id already is Ref, so
+			// this stays empty for every segment this tree can produce today.
+			Session: agent.SessionRef{
+				Ref:    segment.SessionRef,
+				Resume: segment.ResumeToken,
+			},
+			Mode:         req.mode(),
+			Path:         path,
+			WorktreePath: worktree.Path(),
+			Prompt:       prompt,
+			Permissions:  permissions,
 		},
 	}, nil
 }
@@ -302,7 +379,8 @@ func prepareClone(
 }
 
 // previousRun finds the last run of this segment that claude was actually
-// invoked for, and with it the answer to "is there a conversation to continue?".
+// invoked for — one of the three things [resumeDecision] weighs to answer
+// "is there a conversation to continue?" (US-3, AC-3.4).
 //
 // The evidence is the runs table and nothing else. A row on this segment in a
 // terminal status means a subprocess was started with the segment's claude
@@ -362,6 +440,35 @@ func previousRun(
 		}
 	}
 	return previous, found, nil
+}
+
+// resumeDecision is the tool-aware cold-vs-resume decision (US-3, AC-3.4):
+// this run continues the previous run's conversation only when all three
+// hold —
+//
+//   - found: a prior terminal run exists for this segment ([previousRun]);
+//   - segment.Agent equals resolvedKind: this run addresses the same
+//     coding-agent tool the conversation already belongs to;
+//   - segment.ResumeToken is non-empty: the tool has actually reported a
+//     conversation handle to resume, which only a real run leaves behind.
+//
+// Any one of them failing means a cold start. The agent check is read
+// directly off segment rather than trusted as an invariant [prepare]'s
+// switch-refusal check already established earlier in the same function —
+// a session whose segment does not match resolvedKind is refused before this
+// is ever called today, but this function answers correctly on its own,
+// which is what makes it independently testable (T-3.3) rather than a claim
+// about call order.
+func resumeDecision(found bool, segment store.Segment, resolvedKind agent.Kind) bool {
+	if !found || segment.Agent != string(resolvedKind) {
+		return false
+	}
+	// Claude's own resumable handle is SessionRef, chosen before the first
+	// process starts. Codex discovers a separate handle from thread.started.
+	if resolvedKind == agent.Kind(store.AgentClaude) {
+		return true
+	}
+	return segment.ResumeToken != ""
 }
 
 // commentHistory reads the comments litefactory has recorded on this task and
@@ -678,9 +785,15 @@ func allocateRun(
 	// not be swallowed if it ever does.
 	var pathErr error
 	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{
-		SessionID:        session.ID,
-		SegmentID:        segment.ID,
-		Mode:             req.mode(),
+		SessionID: session.ID,
+		SegmentID: segment.ID,
+		Mode:      req.mode(),
+		// The segment's own value, never req.Agent recomputed: by the time
+		// this is called, [prepare] has already confirmed the two agree —
+		// segment.Agent is what the switch-refusal check compared resolvedKind
+		// against — and the segment is the record a resume reads back later
+		// (US-3).
+		Agent:            segment.Agent,
 		TriggerCommentID: req.Trigger.CommentID,
 		LogPath: func(ordinal int) string {
 			path, err := naming.RunLogPath(opts.Paths.Home(), ref, ordinal)

@@ -445,6 +445,23 @@ func TestLogsRenderedOutputIsUnredacted(t *testing.T) {
 	}
 }
 
+func TestLogsRendersCodexThroughTheSameView(t *testing.T) {
+	log := streamLine(t, map[string]any{"type": "thread.started", "thread_id": "01a0622b-f3d3-74c0-8a18-b80eff0ae0b0"}) +
+		streamLine(t, map[string]any{"type": "turn.started"}) +
+		streamLine(t, map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": "done"}}) +
+		streamLine(t, map[string]any{"type": "turn.completed", "usage": map[string]any{"input_tokens": 10}})
+	f := aRunWithALog(t, log)
+	code, stdout, stderr := f.run("logs", "123")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d\nstderr: %s", code, stderr)
+	}
+	for _, want := range []string{"system  init  session=b80eff0ae0b0", "text    done", "result  ok"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("rendered Codex log missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
 // TestLogsFollowRendersAsItStreams is the second half of the ask: watching a
 // live run in a form you can read, ending at the terminal event.
 func TestLogsFollowRendersAsItStreams(t *testing.T) {

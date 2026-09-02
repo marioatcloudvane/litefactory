@@ -90,9 +90,52 @@ func (c *Config) Validate() error {
 
 	errs = append(errs, validateGitHub(&c.GitHub)...)
 	errs = append(errs, validateClaude(&c.Claude)...)
+	errs = append(errs, validateTiers(c)...)
+	errs = append(errs, validateAgents(&c.Agents)...)
 	errs = append(errs, scanSecrets(c)...)
 
 	return errors.Join(errs...)
+}
+
+// validateTiers checks the tier vocabulary and the tier→model table (US-6).
+//
+// claude.model_tier, when set, must be one of the three tiers (AC-6.1) and
+// must actually resolve against tiers.model_by_tier.claude — a tier nothing
+// maps to is a startup error here rather than a surprise the first time the
+// selected [agent.Runner] implementation tries to resolve it. Every tier key
+// and every model string inside tiers.model_by_tier is checked the same way
+// [validateModel] checks claude.model (AC-6.4), because a value that has
+// only been relabelled must still be a legal --model argument.
+func validateTiers(c *Config) []error {
+	var errs []error
+
+	if c.Claude.ModelTier != "" {
+		if !c.Claude.ModelTier.Valid() {
+			errs = append(errs, &UnknownTierError{Key: "claude.model_tier", Value: string(c.Claude.ModelTier)})
+		} else if _, ok := c.Tiers.ResolveModel(KindClaude, c.Claude.ModelTier); !ok {
+			errs = append(errs, fmt.Errorf("claude.model_tier: %q has no entry in tiers.model_by_tier.claude", c.Claude.ModelTier))
+		}
+	}
+
+	for _, kind := range sortedKinds(c.Tiers.ModelByTier) {
+		byTier := c.Tiers.ModelByTier[kind]
+		for _, tier := range sortedTiers(byTier) {
+			model := byTier[tier]
+			if !tier.Valid() {
+				errs = append(errs, &UnknownTierError{Key: fmt.Sprintf("tiers.model_by_tier[%s]", kind), Value: string(tier)})
+				continue
+			}
+			key := fmt.Sprintf("tiers.model_by_tier[%s][%s]", kind, tier)
+			entry := strings.TrimSpace(model)
+			switch {
+			case entry == "":
+				errs = append(errs, fmt.Errorf("%s: must not be empty", key))
+			case !modelNameRE.MatchString(entry):
+				errs = append(errs, fmt.Errorf("%s: %q is not a model name; --model takes an alias such as %q or a full model ID such as \"claude-opus-5\"", key, model, DefaultClaudeModel))
+			}
+		}
+	}
+	return errs
 }
 
 func validateLogLevel(level string) error {
@@ -168,6 +211,74 @@ func validateClaude(c *Claude) []error {
 	return errs
 }
 
+// validateAgents checks the agents: namespace (T-7.1). Only Codex has
+// anything to check today: Claude's configuration still lives at the
+// deprecated top-level claude: key, and agents.claude: is validated for
+// nothing beyond the presence conflict [Decode] already refuses eagerly
+// (AC-7.9) — this package does not read its contents.
+func validateAgents(a *Agents) []error {
+	if a.Codex == nil {
+		return nil
+	}
+	return validateCodex(a.Codex)
+}
+
+// validateCodex checks agents.codex, present only when the operator
+// configured it at all — there is no default Codex configuration the way
+// [Claude] has one, so every field here is required rather than defaulted
+// (AC-7.8).
+func validateCodex(c *Codex) []error {
+	var errs []error
+
+	switch {
+	case c.Binary == "":
+		errs = append(errs, errors.New("agents.codex.binary: must not be empty"))
+	case strings.ContainsRune(c.Binary, filepath.Separator) && !filepath.IsAbs(c.Binary):
+		errs = append(errs, fmt.Errorf("agents.codex.binary: %q must be an absolute path or a bare command name", c.Binary))
+	}
+
+	if c.DefaultSandbox == "" {
+		// BLOCKED-BY-US-1 (T-7.3): this checks presence only. Once the
+		// measured sandbox enum lands, this becomes a membership check
+		// against it, and the most-restrictive measured value becomes the
+		// [Defaults]/template.go constant an absent key defaults to instead
+		// of an outright refusal.
+		errs = append(errs, errors.New("agents.codex.default_sandbox: must not be empty; "+
+			"a configured agents.codex requires an explicit default sandbox mode (AC-7.8)"))
+	} else if c.DefaultSandbox != "read-only" && c.DefaultSandbox != "workspace-write" {
+		errs = append(errs, fmt.Errorf("agents.codex.default_sandbox: %q must be read-only or workspace-write", c.DefaultSandbox))
+	}
+	if c.ModelTier != "" && !c.ModelTier.Valid() {
+		errs = append(errs, &UnknownTierError{Key: "agents.codex.model_tier", Value: string(c.ModelTier)})
+	}
+	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
+		errs = append(errs, fmt.Errorf("agents.codex.model: %q is not a valid model name", c.Model))
+	}
+
+	// Matches claude.timeout_seconds's own bounds (T-7.1): the wall-clock
+	// kill is the same kind of value for either tool, and there is no
+	// measurement suggesting Codex needs a different window.
+	if c.TimeoutSeconds < MinClaudeTimeoutSeconds || c.TimeoutSeconds > MaxClaudeTimeoutSeconds {
+		errs = append(errs, fmt.Errorf("agents.codex.timeout_seconds: %d is out of range; must be between %d and %d",
+			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
+	}
+
+	// Absolute only, and checked here rather than at launch: each of these
+	// becomes a --add-dir widening the child's sandbox, and a relative path
+	// would be resolved against the worktree, quietly granting something
+	// other than what the operator wrote.
+	for i, root := range c.WritableRoots {
+		switch {
+		case strings.TrimSpace(root) == "":
+			errs = append(errs, fmt.Errorf("agents.codex.writable_roots[%d]: must not be empty", i))
+		case !filepath.IsAbs(root):
+			errs = append(errs, fmt.Errorf("agents.codex.writable_roots[%d]: %q must be an absolute path", i, root))
+		}
+	}
+
+	return errs
+}
+
 // normalize trims the incidental differences — surrounding whitespace, a
 // trailing slash on the API base — that would otherwise turn into confusing
 // validation failures or duplicated URLs.
@@ -184,15 +295,37 @@ func (c *Config) normalize() {
 
 	c.Claude.Binary = strings.TrimSpace(c.Claude.Binary)
 	c.Claude.SettingsPath = strings.TrimSpace(c.Claude.SettingsPath)
+	c.Claude.ModelTier = Tier(strings.TrimSpace(string(c.Claude.ModelTier)))
+	// A ModelByTier inner map is copied by the outer range, but its value
+	// header still points at the same backing map, so trimming in place
+	// lands on the configuration validation and the harness will both read.
+	for _, byTier := range c.Tiers.ModelByTier {
+		for tier, model := range byTier {
+			byTier[tier] = strings.TrimSpace(model)
+		}
+	}
 	trimAll(c.Claude.Tools)
 	trimAll(c.Claude.AllowedTools)
 	trimAll(c.Claude.ToolCeiling)
-	// A ToolProfile is copied by the range, but its two slice headers still
-	// point at the map value's backing arrays, so trimming in place lands on
-	// the configuration the daemon will use.
+	// A ToolProfile is copied by the range, but Claude and Codex are
+	// pointers, so trimming through them lands on the same
+	// ToolProfileClaude/ToolProfileCodex the map value points at — there is
+	// nothing left to alias away by copying the outer ToolProfile.
 	for _, profile := range c.Claude.ToolProfiles {
-		trimAll(profile.Tools)
-		trimAll(profile.AllowedTools)
+		if profile.Claude != nil {
+			trimAll(profile.Claude.Tools)
+			trimAll(profile.Claude.AllowedTools)
+		}
+		if profile.Codex != nil {
+			profile.Codex.Sandbox = strings.TrimSpace(profile.Codex.Sandbox)
+		}
+	}
+
+	if c.Agents.Codex != nil {
+		c.Agents.Codex.Binary = strings.TrimSpace(c.Agents.Codex.Binary)
+		c.Agents.Codex.DefaultSandbox = strings.TrimSpace(c.Agents.Codex.DefaultSandbox)
+		c.Agents.Codex.Model = strings.TrimSpace(c.Agents.Codex.Model)
+		c.Agents.Codex.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Codex.ModelTier)))
 	}
 }
 

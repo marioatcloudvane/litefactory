@@ -117,13 +117,13 @@ func fixtureEnviron(binDir, home, tmp string) []string {
 
 func (f *fixture) request() Request {
 	return Request{
-		Ref:             testRef,
-		RunOrdinal:      1,
-		SegmentOrdinal:  1,
-		ClaudeSessionID: testSessionID,
-		Mode:            "spike",
-		WorktreePath:    f.worktree,
-		Prompt:          testPrompt,
+		Ref:            testRef,
+		RunOrdinal:     1,
+		SegmentOrdinal: 1,
+		Session:        SessionRef{Ref: testSessionID},
+		Mode:           "spike",
+		WorktreePath:   f.worktree,
+		Prompt:         testPrompt,
 	}
 }
 
@@ -303,7 +303,7 @@ func TestRunPutsTheRequestSessionIDOnArgv(t *testing.T) {
 	f := newFixture(t, successScript(t))
 
 	req := f.request()
-	req.ClaudeSessionID = storedSessionID
+	req.Session = SessionRef{Ref: storedSessionID}
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
 	defer cancel()
@@ -354,7 +354,7 @@ func TestRunRejectsAMalformedSessionID(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			req := f.request()
-			req.ClaudeSessionID = tc.sessionID
+			req.Session = SessionRef{Ref: tc.sessionID}
 
 			_, err := f.runner.Run(t.Context(), req)
 			switch {
@@ -1287,9 +1287,10 @@ func TestRunUsesTheProfileSurfaceExclusively(t *testing.T) {
 	})
 
 	req := f.request()
-	req.Tools = []string{"Bash"}
-	req.AllowedTools = []string{"Bash(ls:*)"}
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: []string{"Bash"}, AllowedTools: []string{"Bash(ls:*)"}},
+	}
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
 	defer cancel()
@@ -1322,9 +1323,10 @@ func TestRunOmitsAllowedToolsWhenTheProfileHasNone(t *testing.T) {
 	})
 
 	req := f.request()
-	req.Tools = []string{"Bash"}
-	req.AllowedTools = nil
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: []string{"Bash"}, AllowedTools: nil},
+	}
 
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 60*time.Second)
 	defer cancel()
@@ -1350,8 +1352,10 @@ func TestRunRejectsAToolOutsideTheCeiling(t *testing.T) {
 	})
 
 	req := f.request()
-	req.Tools = []string{"Read", "Bash"}
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		Payload: ToolSurface{Tools: []string{"Read", "Bash"}},
+	}
 
 	_, err := f.runner.Run(t.Context(), req)
 	if err == nil {
@@ -1374,8 +1378,11 @@ func TestRunFallsBackToTheConfiguredCeilingWhenNoneWasResolved(t *testing.T) {
 	f := newFixture(t, successScript(t)) // ToolCeiling left unset by the fixture's baseline
 
 	req := f.request()
-	req.Tools = []string{"Bash"} // outside claude.tools = [Read, Edit], and no ceiling was ever resolved
-	req.ToolProfile = "research"
+	req.Permissions = Permissions{
+		Profile: "research",
+		// Outside claude.tools = [Read, Edit], and no ceiling was ever resolved.
+		Payload: ToolSurface{Tools: []string{"Bash"}},
+	}
 
 	_, err := f.runner.Run(t.Context(), req)
 	if !errors.Is(err, ErrInvalidRequest) {
@@ -1410,7 +1417,7 @@ func logLineContaining(t *testing.T, logs, substr string) string {
 	return ""
 }
 
-// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the "claude started" line
+// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the generic start line
 // carries allowed_tools and tool_profile alongside tools, and — the part that
 // actually matters — all three report the surface this run was invoked with,
 // never the runner's own configured default, once a profile has been
@@ -1454,18 +1461,21 @@ func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
 			f.runner.logger = slog.New(slog.NewTextHandler(logs, nil))
 
 			req := f.request()
-			req.Tools = tt.reqTools
-			req.AllowedTools = tt.reqAllowedTools
-			req.ToolProfile = tt.reqToolProfile
+			if len(tt.reqTools) > 0 || tt.reqToolProfile != "" {
+				req.Permissions = Permissions{
+					Profile: tt.reqToolProfile,
+					Payload: ToolSurface{Tools: tt.reqTools, AllowedTools: tt.reqAllowedTools},
+				}
+			}
 
 			if _, err := f.runner.Run(t.Context(), req); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
 
-			line := logLineContaining(t, logs.String(), `msg="claude started"`)
+			line := logLineContaining(t, logs.String(), `msg="coding agent started"`)
 			for _, want := range []string{tt.wantTools, tt.wantAllowedTools, tt.wantToolProfile} {
 				if !strings.Contains(line, want) {
-					t.Errorf("claude started log line missing %q:\n%s", want, line)
+					t.Errorf("coding agent start log line missing %q:\n%s", want, line)
 				}
 			}
 		})

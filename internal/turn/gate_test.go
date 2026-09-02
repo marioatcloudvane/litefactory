@@ -442,7 +442,7 @@ func TestConcurrentTurnsAgainstTwoClones(t *testing.T) {
 	fixtures := []*fixture{newFixture(t, nil), newFixture(t, nil)}
 	for _, f := range fixtures {
 		f.opts.CloneGate = gate
-		f.opts.Claude = newRunner(f.paths.Home())
+		f.opts.Runners = runnerSet(newRunner(f.paths.Home()))
 		for _, issue := range issues {
 			session := f.session
 			if issue.number != testIssue {

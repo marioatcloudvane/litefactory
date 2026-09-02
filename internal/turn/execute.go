@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -14,15 +15,36 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Runner runs one claude process. *harness.Runner satisfies it.
+// Runner is [agent.Runner], aliased here for continuity with the many call
+// sites written before that type moved to internal/agent: *harness.Runner
+// (Claude) satisfies it today, and internal/codex's runner will once its own
+// wire shape is measured.
 //
-// It is declared here rather than in internal/harness because this is where it
-// is consumed: the harness exports a concrete struct, and the one narrow
-// interface a turn needs belongs to the turn. Two methods' worth of surface
-// would already be too much — a test double for the whole business path has to
-// be cheap to write, or the path stops being tested.
-type Runner interface {
-	Run(ctx context.Context, req harness.Request) (*harness.RunResult, error)
+// It is not declared fresh in this package because doing so would be the
+// interface-next-to-nothing anti-pattern the M0 layout invariants warn
+// against in the other direction: this is a boundary type two independent
+// implementation packages have to satisfy without importing internal/turn or
+// each other, so it has to live somewhere neither of them is — internal/agent,
+// which internal/harness and internal/codex both already import.
+type Runner = agent.Runner
+
+// RunnerSet is every coding-agent-tool implementation available to a turn,
+// keyed by which [agent.Kind] each one drives. The daemon's factory builds
+// exactly one at startup and every turn shares it.
+//
+// This is what makes [agent.Kind] validity registry-driven rather than a
+// hardcoded switch: a Kind is valid exactly when RunnerSet holds an entry for
+// it, and a segment naming a Kind with no entry is refused as a reportable
+// failure rather than dispatched to a nil Runner. Adding a third
+// implementation is registering it here, in internal/daemon's factory —
+// nothing in this package or internal/report has to change (AC-5.15).
+type RunnerSet map[agent.Kind]Runner
+
+// runner returns the implementation registered for kind, or false when none
+// is.
+func (s RunnerSet) runner(kind agent.Kind) (Runner, bool) {
+	r, ok := s[kind]
+	return r, ok
 }
 
 // CloneGate serialises the git operations that contend on one registered
@@ -64,9 +86,17 @@ type Options struct {
 	// turn.
 	Git *git.Binary
 
-	// Claude runs the subprocess. In production this is a *harness.Runner
-	// built at startup, so a missing binary fails at boot (AC-3.18).
-	Claude Runner
+	// Runners is every coding-agent-tool implementation this daemon has
+	// built, keyed by [agent.Kind]. In production this is built once at
+	// startup by internal/daemon's factory — so a Codex binary that cannot
+	// be resolved fails boot rather than a later tick (AC-3.18, AC-5.7) —
+	// and every turn shares it.
+	//
+	// Required and refused as the zero value rather than treated as a
+	// no-op, the same way [Options.CloneGate] is: a turn that resolved no
+	// implementation at all is a turn that cannot run anything, and that has
+	// to be a startup error rather than a run that quietly does nothing.
+	Runners RunnerSet
 
 	// CloneGate keeps two turns working in one registered clone out of each
 	// other's git. Required (AC-PAR-3.1).
@@ -125,8 +155,8 @@ func (o Options) validate() error {
 		return invalidOptions("a database handle is required")
 	case o.Git == nil:
 		return invalidOptions("a resolved git binary is required")
-	case o.Claude == nil:
-		return invalidOptions("a claude runner is required")
+	case len(o.Runners) == 0:
+		return invalidOptions("a runner set is required")
 	case o.CloneGate == nil:
 		return invalidOptions("a clone gate is required")
 	case o.InstanceID == "":
@@ -237,6 +267,20 @@ type Request struct {
 	Tools        []string
 	AllowedTools []string
 	ToolProfile  string
+	CodexSandbox string
+
+	// Agent is the coding-agent tool this turn resolved to, from the daemon's
+	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
+	// means no Coding Agent label was on the issue, which resolves to the
+	// configured default agent — [store.AgentClaude] today — the same way an
+	// absent lf:tools= label resolves to the harness's default surface
+	// (AC-2.1). [prepare] is what applies that default; nothing here does.
+	//
+	// It is what makes the cold-vs-resume decision and the mid-session
+	// switch refusal tool-aware (US-3): a session's segment is fixed to the
+	// agent it was created with, and a later run whose label resolves to a
+	// different one is refused rather than resumed or silently restarted.
+	Agent agent.Kind
 }
 
 func (r Request) validate() error {
@@ -407,6 +451,15 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)
 	if err != nil {
+		// Checked before the generic *failure: an agent-switch refusal is a
+		// *failure in spirit — a turn that could not be carried out because
+		// of the state of the world — but it is answered with
+		// [report.ReplyAgentSwitchRefused] rather than a run-failure comment,
+		// which needs its own [Disposition] and its own branch here (US-3).
+		var switchRefusal *agentSwitchRefusal
+		if errors.As(err, &switchRefusal) {
+			return agentSwitchRefused(result, switchRefusal, logger), nil
+		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {
 			return prepareFailed(ctx, opts, result, prepFailure, logger), nil
@@ -464,6 +517,27 @@ func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure
 	logger.Error("turn could not be prepared",
 		slog.String("reason", prepFailure.reason),
 		slog.Any("error", prepFailure.Unwrap()))
+	return result
+}
+
+// agentSwitchRefused records a turn whose resolved agent does not own this
+// session's segment (US-3).
+//
+// Unlike [prepareFailed] it touches no session state and allocates nothing:
+// [prepare] returned before creating anything, and the segment and the runs
+// table are exactly as they were before this turn was attempted (AC-3.1). The
+// two agent names travel on [Result] rather than being formatted here,
+// because it is [Reporter.ReportTurn] that decides whether there is even a
+// comment to answer — the issue-body trigger has none — and formatting them
+// twice would be two places to keep in step.
+func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog.Logger) Result {
+	result.Disposition = DispositionAgentSwitchRefused
+	result.AgentOwning = refusal.owning
+	result.AgentRequested = refusal.requested
+
+	logger.Info("refusing a run: the resolved coding-agent tool does not own this task's conversation",
+		slog.String("owning_agent", refusal.owning),
+		slog.String("requested_agent", refusal.requested))
 	return result
 }
 

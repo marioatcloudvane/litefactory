@@ -65,6 +65,44 @@ const (
 	// one of the two may be a well-formed profile name and the other an attempt
 	// to smuggle a sentence into a comment litefactory signs.
 	ReplyAmbiguousToolLabels
+
+	// ReplyAmbiguousAgentLabels answers an issue carrying more than one
+	// Coding Agent label, the agent-selection counterpart to
+	// [ReplyAmbiguousToolLabels] and shaped the same way for the same reason:
+	// it names neither label.
+	ReplyAmbiguousAgentLabels
+
+	// ReplyMalformedAgentLabel answers a Coding Agent label whose value is not
+	// the shape of an agent name at all, the empty value included — the
+	// agent-selection counterpart to [ReplyMalformedToolLabel]. It carries no
+	// field for the label text to travel in, for the same reason that one
+	// does not.
+	ReplyMalformedAgentLabel
+
+	// ReplyUnknownAgent answers a Coding Agent label naming a value that is a
+	// well-formed agent name but not one litefactory has a [Runner]
+	// implementation registered for. Unlike [ReplyMalformedAgentLabel] it may
+	// name what was asked for, because a value that passed the agent-name
+	// shape check is safe to quote back the same way a tool profile name is
+	// (see [ReplyUnknownToolProfile]).
+	ReplyUnknownAgent
+
+	// ReplyAgentSwitchRefused answers a comment that asked to continue an
+	// existing conversation under a different coding-agent tool than the one
+	// that conversation already belongs to. A segment's Agent is fixed at
+	// creation (internal/store), and switching it mid-conversation would
+	// either hand one tool's session identity to another tool's process or
+	// silently start a second, unrelated conversation under the first run's
+	// number — so the request is refused rather than guessed at.
+	ReplyAgentSwitchRefused
+
+	// ReplyProfileNotAvailableForAgent answers a resolved lf:tools= profile
+	// that carries no stanza for the agent this run would otherwise use. A
+	// profile with a stanza for one tool and none for another is not treated
+	// as "fall back to that tool's own default surface" — the whole point of
+	// a profile is the operator's explicit boundary, and a run this package
+	// cannot resolve a surface for is refused rather than widened.
+	ReplyProfileNotAvailableForAgent
 )
 
 // String renders the kind for logs and test failures.
@@ -82,6 +120,16 @@ func (k ReplyKind) String() string {
 		return "malformed_tool_label"
 	case ReplyAmbiguousToolLabels:
 		return "ambiguous_tool_labels"
+	case ReplyAmbiguousAgentLabels:
+		return "ambiguous_agent_labels"
+	case ReplyMalformedAgentLabel:
+		return "malformed_agent_label"
+	case ReplyUnknownAgent:
+		return "unknown_agent"
+	case ReplyAgentSwitchRefused:
+		return "agent_switch_refused"
+	case ReplyProfileNotAvailableForAgent:
+		return "profile_not_available_for_agent"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -95,6 +143,10 @@ func (k ReplyKind) valid() bool {
 	case ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
 		return true
 	case ReplyUnknownToolProfile, ReplyMalformedToolLabel, ReplyAmbiguousToolLabels:
+		return true
+	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
+		return true
+	case ReplyAgentSwitchRefused, ReplyProfileNotAvailableForAgent:
 		return true
 	case ReplyInvalid:
 		return false
@@ -122,6 +174,51 @@ func (k ReplyKind) RefusesTools() bool {
 	}
 }
 
+// RefusesAgent reports whether k is one of the three agent-selection
+// refusals a resolved lf:agent= label ladder draws: a reply drawn by the
+// labels on the issue rather than by the command in the comment.
+//
+// It mirrors [ReplyKind.RefusesTools] exactly and exists for the same
+// reason: internal/turn has to tell "this reply answers a label" from "this
+// reply answers a command" before it can decide what [ReplyRequest] shape is
+// valid, and this package owns what its own kinds mean.
+//
+// [ReplyAgentSwitchRefused] and [ReplyProfileNotAvailableForAgent] are also
+// agent-related, but they are drawn by later stages of the four-stage
+// refusal precedence (segment-ownership and per-agent stanza narrowing) with
+// their own request shapes, so they are deliberately excluded here — this
+// method answers only for the label ladder this story implements.
+func (k ReplyKind) RefusesAgent() bool {
+	switch k {
+	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// RefusesProfileForAgent reports whether k is the stage-3 refusal T-7.2
+// draws: a resolved lf:tools= profile with no stanza for the agent a run
+// would otherwise use. It is evaluated after the label ladders
+// [ReplyKind.RefusesTools] and [ReplyKind.RefusesAgent] answer for, which is
+// exactly why [RefusesAgent]'s own doc excludes it — this is its own request
+// shape, checked on its own, so a caller can tell all three refusal families
+// apart.
+func (k ReplyKind) RefusesProfileForAgent() bool {
+	return k == ReplyProfileNotAvailableForAgent
+}
+
+// RefusesSwitch reports whether k is [ReplyAgentSwitchRefused]: a reply
+// drawn when a session's resolved agent does not own the segment its
+// conversation already belongs to (US-3). It has its own request shape, read
+// from the store rather than from the issue's labels alone, which is exactly
+// why [RefusesAgent]'s own doc excludes it the same way it excludes
+// [RefusesProfileForAgent] — this method is what lets a caller tell all four
+// refusal families apart.
+func (k ReplyKind) RefusesSwitch() bool {
+	return k == ReplyAgentSwitchRefused
+}
+
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
@@ -138,7 +235,7 @@ type Reply struct {
 	Command string
 
 	// Profile is the tool profile name an lf:tools= label asked for, and it is
-	// read by [ReplyUnknownToolProfile] alone.
+	// read by [ReplyUnknownToolProfile] and [ReplyProfileNotAvailableForAgent].
 	//
 	// It reaches this package from a label anybody with triage permission can
 	// apply, so it is checked against [profileNamePattern] here before it is
@@ -146,6 +243,21 @@ type Reply struct {
 	// produces a reply that describes the problem without quoting the input,
 	// which is the same shape [commandSpan] already imposes on command tokens.
 	Profile string
+
+	// Agent is the coding-agent-tool name an lf:agent= label asked for, or
+	// the one a resolved segment is already committed to. It is read by
+	// [ReplyUnknownAgent] and [ReplyProfileNotAvailableForAgent] alone, and
+	// like Profile it is checked against [agentNamePattern] here before it
+	// is rendered — see [agentSpan].
+	Agent string
+
+	// OwningAgent and RequestedAgent are read by [ReplyAgentSwitchRefused]
+	// alone (US-3): OwningAgent is the coding-agent tool a session's segment
+	// already belongs to, and RequestedAgent is the one this run's labels
+	// resolved to instead. Both are checked against [agentNamePattern] here
+	// before they are rendered, the same as [Agent].
+	OwningAgent    string
+	RequestedAgent string
 }
 
 // profileNamePattern is the shape of an operator-authored tool profile name.
@@ -172,6 +284,23 @@ func profileSpan(profile string) (string, bool) {
 		return "", false
 	}
 	return "`" + profile + "`", true
+}
+
+// agentNamePattern is the shape of a coding-agent-tool name — deliberately
+// the same shape as [profileNamePattern], for the same reason: it is checked
+// again here, at the one place a value that reached this package from a
+// forge label is echoed into a comment litefactory signs its own name to
+// (SEC-5), rather than trusted from whatever validated it upstream.
+var agentNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+
+// agentSpan renders a coding-agent-tool name for quoting back, the same way
+// [profileSpan] does for a tool profile name: no salvaged prefix, nothing
+// rendered at all for anything that fails the pattern.
+func agentSpan(name string) (string, bool) {
+	if !agentNamePattern.MatchString(name) {
+		return "", false
+	}
+	return "`" + name + "`", true
 }
 
 // maxCommandLen bounds how much of a command token is quoted back.
@@ -274,6 +403,62 @@ func (r Reply) body() string {
 		b.WriteString("Neither label was chosen and they were not combined. Leave exactly one " +
 			"`lf:tools=` label on the issue and comment again.")
 
+	case ReplyAmbiguousAgentLabels:
+		b.WriteString("This issue carries more than one `Coding Agent: …` label, so there is no single " +
+			"answer to which coding-agent tool this run should have used. ")
+		b.WriteString(agentRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("Neither label was chosen and they were not combined. Leave exactly one " +
+			"`Coding Agent: Claude` or `Coding Agent: Codex` label on the issue and comment again.")
+
+	case ReplyMalformedAgentLabel:
+		b.WriteString("The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. ")
+		b.WriteString(agentRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
+			"text is not repeated here on purpose.")
+
+	case ReplyUnknownAgent:
+		if name, named := agentSpan(r.Agent); named {
+			fmt.Fprintf(&b, "This issue asks for the coding-agent tool %s, which litefactory has no "+
+				"implementation registered for.", name)
+		} else {
+			b.WriteString("This issue asks for a coding-agent tool litefactory has no implementation registered for.")
+		}
+		b.WriteString(" ")
+		b.WriteString(agentRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("Take the `Coding Agent: …` label off the issue, or change it to a tool litefactory " +
+			"has running, and comment again.")
+
+	case ReplyAgentSwitchRefused:
+		b.WriteString("This task's conversation already belongs to a different coding-agent tool than " +
+			"this comment asked for. ")
+		b.WriteString(agentRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("A conversation stays with the tool it started with — litefactory does not hand " +
+			"one tool's session to another. Comment again without asking for a different agent, " +
+			"or start a new task for the one you want.")
+
+	case ReplyProfileNotAvailableForAgent:
+		profile, profileNamed := profileSpan(r.Profile)
+		name, agentNamed := agentSpan(r.Agent)
+		switch {
+		case profileNamed && agentNamed:
+			fmt.Fprintf(&b, "The tool profile %s does not have a configuration for %s, which is the "+
+				"coding-agent tool this run would otherwise have used.", profile, name)
+		case profileNamed:
+			fmt.Fprintf(&b, "The tool profile %s does not have a configuration for this run's "+
+				"coding-agent tool.", profile)
+		default:
+			b.WriteString("The resolved tool profile does not have a configuration for this run's coding-agent tool.")
+		}
+		b.WriteString(" ")
+		b.WriteString(toolsRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("Add a stanza for that tool to the profile, or take the `lf:tools=` label off " +
+			"the issue, and comment again.")
+
 	case ReplyInvalid:
 		// Unreachable: RenderReply rejects an invalid kind before calling this.
 		return ""
@@ -306,3 +491,10 @@ const onlyCommandSentence = "The only command it acts on at the moment is `/spik
 // the label, would answer a narrowing request by ignoring it.
 const toolsRefusalSentence = "Nothing was run: litefactory refuses a run it cannot " +
 	"resolve the tools for rather than falling back to its default ones."
+
+// agentRefusalSentence is the one thing every agent-selection refusal has to
+// say, for the same reason [toolsRefusalSentence] exists: litefactory refuses
+// a run it cannot resolve which coding-agent tool to use for, rather than
+// silently falling back to a different one than was asked for.
+const agentRefusalSentence = "Nothing was run: litefactory refuses a run it cannot " +
+	"resolve the coding-agent tool for rather than falling back to a different one."

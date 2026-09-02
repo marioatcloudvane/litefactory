@@ -7,10 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
-	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
+
+// defaultAgentName is the agent named in a run report when [Run.Agent] was
+// never set. It exists so the many call sites — most of them in tests —
+// written before this package took an Agent field at all keep reading as a
+// Claude run, which is every run they describe.
+const defaultAgentName = "claude"
 
 // TailLines is how many lines of run output the <details> block carries
 // (AC-4.3, S-9). It is exported so the caller capturing that output knows how
@@ -60,10 +66,17 @@ type Run struct {
 	// NNNN in the log filename. Must be 1 or more.
 	Ordinal int
 
-	// Result is what the harness recorded. Nil means litefactory never got a
+	// Agent is which coding-agent tool ran this — "claude" or "codex" — and
+	// it is what lets the callout name the tool that actually ran rather
+	// than assuming one. Empty falls back to [defaultAgentName]: every
+	// caller before this field existed described a Claude run, and none of
+	// them has to be taught about it just to keep reading correctly.
+	Agent string
+
+	// Result is what the runner recorded. Nil means litefactory never got a
 	// result back, which is itself reportable: the run is rendered with an
 	// unknown outcome rather than silently as a success.
-	Result *harness.RunResult
+	Result *agent.RunResult
 
 	// Branch is the git branch the run worked on, for example "lf/123-add-x".
 	//
@@ -158,6 +171,15 @@ type Run struct {
 	// that had never existed while the brief sat one directory away. A report
 	// that names no brief is recoverable; one that names the wrong brief is not.
 	BriefPath string
+}
+
+// agentName returns which coding-agent tool ran this, falling back to
+// [defaultAgentName] for a Run built before this field existed.
+func (r Run) agentName() string {
+	if r.Agent == "" {
+		return defaultAgentName
+	}
+	return r.Agent
 }
 
 // logPath returns the absolute path of the run's local log, or "" if it was
@@ -369,7 +391,7 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v = outcomeView{
 			word:  "did not run",
 			alert: "CAUTION",
-			lead:  fmt.Sprintf("litefactory could not get run %d as far as `claude`: %s", run.Ordinal, failure),
+			lead:  fmt.Sprintf("litefactory could not start coding agent %s for run %d: %s", codeSpan(run.agentName()), run.Ordinal, failure),
 		}
 	case v.succeed:
 		v = outcomeView{
@@ -409,19 +431,21 @@ func describeRunOutcome(run Run) outcomeView {
 		}
 	}
 
+	tool := run.agentName()
+
 	switch res.Outcome {
-	case harness.OutcomeSucceeded:
+	case agent.OutcomeSucceeded:
 		return outcomeView{word: "succeeded", succeed: true}
 
-	case harness.OutcomeFailed:
-		lead := fmt.Sprintf("Run %d failed: `claude` exited with status %d.", n, res.ExitCode)
-		if res.ExitCode == harness.SignalExitCode {
+	case agent.OutcomeFailed:
+		lead := fmt.Sprintf("Run %d failed: `%s` exited with status %d.", n, tool, res.ExitCode)
+		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
 		}
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
-	case harness.OutcomeTimedOut:
-		lead := fmt.Sprintf("Run %d ran past `claude.timeout_seconds` and litefactory killed it", n)
+	case agent.OutcomeTimedOut:
+		lead := fmt.Sprintf("Run %d ran past the configured timeout for `%s` and litefactory killed it", n, tool)
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
@@ -429,16 +453,16 @@ func describeRunOutcome(run Run) outcomeView {
 			"Raise the timeout or narrow the task, then comment again."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
-	case harness.OutcomeAbandoned:
+	case agent.OutcomeAbandoned:
 		lead := fmt.Sprintf("Run %d was abandoned because litefactory was shutting down. "+
 			"Nothing failed and nothing crashed: the daemon was asked to stop while the run was in flight, "+
 			"so it stopped. Comment again to run it.", n)
 		return outcomeView{word: "abandoned", alert: "NOTE", lead: lead}
 
-	case harness.OutcomeNoResult:
+	case agent.OutcomeNoResult:
 		lead := fmt.Sprintf("Run %d exited cleanly without ever reporting a result. "+
-			"In practice this is usually a stale `claude` credential: the CLI retries internally about ten times "+
-			"and then goes quiet. Run `claude` once by hand to check it is still logged in, then comment again.", n)
+			"In practice this is usually a stale `%s` credential: the tool retries internally about ten times "+
+			"and then goes quiet. Run `%s` once by hand to check it is still logged in, then comment again.", n, tool, tool)
 		return outcomeView{word: "no result", alert: "WARNING", lead: lead}
 
 	default:
@@ -534,7 +558,7 @@ func metadataList(run Run) string {
 
 	if res := run.Result; res != nil {
 		switch res.ExitCode {
-		case harness.SignalExitCode:
+		case agent.SignalExitCode:
 			add("Exit status", "killed by litefactory, so there is no exit code")
 		default:
 			add("Exit status", codeSpan(strconv.Itoa(res.ExitCode)))
@@ -556,7 +580,7 @@ func metadataList(run Run) string {
 	}
 
 	if res := run.Result; res != nil {
-		if res.HasResult && res.CostUSD > 0 {
+		if res.CostUSD > 0 {
 			add("Cost", fmt.Sprintf("$%.4f", res.CostUSD))
 		}
 		if res.Model != "" {

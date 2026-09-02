@@ -47,8 +47,19 @@ type Meta struct {
 	SessionID int64 `json:"session_id"`
 	// SegmentOrdinal is the conversation segment, 1 at M0.
 	SegmentOrdinal int `json:"segment_ordinal"`
-	// ClaudeSessionID is the value passed to --session-id, or to --resume on a
-	// run that continued an earlier conversation.
+	// Agent is which coding-agent tool this run invoked. Set by internal/turn,
+	// from the segment row — "claude" for every run this tree can produce
+	// today.
+	Agent string `json:"agent"`
+	// SessionRef is litefactory's own pre-computed identity for this
+	// conversation, off the segment row. Set by internal/turn.
+	SessionRef string `json:"session_ref"`
+	// ClaudeSessionID is a deprecated alias of SessionRef, kept so an older
+	// reader of this document — or one that has not been taught about Agent
+	// and SessionRef yet — still finds the value it expects. It is populated
+	// only when Agent is a Claude run; empty otherwise, per SessionRef's own
+	// doc: what claude was passed with --session-id, or --resume on a run
+	// that continued an earlier conversation.
 	ClaudeSessionID string `json:"claude_session_id"`
 	// Resumed says whether this run continued the conversation that id names
 	// rather than starting it. It is what joins this document to the rest of
@@ -119,19 +130,20 @@ type Meta struct {
 // result may be nil — a run killed before it produced one still gets a metadata
 // document, which is the point of writing it best effort.
 func NewMeta(req Request, prompt string, result *RunResult) Meta {
+	ts := toolSurface(req)
 	meta := Meta{
 		RunOrdinal:     req.RunOrdinal,
 		TaskRef:        req.Ref.String(),
 		SegmentOrdinal: req.SegmentOrdinal,
-		Resumed:        req.Path.resuming(),
+		Resumed:        req.Path.Resuming(),
 		Mode:           req.Mode,
 		Prompt:         prompt,
 		WorktreePath:   req.WorktreePath,
 		Outcome:        OutcomeAbandoned.String(),
 		ExitCode:       SignalExitCode,
 		Tools:          []string{},
-		ToolsRequested: append([]string{}, req.Tools...),
-		ToolProfile:    req.ToolProfile,
+		ToolsRequested: append([]string{}, ts.Tools...),
+		ToolProfile:    req.Permissions.Profile,
 		FilesTouched:   []string{},
 	}
 	if result == nil {
@@ -154,7 +166,7 @@ func NewMeta(req Request, prompt string, result *RunResult) Meta {
 		meta.FinishedAt = result.FinishedAt.UTC().Format(time.RFC3339Nano)
 	}
 	meta.DurationMS = result.Duration.Milliseconds()
-	if result.HasResult {
+	if result.HasCost || result.CostUSD > 0 {
 		cost := result.CostUSD
 		meta.CostUSD = &cost
 	}

@@ -17,6 +17,16 @@ import (
 // hand-edited file) for everything that does not need Load's path-dependent
 // defaulting, and drives Load directly through a temp $LF_HOME for the cases
 // that do.
+//
+// T-7.1 (Add Codex as second-party coding-agent tool) restructured
+// ToolProfile into a per-agent stanza (claude:, codex:) instead of a flat
+// tools/allowed_tools pair, so every YAML literal and error-message
+// assertion below is updated to the nested shape. The behaviour these tests
+// pin is otherwise unchanged: they are still exercising the Claude stanza's
+// tools/allowed_tools policy, just spelled tool_profiles.<name>.claude.tools
+// instead of tool_profiles.<name>.tools. See agents_test.go for the T-7
+// coverage proper (per-agent narrowing, agents.codex, the deprecated-key
+// conflict).
 
 // AC-1.1 — both keys decode from YAML, and both are optional.
 func TestToolProfilesAndCeilingDecodeFromYAML(t *testing.T) {
@@ -26,8 +36,9 @@ func TestToolProfilesAndCeilingDecodeFromYAML(t *testing.T) {
 		"  tool_ceiling: [\"Read\", \"Glob\", \"Bash\"]",
 		"  tool_profiles:",
 		"    research:",
-		"      tools: [\"Read\", \"Glob\"]",
-		"      allowed_tools: [\"Read\"]",
+		"      claude:",
+		"        tools: [\"Read\", \"Glob\"]",
+		"        allowed_tools: [\"Read\"]",
 	}, "\n")))
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
@@ -39,11 +50,14 @@ func TestToolProfilesAndCeilingDecodeFromYAML(t *testing.T) {
 	if !ok {
 		t.Fatal("tool_profiles[\"research\"] did not decode")
 	}
-	if diff := cmp.Diff([]string{"Read", "Glob"}, profile.Tools); diff != "" {
-		t.Errorf("profile.Tools did not decode (-want +got):\n%s", diff)
+	if profile.Claude == nil {
+		t.Fatal("tool_profiles[\"research\"].claude did not decode")
 	}
-	if diff := cmp.Diff([]string{"Read"}, profile.AllowedTools); diff != "" {
-		t.Errorf("profile.AllowedTools did not decode (-want +got):\n%s", diff)
+	if diff := cmp.Diff([]string{"Read", "Glob"}, profile.Claude.Tools); diff != "" {
+		t.Errorf("profile.Claude.Tools did not decode (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"Read"}, profile.Claude.AllowedTools); diff != "" {
+		t.Errorf("profile.Claude.AllowedTools did not decode (-want +got):\n%s", diff)
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("a valid combination of both keys was rejected: %v", err)
@@ -164,12 +178,13 @@ func TestProfileExceedingCeilingFailsNamingProfileAndTool(t *testing.T) {
 		"  tools: [\"Read\", \"Glob\"]",
 		"  tool_profiles:",
 		"    research:",
-		"      tools: [\"Read\", \"Bash\"]",
+		"      claude:",
+		"        tools: [\"Read\", \"Bash\"]",
 	}, "\n"))
 	if err == nil {
 		t.Fatal("a profile wider than the (defaulted) ceiling was accepted")
 	}
-	for _, want := range []string{`claude.tool_profiles["research"]`, `"Bash"`, "is not in claude.tool_ceiling"} {
+	for _, want := range []string{`claude.tool_profiles["research"].claude.tools`, `"Bash"`, "is not in claude.tool_ceiling"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 		}
@@ -215,7 +230,7 @@ func TestProfileKeyRegexBoundaries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			yaml := fmt.Sprintf("claude:\n  tool_profiles:\n    %q:\n      tools: [\"Read\"]\n", tt.key)
+			yaml := fmt.Sprintf("claude:\n  tool_profiles:\n    %q:\n      claude:\n        tools: [\"Read\"]\n", tt.key)
 			err := parse(t, yaml)
 			switch {
 			case tt.wantErr && err == nil:
@@ -236,31 +251,32 @@ func TestProfileAllowedToolsRuleOutsideProfileSurfaceFails(t *testing.T) {
 		"claude:",
 		"  tool_profiles:",
 		"    research:",
-		"      tools: [\"Read\"]",
-		"      allowed_tools: [\"Glob\"]",
+		"      claude:",
+		"        tools: [\"Read\"]",
+		"        allowed_tools: [\"Glob\"]",
 	}, "\n"))
 	if err == nil {
 		t.Fatal("an allowed_tools rule for a tool outside the profile's surface was accepted")
 	}
-	for _, want := range []string{`claude.tool_profiles["research"].allowed_tools[0]`, `"Glob"`, "grants nothing"} {
+	for _, want := range []string{`claude.tool_profiles["research"].claude.allowed_tools[0]`, `"Glob"`, "grants nothing"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 		}
 	}
 }
 
-// AC-1.8 — validateNoForbiddenFlag covers every profile's tools and
-// allowed_tools, and the ceiling. The flag is assembled the same way
-// forbiddenFlag() and the existing purity test build it, never written as a
-// literal here, so TestForbiddenFlagIsAbsentFromTheTree in purity_test.go
-// stays a reliable repository-wide invariant.
+// AC-1.8 — validateNoForbiddenFlag covers every profile's claude stanza's
+// tools and allowed_tools, and the ceiling. The flag is assembled the same
+// way forbiddenFlag() and the existing purity test build it, never written
+// as a literal here, so TestForbiddenFlagIsAbsentFromTheTree in
+// purity_test.go stays a reliable repository-wide invariant.
 func TestForbiddenFlagCannotBeSmuggledThroughProfilesOrCeiling(t *testing.T) {
 	flag := forbiddenFlag()
 
 	tests := map[string]string{
-		"through a profile's tools list": "claude:\n  tool_profiles:\n    research:\n      tools: [\"Read\", \"" + flag + "\"]\n",
-		"through a profile's allowed_tools list": "claude:\n  tool_profiles:\n    research:\n" +
-			"      tools: [\"Read\"]\n      allowed_tools: [\"" + flag + "\"]\n",
+		"through a profile's claude tools list": "claude:\n  tool_profiles:\n    research:\n      claude:\n        tools: [\"Read\", \"" + flag + "\"]\n",
+		"through a profile's claude allowed_tools list": "claude:\n  tool_profiles:\n    research:\n" +
+			"      claude:\n        tools: [\"Read\"]\n        allowed_tools: [\"" + flag + "\"]\n",
 		"through the tool ceiling": "claude:\n  tools: [\"Read\"]\n  tool_ceiling: [\"Read\", \"" + flag + "\"]\n",
 	}
 	for name, yaml := range tests {
@@ -309,6 +325,7 @@ func TestTemplateWritesToolKeysAsCommentsOnly(t *testing.T) {
 		"# tool_ceiling:",
 		"# tool_profiles:",
 		"#   research:",
+		"#     claude:",
 		"hard upper bound",
 		"lf:tools=",
 	} {
@@ -342,7 +359,8 @@ func TestNoProfileNamedDefaultIsSpecial(t *testing.T) {
 		"  tools: [\"Read\", \"Glob\"]",
 		"  tool_profiles:",
 		"    default:",
-		"      tools: [\"Read\"]",
+		"      claude:",
+		"        tools: [\"Read\"]",
 	}, "\n")); err != nil {
 		t.Errorf("a lone profile named %q was rejected: %v", "default", err)
 	}
@@ -355,7 +373,8 @@ func TestNoProfileNamedDefaultIsSpecial(t *testing.T) {
 			"  tools: [\"Read\", \"Glob\"]",
 			"  tool_profiles:",
 			fmt.Sprintf("    %s:", name),
-			"      tools: [\"Read\", \"Bash\"]",
+			"      claude:",
+			"        tools: [\"Read\", \"Bash\"]",
 		}, "\n")
 	}
 	defaultErr := parse(t, yamlFor("default"))
@@ -379,12 +398,15 @@ func TestStartupErrorsAreDeterministicAcrossManyBoots(t *testing.T) {
 		"  tools: [\"Read\", \"Glob\"]",
 		"  tool_profiles:",
 		"    mmm_ceiling:",
-		"      tools: [\"Read\", \"Bash\"]",
+		"      claude:",
+		"        tools: [\"Read\", \"Bash\"]",
 		"    aaa_allowed:",
-		"      tools: [\"Read\"]",
-		"      allowed_tools: [\"Glob\"]",
+		"      claude:",
+		"        tools: [\"Read\"]",
+		"        allowed_tools: [\"Glob\"]",
 		"    BadKey:",
-		"      tools: [\"Read\"]",
+		"      claude:",
+		"        tools: [\"Read\"]",
 	}, "\n")
 
 	first := parse(t, yaml)
@@ -434,8 +456,9 @@ func TestProfileSubsetOfCeilingPasses(t *testing.T) {
 		"  tools: [\"Read\", \"Glob\", \"Bash\", \"Edit\", \"Write\", \"Task\"]",
 		"  tool_profiles:",
 		"    research:",
-		"      tools: [\"Read\", \"Glob\"]",
-		"      allowed_tools: [\"Read\"]",
+		"      claude:",
+		"        tools: [\"Read\", \"Glob\"]",
+		"        allowed_tools: [\"Read\"]",
 	}, "\n"))
 	if err != nil {
 		t.Errorf("a profile strictly inside the ceiling was rejected: %v", err)
@@ -459,19 +482,21 @@ func TestMisspelledToolProfileSingularIsRejected(t *testing.T) {
 	}
 }
 
-// A profile with an empty tools list is rejected: an empty --tools would mean
-// allow-all, the same reasoning as claude.tools itself.
+// A profile with an empty tools list under its claude: stanza is rejected: an
+// empty --tools would mean allow-all, the same reasoning as claude.tools
+// itself.
 func TestProfileWithEmptyToolsIsRejected(t *testing.T) {
 	err := parse(t, strings.Join([]string{
 		"claude:",
 		"  tool_profiles:",
 		"    research:",
-		"      tools: []",
+		"      claude:",
+		"        tools: []",
 	}, "\n"))
 	if err == nil {
 		t.Fatal("a profile with an empty tools list was accepted")
 	}
-	for _, want := range []string{`claude.tool_profiles["research"].tools`, "must list at least one tool", "allow-all"} {
+	for _, want := range []string{`claude.tool_profiles["research"].claude.tools`, "must list at least one tool", "allow-all"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 		}

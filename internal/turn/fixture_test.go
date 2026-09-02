@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
@@ -20,6 +21,19 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
+
+// runnerSet wraps a single claude double as the one-entry [RunnerSet] every
+// test in this package needs — every task this suite drives is a Claude
+// segment. A nil runner produces a nil set rather than a set carrying a nil
+// Runner, so a fixture built without one still fails Options.validate() the
+// same way it did before RunnerSet existed, instead of reaching a nil Runner
+// at call time.
+func runnerSet(r Runner) RunnerSet {
+	if r == nil {
+		return nil
+	}
+	return RunnerSet{agent.Kind(store.AgentClaude): r}
+}
 
 // The task every test in this package works on. The slug and branch are spelled
 // out rather than derived so that a change to the derivation rules shows up
@@ -113,7 +127,7 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 		opts: Options{
 			DB:         db,
 			Git:        binary,
-			Claude:     runner,
+			Runners:    runnerSet(runner),
 			Paths:      paths,
 			InstanceID: testInstance,
 			// Set explicitly so the tests do not depend on the developer's
@@ -325,7 +339,7 @@ func (f *fixture) seedRun(
 ) store.Run {
 	f.t.Helper()
 
-	segment, err := f.db.GetOrCreateSegment(f.t.Context(), f.session.ID, segmentOrdinal, claudeSessionID)
+	segment, err := f.db.GetOrCreateSegment(f.t.Context(), f.session.ID, segmentOrdinal, claudeSessionID, store.AgentClaude)
 	if err != nil {
 		f.t.Fatalf("seed segment %d: %v", segmentOrdinal, err)
 	}
@@ -333,6 +347,7 @@ func (f *fixture) seedRun(
 		SessionID:        f.session.ID,
 		SegmentID:        segment.ID,
 		Mode:             mode,
+		Agent:            store.AgentClaude,
 		TriggerCommentID: commentID,
 		LogPath: func(ordinal int) string {
 			path, pathErr := naming.RunLogPath(f.paths.Home(), f.ref(), ordinal)
@@ -377,9 +392,9 @@ func refused(req harness.Request, home string) (*harness.RunResult, error) {
 		Outcome:    harness.OutcomeFailed,
 		Reason:     "claude exited with status 1",
 		ExitCode:   1,
-		SessionID:  req.ClaudeSessionID,
+		SessionID:  req.Session.Ref,
 		LogPath:    logPath,
-		Stderr:     "No conversation found with session ID: " + req.ClaudeSessionID + "\n",
+		Stderr:     "No conversation found with session ID: " + req.Session.Ref + "\n",
 		HasResult:  true,
 		IsError:    true,
 		Events:     1,
@@ -388,5 +403,5 @@ func refused(req harness.Request, home string) (*harness.RunResult, error) {
 		Duration:   time.Second,
 	}
 	return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit 1)",
-		harness.ErrSessionNotResumable, req.ClaudeSessionID)
+		harness.ErrSessionNotResumable, req.Session.Ref)
 }

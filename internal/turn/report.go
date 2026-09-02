@@ -228,10 +228,27 @@ type ReplyRequest struct {
 	// to echo label text (S-9). internal/report checks it against the
 	// profile-name pattern again before rendering it (S-8).
 	Profile string
+
+	// Agent is the coding-agent-tool name an lf:agent= label asked for. It
+	// belongs to [report.ReplyUnknownAgent] alone and is empty everywhere
+	// else, for the same S-9 reason [Profile] is: the malformed and ambiguous
+	// agent refusals are kept structurally unable to echo label text.
+	// internal/report checks it against the agent-name pattern again before
+	// rendering it (S-8).
+	Agent string
+
+	// OwningAgent and RequestedAgent belong to
+	// [report.ReplyAgentSwitchRefused] alone (US-3): the coding-agent tool a
+	// session's segment already belongs to, and the one this turn's labels
+	// resolved to instead. Both have already passed the agent-name shape
+	// check the label ladder applies, and internal/report checks them again
+	// before rendering (S-8).
+	OwningAgent    string
+	RequestedAgent string
 }
 
-// refusing reports whether this request is a tool-permission refusal rather
-// than an answer to the comment's command.
+// refusing reports whether this request is a tool-permission or
+// agent-selection refusal rather than an answer to the comment's command.
 func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInvalid }
 
 // kind is the reply internal/report should render for this request.
@@ -240,7 +257,8 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	if req.refusing() {
-		return req.Refusal, req.Refusal.RefusesTools()
+		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
+			req.Refusal.RefusesProfileForAgent() || req.Refusal.RefusesSwitch()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -254,8 +272,10 @@ func (req ReplyRequest) validate() error {
 	// and logs it, and the next comment on the issue is refused on the thread.
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
-	case req.refusing() && !req.Refusal.RefusesTools():
-		return invalidRequest("reply kind %s is not a tool-permission refusal", req.Refusal)
+	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
+		!req.Refusal.RefusesProfileForAgent() && !req.Refusal.RefusesSwitch():
+		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
+			"profile-for-agent or agent-switch refusal", req.Refusal)
 	// Only when this is not a refusal. A refusal is triggered by a command that
 	// would have spawned a run, and a command that spawns a run draws no reply —
 	// so asking this question of a refusal refuses the refusal.
@@ -286,6 +306,10 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 		return Posted{Skipped: true, Run: result.Run}, nil
 	}
 
+	if result.Disposition == DispositionAgentSwitchRefused {
+		return r.reportAgentSwitchRefusal(ctx, result)
+	}
+
 	body, err := r.runInput(ctx, result)
 	if err != nil {
 		return Posted{}, err
@@ -295,6 +319,43 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 		SessionID: result.SessionID,
 		CommentID: result.TriggerCommentID,
 		RunID:     result.Run.ID,
+	})
+}
+
+// reportAgentSwitchRefusal answers a [DispositionAgentSwitchRefused] turn
+// (US-3): a run whose resolved coding-agent tool does not own this session's
+// segment. No run was ever allocated — [prepare] returned before anything was
+// created — so this takes the reply shape every other label-driven refusal
+// uses ([ReplyRequest]/[ReportReply]) rather than the run-report one.
+//
+// The issue-body trigger is the one path that posts nothing, mirroring
+// [Daemon.refuseAgent] and its siblings in internal/daemon exactly: a run
+// started from the issue body has no comment id to answer with, and
+// [ReplyRequest] requires a real one. The refusal still stands — nothing was
+// run — and the next comment on the issue is what reaches the thread with it
+// (AC-2.16c's issue-body convention).
+func (r *Reporter) reportAgentSwitchRefusal(ctx context.Context, result Result) (Posted, error) {
+	log := r.log.With(
+		slog.String("task", result.Ref.String()),
+		slog.Int64("session_id", result.SessionID),
+		slog.Int64("trigger_comment_id", result.TriggerCommentID),
+		slog.String("owning_agent", result.AgentOwning),
+		slog.String("requested_agent", result.AgentRequested))
+
+	if result.TriggerCommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: its resolved coding-agent tool does "+
+			"not own this task's conversation. Nothing was run and no comment was posted, because "+
+			"there is no comment to answer; the next comment on this issue is refused on the thread")
+		return Posted{Skipped: true}, nil
+	}
+
+	return r.ReportReply(ctx, ReplyRequest{
+		Ref:            result.Ref,
+		SessionID:      result.SessionID,
+		CommentID:      result.TriggerCommentID,
+		Refusal:        report.ReplyAgentSwitchRefused,
+		OwningAgent:    result.AgentOwning,
+		RequestedAgent: result.AgentRequested,
 	})
 }
 
@@ -421,10 +482,13 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	}
 
 	body, err := r.renderer.RenderReply(ctx, report.Reply{
-		Ref:     req.Ref,
-		Kind:    kind,
-		Command: req.Command.Name,
-		Profile: req.Profile,
+		Ref:            req.Ref,
+		Kind:           kind,
+		Command:        req.Command.Name,
+		Profile:        req.Profile,
+		Agent:          req.Agent,
+		OwningAgent:    req.OwningAgent,
+		RequestedAgent: req.RequestedAgent,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
@@ -551,8 +615,13 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	}
 
 	return report.Run{
-		Ref:       result.Ref,
-		Ordinal:   ordinal,
+		Ref:     result.Ref,
+		Ordinal: ordinal,
+		// result.Run.Agent is the segment's own value (store.AgentClaude for
+		// every run this tree can produce today) rather than anything
+		// re-derived here, so the report names the tool that actually ran
+		// even on the path where Result itself is nil (AC-5.4).
+		Agent:     result.Run.Agent,
 		Result:    result.Harness,
 		Branch:    result.Branch,
 		CommitSHA: result.CommitSHA,

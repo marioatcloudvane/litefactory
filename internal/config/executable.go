@@ -112,6 +112,11 @@ func (c Claude) ResolveBinary(pathEnv string) (Executable, error) {
 	return ResolveExecutable("claude.binary", c.Binary, pathEnv)
 }
 
+// ResolveBinary locates the configured Codex executable.
+func (c Codex) ResolveBinary(pathEnv string) (Executable, error) {
+	return ResolveExecutable("agents.codex.binary", c.Binary, pathEnv)
+}
+
 // checkExecutable reports whether path is a regular file with an execute bit.
 func checkExecutable(path string) error {
 	info, err := os.Stat(path)

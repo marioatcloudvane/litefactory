@@ -263,6 +263,15 @@ type logEvent struct {
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	DurationMS   int64   `json:"duration_ms"`
 	NumTurns     int     `json:"num_turns"`
+	ThreadID     string  `json:"thread_id"`
+	Item         *struct {
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		Text    string `json:"text"`
+		Command string `json:"command"`
+		Output  string `json:"aggregated_output"`
+		Status  string `json:"status"`
+	} `json:"item"`
 }
 
 // logMessage is the message an assistant or user event wraps.
@@ -305,7 +314,7 @@ func (s *renderSink) write(raw []byte) (bool, error) {
 		return false, s.emit(kindOther, s.clip(flattenSpace(string(trimmed)), toolInputCap))
 	}
 
-	done := event.Type == terminalEventType
+	done := event.Type == terminalEventType || event.Type == codexTerminalEventType || event.Type == codexFailedEventType
 	if done {
 		s.sawResult = true
 	}
@@ -328,6 +337,32 @@ func (s *renderSink) render(event logEvent, raw []byte) error {
 		return s.renderMessage(event, kindUser, raw)
 	case terminalEventType:
 		return s.renderResult(event)
+	case "thread.started":
+		return s.emit(kindSystem, "init  session="+shortID(event.ThreadID, sessionIDWidth))
+	case "turn.started":
+		return s.emit(kindSystem, "turn started")
+	case "item.completed":
+		if event.Item == nil {
+			return s.emit(kindOther, s.clip(flattenSpace(string(raw)), toolInputCap))
+		}
+		switch event.Item.Type {
+		case "agent_message":
+			return s.emit(kindText, event.Item.Text)
+		case "command_execution":
+			if err := s.emit(kindTool, "shell  "+s.clip(event.Item.Command, toolInputCap)); err != nil {
+				return err
+			}
+			if event.Item.Output != "" {
+				return s.emit(kindOutput, s.clip(event.Item.Output, toolOutputCap))
+			}
+			return nil
+		default:
+			return s.emit(kindOther, s.clip(flattenSpace(string(raw)), toolInputCap))
+		}
+	case codexTerminalEventType:
+		return s.emit(kindResult, "ok")
+	case codexFailedEventType:
+		return s.emit(kindResult, "error  "+firstNonEmpty(event.Error, event.Text))
 	default:
 		return s.emit(kindOther, s.clip(flattenSpace(string(raw)), toolInputCap))
 	}

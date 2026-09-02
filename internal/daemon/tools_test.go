@@ -14,11 +14,11 @@ import (
 // researchProfile and buildProfile are the two profiles most tool-permission
 // tests in this file configure the daemon with.
 func researchProfile() config.ToolProfile {
-	return config.ToolProfile{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}}
+	return config.ToolProfile{Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}}}
 }
 
 func buildProfile() config.ToolProfile {
-	return config.ToolProfile{Tools: []string{"Read", "Edit", "Bash"}}
+	return config.ToolProfile{Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash"}}}
 }
 
 // TestLabelSelectsProfileForTheNextRun is AC-2.2: a maintainer's lf:tools=
@@ -44,11 +44,11 @@ func TestLabelSelectsProfileForTheNextRun(t *testing.T) {
 	if req.ToolProfile != "research" {
 		t.Errorf("ToolProfile = %q, want %q", req.ToolProfile, "research")
 	}
-	if !slices.Equal(req.Tools, researchProfile().Tools) {
-		t.Errorf("Tools = %v, want the profile's %v", req.Tools, researchProfile().Tools)
+	if !slices.Equal(req.Tools, researchProfile().Claude.Tools) {
+		t.Errorf("Tools = %v, want the profile's %v", req.Tools, researchProfile().Claude.Tools)
 	}
-	if !slices.Equal(req.AllowedTools, researchProfile().AllowedTools) {
-		t.Errorf("AllowedTools = %v, want the profile's %v", req.AllowedTools, researchProfile().AllowedTools)
+	if !slices.Equal(req.AllowedTools, researchProfile().Claude.AllowedTools) {
+		t.Errorf("AllowedTools = %v, want the profile's %v", req.AllowedTools, researchProfile().Claude.AllowedTools)
 	}
 }
 

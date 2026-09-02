@@ -380,7 +380,7 @@ func seedFinishedRun(t *testing.T, f *fixture, reported bool) {
 	// the process starts. This path never reaches a real runner, but a fixture
 	// that could not survive one is a trap for the next test written from it.
 	segment, err := f.db.GetOrCreateSegment(
-		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID)
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID, store.AgentClaude)
 	if err != nil {
 		t.Fatalf("seed segment: %v", err)
 	}
@@ -388,6 +388,7 @@ func seedFinishedRun(t *testing.T, f *fixture, reported bool) {
 		SessionID:        f.session.ID,
 		SegmentID:        segment.ID,
 		Mode:             store.ModeSpike,
+		Agent:            store.AgentClaude,
 		TriggerCommentID: testComment,
 		LogPath:          func(int) string { return filepath.Join(f.paths.Home(), "logs", "seeded.jsonl") },
 	})

@@ -8,9 +8,9 @@ import (
 )
 
 // SessionNamespace is pinned rather than merely recomputed: changing it would
-// renumber every future Claude session id, and a golden value makes that show
-// up as a failing test rather than as a silent divergence between the database
-// and the derivation.
+// renumber every future session id, and a golden value makes that show up as
+// a failing test rather than as a silent divergence between the database and
+// the derivation.
 //
 // The expected value is UUIDv5(RFC 4122 DNS namespace, "litefactory") and can
 // be reproduced with any RFC 4122 implementation, for example:
@@ -25,13 +25,21 @@ func TestSessionNamespaceIsPinned(t *testing.T) {
 	}
 }
 
+// TestSessionRefIsPinned is the rename's guardrail (T-4.5): the namespace UUID
+// above and the golden ids below are exactly what naming.ClaudeSessionID
+// produced before this function was renamed to [SessionRef]. Neither value
+// changed in the rename — only the identifier did — and this test is what
+// makes that a checked fact rather than a claim: if the derivation ever drifts
+// from either golden value, every existing segment's derived id changes and
+// every existing Claude conversation becomes unresumable.
+//
 // The golden ids are the contract with the segments table: a stored
-// claude_session_id must still be derivable after the database is lost.
-// Reproduce with:
+// session_ref must still be derivable after the database is lost. Reproduce
+// with:
 //
 //	python3 -c "import uuid; ns = uuid.uuid5(uuid.NAMESPACE_DNS, 'litefactory'); \
 //	    print(uuid.uuid5(ns, 'github:acme/acme-api#123/segment/1'))"
-func TestClaudeSessionID(t *testing.T) {
+func TestSessionRefIsPinned(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -58,12 +66,12 @@ func TestClaudeSessionID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ClaudeSessionID(tt.ref, tt.segment)
+			got, err := SessionRef(tt.ref, tt.segment)
 			if err != nil {
-				t.Fatalf("ClaudeSessionID(%s, %d) returned an error: %v", tt.ref, tt.segment, err)
+				t.Fatalf("SessionRef(%s, %d) returned an error: %v", tt.ref, tt.segment, err)
 			}
 			if got != tt.want {
-				t.Errorf("ClaudeSessionID(%s, %d) = %q, want %q", tt.ref, tt.segment, got, tt.want)
+				t.Errorf("SessionRef(%s, %d) = %q, want %q", tt.ref, tt.segment, got, tt.want)
 			}
 		})
 	}
@@ -72,7 +80,7 @@ func TestClaudeSessionID(t *testing.T) {
 // `claude --session-id` rejects anything that is not a well-formed UUID, and
 // it does so only once the worktree already exists, so the shape is worth
 // asserting here.
-func TestClaudeSessionIDShape(t *testing.T) {
+func TestSessionRefShape(t *testing.T) {
 	t.Parallel()
 
 	refs := []Ref{
@@ -85,45 +93,45 @@ func TestClaudeSessionIDShape(t *testing.T) {
 	seen := make(map[string]string)
 	for _, ref := range refs {
 		for segment := 1; segment <= 3; segment++ {
-			id, err := ClaudeSessionID(ref, segment)
+			id, err := SessionRef(ref, segment)
 			if err != nil {
-				t.Fatalf("ClaudeSessionID(%s, %d): %v", ref, segment, err)
+				t.Fatalf("SessionRef(%s, %d): %v", ref, segment, err)
 			}
 			if len(id) != 36 {
-				t.Errorf("ClaudeSessionID(%s, %d) = %q, %d characters, want 36", ref, segment, id, len(id))
+				t.Errorf("SessionRef(%s, %d) = %q, %d characters, want 36", ref, segment, id, len(id))
 			}
 			if !uuidPattern.MatchString(id) {
-				t.Errorf("ClaudeSessionID(%s, %d) = %q, which is not a canonical version 5 UUID", ref, segment, id)
+				t.Errorf("SessionRef(%s, %d) = %q, which is not a canonical version 5 UUID", ref, segment, id)
 			}
 			key := fmt.Sprintf("%s/segment/%d", ref, segment)
 			if previous, ok := seen[id]; ok {
-				t.Errorf("ClaudeSessionID collided: %s and %s both derive %q", previous, key, id)
+				t.Errorf("SessionRef collided: %s and %s both derive %q", previous, key, id)
 			}
 			seen[id] = key
 		}
 	}
 }
 
-func TestClaudeSessionIDIsDeterministic(t *testing.T) {
+func TestSessionRefIsDeterministic(t *testing.T) {
 	t.Parallel()
 
 	ref := Ref{ForgeGitHub, "acme", "acme-api", 123}
-	first, err := ClaudeSessionID(ref, 1)
+	first, err := SessionRef(ref, 1)
 	if err != nil {
-		t.Fatalf("ClaudeSessionID: %v", err)
+		t.Fatalf("SessionRef: %v", err)
 	}
 	for i := range 100 {
-		again, err := ClaudeSessionID(ref, 1)
+		again, err := SessionRef(ref, 1)
 		if err != nil {
-			t.Fatalf("ClaudeSessionID on call %d: %v", i, err)
+			t.Fatalf("SessionRef on call %d: %v", i, err)
 		}
 		if again != first {
-			t.Fatalf("ClaudeSessionID returned %q on call %d after %q on the first", again, i, first)
+			t.Fatalf("SessionRef returned %q on call %d after %q on the first", again, i, first)
 		}
 	}
 }
 
-func TestClaudeSessionIDRejectsBadInput(t *testing.T) {
+func TestSessionRefRejectsBadInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -162,12 +170,12 @@ func TestClaudeSessionIDRejectsBadInput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := ClaudeSessionID(tt.ref, tt.segment)
+			got, err := SessionRef(tt.ref, tt.segment)
 			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("ClaudeSessionID error = %v, want it to wrap %v", err, tt.wantErr)
+				t.Fatalf("SessionRef error = %v, want it to wrap %v", err, tt.wantErr)
 			}
 			if got != "" {
-				t.Errorf("ClaudeSessionID returned %q alongside an error, want an empty string", got)
+				t.Errorf("SessionRef returned %q alongside an error, want an empty string", got)
 			}
 		})
 	}
@@ -176,14 +184,13 @@ func TestClaudeSessionIDRejectsBadInput(t *testing.T) {
 // ValidClaudeSessionID is the check a consumer applies to an id it read back
 // from the segments row rather than derived. It has to accept every id this
 // package can emit and reject anything claude would refuse, so the two halves
-// are asserted together: the derived ids below come from ClaudeSessionID
-// itself.
+// are asserted together: the derived ids below come from SessionRef itself.
 func TestValidClaudeSessionID(t *testing.T) {
 	t.Parallel()
 
-	derived, err := ClaudeSessionID(Ref{ForgeGitHub, "acme", "acme-api", 123}, 1)
+	derived, err := SessionRef(Ref{ForgeGitHub, "acme", "acme-api", 123}, 1)
 	if err != nil {
-		t.Fatalf("ClaudeSessionID: %v", err)
+		t.Fatalf("SessionRef: %v", err)
 	}
 
 	tests := []struct {

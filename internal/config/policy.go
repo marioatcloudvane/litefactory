@@ -233,25 +233,31 @@ func validateNoForbiddenFlag(c *Claude) []error {
 	}
 	for _, name := range sortedProfileNames(c.ToolProfiles) {
 		profile := c.ToolProfiles[name]
-		for i, v := range profile.Tools {
+		if profile.Claude == nil {
+			continue
+		}
+		for i, v := range profile.Claude.Tools {
 			check(fmt.Sprintf("%s[%d]", profileToolsKey(name), i), v)
 		}
-		for i, v := range profile.AllowedTools {
+		for i, v := range profile.Claude.AllowedTools {
 			check(fmt.Sprintf("%s[%d]", profileAllowedToolsKey(name), i), v)
 		}
+		// The Codex stanza's Sandbox is not checked here: BLOCKED-BY-US-1
+		// (T-7.4). There is no forbidden Codex sandbox value measured yet to
+		// guard against, and this guard must not fabricate one.
 	}
 	return errs
 }
 
-// profileToolsKey and profileAllowedToolsKey name a profile's two lists the
-// way they appear in config.yaml, so an error points at a line the reader can
-// find: claude.tool_profiles["research"].tools[3].
+// profileToolsKey and profileAllowedToolsKey name a profile's Claude stanza's
+// two lists the way they appear in config.yaml, so an error points at a line
+// the reader can find: claude.tool_profiles["research"].claude.tools[3].
 func profileToolsKey(name string) string {
-	return fmt.Sprintf("claude.tool_profiles[%q].tools", name)
+	return fmt.Sprintf("claude.tool_profiles[%q].claude.tools", name)
 }
 
 func profileAllowedToolsKey(name string) string {
-	return fmt.Sprintf("claude.tool_profiles[%q].allowed_tools", name)
+	return fmt.Sprintf("claude.tool_profiles[%q].claude.allowed_tools", name)
 }
 
 // sortedProfileNames orders the profile map for iteration.
@@ -326,7 +332,7 @@ func validateToolCeiling(c *Claude) []error {
 }
 
 // validateToolProfiles checks the operator-authored profiles (AC-1.4, AC-1.6,
-// AC-1.7).
+// AC-1.7, T-7.1).
 //
 // A nil or empty map is the normal case and is not an error: with no profiles
 // configured the feature is inert and every run uses claude.tools.
@@ -345,40 +351,72 @@ func validateToolProfiles(c *Claude) []error {
 			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what an lf:tools= label carries", name, name))
 		}
 
-		toolsKey := profileToolsKey(name)
-		allowedKey := profileAllowedToolsKey(name)
-		errs = append(errs, validateTools(toolsKey, profile.Tools)...)
-		errs = append(errs, validateAllowedTools(allowedKey, profile.AllowedTools)...)
-
-		// Every tool the profile grants must be inside the ceiling. Entries
-		// validateTools has already rejected are skipped: reporting a
-		// misspelled name twice helps nobody.
-		for i, tool := range profile.Tools {
-			if !toolNameRE.MatchString(tool) || inCeiling[tool] {
-				continue
-			}
-			errs = append(errs, fmt.Errorf("%s[%d]: %q is not in claude.tool_ceiling; a profile may narrow the ceiling and never widen it", toolsKey, i, tool))
+		if profile.Claude == nil && profile.Codex == nil {
+			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: must have a claude: stanza, a codex: stanza, or both; an empty profile has nothing to grant any coding-agent tool", name))
+			continue
 		}
 
-		// A permission rule for a tool the profile does not list grants
-		// nothing, because --tools is the boundary. It is almost always a
-		// half-finished edit, so it fails the start rather than passing
-		// quietly as a rule that does nothing.
-		inProfile := toolSet(profile.Tools)
-		for i, rule := range profile.AllowedTools {
-			entry := strings.TrimSpace(rule)
-			match := toolRuleRE.FindStringSubmatch(entry)
-			if match == nil {
-				// Empty, "*" or otherwise unparseable: validateAllowedTools
-				// has already said so.
-				continue
-			}
-			if tool := match[1]; !inProfile[tool] {
-				errs = append(errs, fmt.Errorf("%s[%d]: %q names %s, which %s does not list; --tools is the boundary, so a rule for a tool outside the profile's surface grants nothing", allowedKey, i, entry, tool, toolsKey))
-			}
+		if profile.Claude != nil {
+			errs = append(errs, validateToolProfileClaude(name, profile.Claude, inCeiling)...)
+		}
+		if profile.Codex != nil {
+			errs = append(errs, validateToolProfileCodex(name, profile.Codex)...)
 		}
 	}
 	return errs
+}
+
+// validateToolProfileClaude checks one profile's claude: stanza against the
+// same policy [Claude.Tools]/[Claude.AllowedTools] use, plus the two rules
+// that only make sense for a profile: every tool must be inside the ceiling,
+// and every allowed_tools rule must name a tool the stanza itself lists.
+func validateToolProfileClaude(name string, stanza *ToolProfileClaude, inCeiling map[string]bool) []error {
+	var errs []error
+
+	toolsKey := profileToolsKey(name)
+	allowedKey := profileAllowedToolsKey(name)
+	errs = append(errs, validateTools(toolsKey, stanza.Tools)...)
+	errs = append(errs, validateAllowedTools(allowedKey, stanza.AllowedTools)...)
+
+	// Every tool the stanza grants must be inside the ceiling. Entries
+	// validateTools has already rejected are skipped: reporting a
+	// misspelled name twice helps nobody.
+	for i, tool := range stanza.Tools {
+		if !toolNameRE.MatchString(tool) || inCeiling[tool] {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("%s[%d]: %q is not in claude.tool_ceiling; a profile may narrow the ceiling and never widen it", toolsKey, i, tool))
+	}
+
+	// A permission rule for a tool the stanza does not list grants nothing,
+	// because --tools is the boundary. It is almost always a half-finished
+	// edit, so it fails the start rather than passing quietly as a rule that
+	// does nothing.
+	inProfile := toolSet(stanza.Tools)
+	for i, rule := range stanza.AllowedTools {
+		entry := strings.TrimSpace(rule)
+		match := toolRuleRE.FindStringSubmatch(entry)
+		if match == nil {
+			// Empty, "*" or otherwise unparseable: validateAllowedTools
+			// has already said so.
+			continue
+		}
+		if tool := match[1]; !inProfile[tool] {
+			errs = append(errs, fmt.Errorf("%s[%d]: %q names %s, which %s does not list; --tools is the boundary, so a rule for a tool outside the profile's surface grants nothing", allowedKey, i, entry, tool, toolsKey))
+		}
+	}
+	return errs
+}
+
+// validateToolProfileCodex checks one profile's codex: stanza.
+func validateToolProfileCodex(name string, stanza *ToolProfileCodex) []error {
+	if strings.TrimSpace(stanza.Sandbox) == "" {
+		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: must not be empty", name)}
+	}
+	if stanza.Sandbox != "read-only" && stanza.Sandbox != "workspace-write" {
+		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: %q must be read-only or workspace-write", name, stanza.Sandbox)}
+	}
+	return nil
 }
 
 // toolSet indexes a tool list for membership tests. Comparison is exact:
