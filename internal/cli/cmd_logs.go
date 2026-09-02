@@ -44,6 +44,8 @@ const followReadSize = 64 << 10
 // carried by is_error, never by subtype, which reports "success" even on failed
 // runs (SD-3) — but `logs` only has to know that the stream ended, not how.
 const terminalEventType = "result"
+const codexTerminalEventType = "turn.completed"
+const codexFailedEventType = "turn.failed"
 
 // logsOptions holds the parsed flags of "litefactory logs".
 type logsOptions struct {
@@ -118,7 +120,7 @@ func newLogsCommand() *Command {
 			"--runs lists them, newest last.\n\n" +
 			"Each rendered line starts with its kind, so the output is greppable:\n" +
 			"  system  the session's init line\n" +
-			"  text    what claude said\n" +
+			"  text    what the coding agent said\n" +
 			"  think   thinking blocks (hidden unless asked for)\n" +
 			"  tool    a tool call and its main argument\n" +
 			"  output  what the tool returned\n" +
@@ -534,7 +536,9 @@ func readRunMeta(path string) (runMeta, string, error) {
 // every run, and stream-json lines have been measured past 70 KB, so parsing
 // each one to discover it is an assistant message would be wasteful.
 func isTerminalEvent(line []byte) bool {
-	if !bytes.Contains(line, []byte(`"`+terminalEventType+`"`)) {
+	if !bytes.Contains(line, []byte(`"`+terminalEventType+`"`)) &&
+		!bytes.Contains(line, []byte(`"`+codexTerminalEventType+`"`)) &&
+		!bytes.Contains(line, []byte(`"`+codexFailedEventType+`"`)) {
 		return false
 	}
 	var envelope struct {
@@ -545,7 +549,7 @@ func isTerminalEvent(line []byte) bool {
 		// Following a live file must not fail on one.
 		return false
 	}
-	return envelope.Type == terminalEventType
+	return envelope.Type == terminalEventType || envelope.Type == codexTerminalEventType || envelope.Type == codexFailedEventType
 }
 
 // streamLog feeds every line of a finished run's log to sink.

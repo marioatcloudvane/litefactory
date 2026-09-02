@@ -226,16 +226,25 @@ claude:
 # Codex is entirely unconfigured: unlike claude above, there is no default
 # surface a run could fall back to, so no run can be routed to it.
 #
-# BLOCKED-BY-US-1: default_sandbox has no measured, safe value to ship here
-# yet, so this section stays commented out rather than populated with a
-# guess. A configured agents.codex requires binary, default_sandbox and
-# timeout_seconds explicitly — none of them default the way claude's do.
+# The stanza stays optional so existing Claude-only installations need no
+# Codex binary. To enable the "Coding Agent: Codex" issue label, uncomment it
+# and use an absolute binary path under launchd. danger-full-access is never
+# accepted; workspace-write matches Claude's normal ability to edit the task
+# worktree while litefactory retains responsibility for committing and pushing.
 #
+# writable_roots widens the sandbox by one --add-dir per entry, and is what
+# a compiler needs: "workspace-write" covers the worktree, but a toolchain
+# cache lives in your home directory, so a Go build inside the sandbox fails
+# with "operation not permitted" on $GOCACHE until it is named here. Absolute
+# paths only. Leave it out for the narrow posture.
 # agents:
 #   codex:
 #     binary: "codex"
-#     default_sandbox: "..."
+#     default_sandbox: "workspace-write"
 #     timeout_seconds: 1800
+#     writable_roots:
+#       - "/Users/you/Library/Caches/go-build"
+#       - "/Users/you/go/pkg/mod"
 
 # tiers is litefactory's own table answering "for this coding-agent tool, at
 # this capability tier, which --model value runs": the vendor-neutral
@@ -244,8 +253,7 @@ claude:
 # be Claude. flagship, balanced and fast are the only tier names; an
 # unrecognised one is a startup error, not a silent fallback.
 #
-# Only claude is populated here -- Codex's own tier/model names have not been
-# measured yet, so there is nothing trustworthy to write for it.
+# Both implementations use the same vendor-neutral capability vocabulary.
 tiers:
 %s
 `

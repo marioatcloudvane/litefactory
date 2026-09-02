@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -126,7 +127,7 @@ func prepare(
 	}
 	// resolvedKind is what the daemon's label ladder decided (internal/daemon's
 	// Daemon.resolveAgent, stage 1), carried in on req.Agent. Empty means no
-	// lf:agent= label was on the issue, which resolves to the configured
+	// Coding Agent label was on the issue, which resolves to the configured
 	// default agent the same way an absent lf:tools= label resolves to the
 	// harness's default surface (AC-2.1) — applied here, once, rather than at
 	// every call site that used to spell out store.AgentClaude by hand.
@@ -256,7 +257,9 @@ func prepare(
 	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
 	// exactly the shape this package must not otherwise know.
 	var permissions agent.Permissions
-	if len(req.Tools) > 0 || req.ToolProfile != "" {
+	if req.Agent == agent.Kind(store.AgentCodex) && req.CodexSandbox != "" {
+		permissions = agent.Permissions{Profile: req.ToolProfile, Payload: codex.Sandbox{Mode: req.CodexSandbox}}
+	} else if len(req.Tools) > 0 || req.ToolProfile != "" {
 		permissions = agent.Permissions{
 			Profile: req.ToolProfile,
 			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
@@ -457,7 +460,15 @@ func previousRun(
 // which is what makes it independently testable (T-3.3) rather than a claim
 // about call order.
 func resumeDecision(found bool, segment store.Segment, resolvedKind agent.Kind) bool {
-	return found && segment.Agent == string(resolvedKind) && segment.ResumeToken != ""
+	if !found || segment.Agent != string(resolvedKind) {
+		return false
+	}
+	// Claude's own resumable handle is SessionRef, chosen before the first
+	// process starts. Codex discovers a separate handle from thread.started.
+	if resolvedKind == agent.Kind(store.AgentClaude) {
+		return true
+	}
+	return segment.ResumeToken != ""
 }
 
 // commentHistory reads the comments litefactory has recorded on this task and

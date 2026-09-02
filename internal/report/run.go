@@ -391,7 +391,7 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v = outcomeView{
 			word:  "did not run",
 			alert: "CAUTION",
-			lead:  fmt.Sprintf("litefactory could not get run %d as far as `claude`: %s", run.Ordinal, failure),
+			lead:  fmt.Sprintf("litefactory could not start coding agent %s for run %d: %s", codeSpan(run.agentName()), run.Ordinal, failure),
 		}
 	case v.succeed:
 		v = outcomeView{
@@ -580,7 +580,7 @@ func metadataList(run Run) string {
 	}
 
 	if res := run.Result; res != nil {
-		if res.HasResult && res.CostUSD > 0 {
+		if res.CostUSD > 0 {
 			add("Cost", fmt.Sprintf("$%.4f", res.CostUSD))
 		}
 		if res.Model != "" {

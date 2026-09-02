@@ -409,14 +409,12 @@ func validateToolProfileClaude(name string, stanza *ToolProfileClaude, inCeiling
 }
 
 // validateToolProfileCodex checks one profile's codex: stanza.
-//
-// BLOCKED-BY-US-1 (T-7.3, T-7.4): this checks only that Sandbox is
-// non-empty. It cannot check membership against Codex's accepted sandbox
-// values, and it cannot guard against a forbidden value, because neither
-// was ever measured.
 func validateToolProfileCodex(name string, stanza *ToolProfileCodex) []error {
 	if strings.TrimSpace(stanza.Sandbox) == "" {
 		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: must not be empty", name)}
+	}
+	if stanza.Sandbox != "read-only" && stanza.Sandbox != "workspace-write" {
+		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: %q must be read-only or workspace-write", name, stanza.Sandbox)}
 	}
 	return nil
 }

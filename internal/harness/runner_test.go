@@ -1417,7 +1417,7 @@ func logLineContaining(t *testing.T, logs, substr string) string {
 	return ""
 }
 
-// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the "claude started" line
+// TestRunLogsAllowedToolsAndToolProfile is AC-4.5: the generic start line
 // carries allowed_tools and tool_profile alongside tools, and — the part that
 // actually matters — all three report the surface this run was invoked with,
 // never the runner's own configured default, once a profile has been
@@ -1472,10 +1472,10 @@ func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
 				t.Fatalf("Run: %v", err)
 			}
 
-			line := logLineContaining(t, logs.String(), `msg="claude started"`)
+			line := logLineContaining(t, logs.String(), `msg="coding agent started"`)
 			for _, want := range []string{tt.wantTools, tt.wantAllowedTools, tt.wantToolProfile} {
 				if !strings.Contains(line, want) {
-					t.Errorf("claude started log line missing %q:\n%s", want, line)
+					t.Errorf("coding agent start log line missing %q:\n%s", want, line)
 				}
 			}
 		})

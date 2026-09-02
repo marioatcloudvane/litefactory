@@ -6,25 +6,19 @@ operating with zero project instructions.
 
 `litefactory` (module `github.com/cloudvane/litefactory`, Go 1.26) is a macOS
 daemon that polls GitHub issues and, when the owner comments, runs a headless
-`claude` process inside a git worktree and reports back on the thread. Single
+configured coding-agent process inside a git worktree and reports back on the thread. Single
 Go module, not a monorepo — everything lives under `internal/`, with
 `cmd/litefactory/main.go` as wiring only.
 
-## What this file is not
+## Consistent behavior across coding agents
 
-This project is also managed by an AI team defined in `CLAUDE.md` that
-operates in four modes (Research, Plan, Implement, Spike) via orchestrator
-sub-agents, per-agent tool restrictions, and a `PreToolUse` enforcement hook
-(`.claude/hooks/check-test-env.sh`). **That mechanism is specific to how
-Claude Code works — subagent delegation, per-agent permission scoping, and a
-hook that can intercept and block a tool call — and this file does not
-reproduce it.** Whether Codex's own `/agent` subagents and hooks feature
-could host an equivalent team is genuinely unmeasured as of this writing: a
-probe of the `codex` binary in this repository's environment could not run
-it (the binary was unavailable to that probe), so no claim about Codex's
-subagent or hook capabilities is asserted here as fact. Treat any such
-capability as unknown until it has actually been measured, not as something
-this file has already decided one way or the other.
+The selected coding agent must preserve litefactory's observable workflow:
+work in the supplied task worktree, leave committing and pushing to
+litefactory, return one final report, and use the same Research, Plan,
+Implement, and Spike artifact conventions described below. Claude may achieve
+this through its bundled orchestrators while Codex may execute the same role
+directly; that implementation detail must not change artifacts or user-facing
+reports.
 
 What Codex *can* rely on below is tool-independent: it holds regardless of
 which coding agent is driving the session.
@@ -62,9 +56,7 @@ not exist here.
   name. In Claude Code this is additionally enforced by a `PreToolUse` hook
   that blocks such a `go test` invocation outright unless `TEST_BASE_URL`
   and `TEST_DATABASE_URL` are set; that hook is Claude-Code-specific
-  machinery and will not stop a Codex session from doing this — the rule
-  itself (don't add integration tests to this tree) still applies and is not
-  optional just because the enforcement mechanism isn't present.
+  machinery; the rule itself still applies to every coding agent.
 
 ## Prohibitions
 
@@ -120,8 +112,8 @@ Notable rules that follow from this shape:
 
 - `internal/config` imports nothing from this tree and is stdlib-only aside
   from its YAML decode — an enforced invariant (`internal/config/purity_test.go`).
-- `internal/harness` is the only place that executes `claude` (or any coding
-  agent binary this codebase invokes as a subprocess).
+- `internal/harness` executes Claude and `internal/codex` executes Codex; both
+  implement the same `internal/agent.Runner` contract.
 - `internal/git` is the only gateway to the `git` CLI.
 - `internal/identity` is the only package that execs `gh`, and only from
   `litefactory init`.

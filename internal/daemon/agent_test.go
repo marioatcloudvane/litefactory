@@ -42,7 +42,7 @@ func TestNoAgentLabelRequestIsByteIdenticalToAResolvedOne(t *testing.T) {
 	labelled := newFixture(t)
 	labelled.daemon = labelled.newDaemon(daemon.Options{Agents: testDaemonAgents()})
 	labelled.plantCursor()
-	labelled.issueWithLabels("Add a /health endpoint", "lf:agent=claude")
+	labelled.issueWithLabels("Add a /health endpoint", "Coding Agent: Claude")
 	labelled.settle() // first sight
 	labelled.forge.addComment(testIssue, 701, owner(), "/spike add a health endpoint")
 	labelled.settle()
@@ -79,7 +79,7 @@ func TestAgentLabelResolutionAddsNoForgeCall(t *testing.T) {
 	f := newFixture(t)
 	f.daemon = f.newDaemon(daemon.Options{Agents: testDaemonAgents()})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:agent=claude")
+	f.issueWithLabels("Add a /health endpoint", "Coding Agent: Claude")
 	f.settle() // first sight
 
 	issuesBefore, commentsBefore, postsBefore, reactionsBefore := f.forge.counts()
@@ -122,7 +122,7 @@ func TestAgentRefusalPrecedesToolsRefusal(t *testing.T) {
 	// profile. If the tools ladder ran at all, its own refusal would also
 	// reach the thread — the assertion below is that only one reply is ever
 	// posted, and it is the agent one.
-	f.issueWithLabels("Add a /health endpoint", "lf:agent=codex", "lf:tools=nosuch")
+	f.issueWithLabels("Add a /health endpoint", "Coding Agent: Codex", "lf:tools=nosuch")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 703, owner(), "/spike add a health endpoint")
@@ -174,7 +174,7 @@ func TestMalformedAgentLabelReplyNeverEchoesInjectedText(t *testing.T) {
 			f := newFixture(t)
 			f.daemon = f.newDaemon(daemon.Options{Agents: testDaemonAgents()})
 			f.plantCursor()
-			f.issueWithLabels("Add a /health endpoint", "lf:agent="+tc.value)
+			f.issueWithLabels("Add a /health endpoint", "Coding Agent: "+tc.value)
 			f.settle()
 
 			f.forge.addComment(testIssue, 951, owner(), "/spike add a health endpoint")

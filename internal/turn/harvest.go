@@ -54,7 +54,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		// row exists and owes the issue a comment all the same.
 		result.Disposition = DispositionRan
 		result.Outcome = harness.OutcomeFailed
-		result.Reason = fmt.Sprintf("claude did not start: %v", runErr)
+		result.Reason = fmt.Sprintf("coding agent did not start: %v", runErr)
 		result.Err = runErr
 		meta.Outcome = harness.OutcomeFailed.String()
 		meta.ExitCode = harness.SignalExitCode
@@ -67,6 +67,12 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	result.Outcome = runResult.Outcome
 	result.Reason = runResult.Reason
 	result.LogPath = runResult.LogPath
+	if runResult.Succeeded() && runResult.ResumeToken != "" && prep.segment.ResumeToken == "" {
+		if err := opts.DB.SetSegmentResumeToken(bookkeeping, prep.segment.ID, runResult.ResumeToken); err != nil {
+			return result, fmt.Errorf("record resume token for run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
+		}
+		prep.segment.ResumeToken = runResult.ResumeToken
+	}
 
 	run, err := opts.DB.FinishRun(bookkeeping, prep.run.ID, runOutcome(runResult))
 	if err != nil {
@@ -106,8 +112,8 @@ func runClaude(
 		return result, err
 	}
 
-	logger.Warn("claude has no conversation to resume; rerunning this run cold",
-		slog.String("claude_session_id", prep.request.Session.Ref),
+	logger.Warn("coding agent has no conversation to resume; rerunning this run cold",
+		slog.String("session_ref", prep.request.Session.Ref),
 		slog.Int("run_ordinal", prep.run.Ordinal),
 		slog.String("stderr", refusalEvidence(result)),
 		slog.Any("error", err))
@@ -179,6 +185,7 @@ func turnMeta(prep *preparation, result *harness.RunResult) harness.Meta {
 	meta.SHABefore = prep.shaBefore
 	meta.Agent = prep.segment.Agent
 	meta.SessionRef = prep.segment.SessionRef
+	meta.ClaudeSessionID = ""
 	if meta.Agent == store.AgentClaude {
 		meta.ClaudeSessionID = meta.SessionRef
 	}
@@ -206,7 +213,7 @@ func runOutcome(result *harness.RunResult) store.RunOutcome {
 	if result.Succeeded() {
 		outcome.Status = store.RunSucceeded
 	}
-	if result.HasResult {
+	if result.HasCost || result.CostUSD > 0 {
 		// A run that emitted no terminal event has an unknown cost, not a cost
 		// of zero, so the column stays NULL (SD-3).
 		cost := result.CostUSD

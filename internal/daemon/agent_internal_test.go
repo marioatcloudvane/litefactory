@@ -40,50 +40,50 @@ func TestResolveAgent_DecisionTable(t *testing.T) {
 	}{
 		{
 			name:      "one valid label/resolves the agent",
-			labels:    []string{"lf:agent=claude"},
+			labels:    []string{"Coding Agent: Claude"},
 			wantAgent: "claude",
 		},
 		{
 			name:      "an unrelated label beside a valid one/resolves, ignoring the unrelated label",
-			labels:    []string{"bug", "lf:agent=claude"},
+			labels:    []string{"bug", "Coding Agent: Claude"},
 			wantAgent: "claude",
 		},
 		{
 			name:         "mis-cased prefix, lowercase value/malformed, prefix flagged",
-			labels:       []string{"LF:Agent=claude"},
+			labels:       []string{"coding agent: Claude"},
 			wantRefusal:  report.ReplyMalformedAgentLabel,
 			wantMiscased: true,
 		},
 		{
 			name:         "fully uppercase prefix/malformed, prefix flagged",
-			labels:       []string{"LF:AGENT=claude"},
+			labels:       []string{"CODING AGENT: Claude"},
 			wantRefusal:  report.ReplyMalformedAgentLabel,
 			wantMiscased: true,
 		},
 		{
 			name:         "mis-cased prefix over an unregistered value/still the prefix failure, not unknown",
-			labels:       []string{"LF:Agent=codex"},
+			labels:       []string{"coding agent: Codex"},
 			wantRefusal:  report.ReplyMalformedAgentLabel,
 			wantMiscased: true,
 		},
 		{
 			name:        "byte-exact prefix, uppercase value/malformed on the value shape, prefix not flagged",
-			labels:      []string{"lf:agent=Claude"},
+			labels:      []string{"Coding Agent: claude"},
 			wantRefusal: report.ReplyMalformedAgentLabel,
 		},
 		{
 			name:        "empty value/malformed, prefix not flagged",
-			labels:      []string{"lf:agent="},
+			labels:      []string{"Coding Agent: "},
 			wantRefusal: report.ReplyMalformedAgentLabel,
 		},
 		{
 			name:        "value with a space/malformed, prefix not flagged",
-			labels:      []string{"lf:agent=bad name"},
+			labels:      []string{"Coding Agent: bad name"},
 			wantRefusal: report.ReplyMalformedAgentLabel,
 		},
 		{
 			name:        "well-formed value naming no registered implementation/unknown, names the agent",
-			labels:      []string{"lf:agent=codex"},
+			labels:      []string{"Coding Agent: Codex"},
 			wantRefusal: report.ReplyUnknownAgent,
 			wantAgent:   "codex",
 		},
@@ -92,24 +92,24 @@ func TestResolveAgent_DecisionTable(t *testing.T) {
 		},
 		{
 			name:   "labels present, none of them an agent label/the zero value",
-			labels: []string{"bug", "lf:reply", "priority:high"},
+			labels: []string{"bug", "lf:reply", "priority:high", "lf:agent=codex"},
 		},
 		{
 			name:   "the wrong key, lf:agnt=/too short to carry the prefix, ignored entirely",
-			labels: []string{"lf:agnt=claude"},
+			labels: []string{"Coding Agnt: Claude"},
 		},
 		{
 			name:   "no equals sign at all/too short to carry the prefix, ignored entirely",
-			labels: []string{"lf:agent"},
+			labels: []string{"Coding Agent"},
 		},
 		{
 			name:        "two valid labels, same casing/ambiguous, neither is chosen",
-			labels:      []string{"lf:agent=claude", "lf:agent=codex"},
+			labels:      []string{"Coding Agent: Claude", "Coding Agent: Codex"},
 			wantRefusal: report.ReplyAmbiguousAgentLabels,
 		},
 		{
 			name:        "two labels, mixed casing and reversed order/ambiguous regardless of order or casing",
-			labels:      []string{"LF:Agent=codex", "lf:agent=claude"},
+			labels:      []string{"coding agent: Codex", "Coding Agent: Claude"},
 			wantRefusal: report.ReplyAmbiguousAgentLabels,
 		},
 	}
@@ -158,7 +158,7 @@ func TestResolveAgent_DecisionTable(t *testing.T) {
 func TestResolveAgent_NoRunnersRegisteredRefusesAnyLabel(t *testing.T) {
 	d := &Daemon{}
 
-	decision := d.resolveAgent([]string{"lf:agent=claude"})
+	decision := d.resolveAgent([]string{"Coding Agent: Claude"})
 	if decision.Refusal != report.ReplyUnknownAgent || decision.Agent != "claude" {
 		t.Errorf("decision = %+v, want an unknown-agent refusal naming %q", decision, "claude")
 	}

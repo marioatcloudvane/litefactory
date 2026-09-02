@@ -123,6 +123,10 @@ type Codex struct {
 	// Binary is the codex executable, resolved the same way [Claude.Binary]
 	// is (SD-7): a launchd-started daemon needs an absolute path.
 	Binary string `yaml:"binary"`
+	// Model is passed explicitly when set, independent of personal config.
+	Model string `yaml:"model"`
+	// ModelTier optionally resolves Model through tiers.model_by_tier.codex.
+	ModelTier Tier `yaml:"model_tier"`
 
 	// DefaultSandbox is the sandbox mode a run uses when no lf:tools= label
 	// resolved a profile carrying a codex: stanza (AC-7.7). It is required
@@ -145,6 +149,22 @@ type Codex struct {
 	// [Defaults] has already run, so an operator who configures agents.codex
 	// must write this explicitly.
 	TimeoutSeconds int `yaml:"timeout_seconds"`
+
+	// WritableRoots are absolute directories made writable alongside the
+	// worktree, one --add-dir each. Empty (the default) is the narrow
+	// posture: the sandbox may write the worktree and nothing else.
+	//
+	// It exists because "workspace-write" is not the same boundary a build
+	// needs. Measured on 2026-09-02 against codex-cli 0.152.1: a Go build
+	// inside a workspace-write sandbox fails with "open
+	// $GOCACHE/...: operation not permitted", because the compiler's cache
+	// lives in the operator's home directory, not in the workspace. Every
+	// toolchain with a home-directory cache has the same shape, so this is
+	// a list the operator writes rather than a set of paths litefactory
+	// guesses: naming a directory here is a deliberate widening of the
+	// sandbox, and litefactory refuses to make that choice on the
+	// operator's behalf.
+	WritableRoots []string `yaml:"writable_roots"`
 }
 
 // GitHub configures the forge client and, indirectly, the bot credential.
@@ -382,6 +402,9 @@ const (
 	DefaultClaudeBinary         = "claude"
 	DefaultClaudeTimeoutSeconds = 1800
 	DefaultClaudeAutoCompact    = "100k"
+	DefaultCodexBinary          = "codex"
+	DefaultCodexSandbox         = "workspace-write"
+	DefaultCodexTimeoutSeconds  = 1800
 	// DefaultClaudeModel is the model the top-level session runs on when
 	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
 	DefaultClaudeModel = "sonnet"

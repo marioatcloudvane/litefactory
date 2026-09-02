@@ -1,5 +1,32 @@
 # codex CLI invocation contract
 
+## Re-verification — 2026-09-02
+
+The earlier UNAVAILABLE conclusion below is retained as historical evidence but
+is no longer current. The binary is now available at
+`/Users/mariomh/.nvm/versions/node/v24.16.0/bin/codex`, reports
+`codex-cli 0.152.1`, and `codex login status` reports `Logged in using ChatGPT`.
+
+An isolated run outside every repository succeeded with `--ephemeral`,
+`--ignore-user-config`, `--ignore-rules`, `--skip-git-repo-check`,
+`--sandbox read-only`, and `--json`. Its stream was:
+
+```json
+{"type":"thread.started","thread_id":"01a0622b-f3d3-74c0-8a18-b80eff0ae0b0"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"LITEFACTORY_CODEX_OK"}}
+{"type":"turn.completed","usage":{"input_tokens":13768,"cached_input_tokens":9984,"cache_write_input_tokens":0,"output_tokens":11,"reasoning_output_tokens":0}}
+```
+
+`codex exec --help` directly confirms stdin prompts (`-`), JSONL, explicit
+model selection, `read-only`, `workspace-write`, and `danger-full-access`
+sandboxes, ephemeral execution, ignored user config/rules, and explicit-ID
+resume. Litefactory permits only the first two sandbox values and never
+constructs the bypass form. The implementation and fake-binary contract tests
+are based on this measured wire shape.
+
+---
+
 This document was scoped to do for `codex` what
 `.aiteam/main/2026-08-25/session-resume/CLAUDE_CLI_CONTRACT.md` did for `claude`: run the real
 binary in a scratch directory outside every worktree, and record exactly what it does — converting

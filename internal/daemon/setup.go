@@ -258,7 +258,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// anything against it.
 		ToolProfiles: s.Config.Claude.ToolProfiles,
 		// The same registry turn.Options.Runners was just built from above, so
-		// an lf:agent= label is judged against exactly the implementations
+		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
 		Agents:      runners,

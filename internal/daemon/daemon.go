@@ -152,8 +152,8 @@ type Options struct {
 	ToolCeiling []string
 
 	// Agents is the set of coding-agent-tool implementations this daemon has
-	// built, keyed by the [agent.Kind] a resolved lf:agent= label names.
-	// Optional: nil or empty means no lf:agent= label can resolve, which is
+	// built, keyed by the [agent.Kind] a resolved Coding Agent label names.
+	// Optional: nil or empty means no Coding Agent label can resolve, which is
 	// the agent-selection counterpart of [Options.ToolProfiles]'s own D-5 —
 	// a label asking for an implementation this daemon does not have is
 	// refused rather than silently ignored.

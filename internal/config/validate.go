@@ -245,6 +245,14 @@ func validateCodex(c *Codex) []error {
 		// of an outright refusal.
 		errs = append(errs, errors.New("agents.codex.default_sandbox: must not be empty; "+
 			"a configured agents.codex requires an explicit default sandbox mode (AC-7.8)"))
+	} else if c.DefaultSandbox != "read-only" && c.DefaultSandbox != "workspace-write" {
+		errs = append(errs, fmt.Errorf("agents.codex.default_sandbox: %q must be read-only or workspace-write", c.DefaultSandbox))
+	}
+	if c.ModelTier != "" && !c.ModelTier.Valid() {
+		errs = append(errs, &UnknownTierError{Key: "agents.codex.model_tier", Value: string(c.ModelTier)})
+	}
+	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
+		errs = append(errs, fmt.Errorf("agents.codex.model: %q is not a valid model name", c.Model))
 	}
 
 	// Matches claude.timeout_seconds's own bounds (T-7.1): the wall-clock
@@ -253,6 +261,19 @@ func validateCodex(c *Codex) []error {
 	if c.TimeoutSeconds < MinClaudeTimeoutSeconds || c.TimeoutSeconds > MaxClaudeTimeoutSeconds {
 		errs = append(errs, fmt.Errorf("agents.codex.timeout_seconds: %d is out of range; must be between %d and %d",
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
+	}
+
+	// Absolute only, and checked here rather than at launch: each of these
+	// becomes a --add-dir widening the child's sandbox, and a relative path
+	// would be resolved against the worktree, quietly granting something
+	// other than what the operator wrote.
+	for i, root := range c.WritableRoots {
+		switch {
+		case strings.TrimSpace(root) == "":
+			errs = append(errs, fmt.Errorf("agents.codex.writable_roots[%d]: must not be empty", i))
+		case !filepath.IsAbs(root):
+			errs = append(errs, fmt.Errorf("agents.codex.writable_roots[%d]: %q must be an absolute path", i, root))
+		}
 	}
 
 	return errs
@@ -303,6 +324,8 @@ func (c *Config) normalize() {
 	if c.Agents.Codex != nil {
 		c.Agents.Codex.Binary = strings.TrimSpace(c.Agents.Codex.Binary)
 		c.Agents.Codex.DefaultSandbox = strings.TrimSpace(c.Agents.Codex.DefaultSandbox)
+		c.Agents.Codex.Model = strings.TrimSpace(c.Agents.Codex.Model)
+		c.Agents.Codex.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Codex.ModelTier)))
 	}
 }
 

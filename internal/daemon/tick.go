@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
@@ -1387,6 +1388,10 @@ func (d *Daemon) run(
 	if agentChoice.Agent != "" {
 		log = log.With(slog.String("agent_label", agentChoice.Agent))
 	}
+	selectedAgent := agentChoice.Agent
+	if selectedAgent == "" {
+		selectedAgent = store.AgentClaude
+	}
 
 	// The tool profile is resolved here, before anything is locked, fetched or
 	// written: a refusal has to be run-less (AC-3.7), and by the time
@@ -1420,10 +1425,7 @@ func (d *Daemon) run(
 	// [store.AgentClaude] today, the same way an absent lf:tools= label
 	// means the configured default tool surface.
 	if tools.Resolved != nil {
-		effectiveAgent := agentChoice.Agent
-		if effectiveAgent == "" {
-			effectiveAgent = store.AgentClaude
-		}
+		effectiveAgent := selectedAgent
 		if !tools.Resolved.HasStanzaFor(effectiveAgent) {
 			return d.refuseProfileForAgent(ctx, t, trigger, tools.Profile, effectiveAgent, log)
 		}
@@ -1449,6 +1451,13 @@ func (d *Daemon) run(
 		Tools:        tools.Tools,
 		AllowedTools: tools.AllowedTools,
 		ToolProfile:  tools.Profile,
+		Agent:        agent.Kind(selectedAgent),
+		CodexSandbox: func() string {
+			if tools.Resolved != nil && tools.Resolved.Codex != nil {
+				return tools.Resolved.Codex.Sandbox
+			}
+			return ""
+		}(),
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
@@ -1622,7 +1631,7 @@ func (d *Daemon) refuseProfileForAgent(
 	return nil
 }
 
-// refuseAgent answers an lf:agent= label that could not be resolved into a
+// refuseAgent answers a Coding Agent label that could not be resolved into a
 // coding-agent tool: unknown, malformed, ambiguous, or named on a daemon
 // with no implementation of it running at all.
 //
@@ -1649,7 +1658,7 @@ func (d *Daemon) refuseAgent(
 	}
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its lf:agent= label does not "+
+		log.InfoContext(ctx, "refusing to run the issue body: its Coding Agent label does not "+
 			"resolve to a coding-agent tool litefactory has running. Nothing was run and no "+
 			"comment was posted, because there is no comment to answer; the next comment on this "+
 			"issue is refused on the thread")
@@ -1671,7 +1680,7 @@ func (d *Daemon) refuseAgent(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the lf:agent= label on this issue does not "+
+		log.InfoContext(ctx, "refused a run: the Coding Agent label on this issue does not "+
 			"resolve to a coding-agent tool litefactory has running",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}

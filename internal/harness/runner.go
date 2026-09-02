@@ -523,7 +523,8 @@ func (r *Runner) exec(
 	// play the two differ, and the log line is the only place the difference is
 	// visible after the fact. tool_profile is empty when no profile applied.
 	tools, allowedTools := r.surface(req)
-	logger.Info("claude started",
+	logger.Info("coding agent started",
+		slog.String("agent", "claude"),
 		slog.String("binary", r.binary.Path),
 		slog.Int("pid", cmd.Process.Pid),
 		slog.String("worktree", req.WorktreePath),
@@ -598,6 +599,7 @@ func (r *Runner) exec(
 
 	if event := stream.result; event != nil {
 		result.HasResult = true
+		result.HasCost = true
 		result.ResultText = event.Result
 		result.CostUSD = event.TotalCostUSD
 		result.IsError = event.IsError
@@ -693,17 +695,17 @@ func (r *Runner) logCompletion(logger *slog.Logger, result *RunResult) {
 		slog.Bool("has_result", result.HasResult),
 		slog.String("log_path", result.LogPath),
 	}
-	if result.HasResult {
+	if result.HasCost {
 		attrs = append(attrs, slog.Float64("cost_usd", result.CostUSD))
 	}
 	if result.StreamError != nil {
 		attrs = append(attrs, slog.String("stream_error", result.StreamError.Error()))
 	}
 	if result.Succeeded() {
-		logger.Info("claude run finished", attrs...)
+		logger.Info("coding agent finished", append([]any{slog.String("agent", "claude")}, attrs...)...)
 		return
 	}
-	logger.Error("claude run failed", append(attrs, slog.String("reason", result.Reason))...)
+	logger.Error("coding agent failed", append([]any{slog.String("agent", "claude")}, append(attrs, slog.String("reason", result.Reason))...)...)
 }
 
 // classification is the raw material for [classify], gathered in one place so

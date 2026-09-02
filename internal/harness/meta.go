@@ -166,7 +166,7 @@ func NewMeta(req Request, prompt string, result *RunResult) Meta {
 		meta.FinishedAt = result.FinishedAt.UTC().Format(time.RFC3339Nano)
 	}
 	meta.DurationMS = result.Duration.Milliseconds()
-	if result.HasResult {
+	if result.HasCost || result.CostUSD > 0 {
 		cost := result.CostUSD
 		meta.CostUSD = &cost
 	}

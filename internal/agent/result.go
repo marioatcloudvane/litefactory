@@ -89,6 +89,9 @@ type RunResult struct {
 	// or Session.Resume, whichever this implementation invoked the tool
 	// with.
 	SessionID string
+	// ResumeToken is the tool-reported conversation handle discovered during
+	// this run. It is empty for tools whose SessionID is chosen in advance.
+	ResumeToken string
 
 	// LogPath is the absolute path of the NNNN.jsonl event stream. It
 	// exists even for a run that produced no events, and it is quoted in
@@ -112,8 +115,11 @@ type RunResult struct {
 	// redacted before it is posted anywhere.
 	ResultText string
 
-	// CostUSD is the run's total cost. Meaningful only when HasResult.
+	// CostUSD is the run's total cost. Meaningful only when HasCost.
 	CostUSD float64
+	// HasCost distinguishes a reported zero cost from a tool, such as Codex,
+	// whose event stream reports token usage but no monetary amount.
+	HasCost bool
 
 	// IsError reports whether the tool's own terminal event says the run
 	// failed. This, and not any other field of that event, is what decides

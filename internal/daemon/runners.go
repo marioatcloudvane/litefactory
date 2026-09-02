@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -38,7 +39,15 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 		return nil, fmt.Errorf("the daemon needs claude: %w", err)
 	}
 
-	return turn.RunnerSet{
+	runners := turn.RunnerSet{
 		agent.Kind(store.AgentClaude): claudeRunner,
-	}, nil
+	}
+	if cfg.Agents.Codex != nil {
+		codexRunner, err := codex.New(codex.Options{Paths: paths, Codex: *cfg.Agents.Codex, Tiers: cfg.Tiers, Environ: environ, Logger: logger})
+		if err != nil {
+			return nil, fmt.Errorf("the daemon needs codex: %w", err)
+		}
+		runners[agent.Kind(store.AgentCodex)] = codexRunner
+	}
+	return runners, nil
 }

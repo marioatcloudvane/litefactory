@@ -267,10 +267,11 @@ type Request struct {
 	Tools        []string
 	AllowedTools []string
 	ToolProfile  string
+	CodexSandbox string
 
 	// Agent is the coding-agent tool this turn resolved to, from the daemon's
 	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
-	// means no lf:agent= label was on the issue, which resolves to the
+	// means no Coding Agent label was on the issue, which resolves to the
 	// configured default agent — [store.AgentClaude] today — the same way an
 	// absent lf:tools= label resolves to the harness's default surface
 	// (AC-2.1). [prepare] is what applies that default; nothing here does.

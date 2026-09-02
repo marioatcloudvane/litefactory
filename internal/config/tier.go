@@ -156,6 +156,11 @@ func defaultModelByTier() map[Kind]map[Tier]string {
 			TierBalanced: DefaultClaudeModel,
 			TierFast:     "haiku",
 		},
+		KindCodex: {
+			TierFlagship: "gpt-5.6-sol",
+			TierBalanced: "gpt-5.6-terra",
+			TierFast:     "gpt-5.6-luna",
+		},
 	}
 }
 

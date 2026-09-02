@@ -8,23 +8,23 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
-// agentLabelPrefix is the whole of the agent-selection label vocabulary: one
-// label, of the shape lf:agent=<kind>, naming which coding-agent-tool
-// implementation this issue's next run should use.
+// agentLabelPrefix is the user-facing agent selector. GitHub labels are
+// intentionally readable without knowing litefactory's internal vocabulary:
+// "Coding Agent: Claude" and "Coding Agent: Codex".
 //
 // It is built on exactly the same detect-loosely, accept-strictly split
-// [toolLabelPrefix] documents for D-6, for the same reason: "lf:agent=codex"
-// resolves the codex Kind, and "LF:Agent=codex" is seen (so it counts toward
+// [toolLabelPrefix] documents for D-6, for the same reason: "Coding Agent: Codex"
+// resolves the codex Kind, and "coding agent: Codex" is seen (so it counts toward
 // ambiguity and is refused rather than silently ignored) but never accepted —
 // a maintainer who mistyped the prefix is told so on the thread instead of
 // being left to assume the label took effect.
-const agentLabelPrefix = "lf:agent="
+const agentLabelPrefix = "Coding Agent: "
 
 // agentKindName is the shape of a coding-agent-tool name, and it is
 // deliberately the same pattern [toolProfileName] holds a lookup key to: a
 // label value is checked for shape before it is ever used as a map key into
 // opts.Runners, and long before internal/report is asked to print it back.
-var agentKindName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+var agentKindName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
 
 // agentDecision is what the labels on an issue say about which coding-agent
 // tool its next run should use.
@@ -77,7 +77,7 @@ func (d agentDecision) refused() bool { return d.Refusal != report.ReplyInvalid 
 // registry [Daemon.agents] holds, built once at startup (AC-5.6, AC-5.15).
 // The rules, in order:
 //
-//   - No label whose prefix equals lf:agent= ignoring case: nothing is
+//   - No label whose prefix equals Coding Agent: ignoring case: nothing is
 //     resolved and nothing is set. A label that does not carry the prefix in
 //     any casing is not an agent label at all and is passed over in silence,
 //     not refused.
@@ -85,7 +85,7 @@ func (d agentDecision) refused() bool { return d.Refusal != report.ReplyInvalid 
 //     and two are never unioned, for exactly the reason two lf:tools= labels
 //     never are.
 //   - The single label's prefix, byte for byte: it must be the lowercase
-//     lf:agent=. Anything else is malformed, and refused.
+//     Coding Agent:. Anything else is malformed, and refused.
 //   - A value that is not the shape of an agent name, including the empty
 //     string: malformed, and refused.
 //   - A well-formed value with no [agent.Runner] registered for it: unknown,
@@ -134,10 +134,11 @@ func (d *Daemon) resolveAgent(labels []string) agentDecision {
 	if !label.exactPrefix {
 		return agentDecision{Refusal: report.ReplyMalformedAgentLabel, MiscasedPrefix: true}
 	}
-	name := label.value
-	if !agentKindName.MatchString(name) {
+	displayName := label.value
+	if !agentKindName.MatchString(displayName) {
 		return agentDecision{Refusal: report.ReplyMalformedAgentLabel}
 	}
+	name := strings.ToLower(displayName)
 	if _, ok := d.agents[agent.Kind(name)]; !ok {
 		return agentDecision{Refusal: report.ReplyUnknownAgent, Agent: name}
 	}

@@ -67,19 +67,19 @@ const (
 	ReplyAmbiguousToolLabels
 
 	// ReplyAmbiguousAgentLabels answers an issue carrying more than one
-	// lf:agent= label, the agent-selection counterpart to
+	// Coding Agent label, the agent-selection counterpart to
 	// [ReplyAmbiguousToolLabels] and shaped the same way for the same reason:
 	// it names neither label.
 	ReplyAmbiguousAgentLabels
 
-	// ReplyMalformedAgentLabel answers an lf:agent= label whose value is not
+	// ReplyMalformedAgentLabel answers a Coding Agent label whose value is not
 	// the shape of an agent name at all, the empty value included — the
 	// agent-selection counterpart to [ReplyMalformedToolLabel]. It carries no
 	// field for the label text to travel in, for the same reason that one
 	// does not.
 	ReplyMalformedAgentLabel
 
-	// ReplyUnknownAgent answers an lf:agent= label naming a value that is a
+	// ReplyUnknownAgent answers a Coding Agent label naming a value that is a
 	// well-formed agent name but not one litefactory has a [Runner]
 	// implementation registered for. Unlike [ReplyMalformedAgentLabel] it may
 	// name what was asked for, because a value that passed the agent-name
@@ -404,19 +404,18 @@ func (r Reply) body() string {
 			"`lf:tools=` label on the issue and comment again.")
 
 	case ReplyAmbiguousAgentLabels:
-		b.WriteString("This issue carries more than one `lf:agent=` label, so there is no single " +
+		b.WriteString("This issue carries more than one `Coding Agent: …` label, so there is no single " +
 			"answer to which coding-agent tool this run should have used. ")
 		b.WriteString(agentRefusalSentence)
 		b.WriteString(sectionGap)
 		b.WriteString("Neither label was chosen and they were not combined. Leave exactly one " +
-			"`lf:agent=` label on the issue and comment again.")
+			"`Coding Agent: Claude` or `Coding Agent: Codex` label on the issue and comment again.")
 
 	case ReplyMalformedAgentLabel:
-		b.WriteString("The `lf:agent=` label on this issue does not name a usable coding-agent tool. ")
+		b.WriteString("The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. ")
 		b.WriteString(agentRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("An agent name is lowercase letters and digits, `-` and `_`, up to 40 " +
-			"characters, and it has to be one litefactory has an implementation for. The label " +
+		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
 			"text is not repeated here on purpose.")
 
 	case ReplyUnknownAgent:
@@ -429,7 +428,7 @@ func (r Reply) body() string {
 		b.WriteString(" ")
 		b.WriteString(agentRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("Take the `lf:agent=` label off the issue, or change it to a tool litefactory " +
+		b.WriteString("Take the `Coding Agent: …` label off the issue, or change it to a tool litefactory " +
 			"has running, and comment again.")
 
 	case ReplyAgentSwitchRefused:

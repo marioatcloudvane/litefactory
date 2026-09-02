@@ -66,7 +66,7 @@ func TestProfileWithOnlyClaudeStanzaRefusesACodexRoutedRun(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"research": claudeOnlyProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=research", "lf:agent=codex")
+	f.issueWithLabels("Add a /health endpoint", "lf:tools=research", "Coding Agent: Codex")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 1101, owner(), "/spike add a health endpoint")
@@ -140,7 +140,7 @@ func TestProfileWithBothStanzasResolvesForEitherAgent(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"both": bothStanzasProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=both", "lf:agent=codex")
+	f.issueWithLabels("Add a /health endpoint", "lf:tools=both", "Coding Agent: Codex")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 1103, owner(), "/spike add a health endpoint")
@@ -152,10 +152,16 @@ func TestProfileWithBothStanzasResolvesForEitherAgent(t *testing.T) {
 			"routed agent must not be refused", len(calls))
 	}
 	req := calls[0]
+	want := bothStanzasProfile()
 	if req.ToolProfile != "both" {
 		t.Errorf("ToolProfile = %q, want %q", req.ToolProfile, "both")
 	}
-	want := bothStanzasProfile()
+	if req.Agent != agent.Kind(store.AgentCodex) {
+		t.Errorf("Agent = %q, want codex", req.Agent)
+	}
+	if req.CodexSandbox != want.Codex.Sandbox {
+		t.Errorf("CodexSandbox = %q, want %q", req.CodexSandbox, want.Codex.Sandbox)
+	}
 	if !equalStringSlices(req.Tools, want.Claude.Tools) {
 		t.Errorf("Tools = %v, want the claude stanza's %v — never the codex stanza's sandbox value", req.Tools, want.Claude.Tools)
 	}
