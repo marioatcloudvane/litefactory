@@ -835,7 +835,7 @@ func TestExecuteValidatesItsArguments(t *testing.T) {
 		t.Parallel()
 
 		req := f.request()
-		req.Command = ParseCommand("/plan something")
+		req.Command = ParseCommand("/status something")
 		if _, err := Execute(t.Context(), f.opts, req); !errors.Is(err, ErrInvalidRequest) {
 			t.Errorf("err = %v, want %v", err, ErrInvalidRequest)
 		}

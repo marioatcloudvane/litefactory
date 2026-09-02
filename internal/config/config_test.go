@@ -31,6 +31,8 @@ func TestConfigValidation(t *testing.T) {
 		// Defaults and decoding.
 		{name: "empty file is all defaults", yaml: ""},
 		{name: "defaults are valid", yaml: "poll_interval_seconds: 30"},
+		{name: "canonical default agent", yaml: "default_agent: Codex"},
+		{name: "malformed default agent", yaml: "default_agent: codex", want: "default_agent"},
 
 		// AC-0.10 — an unknown key is a startup error, not an ignored line.
 		{

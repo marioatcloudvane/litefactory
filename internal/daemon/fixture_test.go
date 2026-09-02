@@ -1202,6 +1202,8 @@ func (f *fixture) secondRepo() store.Repo {
 
 // sessionIn is [fixture.sessionOf] for an issue on a repository other than
 // the fixture's primary one.
+//
+//nolint:unused // Cross-repository fixture helper retained for focused tests.
 func (f *fixture) sessionIn(repo store.Repo, issue int) store.Session {
 	f.t.Helper()
 
@@ -1215,6 +1217,8 @@ func (f *fixture) sessionIn(repo store.Repo, issue int) store.Session {
 
 // watermarkIn is [fixture.watermark] for an issue on a repository other than
 // the fixture's primary one.
+//
+//nolint:unused // Cross-repository fixture helper retained for focused tests.
 func (f *fixture) watermarkIn(repo store.Repo, issue int) int64 {
 	f.t.Helper()
 

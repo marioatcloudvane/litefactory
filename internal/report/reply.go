@@ -103,6 +103,12 @@ const (
 	// a profile is the operator's explicit boundary, and a run this package
 	// cannot resolve a surface for is refused rather than widened.
 	ReplyProfileNotAvailableForAgent
+	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
+	ReplyMalformedModeLabel
+	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
+	ReplyAmbiguousModeLabels
+	// ReplyConflictingModeSelection answers a command/label disagreement.
+	ReplyConflictingModeSelection
 )
 
 // String renders the kind for logs and test failures.
@@ -130,6 +136,12 @@ func (k ReplyKind) String() string {
 		return "agent_switch_refused"
 	case ReplyProfileNotAvailableForAgent:
 		return "profile_not_available_for_agent"
+	case ReplyMalformedModeLabel:
+		return "malformed_mode_label"
+	case ReplyAmbiguousModeLabels:
+		return "ambiguous_mode_labels"
+	case ReplyConflictingModeSelection:
+		return "conflicting_mode_selection"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -148,8 +160,20 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyAgentSwitchRefused, ReplyProfileNotAvailableForAgent:
 		return true
+	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
+		return true
 	case ReplyInvalid:
 		return false
+	default:
+		return false
+	}
+}
+
+// RefusesMode reports whether k is a mode-selection refusal.
+func (k ReplyKind) RefusesMode() bool {
+	switch k {
+	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
+		return true
 	default:
 		return false
 	}
@@ -417,6 +441,21 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label " +
 			"text is not repeated here on purpose.")
+
+	case ReplyMalformedModeLabel:
+		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
+		b.WriteString(sectionGap)
+		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, or `Mode: Spike`.")
+
+	case ReplyAmbiguousModeLabels:
+		b.WriteString("This issue carries more than one `Mode: …` label, so no mode was chosen and nothing was run.")
+		b.WriteString(sectionGap)
+		b.WriteString("Leave exactly one canonical Mode label and comment again.")
+
+	case ReplyConflictingModeSelection:
+		b.WriteString("The slash command and the issue's `Mode: …` label select different modes, so nothing was run.")
+		b.WriteString(sectionGap)
+		b.WriteString("Make the command and label agree, or remove one of them, and comment again.")
 
 	case ReplyUnknownAgent:
 		if name, named := agentSpan(r.Agent); named {

@@ -28,6 +28,7 @@ const (
 	dirMode = os.FileMode(0o700)
 )
 
+// Options configures a Runner.
 type Options struct {
 	Paths   config.Paths
 	Codex   config.Codex
@@ -36,6 +37,7 @@ type Options struct {
 	Logger  *slog.Logger
 }
 
+// Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
 	binary  config.Executable
 	home    string
@@ -51,8 +53,10 @@ type Runner struct {
 	logger   *slog.Logger
 }
 
+// Sandbox is the Codex-specific permission payload carried by an agent request.
 type Sandbox struct{ Mode string }
 
+// New resolves and validates a Codex runner.
 func New(opts Options) (*Runner, error) {
 	if opts.Logger == nil {
 		return nil, errors.New("invalid codex options: a logger is required")
@@ -90,9 +94,52 @@ func New(opts Options) (*Runner, error) {
 		environ: append([]string(nil), opts.Environ...), logger: opts.Logger}, nil
 }
 
+// Binary returns the resolved Codex executable.
 func (r *Runner) Binary() config.Executable { return r.binary }
-func (r *Runner) Timeout() time.Duration    { return r.timeout }
 
+// Timeout returns the wall-clock limit for an invocation.
+func (r *Runner) Timeout() time.Duration { return r.timeout }
+
+// Classify performs a stateless read-only Codex invocation with no writable
+// roots and accepts only an exact terminal mode value.
+func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.Mode, error) {
+	if !filepath.IsAbs(req.WorkingDirectory) || strings.TrimSpace(req.Prompt) == "" {
+		return "", fmt.Errorf("%w: classifier needs an absolute directory and prompt", agent.ErrInvalidRequest)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, "-")
+	//nolint:gosec // binary and args are configuration/constants; untrusted text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, codexEnv(r.environ), strings.NewReader(req.Prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("mode classifier failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	mode, ok := agent.ParseMode(stream.text)
+	if !ok || strings.TrimSpace(stream.text) != string(mode) || !stream.completed || stream.failed {
+		return "", fmt.Errorf("mode classifier returned invalid value")
+	}
+	return mode, nil
+}
+
+// Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -118,6 +165,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if err := os.MkdirAll(filepath.Dir(logPath), dirMode); err != nil {
 		return nil, err
 	}
+	//nolint:gosec // logPath is derived from validated LF_HOME, task ref and run ordinal.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, logMode)
 	if err != nil {
 		return nil, err
@@ -127,6 +175,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	args := r.args(req, sandbox)
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir, cmd.Env, cmd.Stdin = req.WorktreePath, codexEnv(r.environ), strings.NewReader(req.Prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

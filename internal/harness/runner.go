@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,6 +20,52 @@ import (
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
+
+// Classify performs a stateless, tool-free routing invocation. The prompt is
+// stdin-only and no session id is supplied, so it cannot become a work
+// conversation that a later turn resumes.
+func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.Mode, error) {
+	if !filepath.IsAbs(req.WorkingDirectory) || strings.TrimSpace(req.Prompt) == "" {
+		return "", fmt.Errorf("%w: classifier needs an absolute directory and prompt", agent.ErrInvalidRequest)
+	}
+	if _, err := os.Stat(req.WorkingDirectory); err != nil {
+		return "", fmt.Errorf("classifier directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return "", fmt.Errorf("prepare claude settings: %w", err)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	//nolint:gosec // binary/args are configuration/constants; untrusted text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, buildEnv(r.environ, r.forwardEnv), strings.NewReader(req.Prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = waitDelay
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("mode classifier failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return "", fmt.Errorf("mode classifier returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return "", fmt.Errorf("mode classifier exposed tools")
+	}
+	mode, ok := agent.ParseMode(stream.result.Result)
+	if !ok || strings.TrimSpace(stream.result.Result) != string(mode) {
+		return "", fmt.Errorf("mode classifier returned invalid value")
+	}
+	return mode, nil
+}
 
 // waitDelay bounds how long cmd.Wait may block after the claude process itself
 // has exited. claude hands its stdout and stderr to children — node, git, and

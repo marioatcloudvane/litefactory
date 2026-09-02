@@ -13,16 +13,10 @@
 //
 // # What starts a turn
 //
-// Any owner comment with something in it. A "/spike <text>" runs in spike mode;
-// a comment that names no command runs in harness.InferMode, where deciding
-// what kind of work is being asked for is part of the task the run is given.
-//
-// litefactory does not classify the request itself. The worktree a run executes
-// in holds the target repository's own CLAUDE.md, and if that file defines
-// modes then it is already the authority on how to tell them apart — so the
-// prompt points the run at it. Classifying here instead would mean a second
-// model call to derive a label the run derives anyway, and would freeze one
-// repository's idea of the modes into a tool meant to serve any of them.
+// Any owner comment with something in it. The daemon resolves a canonical Mode
+// label or invokes its configured default agent as a stateless classifier, then
+// passes that concrete mode to [Execute]. The work agent never selects or
+// changes its own mode.
 //
 // # A bad turn is not an error
 //
@@ -112,11 +106,9 @@
 // result.Changes, SHAAfter, CommitSHA, Committed, Pushed, Err, Outcome or
 // Reason; a forge outage during creation leaves a succeeded run succeeded.
 //
-// It never asks what mode the run was in, because it cannot: a free-text
-// comment spawns a run in mode infer and claude self-routes by reading
-// CLAUDE.md. Presence of the artifacts is the whole test, which is the same
-// rule the mode gates use — state is inferred from artifacts, not
-// self-reported.
+// It does not branch on the run's mode. Presence of the artifacts is the whole
+// test, which is the same rule the mode gates use — state is inferred from
+// artifacts, not self-reported.
 //
 // Known hazard, not currently handled: story ids are unique within a plan but
 // not across plans. Two Plan sessions on the same task branch on the same day

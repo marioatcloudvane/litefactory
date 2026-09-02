@@ -61,7 +61,7 @@ func ParseStoryFile(data []byte) (StoryFile, error) {
 	}
 
 	body := strings.TrimLeft(rest, "\n")
-	summary := body
+	var summary string
 	excerpt := ""
 	if idx := indexOfHeading(body, architectureNotesHeading); idx >= 0 {
 		summary = strings.TrimSpace(body[:idx])

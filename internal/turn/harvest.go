@@ -44,7 +44,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		}
 	}()
 
-	runResult, runErr := runClaude(ctx, opts, prep, logger)
+	runResult, runErr := runClaude(ctx, prep, logger)
 	// Rebuilt from the preparation as it finally stood, because the fallback may
 	// have replaced the prompt and the path under it: what this document records
 	// has to be what was actually sent (AC-3.11), not what was first assembled.
@@ -103,7 +103,6 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 // if it fails it fails as an ordinary run and is reported as one.
 func runClaude(
 	ctx context.Context,
-	opts Options,
 	prep *preparation,
 	logger *slog.Logger,
 ) (*agent.RunResult, error) {
