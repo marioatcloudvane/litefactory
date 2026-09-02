@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -62,6 +63,8 @@ type Setup struct {
 // first time launchd starts it, and the only cheap defence is saying out loud
 // which file is about to be executed.
 type Startup struct {
+	// DefaultAgent handles unlabelled runs and mode classification.
+	DefaultAgent agent.Kind
 	// InstanceID is this process's identity, and what task locks are held
 	// under.
 	InstanceID string
@@ -158,6 +161,13 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	runners, err := buildRunners(s.Paths, s.Config, environ, s.Logger)
 	if err != nil {
 		return nil, Startup{}, err
+	}
+	classifiers := make(map[agent.Kind]agent.Classifier, len(runners))
+	for kind, runner := range runners {
+		classifier, ok := runner.(agent.Classifier)
+		if ok {
+			classifiers[kind] = classifier
+		}
 	}
 	// Startup wants to print which claude binary was resolved and its
 	// timeout, so the concrete implementation is narrowed back out of the
@@ -261,10 +271,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
-		Agents:      runners,
-		ToolCeiling: s.Config.Claude.ToolCeiling,
-		InstanceID:  instanceID,
-		Interval:    interval,
+		Agents:       runners,
+		Classifiers:  classifiers,
+		DefaultAgent: agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
+		ToolCeiling:  s.Config.Claude.ToolCeiling,
+		InstanceID:   instanceID,
+		Interval:     interval,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,
@@ -277,6 +289,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 
 	return daemon, Startup{
+		DefaultAgent:      agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
 		InstanceID:        instanceID,
 		Interval:          interval,
 		MaxConcurrentRuns: maxRuns,

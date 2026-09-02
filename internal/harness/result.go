@@ -2,24 +2,28 @@ package harness
 
 import "github.com/cloudvane/litefactory/internal/agent"
 
-// Outcome, RunResult and the run-path vocabulary are internal/agent's now —
-// this package is the Claude implementation of [agent.Runner], and these
-// aliases exist so that the many call sites written against harness.Outcome,
-// harness.RunResult and harness.PathResume before this package became that
-// implementation keep compiling unchanged. New code SHOULD prefer the
-// internal/agent names directly; both name exactly the same type or value.
-type (
-	Outcome     = agent.Outcome
-	RunResult   = agent.RunResult
-	RunPath     = agent.RunPath
-	Request     = agent.Request
-	Permissions = agent.Permissions
-	SessionRef  = agent.SessionRef
-)
+// Outcome is the vendor-neutral result outcome.
+type Outcome = agent.Outcome
 
-const (
+// RunResult is a vendor-neutral run result.
+type RunResult = agent.RunResult
+
+// RunPath is a vendor-neutral conversation path.
+type RunPath = agent.RunPath
+
+// Request is a vendor-neutral run request.
+type Request = agent.Request
+
+// Permissions is a vendor-specific permission payload.
+type Permissions = agent.Permissions
+
+// SessionRef is a vendor-neutral conversation identity.
+type SessionRef = agent.SessionRef
+
+const ( //nolint:revive // Compatibility aliases intentionally retain established exported names.
+	// OutcomeSucceeded and the following constants alias agent outcomes.
 	OutcomeSucceeded = agent.OutcomeSucceeded
-	OutcomeFailed    = agent.OutcomeFailed
+	OutcomeFailed    = agent.OutcomeFailed //nolint:revive // Compatibility alias.
 	OutcomeTimedOut  = agent.OutcomeTimedOut
 	OutcomeAbandoned = agent.OutcomeAbandoned
 	OutcomeNoResult  = agent.OutcomeNoResult

@@ -258,7 +258,7 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
-			req.Refusal.RefusesProfileForAgent() || req.Refusal.RefusesSwitch()
+			req.Refusal.RefusesProfileForAgent() || req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -273,7 +273,7 @@ func (req ReplyRequest) validate() error {
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
-		!req.Refusal.RefusesProfileForAgent() && !req.Refusal.RefusesSwitch():
+		!req.Refusal.RefusesProfileForAgent() && !req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
 			"profile-for-agent or agent-switch refusal", req.Refusal)
 	// Only when this is not a refusal. A refusal is triggered by a command that

@@ -46,6 +46,10 @@ poll_interval_seconds: %d
 # budget, and lower it if runs start interfering with each other.
 max_concurrent_runs: %d
 
+# Coding-agent implementation used when no Coding Agent label is present and
+# for classifying requests with no Mode label.
+default_agent: "%s"
+
 # Fallback base branch for ` + "`repo add`" + ` when --base is omitted and the remote
 # HEAD cannot be determined. Empty means there is no fallback.
 default_base_branch: ""
@@ -271,6 +275,7 @@ func DefaultFileContents() []byte {
 	return []byte(fmt.Sprintf(configHeader,
 		MinPollIntervalSeconds, MaxPollIntervalSeconds, d.PollIntervalSeconds,
 		MinMaxConcurrentRuns, MaxMaxConcurrentRuns, d.MaxConcurrentRuns,
+		d.DefaultAgent,
 		d.FeaturePrefix,
 		d.WorktreeRetainDays,
 		d.LogLevel,

@@ -45,6 +45,9 @@ import (
 // written zero value (poll_interval_seconds: 0) is distinguishable from an
 // absent key and is rejected instead of silently replaced.
 type Config struct {
+	// DefaultAgent selects the configured coding-agent implementation used
+	// when an issue has no Coding Agent label and for mode classification.
+	DefaultAgent string `yaml:"default_agent"`
 	// PollIntervalSeconds is the daemon's tick interval. Clamped to 10..60
 	// (D-C, superseding the 10..300 in the original spec); out of range is a
 	// startup error, never a silent clamp (AC-2.7).
@@ -402,6 +405,7 @@ type ToolProfileCodex struct {
 // file and the in-memory defaults cannot drift apart.
 func Defaults() Config {
 	return Config{
+		DefaultAgent:        DefaultAgent,
 		PollIntervalSeconds: DefaultPollIntervalSeconds,
 		MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
 		DefaultBaseBranch:   "",
@@ -442,6 +446,7 @@ const (
 	DefaultCodexBinary          = "codex"
 	DefaultCodexSandbox         = "workspace-write"
 	DefaultCodexTimeoutSeconds  = 1800
+	DefaultAgent                = "Claude"
 	// DefaultClaudeModel is the model the top-level session runs on when
 	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
 	DefaultClaudeModel = "sonnet"
@@ -529,10 +534,7 @@ func Decode(r io.Reader) (*Config, error) {
 		// Only worth asking when agents.claude: decoded to something at
 		// all — the common case, agents.claude: absent, cannot conflict
 		// with anything.
-		conflict, err := deprecatedClaudeConflict(data)
-		if err != nil {
-			return nil, err
-		}
+		conflict := deprecatedClaudeConflict(data)
 		if conflict {
 			return nil, errors.New("claude: and agents.claude: are both set; " +
 				"claude: is deprecated in favour of agents.claude:, so configure exactly one (AC-7.9)")
@@ -559,12 +561,12 @@ type deprecatedClaudeKeyProbe struct {
 // accepted this document, so a parse failure here would be a surprise, not a
 // real problem, and it is swallowed rather than turned into a second,
 // confusing error.
-func deprecatedClaudeConflict(data []byte) (bool, error) {
+func deprecatedClaudeConflict(data []byte) bool {
 	var probe deprecatedClaudeKeyProbe
 	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return false, nil
+		return false
 	}
-	return probe.Claude != nil, nil
+	return probe.Claude != nil
 }
 
 // applyPathDefaults fills in the defaults that can only be known once

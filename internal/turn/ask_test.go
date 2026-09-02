@@ -150,9 +150,9 @@ func TestParseCommandStripsTheAskTag(t *testing.T) {
 			want: Command{Kind: KindSpike, Name: "/spike", Text: "look at the retry path", Tagged: true},
 		},
 		{
-			name: "a tagged command from a later milestone is still unsupported",
+			name: "a tagged mode command is actionable",
 			body: "/implement the plan\n" + AskTag,
-			want: Command{Kind: KindUnsupported, Name: "/implement", Tagged: true},
+			want: Command{Kind: KindSpike, Name: "/implement", Text: "the plan", Tagged: true},
 		},
 		{
 			name: "an untagged body is untouched",
