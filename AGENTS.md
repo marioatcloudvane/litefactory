@@ -28,13 +28,39 @@ which coding agent is driving the session.
 The four names — Research, Plan, Implement, Spike — describe stages of work
 in this project (understand the problem, turn a brief into a plan, execute
 the plan, or take a time-boxed ad-hoc detour) independent of which tool
-executes them. The *mechanism* that runs those modes in Claude Code
-(orchestrator agents in `.claude/agents/`, session scaffolding under
-`.claude/modes/`) is Claude-Code-specific and not available to a Codex
-session. If you are asked to "research", "plan", "implement", or "spike"
-something in this repository under Codex, treat that as a request about
-scope and rigor, not as a signal to invoke a delegation mechanism that does
-not exist here.
+executes them. `.claude/modes/` holds the session scaffolding and the mode
+rules; read it, because it is not Claude-specific in anything but its
+directory name.
+
+### The team, under Codex
+
+Every specialist Claude Code runs out of `.claude/agents/` has a Codex copy
+under `.codex/skills/<name>/SKILL.md`, carrying the same instructions. They
+are listed to you automatically as skills. Use them:
+
+- Classify the request into a mode exactly as `CLAUDE.md` describes, then
+  follow the matching orchestrator skill — `research-orchestrator`,
+  `plan-orchestrator`, `implement-orchestrator` — or handle Spike inline per
+  `.claude/modes/spike.md`.
+- Where an orchestrator says to invoke a specialist, spawn a sub-agent with
+  `spawn_agent` and give it that specialist's `SKILL.md` to follow. Waiting
+  on it with `wait_agent` and reading its final message is the equivalent of
+  Claude's `Task` result.
+- One run, one mode. Producing the artifact ends the run, exactly as it does
+  for Claude.
+
+Two differences are real and you must hold them yourself, because nothing
+enforces them for you:
+
+- **Tool restrictions are advisory here.** Each skill names the tool list
+  Claude would have pinned it to. Keep to it; Codex will not stop you.
+- **Depth costs runs.** Claude caps delegation at two levels for a measured
+  reason. Do the same: an orchestrator may spawn specialists, and a
+  specialist does its own looking rather than spawning further.
+
+This parity is deliberately a copy, not a shared source — `.codex/skills/` is
+generated from `.claude/agents/`. If you change one, change the other, or say
+plainly in your report that they have drifted.
 
 ## Build, test, lint
 

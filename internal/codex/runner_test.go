@@ -36,6 +36,30 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_token
 	}
 }
 
+// The same flag that isolates a run from the operator's own config.toml also
+// stops Codex reading the repository's .codex/skills, which is where this
+// project's specialist instructions live. Opting in drops it; the default
+// keeps it, and the case above already pins that default.
+func TestAllowUserConfigDropsTheIsolationFlag(t *testing.T) {
+	runner, argv := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	runner.userConfig = true
+	if _, err := runner.Run(context.Background(), request(t, agent.PathCold)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := strings.Join(strings.Fields(string(mustRead(t, argv))), " ")
+	if strings.Contains(got, "--ignore-user-config") {
+		t.Errorf("argv %q still isolates the run from its own config", got)
+	}
+	for _, want := range []string{"exec", "--json", "--ignore-rules", "--sandbox workspace-write"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("argv %q missing %q", got, want)
+		}
+	}
+	if !strings.HasSuffix(got, "-") {
+		t.Errorf("argv %q does not end with the stdin prompt argument", got)
+	}
+}
+
 func TestRunnerResumesExplicitThreadAndReadsLongLines(t *testing.T) {
 	runner, argv := fakeRunner(t, `
 printf '{"type":"thread.started","thread_id":"thread-123","padding":"'

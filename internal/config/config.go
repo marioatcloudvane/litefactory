@@ -188,6 +188,20 @@ type Codex struct {
 	// in deliberately, for the same reason WritableRoots is a list they
 	// write rather than one litefactory infers.
 	NetworkAccess bool `yaml:"network_access"`
+
+	// AllowUserConfig drops --ignore-user-config from argv. False (the
+	// default) keeps it, and keeps a run isolated from whatever the
+	// operator's personal $CODEX_HOME/config.toml happens to say.
+	//
+	// It exists because that flag suppresses more than its name suggests.
+	// Measured on 2026-09-02 against codex-cli 0.152.1: with the flag,
+	// Codex also stops reading the repository's own .codex/skills — so the
+	// checked-in specialist instructions, the Codex-side counterpart of
+	// .claude/agents, never reach the model. Isolation and the team are
+	// the same switch, and this is the honest way to say so until the
+	// runner learns to point Codex at a litefactory-owned CODEX_HOME
+	// instead, which is the real fix.
+	AllowUserConfig bool `yaml:"allow_user_config"`
 }
 
 // GitHub configures the forge client and, indirectly, the bot credential.

@@ -48,9 +48,12 @@ type Runner struct {
 	writable []string
 	// network reports that the operator lifted the sandbox's network ban.
 	network bool
-	timeout time.Duration
-	environ []string
-	logger  *slog.Logger
+	// userConfig reports that the operator let Codex read its own config,
+	// which is also what lets the repository's .codex/skills be seen.
+	userConfig bool
+	timeout    time.Duration
+	environ    []string
+	logger     *slog.Logger
 }
 
 type Sandbox struct{ Mode string }
@@ -88,7 +91,7 @@ func New(opts Options) (*Runner, error) {
 	}
 	return &Runner{binary: binary, home: opts.Paths.Home(), sandbox: opts.Codex.DefaultSandbox,
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
-		network: opts.Codex.NetworkAccess,
+		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
 		environ: append([]string(nil), opts.Environ...), logger: opts.Logger}, nil
 }
@@ -188,7 +191,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 }
 
 func (r *Runner) args(req agent.Request, sandbox string) []string {
-	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", sandbox}
+	args := []string{"exec", "--json"}
+	// Dropping this is what lets the repository's .codex/skills reach the
+	// model, at the cost of Codex also reading the operator's own
+	// config.toml — one flag, both effects. See config.Codex.AllowUserConfig.
+	if !r.userConfig {
+		args = append(args, "--ignore-user-config")
+	}
+	args = append(args, "--ignore-rules", "--sandbox", sandbox)
 	// Before --model and before the subcommand, so the resume form below
 	// still ends with the prompt argument. A read-only run gets them too:
 	// --add-dir names a directory, and it is the sandbox mode that decides
