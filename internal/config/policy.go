@@ -25,6 +25,8 @@ var toolNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*$`)
 // one config string can never become two arguments.
 var modelNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 
+var autoCompactRE = regexp.MustCompile(`^(?:auto|(?:[1-9][0-9]{2}|1000)k|1M)$`)
+
 // validateModel checks the --model value.
 //
 // Empty is rejected rather than treated as "omit the flag": [Defaults] fills
@@ -38,6 +40,17 @@ func validateModel(c *Claude) []error {
 		return []error{fmt.Errorf("claude.model: must not be empty; omit the key to get %q", DefaultClaudeModel)}
 	case !modelNameRE.MatchString(entry):
 		return []error{fmt.Errorf("claude.model: %q is not a model name; --model takes an alias such as %q or a full model ID such as \"claude-opus-5\"", c.Model, DefaultClaudeModel)}
+	}
+	return nil
+}
+
+func validateAutoCompact(c *Claude) []error {
+	entry := strings.TrimSpace(c.AutoCompact)
+	if entry == "" {
+		return []error{fmt.Errorf("claude.autocompact: must not be empty; omit the key to get %q", DefaultClaudeAutoCompact)}
+	}
+	if !autoCompactRE.MatchString(entry) {
+		return []error{fmt.Errorf("claude.autocompact: %q must be auto or a token threshold from 100k through 1M", c.AutoCompact)}
 	}
 	return nil
 }
@@ -57,24 +70,15 @@ var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 // so it is a concrete list and never a wildcard. Task is included because
 // aiteam's agents are subagent invocations.
 //
-// SendMessage travels with Task and is not optional alongside it. Task
-// dispatches asynchronously: the call returns a receipt naming the launched
-// agent, not that agent's findings. An agent that then ends its turn is
-// suspended rather than finished, and it cannot wake itself — SendMessage is
-// the only way anything wakes it again. So a surface holding Task without
-// SendMessage lets an orchestrator start work that nothing can ever resume:
-// the children finish, the parent stays parked, and the run exits 0 having
-// produced nothing. Grant both or neither.
-//
 // Every name here was measured to resolve. One that did not, a todo-writing
 // tool, used to be listed and was silently dropped: runs requested eight tools
 // and the init event reported seven, with no error raised and no todo-shaped
-// name in any log. SendMessage was probed the same way before being added here
-// — eight requested, eight resolved. A list that asks for a tool nobody grants
-// teaches the reader that the list is approximate, which is the last thing the
-// tool boundary should look like.
+// name in any log. A list that asks for a tool nobody grants teaches the reader
+// that the list is approximate, which is the last thing the tool boundary
+// should look like. SendMessage is deliberately absent: background tasks are
+// disabled and foreground Task results return directly to their caller.
 func defaultTools() []string {
-	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task", "SendMessage"}
+	return []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"}
 }
 
 // defaultAllowedTools is the --allowedTools permission list `init` writes.
@@ -88,9 +92,6 @@ func defaultAllowedTools() []string {
 		"Grep",
 		"Edit",
 		"Write",
-		// Paired with Task on the --tools surface: see [defaultTools]. Without
-		// it an orchestrator can launch a sub-agent and never collect it.
-		"SendMessage",
 		"Bash(git status:*)",
 		"Bash(git diff:*)",
 		"Bash(git log:*)",

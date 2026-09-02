@@ -8,7 +8,7 @@ Do NOT use this agent for:
 - Planning or task breakdown (use proxy-product-owner)
 - Analysis without implementation (invoke in analysis-only mode explicitly)
 - Environment/database provisioning without a coding task (invoke in setup-only mode explicitly)
-tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite, SendMessage
+tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
 model: sonnet
 color: pink
 ---
@@ -313,20 +313,9 @@ Route back to the implement-orchestrator with your task report (or the analysis-
 
 ## Reporting back when you are done
 
-Your findings do not reach whoever invoked you on their own. `Task` dispatches
-asynchronously, so by the time you finish, the agent that invoked you has
-almost certainly ended its turn and been suspended. Ending your own turn with
-your findings as final text leaves them with nobody awake to read them — that
-is how a run reaches exit 0 having produced nothing.
-
-So finish by calling `SendMessage` on the agent that invoked you, carrying your
-findings in the message itself, not a note saying they are ready. If what you
-produced is a file, say where it is and what changed; if it is a review or a
-report with no file behind it, paste the whole thing — that text is the only
-copy, and a summary of it is not the deliverable.
-
-Then end your turn as normal. The final text still stands as your output for
-anything that can read it; the message is what makes sure something does.
+Return the task report as your final text. You run in the foreground, so that
+text is delivered directly as the invoking orchestrator's `Task` result. Do not
+send a separate status message and do not end on a progress-only report.
 
 ## litefactory does the committing, not you
 

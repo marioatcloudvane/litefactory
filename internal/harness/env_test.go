@@ -23,6 +23,7 @@ func daemonEnviron() []string {
 		"LC_ALL=en_US.UTF-8",
 		"TERM=xterm-256color",
 		"TMPDIR=/var/folders/xx/T/",
+		DisableBackgroundTasksEnv + "=0",
 		"EDITOR=vi",
 
 		// Must not reach the child.
@@ -67,6 +68,7 @@ func TestBuildEnvPassesOnlyTheAllowlist(t *testing.T) {
 		"LC_ALL=en_US.UTF-8",
 		"TERM=xterm-256color",
 		"TMPDIR=/var/folders/xx/T/",
+		DisableBackgroundTasksEnv + "=1",
 	}
 	if !slices.Equal(env, want) {
 		t.Fatalf("child environment\n got %q\nwant %q", env, want)
@@ -79,6 +81,16 @@ func TestBuildEnvAlwaysCarriesUSER(t *testing.T) {
 	env := buildEnv(daemonEnviron(), false)
 	if !slices.Contains(env, "USER=tester") {
 		t.Fatalf("USER missing from child environment %q; Keychain auth will fail", env)
+	}
+}
+
+func TestBuildEnvForcesForegroundSubagents(t *testing.T) {
+	env := buildEnv(daemonEnviron(), false)
+	if !slices.Contains(env, DisableBackgroundTasksEnv+"=1") {
+		t.Fatalf("foreground-subagent policy missing from child environment %q", env)
+	}
+	if slices.Contains(env, DisableBackgroundTasksEnv+"=0") {
+		t.Fatalf("ambient background-task setting overrode factory policy: %q", env)
 	}
 }
 
@@ -157,7 +169,7 @@ func TestBuildEnvAnthropicForwardingIsOrdered(t *testing.T) {
 
 func TestBuildEnvDropsEmptyValues(t *testing.T) {
 	env := buildEnv([]string{"PATH=/bin", "HOME=", "USER=tester", "TMPDIR="}, false)
-	want := []string{"PATH=/bin", "USER=tester"}
+	want := []string{"PATH=/bin", "USER=tester", DisableBackgroundTasksEnv + "=1"}
 	if !slices.Equal(env, want) {
 		t.Fatalf("empty values not dropped\n got %q\nwant %q", env, want)
 	}
@@ -175,7 +187,7 @@ func TestBuildEnvFallsBackToLaunchdPATH(t *testing.T) {
 
 func TestBuildEnvIgnoresMalformedEntries(t *testing.T) {
 	env := buildEnv([]string{"PATH=/bin", "not-an-assignment", "=novalue", "USER=tester"}, false)
-	want := []string{"PATH=/bin", "USER=tester"}
+	want := []string{"PATH=/bin", "USER=tester", DisableBackgroundTasksEnv + "=1"}
 	if !slices.Equal(env, want) {
 		t.Fatalf("malformed entries not ignored\n got %q\nwant %q", env, want)
 	}

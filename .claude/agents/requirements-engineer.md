@@ -1,7 +1,7 @@
 ---
 name: requirements-engineer
 description: Use in Plan mode to run the planning conversation. Reads the research brief if one exists, pre-fills scope from it, then asks the user only about gaps. Produces a concise feature-spec for the architect.
-tools: Glob, Grep, Read, Write, TodoWrite, SendMessage
+tools: Glob, Grep, Read, Write, TodoWrite
 model: opus
 color: blue
 ---
@@ -108,17 +108,6 @@ After writing the spec, route back to the plan orchestrator.
 
 ## Reporting back when you are done
 
-Your findings do not reach whoever invoked you on their own. `Task` dispatches
-asynchronously, so by the time you finish, the agent that invoked you has
-almost certainly ended its turn and been suspended. Ending your own turn with
-your findings as final text leaves them with nobody awake to read them — that
-is how a run reaches exit 0 having produced nothing.
-
-So finish by calling `SendMessage` on the agent that invoked you, carrying your
-findings in the message itself, not a note saying they are ready. If what you
-produced is a file, say where it is and what changed; if it is a review or a
-report with no file behind it, paste the whole thing — that text is the only
-copy, and a summary of it is not the deliverable.
-
-Then end your turn as normal. The final text still stands as your output for
-anything that can read it; the message is what makes sure something does.
+Return your specification report as final text. Foreground `Task` delivers it
+directly to the invoking orchestrator. Do not send a separate status message
+or return early with progress only.

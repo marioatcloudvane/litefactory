@@ -157,6 +157,11 @@ type Claude struct {
 	// --model, so the model a run used is a property of its argv rather than
 	// of whatever the claude CLI happened to default to that week.
 	Model string `yaml:"model"`
+	// AutoCompact is the context size at which Claude Code compacts the
+	// persisted conversation. Claude accepts "auto" or 100k through 1M.
+	// A bounded default prevents long agent workflows from making every later
+	// tool call re-read an almost-full million-token transcript.
+	AutoCompact string `yaml:"autocompact"`
 	// Tools is the --tools surface: the real tool boundary. Must be non-empty
 	// — omitting the flag means allow-all.
 	Tools []string `yaml:"tools"`
@@ -238,6 +243,7 @@ func Defaults() Config {
 		Claude: Claude{
 			Binary:              DefaultClaudeBinary,
 			Model:               DefaultClaudeModel,
+			AutoCompact:         DefaultClaudeAutoCompact,
 			Tools:               defaultTools(),
 			AllowedTools:        defaultAllowedTools(),
 			TimeoutSeconds:      DefaultClaudeTimeoutSeconds,
@@ -257,6 +263,7 @@ const (
 	DefaultAPIBase              = "https://api.github.com"
 	DefaultClaudeBinary         = "claude"
 	DefaultClaudeTimeoutSeconds = 1800
+	DefaultClaudeAutoCompact    = "100k"
 	// DefaultClaudeModel is the model the top-level session runs on when
 	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
 	DefaultClaudeModel = "sonnet"

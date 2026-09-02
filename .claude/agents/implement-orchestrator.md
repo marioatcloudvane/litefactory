@@ -1,7 +1,7 @@
 ---
 name: implement-orchestrator
 description: Orchestrates Implement mode. Use when an implementation plan has been approved and is ready to be built. Drives four sequential phases — development, code review gate, environment setup, testing, bug loop — with two gates and a 2-cycle bug loop. All sub-agents are drawn from the agent roster at runtime.
-tools: Read, Write, Edit, Bash, Task, SendMessage, TodoWrite
+tools: Read, Write, Edit, Bash, Task, TodoWrite
 model: sonnet
 color: orange
 ---
@@ -82,12 +82,11 @@ It is **not** a way around not having `Grep`. Do not run `grep`, `git grep`,
 routing them through a shell does not make them a gate check. `git diff` in
 particular is reviewing; the reviewer does that and reports back to you.
 
-Do not use `Bash` to wait, either — no `sleep`, no polling loop over `git
-status`. A `Task` does *not* return when its agent is done; it returns a receipt
-immediately, and the agent reports later by sending you a message. So polling the
-filesystem answers the wrong question twice over: it burns the turn you are
-supposed to end, and a file appearing is not the report you need anyway. See
-*The agents you invoke are asynchronous* below for what to do instead.
+Do not use `Bash` to wait, either — no `sleep` and no polling loop over `git
+status`. Sub-agents run in the foreground: `Task` blocks until the agent returns
+its terminal report. Consume that result directly. A missing or failed report is
+an explicit step failure, not a reason to poll the filesystem or invoke the agent
+again for status.
 
 
 ### litefactory does the committing, not you
@@ -146,61 +145,18 @@ There is no separate `TEST_PLAN.md` artifact in this lightweight team — test e
 
 ---
 
-## The agents you invoke are asynchronous
+## The agents you invoke are foreground operations
 
-Read this before invoking anything. It is not about parallelism — it applies to
-a single agent exactly as much as to a fan-out.
+litefactory disables Claude's background-task mode. `Task` returns the invoked
+agent's terminal report directly. Invoke each agent once, consume that result,
+and never send a status check or resume it inside this run.
 
-**`Task` returns a receipt, not findings.** Invoking an agent hands you an id and
-starts it in the background. Its findings arrive later, as that agent's own final
-text.
-
-**An agent that ends its turn is suspended, not finished.** It keeps its context
-and can be woken again. What it cannot do is wake itself — so an agent that stops
-while children are outstanding stays stopped unless something pokes it.
-
-**Completion notifications go to the run's top-level session, not to you.** When a
-child you launched finishes, the notification lands there. You do not receive it.
-You learn a child is done by being woken and looking.
-
-**`SendMessage` is that poke, and it is asynchronous too.** It returns
-`{"success":true,"message":"Resuming agent …"}` the instant it is called. It does
-not block and it does not hand you the agent's reply. It wakes the agent; the
-reply arrives the way any other agent output does.
-
-So a correct hand-off has this shape:
-
-1. **Launch.** Invoke the agents you need. Several in one message is fine and
-   still concurrent.
-2. **Keep working if you can.** Anything that does not depend on a child is work
-   to do now, and doing it keeps you inside your turn while the children run.
-3. **When you are woken, look first.** Check whether the reports you were waiting
-   on have arrived. If they have, use them and finish your artifact.
-4. **If a child is still outstanding, `SendMessage` it, then end your turn
-   again.** Repeat. Several rounds is normal and is not a failure.
-
-Two things never to do:
-
-- **Never end a turn on "I'll wait for it to report back."** That sentence is how
-  a run produces nothing: it reads as progress and is indistinguishable from a
-  stall. With nothing to do, say what is outstanding and what you will do when it
-  lands — then wake it.
-- **Never substitute your own guess for a child's findings**, and never finish an
-  artifact on a partial set. An artifact that says a report is missing is worth
-  more than one that quietly invents it.
-
-The agents you invoke report back with `SendMessage`, addressed to you — they
-each carry the tool for that reason. Ending a turn with findings as final text
-is not enough when the agent that invoked them is suspended, which by then it
-usually is, so the message is what actually delivers the work. Expect their
-findings to arrive that way, and if one has clearly finished without sending
-anything, wake it and ask for the content rather than settling for a summary or
-writing your artifact around the gap.
-
-This orchestrator fans out harder than the other two — one engineer per story,
-one per bug, unit and integration suites side by side. Gate A is not a pause you
-sit at; it is the point where you check what has come back and wake whatever has
-not. Nothing advances a phase except reports you have actually read.
+Independent agents may be invoked together in one tool-call batch. Whether the
+CLI schedules that batch concurrently or sequentially is its concern; the gate
+opens only after every call in the batch has returned. A missing, failed, or
+`BLOCKED` report is a gate failure to handle explicitly, never a reason to poll.
+Never substitute your own guess for a child's findings or finish an artifact on
+a partial set.
 
 ## Phase 1 — Development
 

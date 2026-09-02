@@ -103,6 +103,12 @@ claude:
   # model ID ("claude-opus-5").
   model: "%s"
 
+  # Compact long persisted conversations before their full history makes
+  # every later tool call expensive. Claude accepts "auto" or a threshold
+  # from 100k through 1M. 100k keeps same-mode conversational continuity
+  # while bounding the context re-read by long agent workflows.
+  autocompact: "%s"
+
   # tools is the real tool boundary. It becomes --tools, which restricts which
   # built-in tools claude may use at all, and it is what the run's init event
   # reports as the tool surface. Bare tool names only.
@@ -133,7 +139,6 @@ claude:
   #   - "Write"
   #   - "Bash"
   #   - "Task"
-  #   - "SendMessage"
   #   - "WebFetch"
 
   # tool_profiles are named tool surfaces. Put a label of the exact form
@@ -166,12 +171,10 @@ claude:
   #       - "Grep"
   #       - "Bash"
   #       - "Task"
-  #       - "SendMessage"
   #     allowed_tools:
   #       - "Read"
   #       - "Glob"
   #       - "Grep"
-  #       - "SendMessage"
   #       - "Bash(ls:*)"
   #       - "Bash(cat:*)"
   #       - "Bash(rg:*)"
@@ -207,6 +210,7 @@ func DefaultFileContents() []byte {
 		d.GitHub.APIBase,
 		d.Claude.Binary, d.Claude.Binary,
 		d.Claude.Model,
+		d.Claude.AutoCompact,
 		yamlList("tools", d.Claude.Tools),
 		yamlList("allowed_tools", d.Claude.AllowedTools),
 		d.Claude.TimeoutSeconds,

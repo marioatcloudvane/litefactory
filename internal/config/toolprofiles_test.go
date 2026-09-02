@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -402,13 +403,13 @@ func TestStartupErrorsAreDeterministicAcrossManyBoots(t *testing.T) {
 	}
 }
 
-// AC-1.12 — defaultTools() is exactly the 7 tools that actually resolve.
+// AC-1.12 — defaultTools() is exactly the tools the foreground workflow uses.
 // TodoWrite is requested by nothing here on purpose: measured from run logs,
 // the CLI accepts it, silently drops it, and raises no error (8 requested, 7
 // resolved) — see defaultTools()'s own doc comment and the plan's "Settled
 // before planning" section.
-func TestDefaultToolsIsExactlyTheSevenThatResolve(t *testing.T) {
-	want := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task", "SendMessage"}
+func TestDefaultToolsIsExactlyTheForegroundSurface(t *testing.T) {
+	want := []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"}
 	got := Defaults().Claude.Tools
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Defaults().Claude.Tools (-want +got):\n%s", diff)
@@ -417,6 +418,9 @@ func TestDefaultToolsIsExactlyTheSevenThatResolve(t *testing.T) {
 		if tool == "TodoWrite" {
 			t.Fatal("defaultTools() still lists TodoWrite, which is requested but silently dropped")
 		}
+	}
+	if slices.Contains(got, "SendMessage") {
+		t.Fatal("defaultTools() admits SendMessage; foreground subagent results must return through Task")
 	}
 }
 

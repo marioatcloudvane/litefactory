@@ -542,6 +542,33 @@ func TestModelDefaultsToTheCheapOne(t *testing.T) {
 	}
 }
 
+func TestAutoCompactDefaultsToBoundedContext(t *testing.T) {
+	cfg, err := Decode(strings.NewReader("claude:\n  binary: claude\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if cfg.Claude.AutoCompact != DefaultClaudeAutoCompact {
+		t.Errorf("AutoCompact = %q, want %q", cfg.Claude.AutoCompact, DefaultClaudeAutoCompact)
+	}
+}
+
+func TestValidateAutoCompact(t *testing.T) {
+	for _, value := range []string{"auto", "100k", "250k", "999k", "1000k", "1M"} {
+		c := Defaults().Claude
+		c.AutoCompact = value
+		if errs := validateAutoCompact(&c); len(errs) > 0 {
+			t.Errorf("autocompact %q was rejected: %v", value, errs)
+		}
+	}
+	for _, value := range []string{"", "99k", "1001k", "2M", "250K", "250k extra"} {
+		c := Defaults().Claude
+		c.AutoCompact = value
+		if errs := validateAutoCompact(&c); len(errs) == 0 {
+			t.Errorf("autocompact %q was accepted", value)
+		}
+	}
+}
+
 // TestModelIsTakenFromTheFileWhenWritten is the other half: the default exists
 // to be overridden, and a written value must survive decoding unchanged.
 func TestModelIsTakenFromTheFileWhenWritten(t *testing.T) {

@@ -52,6 +52,11 @@ var envAllowlist = []string{
 // opts into forwarding.
 const AnthropicEnvPrefix = "ANTHROPIC_"
 
+// DisableBackgroundTasksEnv makes subagent calls foreground operations. Their
+// result is then returned directly to the invoking agent instead of requiring
+// a paid SendMessage wake/poll loop to discover whether they finished.
+const DisableBackgroundTasksEnv = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
+
 // fallbackPATH is launchd's own PATH. A LaunchAgent inherits exactly this, so
 // it is the honest fallback when PATH is missing entirely — better than leaving
 // the child unable to find node or git at all.
@@ -88,7 +93,7 @@ func IsSecretEnvName(name string) bool { return secretNameRE.MatchString(name) }
 func buildEnv(parent []string, forwardAnthropic bool) []string {
 	values := envMap(parent)
 
-	env := make([]string, 0, len(envAllowlist)+2)
+	env := make([]string, 0, len(envAllowlist)+3)
 	for _, name := range envAllowlist {
 		value := values[name]
 		if name == "PATH" && value == "" {
@@ -103,6 +108,9 @@ func buildEnv(parent []string, forwardAnthropic bool) []string {
 	if forwardAnthropic {
 		env = append(env, anthropicEnv(values)...)
 	}
+	// This is factory policy, not ambient configuration: always force the
+	// value even when the daemon's own environment says otherwise.
+	env = append(env, DisableBackgroundTasksEnv+"=1")
 	return env
 }
 

@@ -1,7 +1,7 @@
 ---
 name: research-orchestrator
 description: Orchestrates Research mode. Use when the user needs to understand an existing codebase, explore a problem space, or gather enough context to hand to Plan mode. Owns the lifecycle of producing RESEARCH_BRIEF.md under `$session/`.
-tools: Read, Write, Edit, Task, SendMessage, TodoWrite
+tools: Read, Write, Edit, Task, TodoWrite
 model: sonnet
 color: blue
 ---
@@ -121,61 +121,19 @@ your context and a second one in theirs, and answers nothing you decide.
 1. Classify the request: existing codebase work, new domain exploration, or user-facing feature.
 2. Invoke `codebase-tour` if there is existing code to understand.
 3. Invoke `web-researcher` if the question turns on anything outside the repository. Where both apply, invoke them **in the same message so they run concurrently** — neither depends on the other's output.
-4. **The launch is not the hand-off.** Their findings arrive later, and only once you have actually read both reports is there anything to synthesise — see *The agents you invoke are asynchronous* below.
+4. Each foreground invocation returns its findings directly. When both agents apply, wait for both `Task` results before synthesising.
 5. Synthesise all sub-agent findings into `RESEARCH_BRIEF.md` (see structure below).
 6. Present the brief to the user for confirmation before exiting.
 7. Finish with the **business summary** as the run's final message — see *The business summary* below. It is the last thing the run does; nothing follows it.
 
-## The agents you invoke are asynchronous
+## The agents you invoke are foreground operations
 
-Read this before invoking anything. It is not about parallelism — it applies to
-a single agent exactly as much as to a fan-out.
-
-**`Task` returns a receipt, not findings.** Invoking an agent hands you an id and
-starts it in the background. Its findings arrive later, as that agent's own final
-text.
-
-**An agent that ends its turn is suspended, not finished.** It keeps its context
-and can be woken again. What it cannot do is wake itself — so an agent that stops
-while children are outstanding stays stopped unless something pokes it.
-
-**Completion notifications go to the run's top-level session, not to you.** When a
-child you launched finishes, the notification lands there. You do not receive it.
-You learn a child is done by being woken and looking.
-
-**`SendMessage` is that poke, and it is asynchronous too.** It returns
-`{"success":true,"message":"Resuming agent …"}` the instant it is called. It does
-not block and it does not hand you the agent's reply. It wakes the agent; the
-reply arrives the way any other agent output does.
-
-So a correct hand-off has this shape:
-
-1. **Launch.** Invoke the agents you need. Several in one message is fine and
-   still concurrent.
-2. **Keep working if you can.** Anything that does not depend on a child is work
-   to do now, and doing it keeps you inside your turn while the children run.
-3. **When you are woken, look first.** Check whether the reports you were waiting
-   on have arrived. If they have, use them and finish your artifact.
-4. **If a child is still outstanding, `SendMessage` it, then end your turn
-   again.** Repeat. Several rounds is normal and is not a failure.
-
-Two things never to do:
-
-- **Never end a turn on "I'll wait for it to report back."** That sentence is how
-  a run produces nothing: it reads as progress and is indistinguishable from a
-  stall. With nothing to do, say what is outstanding and what you will do when it
-  lands — then wake it.
-- **Never substitute your own guess for a child's findings**, and never finish an
-  artifact on a partial set. An artifact that says a report is missing is worth
-  more than one that quietly invents it.
-
-The agents you invoke report back with `SendMessage`, addressed to you — they
-each carry the tool for that reason. Ending a turn with findings as final text
-is not enough when the agent that invoked them is suspended, which by then it
-usually is, so the message is what actually delivers the work. Expect their
-findings to arrive that way, and if one has clearly finished without sending
-anything, wake it and ask for the content rather than settling for a summary or
-writing your artifact around the gap.
+litefactory disables Claude's background-task mode. `Task` returns the invoked
+agent's terminal report directly. Invoke each agent once and never poll, poke,
+or resume it for status. Independent calls may be emitted together in one tool
+batch; continue only after both reports have returned. A missing, failed, or
+blocked report is an explicit research failure, not a reason to retry invisibly.
+Never substitute your own guess for a child's findings.
 
 ## RESEARCH_BRIEF.md structure
 
