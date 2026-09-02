@@ -86,6 +86,35 @@ func TestWritableRootsBecomeAddDirAndMustBeAbsolute(t *testing.T) {
 	}
 }
 
+// No directory grant reaches the sandbox's network ban, and the ban is what
+// stops net/http/httptest binding a loopback port — the failure that ended
+// issue #32's Implement run. Off by default, and one -c override when the
+// operator opts in.
+func TestNetworkAccessIsOptInAndReachesArgv(t *testing.T) {
+	const override = "-c sandbox_workspace_write.network_access=true"
+
+	off, offArgv := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	if _, err := off.Run(context.Background(), request(t, agent.PathCold)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := string(mustRead(t, offArgv)); strings.Contains(got, "network_access") {
+		t.Errorf("argv %q carries a network override with the key unset", got)
+	}
+
+	on, onArgv := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	on.network = true
+	if _, err := on.Run(context.Background(), request(t, agent.PathCold)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := strings.Join(strings.Fields(string(mustRead(t, onArgv))), " ")
+	if !strings.Contains(got, override) {
+		t.Errorf("argv %q missing %q", got, override)
+	}
+	if !strings.HasSuffix(got, "-") {
+		t.Errorf("argv %q does not end with the stdin prompt argument", got)
+	}
+}
+
 func fakeRunner(t *testing.T, body string, writable ...string) (*Runner, string) {
 	t.Helper()
 	dir := t.TempDir()

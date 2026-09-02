@@ -246,6 +246,12 @@ claude:
 #     writable_roots:
 #       - "/Users/you/Library/Caches/go-build"
 #       - "/Users/you/go/pkg/mod"
+#     # network_access lifts the sandbox's ban on network syscalls. No
+#     # directory grant reaches it: without it the sandbox refuses even a
+#     # loopback bind, so every test standing a fake server up with
+#     # net/http/httptest panics and a run cannot verify its own work. The
+#     # switch is not loopback-only -- granting it grants outbound network.
+#     network_access: true
 
 # tiers is litefactory's own table answering "for this coding-agent tool, at
 # this capability tier, which --model value runs": the vendor-neutral

@@ -46,9 +46,11 @@ type Runner struct {
 	// construction so a later mutation of the config cannot change what an
 	// in-flight run was launched with.
 	writable []string
-	timeout  time.Duration
-	environ  []string
-	logger   *slog.Logger
+	// network reports that the operator lifted the sandbox's network ban.
+	network bool
+	timeout time.Duration
+	environ []string
+	logger  *slog.Logger
 }
 
 type Sandbox struct{ Mode string }
@@ -86,6 +88,7 @@ func New(opts Options) (*Runner, error) {
 	}
 	return &Runner{binary: binary, home: opts.Paths.Home(), sandbox: opts.Codex.DefaultSandbox,
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
+		network: opts.Codex.NetworkAccess,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
 		environ: append([]string(nil), opts.Environ...), logger: opts.Logger}, nil
 }
@@ -192,6 +195,13 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 	// whether anything may be written to it.
 	for _, root := range r.writable {
 		args = append(args, "--add-dir", root)
+	}
+	// -c rather than a flag of its own, because Codex exposes this only as a
+	// config override. It is emitted regardless of sandbox mode: the key is
+	// namespaced to workspace-write and is inert under read-only, so keeping
+	// argv independent of the mode is one less interaction to reason about.
+	if r.network {
+		args = append(args, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	if r.model != "" {
 		args = append(args, "--model", r.model)

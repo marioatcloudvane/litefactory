@@ -165,6 +165,29 @@ type Codex struct {
 	// sandbox, and litefactory refuses to make that choice on the
 	// operator's behalf.
 	WritableRoots []string `yaml:"writable_roots"`
+
+	// NetworkAccess lifts the sandbox's ban on network syscalls, as
+	// -c sandbox_workspace_write.network_access=true. False (the default) is
+	// the narrow posture.
+	//
+	// It is a separate key from [Codex.WritableRoots] because it is a
+	// separate boundary: no directory grant reaches it. Measured on
+	// 2026-09-02 against codex-cli 0.152.1, a workspace-write sandbox
+	// refuses to bind even a loopback port —
+	//
+	//	panic: httptest: failed to listen on a port:
+	//	       listen tcp6 [::1]:0: bind: operation not permitted
+	//
+	// — which is every test in this repository that stands a fake forge up
+	// with net/http/httptest, so a Codex run could not verify its own work
+	// on internal/daemon, internal/turn or internal/report. That is what
+	// ended issue #32's Implement run with nothing committed.
+	//
+	// The widening is real and it is not loopback-only: Codex offers one
+	// switch, so granting it grants outbound network too. The operator opts
+	// in deliberately, for the same reason WritableRoots is a list they
+	// write rather than one litefactory infers.
+	NetworkAccess bool `yaml:"network_access"`
 }
 
 // GitHub configures the forge client and, indirectly, the bot credential.
