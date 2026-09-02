@@ -202,6 +202,7 @@ func validateClaude(c *Claude) []error {
 	}
 
 	errs = append(errs, validateModel(c)...)
+	errs = append(errs, validateAutoCompact(c)...)
 	errs = append(errs, validateTools("claude.tools", c.Tools)...)
 	errs = append(errs, validateAllowedTools("claude.allowed_tools", c.AllowedTools)...)
 	errs = append(errs, validateToolCeiling(c)...)

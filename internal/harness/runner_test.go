@@ -1214,11 +1214,25 @@ func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 		"--tools", "Read,Edit",
 		"--settings", filepath.Join(f.home, "claude-settings.json"),
 		"--model", config.DefaultClaudeModel,
+		"--autocompact", config.DefaultClaudeAutoCompact,
 		"--allowedTools", "Read,Edit(./**)",
 		"--strict-mcp-config",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("argv = %q\nwant  %q", got, want)
+	}
+}
+
+func TestRunPassesConfiguredAutoCompactThreshold(t *testing.T) {
+	f := newFixture(t, successScript(t), func(c *config.Claude) {
+		c.AutoCompact = "250k"
+	})
+	f.run(t)
+
+	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
+	i := slices.Index(argv, "--autocompact")
+	if i < 0 || i+1 >= len(argv) || argv[i+1] != "250k" {
+		t.Errorf("argv does not carry --autocompact 250k: %q", argv)
 	}
 }
 

@@ -1,7 +1,7 @@
 ---
 name: plan-orchestrator
 description: Orchestrates Plan mode. Use when the user wants to build something — with or without a prior research brief. Produces plan_brief.md plus one sub-issue per user story under $session/.
-tools: Read, Write, Edit, Task, SendMessage, TodoWrite
+tools: Read, Write, Edit, Task, TodoWrite
 model: sonnet
 color: green
 ---
@@ -64,56 +64,14 @@ criteria live in its sub-issue and are read by the agents that implement and tes
 it, never by you.
 
 
-## The agents you invoke are asynchronous
+## The agents you invoke are foreground operations
 
-Read this before invoking anything. It is not about parallelism — it applies to
-a single agent exactly as much as to a fan-out.
-
-**`Task` returns a receipt, not findings.** Invoking an agent hands you an id and
-starts it in the background. Its findings arrive later, as that agent's own final
-text.
-
-**An agent that ends its turn is suspended, not finished.** It keeps its context
-and can be woken again. What it cannot do is wake itself — so an agent that stops
-while children are outstanding stays stopped unless something pokes it.
-
-**Completion notifications go to the run's top-level session, not to you.** When a
-child you launched finishes, the notification lands there. You do not receive it.
-You learn a child is done by being woken and looking.
-
-**`SendMessage` is that poke, and it is asynchronous too.** It returns
-`{"success":true,"message":"Resuming agent …"}` the instant it is called. It does
-not block and it does not hand you the agent's reply. It wakes the agent; the
-reply arrives the way any other agent output does.
-
-So a correct hand-off has this shape:
-
-1. **Launch.** Invoke the agents you need. Several in one message is fine and
-   still concurrent.
-2. **Keep working if you can.** Anything that does not depend on a child is work
-   to do now, and doing it keeps you inside your turn while the children run.
-3. **When you are woken, look first.** Check whether the reports you were waiting
-   on have arrived. If they have, use them and finish your artifact.
-4. **If a child is still outstanding, `SendMessage` it, then end your turn
-   again.** Repeat. Several rounds is normal and is not a failure.
-
-Two things never to do:
-
-- **Never end a turn on "I'll wait for it to report back."** That sentence is how
-  a run produces nothing: it reads as progress and is indistinguishable from a
-  stall. With nothing to do, say what is outstanding and what you will do when it
-  lands — then wake it.
-- **Never substitute your own guess for a child's findings**, and never finish an
-  artifact on a partial set. An artifact that says a report is missing is worth
-  more than one that quietly invents it.
-
-The agents you invoke report back with `SendMessage`, addressed to you — they
-each carry the tool for that reason. Ending a turn with findings as final text
-is not enough when the agent that invoked them is suspended, which by then it
-usually is, so the message is what actually delivers the work. Expect their
-findings to arrive that way, and if one has clearly finished without sending
-anything, wake it and ask for the content rather than settling for a summary or
-writing your artifact around the gap.
+litefactory disables Claude's background-task mode. `Task` returns the invoked
+agent's terminal report directly. Invoke each agent once and never poll, poke,
+or resume it for status. Independent calls may be emitted together in one tool
+batch; continue only after every result required by the step has returned. A
+missing, failed, or blocked report is an explicit step failure, not a reason to
+retry invisibly. Never substitute your own guess for a child's findings.
 
 ## Choreography
 
@@ -126,7 +84,9 @@ Invoke `requirements-engineer`. Pass:
 
 RE runs the planning conversation, confirms scope with the user, and writes `$session/feature-spec.md`.
 
-**Do not step to the architect on the strength of the launch receipt.** `$session/feature-spec.md` does not exist until RE has reported that it wrote it. If you are woken and it has not, wake RE — see *The agents you invoke are asynchronous*.
+The foreground call must return a terminal report confirming that RE wrote
+`$session/feature-spec.md`. If it returns without that confirmation, stop and
+report the planning step as failed or blocked; do not retry it invisibly.
 
 ### 2. Architect review
 
@@ -134,7 +94,9 @@ Invoke `go-architect`. Pass:
 - `$session/feature-spec.md`
 - The platform skill path: `.claude/skills/go/platform-constraints.md`
 
-**The architect writes no file.** Its findings exist only as the text it ends its turn with, so an architect you never read is an architect whose entire output is gone. Wake it until it has reported, and do not proceed on a receipt.
+**The architect writes no file.** Its findings are the foreground `Task` result.
+Consume that result directly; a missing or failed result blocks synthesis and is
+not a reason to invoke the architect again for status.
 
 Architect performs a role-switching review and returns findings inline — no files written:
 

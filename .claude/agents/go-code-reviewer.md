@@ -1,12 +1,12 @@
 ---
 name: go-code-reviewer
 # tools is explicit so that this agent cannot spawn a sub-agent of its own.
-# Task is deliberately absent: every extra level of nesting adds a suspend/wake
-# round-trip that has to complete before the run's process exits, and a run on
+# Task is deliberately absent: every extra level of nesting adds context and
+# coordination overhead before the run's process exits, and a run on
 # issue #8 died with a go-architect -> Explore call still mid-flight, so the
 # architect never reported and the plan was never written. Depth is what costs
 # a run its artifact, not breadth. Do the looking yourself.
-tools: Read, Write, Glob, Grep, Bash, TodoWrite, SendMessage
+tools: Read, Write, Glob, Grep, Bash, TodoWrite
 description: Use this agent after Gate A (all implementation agents done) and before environment setup. Reads all files committed in Phase 1 against the architectural hints passed to it by the orchestrator (from plan_brief.md plus each story's sub-issue), then checks for cross-story consistency, Go idiom/style, error handling, concurrency safety, resource management, security, and performance anti-patterns. Writes $session/CODE_REVIEW.md classifying findings as BLOCKING or ADVISORY. Routes back to the implement-orchestrator.
 
 Do NOT use this agent for:
@@ -225,17 +225,6 @@ Do not invoke any other agents yourself. Do not attempt fixes. Identify precisel
 
 ## Reporting back when you are done
 
-Your findings do not reach whoever invoked you on their own. `Task` dispatches
-asynchronously, so by the time you finish, the agent that invoked you has
-almost certainly ended its turn and been suspended. Ending your own turn with
-your findings as final text leaves them with nobody awake to read them — that
-is how a run reaches exit 0 having produced nothing.
-
-So finish by calling `SendMessage` on the agent that invoked you, carrying your
-findings in the message itself, not a note saying they are ready. If what you
-produced is a file, say where it is and what changed; if it is a review or a
-report with no file behind it, paste the whole thing — that text is the only
-copy, and a summary of it is not the deliverable.
-
-Then end your turn as normal. The final text still stands as your output for
-anything that can read it; the message is what makes sure something does.
+Return your review as final text. Foreground `Task` delivers it directly to the
+invoking orchestrator. Do not send a separate status message or return early
+with progress only.

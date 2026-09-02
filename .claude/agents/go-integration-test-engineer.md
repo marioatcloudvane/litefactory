@@ -1,12 +1,12 @@
 ---
 name: go-integration-test-engineer
 # tools is explicit so that this agent cannot spawn a sub-agent of its own.
-# Task is deliberately absent: every extra level of nesting adds a suspend/wake
-# round-trip that has to complete before the run's process exits, and a run on
+# Task is deliberately absent: every extra level of nesting adds context and
+# coordination overhead before the run's process exits, and a run on
 # issue #8 died with a go-architect -> Explore call still mid-flight, so the
 # architect never reported and the plan was never written. Depth is what costs
 # a run its artifact, not breadth. Do the looking yourself.
-tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite, SendMessage
+tools: Read, Write, Edit, Glob, Grep, Bash, TodoWrite
 description: Use this agent after Gate A (all implementation agents done) for any user story whose sub-issue (passed via plan_brief.md's Story Index) shows tasks touching real infrastructure — a database, an HTTP call to another service, or a message queue. This agent derives its own integration test cases directly from the story's Acceptance Criteria (there is no separate TEST_PLAN.md or test-manager hand-off in this team). It writes Go integration tests tagged `//go:build integration`, runs them with real dependencies (testcontainers-go, or TEST_DATABASE_URL / TEST_BASE_URL when the project already has that convention), and reports pass/fail results. This agent is OPTIONAL — skip it entirely for stories with no real I/O.
 
 Do NOT use this agent for:
@@ -196,17 +196,6 @@ Route back to the implement-orchestrator with:
 
 ## Reporting back when you are done
 
-Your findings do not reach whoever invoked you on their own. `Task` dispatches
-asynchronously, so by the time you finish, the agent that invoked you has
-almost certainly ended its turn and been suspended. Ending your own turn with
-your findings as final text leaves them with nobody awake to read them — that
-is how a run reaches exit 0 having produced nothing.
-
-So finish by calling `SendMessage` on the agent that invoked you, carrying your
-findings in the message itself, not a note saying they are ready. If what you
-produced is a file, say where it is and what changed; if it is a review or a
-report with no file behind it, paste the whole thing — that text is the only
-copy, and a summary of it is not the deliverable.
-
-Then end your turn as normal. The final text still stands as your output for
-anything that can read it; the message is what makes sure something does.
+Return the test report as your final text. You run in the foreground, so that
+text is delivered directly as the invoking orchestrator's `Task` result. Do not
+send a separate status message and do not end on a progress-only report.

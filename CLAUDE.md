@@ -67,16 +67,12 @@ it reads what it needs. Never invoke a specialist sub-agent (`go-architect`,
 is an orchestrator's job. An orchestrator returns either its artifact or a
 question, and you do not track what happened inside it.
 
-**Then see it through.** Invoking an agent is asynchronous: the call hands back a
-receipt, not a result, and an orchestrator that ends its turn is suspended rather
-than finished. Background completions wake *you*, not it.
-
-So when a completion wakes you, never answer "still waiting" and stop — that is
-exactly how a run reaches exit 0 with no artifact and a comment claiming progress.
-Look instead: if the mode's artifact is not on disk, `SendMessage` the orchestrator
-to wake it, then end your turn again and repeat. `SendMessage` returns immediately
-and does not carry the reply, so one call is a poke, not a collection; several
-rounds is normal.
+**Then see it through.** litefactory forces subagents to run in the foreground.
+The orchestrator invocation therefore returns its terminal result directly; it is
+not a receipt and needs no wake-up message. Invoke it once, read that result once,
+and check the expected artifact once. If the result says it failed, or the artifact
+is absent after it returned, report that failure honestly and stop. Never poll,
+poke, resume, or ask an orchestrator for status inside the same run.
 
 Routing is not finished when the hand-off is made. It is finished when the
 artifact exists.
@@ -87,7 +83,7 @@ Outside Spike, your whole job is: classify, set up, hand off, report. If you fin
 yourself reading source files, searching the codebase, or forming a view about
 the design, you have stopped routing.
 
-Waking an orchestrator is routing. Doing its job for it is not: never read its
+Doing an orchestrator's job for it is not routing: never read its
 sub-agents' output and paste it back to it, never assemble its artifact, and never
 grep the codebase to check its work. If an orchestrator cannot finish, say so and
 stop — a run that reports honestly costs less than one whose artifact was written

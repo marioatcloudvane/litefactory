@@ -99,11 +99,12 @@ type Runner struct {
 	settingsPath string
 	// model is the --model the top-level session runs on. Sub-agents that name
 	// their own model in their definition are unaffected by it.
-	model      string
-	timeout    time.Duration
-	forwardEnv bool
-	environ    []string
-	logger     *slog.Logger
+	model       string
+	autoCompact string
+	timeout     time.Duration
+	forwardEnv  bool
+	environ     []string
+	logger      *slog.Logger
 }
 
 // New resolves the claude binary and returns a ready [Runner].
@@ -155,6 +156,10 @@ func New(opts Options) (*Runner, error) {
 	if model == "" {
 		model = config.DefaultClaudeModel
 	}
+	autoCompact := opts.Claude.AutoCompact
+	if autoCompact == "" {
+		autoCompact = config.DefaultClaudeAutoCompact
+	}
 
 	environ := append([]string(nil), opts.Environ...)
 	pathEnv := envMap(environ)["PATH"]
@@ -192,6 +197,7 @@ func New(opts Options) (*Runner, error) {
 		ceiling:      append([]string(nil), ceiling...),
 		settingsPath: settingsPath,
 		model:        model,
+		autoCompact:  autoCompact,
 		timeout:      time.Duration(opts.Claude.TimeoutSeconds) * time.Second,
 		forwardEnv:   opts.Claude.ForwardAnthropicEnv,
 		environ:      environ,
@@ -395,6 +401,7 @@ func (r *Runner) args(req agent.Request) []string {
 		// runs on that, which is what lets a cheap router dispatch to
 		// expensive orchestrators.
 		"--model", r.model,
+		"--autocompact", r.autoCompact,
 	}
 	if len(allowedTools) > 0 {
 		// Comma-joined into a single argument rather than passed variadically:

@@ -103,6 +103,12 @@ claude:
   # model ID ("claude-opus-5").
   model: "%s"
 
+  # Compact long persisted conversations before their full history makes
+  # every later tool call expensive. Claude accepts "auto" or a threshold
+  # from 100k through 1M. 100k keeps same-mode conversational continuity
+  # while bounding the context re-read by long agent workflows.
+  autocompact: "%s"
+
   # model_tier optionally selects --model by vendor-neutral capability tier
   # (flagship, balanced or fast) instead of the literal model above: when
   # set, it is resolved through tiers.model_by_tier below for "claude" and
@@ -142,7 +148,6 @@ claude:
   #   - "Write"
   #   - "Bash"
   #   - "Task"
-  #   - "SendMessage"
   #   - "WebFetch"
 
   # tool_profiles are named tool surfaces, one stanza per coding-agent tool
@@ -182,12 +187,10 @@ claude:
   #         - "Grep"
   #         - "Bash"
   #         - "Task"
-  #         - "SendMessage"
   #       allowed_tools:
   #         - "Read"
   #         - "Glob"
   #         - "Grep"
-  #         - "SendMessage"
   #         - "Bash(ls:*)"
   #         - "Bash(cat:*)"
   #         - "Bash(rg:*)"
@@ -259,6 +262,7 @@ func DefaultFileContents() []byte {
 		d.GitHub.APIBase,
 		d.Claude.Binary, d.Claude.Binary,
 		d.Claude.Model,
+		d.Claude.AutoCompact,
 		yamlList("tools", d.Claude.Tools),
 		yamlList("allowed_tools", d.Claude.AllowedTools),
 		d.Claude.TimeoutSeconds,

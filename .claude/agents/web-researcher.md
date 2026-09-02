@@ -1,7 +1,7 @@
 ---
 name: web-researcher
 description: Answers questions that the repository cannot answer — library and API semantics, version and compatibility facts, protocol and format specifications, upstream bugs and deprecations, prior art. Invoked by the research-orchestrator when a research question depends on something outside this codebase. Returns findings inline; writes no files. This is the only agent in the team with web access.
-tools: WebSearch, WebFetch, TodoWrite, SendMessage
+tools: WebSearch, WebFetch, TodoWrite
 model: sonnet
 color: cyan
 ---
@@ -122,17 +122,6 @@ Inline, to the agent that invoked you:
 
 ## Reporting back when you are done
 
-Your findings do not reach whoever invoked you on their own. `Task` dispatches
-asynchronously, so by the time you finish, the agent that invoked you has
-almost certainly ended its turn and been suspended. Ending your own turn with
-your findings as final text leaves them with nobody awake to read them — that
-is how a run reaches exit 0 having produced nothing.
-
-So finish by calling `SendMessage` on the agent that invoked you, carrying your
-findings in the message itself, not a note saying they are ready. If what you
-produced is a file, say where it is and what changed; if it is a review or a
-report with no file behind it, paste the whole thing — that text is the only
-copy, and a summary of it is not the deliverable.
-
-Then end your turn as normal. The final text still stands as your output for
-anything that can read it; the message is what makes sure something does.
+Return your findings as final text. Foreground `Task` delivers them directly to
+the invoking orchestrator. Do not send a separate status message or return
+early with progress only.
