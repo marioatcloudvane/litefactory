@@ -22,6 +22,17 @@ asked for; nothing here licenses starting the next one.
   written with findings, constraints, and 6 open questions for Plan mode
   (chiefly: is this a documentation fix or a behavior change to the
   opt-in/off-by-default asking gate).
+- 2026-09-02 — Follow-up Research run: owner answered all 6 open questions on
+  the issue. Resolved as a documentation/prompt-clarity fix (no change to
+  modeMayAsk / lf: ask gating). A second, full-file codebase-tour pass audited
+  all 15 .claude/agents+modes files for headless/asking self-awareness;
+  confirmed requirements-engineer.md and implement-orchestrator.md's Phase 2
+  read as live-dialogue scripts rather than stop-and-surface instructions.
+  RESEARCH_BRIEF.md rewritten in place: prior open questions 5 and 6 (tool
+  labels, ARCHITECTURE.md) dropped as out of scope per owner; 5 new, narrower
+  open questions from the audit carried forward for Plan mode. Manifest not
+  re-ticked — Research was already marked done; this is an update within the
+  same completed mode, not a new mode entry.
 
 ## Notes
 
