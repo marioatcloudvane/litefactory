@@ -112,15 +112,15 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Canonical headless/asking vocabulary | S | — | |
-| US-2 | requirements-engineer.md self-awareness fix | M | US-1 | |
-| US-3 | implement-orchestrator.md — reword "pause and ask" sites | S | US-1, US-4 | |
-| US-4 | implement-orchestrator.md — severe-reason escalation path | M | US-1 | |
-| US-5 | implement-orchestrator.md Phase 2 — env-var test setup | M | US-1, US-3 | |
-| US-6 | spike.md — ask via litefactory (low frequency) | S | US-1 | |
-| US-7 | proxy-product-owner.md — conditional ask via litefactory | S | US-1 | |
-| US-8 | go-architect.md — major-deviation escalation trigger | S | US-1 | |
-| US-9 | go-architect.md — remove hardcoded personal name | XS | US-8 | |
+| US-1 | Canonical headless/asking vocabulary | S | — | https://github.com/marioatcloudvane/litefactory/issues/41 |
+| US-2 | requirements-engineer.md self-awareness fix | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/42 |
+| US-3 | implement-orchestrator.md — reword "pause and ask" sites | S | US-1, US-4 | https://github.com/marioatcloudvane/litefactory/issues/43 |
+| US-4 | implement-orchestrator.md — severe-reason escalation path | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/44 |
+| US-5 | implement-orchestrator.md Phase 2 — env-var test setup | M | US-1, US-3 | https://github.com/marioatcloudvane/litefactory/issues/45 |
+| US-6 | spike.md — ask via litefactory (low frequency) | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/46 |
+| US-7 | proxy-product-owner.md — conditional ask via litefactory | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/47 |
+| US-8 | go-architect.md — major-deviation escalation trigger | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/48 |
+| US-9 | go-architect.md — remove hardcoded personal name | XS | US-8 | https://github.com/marioatcloudvane/litefactory/issues/49 |
 
 ## Out of Scope
 
