@@ -12,6 +12,7 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -1410,6 +1411,24 @@ func (d *Daemon) run(
 			slog.Any("tool_ceiling", d.toolCeiling))
 	}
 
+	// Stage 3 of the four-stage refusal precedence (T-7.2): a resolved
+	// profile is narrowed to the agent this run actually addresses, and an
+	// agent this profile carries no stanza for refuses the run rather than
+	// falling back to another stanza or to that agent's own default surface.
+	// This runs after stage 1 (agentChoice, above) has already settled which
+	// agent that is — no label at all means the configured default agent,
+	// [store.AgentClaude] today, the same way an absent lf:tools= label
+	// means the configured default tool surface.
+	if tools.Resolved != nil {
+		effectiveAgent := agentChoice.Agent
+		if effectiveAgent == "" {
+			effectiveAgent = store.AgentClaude
+		}
+		if !tools.Resolved.HasStanzaFor(effectiveAgent) {
+			return d.refuseProfileForAgent(ctx, t, trigger, tools.Profile, effectiveAgent, log)
+		}
+	}
+
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		SessionID: t.session.ID,
 		Issue: turn.Issue{
@@ -1541,6 +1560,63 @@ func (d *Daemon) refuseTools(
 	if !posted.Skipped {
 		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
 			"resolve to a configured tool profile",
+			slog.Int64("reply_comment_id", posted.CommentID))
+	}
+	return nil
+}
+
+// refuseProfileForAgent answers a resolved lf:tools= profile that carries no
+// stanza for the agent this run would otherwise use — stage 3 of the
+// four-stage refusal precedence (T-7.2). A profile with a stanza for one
+// agent and none for another is not treated as "fall back to that agent's
+// own default surface": the whole point of a profile is the operator's
+// explicit boundary, and a run this daemon cannot resolve a surface for is
+// refused rather than widened (AC-7.1).
+//
+// Its shape mirrors [Daemon.refuseTools] and [Daemon.refuseAgent] exactly,
+// including the issue-body path posting nothing, for the same reasons
+// documented on those two.
+func (d *Daemon) refuseProfileForAgent(
+	ctx context.Context,
+	t *task,
+	trigger turn.Trigger,
+	profile string,
+	agentName string,
+	log *slog.Logger,
+) error {
+	log = log.With(
+		slog.String("profile_agent_refusal", report.ReplyProfileNotAvailableForAgent.String()),
+		slog.String("profile", profile),
+		slog.String("agent", agentName))
+
+	if trigger.CommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: its resolved lf:tools= profile has no "+
+			"stanza for this run's coding-agent tool. Nothing was run and no comment was posted, "+
+			"because there is no comment to answer; the next comment on this issue is refused "+
+			"on the thread")
+		return nil
+	}
+
+	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		Ref:       t.ref,
+		SessionID: t.session.ID,
+		CommentID: trigger.CommentID,
+		Refusal:   report.ReplyProfileNotAvailableForAgent,
+		// Both safe to name: Profile already passed toolProfileName before
+		// [Daemon.resolveTools] resolved it, and Agent is either the
+		// configured default (never label text) or a value that already
+		// passed agentKindName in [Daemon.resolveAgent]. internal/report
+		// re-checks both before rendering (S-8).
+		Profile: profile,
+		Agent:   agentName,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not refuse the tool profile for this run's coding-agent tool",
+			d.orphaned(ctx, log, posted, err))
+	}
+	if !posted.Skipped {
+		log.InfoContext(ctx, "refused a run: the resolved lf:tools= profile has no stanza for "+
+			"this run's coding-agent tool",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}
 	return nil

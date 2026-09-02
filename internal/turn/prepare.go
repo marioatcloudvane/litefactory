@@ -124,15 +124,38 @@ func prepare(
 	if err != nil {
 		return nil, fmt.Errorf("derive the session ref for task %s: %w", ref, err)
 	}
-	// Every segment this tree can produce today is a Claude one — the label
-	// resolution that would let an owner ask for a different Kind is a later
-	// story's job (US-2/US-3). What is generic as of this story is
-	// everything downstream of Agent: the request built below carries no
-	// vendor-specific type, and the runner it is handed to is resolved by
-	// this value against opts.Runners rather than assumed.
-	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, store.AgentClaude)
+	// resolvedKind is what the daemon's label ladder decided (internal/daemon's
+	// Daemon.resolveAgent, stage 1), carried in on req.Agent. Empty means no
+	// lf:agent= label was on the issue, which resolves to the configured
+	// default agent the same way an absent lf:tools= label resolves to the
+	// harness's default surface (AC-2.1) — applied here, once, rather than at
+	// every call site that used to spell out store.AgentClaude by hand.
+	resolvedKind := req.Agent
+	if resolvedKind == "" {
+		resolvedKind = agent.Kind(store.AgentClaude)
+	}
+
+	// GetOrCreateSegment's stored-row-wins semantics are what make this one
+	// call sufficient for both the ordinary path and the switch refusal
+	// below (US-3, AC-3.5): a session with no segment yet is created under
+	// resolvedKind and there is nothing to refuse, and a session whose
+	// segment already exists comes back exactly as stored regardless of
+	// resolvedKind, which is what the comparison below reads. Splitting this
+	// into a check followed by a conditional create would open a window
+	// between the two store calls; this is the single call the store's
+	// BEGIN IMMEDIATE design is built for.
+	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, string(resolvedKind))
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
+	}
+	if segment.Agent != string(resolvedKind) {
+		// A session with no segment yet always matches — GetOrCreateSegment
+		// just created one under resolvedKind — so this is reachable only
+		// when a prior run already committed this conversation to a
+		// different tool (AC-3.3, AC-3.1). Nothing above this point wrote
+		// anything the switch needs to undo: the segment row is the
+		// existing one, untouched, and no runs row has been allocated yet.
+		return nil, &agentSwitchRefusal{owning: segment.Agent, requested: string(resolvedKind)}
 	}
 	kind := agent.Kind(segment.Agent)
 	runner, ok := opts.Runners.runner(kind)
@@ -154,10 +177,18 @@ func prepare(
 	// Both stay exact with N turns in flight, because neither depends on how
 	// many there are: the rows a sibling worker writes are never in this result
 	// set. See [previousRun] for why.
-	previous, resume, err := previousRun(ctx, opts, session, segment)
+	previous, found, err := previousRun(ctx, opts, session, segment)
 	if err != nil {
 		return nil, err
 	}
+	// Tool-aware, and evaluated on its own rather than trusted from the
+	// switch-refusal check above (US-3, AC-3.4): a segment whose agent does
+	// not match resolvedKind never reaches this line today, because that
+	// mismatch already returned an *agentSwitchRefusal — but resumeDecision
+	// reads segment.Agent for itself rather than assuming that invariant, so
+	// the resume decision stays correct even if the two checks are ever
+	// reordered or one of them is reused on its own.
+	resume := resumeDecision(found, segment, resolvedKind)
 
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
 	if err != nil {
@@ -345,7 +376,8 @@ func prepareClone(
 }
 
 // previousRun finds the last run of this segment that claude was actually
-// invoked for, and with it the answer to "is there a conversation to continue?".
+// invoked for — one of the three things [resumeDecision] weighs to answer
+// "is there a conversation to continue?" (US-3, AC-3.4).
 //
 // The evidence is the runs table and nothing else. A row on this segment in a
 // terminal status means a subprocess was started with the segment's claude
@@ -405,6 +437,27 @@ func previousRun(
 		}
 	}
 	return previous, found, nil
+}
+
+// resumeDecision is the tool-aware cold-vs-resume decision (US-3, AC-3.4):
+// this run continues the previous run's conversation only when all three
+// hold —
+//
+//   - found: a prior terminal run exists for this segment ([previousRun]);
+//   - segment.Agent equals resolvedKind: this run addresses the same
+//     coding-agent tool the conversation already belongs to;
+//   - segment.ResumeToken is non-empty: the tool has actually reported a
+//     conversation handle to resume, which only a real run leaves behind.
+//
+// Any one of them failing means a cold start. The agent check is read
+// directly off segment rather than trusted as an invariant [prepare]'s
+// switch-refusal check already established earlier in the same function —
+// a session whose segment does not match resolvedKind is refused before this
+// is ever called today, but this function answers correctly on its own,
+// which is what makes it independently testable (T-3.3) rather than a claim
+// about call order.
+func resumeDecision(found bool, segment store.Segment, resolvedKind agent.Kind) bool {
+	return found && segment.Agent == string(resolvedKind) && segment.ResumeToken != ""
 }
 
 // commentHistory reads the comments litefactory has recorded on this task and
@@ -724,9 +777,12 @@ func allocateRun(
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
-		// Every run this tree can produce today is a Claude run; a second
-		// implementation is a later story's job (US-5).
-		Agent:            store.AgentClaude,
+		// The segment's own value, never req.Agent recomputed: by the time
+		// this is called, [prepare] has already confirmed the two agree —
+		// segment.Agent is what the switch-refusal check compared resolvedKind
+		// against — and the segment is the record a resume reads back later
+		// (US-3).
+		Agent:            segment.Agent,
 		TriggerCommentID: req.Trigger.CommentID,
 		LogPath: func(ordinal int) string {
 			path, err := naming.RunLogPath(opts.Paths.Home(), ref, ordinal)

@@ -103,6 +103,15 @@ claude:
   # model ID ("claude-opus-5").
   model: "%s"
 
+  # model_tier optionally selects --model by vendor-neutral capability tier
+  # (flagship, balanced or fast) instead of the literal model above: when
+  # set, it is resolved through tiers.model_by_tier below for "claude" and
+  # takes precedence over model. Left unset, as here, model above is what
+  # wins -- exactly today's behaviour. An unrecognised tier name is a
+  # startup error, not a silent fallback.
+  #
+  # model_tier: "balanced"
+
   # tools is the real tool boundary. It becomes --tools, which restricts which
   # built-in tools claude may use at all, and it is what the run's init event
   # reports as the tool surface. Bare tool names only.
@@ -136,46 +145,58 @@ claude:
   #   - "SendMessage"
   #   - "WebFetch"
 
-  # tool_profiles are named tool surfaces. Put a label of the exact form
-  # lf:tools=<name> on an issue and the runs it triggers use that profile
-  # instead of the tools list above. With no profiles configured, as here, the
-  # feature is inert and every run uses that list.
+  # tool_profiles are named tool surfaces, one stanza per coding-agent tool
+  # they apply to. Put a label of the exact form lf:tools=<name> on an issue
+  # and the runs it triggers are narrowed to whichever stanza matches the
+  # agent that run uses — claude reads the profile's claude: stanza, codex
+  # reads its codex: stanza. A run addressed to an agent the profile has no
+  # stanza for is refused rather than falling back to another stanza or to
+  # that agent's own default surface. With no profiles configured, as here,
+  # the feature is inert and every run uses the tools list above (or, for
+  # Codex, agents.codex.default_sandbox).
   #
   # THE LABEL IS ONLY A LOOKUP KEY. Nothing from GitHub is ever passed to
   # claude as a value: the label selects one of the profiles written here, and
   # an unknown or malformed name is refused rather than quietly widened to a
   # default. But a label is authenticated by nothing, and anyone who can label
   # an issue can select ANY profile below — so it is the ceiling above, not the
-  # label, that bounds what a run can do. Keep every profile inside a ceiling
-  # you are willing to hand to anyone who can label an issue in this repo.
+  # label, that bounds what a run can do. Keep every profile's claude: stanza
+  # inside a ceiling you are willing to hand to anyone who can label an issue
+  # in this repo.
   #
   # Checked at startup, so a bad map fails the daemon rather than a run: each
-  # profile's tools must be a subset of tool_ceiling, each of its allowed_tools
-  # rules must name a tool that same profile lists, and the profile name must
-  # match ^[a-z0-9][a-z0-9_-]{0,39}$. No name is special — there is no
-  # "default" profile, and there does not need to be one.
+  # profile's claude: stanza's tools must be a subset of tool_ceiling, each of
+  # its allowed_tools rules must name a tool that same stanza lists, and the
+  # profile name must match ^[a-z0-9][a-z0-9_-]{0,39}$. No name is special —
+  # there is no "default" profile, and there does not need to be one.
   #
   # tool_profiles:
   #   research:
-  #     # Read-only by construction: no Edit, no Write. Bash is on the surface
-  #     # but every rule for it is qualified, so the agent can look around the
-  #     # worktree and change nothing in it.
-  #     tools:
-  #       - "Read"
-  #       - "Glob"
-  #       - "Grep"
-  #       - "Bash"
-  #       - "Task"
-  #       - "SendMessage"
-  #     allowed_tools:
-  #       - "Read"
-  #       - "Glob"
-  #       - "Grep"
-  #       - "SendMessage"
-  #       - "Bash(ls:*)"
-  #       - "Bash(cat:*)"
-  #       - "Bash(rg:*)"
-  #       - "Bash(git log:*)"
+  #     claude:
+  #       # Read-only by construction: no Edit, no Write. Bash is on the
+  #       # surface but every rule for it is qualified, so the agent can look
+  #       # around the worktree and change nothing in it.
+  #       tools:
+  #         - "Read"
+  #         - "Glob"
+  #         - "Grep"
+  #         - "Bash"
+  #         - "Task"
+  #         - "SendMessage"
+  #       allowed_tools:
+  #         - "Read"
+  #         - "Glob"
+  #         - "Grep"
+  #         - "SendMessage"
+  #         - "Bash(ls:*)"
+  #         - "Bash(cat:*)"
+  #         - "Bash(rg:*)"
+  #         - "Bash(git log:*)"
+  #     # codex: has no worked example here yet — Codex's accepted sandbox
+  #     # values have not been measured, so there is nothing trustworthy to
+  #     # write for it. A profile used for a Codex-routed run needs one:
+  #     #   codex:
+  #     #     sandbox: "..."
 
   # settings_path becomes --settings, so claude does not inherit the operator's
   # personal ~/.claude/settings.json. Empty means $LF_HOME/claude-settings.json.
@@ -193,6 +214,37 @@ claude:
   # forwarded stale or wrong ANTHROPIC_API_KEY silently overrides that and
   # produces exactly the indefinite hang the timeout above exists to end.
   forward_anthropic_env: %t
+
+# agents groups configuration for coding-agent tools under a vendor-scoped
+# key, alongside the deprecated top-level claude: above. Setting both claude:
+# and agents.claude: at once is a startup error — configure exactly one.
+#
+# agents.codex configures the Codex coding-agent tool. Left out, as here,
+# Codex is entirely unconfigured: unlike claude above, there is no default
+# surface a run could fall back to, so no run can be routed to it.
+#
+# BLOCKED-BY-US-1: default_sandbox has no measured, safe value to ship here
+# yet, so this section stays commented out rather than populated with a
+# guess. A configured agents.codex requires binary, default_sandbox and
+# timeout_seconds explicitly — none of them default the way claude's do.
+#
+# agents:
+#   codex:
+#     binary: "codex"
+#     default_sandbox: "..."
+#     timeout_seconds: 1800
+
+# tiers is litefactory's own table answering "for this coding-agent tool, at
+# this capability tier, which --model value runs": the vendor-neutral
+# replacement for a specialist's ` + "`model: opus`" + ` frontmatter, which stops being
+# a reliable source of truth once the tool executing a specialist might not
+# be Claude. flagship, balanced and fast are the only tier names; an
+# unrecognised one is a startup error, not a silent fallback.
+#
+# Only claude is populated here -- Codex's own tier/model names have not been
+# measured yet, so there is nothing trustworthy to write for it.
+tiers:
+%s
 `
 
 // DefaultFileContents renders the commented default config.yaml.
@@ -211,6 +263,7 @@ func DefaultFileContents() []byte {
 		yamlList("allowed_tools", d.Claude.AllowedTools),
 		d.Claude.TimeoutSeconds,
 		d.Claude.ForwardAnthropicEnv,
+		renderModelByTier(d.Tiers.ModelByTier),
 	))
 }
 
@@ -222,6 +275,21 @@ func yamlList(key string, values []string) string {
 	fmt.Fprintf(&b, "  %s:\n", key)
 	for _, v := range values {
 		fmt.Fprintf(&b, "    - %q\n", v)
+	}
+	return b.String()
+}
+
+// renderModelByTier renders tiers.model_by_tier as indented YAML, sorted so
+// the generated file is reproducible across runs (Go randomises map order).
+func renderModelByTier(m map[Kind]map[Tier]string) string {
+	var b strings.Builder
+	b.WriteString("  model_by_tier:\n")
+	for _, kind := range sortedKinds(m) {
+		fmt.Fprintf(&b, "    %s:\n", kind)
+		byTier := m[kind]
+		for _, tier := range sortedTiers(byTier) {
+			fmt.Fprintf(&b, "      %s: %q\n", tier, byTier[tier])
+		}
 	}
 	return b.String()
 }

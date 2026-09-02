@@ -46,6 +46,15 @@ const (
 	// allocated, so nothing was consumed from the run ordinal sequence — and
 	// [Result.Reason] still has to be posted, because silence is not an outcome.
 	DispositionPrepareFailed
+
+	// DispositionAgentSwitchRefused means the turn's resolved agent does not
+	// own this session's segment (US-3): a prior run started this
+	// conversation under one coding-agent tool, and this run's labels
+	// resolved to a different one. Nothing was created and nothing was
+	// mutated — [Result.AgentOwning] and [Result.AgentRequested] carry the
+	// two closed-set names the reply names, and [Reporter.ReportTurn]
+	// answers with [report.ReplyAgentSwitchRefused] rather than a run report.
+	DispositionAgentSwitchRefused
 )
 
 // String renders the disposition for logs and test failures. The values are
@@ -62,6 +71,8 @@ func (d Disposition) String() string {
 		return "already_ran"
 	case DispositionPrepareFailed:
 		return "prepare_failed"
+	case DispositionAgentSwitchRefused:
+		return "agent_switch_refused"
 	default:
 		return "invalid"
 	}
@@ -173,6 +184,16 @@ type Result struct {
 	// complete. A *git.PushError here names the worktree still holding the
 	// commit. It is nil on the happy path and on a run that merely failed.
 	Err error
+
+	// AgentOwning and AgentRequested are set only on
+	// [DispositionAgentSwitchRefused]: the coding-agent tool this session's
+	// segment already belongs to, and the one this turn's labels resolved to.
+	// Both have already passed the agent-name shape check the label ladder
+	// applies (internal/daemon's agentKindName), which is what makes them
+	// safe for [Reporter.ReportTurn] to quote into a comment — internal/report
+	// checks them against its own pattern again before it does (S-8).
+	AgentOwning    string
+	AgentRequested string
 }
 
 // Reportable reports whether this turn owes the issue a comment. Every
@@ -180,7 +201,7 @@ type Result struct {
 // (AC-4.1).
 func (r Result) Reportable() bool {
 	switch r.Disposition {
-	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed:
+	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused:
 		return true
 	case DispositionLocked, DispositionAlreadyReported:
 		return false
@@ -198,7 +219,7 @@ func (r Result) Reportable() bool {
 // moved past it in the same transaction that reported it.
 func (r Result) ConsumesComment() bool {
 	switch r.Disposition {
-	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed:
+	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused:
 		return true
 	case DispositionLocked, DispositionAlreadyReported:
 		return false

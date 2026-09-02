@@ -14,8 +14,8 @@ import (
 // copy-on-read path can never leak between table cases.
 func testProfiles() map[string]config.ToolProfile {
 	return map[string]config.ToolProfile{
-		"research": {Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}},
-		"build":    {Tools: []string{"Read", "Edit", "Bash"}, AllowedTools: nil},
+		"research": {Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}}},
+		"build":    {Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash"}, AllowedTools: nil}},
 	}
 }
 
@@ -141,11 +141,17 @@ func TestResolveTools_DecisionTable(t *testing.T) {
 				if len(decision.Tools) == 0 {
 					t.Fatalf("Tools is empty for a resolved profile")
 				}
-				if got, want := decision.Tools, profile.Tools; !equalStrings(got, want) {
+				if got, want := decision.Tools, profile.Claude.Tools; !equalStrings(got, want) {
 					t.Errorf("Tools = %v, want the profile's %v", got, want)
 				}
-				if got, want := decision.AllowedTools, profile.AllowedTools; !equalStrings(got, want) {
+				if got, want := decision.AllowedTools, profile.Claude.AllowedTools; !equalStrings(got, want) {
 					t.Errorf("AllowedTools = %v, want the profile's %v", got, want)
+				}
+				if decision.Resolved == nil {
+					t.Fatalf("Resolved is nil for a resolved profile")
+				}
+				if decision.Resolved.Claude == nil {
+					t.Errorf("Resolved.Claude is nil, want the profile's own claude stanza")
 				}
 			case tc.wantProfile != "":
 				if decision.Profile != tc.wantProfile {
@@ -177,7 +183,7 @@ func TestResolveTools_DecisionTable(t *testing.T) {
 // every later run this process makes.
 func TestResolveTools_CopiesProfileSlices(t *testing.T) {
 	profiles := testProfiles()
-	original := append([]string(nil), profiles["research"].Tools...)
+	original := append([]string(nil), profiles["research"].Claude.Tools...)
 	d := &Daemon{toolProfiles: profiles, toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
 
 	decision := d.resolveTools([]string{"lf:tools=research"})
@@ -195,7 +201,7 @@ func TestResolveTools_CopiesProfileSlices(t *testing.T) {
 		decision.Tools = append(decision.Tools, "MORE")
 	}
 
-	if got := profiles["research"].Tools; !equalStrings(got, original) {
+	if got := profiles["research"].Claude.Tools; !equalStrings(got, original) {
 		t.Errorf("the operator's profile changed after the resolved decision was mutated: %v, want %v",
 			got, original)
 	}
@@ -205,6 +211,43 @@ func TestResolveTools_CopiesProfileSlices(t *testing.T) {
 	again := d.resolveTools([]string{"lf:tools=research"})
 	if !equalStrings(again.Tools, original) {
 		t.Errorf("a later resolution of the same profile = %v, want the untouched %v", again.Tools, original)
+	}
+}
+
+// TestResolveTools_ProfileWithNoClaudeStanzaResolvesWithEmptyToolsButKeepsResolved
+// is T-7.2's own coverage of resolveTools: a profile that carries only a
+// codex: stanza is not refused at this stage — resolveTools does not know
+// which agent the run addresses, so it resolves what the config actually
+// says and leaves the per-agent refusal to stage 3 (tick.go's run()). This
+// pins the boundary: Tools/AllowedTools (the Claude-specific view) come back
+// empty, but Resolved still carries the codex: stanza untouched, proving the
+// two are never conflated.
+func TestResolveTools_ProfileWithNoClaudeStanzaResolvesWithEmptyToolsButKeepsResolved(t *testing.T) {
+	profiles := map[string]config.ToolProfile{
+		"codex-only": {Codex: &config.ToolProfileCodex{Sandbox: "read-only"}},
+	}
+	d := &Daemon{toolProfiles: profiles, toolCeiling: []string{"Read"}}
+
+	decision := d.resolveTools([]string{"lf:tools=codex-only"})
+
+	if decision.refused() {
+		t.Fatalf("resolveTools refused a profile with only a codex: stanza; that decision belongs to stage 3, not here: %s", decision.Refusal)
+	}
+	if decision.Profile != "codex-only" {
+		t.Errorf("Profile = %q, want %q", decision.Profile, "codex-only")
+	}
+	if len(decision.Tools) != 0 || len(decision.AllowedTools) != 0 {
+		t.Errorf("Tools/AllowedTools = %v/%v, want both empty: this profile has no claude: stanza to derive them from",
+			decision.Tools, decision.AllowedTools)
+	}
+	if decision.Resolved == nil {
+		t.Fatal("Resolved is nil for a resolved profile")
+	}
+	if decision.Resolved.Claude != nil {
+		t.Errorf("Resolved.Claude = %#v, want nil: this profile never wrote a claude: stanza", decision.Resolved.Claude)
+	}
+	if decision.Resolved.Codex == nil || decision.Resolved.Codex.Sandbox != "read-only" {
+		t.Errorf("Resolved.Codex = %#v, want the codex: stanza as configured", decision.Resolved.Codex)
 	}
 }
 

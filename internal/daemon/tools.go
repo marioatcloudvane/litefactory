@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
@@ -74,10 +75,22 @@ type toolDecision struct {
 	// this path (S-9).
 	MiscasedPrefix bool
 
-	// Tools and AllowedTools are the profile's surface, copied. Empty unless a
-	// profile resolved.
+	// Tools and AllowedTools are the profile's Claude-stanza surface, copied.
+	// Empty unless a profile resolved and that profile carries a claude:
+	// stanza (T-7.1) — a resolved profile with no claude: stanza leaves both
+	// empty here without refusing anything at this stage: whether that is a
+	// problem depends on which agent the run actually uses, and this
+	// function does not know that. See [Resolved].
 	Tools        []string
 	AllowedTools []string
+
+	// Resolved is the full profile as configured — both its claude: and
+	// codex: stanzas — kept alongside the already-narrowed Tools/AllowedTools
+	// above so a later stage (T-7.2's per-agent narrowing, in tick.go) can
+	// check whether it carries a stanza for the agent this run will actually
+	// use, without this function needing to know what that agent is. nil on
+	// every unresolved path (no label, or any refusal).
+	Resolved *config.ToolProfile
 }
 
 // refused reports whether this decision forbids the run.
@@ -180,9 +193,20 @@ func (d *Daemon) resolveTools(labels []string) toolDecision {
 	// harness request these slices end up on is mutated in place on the
 	// cold-rerun path. One append into spare capacity downstream would rewrite
 	// the operator's profile for every later run in the process.
-	return toolDecision{
-		Profile:      name,
-		Tools:        append([]string(nil), profile.Tools...),
-		AllowedTools: append([]string(nil), profile.AllowedTools...),
+	//
+	// This function does not refuse a profile with no claude: stanza (T-7.1)
+	// — it does not know which agent the run will use, so it resolves what
+	// the profile actually says (Resolved, both stanzas) and leaves the
+	// per-agent narrowing and its refusal to stage 3 (T-7.2, in tick.go's
+	// run()), which runs after the stage-1 agent-label ladder has already
+	// settled which agent this comment's run addresses. Tools/AllowedTools
+	// stay Claude-specific for backward compatibility with every caller that
+	// only cares about that stanza; a profile.Claude == nil resolution simply
+	// leaves them empty rather than panicking on a nil dereference.
+	decision := toolDecision{Profile: name, Resolved: &profile}
+	if profile.Claude != nil {
+		decision.Tools = append([]string(nil), profile.Claude.Tools...)
+		decision.AllowedTools = append([]string(nil), profile.Claude.AllowedTools...)
 	}
+	return decision
 }

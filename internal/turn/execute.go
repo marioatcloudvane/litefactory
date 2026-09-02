@@ -267,6 +267,19 @@ type Request struct {
 	Tools        []string
 	AllowedTools []string
 	ToolProfile  string
+
+	// Agent is the coding-agent tool this turn resolved to, from the daemon's
+	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
+	// means no lf:agent= label was on the issue, which resolves to the
+	// configured default agent — [store.AgentClaude] today — the same way an
+	// absent lf:tools= label resolves to the harness's default surface
+	// (AC-2.1). [prepare] is what applies that default; nothing here does.
+	//
+	// It is what makes the cold-vs-resume decision and the mid-session
+	// switch refusal tool-aware (US-3): a session's segment is fixed to the
+	// agent it was created with, and a later run whose label resolves to a
+	// different one is refused rather than resumed or silently restarted.
+	Agent agent.Kind
 }
 
 func (r Request) validate() error {
@@ -437,6 +450,15 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)
 	if err != nil {
+		// Checked before the generic *failure: an agent-switch refusal is a
+		// *failure in spirit — a turn that could not be carried out because
+		// of the state of the world — but it is answered with
+		// [report.ReplyAgentSwitchRefused] rather than a run-failure comment,
+		// which needs its own [Disposition] and its own branch here (US-3).
+		var switchRefusal *agentSwitchRefusal
+		if errors.As(err, &switchRefusal) {
+			return agentSwitchRefused(result, switchRefusal, logger), nil
+		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {
 			return prepareFailed(ctx, opts, result, prepFailure, logger), nil
@@ -494,6 +516,27 @@ func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure
 	logger.Error("turn could not be prepared",
 		slog.String("reason", prepFailure.reason),
 		slog.Any("error", prepFailure.Unwrap()))
+	return result
+}
+
+// agentSwitchRefused records a turn whose resolved agent does not own this
+// session's segment (US-3).
+//
+// Unlike [prepareFailed] it touches no session state and allocates nothing:
+// [prepare] returned before creating anything, and the segment and the runs
+// table are exactly as they were before this turn was attempted (AC-3.1). The
+// two agent names travel on [Result] rather than being formatted here,
+// because it is [Reporter.ReportTurn] that decides whether there is even a
+// comment to answer — the issue-body trigger has none — and formatting them
+// twice would be two places to keep in step.
+func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog.Logger) Result {
+	result.Disposition = DispositionAgentSwitchRefused
+	result.AgentOwning = refusal.owning
+	result.AgentRequested = refusal.requested
+
+	logger.Info("refusing a run: the resolved coding-agent tool does not own this task's conversation",
+		slog.String("owning_agent", refusal.owning),
+		slog.String("requested_agent", refusal.requested))
 	return result
 }
 

@@ -595,3 +595,108 @@ func TestValidateAcceptsRealModels(t *testing.T) {
 		}
 	}
 }
+
+// TestTierIsAClosedSet is AC-6.1: an unrecognised tier — on claude.model_tier
+// directly, or as a key inside tiers.model_by_tier — is a startup error
+// naming a [*UnknownTierError], never a silent fallback.
+func TestTierIsAClosedSet(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "unknown claude.model_tier",
+			yaml: "claude:\n  model_tier: \"quick\"\n",
+			want: `claude.model_tier: "quick" is not a tier`,
+		},
+		{
+			name: "unknown tier key inside tiers.model_by_tier",
+			yaml: "tiers:\n  model_by_tier:\n    claude:\n      mega: \"opus\"\n",
+			want: `tiers.model_by_tier[claude]: "mega" is not a tier`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := parse(t, tc.yaml)
+			if err == nil {
+				t.Fatal("Validate accepted an unrecognised tier")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), tc.want)
+			}
+			var unknownTier *UnknownTierError
+			if !errors.As(err, &unknownTier) {
+				t.Errorf("error does not unwrap to *UnknownTierError: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidTiersAreAccepted is the positive half of TestTierIsAClosedSet:
+// none of the three tiers is itself rejected.
+func TestValidTiersAreAccepted(t *testing.T) {
+	for _, tier := range []Tier{TierFlagship, TierBalanced, TierFast} {
+		if !tier.Valid() {
+			t.Errorf("Tier(%q).Valid() = false, want true", tier)
+		}
+	}
+	if err := parse(t, "claude:\n  model_tier: \"fast\"\n"); err != nil {
+		t.Errorf("Validate rejected a valid claude.model_tier: %v", err)
+	}
+}
+
+// TestModelByTierValuesAreCheckedAgainstModelNameRE is AC-6.4: every model
+// string reachable through tiers.model_by_tier is checked the same way
+// claude.model is.
+func TestModelByTierValuesAreCheckedAgainstModelNameRE(t *testing.T) {
+	err := parse(t, "tiers:\n  model_by_tier:\n    claude:\n      fast: \"sonnet opus\"\n")
+	if err == nil {
+		t.Fatal("Validate accepted a tiers.model_by_tier value with a space in it")
+	}
+	if !strings.Contains(err.Error(), "tiers.model_by_tier[claude][fast]") {
+		t.Errorf("error = %q, want it to name the offending key", err.Error())
+	}
+}
+
+// TestModelTierTakesPrecedenceOverLiteralModel exercises T-6.2's resolution
+// order end to end through Decode+Validate: a configured model_tier is
+// checked against — and, in the harness, resolved through —
+// tiers.model_by_tier rather than being ignored in favour of the literal
+// claude.model value.
+func TestModelTierTakesPrecedenceOverLiteralModel(t *testing.T) {
+	cfg, err := Decode(strings.NewReader("claude:\n  model: sonnet\n  model_tier: \"flagship\"\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	got, ok := cfg.Tiers.ResolveModel(KindClaude, cfg.Claude.ModelTier)
+	if !ok {
+		t.Fatal("ResolveModel found no entry for the configured model_tier")
+	}
+	if got != "opus" {
+		t.Errorf("ResolveModel(claude, flagship) = %q, want %q (claude.model %q must not win once a tier is set)", got, "opus", cfg.Claude.Model)
+	}
+}
+
+// TestModelTierWithNoTableEntryIsRejected: a tier that is itself valid but
+// has nothing in tiers.model_by_tier.claude to resolve to must fail at
+// config load, not silently pass validation and fail later inside the
+// harness. Built directly rather than through Decode, so the test controls
+// the map's contents without depending on YAML's merge-vs-replace behaviour
+// for a map nested inside a struct field.
+func TestModelTierWithNoTableEntryIsRejected(t *testing.T) {
+	cfg := Defaults()
+	delete(cfg.Tiers.ModelByTier[KindClaude], TierFast)
+	cfg.Claude.ModelTier = TierFast
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted a model_tier with no matching tiers.model_by_tier entry")
+	}
+	if !strings.Contains(err.Error(), "claude.model_tier") || !strings.Contains(err.Error(), "no entry") {
+		t.Errorf("error = %q, want it to say claude.model_tier has no entry", err.Error())
+	}
+}

@@ -262,13 +262,13 @@ type Daemon struct {
 	// agents is the set of coding-agent-tool Kinds this daemon has a
 	// [agent.Runner] registered for, as it stood at startup. Read-only after
 	// New; see [Options.Agents] and [Daemon.resolveAgent].
-	agents       turn.RunnerSet
-	interval     time.Duration
-	grace        time.Duration
-	log          *slog.Logger
-	lock         *Lock
-	now          func() time.Time
-	ticks        <-chan time.Time
+	agents   turn.RunnerSet
+	interval time.Duration
+	grace    time.Duration
+	log      *slog.Logger
+	lock     *Lock
+	now      func() time.Time
+	ticks    <-chan time.Time
 
 	backoff  backoff
 	inflight inflight
@@ -331,14 +331,14 @@ func New(opts Options) (*Daemon, error) {
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach
 		// back into the registry the process was built with.
-		agents:       maps.Clone(opts.Agents),
-		interval:     interval,
-		grace:        grace,
-		log:          opts.Logger,
-		lock:         opts.Lock,
-		now:          now,
-		ticks:        opts.Ticks,
-		pool:         newPool(maxRuns),
+		agents:   maps.Clone(opts.Agents),
+		interval: interval,
+		grace:    grace,
+		log:      opts.Logger,
+		lock:     opts.Lock,
+		now:      now,
+		ticks:    opts.Ticks,
+		pool:     newPool(maxRuns),
 
 		repoSessionCursor: make(map[int64]int64),
 	}, nil

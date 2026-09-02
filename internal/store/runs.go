@@ -48,6 +48,14 @@ const ModeSpike = "spike"
 // reads back as a Claude row without a separate UPDATE.
 const AgentClaude = "claude"
 
+// AgentCodex is the agent discriminator value a Codex run will use, once a
+// second implementation exists to write one. Nothing in this tree writes a
+// segments.agent or runs.agent row with it yet; it exists so code that
+// selects between the two coding-agent tools — the lf:tools= profile's
+// per-agent stanza selection (T-7) — has a named constant to compare
+// against instead of a bare "codex" literal.
+const AgentCodex = "codex"
+
 // SignalExitCode is the exit code recorded when a run produced no exit status
 // of its own — killed by the timeout, or abandoned when the daemon died. It is
 // always accompanied by a reason string (S-9).

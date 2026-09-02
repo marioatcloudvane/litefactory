@@ -197,6 +197,28 @@ func (k ReplyKind) RefusesAgent() bool {
 	}
 }
 
+// RefusesProfileForAgent reports whether k is the stage-3 refusal T-7.2
+// draws: a resolved lf:tools= profile with no stanza for the agent a run
+// would otherwise use. It is evaluated after the label ladders
+// [ReplyKind.RefusesTools] and [ReplyKind.RefusesAgent] answer for, which is
+// exactly why [RefusesAgent]'s own doc excludes it — this is its own request
+// shape, checked on its own, so a caller can tell all three refusal families
+// apart.
+func (k ReplyKind) RefusesProfileForAgent() bool {
+	return k == ReplyProfileNotAvailableForAgent
+}
+
+// RefusesSwitch reports whether k is [ReplyAgentSwitchRefused]: a reply
+// drawn when a session's resolved agent does not own the segment its
+// conversation already belongs to (US-3). It has its own request shape, read
+// from the store rather than from the issue's labels alone, which is exactly
+// why [RefusesAgent]'s own doc excludes it the same way it excludes
+// [RefusesProfileForAgent] — this method is what lets a caller tell all four
+// refusal families apart.
+func (k ReplyKind) RefusesSwitch() bool {
+	return k == ReplyAgentSwitchRefused
+}
+
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
@@ -228,6 +250,14 @@ type Reply struct {
 	// like Profile it is checked against [agentNamePattern] here before it
 	// is rendered — see [agentSpan].
 	Agent string
+
+	// OwningAgent and RequestedAgent are read by [ReplyAgentSwitchRefused]
+	// alone (US-3): OwningAgent is the coding-agent tool a session's segment
+	// already belongs to, and RequestedAgent is the one this run's labels
+	// resolved to instead. Both are checked against [agentNamePattern] here
+	// before they are rendered, the same as [Agent].
+	OwningAgent    string
+	RequestedAgent string
 }
 
 // profileNamePattern is the shape of an operator-authored tool profile name.

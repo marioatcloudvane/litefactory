@@ -25,6 +25,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -81,7 +82,69 @@ type Config struct {
 	LogLevel string `yaml:"log_level"`
 
 	GitHub GitHub `yaml:"github"`
+	// Claude is the deprecated top-level home for Claude's configuration.
+	// [Agents.Claude] is its reserved successor; writing both at once is a
+	// startup error (AC-7.9) rather than either silently winning.
 	Claude Claude `yaml:"claude"`
+	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
+	Tiers Tiers `yaml:"tiers"`
+	// Agents is the vendor-scoped counterpart to the deprecated top-level
+	// Claude above. See [Agents].
+	Agents Agents `yaml:"agents"`
+}
+
+// Agents groups configuration for coding-agent-tool implementations under a
+// vendor-scoped key, alongside the deprecated top-level [Config.Claude].
+type Agents struct {
+	// Claude is reserved for a future migration off the deprecated top-level
+	// claude: key — nothing in this package reads its contents, and it is
+	// deliberately untyped (rather than *[Claude]) so that giving it a real
+	// shape does not imply this story validates or acts on what is written
+	// there, which it does not. It exists as a field at all for two reasons:
+	// so a config file that writes agents.claude: decodes instead of
+	// failing strict decoding as an unknown key, and so its mere presence
+	// can be checked against the top-level key for the AC-7.9 conflict rule
+	// ([Decode] refuses eagerly when both are written).
+	Claude any `yaml:"claude"`
+
+	// Codex configures the Codex coding-agent tool. Absent (nil) leaves
+	// Codex entirely unconfigured: unlike [Claude], there is no built-in
+	// default surface a run could fall back to, so no Codex run is possible
+	// without this (AC-7.7, AC-7.8).
+	Codex *Codex `yaml:"codex"`
+}
+
+// Codex configures the headless Codex CLI invocation, the agents.codex:
+// counterpart to [Claude]. Its shape is deliberately smaller: Codex's
+// permission model is one sandbox mode per run rather than Claude's tool
+// list (see internal/agent.Permissions's own doc for why the two are never
+// derived from each other), so there is no Tools/AllowedTools pair here.
+type Codex struct {
+	// Binary is the codex executable, resolved the same way [Claude.Binary]
+	// is (SD-7): a launchd-started daemon needs an absolute path.
+	Binary string `yaml:"binary"`
+
+	// DefaultSandbox is the sandbox mode a run uses when no lf:tools= label
+	// resolved a profile carrying a codex: stanza (AC-7.7). It is required
+	// whenever agents.codex is configured at all: a configured Codex with
+	// no default is a startup error (AC-7.8), because unlike
+	// claude.tool_ceiling there is nothing to default it from — a run has
+	// exactly one sandbox mode, not a surface to narrow.
+	//
+	// BLOCKED-BY-US-1 (T-7.3): a plain string rather than a typed enum,
+	// because Codex's accepted sandbox values were never measured. This
+	// package validates only that it is non-empty, never that it is one of
+	// Codex's real values — see [validateCodex].
+	DefaultSandbox string `yaml:"default_sandbox"`
+
+	// TimeoutSeconds is the hard wall-clock kill for one Codex run, bounded
+	// the same way [Claude.TimeoutSeconds] is (T-7.1). There is no
+	// cross-run default the way [Defaults] pre-populates Claude's: a
+	// pointer-nested stanza like this one is only allocated once the
+	// operator's YAML mentions agents.codex at all, at which point
+	// [Defaults] has already run, so an operator who configures agents.codex
+	// must write this explicitly.
+	TimeoutSeconds int `yaml:"timeout_seconds"`
 }
 
 // GitHub configures the forge client and, indirectly, the bot credential.
@@ -157,6 +220,15 @@ type Claude struct {
 	// --model, so the model a run used is a property of its argv rather than
 	// of whatever the claude CLI happened to default to that week.
 	Model string `yaml:"model"`
+	// ModelTier optionally selects --model by vendor-neutral capability tier
+	// (flagship, balanced or fast) instead of the literal Model above: when
+	// set, it is resolved through [Config.Tiers]'s ModelByTier table for
+	// "claude" and takes precedence over Model. Empty (the default) leaves
+	// Model as the literal source of truth it always was — this key exists
+	// so a run's capability requirement can be expressed without naming a
+	// vendor, which matters once the tool executing a run might not be
+	// Claude, not to replace Model for everyone on day one (US-6).
+	ModelTier Tier `yaml:"model_tier"`
 	// Tools is the --tools surface: the real tool boundary. Must be non-empty
 	// — omitting the flag means allow-all.
 	Tools []string `yaml:"tools"`
@@ -201,23 +273,66 @@ type Claude struct {
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
 }
 
-// ToolProfile is one named tool surface an operator authored in config.yaml.
-//
-// It mirrors the two tool keys of [Claude] and carries the same meanings:
-// Tools is the boundary that becomes --tools for a run using this profile,
-// AllowedTools is the additive permission list that becomes --allowedTools.
-// Both are validated at startup against the same policy, plus two rules that
-// only make sense for a profile: Tools must be a subset of
-// [Claude.ToolCeiling], and every AllowedTools rule must name a tool this
-// profile itself lists — a permission rule for a tool outside the surface
-// grants nothing and is far more likely to be a mistake than an intention.
+// ToolProfile is one named tool surface an operator authored in config.yaml,
+// broken into one stanza per coding-agent tool it may apply to (T-7.1): a
+// profile is looked up by name as before and then narrowed to whichever
+// agent the run is addressed to — Claude reads [ToolProfile.Claude], Codex
+// reads [ToolProfile.Codex] — and an agent this profile carries no stanza
+// for refuses the run (report.ReplyProfileNotAvailableForAgent) rather than
+// falling back to the other stanza or to that agent's own default surface.
+// A grant written for one tool is never reinterpreted as another's.
 type ToolProfile struct {
-	// Tools is the profile's --tools surface. Must be non-empty, for the same
+	// Claude is this profile's Claude stanza. nil means this profile has
+	// nothing to say about a Claude-routed run.
+	Claude *ToolProfileClaude `yaml:"claude"`
+	// Codex is this profile's Codex stanza. nil means this profile has
+	// nothing to say about a Codex-routed run.
+	Codex *ToolProfileCodex `yaml:"codex"`
+}
+
+// HasStanzaFor reports whether this profile carries a stanza for the named
+// coding-agent tool — "claude" or "codex", the same names the yaml keys
+// under tool_profiles.<name> are written with. Any other name reports
+// false: a profile cannot carry a stanza for an agent this type has no
+// stanza shape for at all.
+func (p ToolProfile) HasStanzaFor(agentName string) bool {
+	switch agentName {
+	case "claude":
+		return p.Claude != nil
+	case "codex":
+		return p.Codex != nil
+	default:
+		return false
+	}
+}
+
+// ToolProfileClaude is a profile's Claude stanza. It mirrors the two tool
+// keys of [Claude] and carries the same meanings: Tools is the boundary
+// that becomes --tools for a run using this profile, AllowedTools is the
+// additive permission list that becomes --allowedTools. Both are validated
+// at startup against the same policy, plus two rules that only make sense
+// for a profile: Tools must be a subset of [Claude.ToolCeiling], and every
+// AllowedTools rule must name a tool this stanza itself lists — a
+// permission rule for a tool outside the surface grants nothing and is far
+// more likely to be a mistake than an intention.
+type ToolProfileClaude struct {
+	// Tools is the stanza's --tools surface. Must be non-empty, for the same
 	// reason [Claude.Tools] must be: an empty list would omit the flag, and an
 	// omitted --tools is allow-all.
 	Tools []string `yaml:"tools"`
-	// AllowedTools is the profile's --allowedTools permission list. Optional.
+	// AllowedTools is the stanza's --allowedTools permission list. Optional.
 	AllowedTools []string `yaml:"allowed_tools"`
+}
+
+// ToolProfileCodex is a profile's Codex stanza.
+//
+// BLOCKED-BY-US-1 (T-7.3, T-7.4): Sandbox is a plain string rather than the
+// sandbox enum a later task will add, because Codex's accepted sandbox
+// values were never measured. This package validates only that it is
+// non-empty, never that it is one of Codex's real values, and there is no
+// forbidden-value guard over it yet — see [validateToolProfileCodex].
+type ToolProfileCodex struct {
+	Sandbox string `yaml:"sandbox"`
 }
 
 // Defaults returns the configuration litefactory runs with when config.yaml
@@ -242,6 +357,9 @@ func Defaults() Config {
 			AllowedTools:        defaultAllowedTools(),
 			TimeoutSeconds:      DefaultClaudeTimeoutSeconds,
 			ForwardAnthropicEnv: false,
+		},
+		Tiers: Tiers{
+			ModelByTier: defaultModelByTier(),
 		},
 	}
 }
@@ -307,9 +425,20 @@ func Load(p Paths) (*Config, error) {
 // not validate; callers that are not [Load] should follow it with
 // [Config.Validate].
 func Decode(r io.Reader) (*Config, error) {
+	// Buffered rather than streamed directly into the decoder below, because
+	// [deprecatedClaudeConflict] needs a second, independent pass over the
+	// same bytes to answer a question the strict decode's merged-onto-Defaults
+	// result cannot: was the deprecated top-level claude: key actually
+	// written, or is this just what an absent key defaults to. config.yaml is
+	// never large enough for this to matter.
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
 	cfg := Defaults()
 
-	dec := yaml.NewDecoder(r)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {
 		if errors.Is(err, io.EOF) {
@@ -328,7 +457,47 @@ func Decode(r io.Reader) (*Config, error) {
 	case !errors.Is(err, io.EOF):
 		return nil, friendlyYAMLError(err)
 	}
+
+	if cfg.Agents.Claude != nil {
+		// Only worth asking when agents.claude: decoded to something at
+		// all — the common case, agents.claude: absent, cannot conflict
+		// with anything.
+		conflict, err := deprecatedClaudeConflict(data)
+		if err != nil {
+			return nil, err
+		}
+		if conflict {
+			return nil, errors.New("claude: and agents.claude: are both set; " +
+				"claude: is deprecated in favour of agents.claude:, so configure exactly one (AC-7.9)")
+		}
+	}
 	return &cfg, nil
+}
+
+// deprecatedClaudeKeyProbe decodes nothing but the presence of the top-level
+// claude: key, independent of [Defaults] and of the strict, KnownFields
+// decode above — both of which make an explicitly written value
+// indistinguishable from an absent one once they have run.
+type deprecatedClaudeKeyProbe struct {
+	Claude any `yaml:"claude"`
+}
+
+// deprecatedClaudeConflict reports whether the raw document writes the
+// deprecated top-level claude: key at all. The caller already knows
+// agents.claude: was written — decoding [Config] itself established that —
+// so this is the other half of the AC-7.9 check, and the only half that
+// needs a second, lenient pass over the bytes.
+//
+// The lenient decode is deliberate: the strict decode above has already
+// accepted this document, so a parse failure here would be a surprise, not a
+// real problem, and it is swallowed rather than turned into a second,
+// confusing error.
+func deprecatedClaudeConflict(data []byte) (bool, error) {
+	var probe deprecatedClaudeKeyProbe
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false, nil
+	}
+	return probe.Claude != nil, nil
 }
 
 // applyPathDefaults fills in the defaults that can only be known once

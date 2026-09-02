@@ -30,6 +30,7 @@ func buildRunners(paths config.Paths, cfg *config.Config, environ []string, logg
 	claudeRunner, err := harness.New(harness.Options{
 		Paths:   paths,
 		Claude:  cfg.Claude,
+		Tiers:   cfg.Tiers,
 		Environ: environ,
 		Logger:  logger,
 	})

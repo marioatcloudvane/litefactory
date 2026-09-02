@@ -261,10 +261,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// an lf:agent= label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
-		Agents: runners,
-		ToolCeiling:  s.Config.Claude.ToolCeiling,
-		InstanceID:   instanceID,
-		Interval:     interval,
+		Agents:      runners,
+		ToolCeiling: s.Config.Claude.ToolCeiling,
+		InstanceID:  instanceID,
+		Interval:    interval,
 		// Nothing spends the slots yet; carrying the value from here means the
 		// pool, when it lands, reads a number that has been clamped three times.
 		MaxConcurrentRuns: maxRuns,

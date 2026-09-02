@@ -48,6 +48,96 @@
     literal `--json` CLI flag was actually intended, that is new scope not
     covered here and would need its own follow-up.
 
+## Wave 3
+
+- **US-2 (per-turn label routing) — DONE.** `daemon.resolveAgent` mirrors
+  `resolveTools`'s ladder byte-for-byte (absent/ambiguous/mis-cased-prefix/
+  malformed-value/unknown-value/resolved), wired into `tick.go`'s `d.run` as
+  stage 1, refusing and returning before `resolveTools` (stage 2) is ever
+  reached — enforced by an early return, verified by
+  `TestAgentRefusalPrecedesToolsRefusal`. `daemon.Options.Agents
+  turn.RunnerSet` added (mirrors `ToolProfiles`'s nil-means-every-label-
+  unknown posture). Five-rung decision table (14 sub-cases), argv byte-
+  identity, no-new-forge-call, and no-raw-text-in-reply all independently
+  tested. `go build`, `go vet`, `gofmt -l`, `go test ./...`, and
+  `go test -race` on daemon/turn/report all clean.
+  - **Confirmed scope boundary (plan-consistent, matches US-7's independent
+    finding below):** a *resolved* decision does not yet change which
+    `Runner`/`agent.Kind` a segment is created with — `turn.Request` gained no
+    new field from this story. `prepare.go` still hardcodes
+    `store.AgentClaude`, by design; that's US-3's job (confirmed to the
+    engineer, who flagged this as worth a second look — resolved, no rework
+    needed).
+
+- **US-6 (capability-tier vocabulary) — PARTIAL-DONE, as designed.** `Tier`
+  closed set, `Tiers.ModelByTier map[Kind]map[Tier]string`,
+  `Claude.ModelTier` (optional, backward-compatible — tier resolution only
+  activates when an operator opts in, so every existing config/default
+  behaves identically), `.aiteam/AGENT_TIERS.md` (all 13 specialists assigned,
+  no reassignment — AC-6.8 held), `secretscan.go`'s two-level map recursion
+  verified directly. All independently-checkable ACs (6.1–6.5, 6.7, 6.8) met;
+  `go build`, `go vet`, `gofmt -l`, `go test ./...` all clean.
+  - **BLOCKED-BY-US-1 (expected):** T-6.5/AC-6.6 (Codex tier→model values) —
+    no Codex model names fabricated; `KindCodex` exists as a discriminator
+    with no `ModelByTier` entry, documented inline as intentional.
+  - Config stays a leaf package: `config.Kind` is a local string-mirror type
+    (not `internal/agent.Kind`) to avoid importing `internal/agent` — kept in
+    sync by convention only, same pre-existing pattern as `store.AgentClaude`.
+
+- **US-7 (per-tool permission profiles) — PARTIAL-DONE, as designed.** T-7.1
+  (`Agents`/`Codex` config shape, `ToolProfile` restructured into
+  `Claude`/`Codex` stanzas, `HasStanzaFor`, AC-7.9 deprecated-key conflict via
+  a second lenient YAML pass), T-7.2 (stage-3 narrowing, added as new code in
+  `tick.go`'s `run()` — did not touch `resolveAgent`/`handleComment`/
+  `runIssueBody`), T-7.5 (cross-derivation + end-to-end refusal tests,
+  including a live test-fixture `Runner` registered under `agent.Kind("codex")`
+  to prove the refusal path works through the real `d.run()` pipeline) are all
+  DONE. `go build`, `go vet`, `gofmt -l`, `go test ./...` (whole repo, no
+  regressions from concurrently-landed US-2/US-6 work), and `go test -race` on
+  the four touched packages all clean. `TestValidationHasNoThirdPartyImports`
+  and `TestForbiddenFlagIsAbsentFromTheTree` both still pass, unmodified.
+  - **BLOCKED-BY-US-1 (expected):** T-7.3 (Codex sandbox enum + default),
+    T-7.4 (forbidden-value guard, both halves) — not started, nothing
+    fabricated. `Codex.DefaultSandbox`/`ToolProfileCodex.Sandbox` are plain
+    non-empty-validated strings. AC-7.4, AC-7.5 unmet; AC-7.7 partially met
+    (structural default-surface behavior holds, "most restrictive measured
+    value" does not since nothing is measured); AC-7.8 met for its literal
+    wording (config-load-time failure shape is real and tested) but the
+    underlying constant it validates against is still a placeholder pending
+    T-7.3 — flagged by the engineer as not fully "done" in spirit.
+  - **Collision-review flag for Phase 1.5 code review:** `tick.go` and
+    `reply.go` were touched by both US-2 and US-7 (sequentially, not
+    simultaneously — US-2 landed first and was stable before US-7 edited
+    them). Full `go test ./...` passing is evidence of no functional
+    regression, but the reviewer should still diff these two files carefully
+    for consistency.
+  - **`internal/store/runs.go`** gained `AgentCodex = "codex"` (US-7) as a
+    small addition alongside US-4's original `AgentClaude` — nothing writes it
+    to the DB yet, it exists for daemon-side stanza-name comparison only.
+  - Today, stage 3 only ever narrows to Claude in live operation
+    (`buildRunners` still only registers a Claude `Runner`), since a real
+    `lf:agent=codex` label is refused earlier by US-2's stage 1
+    (`ReplyUnknownAgent`) before stage 3 is reached — this is expected and
+    matches the plan's own design (Codex itself isn't shippable until US-1 is
+    re-run successfully).
+
+## Cross-story finding for US-3 (Wave 4) — from the US-7 engineer
+
+As of Wave 3, `internal/turn/prepare.go` still hardcodes `store.AgentClaude`
+when creating/fetching a segment — US-2's daemon-level `resolveAgent()` result
+is not yet threaded through into segment creation at all. This is not a defect
+in US-2 or US-5; it is squarely US-3's job per the plan's own dependency graph
+(US-3 needs US-2 done). **Brief US-3's engineer explicitly:** it must thread
+the daemon-resolved `agent.Kind` from `tick.go`/`handleComment`/`runIssueBody`
+through into `turn.Request` (or wherever the call boundary is) so that
+`prepare.go` actually creates a new segment with the resolved kind instead of
+the hardcoded default — this is in addition to US-3's own stated job of
+refusing a resolved agent that differs from an existing segment's owning
+agent. US-7's stage-3 permission narrowing was built to work correctly for
+Claude today and generalize automatically once this lands, so no additional
+coordination needed there beyond making sure US-3 actually does this
+threading.
+
 ## Wave 2
 
 - **US-5 (vendor-neutral Runner interface + factory) — PARTIAL-DONE, as

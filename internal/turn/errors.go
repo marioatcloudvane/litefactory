@@ -60,3 +60,23 @@ func (f *failure) Unwrap() error { return f.err }
 func failuref(err error, format string, args ...any) *failure {
 	return &failure{reason: fmt.Sprintf(format, args...), err: err}
 }
+
+// agentSwitchRefusal is a turn whose resolved coding-agent tool does not own
+// this session's segment (US-3): the segment already belongs to owning, and
+// this turn's labels resolved to requested instead.
+//
+// It is unexported and distinct from [failure] on purpose. A [failure]
+// becomes a run-failure comment through [prepareFailed]; this becomes
+// [DispositionAgentSwitchRefused] through [agentSwitchRefused] and is
+// answered with [report.ReplyAgentSwitchRefused] — a permission answer named
+// by two closed-set values, not a stack trace. [Execute] tells the two apart
+// with [errors.As] before it ever reaches the generic *failure branch.
+type agentSwitchRefusal struct {
+	owning    string
+	requested string
+}
+
+func (e *agentSwitchRefusal) Error() string {
+	return fmt.Sprintf("this task's conversation belongs to the %q coding-agent tool, not %q",
+		e.owning, e.requested)
+}
