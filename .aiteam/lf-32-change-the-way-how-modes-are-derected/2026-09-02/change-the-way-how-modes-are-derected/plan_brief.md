@@ -63,11 +63,11 @@
 ## Story Index
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|------------|-----------|
-| US-1 | Make mode a typed, explicit turn input | M | — |  |
-| US-2 | Configure and validate the default coding agent | M | US-1 |  |
-| US-3 | Classify unlabelled requests through the default agent | L | US-1, US-2 |  |
-| US-4 | Persist and mutate one-run mode labels safely | L | US-1 |  |
-| US-5 | Integrate routing and retire agent-side inference | L | US-1, US-2, US-3, US-4 |  |
+| US-1 | Make mode a typed, explicit turn input | M | — | https://github.com/marioatcloudvane/litefactory/issues/36 |
+| US-2 | Configure and validate the default coding agent | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/37 |
+| US-3 | Classify unlabelled requests through the default agent | L | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/38 |
+| US-4 | Persist and mutate one-run mode labels safely | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/39 |
+| US-5 | Integrate routing and retire agent-side inference | L | US-1, US-2, US-3, US-4 | https://github.com/marioatcloudvane/litefactory/issues/40 |
 
 ## Out of Scope
 
