@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete — re-run superseding the prior INCOMPLETE brief; grounded in verified codebase-tour and web-researcher findings)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(complete — 9 stories, ST-1 through ST-9)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -85,6 +85,42 @@ asked for; nothing here licenses starting the next one.
   describe the revision and supersede its own prior palette/nav description;
   left the ASCII-wireframe section and the rest of the brief untouched. No
   code, no daemon changes — still Research mode.
+- 2026-09-02 — Plan run (headless): human approved the mockups on the issue
+  ("the UI looks good, plan it out!"), the explicit mode transition into
+  Plan. `requirements-engineer` read `RESEARCH_BRIEF.md` and `mockups/*.html`
+  directly and wrote `feature-spec.md` (status APPROVED), pre-filling scope
+  from the four Research passes and recording 16 headless-run assumptions
+  (A-1..A-16) — including the "project"→`store.Repo` mapping, four new
+  read-only store accessors, cookie+bootstrap-token auth in place of the
+  brief's header-only recommendation, and the settings editor's degrade-to-
+  read-only fallback. `go-architect` then reviewed the spec against
+  `APP_CONTEXT.md`/`APP_CONSTRAINTS.md`/the platform and security skills,
+  reading source directly (`internal/config`, `internal/cli/cmd_daemon.go`
+  and `cmd_logs_render.go`, `internal/store`, `internal/naming`,
+  `internal/harness/meta.go`, `.golangci.yml`, `mockups/run-11.html`) —
+  its findings arrived via a same-turn relay through this run's invoker
+  rather than a direct `SendMessage`, echoing an earlier incident in this
+  session's Research history; unlike that incident, this run polled the
+  architect agent directly and received matching content back in its own
+  voice before treating the findings as grounded, and the architect
+  explained the routing (it had addressed its `SendMessage` to "main"
+  rather than to this orchestrator). Findings: 6 spec conflicts (tab CSS
+  can't be static under CSP — resolved as server-rendered links, not the
+  mockup's CSS-radio pattern; mockup inline styles need extracting; the
+  YAML-editor dependency the spec left conditionally open is blocked by
+  `internal/config/purity_test.go` and is resolved as a stdlib scalar
+  editor instead; `Origin`/`Host` checks need one shared allowlist; the
+  claude-log decoder is extracted into a new `internal/runlog` leaf
+  package; the run-meta sidecar gets its own minimal decode struct) and 3
+  deviations from `APP_CONSTRAINTS.md` requiring amendment
+  (CONC-2's goroutine inventory; the spec's "≤4 queries per page" rule,
+  restated as ≤6 on `/` and ≤4 elsewhere; the conditional new dependency,
+  avoided). Synthesized into `plan_brief.md` (Shared Decisions, Workflow,
+  Cross-Story Constraints, Story Index, Out of Scope, Provenance) plus nine
+  per-story sub-issues (`ST-1.md`..`ST-9.md`) covering all 9 user stories
+  across 60 tasks; anti-duplication rule applied throughout — cross-story
+  content lives only in `plan_brief.md`, story-specific content only in its
+  sub-issue. No code, no daemon changes — Plan mode only.
 
 ## Notes
 
