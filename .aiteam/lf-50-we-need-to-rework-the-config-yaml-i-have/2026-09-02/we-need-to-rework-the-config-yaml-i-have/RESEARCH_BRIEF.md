@@ -279,3 +279,58 @@ agents:
 ## Recommended scope for Plan mode
 
 [V] Plan mode should use this inventory to define the desired operator experience, decide the fate of top-level `claude` versus `agents.claude`, decide whether exhaustive reference material belongs in the generated file or separate documentation, specify backward-compatibility/migration behavior, and align comments/templates/tests with the resulting schema. It should preserve strict decoding, indirect credential handling, secret scanning, permission ceilings, sandbox controls, and explicit validation. It should not add automatic worktree cleanup or redesign runtime orchestration unless the owner explicitly brings those behaviors into scope.
+
+## Evaluation — Research run 0002
+
+### Overall assessment
+
+[V] The current configuration implementation is technically strong but conceptually unfinished. Loading, validation, credential indirection, permission constraints, and configuration-to-runner translation are defensive and well tested. The user-facing structure, however, exposes an incomplete migration from a Claude-centric schema to a multi-agent schema. The result is safe in most failure cases but harder to understand than its size warrants, and one accepted field can be silently ignored.
+
+**Verdict:** retain the validation and security machinery, but redesign the public hierarchy and its documentation as one compatibility-aware change. The current format is serviceable for experienced maintainers, not yet a coherent long-term operator interface.
+
+### Evaluation scorecard
+
+| Dimension | Assessment | Evidence |
+|---|---|---|
+| Validation and failure behavior | Strong | [V] Known-field decoding, one-document enforcement, aggregated path-specific errors, bounded numeric/enumerated values, and literal-secret scanning make most mistakes explicit (`internal/config/config.go:511`, `internal/config/validate.go:55`, `internal/config/secretscan.go:94`). |
+| Security defaults | Strong, with two exceptions | [V] Credentials are referenced rather than embedded; Claude profiles cannot exceed their configured ceiling; Codex network and ambient user configuration are opt-in (`internal/config/policy.go:273`, `internal/codex/runner.go:91`). Plain HTTP API endpoints remain allowed, and anyone able to apply a tools-profile label can select configured authority (`internal/config/validate.go:159`, `internal/daemon/tools.go:99`). |
+| Conceptual organization | Weak | [V] Agent-neutral model tiers live at the root, Codex lives under `agents`, active Claude remains top-level, and cross-agent tool profiles remain nested below Claude (`internal/config/config.go:47`, `internal/config/config.go:315`). |
+| Discoverability | Mixed | [V] Generated comments explain many operational tradeoffs well, but the repository has no substantive standalone configuration guide and the generated Codex example omits three supported fields (`README.md:1`, `internal/config/template.go:226`, `internal/config/config.go:125`). |
+| Behavioral consistency | Weak in migration seams | [V] `agents.claude` is accepted as arbitrary YAML, intentionally not validated, and not consumed; a file can therefore appear to configure Claude while execution uses top-level defaults (`internal/config/config.go:99`, `internal/config/validate.go:218`, `internal/config/agents_test.go:294`, `internal/daemon/runners.go:31`). |
+| Default experience | Mixed | [V] An empty file receives predictable defaults, but the generated file cannot start the daemon without credentials, and a bare executable name is fragile under launchd/Homebrew path differences (`internal/config/config.go:403`, `internal/config/template.go:75`, `internal/config/template.go:230`). |
+| Compatibility readiness | Weak | [V] Strict decoding and non-overwriting initialization mean a renamed or removed key breaks an existing hand-maintained file, while no schema version or migration mechanism exists (`internal/config/config.go:513`, `internal/config/template.go:321`). |
+| Test quality | Strong but documentation-incomplete | [V] Tests directly cover defaults/template equivalence, validation, secret and forbidden-flag rules, profile routing/refusal, and process arguments. They prove documented active values match defaults, but do not require every live schema key and semantic caveat to appear in generated documentation (`internal/config/template_test.go:15`, `internal/config/purity_test.go:82`, `internal/codex/runner_test.go:39`, `internal/daemon/profile_agent_test.go:56`). |
+
+### What should be preserved
+
+- [V] Keep strict unknown-key and extra-document rejection. It turns misspellings into startup errors instead of silent behavior (`internal/config/config.go:511`).
+- [V] Keep overlay-on-defaults semantics, centralized defaults, and template/default round-trip tests (`internal/config/config.go:403`, `internal/config/template_test.go:15`).
+- [V] Keep aggregated, path-specific validation errors; they make manual editing substantially less frustrating (`internal/config/validate.go:55`).
+- [V] Keep credential references and recursive literal-secret detection (`internal/config/config.go:210`, `internal/config/secretscan.go:94`).
+- [V] Keep the Claude ceiling and Codex opt-in widening controls as explicit security boundaries (`internal/config/policy.go:273`, `internal/codex/runner.go:242`).
+- [V] Keep configuration ownership isolated from daemon, credential, and runner behavior; repository layering is healthy (`internal/config/config.go:1`, `internal/daemon/runners.go:30`).
+
+### Problems that justify a rework
+
+1. **Accepted configuration can be silently ignored.** [V] `agents.claude` accepts arbitrary YAML, is excluded from validation, and has no runtime consumer. This is the most serious usability defect because it contradicts the otherwise fail-closed design (`internal/config/config.go:99`, `internal/config/validate.go:218`, `internal/daemon/runners.go:31`).
+2. **The hierarchy expresses implementation history rather than operator concepts.** [V] Claude is simultaneously a top-level legacy section and a reserved agent, while profiles capable of configuring both agents remain owned by Claude (`internal/config/config.go:87`, `internal/config/config.go:315`).
+3. **The generated file is neither clearly minimal nor exhaustive.** [V] It carries extensive comments and advanced permission controls, yet omits live Codex model, tier, and user-config settings (`internal/config/template.go:226`, `internal/config/config.go:125`).
+4. **Some source comments contradict runtime behavior.** [V] Comments say Codex tier mappings or sandbox values are absent/unmeasured, while defaults and validators implement them (`internal/config/config.go:141`, `internal/config/tier.go:141`, `internal/config/validate.go:244`).
+5. **Model selection is ambiguous when fully written out.** [V] Both a literal model and a tier may be present, but the tier silently wins. Claude's template explains this; Codex's does not (`internal/harness/runner.go:184`, `internal/codex/runner.go:83`, `internal/config/template.go:116`).
+6. **Several settings have non-obvious lifecycle semantics.** [V] Repository defaults are captured when a repository is registered rather than obviously remaining live, while the retention-days setting does not trigger automatic cleanup (`internal/cli/cmd_repo.go:111`, `internal/store/repos.go:28`, `internal/cli/cmd_task.go:159`).
+7. **Schema evolution has no explicit mechanism.** [V] Existing files are never overwritten, strict decoding rejects removed keys, and there is no schema version or migration path. A cleanup can therefore become an abrupt startup failure for every existing installation (`internal/cli/cmd_init.go:72`, `internal/config/config.go:513`).
+8. **Plain HTTP is accepted for authenticated GitHub traffic.** [V] This is useful for local testing but unsafe as an unrestricted production option because bearer credentials can travel without transport encryption (`internal/config/validate.go:159`, `internal/cli/cmd_init.go:181`).
+
+### Refined open questions for Plan mode
+
+- [V] Is `agents.claude` near-term migration scaffolding, or should accepting-but-ignoring it be fixed before any broader reorganization?
+- [V] Should agent-specific execution settings live uniformly under `agents`, with tool profiles moved to an agent-neutral policy section?
+- [V] Should simultaneous literal model and model tier be rejected as ambiguous, or retained with prominently documented precedence?
+- [V] Is the generated file intended to be the exhaustive reference, a minimal starter, or should those become two separate artifacts?
+- [V] What compatibility promise applies to existing hand-maintained files, and should transition support use aliases, explicit schema versions, a migration command, or a documented breaking change?
+- [V] Should non-TLS GitHub endpoints be limited to loopback/development use or require an explicit insecure override?
+- [V] Should repository-default snapshot behavior and non-automatic retention remain as-is with clearer wording, or be brought into a separate behavior-change scope?
+
+### Updated recommendation for Plan mode
+
+[V] Treat this as an information-architecture and compatibility project, not a rewrite of the proven loader. First define a coherent operator model for global settings, forge credentials, shared policy/profiles, model tiers, and per-agent execution. Then define how existing files transition and make the generated starter/reference/tests express every supported key and precedence rule. Preserve the current strictness and least-privilege defaults. Keep automatic retention and broader daemon behavior out of scope unless deliberately added as separate user stories.
