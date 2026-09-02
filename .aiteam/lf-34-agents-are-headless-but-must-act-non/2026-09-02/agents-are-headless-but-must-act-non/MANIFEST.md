@@ -68,6 +68,14 @@ asked for; nothing here licenses starting the next one.
   permission not granted); proceeded on the owner's already-explicit scope
   reply, consistent with requirements-engineer's own precedent earlier in
   this session.
+- 2026-09-02 — Plan mode re-run after Codex agent copies were added.
+  `feature-spec.md` was revised and the handoff consolidated into five
+  file-ownership stories. Four stories require atomic semantic parity between
+  a Claude definition and its Codex skill copy while preserving tool-specific
+  wrappers. Spike remains a shared-mode-only exception because Codex handles
+  it inline and has no registered counterpart. Superseded coordination and
+  split-file artifacts US-1, US-3, US-5, and US-9 were removed. With no
+  interactive confirmation available, the explicit request to re-plan was
+  treated as approval of the already-settled behavior plus this parity scope.
 
 ## Notes
-
