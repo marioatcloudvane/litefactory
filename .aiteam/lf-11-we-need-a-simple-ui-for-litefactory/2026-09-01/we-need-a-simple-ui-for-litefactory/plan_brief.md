@@ -217,15 +217,15 @@ lives in that story's sub-issue instead.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| ST-1 | Foundations, bind and auth | L | — | |
-| ST-2 | Shell: layout, assets, shared helpers | M | ST-1 | |
-| ST-3 | Store read accessors | S | — | |
-| ST-4 | Dashboard | M | ST-2, ST-3 | |
-| ST-5 | Projects and sessions | M | ST-2, ST-3 | |
-| ST-6 | Run detail, per-agent tabs, follow | L | ST-2 | |
-| ST-7 | Daemon log | S | ST-2 | |
-| ST-8 | Settings | L | ST-2 | |
-| ST-9 | `litefactory ui` command | S | ST-1 | |
+| ST-1 | Foundations, bind and auth | L | — | https://github.com/marioatcloudvane/litefactory/issues/23 |
+| ST-2 | Shell: layout, assets, shared helpers | M | ST-1 | https://github.com/marioatcloudvane/litefactory/issues/24 |
+| ST-3 | Store read accessors | S | — | https://github.com/marioatcloudvane/litefactory/issues/25 |
+| ST-4 | Dashboard | M | ST-2, ST-3 | https://github.com/marioatcloudvane/litefactory/issues/26 |
+| ST-5 | Projects and sessions | M | ST-2, ST-3 | https://github.com/marioatcloudvane/litefactory/issues/27 |
+| ST-6 | Run detail, per-agent tabs, follow | L | ST-2 | https://github.com/marioatcloudvane/litefactory/issues/28 |
+| ST-7 | Daemon log | S | ST-2 | https://github.com/marioatcloudvane/litefactory/issues/29 |
+| ST-8 | Settings | L | ST-2 | https://github.com/marioatcloudvane/litefactory/issues/30 |
+| ST-9 | `litefactory ui` command | S | ST-1 | https://github.com/marioatcloudvane/litefactory/issues/31 |
 
 ## Out of Scope
 
