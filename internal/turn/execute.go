@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -14,15 +15,36 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// Runner runs one claude process. *harness.Runner satisfies it.
+// Runner is [agent.Runner], aliased here for continuity with the many call
+// sites written before that type moved to internal/agent: *harness.Runner
+// (Claude) satisfies it today, and internal/codex's runner will once its own
+// wire shape is measured.
 //
-// It is declared here rather than in internal/harness because this is where it
-// is consumed: the harness exports a concrete struct, and the one narrow
-// interface a turn needs belongs to the turn. Two methods' worth of surface
-// would already be too much — a test double for the whole business path has to
-// be cheap to write, or the path stops being tested.
-type Runner interface {
-	Run(ctx context.Context, req harness.Request) (*harness.RunResult, error)
+// It is not declared fresh in this package because doing so would be the
+// interface-next-to-nothing anti-pattern the M0 layout invariants warn
+// against in the other direction: this is a boundary type two independent
+// implementation packages have to satisfy without importing internal/turn or
+// each other, so it has to live somewhere neither of them is — internal/agent,
+// which internal/harness and internal/codex both already import.
+type Runner = agent.Runner
+
+// RunnerSet is every coding-agent-tool implementation available to a turn,
+// keyed by which [agent.Kind] each one drives. The daemon's factory builds
+// exactly one at startup and every turn shares it.
+//
+// This is what makes [agent.Kind] validity registry-driven rather than a
+// hardcoded switch: a Kind is valid exactly when RunnerSet holds an entry for
+// it, and a segment naming a Kind with no entry is refused as a reportable
+// failure rather than dispatched to a nil Runner. Adding a third
+// implementation is registering it here, in internal/daemon's factory —
+// nothing in this package or internal/report has to change (AC-5.15).
+type RunnerSet map[agent.Kind]Runner
+
+// runner returns the implementation registered for kind, or false when none
+// is.
+func (s RunnerSet) runner(kind agent.Kind) (Runner, bool) {
+	r, ok := s[kind]
+	return r, ok
 }
 
 // CloneGate serialises the git operations that contend on one registered
@@ -64,9 +86,17 @@ type Options struct {
 	// turn.
 	Git *git.Binary
 
-	// Claude runs the subprocess. In production this is a *harness.Runner
-	// built at startup, so a missing binary fails at boot (AC-3.18).
-	Claude Runner
+	// Runners is every coding-agent-tool implementation this daemon has
+	// built, keyed by [agent.Kind]. In production this is built once at
+	// startup by internal/daemon's factory — so a Codex binary that cannot
+	// be resolved fails boot rather than a later tick (AC-3.18, AC-5.7) —
+	// and every turn shares it.
+	//
+	// Required and refused as the zero value rather than treated as a
+	// no-op, the same way [Options.CloneGate] is: a turn that resolved no
+	// implementation at all is a turn that cannot run anything, and that has
+	// to be a startup error rather than a run that quietly does nothing.
+	Runners RunnerSet
 
 	// CloneGate keeps two turns working in one registered clone out of each
 	// other's git. Required (AC-PAR-3.1).
@@ -125,8 +155,8 @@ func (o Options) validate() error {
 		return invalidOptions("a database handle is required")
 	case o.Git == nil:
 		return invalidOptions("a resolved git binary is required")
-	case o.Claude == nil:
-		return invalidOptions("a claude runner is required")
+	case len(o.Runners) == 0:
+		return invalidOptions("a runner set is required")
 	case o.CloneGate == nil:
 		return invalidOptions("a clone gate is required")
 	case o.InstanceID == "":

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -28,9 +29,15 @@ type preparation struct {
 	// (AC-3.24).
 	shaBefore string
 
-	segment  store.Segment
-	run      store.Run
-	request  harness.Request
+	segment store.Segment
+	run     store.Run
+	// runner is the implementation this run is addressed to, resolved from
+	// segment.Agent against opts.Runners while the segment is still in hand.
+	// Resolving it here, rather than at the point runAndHarvest calls it, is
+	// what turns a Kind with no registered implementation into a reportable
+	// failure before a runs row is allocated for it.
+	runner   Runner
+	request  agent.Request
 	prompt   string
 	metaPath string
 
@@ -106,20 +113,37 @@ func prepare(
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
 
-	// The one place in the tree that derives a claude session id. Every later
+	// The one place in the tree that derives a session ref. Every later
 	// consumer — the harness, the run log, the metadata document — reads it back
 	// off the segment below, because GetOrCreateSegment only uses this value
 	// when it creates the row and returns an existing row as stored. Its doc
 	// comment says the stored value wins if the two ever disagree; a resumed run
 	// is what makes that real, since the stored id is the only one that names a
 	// conversation claude can still find.
-	claudeSessionID, err := naming.ClaudeSessionID(ref, store.FirstSegmentOrdinal)
+	sessionRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	if err != nil {
-		return nil, fmt.Errorf("derive the claude session id for task %s: %w", ref, err)
+		return nil, fmt.Errorf("derive the session ref for task %s: %w", ref, err)
 	}
-	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, claudeSessionID)
+	// Every segment this tree can produce today is a Claude one — the label
+	// resolution that would let an owner ask for a different Kind is a later
+	// story's job (US-2/US-3). What is generic as of this story is
+	// everything downstream of Agent: the request built below carries no
+	// vendor-specific type, and the runner it is handed to is resolved by
+	// this value against opts.Runners rather than assumed.
+	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, store.AgentClaude)
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
+	}
+	kind := agent.Kind(segment.Agent)
+	runner, ok := opts.Runners.runner(kind)
+	if !ok {
+		// Registry-driven, not a hardcoded switch (AC-5.6): a Kind with no
+		// entry in opts.Runners is refused here, before a runs row is
+		// allocated for it, rather than reaching a nil Runner three steps
+		// later. Reportable rather than a bare error, because the issue is
+		// owed an explanation the same way any other preparation failure is
+		// (AC-4.1).
+		return nil, failuref(nil, "no coding-agent-tool implementation is registered for %q", segment.Agent)
 	}
 
 	// Read before the row for this run is inserted, so that the run being
@@ -187,9 +211,25 @@ func prepare(
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
 	}
 
-	path := harness.PathCold
+	path := agent.PathCold
 	if resume {
-		path = harness.PathResume
+		path = agent.PathResume
+	}
+
+	// Permissions carries no vendor-named field crossing this boundary
+	// (AC-5.2): the zero value means no profile was resolved, and it is
+	// left that way rather than reached for when req carries no tool
+	// surface at all — which is every run before profiles existed and every
+	// run today whose issue carries no lf:tools= label. When a profile did
+	// resolve one, its payload is narrowed into harness.ToolSurface here and
+	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
+	// exactly the shape this package must not otherwise know.
+	var permissions agent.Permissions
+	if len(req.Tools) > 0 || req.ToolProfile != "" {
+		permissions = agent.Permissions{
+			Profile: req.ToolProfile,
+			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
+		}
 	}
 
 	logger.Info("run prepared",
@@ -212,26 +252,29 @@ func prepare(
 		shaBefore:   shaBefore,
 		segment:     segment,
 		run:         run,
+		runner:      runner,
 		prompt:      prompt,
 		metaPath:    metaPath,
 		promptInput: promptInput,
-		request: harness.Request{
-			Ref:             ref,
-			RunOrdinal:      run.Ordinal,
-			SegmentOrdinal:  segment.Ordinal,
-			ClaudeSessionID: segment.ClaudeSessionID,
-			Mode:            req.mode(),
-			Path:            path,
-			WorktreePath:    worktree.Path(),
-			Prompt:          prompt,
-			// Passed straight through: the request's lists are already the
-			// caller's copies of operator-authored configuration, and the
-			// harness re-checks them against its ceiling before it builds argv
-			// (AC-2.6). Empty means this run takes the harness's own surface,
-			// which is every run that carries no tool profile.
-			Tools:        req.Tools,
-			AllowedTools: req.AllowedTools,
-			ToolProfile:  req.ToolProfile,
+		request: agent.Request{
+			Ref:            ref,
+			RunOrdinal:     run.Ordinal,
+			SegmentOrdinal: segment.Ordinal,
+			// Ref is the segments row's own value, never recomputed: if it and
+			// a fresh derivation ever disagree the stored one wins, because it
+			// is the one the tool has already seen. Resume is the tool's own
+			// reported handle, absent until a real run reports one — Claude
+			// has none of its own, since its --session-id already is Ref, so
+			// this stays empty for every segment this tree can produce today.
+			Session: agent.SessionRef{
+				Ref:    segment.SessionRef,
+				Resume: segment.ResumeToken,
+			},
+			Mode:         req.mode(),
+			Path:         path,
+			WorktreePath: worktree.Path(),
+			Prompt:       prompt,
+			Permissions:  permissions,
 		},
 	}, nil
 }
@@ -678,9 +721,12 @@ func allocateRun(
 	// not be swallowed if it ever does.
 	var pathErr error
 	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{
-		SessionID:        session.ID,
-		SegmentID:        segment.ID,
-		Mode:             req.mode(),
+		SessionID: session.ID,
+		SegmentID: segment.ID,
+		Mode:      req.mode(),
+		// Every run this tree can produce today is a Claude run; a second
+		// implementation is a later story's job (US-5).
+		Agent:            store.AgentClaude,
 		TriggerCommentID: req.Trigger.CommentID,
 		LogPath: func(ordinal int) string {
 			path, err := naming.RunLogPath(opts.Paths.Home(), ref, ordinal)

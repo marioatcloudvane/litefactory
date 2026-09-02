@@ -228,10 +228,18 @@ type ReplyRequest struct {
 	// to echo label text (S-9). internal/report checks it against the
 	// profile-name pattern again before rendering it (S-8).
 	Profile string
+
+	// Agent is the coding-agent-tool name an lf:agent= label asked for. It
+	// belongs to [report.ReplyUnknownAgent] alone and is empty everywhere
+	// else, for the same S-9 reason [Profile] is: the malformed and ambiguous
+	// agent refusals are kept structurally unable to echo label text.
+	// internal/report checks it against the agent-name pattern again before
+	// rendering it (S-8).
+	Agent string
 }
 
-// refusing reports whether this request is a tool-permission refusal rather
-// than an answer to the comment's command.
+// refusing reports whether this request is a tool-permission or
+// agent-selection refusal rather than an answer to the comment's command.
 func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInvalid }
 
 // kind is the reply internal/report should render for this request.
@@ -240,7 +248,7 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	if req.refusing() {
-		return req.Refusal, req.Refusal.RefusesTools()
+		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -254,8 +262,8 @@ func (req ReplyRequest) validate() error {
 	// and logs it, and the next comment on the issue is refused on the thread.
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
-	case req.refusing() && !req.Refusal.RefusesTools():
-		return invalidRequest("reply kind %s is not a tool-permission refusal", req.Refusal)
+	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent():
+		return invalidRequest("reply kind %s is not a tool-permission or agent-selection refusal", req.Refusal)
 	// Only when this is not a refusal. A refusal is triggered by a command that
 	// would have spawned a run, and a command that spawns a run draws no reply —
 	// so asking this question of a refusal refuses the refusal.
@@ -425,6 +433,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Kind:    kind,
 		Command: req.Command.Name,
 		Profile: req.Profile,
+		Agent:   req.Agent,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
@@ -551,8 +560,13 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 	}
 
 	return report.Run{
-		Ref:       result.Ref,
-		Ordinal:   ordinal,
+		Ref:     result.Ref,
+		Ordinal: ordinal,
+		// result.Run.Agent is the segment's own value (store.AgentClaude for
+		// every run this tree can produce today) rather than anything
+		// re-derived here, so the report names the tool that actually ran
+		// even on the path where Result itself is nil (AC-5.4).
+		Agent:     result.Run.Agent,
 		Result:    result.Harness,
 		Branch:    result.Branch,
 		CommitSHA: result.CommitSHA,

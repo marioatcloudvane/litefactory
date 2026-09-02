@@ -142,7 +142,7 @@ func (f *logsHome) allocateRun(session store.Session, triggerCommentID int64, st
 	f.t.Helper()
 
 	ref := f.ref(session)
-	segment, err := f.db.GetOrCreateSegment(f.t.Context(), session.ID, store.FirstSegmentOrdinal, "claude-session-1")
+	segment, err := f.db.GetOrCreateSegment(f.t.Context(), session.ID, store.FirstSegmentOrdinal, "claude-session-1", store.AgentClaude)
 	if err != nil {
 		f.t.Fatalf("segment: %v", err)
 	}
@@ -150,6 +150,7 @@ func (f *logsHome) allocateRun(session store.Session, triggerCommentID int64, st
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             store.ModeSpike,
+		Agent:            store.AgentClaude,
 		TriggerCommentID: triggerCommentID,
 		StartedAt:        startedAt,
 		LogPath: func(ordinal int) string {
@@ -527,6 +528,47 @@ func TestLogsRunSummary(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "4096 bytes") {
 		t.Errorf("the summary does not report the prompt's size:\n%s", stdout)
+	}
+}
+
+// TestLogsRunSummaryAgentAndSessionRef is AC-4.7 and T-4.6's human label: a
+// meta.json carrying the new agent and session_ref keys is what a run written
+// after this story lands looks like, and the human summary must show them
+// under the "<agent> session" label rather than the old fixed "claude
+// session" one.
+func TestLogsRunSummaryAgentAndSessionRef(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 456)
+	start := time.Date(2026, 8, 23, 9, 0, 0, 0, time.UTC)
+
+	run := f.allocateRun(session, 2001, start)
+	f.reportRun(f.finishRun(run, store.RunSucceeded, 0, 10*time.Second), 9002)
+
+	f.writeMeta(session, 1, map[string]any{
+		"run_ordinal":       1,
+		"task_ref":          session.TaskRef,
+		"session_id":        session.ID,
+		"segment_ordinal":   1,
+		"agent":             store.AgentClaude,
+		"session_ref":       "new-format-session-ref",
+		"claude_session_id": "new-format-session-ref",
+		"mode":              store.ModeSpike,
+		"started_at":        start.Format(time.RFC3339),
+		"finished_at":       start.Add(10 * time.Second).Format(time.RFC3339),
+		"duration_ms":       10000,
+	})
+	f.writeLog(session, 1, event("assistant", "thinking")+resultLine("done"))
+
+	code, stdout, stderr := f.run("logs", "456", "--run", "1")
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+
+	if !strings.Contains(stdout, "claude session") {
+		t.Errorf("summary is missing the %q label:\n%s", "claude session", stdout)
+	}
+	if !strings.Contains(stdout, "new-format-session-ref") {
+		t.Errorf("summary is missing the session ref:\n%s", stdout)
 	}
 }
 

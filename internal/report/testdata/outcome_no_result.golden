@@ -3,7 +3,7 @@
 ### litefactory · run 3 · no result
 
 > [!WARNING]
-> Run 3 exited cleanly without ever reporting a result. In practice this is usually a stale `claude` credential: the CLI retries internally about ten times and then goes quiet. Run `claude` once by hand to check it is still logged in, then comment again.
+> Run 3 exited cleanly without ever reporting a result. In practice this is usually a stale `claude` credential: the tool retries internally about ten times and then goes quiet. Run `claude` once by hand to check it is still logged in, then comment again.
 
 - **Branch:** `lf/123-add-dry-run-to-task-clean`
 - **Commit:** none — this run committed nothing

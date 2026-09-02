@@ -29,7 +29,7 @@ func TestArgvCarriesNoStringOriginatingFromGitHub(t *testing.T) {
 
 	f := newFixture(t, nil)
 	runner, tmpDir := realRunner(t, f, fakeClaudeArgvDumpScript)
-	f.opts.Claude = runner
+	f.opts.Runners = runnerSet(runner)
 
 	const sentinel = "ZZZ-LABEL-TEXT-MUST-NEVER-REACH-ARGV-ZZZ"
 	req := f.request()
@@ -156,15 +156,18 @@ func TestColdRerunCarriesTheSameProfile(t *testing.T) {
 	if first.Path != harness.PathResume || second.Path != harness.PathColdAfterResumeRefused {
 		t.Fatalf("paths = %s then %s, want resume then cold_after_resume_refused", first.Path, second.Path)
 	}
-	if first.ToolProfile != "research" || second.ToolProfile != "research" {
-		t.Errorf("ToolProfile = %q then %q, want %q on both attempts", first.ToolProfile, second.ToolProfile, "research")
+	if first.Permissions.Profile != "research" || second.Permissions.Profile != "research" {
+		t.Errorf("Permissions.Profile = %q then %q, want %q on both attempts",
+			first.Permissions.Profile, second.Permissions.Profile, "research")
 	}
-	if !equalStringSlices(first.Tools, req.Tools) || !equalStringSlices(second.Tools, req.Tools) {
-		t.Errorf("Tools = %v then %v, want the same %v on both attempts", first.Tools, second.Tools, req.Tools)
+	firstSurface, _ := first.Permissions.Payload.(harness.ToolSurface)
+	secondSurface, _ := second.Permissions.Payload.(harness.ToolSurface)
+	if !equalStringSlices(firstSurface.Tools, req.Tools) || !equalStringSlices(secondSurface.Tools, req.Tools) {
+		t.Errorf("Tools = %v then %v, want the same %v on both attempts", firstSurface.Tools, secondSurface.Tools, req.Tools)
 	}
-	if !equalStringSlices(first.AllowedTools, req.AllowedTools) || !equalStringSlices(second.AllowedTools, req.AllowedTools) {
+	if !equalStringSlices(firstSurface.AllowedTools, req.AllowedTools) || !equalStringSlices(secondSurface.AllowedTools, req.AllowedTools) {
 		t.Errorf("AllowedTools = %v then %v, want the same %v on both attempts",
-			first.AllowedTools, second.AllowedTools, req.AllowedTools)
+			firstSurface.AllowedTools, secondSurface.AllowedTools, req.AllowedTools)
 	}
 }
 

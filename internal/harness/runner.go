@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -183,153 +184,35 @@ func (r *Runner) Binary() config.Executable { return r.binary }
 // Timeout returns the hard wall-clock limit one run is given.
 func (r *Runner) Timeout() time.Duration { return r.timeout }
 
-// RunPath names which conversation a run is trying to have. It decides one
-// flag — [PathResume] passes --resume where the others pass --session-id — and
-// it is the `path` attribute on every one of the run's log lines, which is what
-// makes a fallback readable in daemon.log after the fact.
-type RunPath string
-
-// The three paths a run can take.
-const (
-	// PathCold starts a new conversation under the session id. It is what the
-	// first run of a segment does, and it is the zero value: a caller that
-	// knows nothing about resuming gets the behaviour litefactory had before
-	// resuming existed.
-	PathCold RunPath = "cold"
-
-	// PathResume continues the conversation the session id already names.
-	PathResume RunPath = "resume"
-
-	// PathColdAfterResumeRefused is the rerun of a resume claude refused —
-	// the runs table said a conversation existed and the transcript did not.
-	// It is invoked exactly like [PathCold] and differs only in what it says
-	// it is, because "this run threw away a conversation we thought we had" is
-	// worth being able to grep for.
-	PathColdAfterResumeRefused RunPath = "cold_after_resume_refused"
-)
-
-// String renders the path for a log attribute, naming the zero value rather
-// than logging an empty string for it.
-func (p RunPath) String() string {
-	if p == "" {
-		return string(PathCold)
-	}
-	return string(p)
-}
-
-// resuming reports whether this path asks claude to continue an existing
-// conversation. Only [PathResume] does: the fallback path is a cold run that
-// remembers where it came from.
-func (p RunPath) resuming() bool { return p == PathResume }
-
-// Request is one claude run: which task, which run number, where, and what to
-// say. The prompt is assembled by [BuildPrompt].
-type Request struct {
-	// Ref identifies the task. It fixes the run log path and names the task on
-	// every log line the run emits.
-	Ref naming.Ref
-
-	// RunOrdinal is the per-task run number, allocated by inserting the runs
-	// row before the subprocess starts (S-1). It becomes the NNNN file stem.
-	RunOrdinal int
-
-	// SegmentOrdinal is the conversation segment, 1 at M0. It is recorded in
-	// the metadata document and derives nothing: the session id it used to
-	// produce here now arrives ready-made in ClaudeSessionID below.
-	SegmentOrdinal int
-
-	// ClaudeSessionID is the value passed to `claude --session-id`, taken from
-	// the segments row rather than recomputed. internal/naming derives it once,
-	// when the row is created; this package treats it as given.
-	//
-	// Deriving it a second time here would agree with the stored value only for
-	// as long as the derivation never changes, and if the two ever part company
-	// the stored one wins — it is the id claude has already seen, and the one a
-	// later run has to name to find that conversation again.
-	ClaudeSessionID string
-
-	// Mode is the run mode, "spike" at M0. Recorded in the metadata document.
-	Mode string
-
-	// Path says which conversation this run is trying to have, and so which of
-	// --session-id and --resume it is invoked with. The zero value is a cold
-	// run, which is what a first run of a segment is.
-	Path RunPath
-
-	// WorktreePath is the run's working directory: the task's git worktree,
-	// never the registered clone.
-	WorktreePath string
-
-	// Prompt is delivered on the child's stdin, never in argv (AC-3.12).
-	Prompt string
-
-	// Tools is the --tools surface this run is granted, when a tool profile was
-	// resolved for it. Empty means no profile applied, and the runner falls back
-	// to its configured surface; it is never a request to grant no tools at all,
-	// because an omitted --tools is allow-all.
-	//
-	// Every entry must be within the runner's ceiling or the request is refused
-	// before anything is started.
-	Tools []string
-
-	// AllowedTools is the --allowedTools permission list belonging with Tools,
-	// and is read only when Tools is non-empty. Empty then means the profile
-	// genuinely carries no permission rules, so the flag is omitted rather than
-	// filled in from the configured list — empty and absent are different.
-	//
-	// It is defence in depth, not the boundary: it is additive to the operator's
-	// ambient settings, and nothing is granted by a rule here that Tools does
-	// not already allow.
-	AllowedTools []string
-
-	// ToolProfile is the name of the operator-authored profile Tools and
-	// AllowedTools came from, recorded so a run's surface can be explained after
-	// the fact.
-	//
-	// It is a profile name that was validated against the operator's own config
-	// map, never raw label text and never anything else originating from an
-	// issue or a comment. It is used for logging and metadata only: it is never
-	// joined into the child's argv.
-	ToolProfile string
-}
-
-// validate rejects a request that would produce an unusable run rather than a
-// confusing one.
+// validateRequest rejects a request that would produce an unusable run rather
+// than a confusing one.
 //
-// ceiling is the runner's hard upper bound on Tools, passed in because the
-// check belongs with the rest of the request's own validation and a Request has
-// no other way to reach the [Runner] that is about to run it.
-func (req Request) validate(ceiling []string) error {
-	if err := req.Ref.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+// It runs req's own generic checks first ([agent.Request.Validate]) and then
+// this package's Claude-specific ones: a canonical session id, an absolute
+// worktree directory that actually exists, and the tool-ceiling re-check
+// (AC-2.6). The ceiling check is deliberately not a duplicate of the one
+// config validation runs at boot: that one proves the operator's profile map
+// is sound, this one proves that the []string which travelled
+// daemon → turn → harness as a value — copied at the resolution boundary,
+// carried on a struct, rewritten in place on the cold-rerun path — is still
+// within the ceiling at the moment argv is about to be built from it. It is
+// what keeps the #nosec justification on the exec below honest.
+//
+// Only Tools is checked against the ceiling. AllowedTools grants nothing that
+// Tools does not already allow, so a rule outside the ceiling there cannot
+// widen this run past it.
+func (r *Runner) validateRequest(req agent.Request) error {
+	if err := req.Validate(); err != nil {
+		return err
 	}
-	if req.RunOrdinal < 1 {
-		return invalidRequest("run ordinal %d is below 1", req.RunOrdinal)
-	}
-	if req.SegmentOrdinal < 1 {
-		return invalidRequest("segment ordinal %d is below 1", req.SegmentOrdinal)
-	}
-	if req.ClaudeSessionID == "" {
-		return invalidRequest("claude session id is empty")
-	}
-	if !naming.ValidClaudeSessionID(req.ClaudeSessionID) {
+	if !naming.ValidClaudeSessionID(req.Session.Ref) {
 		// claude rejects a malformed --session-id itself, but only after the
 		// worktree exists and the process has started. Refusing it here costs
 		// nothing, and keeps a corrupted segments row from being diagnosed as
 		// a claude failure.
-		return invalidRequest("claude session id %q is not a canonical UUID", req.ClaudeSessionID)
+		return invalidRequest("claude session id %q is not a canonical UUID", req.Session.Ref)
 	}
-	if strings.TrimSpace(req.Mode) == "" {
-		return invalidRequest("mode is empty")
-	}
-	switch req.Path {
-	case "", PathCold, PathResume, PathColdAfterResumeRefused:
-	default:
-		// An unrecognised path would silently run cold, which on a task with a
-		// live conversation is the one outcome this feature exists to prevent.
-		return invalidRequest("run path %q is not one of cold, resume or cold_after_resume_refused", req.Path)
-	}
-	if req.WorktreePath == "" || !filepath.IsAbs(req.WorktreePath) {
+	if !filepath.IsAbs(req.WorktreePath) {
 		return invalidRequest("worktree path %q must be an absolute path", req.WorktreePath)
 	}
 	info, err := os.Stat(req.WorktreePath)
@@ -339,24 +222,10 @@ func (req Request) validate(ceiling []string) error {
 	if !info.IsDir() {
 		return invalidRequest("worktree %s is not a directory", req.WorktreePath)
 	}
-	if strings.TrimSpace(req.Prompt) == "" {
-		return invalidRequest("prompt is empty")
-	}
-	// The ceiling re-check (AC-2.6). It is deliberately not a duplicate of the
-	// one config validation runs at boot: that one proves the operator's profile
-	// map is sound, this one proves that the []string which travelled
-	// daemon → turn → harness as a value — copied at the resolution boundary,
-	// carried on a struct, rewritten in place on the cold-rerun path — is still
-	// within the ceiling at the moment argv is about to be built from it. It is
-	// what keeps the #nosec justification on the exec below honest.
-	//
-	// Only Tools is checked. AllowedTools grants nothing that Tools does not
-	// already allow, so a rule outside the ceiling there cannot widen this run
-	// past it.
-	for _, tool := range req.Tools {
-		if !slices.Contains(ceiling, tool) {
+	for _, tool := range toolSurface(req).Tools {
+		if !slices.Contains(r.ceiling, tool) {
 			return invalidRequest("tool %q is outside the configured ceiling [%s]",
-				tool, strings.Join(ceiling, ", "))
+				tool, strings.Join(r.ceiling, ", "))
 		}
 	}
 	return nil
@@ -387,8 +256,8 @@ func (req Request) validate(ceiling []string) error {
 //   - the wall-clock deadline is independent of any event-driven completion
 //     detection, because a stale credential makes claude retry internally and
 //     then hang emitting nothing at all (SD-3).
-func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
-	if err := req.validate(r.ceiling); err != nil {
+func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error) {
+	if err := r.validateRequest(req); err != nil {
 		return nil, err
 	}
 
@@ -426,7 +295,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 	logger := r.logger.With(
 		slog.String("task", req.Ref.String()),
 		slog.Int("run", req.RunOrdinal),
-		slog.String("claude_session_id", req.ClaudeSessionID),
+		slog.String("claude_session_id", req.Session.Ref),
 		slog.String("path", req.Path.String()))
 
 	// exec's result is returned even when its error is not nil: a refused
@@ -478,13 +347,13 @@ func (r *Runner) Run(ctx context.Context, req Request) (*RunResult, error) {
 // the runner's configured ones otherwise — see [Runner.surface]. Only config
 // strings are ever joined in here; the profile *name* that selected them is
 // not, and neither is anything else that came from GitHub.
-func (r *Runner) args(req Request) []string {
+func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
 	// resumed session takes its surface from this argv and does not inherit a
 	// wider one from the transcript it is continuing.
 	sessionFlag := "--session-id"
-	if req.Path.resuming() {
+	if req.Path.Resuming() {
 		sessionFlag = "--resume"
 	}
 	tools, allowedTools := r.surface(req)
@@ -492,7 +361,7 @@ func (r *Runner) args(req Request) []string {
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
-		sessionFlag, req.ClaudeSessionID,
+		sessionFlag, req.Session.Ref,
 		// Unconditional, in both cases. An omitted --tools is allow-all, which
 		// is the exact opposite of what an empty list looks like it asks for.
 		"--tools", strings.Join(tools, ","),
@@ -528,12 +397,12 @@ func (r *Runner) args(req Request) []string {
 // runner's configured lists unchanged. That is what keeps an unprofiled argv
 // byte-identical to the one litefactory built before profiles existed (AC-2.3).
 //
-// Tools is the discriminator rather than ToolProfile because Tools is what argv
-// is built from: a profile name with an empty surface behind it would otherwise
-// omit --tools, and an omitted --tools grants everything.
-func (r *Runner) surface(req Request) (tools, allowedTools []string) {
-	if len(req.Tools) > 0 {
-		return req.Tools, req.AllowedTools
+// Tools is the discriminator rather than the profile name because Tools is
+// what argv is built from: a profile name with an empty surface behind it
+// would otherwise omit --tools, and an omitted --tools grants everything.
+func (r *Runner) surface(req agent.Request) (tools, allowedTools []string) {
+	if ts := toolSurface(req); len(ts.Tools) > 0 {
+		return ts.Tools, ts.AllowedTools
 	}
 	return r.tools, r.allowedTools
 }
@@ -541,7 +410,7 @@ func (r *Runner) surface(req Request) (tools, allowedTools []string) {
 // exec starts the process, streams it, and classifies how it ended.
 func (r *Runner) exec(
 	ctx context.Context,
-	req Request,
+	req agent.Request,
 	args []string,
 	logPath string,
 	sink io.Writer,
@@ -631,7 +500,7 @@ func (r *Runner) exec(
 		slog.String("worktree", req.WorktreePath),
 		slog.String("tools", strings.Join(tools, ",")),
 		slog.String("allowed_tools", strings.Join(allowedTools, ",")),
-		slog.String("tool_profile", req.ToolProfile),
+		slog.String("tool_profile", req.Permissions.Profile),
 		slog.String("settings", r.settingsPath),
 		slog.Int("env_vars", len(cmd.Env)),
 		slog.String("timeout", r.timeout.String()))
@@ -675,7 +544,7 @@ func (r *Runner) exec(
 		Outcome:     outcome,
 		Reason:      reason,
 		ExitCode:    recordedExit,
-		SessionID:   req.ClaudeSessionID,
+		SessionID:   req.Session.Ref,
 		LogPath:     logPath,
 		Command:     append([]string{r.binary.Path}, args...),
 		Model:       stream.model,
@@ -689,12 +558,12 @@ func (r *Runner) exec(
 		FinishedAt:  finishedAt,
 		Duration:    finishedAt.Sub(startedAt),
 	}
-	if stream.sessionID != "" && stream.sessionID != req.ClaudeSessionID {
+	if stream.sessionID != "" && stream.sessionID != req.Session.Ref {
 		// The id came off the segments row. If claude answered with a different
 		// one, the row and the conversation on disk have parted company, and a
 		// later run would resume the wrong one.
 		logger.Warn("claude reported a different session id than it was given",
-			slog.String("requested", req.ClaudeSessionID),
+			slog.String("requested", req.Session.Ref),
 			slog.String("reported", stream.sessionID))
 	}
 
@@ -708,11 +577,11 @@ func (r *Runner) exec(
 
 	r.logCompletion(logger, result)
 
-	if resumeRefused(req.Path.resuming(), result) {
+	if resumeRefused(req.Path.Resuming(), result) {
 		logger.Warn("claude refused to resume the conversation",
 			slog.String("stderr", excerpt(result.Stderr)))
 		return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit %d)",
-			ErrSessionNotResumable, req.ClaudeSessionID, result.ExitCode)
+			ErrSessionNotResumable, req.Session.Ref, result.ExitCode)
 	}
 	return result, nil
 }

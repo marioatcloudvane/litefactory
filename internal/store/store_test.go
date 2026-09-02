@@ -69,7 +69,7 @@ func testSession(t *testing.T, db *DB, issue int) Session {
 func testRun(t *testing.T, db *DB, sessionID, triggerCommentID int64) Run {
 	t.Helper()
 
-	segment, err := db.GetOrCreateSegment(t.Context(), sessionID, FirstSegmentOrdinal, "claude-session-id")
+	segment, err := db.GetOrCreateSegment(t.Context(), sessionID, FirstSegmentOrdinal, "claude-session-id", AgentClaude)
 	if err != nil {
 		t.Fatalf("get or create segment: %v", err)
 	}
@@ -77,6 +77,7 @@ func testRun(t *testing.T, db *DB, sessionID, triggerCommentID int64) Run {
 		SessionID:        sessionID,
 		SegmentID:        segment.ID,
 		Mode:             ModeSpike,
+		Agent:            AgentClaude,
 		TriggerCommentID: triggerCommentID,
 		LogPath:          func(ordinal int) string { return fmt.Sprintf("/logs/%04d.jsonl", ordinal) },
 	})
@@ -825,26 +826,114 @@ func TestPollCursorSurvivesAReopen(t *testing.T) {
 	}
 }
 
+// TestGetOrCreateSegmentReusesTheConversation is T-4.8's stored-row-wins
+// coverage: a second call on the same (session, ordinal) must not move either
+// the session ref or the agent kind, even when it is asked to. Both come off
+// the stored row exactly as the first call left them.
 func TestGetOrCreateSegmentReusesTheConversation(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	session := testSession(t, db, 123)
 
-	first, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "session-uuid")
+	first, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "session-uuid", AgentClaude)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	second, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "a-different-uuid")
+	if first.Agent != AgentClaude {
+		t.Fatalf("first call recorded agent %q, want %q", first.Agent, AgentClaude)
+	}
+
+	// A different session ref and a different agent kind: the row already
+	// exists, so neither should take.
+	second, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "a-different-uuid", "codex")
 	if err != nil {
 		t.Fatalf("re-get: %v", err)
 	}
-	if second.ID != first.ID || second.ClaudeSessionID != "session-uuid" {
+	if second.ID != first.ID || second.SessionRef != "session-uuid" || second.Agent != AgentClaude {
 		t.Fatalf("second call gave %+v, want the stored segment %+v", second, first)
 	}
 
 	segments, err := db.ListSegments(t.Context(), session.ID)
 	if err != nil || len(segments) != 1 {
 		t.Fatalf("got %d segments, want 1 (err %v)", len(segments), err)
+	}
+}
+
+// TestGetOrCreateSegmentRequiresAgentKind is the store half of the schema
+// invariant: agent has no meaningful empty value, unlike a text column whose
+// "" means SQL NULL, so an empty kind is refused rather than silently stored.
+func TestGetOrCreateSegmentRequiresAgentKind(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	if _, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "session-uuid", ""); err == nil {
+		t.Fatal("created a segment with an empty agent kind")
+	}
+}
+
+// TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken is AC-4.5: the first
+// token a segment's conversation ever reports is the one every later run
+// resumes against, so a second, different report must not replace it.
+func TestSetSegmentResumeTokenNeverOverwritesANonEmptyToken(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "session-uuid", AgentClaude)
+	if err != nil {
+		t.Fatalf("create segment: %v", err)
+	}
+	if segment.ResumeToken != "" {
+		t.Fatalf("a freshly created segment already has a resume token: %q", segment.ResumeToken)
+	}
+
+	if err := db.SetSegmentResumeToken(t.Context(), segment.ID, "thread-1"); err != nil {
+		t.Fatalf("set resume token: %v", err)
+	}
+	first, err := db.GetSegment(t.Context(), segment.ID)
+	if err != nil {
+		t.Fatalf("read after first set: %v", err)
+	}
+	if first.ResumeToken != "thread-1" {
+		t.Fatalf("resume token = %q, want %q", first.ResumeToken, "thread-1")
+	}
+
+	// A second, different report on a run that already has a token: it must
+	// not take.
+	if err := db.SetSegmentResumeToken(t.Context(), segment.ID, "thread-2"); err != nil {
+		t.Fatalf("set resume token a second time: %v", err)
+	}
+	second, err := db.GetSegment(t.Context(), segment.ID)
+	if err != nil {
+		t.Fatalf("read after second set: %v", err)
+	}
+	if second.ResumeToken != "thread-1" {
+		t.Fatalf("resume token after a second report = %q, want it to stay %q", second.ResumeToken, "thread-1")
+	}
+}
+
+// TestSetSegmentResumeTokenRejectsBadInput covers the required-argument checks
+// and the not-found case, which requireAffected-style callers usually get and
+// this accessor earns by reading the row before it conditionally writes it.
+func TestSetSegmentResumeTokenRejectsBadInput(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "session-uuid", AgentClaude)
+	if err != nil {
+		t.Fatalf("create segment: %v", err)
+	}
+
+	if err := db.SetSegmentResumeToken(t.Context(), 0, "thread-1"); err == nil {
+		t.Error("accepted a zero segment id")
+	}
+	if err := db.SetSegmentResumeToken(t.Context(), segment.ID, ""); err == nil {
+		t.Error("accepted an empty token")
+	}
+	if err := db.SetSegmentResumeToken(t.Context(), segment.ID+1000, "thread-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("setting a token on a segment that does not exist gave %v, want ErrNotFound", err)
 	}
 }
 
@@ -873,7 +962,7 @@ func TestAllocateRunAssignsOrdinalsAndRefusesReplay(t *testing.T) {
 	}
 
 	// The same comment a second time — a crashed daemon replaying its tick.
-	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id")
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id", AgentClaude)
 	if err != nil {
 		t.Fatalf("segment: %v", err)
 	}
@@ -881,6 +970,7 @@ func TestAllocateRunAssignsOrdinalsAndRefusesReplay(t *testing.T) {
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             ModeSpike,
+		Agent:            AgentClaude,
 		TriggerCommentID: 1001,
 		LogPath:          func(int) string { return "/logs/dup.jsonl" },
 	})
@@ -917,7 +1007,7 @@ func TestAllocateRunTakesTheIssueBodyAsTriggerZero(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)
 	session := testSession(t, db, 123)
-	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id")
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id", AgentClaude)
 	if err != nil {
 		t.Fatalf("segment: %v", err)
 	}
@@ -937,6 +1027,7 @@ func TestAllocateRunTakesTheIssueBodyAsTriggerZero(t *testing.T) {
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             ModeSpike,
+		Agent:            AgentClaude,
 		TriggerCommentID: 0,
 		LogPath:          func(int) string { return "/logs/dup.jsonl" },
 	})
@@ -949,6 +1040,7 @@ func TestAllocateRunTakesTheIssueBodyAsTriggerZero(t *testing.T) {
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             ModeSpike,
+		Agent:            AgentClaude,
 		TriggerCommentID: -1,
 		LogPath:          func(int) string { return "/logs/negative.jsonl" },
 	})
@@ -1307,7 +1399,7 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 				t.Errorf("bootstrap: %v", err)
 				return
 			}
-			segment, err := db.GetOrCreateSegment(ctx, session.ID, FirstSegmentOrdinal, "uuid-"+strconv.Itoa(issue))
+			segment, err := db.GetOrCreateSegment(ctx, session.ID, FirstSegmentOrdinal, "uuid-"+strconv.Itoa(issue), AgentClaude)
 			if err != nil {
 				t.Errorf("segment: %v", err)
 				return
@@ -1316,6 +1408,7 @@ func TestConcurrentAccessorsDoNotDeadlock(t *testing.T) {
 				SessionID:        session.ID,
 				SegmentID:        segment.ID,
 				Mode:             ModeSpike,
+				Agent:            AgentClaude,
 				TriggerCommentID: int64(issue)*10 + 1,
 				LogPath:          func(ordinal int) string { return fmt.Sprintf("/logs/%d/%04d.jsonl", issue, ordinal) },
 			})

@@ -1373,6 +1373,20 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	// The agent-selection label is resolved first, before the tool-profile
+	// ladder and before anything is locked, fetched or written. This is stage
+	// 1 of the four-stage refusal precedence: when it refuses, the tools
+	// ladder below is never reached in this tick, because a run whose
+	// coding-agent tool cannot be determined has nothing for a tool surface
+	// to apply to.
+	agentChoice := d.resolveAgent(t.issue.Labels)
+	if agentChoice.refused() {
+		return d.refuseAgent(ctx, t, trigger, agentChoice, log)
+	}
+	if agentChoice.Agent != "" {
+		log = log.With(slog.String("agent_label", agentChoice.Agent))
+	}
+
 	// The tool profile is resolved here, before anything is locked, fetched or
 	// written: a refusal has to be run-less (AC-3.7), and by the time
 	// [turn.Execute] has prepared a turn there is a worktree and a runs row to
@@ -1527,6 +1541,62 @@ func (d *Daemon) refuseTools(
 	if !posted.Skipped {
 		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
 			"resolve to a configured tool profile",
+			slog.Int64("reply_comment_id", posted.CommentID))
+	}
+	return nil
+}
+
+// refuseAgent answers an lf:agent= label that could not be resolved into a
+// coding-agent tool: unknown, malformed, ambiguous, or named on a daemon
+// with no implementation of it running at all.
+//
+// It is stage 1 of the four-stage refusal precedence, and it is checked
+// before [Daemon.refuseTools] is ever reached for the same tick, per the
+// plan brief: an lf:agent= refusal is reported and the tools ladder is never
+// evaluated. Everything else about its shape mirrors [Daemon.refuseTools]
+// exactly, including the issue-body path posting nothing, for the same
+// reasons documented there.
+func (d *Daemon) refuseAgent(
+	ctx context.Context,
+	t *task,
+	trigger turn.Trigger,
+	decision agentDecision,
+	log *slog.Logger,
+) error {
+	log = log.With(slog.String("agent_refusal", decision.Refusal.String()))
+	if decision.MiscasedPrefix {
+		// See the identical line in [Daemon.refuseTools]: detection folds
+		// case and acceptance does not (D-6), and the label text itself is
+		// not logged, for the same reason it is not echoed onto the thread
+		// (S-9).
+		log = log.With(slog.Bool("miscased_agent_label_prefix", true))
+	}
+
+	if trigger.CommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: its lf:agent= label does not "+
+			"resolve to a coding-agent tool litefactory has running. Nothing was run and no "+
+			"comment was posted, because there is no comment to answer; the next comment on this "+
+			"issue is refused on the thread")
+		return nil
+	}
+
+	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		Ref:       t.ref,
+		SessionID: t.session.ID,
+		CommentID: trigger.CommentID,
+		Refusal:   decision.Refusal,
+		// Empty for every refusal but the unknown one, which is the only
+		// refusal that may name what it was asked for. internal/report
+		// re-checks it before rendering (S-8).
+		Agent: decision.Agent,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not refuse the coding-agent tool this issue asks for",
+			d.orphaned(ctx, log, posted, err))
+	}
+	if !posted.Skipped {
+		log.InfoContext(ctx, "refused a run: the lf:agent= label on this issue does not "+
+			"resolve to a coding-agent tool litefactory has running",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}
 	return nil

@@ -226,6 +226,35 @@ func markersEqual(got, want []repos.Marker) bool {
 	return true
 }
 
+// TestAgentsMDAloneDoesNotEstablishPresence pins AC-8.5: a root AGENTS.md
+// (Codex's own convention for project instructions, added for US-8) is not
+// one of the two markers DetectAiteam looks for. The content deliberately
+// mentions "aiteam" — the CLAUDE.md half of the rule matches on that literal
+// — to prove detection is keyed on the filename, not on whatever a file
+// happens to say.
+func TestAgentsMDAloneDoesNotEstablishPresence(t *testing.T) {
+	t.Parallel()
+
+	root := writeTree(t, map[string]string{
+		"AGENTS.md": "# litefactory — working rules for coding agents\n\n" +
+			"This project is also managed by aiteam.\n",
+	}, nil)
+
+	got, err := repos.DetectAiteam(root)
+	if err != nil {
+		t.Fatalf("DetectAiteam(%s) error = %v, want nil", root, err)
+	}
+	if got.Present {
+		t.Errorf("Present = true with only AGENTS.md at the repo root, want false")
+	}
+	if len(got.Markers) != 0 {
+		t.Errorf("Markers = %v, want none", got.Markers)
+	}
+	if got.Team != "" {
+		t.Errorf("Team = %q, want empty", got.Team)
+	}
+}
+
 // TestAiteamMissingMessageNamesTheFix covers the second half of AC-1.4: the
 // message a user gets has to tell them what to run.
 func TestAiteamMissingMessageNamesTheFix(t *testing.T) {

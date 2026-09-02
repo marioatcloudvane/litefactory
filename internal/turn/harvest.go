@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -89,7 +90,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 // wedged permanently: every run asks to resume, is refused, and reports the
 // same failure forever, and no comment on the issue can get it unstuck.
 //
-// Exactly one rerun, and only on [harness.ErrSessionNotResumable]. The rerun is
+// Exactly one rerun, and only on [agent.ErrSessionNotResumable]. The rerun is
 // this run, not a new one — same row, same ordinal, same NNNN.jsonl, which the
 // harness opens with O_APPEND so the refusal stays in the log as evidence. It
 // is cold, so it passes --session-id and cannot be refused for the same reason;
@@ -99,14 +100,14 @@ func runClaude(
 	opts Options,
 	prep *preparation,
 	logger *slog.Logger,
-) (*harness.RunResult, error) {
-	result, err := opts.Claude.Run(ctx, prep.request)
-	if !errors.Is(err, harness.ErrSessionNotResumable) {
+) (*agent.RunResult, error) {
+	result, err := prep.runner.Run(ctx, prep.request)
+	if !errors.Is(err, agent.ErrSessionNotResumable) {
 		return result, err
 	}
 
 	logger.Warn("claude has no conversation to resume; rerunning this run cold",
-		slog.String("claude_session_id", prep.request.ClaudeSessionID),
+		slog.String("claude_session_id", prep.request.Session.Ref),
 		slog.Int("run_ordinal", prep.run.Ordinal),
 		slog.String("stderr", refusalEvidence(result)),
 		slog.Any("error", err))
@@ -130,10 +131,10 @@ func runClaude(
 	prep.promptInput = cold
 	prep.prompt = prompt
 	prep.request.Prompt = prompt
-	prep.request.Path = harness.PathColdAfterResumeRefused
+	prep.request.Path = agent.PathColdAfterResumeRefused
 
-	result, err = opts.Claude.Run(ctx, prep.request)
-	if errors.Is(err, harness.ErrSessionNotResumable) {
+	result, err = prep.runner.Run(ctx, prep.request)
+	if errors.Is(err, agent.ErrSessionNotResumable) {
 		// Unreachable against a real claude: a cold run is never classified as a
 		// refusal, because it is not asking to resume anything. If it happens
 		// anyway there is no third attempt — one rerun is the whole budget — so
@@ -163,11 +164,24 @@ func refusalEvidence(result *harness.RunResult) string {
 // result may be nil — a run that never started still gets a document, which is
 // the point of writing it best effort — and then the log path comes from the
 // row that was allocated for it rather than from a run that never opened it.
+//
+// Agent and SessionRef are turn-known rather than harness-known, the same way
+// SessionID and Branch are: harness runs whichever tool it was given and has
+// no notion of "which agent" beyond that, so the segment row — which turn
+// already holds in prep — is what says it. claude_session_id is kept as a
+// deprecated alias of session_ref, populated only for a Claude segment, so
+// that a reader of an older meta.json and a reader of a new one agree on what
+// the field means.
 func turnMeta(prep *preparation, result *harness.RunResult) harness.Meta {
 	meta := harness.NewMeta(prep.request, prep.prompt, result)
 	meta.SessionID = prep.session.ID
 	meta.Branch = prep.session.Branch
 	meta.SHABefore = prep.shaBefore
+	meta.Agent = prep.segment.Agent
+	meta.SessionRef = prep.segment.SessionRef
+	if meta.Agent == store.AgentClaude {
+		meta.ClaudeSessionID = meta.SessionRef
+	}
 	if meta.LogPath == "" {
 		meta.LogPath = prep.run.LogPath
 	}

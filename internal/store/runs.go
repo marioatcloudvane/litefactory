@@ -41,6 +41,13 @@ const (
 // LF-6.
 const ModeSpike = "spike"
 
+// AgentClaude is the agent discriminator value for a Claude run. It is the
+// only value this tree writes today — a second implementation is a later
+// story's job — and it is also the DEFAULT the segments.agent and runs.agent
+// columns backfill to, so every row written before those columns existed
+// reads back as a Claude row without a separate UPDATE.
+const AgentClaude = "claude"
+
 // SignalExitCode is the exit code recorded when a run produced no exit status
 // of its own — killed by the timeout, or abandoned when the daemon died. It is
 // always accompanied by a reason string (S-9).
@@ -68,6 +75,9 @@ type Run struct {
 	Ordinal int
 	// Mode is [ModeSpike] at M0.
 	Mode string
+	// Agent is which coding-agent tool this run invoked — [AgentClaude] for
+	// every run this tree can produce today.
+	Agent string
 	// TriggerCommentID is the forge comment that caused this run. It is unique
 	// per session, and that uniqueness is the whole crash-replay guarantee.
 	TriggerCommentID int64
@@ -118,6 +128,9 @@ type AllocateRunParams struct {
 	SegmentID int64
 	// Mode is [ModeSpike] at M0.
 	Mode string
+	// Agent is which coding-agent tool this run invokes — [AgentClaude] for
+	// every run this tree can produce today. Required.
+	Agent string
 	// TriggerCommentID is the comment that caused the run. A second
 	// allocation for the same (session, comment) is refused with
 	// [ErrDuplicateRun].
@@ -159,6 +172,8 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		return Run{}, errors.New("store: allocate run: segment id is required")
 	case params.Mode == "":
 		return Run{}, errors.New("store: allocate run: mode is required")
+	case params.Agent == "":
+		return Run{}, errors.New("store: allocate run: agent is required")
 	// Not "== 0": 0 is the issue body rather than a missing id, and refusing it
 	// here would also stop startup reconciliation reporting a body run that was
 	// abandoned by a crash. See [AllocateRunParams.TriggerCommentID].
@@ -191,11 +206,11 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 
 		run, err = scanRun(tx.QueryRowContext(ctx, `
 INSERT INTO runs (
-    session_id, segment_id, ordinal, mode, trigger_comment_id, status,
+    session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     started_at, log_path
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+runColumns,
-			params.SessionID, params.SegmentID, ordinal, params.Mode,
+			params.SessionID, params.SegmentID, ordinal, params.Mode, params.Agent,
 			params.TriggerCommentID, string(RunRunning), FormatTime(startedAt), logPath))
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
@@ -581,7 +596,7 @@ func isUniqueViolation(err error) bool {
 // runColumns is the column list every run read shares, in the order scanRun
 // expects.
 const runColumns = `
-    id, session_id, segment_id, ordinal, mode, trigger_comment_id, status,
+    id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id`
 
@@ -598,7 +613,7 @@ func scanRun(s scanner) (Run, error) {
 		commitSHA       sql.NullString
 		resultCommentID sql.NullInt64
 	)
-	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode,
+	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID)
 	if err != nil {

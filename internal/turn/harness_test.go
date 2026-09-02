@@ -49,7 +49,7 @@ func TestExecuteThroughTheRealHarness(t *testing.T) {
 	f.repo.Dirty()
 
 	runner, tmpDir := realRunner(t, f, fakeClaudeScript)
-	f.opts.Claude = runner
+	f.opts.Runners = runnerSet(runner)
 
 	var result Result
 	gittest.AssertUnchanged(t, f.repo.Dir, func() {
@@ -184,20 +184,20 @@ func TestExecuteSendsTheStoredClaudeSessionID(t *testing.T) {
 
 	f := newFixture(t, nil)
 	if _, err := f.db.GetOrCreateSegment(
-		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID); err != nil {
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, storedClaudeSessionID, store.AgentClaude); err != nil {
 		t.Fatalf("seed the segment: %v", err)
 	}
 
 	runner, tmpDir := realRunner(t, f, fakeClaudeArgvDumpScript)
-	f.opts.Claude = runner
+	f.opts.Runners = runnerSet(runner)
 
 	if result := f.execute(f.request()); !result.Succeeded() {
 		t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
 	}
 
-	derived, err := naming.ClaudeSessionID(f.ref(), store.FirstSegmentOrdinal)
+	derived, err := naming.SessionRef(f.ref(), store.FirstSegmentOrdinal)
 	if err != nil {
-		t.Fatalf("derive the claude session id: %v", err)
+		t.Fatalf("derive the session ref: %v", err)
 	}
 	if derived == storedClaudeSessionID {
 		t.Fatal("the seeded id equals the derived one, so this test asserts nothing")
@@ -247,7 +247,7 @@ func TestSecondRunResumesInsteadOfReusingTheSessionID(t *testing.T) {
 		seededComment, store.ModeSpike, store.RunReported)
 
 	runner, tmpDir := realRunner(t, f, fakeClaudeArgvDumpScript)
-	f.opts.Claude = runner
+	f.opts.Runners = runnerSet(runner)
 
 	if result := f.execute(f.request()); !result.Succeeded() {
 		t.Fatalf("the second run did not succeed: %+v\nlogs:\n%s", result, f.logs)

@@ -391,10 +391,22 @@ func writeRunList(out io.Writer, target logTarget) error {
 // written still has a database row and an event stream, and `--run N` must
 // stay useful for it.
 type runMeta struct {
-	RunOrdinal      int      `json:"run_ordinal"`
-	TaskRef         string   `json:"task_ref"`
-	SessionID       int64    `json:"session_id"`
-	SegmentOrdinal  int      `json:"segment_ordinal"`
+	RunOrdinal     int    `json:"run_ordinal"`
+	TaskRef        string `json:"task_ref"`
+	SessionID      int64  `json:"session_id"`
+	SegmentOrdinal int    `json:"segment_ordinal"`
+	// Agent is which coding-agent tool the run invoked. Empty on a meta.json
+	// written before this key existed, in which case the run was a Claude run
+	// — every run this tree could produce before then was.
+	Agent string `json:"agent"`
+	// SessionRef is litefactory's own pre-computed identity for the
+	// conversation. Empty on a meta.json written before this key existed; the
+	// deprecated ClaudeSessionID alias below still carries the same value for
+	// those files.
+	SessionRef string `json:"session_ref"`
+	// ClaudeSessionID is the deprecated alias of SessionRef: it still parses
+	// for every meta.json ever written, old or new, so a run recorded before
+	// this key was split in two remains fully readable.
 	ClaudeSessionID string   `json:"claude_session_id"`
 	Mode            string   `json:"mode"`
 	Model           string   `json:"model"`
@@ -466,7 +478,7 @@ func writeRunSummary(out io.Writer, target logTarget, run store.Run) error {
 		{"duration", logsDuration(run)},
 		{"cost", logsCost(run.CostUSD, meta.CostUSD)},
 		{"segment", logsSegment(meta.SegmentOrdinal)},
-		{"claude session", meta.ClaudeSessionID},
+		{logsAgentLabel(meta), logsSessionRef(meta)},
 		{"branch", firstNonEmpty(meta.Branch, target.session.Branch)},
 		{"worktree", firstNonEmpty(meta.WorktreePath, target.session.WorktreePath)},
 		{"sha before", meta.SHABefore},
@@ -888,6 +900,21 @@ func logsSegment(ordinal int) string {
 		return ""
 	}
 	return strconv.Itoa(ordinal)
+}
+
+// logsAgentLabel is the field label for the conversation identity row: "<agent>
+// session". A meta.json written before Agent existed carries "", and every run
+// this tree could produce before then was a Claude run.
+func logsAgentLabel(meta runMeta) string {
+	return firstNonEmpty(meta.Agent, store.AgentClaude) + " session"
+}
+
+// logsSessionRef reports the conversation identity to show alongside
+// [logsAgentLabel]. SessionRef wins where both are present; the deprecated
+// ClaudeSessionID alias is what a meta.json written before the split still
+// carries.
+func logsSessionRef(meta runMeta) string {
+	return firstNonEmpty(meta.SessionRef, meta.ClaudeSessionID)
 }
 
 func logsCost(values ...*float64) string {

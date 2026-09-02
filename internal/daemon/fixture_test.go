@@ -1004,6 +1004,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.ToolCeiling != nil {
 		opts.ToolCeiling = overrides.ToolCeiling
 	}
+	if overrides.Agents != nil {
+		opts.Agents = overrides.Agents
+	}
 
 	d, err := daemon.New(opts)
 	if err != nil {
@@ -1346,11 +1349,11 @@ func (f *fixture) turnResult(
 		return result, nil
 	}
 
-	claudeSessionID, err := naming.ClaudeSessionID(ref, store.FirstSegmentOrdinal)
+	sessionRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	if err != nil {
 		return turn.Result{}, err
 	}
-	segment, err := f.db.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, claudeSessionID)
+	segment, err := f.db.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, store.AgentClaude)
 	if err != nil {
 		return turn.Result{}, err
 	}
@@ -1358,6 +1361,7 @@ func (f *fixture) turnResult(
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             store.ModeSpike,
+		Agent:            store.AgentClaude,
 		TriggerCommentID: req.Trigger.CommentID,
 		LogPath: func(ordinal int) string {
 			path, pathErr := naming.RunLogPath(f.paths.Home(), ref, ordinal)

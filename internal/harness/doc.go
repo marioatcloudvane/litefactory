@@ -1,7 +1,11 @@
 // Package harness runs one headless Claude Code process and captures what it
 // did.
 //
-// It is the only place in litefactory that executes the claude binary, and it
+// It is the Claude implementation of [agent.Runner] — internal/agent holds
+// the vendor-neutral request, result and permission types this package's
+// [Runner] is built from and returns; the aliases in result.go exist so the
+// many call sites written before that split existed keep compiling. It is
+// also the only place in litefactory that executes the claude binary, and it
 // is the real security boundary of the product. Everything below is either an
 // empirically verified finding from the T-LF3.0 de-risking spike or a
 // consequence of one; none of it is stylistic.

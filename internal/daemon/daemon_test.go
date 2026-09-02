@@ -192,11 +192,11 @@ func (f *fixture) allocateRunningRun(session store.Session, triggerCommentID int
 	if err != nil {
 		f.t.Fatalf("parse the task ref: %v", err)
 	}
-	claudeSessionID, err := naming.ClaudeSessionID(ref, store.FirstSegmentOrdinal)
+	sessionRef, err := naming.SessionRef(ref, store.FirstSegmentOrdinal)
 	if err != nil {
-		f.t.Fatalf("derive the claude session id: %v", err)
+		f.t.Fatalf("derive the session ref: %v", err)
 	}
-	segment, err := f.db.GetOrCreateSegment(f.t.Context(), session.ID, store.FirstSegmentOrdinal, claudeSessionID)
+	segment, err := f.db.GetOrCreateSegment(f.t.Context(), session.ID, store.FirstSegmentOrdinal, sessionRef, store.AgentClaude)
 	if err != nil {
 		f.t.Fatalf("create the segment: %v", err)
 	}
@@ -204,6 +204,7 @@ func (f *fixture) allocateRunningRun(session store.Session, triggerCommentID int
 		SessionID:        session.ID,
 		SegmentID:        segment.ID,
 		Mode:             store.ModeSpike,
+		Agent:            store.AgentClaude,
 		TriggerCommentID: triggerCommentID,
 		LogPath: func(ordinal int) string {
 			path, pathErr := naming.RunLogPath(f.paths.Home(), ref, ordinal)

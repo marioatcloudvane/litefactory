@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -154,14 +155,16 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, fmt.Errorf("the daemon needs git: %w", err)
 	}
-	claude, err := harness.New(harness.Options{
-		Paths:   s.Paths,
-		Claude:  s.Config.Claude,
-		Environ: environ,
-		Logger:  s.Logger,
-	})
+	runners, err := buildRunners(s.Paths, s.Config, environ, s.Logger)
 	if err != nil {
-		return nil, Startup{}, fmt.Errorf("the daemon needs claude: %w", err)
+		return nil, Startup{}, err
+	}
+	// Startup wants to print which claude binary was resolved and its
+	// timeout, so the concrete implementation is narrowed back out of the
+	// set built above rather than resolved a second time.
+	claude, ok := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
+	if !ok {
+		return nil, Startup{}, fmt.Errorf("the daemon needs claude: no claude runner was built")
 	}
 
 	client, err := github.New(github.Options{
@@ -229,9 +232,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Forge:  client,
 		Filter: filter,
 		Turn: NewExecutor(turn.Options{
-			DB:     s.DB,
-			Git:    gitBinary,
-			Claude: claude,
+			DB:      s.DB,
+			Git:     gitBinary,
+			Runners: runners,
 			// One registry for the process, built here because this is the
 			// only place a turn's dependencies are bound. turn.Options
 			// validates it as required, so this line going missing is a
@@ -254,6 +257,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// one place — internal/config resolved the ceiling before it validated
 		// anything against it.
 		ToolProfiles: s.Config.Claude.ToolProfiles,
+		// The same registry turn.Options.Runners was just built from above, so
+		// an lf:agent= label is judged against exactly the implementations
+		// this run could actually be dispatched to — never a second, looser
+		// notion of "known agent" kept in step by hand.
+		Agents: runners,
 		ToolCeiling:  s.Config.Claude.ToolCeiling,
 		InstanceID:   instanceID,
 		Interval:     interval,

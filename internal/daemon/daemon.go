@@ -151,6 +151,17 @@ type Options struct {
 	// different decision about it would be the one nobody could reason about.
 	ToolCeiling []string
 
+	// Agents is the set of coding-agent-tool implementations this daemon has
+	// built, keyed by the [agent.Kind] a resolved lf:agent= label names.
+	// Optional: nil or empty means no lf:agent= label can resolve, which is
+	// the agent-selection counterpart of [Options.ToolProfiles]'s own D-5 —
+	// a label asking for an implementation this daemon does not have is
+	// refused rather than silently ignored.
+	//
+	// It is read-only for the life of the daemon and never written to. See
+	// [Daemon.resolveAgent].
+	Agents turn.RunnerSet
+
 	// InstanceID is this daemon process's identity, and is what the per-task
 	// lock is held under. It must be fresh per process — see [NewInstanceID] —
 	// because "not the current instance" is how a lock left by a dead daemon is
@@ -248,6 +259,10 @@ type Daemon struct {
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
 	toolProfiles map[string]config.ToolProfile
 	toolCeiling  []string
+	// agents is the set of coding-agent-tool Kinds this daemon has a
+	// [agent.Runner] registered for, as it stood at startup. Read-only after
+	// New; see [Options.Agents] and [Daemon.resolveAgent].
+	agents       turn.RunnerSet
 	interval     time.Duration
 	grace        time.Duration
 	log          *slog.Logger
@@ -313,6 +328,10 @@ func New(opts Options) (*Daemon, error) {
 		// reach back into the configuration the process is running on.
 		toolProfiles: maps.Clone(opts.ToolProfiles),
 		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
+		// Copied like every other tool/agent registry that crosses this
+		// boundary: the caller keeps its own map, and nothing here may reach
+		// back into the registry the process was built with.
+		agents:       maps.Clone(opts.Agents),
 		interval:     interval,
 		grace:        grace,
 		log:          opts.Logger,
