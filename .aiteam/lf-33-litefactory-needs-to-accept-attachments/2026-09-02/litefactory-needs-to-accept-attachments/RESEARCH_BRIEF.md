@@ -83,7 +83,7 @@ Two phases are implied: **Phase 1** — images/mockups attached to issues or com
 - **[V] Private-repo attachment URLs expire and require re-fetching the parent issue/comment via the API for a fresh signed URL** — a naive "grab the URL once, download later" design will intermittently fail.
 - **[W] Possible GitHub App installation-token gap on attachment URLs** — unverified, single community report, but worth defensive handling (API-mediated fetch, PAT fallback) rather than an assumption either way.
 - **[V] No agent today combines fetch + local-write capability.** Adding attachment support needs either a new narrow agent/tool, or a pre-orchestrator step (outside the current sandboxed sub-agent model) — this is an architectural decision, not just a config change.
-- **[V] DOCX/PPTX cannot be handed to Claude directly** — Phase 2 requires a conversion step (Go library or external binary) before any agent sees usable content, and the strongest Go-native library (`unioffice`) carries a licensing complication for this project. PPTX support in the Go ecosystem is weaker than DOCX across the board.
+- **[V] DOCX/PPTX cannot be handed to Claude's `Read` tool directly** and require a conversion step before any agent sees usable content — **superseded by the Addendum below**: this conversion does not need to be a litefactory-side Go dependency (`unioffice` or otherwise). The corrected model has the invoked agent perform the conversion itself at runtime via its existing `Bash` access (shelling out to `pandoc`), the same pattern Anthropic's own official Skill uses. The real, unresolved dependency is operational — whether `pandoc`/LibreOffice is installed on the deployment host — see Addendum A2 and new Open Questions 8-11.
 - **[V] Nothing in the request-passing chain (`PromptInput`, `agent.Request`) currently carries attachment references** — this is a real gap, not just missing convenience code, and the two extension paths (new `$session` files vs. new struct fields threaded through every `Runner`) have materially different blast radius.
 - **[R0] None** — this is the first research pass on this feature; there is no prior-run context to carry forward.
 
@@ -97,6 +97,64 @@ Two phases are implied: **Phase 1** — images/mockups attached to issues or com
 6. Is the anecdotal GitHub App installation-token gap on attachment URLs (Open Question in Domain section) something the team has independently observed with litefactory's own bot credentials? If not already known, this should be smoke-tested early in Plan/Implement rather than assumed away.
 7. What size/format allow-list should litefactory itself enforce on ingestion (independent of GitHub's own 10/25 MB upload caps) — e.g. a smaller cap to avoid blowing through Claude's PDF/image size limits, or a rejection path for formats litefactory can't yet process (Phase 1 ships images only; what happens when a user attaches a PDF or DOCX before Phase 2 lands)?
 
+## Addendum — Owner Pushback (2026-09-02)
+
+The project owner challenged two claims in the sections above via a comment on issue #33:
+
+> "ok, what is a paid conversion tooling? i think every agent can read powerpoint or word files if we attach them? litefactory would only pass them on, not parse them ...?"
+
+This addendum answers both points with new research. **It corrects, rather than restates, the original brief's Phase 2 recommendation** — see "Corrected recommendation" below. The line items it supersedes are marked inline above; this section is the authoritative version going forward.
+
+### A1. What was the "paid conversion tooling"?
+
+**[V] The library referenced was `unidoc/unioffice` (github.com/unidoc/unioffice)**, named in the original Domain section ("Go-side conversion options") as "the most feature-complete pure-Go DOCX/XLSX/PPTX library."
+
+- **[V] It is a commercial product, full stop.** Its own `LICENSE.md` states: *"This software package is a commercial product and requires a license code to operate."* Unlike UniDoc's separate `unidoc/unidoc` PDF library (which is dual-licensed with an AGPL option), `unioffice` has **no open-source/AGPL escape hatch** — a closed-source project cannot use it for free by accepting AGPL's copyleft terms, because that option doesn't exist for this specific library.
+- **[V] Pricing is two-track**, per unidoc.io/pricing (checked live, September 2026):
+  - **Cloud metered:** Free = 20 credits/month; Starter $20/mo (150 credits, $0.15/doc); Pro $100/mo (1,000 credits, $0.10/doc); Scale $300/mo (4,000 credits, $0.08/doc); Enterprise $500/mo (10,000 credits, $0.05/doc).
+  - **Offline yearly licenses** (Business / Gold / Platinum tiers, scaling by developer seats, source obfuscation, SLA): dollar figures are quote-only, not published.
+- **[V] Why it was flagged as "strongest":** it was the only surveyed Go library judged feature-complete across all three OOXML formats (DOCX/XLSX/PPTX) with active maintenance — the free/permissive alternatives found (`fumiama/go-docx`, `gopptx`, `gooxml`, `textract`) are each narrower in scope, less actively maintained, or DOCX-only.
+
+### A2. Re-examining "litefactory would only pass them on, not parse them"
+
+**[V] The owner's premise is substantially correct for this project's actual invocation model — the original brief's framing was misleading, and its recommendation needs correcting.**
+
+The original brief's claim ("DOCX/PPTX cannot be handed to Claude directly," "only PDF and plain-text are supported") was true of the **raw Anthropic Messages API `document` content block** — but litefactory does not call that API directly. `codebase-tour` confirmed both agent paths spawn a **local CLI subprocess**, not a hosted API call:
+
+- **[V] Claude path:** `internal/harness/runner.go:478` runs the resolved `claude` binary via `exec.CommandContext`, prompt piped on stdin (`runner.go:483`), CWD set to the task's git worktree (`runner.go:479`).
+- **[V] Codex path:** `internal/codex/runner.go:130` runs the resolved `codex` binary the same way (`exec.CommandContext`), prompt on stdin (`runner.go:131`).
+- **[V] The spawned `claude` process's tool boundary (`--tools`) includes both `Bash` and `Read` by default** — `internal/config/policy.go:80-82`, enforced as the actual argv boundary at `internal/harness/runner.go:119-124`. This holds for the top-level spawned process itself, not just Task-spawned sub-agents inside it.
+- **[V] Codex has no equivalent per-tool allow list** — its only litefactory-configured boundary is `--sandbox <read-only|workspace-write>` plus `--add-dir` writable roots (`internal/codex/runner.go:187-203`); Codex's own CLI decides internally what shell/file operations are permitted inside that sandbox mode. This is a real asymmetry between the two paths worth carrying into Plan mode.
+- **[V] No code exists today that downloads or writes a raw attachment to `$session/` or the worktree** — the owner's "just pass it on" model is unimplemented, not contradicted, by the current codebase.
+
+Given that, the question is not "does the Anthropic API understand DOCX" (it doesn't, but that's the wrong question) — it's "can the spawned `claude`/`codex` process, using tools it already has, read a DOCX/PPTX file sitting in its own worktree." New web research settles this:
+
+- **[V] Claude Code's `Read` tool rejects `.docx` outright** — confirmed via a live, primary-source GitHub issue (anthropics/claude-code #35911, filed March 2026 against Claude Code CLI + Opus 4.6, closed as duplicate — meaning the limitation is acknowledged, not fixed): the tool returns *"This tool cannot read binary files... Please use appropriate tools for binary file analysis."* **[W] `.pptx` was not independently tested but is the same OOXML zip-of-XML format family; treat as the same limitation by extension, not as separately confirmed.**
+- **[W] Codex CLI's own docs do not describe a dedicated document-reading tool with DOCX/PPTX support** — thin official docs, absence of a feature isn't proof of absence, but nothing found contradicts the same limitation applying.
+- **[V] However — and this is the correction — both agents have `Bash`, and the sanctioned, real-world pattern for exactly this problem is to shell out to a converter, not to hand the vendor's `Read` tool a raw OOXML file.** Anthropic's own official `docx` Skill (`anthropics/skills`, `skills/docx/SKILL.md`, source-available) does precisely this: its documented read path is the literal shell command `pandoc -t markdown file.docx`, with `pandoc`, LibreOffice (`soffice`), and Poppler (`pdftoppm`) as declared dependencies; for structural edits it unzips the OOXML container directly (`python scripts/office/unpack.py`) since DOCX/PPTX are just ZIP archives of XML. **This confirms the owner's underlying instinct — the agent does the conversion, not litefactory — while correcting the mechanism: it happens via the agent's `Bash` tool shelling out to a converter already in its runtime, not via any native "read a Word doc" capability in the `Read` tool or the Messages API.**
+
+**[W] Two things remain genuinely unresolved, and both are operational rather than code questions:**
+
+1. Whether Anthropic's `docx`/`pptx` Skills (and their pandoc/LibreOffice/Poppler dependency) are present **by default** in a plain Claude Code CLI session or must be explicitly installed — sources conflict, none primary/authoritative enough to settle here.
+2. Whether `pandoc`, LibreOffice, or Poppler are actually installed on the host(s) where litefactory spawns these processes. `codebase-tour` found **no container/Dockerfile evidence anywhere in the repo** — the daemon runs as a bare macOS host process under launchd (`internal/config/executable.go:13-19`, `internal/harness/runner.go:73-75`), with an explicitly allowlisted `PATH` passed through to the child (`internal/harness/env.go`, `internal/codex/runner.go:266-275`) — so whatever conversion binaries exist on that host's `PATH` is what the agent's `Bash` tool would actually have access to. **This was not verifiable from the repository and needs to be checked against the actual deployment host(s), not assumed either way.**
+
+### Corrected recommendation
+
+**The original brief's Phase 2 framing — "litefactory needs to build or license a Go-native DOCX/PPTX conversion dependency (`unioffice` or a custom XML walker) before any agent can use these attachments" — is superseded.** It conflated the Anthropic Messages API's document-block limitation (real, but not what this project calls) with what the actually-invoked `claude`/`codex` CLI subprocesses can do once handed a raw file and their existing `Bash` access.
+
+The corrected model: **litefactory downloads the raw attachment byte-for-byte and lands it under `$session/` (or the worktree) with no litefactory-side parsing or conversion — exactly the owner's proposal — and the invoked agent converts it itself at runtime by shelling out to `pandoc` (or an equivalent already-installed tool), the same pattern Anthropic's own official Skill uses.** This means:
+
+- **No Go DOCX/PPTX library is required as a mandatory litefactory dependency.** `unioffice`'s licensing cost and the free-alternative library survey in the Domain section above are **no longer load-bearing for the recommended path** — they'd only become relevant again if the team specifically wanted litefactory itself to pre-render a preview or validate attachment content server-side, which is a different, optional feature, not a Phase 2 prerequisite.
+- **The dependency shifts from a Go library choice to an operational one:** whether `pandoc` (or LibreOffice/Poppler) is installed on the host(s) that spawn `claude`/`codex` processes. This is materially cheaper to satisfy (a host package-manager install, `brew install pandoc` on the current macOS/launchd deployment) than licensing or vendoring a commercial Go library — but it is a real, unverified dependency, not a given.
+- **This does not change Phase 1** (images) at all — images were already agent-readable via the existing `Read` tool's native image support; nothing above touches that path.
+
+### New Open Questions (append to the section above)
+
+8. Is `pandoc` (or LibreOffice/Poppler) actually installed on the host(s) where litefactory's daemon runs and spawns `claude`/`codex` subprocesses today? This is now the load-bearing dependency for Phase 2 DOCX/PPTX support and was not verifiable from the repository — check the deployment host directly before Plan mode commits to this approach.
+9. Are Anthropic's official `docx`/`pptx` Skills available by default in the specific Claude Code CLI version litefactory invokes, or would they need explicit installation/enabling as part of Plan/Implement? Unresolved by this run; would need Anthropic's own Claude Code docs/changelog rather than secondary sources.
+10. Does the Codex path need different handling than Claude given the tool-gating asymmetry (Codex has no `--tools`/`--allowedTools` equivalent — only `--sandbox` mode governs shell access)? If Codex's sandbox mode is `read-only` for a given run, would that block the `Bash`-based pandoc conversion pattern entirely for Codex-driven runs even where Claude-driven runs would succeed?
+11. Should litefactory's own ingestion step verify a converter is reachable (e.g., a startup/health check for `pandoc` on PATH) and fail loudly if absent, rather than relying on the agent's own run-time discovery that conversion tooling is missing?
+
 ## Recommended scope for Plan mode
 
 **In scope:**
@@ -105,6 +163,6 @@ Two phases are implied: **Phase 1** — images/mockups attached to issues or com
 - A named, explicit decision on the `$session`-files-vs-struct-field extension mechanism (Open Question 4), since it shapes both Phase 1 and Phase 2 work.
 
 **Out of scope for this Plan pass (flag as Phase 2, revisit once Phase 1 ships):**
-- DOCX/PPTX conversion tooling and library/binary choice (Open Question 5) — this is a separable, larger piece of work with its own licensing and deployment-footprint tradeoffs, and the issue itself frames it as "in a later setup."
+- DOCX/PPTX handling (Open Questions 5, 8-11) — still separable, larger work, and the issue itself frames it as "in a later setup." **Note the scope has shifted per the Addendum**: this is no longer primarily a Go-library licensing decision (`unioffice` vs. free alternatives) but an operational one — confirming a converter (`pandoc`/LibreOffice) is available on the deployment host so the invoked agent's own `Bash` tool can convert the file at runtime, plus landing the raw attachment file where that agent can reach it. Plan mode should re-scope this item accordingly rather than carrying forward the original "which Go library" framing.
 - Chat history / call transcript ingestion (Slack JSON, VTT/SRT) — same reasoning; flagged as future scope, not blocking Phase 1 design.
 - General-purpose (non-GitHub-domain) URL fetching for attachments — Open Question 3 should be resolved as "GitHub asset domains only" for the first pass unless the product owner explicitly wants broader fetch now.

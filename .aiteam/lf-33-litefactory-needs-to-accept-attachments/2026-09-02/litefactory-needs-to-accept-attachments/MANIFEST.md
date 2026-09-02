@@ -16,6 +16,7 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-02 — session created
 - 2026-09-02 — Research complete: RESEARCH_BRIEF.md written (codebase-tour + web-researcher)
+- 2026-09-02 — Owner pushback addressed: addendum added to RESEARCH_BRIEF.md correcting the DOCX/PPTX conversion recommendation (codebase-tour + web-researcher re-run)
 
 ## Notes
 
