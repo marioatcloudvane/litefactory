@@ -25,8 +25,8 @@ func (f *fixture) setup(claudeDir string) daemon.Setup {
 	f.t.Helper()
 
 	cfg := config.Defaults()
-	cfg.GitHub.APIBase = f.forge.server.URL
-	cfg.Claude.SettingsPath = f.paths.SettingsPath()
+	cfg.Providers.GitHub.APIBase = f.forge.server.URL
+	cfg.Agents.Claude.SettingsPath = f.paths.SettingsPath()
 
 	return daemon.Setup{
 		Paths:   f.paths,
@@ -144,7 +144,7 @@ func TestOpenRefusesAnOutOfRangeInterval(t *testing.T) {
 
 	for _, seconds := range []int{1, 9, 61, 300} {
 		setup := f.setup(dir)
-		setup.Config.PollIntervalSeconds = seconds
+		setup.Config.Settings.PollIntervalSeconds = seconds
 
 		loop, _, err := daemon.Open(t.Context(), setup)
 		if err == nil {

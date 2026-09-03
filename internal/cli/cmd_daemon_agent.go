@@ -235,7 +235,7 @@ type daemonCredential struct {
 // unsupported path, and the caller warns loudly about it.
 func resolveDaemonCredential(cfg *config.Config, paths config.Paths, environment map[string]string) (daemonCredential, error) {
 	ref, configured := secrets.ReferenceFrom(
-		cfg.GitHub.TokenKeychain.Service, cfg.GitHub.TokenKeychain.Account, cfg.GitHub.TokenEnv)
+		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	if !configured {
 		return daemonCredential{}, nil
 	}

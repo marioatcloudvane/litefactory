@@ -109,7 +109,7 @@ func configuredLevel() slog.Level {
 	if err != nil {
 		return slog.LevelInfo
 	}
-	level, err := logging.ParseLevel(cfg.LogLevel)
+	level, err := logging.ParseLevel(cfg.Settings.LogLevel)
 	if err != nil {
 		return slog.LevelInfo
 	}

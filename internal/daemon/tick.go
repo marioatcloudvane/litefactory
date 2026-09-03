@@ -1466,43 +1466,27 @@ func (d *Daemon) run(
 		selectedAgent = string(d.defaultAgent)
 	}
 
-	// The tool profile is resolved here, before anything is locked, fetched or
-	// written: a refusal has to be run-less (AC-3.7), and by the time
-	// [turn.Execute] has prepared a turn there is a worktree and a runs row to
-	// account for. The labels are this tick's snapshot, so two comments drained
-	// in one tick share it — which is exactly why the run report carries the
-	// tool surface it used.
-	tools := d.resolveTools(t.issue.Labels)
-	if tools.refused() {
-		return d.refuseTools(ctx, t, trigger, tools, log)
-	}
-	if tools.Profile != "" {
-		log = log.With(slog.String("tool_profile", tools.Profile))
-		// Logged before the turn starts and with the ceiling beside it, because
-		// this is the only record of which boundary was in force at the moment
-		// the label was read: the labels are a per-tick snapshot, and a run that
-		// then hangs for two hours would otherwise leave nothing behind saying
-		// what it was granted.
-		log.InfoContext(ctx, "a label selected a tool profile for this run",
-			slog.Any("tools", tools.Tools),
-			slog.Any("allowed_tools", tools.AllowedTools),
-			slog.Any("tool_ceiling", d.toolCeiling))
+	// Permission labels are obsolete and always refuse. Detection folds case,
+	// and no label value crosses this boundary into logs or replies.
+	if legacyToolsLabel(t.issue.Labels) {
+		return d.refuseTools(ctx, t, trigger,
+			toolDecision{Refusal: report.ReplyMalformedToolLabel}, log)
 	}
 
-	// Stage 3 of the four-stage refusal precedence (T-7.2): a resolved
-	// profile is narrowed to the agent this run actually addresses, and an
-	// agent this profile carries no stanza for refuses the run rather than
-	// falling back to another stanza or to that agent's own default surface.
-	// This runs after stage 1 (agentChoice, above) has already settled which
-	// agent that is — no label at all means the configured default agent,
-	// [store.AgentClaude] today, the same way an absent lf:tools= label
-	// means the configured default tool surface.
-	if tools.Resolved != nil {
-		effectiveAgent := selectedAgent
-		if !tools.Resolved.HasStanzaFor(effectiveAgent) {
-			return d.refuseProfileForAgent(ctx, t, trigger, tools.Profile, effectiveAgent, log)
-		}
+	// Select permissions only after both the concrete mode and effective agent
+	// are known. A missing entry is an invariant violation, never a reason to
+	// fall back to a potentially broader agent-global surface.
+	tools, ok := d.resolveTools(mode, agent.Kind(selectedAgent))
+	if !ok {
+		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
+			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
 	}
+	log = log.With(slog.String("tool_profile", tools.Profile))
+	log.InfoContext(ctx, "selected the mode permission profile for this run",
+		slog.Any("tools", tools.Tools),
+		slog.Any("allowed_tools", tools.AllowedTools),
+		slog.String("codex_sandbox", tools.Sandbox),
+		slog.Any("tool_ceiling", d.toolCeiling))
 
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Mode:      mode,
@@ -1519,19 +1503,13 @@ func (d *Daemon) run(
 		},
 		Trigger: trigger,
 		Command: command,
-		// Already copies of the operator's configuration, and the only strings
-		// in this request that reach the child's argv. The label chose which
-		// profile; it contributes nothing else (C2).
-		Tools:        tools.Tools,
-		AllowedTools: tools.AllowedTools,
+		// Copies of the mode-selected operator configuration. No forge label
+		// contributes permission data to this request.
+		Tools:        append([]string(nil), tools.Tools...),
+		AllowedTools: append([]string(nil), tools.AllowedTools...),
 		ToolProfile:  tools.Profile,
 		Agent:        agent.Kind(selectedAgent),
-		CodexSandbox: func() string {
-			if tools.Resolved != nil && tools.Resolved.Codex != nil {
-				return tools.Resolved.Codex.Sandbox
-			}
-			return ""
-		}(),
+		CodexSandbox: tools.Sandbox,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
@@ -1584,9 +1562,8 @@ func (d *Daemon) run(
 	return nil
 }
 
-// refuseTools answers an lf:tools= label that could not be resolved into a
-// profile: unknown, malformed, ambiguous, or named on a daemon that has no
-// profiles configured at all.
+// refuseTools answers any obsolete lf:tools= label. The label's value is not
+// carried into this function, so neither logs nor replies can echo it.
 //
 // Nothing runs. That is the point: a label is a permission request, and the four
 // ways of failing to understand one all have the same safe answer, which is to
@@ -1620,19 +1597,10 @@ func (d *Daemon) refuseTools(
 	log *slog.Logger,
 ) error {
 	log = log.With(slog.String("tools_refusal", decision.Refusal.String()))
-	if decision.MiscasedPrefix {
-		// The label was seen because detection folds case and refused because
-		// acceptance does not (D-6). Worth a line, because the reply describes
-		// the rule for profile *names* and cannot say that it was the prefix
-		// that was wrong — and because "my label did nothing" is the complaint
-		// this feature must never produce. The label text itself is not logged,
-		// for the same reason it is not echoed onto the thread (S-9).
-		log = log.With(slog.Bool("miscased_tool_label_prefix", true))
-	}
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its lf:tools= label does not "+
-			"resolve to a configured tool profile. Nothing was run and no comment was posted, "+
+		log.InfoContext(ctx, "refusing to run the issue body: it carries an obsolete lf:tools= label. "+
+			"Nothing was run and no comment was posted, "+
 			"because there is no comment to answer; the next comment on this issue is refused "+
 			"on the thread")
 		return nil
@@ -1653,8 +1621,7 @@ func (d *Daemon) refuseTools(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
-			"resolve to a configured tool profile",
+		log.InfoContext(ctx, "refused a run: the issue carries an obsolete lf:tools= label",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}
 	return nil

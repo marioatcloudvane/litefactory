@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -130,11 +129,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	interval := time.Duration(s.Config.PollIntervalSeconds) * time.Second
+	interval := time.Duration(s.Config.Settings.PollIntervalSeconds) * time.Second
 	if interval < MinInterval || interval > MaxInterval {
 		return nil, Startup{}, invalidOptions(
 			"poll_interval_seconds is %d, which is outside the supported range %d..%d",
-			s.Config.PollIntervalSeconds,
+			s.Config.Settings.PollIntervalSeconds,
 			int(MinInterval.Seconds()), int(MaxInterval.Seconds()))
 	}
 
@@ -142,7 +141,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// out of range, for the same reason the interval above is: Open is reached
 	// by more than one route into a *config.Config, and a slot count that has
 	// not been checked on this path is one nobody can point at.
-	maxRuns := s.Config.MaxConcurrentRuns
+	maxRuns := s.Config.Settings.MaxConcurrentRuns
 	if maxRuns < MinConcurrentRuns || maxRuns > MaxConcurrentRuns {
 		return nil, Startup{}, invalidOptions(
 			"max_concurrent_runs is %d, which is outside the supported range %d..%d",
@@ -162,6 +161,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	configuredDefault, ok := s.Config.DefaultAgent()
+	if !ok {
+		return nil, Startup{}, invalidOptions("configuration has no default agent")
+	}
+	defaultAgent := agent.Kind(configuredDefault)
 	classifiers := make(map[agent.Kind]agent.Classifier, len(runners))
 	for kind, runner := range runners {
 		classifier, ok := runner.(agent.Classifier)
@@ -169,16 +173,18 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			classifiers[kind] = classifier
 		}
 	}
+	toolProfiles := s.Config.ToolProfiles.Permissions
+	var toolCeiling []string
+	if s.Config.Agents.Claude != nil {
+		toolCeiling = s.Config.Agents.Claude.ToolCeiling
+	}
 	// Startup wants to print which claude binary was resolved and its
 	// timeout, so the concrete implementation is narrowed back out of the
 	// set built above rather than resolved a second time.
-	claude, ok := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
-	if !ok {
-		return nil, Startup{}, fmt.Errorf("the daemon needs claude: no claude runner was built")
-	}
+	claude, _ := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
 
 	client, err := github.New(github.Options{
-		APIBase:   s.Config.GitHub.APIBase,
+		APIBase:   s.Config.Providers.GitHub.APIBase,
 		Token:     s.Token,
 		Logger:    s.Logger,
 		UserAgent: s.UserAgent,
@@ -266,15 +272,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// label selects and the ceiling that bounds it are one decision made in
 		// one place — internal/config resolved the ceiling before it validated
 		// anything against it.
-		ToolProfiles: s.Config.Claude.ToolProfiles,
+		ToolProfiles: toolProfiles,
 		// The same registry turn.Options.Runners was just built from above, so
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
 		Agents:       runners,
 		Classifiers:  classifiers,
-		DefaultAgent: agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
-		ToolCeiling:  s.Config.Claude.ToolCeiling,
+		DefaultAgent: defaultAgent,
+		ToolCeiling:  toolCeiling,
 		InstanceID:   instanceID,
 		Interval:     interval,
 		// Nothing spends the slots yet; carrying the value from here means the
@@ -288,8 +294,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 
-	return daemon, Startup{
-		DefaultAgent:      agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
+	startup := Startup{
+		DefaultAgent:      defaultAgent,
 		InstanceID:        instanceID,
 		Interval:          interval,
 		MaxConcurrentRuns: maxRuns,
@@ -298,11 +304,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		APIBase:           client.BaseURL(),
 		Git:               gitBinary.Path(),
 		GitVersion:        gitBinary.Version(),
-		Claude:            claude.Binary(),
-		ClaudeTimeout:     claude.Timeout(),
 		Identities:        identities,
 		Repos:             len(registered),
-	}, nil
+	}
+	if claude != nil {
+		startup.Claude = claude.Binary()
+		startup.ClaudeTimeout = claude.Timeout()
+	}
+	return daemon, startup, nil
 }
 
 func (s Setup) validate() error {

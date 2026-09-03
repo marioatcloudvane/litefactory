@@ -108,13 +108,8 @@ type Options struct {
 	// package re-checks only what it would otherwise crash on.
 	Claude config.Claude
 
-	// Tiers is the litefactory-owned tier→model table (US-6). It is what
-	// Claude.ModelTier, when set, is resolved through: the --model flag is
-	// resolved from tier to a concrete model name here, at the point the
-	// Claude [agent.Runner] implementation is built, because only the
-	// selected implementation knows which tool's column of the table
-	// applies to it.
-	Tiers config.Tiers
+	// Model is the concrete model resolved once by startup configuration.
+	Model string
 
 	// Environ is the daemon's own environment in os.Environ form. It is the
 	// input to the allowlist (SD-4), and its PATH is what claude.binary is
@@ -188,20 +183,9 @@ func New(opts Options) (*Runner, error) {
 	// and resolves against opts.Tiers, so a miss here means opts was
 	// assembled by hand rather than loaded — the same class of caller the
 	// settingsPath and Model defaulting below already accounts for.
-	model := opts.Claude.Model
-	if opts.Claude.ModelTier != "" {
-		resolved, ok := opts.Tiers.ResolveModel(config.KindClaude, opts.Claude.ModelTier)
-		if !ok {
-			return nil, invalidOptions("claude.model_tier %q has no entry in tiers.model_by_tier.claude", opts.Claude.ModelTier)
-		}
-		model = resolved
-	}
-	// Defaulted here as well as in config.Defaults, for the same reason
-	// settingsPath is: a config.Claude assembled by hand rather than loaded
-	// carries a zero Model, and an empty --model value is not a flag claude
-	// will accept.
+	model := strings.TrimSpace(opts.Model)
 	if model == "" {
-		model = config.DefaultClaudeModel
+		return nil, invalidOptions("a startup-resolved model is required")
 	}
 	autoCompact := opts.Claude.AutoCompact
 	if autoCompact == "" {

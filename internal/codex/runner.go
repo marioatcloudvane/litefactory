@@ -32,7 +32,7 @@ const (
 type Options struct {
 	Paths   config.Paths
 	Codex   config.Codex
-	Tiers   config.Tiers
+	Model   string
 	Environ []string
 	Logger  *slog.Logger
 }
@@ -80,13 +80,9 @@ func New(opts Options) (*Runner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve codex binary: %w", err)
 	}
-	model := opts.Codex.Model
-	if opts.Codex.ModelTier != "" {
-		var ok bool
-		model, ok = opts.Tiers.ResolveModel(config.KindCodex, opts.Codex.ModelTier)
-		if !ok {
-			return nil, fmt.Errorf("agents.codex.model_tier %q has no configured model", opts.Codex.ModelTier)
-		}
+	model := strings.TrimSpace(opts.Model)
+	if model == "" {
+		return nil, fmt.Errorf("invalid codex options: a startup-resolved model is required")
 	}
 	for _, root := range opts.Codex.WritableRoots {
 		if !filepath.IsAbs(root) {

@@ -3,10 +3,8 @@ package agent
 // Permissions is what a resolved tool profile grants one run, carried across
 // the [Runner] boundary with no tool-vocabulary field of its own.
 //
-// Profile is the operator-authored profile name that selected it — already
-// validated against the operator's own configuration, and carried here for
-// logging and metadata only. It is never text originating from a forge
-// label; only the validated lookup key is.
+// Profile is the canonical workflow profile selected from the resolved mode,
+// carried here for logging and metadata only. It is never forge text.
 //
 // Payload is deliberately opaque. What a profile actually grants differs by
 // Kind — internal/harness's --tools and --allowedTools lists, internal/codex's

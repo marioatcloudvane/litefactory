@@ -412,12 +412,12 @@ func (r Reply) body() string {
 			"`lf:tools=` label off the issue, and comment again.")
 
 	case ReplyMalformedToolLabel:
-		b.WriteString("The `lf:tools=` label on this issue does not name a usable tool profile. ")
+		b.WriteString("The `lf:tools=` label on this issue is no longer supported. ")
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("A profile name is lowercase letters and digits, `-` and `_`, up to 40 " +
-			"characters, and it has to be one of the profiles in litefactory's config. The label " +
-			"text is not repeated here on purpose.")
+		b.WriteString("Remove every `lf:tools=` label and comment again. Litefactory now selects " +
+			"`research`, `plan`, `implement`, or `validate` permissions automatically from the " +
+			"resolved run mode. The label text is not repeated here on purpose.")
 
 	case ReplyAmbiguousToolLabels:
 		b.WriteString("This issue carries more than one `lf:tools=` label, so there is no single " +
@@ -445,7 +445,7 @@ func (r Reply) body() string {
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, or `Mode: Spike`.")
+		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate`, or `Mode: Spike`.")
 
 	case ReplyAmbiguousModeLabels:
 		b.WriteString("This issue carries more than one `Mode: …` label, so no mode was chosen and nothing was run.")

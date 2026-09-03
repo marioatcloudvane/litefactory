@@ -168,6 +168,7 @@ func newRunner(t *testing.T, dir string, writable ...string) (*Runner, error) {
 	return New(Options{
 		Paths:   config.NewPaths(filepath.Join(dir, "lfhome")),
 		Codex:   config.Codex{Binary: binary, DefaultSandbox: "workspace-write", TimeoutSeconds: 30, WritableRoots: writable},
+		Model:   "gpt-test",
 		Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=test"},
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})

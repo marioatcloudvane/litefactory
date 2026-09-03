@@ -21,7 +21,14 @@ func TestDefaultFileMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the default config file does not decode: %v", err)
 	}
-	if diff := cmp.Diff(Defaults(), *cfg); diff != "" {
+	want := Defaults()
+	claude, codex := DefaultClaude(), DefaultCodex()
+	want.Agents = Agents{Claude: &claude, Codex: &codex}
+	want.Agents.Codex.WritableRoots = []string{}
+	want.Providers.GitHub.TokenKeychain = Keychain{Service: "litefactory", Account: "github-bot"}
+	want.ToolProfiles = DefaultToolProfiles()
+	want.agentOrder = []Kind{KindClaude, KindCodex}
+	if diff := cmp.Diff(want, *cfg, cmp.AllowUnexported(Config{})); diff != "" {
 		t.Errorf("the default config file has drifted from Defaults() (-want +got):\n%s", diff)
 	}
 }
@@ -72,9 +79,9 @@ func TestDefaultFileDocumentsTheTwoToolKeys(t *testing.T) {
 func TestDefaultFileDocumentsTheConcurrencyCeiling(t *testing.T) {
 	contents := string(DefaultFileContents())
 
-	wantRange := fmt.Sprintf("between %d and %d", MinMaxConcurrentRuns, MaxMaxConcurrentRuns)
+	wantRange := fmt.Sprintf("valid range: %d..%d", MinMaxConcurrentRuns, MaxMaxConcurrentRuns)
 	wantValue := fmt.Sprintf("max_concurrent_runs: %d", DefaultMaxConcurrentRuns)
-	for _, want := range []string{wantValue, wantRange, "not a measurement"} {
+	for _, want := range []string{wantValue, wantRange} {
 		if !strings.Contains(contents, want) {
 			t.Errorf("the default config file does not contain %q", want)
 		}
@@ -149,13 +156,13 @@ func TestLoadReadsTheWrittenFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.PollIntervalSeconds != DefaultPollIntervalSeconds {
-		t.Errorf("PollIntervalSeconds = %d, want %d", cfg.PollIntervalSeconds, DefaultPollIntervalSeconds)
+	if cfg.Settings.PollIntervalSeconds != DefaultPollIntervalSeconds {
+		t.Errorf("PollIntervalSeconds = %d, want %d", cfg.Settings.PollIntervalSeconds, DefaultPollIntervalSeconds)
 	}
 	// An empty settings_path is filled in from $LF_HOME, so the harness never
 	// has to decide what "empty" means.
-	if cfg.Claude.SettingsPath != paths.SettingsPath() {
-		t.Errorf("Claude.SettingsPath = %q, want %q", cfg.Claude.SettingsPath, paths.SettingsPath())
+	if cfg.Agents.Claude.SettingsPath != paths.SettingsPath() {
+		t.Errorf("Claude.SettingsPath = %q, want %q", cfg.Agents.Claude.SettingsPath, paths.SettingsPath())
 	}
 }
 
@@ -205,7 +212,7 @@ func TestLoadPreservesTheSecretSentinel(t *testing.T) {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatalf("EnsureHome: %v", err)
 	}
-	body := "github:\n  token_env: ghp_0123456789abcdefghijklmnopqrstuvwx\n"
+	body := "providers:\n  github:\n    token_env: ghp_0123456789abcdefghijklmnopqrstuvwx\n"
 	if err := os.WriteFile(paths.ConfigPath(), []byte(body), 0o600); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -844,6 +845,12 @@ type fixture struct {
 	daemon   *daemon.Daemon
 }
 
+type fakeModeClassifier struct{}
+
+func (fakeModeClassifier) Classify(context.Context, agent.Classification) (agent.Mode, error) {
+	return agent.ModeResearch, nil
+}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
@@ -952,6 +959,10 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	f.t.Helper()
 
 	opts := daemon.Options{
+		DefaultAgent:  agent.Kind(store.AgentClaude),
+		ToolProfiles:  config.DefaultToolProfiles().Permissions,
+		Agents:        turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:   map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
 		DB:            f.db,
 		Forge:         f.client,
 		Filter:        f.filter,
@@ -1001,11 +1012,18 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.ToolProfiles != nil {
 		opts.ToolProfiles = overrides.ToolProfiles
 	}
+	if overrides.DefaultAgent != "" {
+		opts.DefaultAgent = overrides.DefaultAgent
+	}
 	if overrides.ToolCeiling != nil {
 		opts.ToolCeiling = overrides.ToolCeiling
 	}
 	if overrides.Agents != nil {
 		opts.Agents = overrides.Agents
+		opts.Classifiers = make(map[agent.Kind]agent.Classifier, len(overrides.Agents))
+		for kind := range overrides.Agents {
+			opts.Classifiers[kind] = fakeModeClassifier{}
+		}
 	}
 
 	d, err := daemon.New(opts)

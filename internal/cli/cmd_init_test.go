@@ -224,10 +224,10 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load the config init wrote: %v", err)
 	}
-	if cfg.PollIntervalSeconds != config.DefaultPollIntervalSeconds {
-		t.Errorf("poll_interval_seconds = %d, want %d", cfg.PollIntervalSeconds, config.DefaultPollIntervalSeconds)
+	if cfg.Settings.PollIntervalSeconds != config.DefaultPollIntervalSeconds {
+		t.Errorf("poll_interval_seconds = %d, want %d", cfg.Settings.PollIntervalSeconds, config.DefaultPollIntervalSeconds)
 	}
-	if cfg.GitHub.TokenEnv != "" || cfg.GitHub.TokenKeychain.Service != "" {
+	if cfg.Providers.GitHub.TokenEnv != "" || cfg.Providers.GitHub.TokenKeychain.Service != "" {
 		t.Error("the default config.yaml names a credential source; it must reference nothing until the operator says so")
 	}
 

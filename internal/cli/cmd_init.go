@@ -27,10 +27,11 @@ const (
 	initNoTokenWarning = `warning: no bot token is configured, so litefactory does not know which account it posts as.
   Store one in the keychain and reference it in %s:
       security add-generic-password -s litefactory -a github-bot -w
-      github:
-        token_keychain:
-          service: "litefactory"
-          account: "github-bot"
+      providers:
+        github:
+          token_keychain:
+            service: "litefactory"
+            account: "github-bot"
   Then run ` + "`litefactory init`" + ` again. The daemon refuses to start until this resolves.
 `
 
@@ -119,7 +120,7 @@ func runInit(ctx context.Context, env *Env) (err error) {
 		return Preconditionf(
 			"the configured bot token belongs to the same account as the owner: %s (id %d).\n"+
 				"  litefactory would read its own comments as instructions and loop forever on the first run.\n"+
-				"  Point github.token_keychain or github.token_env at a separate machine or bot account.\n"+
+				"  Point providers.github.token_keychain or providers.github.token_env at a separate machine or bot account.\n"+
 				"  Neither identity was stored",
 			owner.Login, owner.UserID)
 	}
@@ -163,7 +164,7 @@ func runInit(ctx context.Context, env *Env) (err error) {
 // transient API error left the machine without an owner identity either.
 func resolveBotIdentity(ctx context.Context, env *Env, paths config.Paths, cfg *config.Config) (github.User, bool) {
 	ref, configured := secrets.ReferenceFrom(
-		cfg.GitHub.TokenKeychain.Service, cfg.GitHub.TokenKeychain.Account, cfg.GitHub.TokenEnv)
+		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	if !configured {
 		fmt.Fprintf(env.Stderr, initNoTokenWarning, paths.ConfigPath())
 		return github.User{}, false
@@ -179,7 +180,7 @@ func resolveBotIdentity(ctx context.Context, env *Env, paths config.Paths, cfg *
 	}
 
 	client, err := github.New(github.Options{
-		APIBase:   cfg.GitHub.APIBase,
+		APIBase:   cfg.Providers.GitHub.APIBase,
 		Token:     token,
 		Logger:    env.Logger,
 		UserAgent: initUserAgent(env),
