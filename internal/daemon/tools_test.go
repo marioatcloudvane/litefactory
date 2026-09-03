@@ -21,16 +21,17 @@ func buildProfile() config.ToolProfile {
 	return config.ToolProfile{Claude: &config.ToolProfileClaude{Tools: []string{"Read", "Edit", "Bash"}}}
 }
 
-// TestLabelSelectsProfileForTheNextRun is AC-2.2: a maintainer's lf:tools=
-// label on the issue is what the next comment-triggered run carries onto its
-// turn.Request, unchanged from the operator's own configuration.
+// TestLabelSelectsProfileForTheNextRun is AC-2.2: a maintainer's
+// `Tools: <Profile>` label on the issue is what the next comment-triggered
+// run carries onto its turn.Request, unchanged from the operator's own
+// configuration.
 func TestLabelSelectsProfileForTheNextRun(t *testing.T) {
 	f := newFixture(t)
 	f.daemon = f.newDaemon(daemon.Options{
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=research")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Research")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 501, owner(), "/spike add a health endpoint")
@@ -53,11 +54,12 @@ func TestLabelSelectsProfileForTheNextRun(t *testing.T) {
 }
 
 // TestNoLabelRequestCarriesTodaysEmptySurface is the request-level half of
-// AC-2.3: with no lf:tools= label anywhere on the issue, the turn.Request a
-// run is built from carries the same empty tool fields it always did, which
-// is what makes the harness fall back to its configured surface and keeps
-// argv byte-identical to before this feature existed. The harness's own half
-// of AC-2.3 — the literal argv — is pinned in internal/harness/runner_test.go.
+// AC-2.3: with no `Tools: <Profile>` label anywhere on the issue, the
+// turn.Request a run is built from carries the same empty tool fields it
+// always did, which is what makes the harness fall back to its configured
+// surface and keeps argv byte-identical to before this feature existed. The
+// harness's own half of AC-2.3 — the literal argv — is pinned in
+// internal/harness/runner_test.go.
 func TestNoLabelRequestCarriesTodaysEmptySurface(t *testing.T) {
 	f := newFixture(t)
 	f.daemon = f.newDaemon(daemon.Options{
@@ -103,7 +105,7 @@ func TestRelabelThenComment(t *testing.T) {
 
 	// The label changes. No comment follows it, so nothing must run — only a
 	// comment triggers a turn.
-	f.relabel("lf:tools=research")
+	f.relabel("Tools: Research")
 	f.settle()
 	if len(f.turns.calls()) != 1 {
 		t.Fatalf("the executor was called an extra time after a bare relabel")
@@ -122,10 +124,11 @@ func TestRelabelThenComment(t *testing.T) {
 }
 
 // TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark is AC-3.1, AC-3.4,
-// AC-3.5, AC-3.6, AC-3.7: every one of the four ways an lf:tools= label can
-// fail to resolve refuses the run, replies naming what it can safely name,
-// spawns nothing, and still advances the watermark so the comment is not
-// retried forever.
+// AC-3.5, AC-3.6, AC-3.7: every one of the ways a `Tools: <Profile>` label
+// can fail to resolve — including the legacy `lf:tools=` syntax it replaced
+// (US-2) — refuses the run, replies naming what it can safely name, spawns
+// nothing, and still advances the watermark so the comment is not retried
+// forever.
 //
 // "Spawns nothing" is asserted against the executor and the runs table, not
 // assumed: a permission refusal is decided before [turn.Execute] is ever
@@ -142,19 +145,19 @@ func TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark(t *testing.T) {
 		{
 			name:     "unknown profile names it in the reply (AC-3.1)",
 			profiles: map[string]config.ToolProfile{"research": researchProfile()},
-			labels:   []string{"lf:tools=nosuch"},
+			labels:   []string{"Tools: Nosuch"},
 			wantIn:   "nosuch",
 		},
 		{
 			name:     "malformed value (AC-3.5)",
 			profiles: map[string]config.ToolProfile{"research": researchProfile()},
-			labels:   []string{"lf:tools=bad name"},
+			labels:   []string{"Tools: bad name"},
 			wantIn:   "does not name a usable tool profile",
 		},
 		{
 			name:     "mis-cased prefix is refused, not silently ignored (AC-3.5, D-6)",
 			profiles: map[string]config.ToolProfile{"research": researchProfile()},
-			labels:   []string{"LF:Tools=research"},
+			labels:   []string{"tools: Research"},
 			wantIn:   "does not name a usable tool profile",
 		},
 		{
@@ -162,14 +165,26 @@ func TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark(t *testing.T) {
 			profiles: map[string]config.ToolProfile{
 				"research": researchProfile(), "build": buildProfile(),
 			},
-			labels: []string{"lf:tools=research", "lf:tools=build"},
+			labels: []string{"Tools: Research", "Tools: Build"},
 			wantIn: "more than one",
 		},
 		{
 			name:     "a label with no tool_profiles configured at all refuses (AC-3.4, D-5)",
 			profiles: nil,
-			labels:   []string{"lf:tools=research"},
+			labels:   []string{"Tools: Research"},
 			wantIn:   "research",
+		},
+		{
+			name:     "the legacy lf:tools= label is refused loudly, not silently ignored (US-2)",
+			profiles: map[string]config.ToolProfile{"research": researchProfile()},
+			labels:   []string{"lf:tools=research"},
+			wantIn:   "no longer reads",
+		},
+		{
+			name:     "a mis-cased legacy label is still caught (US-2, D-6)",
+			profiles: map[string]config.ToolProfile{"research": researchProfile()},
+			labels:   []string{"LF:Tools=research"},
+			wantIn:   "no longer reads",
 		},
 	}
 
@@ -208,25 +223,14 @@ func TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark(t *testing.T) {
 	}
 }
 
-// TestMalformedLabelReplyNeverEchoesInjectedText is AC-3.2, pushed as hard as
-// a hostile label value can push it: the malformed reply is not supposed to
-// carry the raw label text at all (S-9 gives it no field to carry it in), so
-// this tries several shapes of text that would matter if it ever leaked —
-// markdown, a stray HTML comment, a second lf: marker, an @mention, and an
-// embedded newline.
-func TestMalformedLabelReplyNeverEchoesInjectedText(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{"markdown", "*bold*`code`"},
-		{"an html comment", "<!--evil-->"},
-		{"a second lf marker", "<!-- lf:status task=x run=1 -->"},
-		{"a mention", "@everyone"},
-		{"an embedded newline", "line1\nline2"},
-	}
-
-	for _, tc := range tests {
+// TestLegacyLabelReplyNeverEchoesInjectedText is AC-3.2 and US-2's S-9
+// requirement, pushed as hard as a hostile legacy `lf:tools=` label value can
+// push it: the legacy refusal is not supposed to carry the raw label text at
+// all (S-9 gives it no field to carry it in), so this tries several shapes of
+// text that would matter if it ever leaked — markdown, a stray HTML comment,
+// a second lf: marker, an @mention, and an embedded newline.
+func TestLegacyLabelReplyNeverEchoesInjectedText(t *testing.T) {
+	for _, tc := range malformedLabelInjectionCases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.daemon = f.newDaemon(daemon.Options{
@@ -239,22 +243,69 @@ func TestMalformedLabelReplyNeverEchoesInjectedText(t *testing.T) {
 			f.forge.addComment(testIssue, 950, owner(), "/spike add a health endpoint")
 			f.settle()
 
-			posted, _, _ := f.forge.snapshot()
-			if len(posted) != 1 {
-				t.Fatalf("posted %d comments, want 1", len(posted))
-			}
-			body := posted[0]
-			if strings.Contains(body, tc.value) {
-				t.Errorf("the reply echoed the raw label value %q:\n%s", tc.value, body)
-			}
-			if strings.Count(body, turn.MarkerPrefix) != 1 {
-				t.Errorf("the reply carries %d lf: markers, want exactly its own one:\n%s",
-					strings.Count(body, turn.MarkerPrefix), body)
-			}
-			if strings.Contains(body, "@everyone") {
-				t.Errorf("the reply echoed a mention back into the comment:\n%s", body)
-			}
+			assertReplyNeverEchoesInjectedText(t, f, tc.value)
 		})
+	}
+}
+
+// TestMalformedLabelReplyNeverEchoesInjectedText is AC-3.2, pushed as hard as
+// a hostile label value can push it: the malformed reply is not supposed to
+// carry the raw label text at all (S-9 gives it no field to carry it in), so
+// this tries several shapes of text that would matter if it ever leaked —
+// markdown, a stray HTML comment, a second lf: marker, an @mention, and an
+// embedded newline.
+func TestMalformedLabelReplyNeverEchoesInjectedText(t *testing.T) {
+	for _, tc := range malformedLabelInjectionCases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.daemon = f.newDaemon(daemon.Options{
+				ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
+			})
+			f.plantCursor()
+			f.issueWithLabels("Add a /health endpoint", "Tools: "+tc.value)
+			f.settle()
+
+			f.forge.addComment(testIssue, 951, owner(), "/spike add a health endpoint")
+			f.settle()
+
+			assertReplyNeverEchoesInjectedText(t, f, tc.value)
+		})
+	}
+}
+
+// malformedLabelInjectionCases is the shared set of hostile label values used
+// to probe both the legacy-label refusal and the new-style malformed-label
+// refusal for accidental text echo.
+var malformedLabelInjectionCases = []struct {
+	name  string
+	value string
+}{
+	{"markdown", "*bold*`code`"},
+	{"an html comment", "<!--evil-->"},
+	{"a second lf marker", "<!-- lf:status task=x run=1 -->"},
+	{"a mention", "@everyone"},
+	{"an embedded newline", "line1\nline2"},
+}
+
+// assertReplyNeverEchoesInjectedText asserts the single posted reply neither
+// carries the raw hostile label value nor picks up a second lf: marker or an
+// @mention from it.
+func assertReplyNeverEchoesInjectedText(t *testing.T, f *fixture, value string) {
+	t.Helper()
+	posted, _, _ := f.forge.snapshot()
+	if len(posted) != 1 {
+		t.Fatalf("posted %d comments, want 1", len(posted))
+	}
+	body := posted[0]
+	if strings.Contains(body, value) {
+		t.Errorf("the reply echoed the raw label value %q:\n%s", value, body)
+	}
+	if strings.Count(body, turn.MarkerPrefix) != 1 {
+		t.Errorf("the reply carries %d lf: markers, want exactly its own one:\n%s",
+			strings.Count(body, turn.MarkerPrefix), body)
+	}
+	if strings.Contains(body, "@everyone") {
+		t.Errorf("the reply echoed a mention back into the comment:\n%s", body)
 	}
 }
 
@@ -267,7 +318,7 @@ func TestAmbiguousLabelsNameNeitherLabel(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile(), "build": buildProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=research", "lf:tools=build")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Research", "Tools: Build")
 	f.settle()
 
 	f.forge.addComment(testIssue, 960, owner(), "/spike add a health endpoint")
@@ -295,7 +346,7 @@ func TestFailedReplyPostLeavesTheCommentUnconsumed(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"research": researchProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=nosuch")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Nosuch")
 	f.settle()
 
 	f.forge.addComment(testIssue, 970, owner(), "/spike add a health endpoint")
@@ -348,7 +399,7 @@ func TestIssueBodyToolsRefusalPostsNothing(t *testing.T) {
 		Body:      "/spike add a health endpoint that returns 200",
 		User:      stranger(),
 		Assignees: []fakeUser{owner()},
-		Labels:    toFakeLabels("lf:tools=nosuch"),
+		Labels:    toFakeLabels("Tools: Nosuch"),
 	})
 
 	f.settle()

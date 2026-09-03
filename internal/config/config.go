@@ -128,8 +128,8 @@ type Codex struct {
 	// ModelTier optionally resolves Model through tiers.model_by_tier.codex.
 	ModelTier Tier `yaml:"model_tier"`
 
-	// DefaultSandbox is the sandbox mode a run uses when no lf:tools= label
-	// resolved a profile carrying a codex: stanza (AC-7.7). It is required
+	// DefaultSandbox is the sandbox mode a run uses when no "Tools: <Profile>"
+	// label resolved a profile carrying a codex: stanza (AC-7.7). It is required
 	// whenever agents.codex is configured at all: a configured Codex with
 	// no default is a startup error (AC-7.8), because unlike
 	// claude.tool_ceiling there is nothing to default it from — a run has

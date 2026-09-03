@@ -13,11 +13,11 @@ import (
 
 // This file covers T-7.5 (Add Codex as second-party coding-agent tool,
 // US-7): stage 3 of the four-stage refusal precedence, where a resolved
-// lf:tools= profile is narrowed to the agent a run actually addresses
-// (AC-7.1, AC-7.2). Membership in [turn.RunnerSet] is all resolveAgent asks
-// of it, so nil Runner values are enough — see [testDaemonAgents] in
-// agent_test.go, which this file's helper mirrors with a second, "codex"
-// entry so an lf:agent=codex label can resolve at all.
+// `Tools: <Profile>` profile is narrowed to the agent a run actually
+// addresses (AC-7.1, AC-7.2). Membership in [turn.RunnerSet] is all
+// resolveAgent asks of it, so nil Runner values are enough — see
+// [testDaemonAgents] in agent_test.go, which this file's helper mirrors with
+// a second, "codex" entry so an lf:agent=codex label can resolve at all.
 
 // testTwoAgentRunners registers both a claude and a codex Kind, which is
 // what lets an lf:agent=codex label pass stage 1 (resolveAgent) so this
@@ -66,7 +66,7 @@ func TestProfileWithOnlyClaudeStanzaRefusesACodexRoutedRun(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"research": claudeOnlyProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=research", "Coding Agent: Codex")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Research", "Coding Agent: Codex")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 1101, owner(), "/spike add a health endpoint")
@@ -107,7 +107,7 @@ func TestProfileWithOnlyCodexStanzaRefusesTheDefaultClaudeRoutedRun(t *testing.T
 		ToolProfiles: map[string]config.ToolProfile{"codex-only": codexOnlyProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=codex-only")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Codex-only")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 1102, owner(), "/spike add a health endpoint")
@@ -140,7 +140,7 @@ func TestProfileWithBothStanzasResolvesForEitherAgent(t *testing.T) {
 		ToolProfiles: map[string]config.ToolProfile{"both": bothStanzasProfile()},
 	})
 	f.plantCursor()
-	f.issueWithLabels("Add a /health endpoint", "lf:tools=both", "Coding Agent: Codex")
+	f.issueWithLabels("Add a /health endpoint", "Tools: Both", "Coding Agent: Codex")
 	f.settle() // first sight
 
 	f.forge.addComment(testIssue, 1103, owner(), "/spike add a health endpoint")

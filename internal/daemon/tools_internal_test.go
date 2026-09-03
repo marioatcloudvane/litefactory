@@ -20,8 +20,11 @@ func testProfiles() map[string]config.ToolProfile {
 }
 
 // TestResolveTools_DecisionTable pins the resolver's decision table (AC-2.2,
-// AC-3.1 through AC-3.5, D-5, D-6): every shape of label a maintainer can put
-// on an issue, and exactly one of the outcomes resolveTools may reach for it.
+// AC-3.1 through AC-3.5, D-5, D-6, US-2): every shape of label a maintainer
+// can put on an issue, and exactly one of the outcomes resolveTools may reach
+// for it — including the old lf:tools= syntax, which is checked before the
+// "Tools: " ladder runs at all and refuses unconditionally regardless of its
+// casing, its value, or how many such labels are present.
 //
 // It calls resolveTools directly, on a *Daemon built with nothing but the
 // tool configuration, because the decision is a pure function of the labels
@@ -42,47 +45,47 @@ func TestResolveTools_DecisionTable(t *testing.T) {
 	}{
 		{
 			name:         "one valid label/resolves the profile",
-			labels:       []string{"lf:tools=research"},
+			labels:       []string{"Tools: Research"},
 			wantResolved: "research",
 		},
 		{
 			name:         "an unrelated label beside a valid one/resolves, ignoring the unrelated label",
-			labels:       []string{"bug", "lf:tools=research"},
+			labels:       []string{"bug", "Tools: Research"},
 			wantResolved: "research",
 		},
 		{
-			name:        "mis-cased prefix, lowercase value/malformed, prefix flagged",
-			labels:      []string{"LF:Tools=research"},
+			name:        "mis-cased prefix, well-formed value/malformed, prefix flagged",
+			labels:      []string{"tools: Research"},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
 		},
 		{
 			name:        "fully uppercase prefix/malformed, prefix flagged",
-			labels:      []string{"LF:TOOLS=research"},
+			labels:      []string{"TOOLS: Research"},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
 		},
 		{
 			name:        "mis-cased prefix over an unconfigured value/still the prefix failure, not unknown",
-			labels:      []string{"LF:Tools=nosuch"},
+			labels:      []string{"tools: Nosuch"},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: true,
 		},
 		{
-			name:        "byte-exact prefix, uppercase value/malformed on the value shape, prefix not flagged",
-			labels:      []string{"lf:tools=Research"},
+			name:        "byte-exact prefix, lower-case-first value/malformed on the value shape, prefix not flagged",
+			labels:      []string{"Tools: research"},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
 		},
 		{
 			name:        "empty value/malformed, prefix not flagged",
-			labels:      []string{"lf:tools="},
+			labels:      []string{"Tools: "},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
 		},
 		{
 			name:        "value with a space/malformed, prefix not flagged",
-			labels:      []string{"lf:tools=bad name"},
+			labels:      []string{"Tools: Bad name"},
 			wantRefusal: report.ReplyMalformedToolLabel, wantMiscased: false,
 		},
 		{
 			name:        "well-formed value naming no configured profile/unknown, names the profile",
-			labels:      []string{"lf:tools=nosuch"},
+			labels:      []string{"Tools: Nosuch"},
 			wantRefusal: report.ReplyUnknownToolProfile, wantProfile: "nosuch",
 		},
 		{
@@ -93,22 +96,47 @@ func TestResolveTools_DecisionTable(t *testing.T) {
 			labels: []string{"bug", "lf:reply", "priority:high"},
 		},
 		{
-			name:   "the wrong key, lf:tool=/too short to carry the prefix, ignored entirely",
-			labels: []string{"lf:tool=research"},
+			name:   "the wrong key, Tool: /prefix mismatch, ignored entirely",
+			labels: []string{"Tool: Research"},
 		},
 		{
-			name:   "no equals sign at all/too short to carry the prefix, ignored entirely",
-			labels: []string{"lf:tools"},
+			name:   "no colon at all/prefix mismatch, ignored entirely",
+			labels: []string{"Tools"},
 		},
 		{
 			name:        "two valid labels, same casing/ambiguous, neither is chosen",
-			labels:      []string{"lf:tools=research", "lf:tools=build"},
+			labels:      []string{"Tools: Research", "Tools: Build"},
 			wantRefusal: report.ReplyAmbiguousToolLabels,
 		},
 		{
 			name:        "two labels, mixed casing and reversed order/ambiguous regardless of order or casing",
-			labels:      []string{"LF:Tools=build", "lf:tools=research"},
+			labels:      []string{"tools: Build", "Tools: Research"},
 			wantRefusal: report.ReplyAmbiguousToolLabels,
+		},
+		{
+			name:        "a single legacy label refuses loudly rather than resolving or no-oping (US-2)",
+			labels:      []string{"lf:tools=research"},
+			wantRefusal: report.ReplyLegacyToolLabel,
+		},
+		{
+			name:        "a mis-cased legacy label still refuses/detected case-insensitively like the new prefix (US-2)",
+			labels:      []string{"LF:Tools=research"},
+			wantRefusal: report.ReplyLegacyToolLabel,
+		},
+		{
+			name:        "an unconfigured or malformed value after the legacy prefix still refuses the same way (US-2)",
+			labels:      []string{"lf:tools=bad name"},
+			wantRefusal: report.ReplyLegacyToolLabel,
+		},
+		{
+			name:        "two legacy labels are not counted for ambiguity, refused on the first (US-2)",
+			labels:      []string{"lf:tools=research", "lf:tools=build"},
+			wantRefusal: report.ReplyLegacyToolLabel,
+		},
+		{
+			name:        "a legacy label beside a well-formed new-style label refuses for the legacy one (US-2)",
+			labels:      []string{"lf:tools=research", "Tools: Build"},
+			wantRefusal: report.ReplyLegacyToolLabel,
 		},
 	}
 
@@ -186,7 +214,7 @@ func TestResolveTools_CopiesProfileSlices(t *testing.T) {
 	original := append([]string(nil), profiles["research"].Claude.Tools...)
 	d := &Daemon{toolProfiles: profiles, toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
 
-	decision := d.resolveTools([]string{"lf:tools=research"})
+	decision := d.resolveTools([]string{"Tools: Research"})
 
 	// Index mutation: proves the two slices do not share a backing array at
 	// all, regardless of what append happens to have done internally.
@@ -208,7 +236,7 @@ func TestResolveTools_CopiesProfileSlices(t *testing.T) {
 
 	// A second resolution reads the map fresh and must be unaffected by
 	// whatever the first decision's slices were put through.
-	again := d.resolveTools([]string{"lf:tools=research"})
+	again := d.resolveTools([]string{"Tools: Research"})
 	if !equalStrings(again.Tools, original) {
 		t.Errorf("a later resolution of the same profile = %v, want the untouched %v", again.Tools, original)
 	}
@@ -228,7 +256,7 @@ func TestResolveTools_ProfileWithNoClaudeStanzaResolvesWithEmptyToolsButKeepsRes
 	}
 	d := &Daemon{toolProfiles: profiles, toolCeiling: []string{"Read"}}
 
-	decision := d.resolveTools([]string{"lf:tools=codex-only"})
+	decision := d.resolveTools([]string{"Tools: Codex-only"})
 
 	if decision.refused() {
 		t.Fatalf("resolveTools refused a profile with only a codex: stanza; that decision belongs to stage 3, not here: %s", decision.Refusal)

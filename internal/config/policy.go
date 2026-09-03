@@ -59,11 +59,16 @@ func validateAutoCompact(c *Claude) []error {
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
 
-// profileKeyRE matches a tool-profile name. It is deliberately narrower than a
-// tool name: a profile name is typed into a GitHub label by a human, as
-// lf:tools=<name>, so it stays lower-case and free of anything that could be
-// mistaken for a shell or YAML construct. Forty characters is far more than a
-// label of this shape ever needs.
+// profileKeyRE matches a tool-profile name as it is stored in config.yaml —
+// the lower-cased map key, not the label's displayed value. It is
+// deliberately narrower than a tool name: an operator types a profile's
+// display name into a GitHub label as "Tools: <Name>" (internal/daemon's
+// toolProfileName requires an upper-case first letter to match), and that
+// value is lower-cased before it is ever compared against this key, so
+// "Tools: Research" and a configured profile key of "research" are the same
+// profile. This key itself stays lower-case and free of anything that could
+// be mistaken for a shell or YAML construct. Forty characters is far more
+// than a label of this shape ever needs.
 var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // defaultTools is the --tools surface `init` writes. It is the real boundary,
@@ -348,7 +353,7 @@ func validateToolProfiles(c *Claude) []error {
 	for _, name := range sortedProfileNames(c.ToolProfiles) {
 		profile := c.ToolProfiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what an lf:tools= label carries", name, name))
+			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what a \"Tools: <Profile>\" label resolves to once lower-cased", name, name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {

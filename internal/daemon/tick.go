@@ -1422,7 +1422,7 @@ func (d *Daemon) run(
 	// falling back to another stanza or to that agent's own default surface.
 	// This runs after stage 1 (agentChoice, above) has already settled which
 	// agent that is — no label at all means the configured default agent,
-	// [store.AgentClaude] today, the same way an absent lf:tools= label
+	// [store.AgentClaude] today, the same way an absent "Tools: " label
 	// means the configured default tool surface.
 	if tools.Resolved != nil {
 		effectiveAgent := selectedAgent
@@ -1498,12 +1498,14 @@ func (d *Daemon) run(
 	return nil
 }
 
-// refuseTools answers an lf:tools= label that could not be resolved into a
-// profile: unknown, malformed, ambiguous, or named on a daemon that has no
-// profiles configured at all.
+// refuseTools answers a "Tools: <Profile>" label that could not be resolved
+// into a profile: unknown, malformed, ambiguous, or named on a daemon that
+// has no profiles configured at all. It also answers the legacy
+// lf:tools=<profile> syntax (US-2), which [Daemon.resolveTools] refuses
+// before it ever reaches the "Tools: " ladder — see [legacyToolLabelPrefix].
 //
-// Nothing runs. That is the point: a label is a permission request, and the four
-// ways of failing to understand one all have the same safe answer, which is to
+// Nothing runs. That is the point: a label is a permission request, and every
+// way of failing to understand one has the same safe answer, which is to
 // decline and say so (C9). Falling through to the default surface would answer
 // "which tools may this have" with "the ones it would have had anyway", which is
 // the failure this whole feature exists to prevent.
@@ -1545,7 +1547,7 @@ func (d *Daemon) refuseTools(
 	}
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its lf:tools= label does not "+
+		log.InfoContext(ctx, "refusing to run the issue body: its tool-profile label does not "+
 			"resolve to a configured tool profile. Nothing was run and no comment was posted, "+
 			"because there is no comment to answer; the next comment on this issue is refused "+
 			"on the thread")
@@ -1567,15 +1569,15 @@ func (d *Daemon) refuseTools(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the lf:tools= label on this issue does not "+
+		log.InfoContext(ctx, "refused a run: the tool-profile label on this issue does not "+
 			"resolve to a configured tool profile",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}
 	return nil
 }
 
-// refuseProfileForAgent answers a resolved lf:tools= profile that carries no
-// stanza for the agent this run would otherwise use — stage 3 of the
+// refuseProfileForAgent answers a resolved "Tools: <Profile>" label that
+// carries no stanza for the agent this run would otherwise use — stage 3 of the
 // four-stage refusal precedence (T-7.2). A profile with a stanza for one
 // agent and none for another is not treated as "fall back to that agent's
 // own default surface": the whole point of a profile is the operator's
@@ -1599,7 +1601,7 @@ func (d *Daemon) refuseProfileForAgent(
 		slog.String("agent", agentName))
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its resolved lf:tools= profile has no "+
+		log.InfoContext(ctx, "refusing to run the issue body: its resolved tool profile has no "+
 			"stanza for this run's coding-agent tool. Nothing was run and no comment was posted, "+
 			"because there is no comment to answer; the next comment on this issue is refused "+
 			"on the thread")
@@ -1624,7 +1626,7 @@ func (d *Daemon) refuseProfileForAgent(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the resolved lf:tools= profile has no stanza for "+
+		log.InfoContext(ctx, "refused a run: the resolved tool profile has no stanza for "+
 			"this run's coding-agent tool",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}

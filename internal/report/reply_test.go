@@ -7,11 +7,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
-// TestToolsRefusalReplies covers the three run-less replies a lf:tools= label
-// that cannot be resolved draws (US-3): unknown, malformed, and ambiguous.
-// Each is its own [report.ReplyKind] (D-4) rather than one struct with a
-// reason field, so this is the behavioural proof that the three read as three
-// distinct answers rather than one templated one.
+// TestToolsRefusalReplies covers the four run-less replies a "Tools: <Profile>"
+// label that cannot be resolved draws (US-3, US-2): unknown, malformed,
+// ambiguous, and the old lf:tools= syntax itself. Each is its own
+// [report.ReplyKind] (D-4) rather than one struct with a reason field, so
+// this is the behavioural proof that the four read as four distinct answers
+// rather than one templated one.
 func TestToolsRefusalReplies(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -37,6 +38,11 @@ func TestToolsRefusalReplies(t *testing.T) {
 			name:  "ambiguous names neither label",
 			reply: report.Reply{Ref: testRef, Kind: report.ReplyAmbiguousToolLabels},
 			wants: []string{"more than one", "Neither label was chosen", "Nothing was run"},
+		},
+		{
+			name:  "legacy lf:tools= label names the new notation and quotes nothing of the old label",
+			reply: report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel},
+			wants: []string{"no longer reads", "Tools: <Profile>", "Nothing was run"},
 		},
 	}
 

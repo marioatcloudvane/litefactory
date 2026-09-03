@@ -151,9 +151,10 @@ claude:
   #   - "WebFetch"
 
   # tool_profiles are named tool surfaces, one stanza per coding-agent tool
-  # they apply to. Put a label of the exact form lf:tools=<name> on an issue
-  # and the runs it triggers are narrowed to whichever stanza matches the
-  # agent that run uses — claude reads the profile's claude: stanza, codex
+  # they apply to. Put a label of the form "Tools: <Name>" on an issue — for
+  # example "Tools: Research" for the research profile below — and the runs
+  # it triggers are narrowed to whichever stanza matches the agent that run
+  # uses — claude reads the profile's claude: stanza, codex
   # reads its codex: stanza. A run addressed to an agent the profile has no
   # stanza for is refused rather than falling back to another stanza or to
   # that agent's own default surface. With no profiles configured, as here,
@@ -172,8 +173,10 @@ claude:
   # Checked at startup, so a bad map fails the daemon rather than a run: each
   # profile's claude: stanza's tools must be a subset of tool_ceiling, each of
   # its allowed_tools rules must name a tool that same stanza lists, and the
-  # profile name must match ^[a-z0-9][a-z0-9_-]{0,39}$. No name is special —
-  # there is no "default" profile, and there does not need to be one.
+  # profile name below must match ^[a-z0-9][a-z0-9_-]{0,39}$ — the stored key,
+  # which is the label's displayed value (upper-case first letter, e.g.
+  # "Research") lower-cased. No name is special — there is no "default"
+  # profile, and there does not need to be one.
   #
   # tool_profiles:
   #   research:
