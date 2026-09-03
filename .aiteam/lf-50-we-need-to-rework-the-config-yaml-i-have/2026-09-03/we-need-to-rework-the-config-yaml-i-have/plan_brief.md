@@ -38,14 +38,14 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Canonical global settings | M | — | *(filled by litefactory after sub-issue creation)* |
-| US-2 | Providers hierarchy | M | US-1 | *(filled by litefactory after sub-issue creation)* |
-| US-3 | Unified agent hierarchy | L | US-1 | *(filled by litefactory after sub-issue creation)* |
-| US-4 | Ordered default agent | L | US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-5 | Tier-only model selection | L | US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-6 | Mode-selected permissions | L | US-4, US-7 | *(filled by litefactory after sub-issue creation)* |
-| US-7 | Canonical profiles and Validate mode | L | US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-8 | Complete generated configuration | L | US-1–US-7 | *(filled by litefactory after sub-issue creation)* |
+| US-1 | Canonical global settings | M | — | https://github.com/marioatcloudvane/litefactory/issues/51 |
+| US-2 | Providers hierarchy | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/52 |
+| US-3 | Unified agent hierarchy | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/53 |
+| US-4 | Ordered default agent | L | US-3 | https://github.com/marioatcloudvane/litefactory/issues/54 |
+| US-5 | Tier-only model selection | L | US-3 | https://github.com/marioatcloudvane/litefactory/issues/55 |
+| US-6 | Mode-selected permissions | L | US-4, US-7 | https://github.com/marioatcloudvane/litefactory/issues/56 |
+| US-7 | Canonical profiles and Validate mode | L | US-3 | https://github.com/marioatcloudvane/litefactory/issues/57 |
+| US-8 | Complete generated configuration | L | US-1–US-7 | https://github.com/marioatcloudvane/litefactory/issues/58 |
 
 ## Out of Scope
 
