@@ -21,6 +21,16 @@ asked for; nothing here licenses starting the next one.
   labelled `lf:tools=web` — so six web-research questions on branching
   strategy, merge UI patterns, and prior art from other AI coding platforms
   are logged as open questions instead of answered.
+- 2026-09-03 — Research mode re-run: `lf:tools=web` label now present.
+  `web-researcher` invoked with the six previously-blocked questions;
+  `RESEARCH_BRIEF.md` updated with a new "Prior Art & External Findings"
+  section (branching strategy, squash/merge/rebase tradeoffs, GitHub web-UI
+  conflict-resolution limits, merge queue mechanics, and how five comparable
+  AI coding platforms — Copilot coding agent, Devin, Cursor, Sweep, Aider —
+  handle branch/merge). Open Questions trimmed to the four narrower residual
+  points web research could not settle; Constraints & Risks and Recommended
+  scope for Plan mode updated accordingly. Research mode is now complete with
+  no outstanding blocked questions.
 
 ## Notes
 

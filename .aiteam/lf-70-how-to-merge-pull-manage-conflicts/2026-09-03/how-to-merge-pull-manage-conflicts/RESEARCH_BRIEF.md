@@ -133,6 +133,127 @@ scale, not usage duration. This is a systemic property of the current design,
 not a per-branch edge case, and any strategy proposed here should account for
 it rather than only handling the single-branch case.
 
+## Prior Art & External Findings (web research)
+
+This section is new in this run. The issue was labelled `lf:tools=web` and
+`web-researcher` was invoked with the six questions the previous run logged as
+blocked. Findings below are tagged **[W]** — reported by a sub-agent citing
+external sources, not independently verified by this team — with source and
+confidence carried through as given.
+
+**Branching strategy.** [W] GitHub Flow and trunk-based development (short-lived,
+single-purpose branches merged frequently via PR) are the simplest models for a
+non-technical reviewer — neither exposes them to git internals if they only ever
+click "Merge." GitFlow (develop/release/hotfix long-lived branches) is more
+complex, requiring a reviewer to understand *where* a change is going before
+merging. Trunk-based development's own definition of a "short-lived feature
+branch" (single author, ~1–2 days, merged via PR after review/CI, never
+diverges enough to make merge-back problematic) already describes litefactory's
+one-branch-per-issue model — the two are compatible by design, not by
+adaptation. Confidence: high that GitHub Flow/short-lived trunk-based branches
+beat GitFlow for this audience; medium on treating GitHub Flow and trunk-based
+development as sharply distinct, since sources use them near-interchangeably.
+Sources: trunkbaseddevelopment.com, Mergify blog, Assembla blog.
+
+**Merge strategy — squash vs merge-commit vs rebase-merge.** [W] Per GitHub's own
+docs: squash-merge collapses a PR into a single commit on the base branch —
+GitHub's own words, "a more streamlined git history" — i.e. the option that
+minimizes what a non-technical reader has to parse (one entry per
+issue/PR, matching litefactory's one-branch-per-issue model). Merge-commit
+(GitHub's default) preserves every commit plus an explicit merge point — most
+detailed, least skimmable. Rebase-merge replays every original commit with no
+merge commit — linear, but a skim still sees every intermediate/messy commit,
+and is the more git-literate of the three. GitHub's own caveat: squash is best
+for short-lived branches, and reusing a head branch after a squash merge raises
+later conflict risk — not a concern for litefactory, since branches map 1:1 to
+issues and are not reused. Confidence: high (read directly from GitHub Docs).
+Source: GitHub Docs, "About pull request merges."
+
+**Can conflicts always be resolved in GitHub's web UI?** [W] No. GitHub's web
+conflict editor only handles text files line-by-line — it cannot merge binary
+files (images, PDFs, compiled artifacts, archives) or certain conflict shapes
+(e.g. a file deleted on one side, edited on the other); GitHub's own guidance
+for these cases is to fall back to local git/CLI. This is a genuine structural
+limit on "a business user never needs git," not just a UX inconvenience.
+Confidence: high (documented GitHub behavior). Source: GitHub Community
+Discussion #46549.
+
+**Can a non-technical approver be structurally shielded from ever seeing a raw
+conflict?** [W] Yes, but by pre-emption, not elimination: keep every feature
+branch continuously reconciled against its base — via GitHub's own "Update
+branch" button/API, a GitHub Action, or a merge-queue/bot — so that by the time
+a human looks at the PR it has already been reconciled against the latest base,
+and either shows clean or the conflict has already been surfaced to a bot/agent/
+engineer rather than the approver. This does not prevent conflicts occurring; it
+only prevents a non-technical approver specifically from being the one asked to
+resolve one. No single canonical name for this pattern emerged from sources — it
+appears as "update branch," "rebase bot," "staging-branch merge," or is folded
+into "merge queue" terminology. Confidence: medium (the pattern and its named
+implementations are well attested; the "guarantee" is a documented pre-emption/
+ejection strategy, not an absolute promise — see merge queue below). Sources:
+GitHub Marketplace "Update Branch" Action, GitHub Docs on auto-merge.
+
+**GitHub's merge queue for concurrent AI-generated branches.** [W] Mechanically:
+queuing a PR causes GitHub to build a temporary "merge group" combining the
+latest base with the queued PR(s) ahead of it, run required checks against that
+combined state, and only land it if checks pass — each PR is tested against the
+state it will actually land into, not a stale snapshot. This eliminates the
+concurrency-driven class of conflict (two independently-green branches breaking
+main only once combined) with zero git/CLI skill required to click "Merge when
+ready." It does **not** resolve genuine content conflicts (two branches editing
+the same lines) — GitHub's own docs state such a PR is ejected from the queue
+for someone (an agent or a git-literate human) to fix and resubmit. Directly
+relevant to the scale risk already named below (many concurrently open,
+non-reconciled task branches): merge queue removes the *race* component of that
+risk but not the underlying content-overlap component. Confidence: high
+(GitHub's own docs describe both the mechanism and the ejection condition
+explicitly). Sources: GitHub Docs "Merging a pull request with a merge queue,"
+Mergify "What Is a Merge Queue?"
+
+**How comparable AI coding-agent platforms handle this.** [W]
+- *GitHub Copilot coding agent*: creates its own branch/PR; per a 2026-03-26
+  changelog, a reviewer can comment `@copilot Merge in main and resolve the
+  conflicts` and the agent rebases/merges base into its branch in a cloud
+  sandbox, re-runs checks, and re-requests review — but per a community
+  discussion this is opt-in per comment, not an automatic default behind every
+  PR. Confidence: medium-high.
+- *Devin*: "Devin Review" shows per-PR mergeability status (CI, required
+  reviews, conflicts) and supports stacked PRs where merging the top auto-merges
+  the stack. No public documentation found describing Devin autonomously
+  pre-rebasing to avoid conflicts before human review — flagged as **not
+  found**, not confirmed absent. Confidence: medium on what is documented.
+- *Cursor background agents ("Origin")*: each agent works in an isolated
+  branch/worktree, which Cursor frames as reducing conflict likelihood by
+  construction (isolation, not automated resolution); "Origin surfaces merge
+  conflicts so you can resolve them before merging" — conflicts are shown, not
+  silently resolved on the approver's behalf. No auto-rebase-before-review
+  documented. Confidence: medium.
+- *Sweep AI*: explicitly does **not** auto-resolve conflicts across its own
+  concurrently-generated PRs — secondary sources describe a human needing to
+  "manually merge them in order and close the conflicting ones" when multiple
+  Sweep PRs collide. This is a directly relevant negative example — a platform
+  with the same "N issues → N branches" shape as litefactory that pushes
+  exactly the problem #70 describes back onto the human. Confidence: medium
+  (secondary write-ups, not Sweep's own primary docs).
+- *Aider*: a local CLI tool, not a hosted branch/PR platform — does not create
+  branches/PRs itself in a comparable way. An open, unresolved 2023 GitHub issue
+  requests "automate git merge conflict resolution," suggesting this remains a
+  gap for that tool. Confidence: medium that this is a genuine gap rather than a
+  search miss.
+
+**Named prior art for "always reconcile branch against base before review."**
+[W] **Bors** merges the candidate branch into a copy of the target branch to
+test the actual post-merge state before landing, explicitly to prevent "merge
+skew." **Mergify** is a GitHub App that queues PRs, auto-rebases/updates them
+against base, and re-runs CI before merging — automating the "update branch"
+step GitHub itself leaves manual by default. **GitHub's own primitives** — the
+"Update branch" button/API and native merge queue — are the built-in version of
+the same idea. None of these guarantee a human never sees a raw conflict when
+two branches genuinely touch the same lines; they guarantee only that a
+non-technical *approver* specifically is not the one asked to resolve it.
+Confidence: high that Bors/Mergify are real, established implementations;
+medium on there being one canonical name for the underlying pattern itself.
+
 ## Constraints & Risks
 
 - **No existing abstraction to extend.** Merge/pull/PR/conflict handling is
@@ -167,10 +288,22 @@ it rather than only handling the single-branch case.
   concurrently, not of any single feature's complexity. A strategy that only
   handles "the one branch I'm looking at" will not hold up as issue volume
   grows.
-- **Open web-research questions are unresolved** (see below) — this brief's
-  answer to "which branching strategy / merge UI pattern to adopt" is
-  incomplete without them, and Plan mode should not treat the silence on those
-  points as "no constraint exists."
+- **GitHub's web conflict editor cannot handle every conflict.** [W] Binary
+  files and certain conflict shapes (delete-vs-edit) are not resolvable in the
+  web UI at all; GitHub's own guidance falls back to local git/CLI in those
+  cases. Any strategy that promises "a business user never needs git" has a
+  real edge here, even if it is a rare one for a Go backend repo with few
+  binary assets.
+- **Merge queue and "always reconcile before review" bots reduce but do not
+  eliminate the chance a human meets a raw conflict.** [W] Both classes of
+  tooling (GitHub's native merge queue, and named bots like Bors/Mergify) are
+  pre-emption strategies — they resolve or surface conflicts to CI/an
+  engineer/an agent *before* a non-technical approver sees the PR, and they
+  eliminate the specific *concurrency-race* conflict class cleanly, but a
+  content conflict where two branches edit the same lines still has to be
+  fixed by something git-literate. A strategy that promises "an approver never
+  sees a conflict" is achievable; a strategy that promises "conflicts never
+  happen" is not, and Plan mode should not conflate the two.
 
 ## Open Questions
 
@@ -197,63 +330,80 @@ owner, before Plan mode commits to a strategy):
    preference, mirroring the existing `lf:tools=` pattern? No such lever
    exists today.
 
-From intended web research — **unresolved because this session had no web
-access.** The issue is not labelled `lf:tools=web`, so `web-researcher`'s tools
-resolved to none and the agent could not be invoked at all this run. These
-need either the label added and Research re-run, or Plan mode invoking
-`web-researcher` itself once the label is present:
+From web research (this run, `lf:tools=web` present) — the six questions
+previously logged as blocked were answered; see *Prior Art & External
+Findings* above. A small residue of narrower points remains genuinely
+unsettled and is carried forward rather than guessed at:
 
-7. Which git branching strategy (trunk-based development, GitHub Flow,
-   GitFlow) minimizes the number of git concepts a non-technical stakeholder
-   ever has to touch directly, and is it compatible with litefactory's
-   one-branch-per-issue model?
-8. What are the tradeoffs of squash-merge vs merge-commit vs rebase-merge
-   specifically for a repo where non-engineers are approvers rather than
-   committers — which keeps the base branch's history simplest to read
-   without git knowledge?
-9. Can merge conflicts always be resolved through GitHub's web UI, or is there
-   a point (e.g. binary files, large diffs) where a person with CLI/git skill
-   is unavoidably required? Is there a way to structurally guarantee "a
-   business user never has to resolve a conflict" — e.g. server-side
-   auto-rebase, always merging base into feature branches before opening for
-   review, or GitHub's merge queue?
-10. How do comparable AI coding agent platforms (GitHub Copilot Workspace,
-    Devin, Cursor's background agents, Sweep, Aider) handle branch creation,
-    keeping branches current with main, and merging — specifically, how do
-    they hide git mechanics from a non-technical approver, if at all?
-11. Does GitHub's merge queue feature reduce or eliminate conflict-resolution
-    burden on approvers when multiple AI-generated branches (as litefactory
-    produces, one per issue) are candidates for merge concurrently?
-12. Are there established best practices for "one issue = one branch, always
-    rebase/merge base in before opening for review" that keep feature branches
-    conflict-free by construction, so a human essentially never sees a
-    conflict?
+7. Does Devin autonomously rebase/update a branch against base before
+   presenting it for human review, or does it only visualize mergeability
+   after the fact? Not found in public docs — treat as unknown, not as "no."
+8. Does Cursor's Origin/background agents ever perform an automatic
+   base-into-feature update before a human sees the PR, or does it only
+   surface conflicts once they already exist? Not found in public docs.
+9. Sweep AI's conflict-handling behaviour (used above as a directly relevant
+   negative example — same "N issues → N branches" shape as litefactory) is
+   sourced from secondary write-ups, not Sweep's own primary docs. Worth a
+   direct check before citing it as prior art in the plan.
+10. There is no single canonical industry name for "always reconcile a feature
+    branch against base before review" (seen variously as "update branch,"
+    "rebase bot," "staging-branch merge," or folded into "merge queue").
+    Plan mode should pick and define its own term rather than assume the
+    industry has settled one.
 
 ## Recommended scope for Plan mode
 
-Plan mode should decide, informed by this brief and by the still-open
-web-research questions above (which should be resolved first, either by
-re-running Research with the `lf:tools=web` label or by having Plan mode
-invoke `web-researcher` directly once that label exists):
+Plan mode now has both the codebase findings and the web research needed to
+choose a strategy; the residual points in Open Questions (7–10 above) are
+narrow enough not to block scoping. Plan mode should decide:
 
 - Whether litefactory gains a genuinely new capability — opening PRs itself,
   auto-rebasing/merging the base branch into task branches before review,
   and/or auto-merging on a comment-based approval — versus a narrower,
   documentation-only fix (clearer end-of-turn comment guidance, a new
-  human-facing doc explaining the current manual PR/merge steps).
+  human-facing doc explaining the current manual PR/merge steps). Web research
+  suggests litefactory's existing one-branch-per-issue, short-lived-branch
+  model is *already* the branching strategy the industry treats as simplest
+  for non-technical reviewers (trunk-based/GitHub-Flow-shaped) — the gap is
+  entirely in what happens after the branch is pushed, not in the branching
+  model itself.
+- **Squash-merge as the default/only merge strategy** is directly supported by
+  GitHub's own documentation as the option that keeps base-branch history
+  simplest for a non-technical reader (one entry per issue), and fits
+  litefactory's model cleanly since branches are never reused after merging.
+  Plan mode should treat this as a strong candidate rather than an open
+  question.
 - Whether to introduce a label-gated merge/base-branch policy surface
   (`lf:merge=`, `lf:base=`, or similar), consistent with the existing
   `lf:tools=` pattern, so a non-engineer project owner can express a
   preference without touching git or a CLI.
+- Whether to build custom "reconcile branch against base before review"
+  automation, or lean on GitHub's own primitives first (native merge queue,
+  "Update branch" button/API, branch-protection's "require branches up to
+  date") before reaching for a bespoke solution or a third-party bot
+  (Bors/Mergify-style). The web research found GitHub's own tooling already
+  covers most of the "approver never resolves a conflict" goal for the
+  concurrency-race case; only genuine content conflicts (two branches editing
+  the same lines) fall outside what any of these can fully absorb, and that
+  residual case is architecture-independent — something git-literate (human or
+  agent) will always be needed for it.
 - How any new mutating git capability (merge, rebase, auto-merge) is placed
   architecturally relative to the existing, deliberately narrow
   `Clone`/`Worktree` split — this needs `go-architect` involvement, not an
   assumption carried over from this brief.
 - How the systemic, scale-driven conflict risk (many concurrently open task
   branches, none reconciled against a moving base) is addressed, not just the
-  single-branch case.
+  single-branch case. Merge queue addresses the race component of this risk
+  directly; the content-overlap component does not have a purely mechanical
+  fix and should be scoped explicitly (e.g. does litefactory route a genuine
+  conflict back to a new agent turn, or always to a human?).
 - Plan mode should **not** treat "add a Merge or Pull method to `internal/git`"
   as a foregone conclusion — this brief found that boundary to be a deliberate
   design choice, and any widening of it is itself a decision to make
   explicitly, weighing it against a separate-package or GitHub-side (merge
   queue / auto-merge) alternative.
+- Plan mode should **not** promise "a business user will never see a
+  conflict" as an absolute — web research found this achievable only as "an
+  approver is never the one asked to resolve it," which is a materially
+  different, and honestly weaker, guarantee that should be stated as such in
+  any user-facing documentation this issue produces.
