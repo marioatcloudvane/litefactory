@@ -277,14 +277,14 @@ ingestion never has a rejection path with nowhere to report.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Rename tool label to `Tools: <Profile>` | M | — | (pending creation) |
-| US-2 | Refuse legacy `lf:tools=` label loudly | S | US-1 | (pending creation) |
-| US-3 | Ingest and hand off attached images | L | US-5, US-6 | (pending creation) |
-| US-4 | Ingest and hand off PDF/DOCX/PPTX documents | M | US-3 | (pending creation) |
-| US-5 | Gate attachment ingestion by tool profile | M | US-1 | (pending creation) |
-| US-6 | Reject oversized/unsupported/unfetchable attachments without failing the turn | M | US-5 | (pending creation) |
-| US-7 | Record an audit manifest for every attachment | M | US-3 | (pending creation) |
-| US-8 | Fetch attachments reliably against short-lived signed URLs | M | US-3 | (pending creation) |
+| US-1 | Rename tool label to `Tools: <Profile>` | M | — | https://github.com/marioatcloudvane/litefactory/issues/59 |
+| US-2 | Refuse legacy `lf:tools=` label loudly | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/60 |
+| US-3 | Ingest and hand off attached images | L | US-5, US-6 | https://github.com/marioatcloudvane/litefactory/issues/61 |
+| US-4 | Ingest and hand off PDF/DOCX/PPTX documents | M | US-3 | https://github.com/marioatcloudvane/litefactory/issues/62 |
+| US-5 | Gate attachment ingestion by tool profile | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/63 |
+| US-6 | Reject oversized/unsupported/unfetchable attachments without failing the turn | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/64 |
+| US-7 | Record an audit manifest for every attachment | M | US-3 | https://github.com/marioatcloudvane/litefactory/issues/65 |
+| US-8 | Fetch attachments reliably against short-lived signed URLs | M | US-3 | https://github.com/marioatcloudvane/litefactory/issues/66 |
 
 ## Out of Scope
 
