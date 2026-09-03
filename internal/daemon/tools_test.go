@@ -123,6 +123,66 @@ func TestRelabelThenComment(t *testing.T) {
 	}
 }
 
+// TestAttachmentsGate_ThreeStates is US-5's own coverage of the permission
+// gate at the level it exists today: turn.Request.AttachmentsAllowed, decided
+// by tick.go's per-agent narrowing stage, one stage after resolveTools (whose
+// purity is pinned separately in TestResolveTools_IgnoresAttachmentsField).
+// internal/attach's pre-step does not exist yet (US-3), so this cannot yet
+// assert "zero fetch attempts" directly — it asserts the gate decision that
+// pre-step will read, in all three states AC-5.1/AC-5.2/AC-5.3 describe: no
+// label at all, a resolved profile with attachments left at its false
+// default, and a resolved profile with attachments: true.
+func TestAttachmentsGate_ThreeStates(t *testing.T) {
+	gatedOpenProfile := config.ToolProfile{
+		Attachments: true,
+		Claude:      &config.ToolProfileClaude{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}},
+	}
+	gatedClosedProfile := researchProfile() // Attachments left at its false zero value
+
+	tests := []struct {
+		name   string
+		labels []string
+		want   bool
+	}{
+		{
+			name: "no Tools label at all/false, the same as before this feature existed (AC-5.1)",
+		},
+		{
+			name:   "a resolved profile with attachments left false/false (AC-5.2)",
+			labels: []string{"Tools: Research"},
+			want:   false,
+		},
+		{
+			name:   "a resolved profile with attachments: true/true, the only case the gate opens (AC-5.3)",
+			labels: []string{"Tools: Open"},
+			want:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.daemon = f.newDaemon(daemon.Options{
+				ToolProfiles: map[string]config.ToolProfile{"research": gatedClosedProfile, "open": gatedOpenProfile},
+			})
+			f.plantCursor()
+			f.issueWithLabels("Add a /health endpoint", tc.labels...)
+			f.settle() // first sight
+
+			f.forge.addComment(testIssue, 700, owner(), "/spike add a health endpoint")
+			f.settle()
+
+			calls := f.turns.calls()
+			if len(calls) != 1 {
+				t.Fatalf("the executor was called %d times, want 1", len(calls))
+			}
+			if got := calls[0].AttachmentsAllowed; got != tc.want {
+				t.Errorf("AttachmentsAllowed = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestToolsRefusal_SpawnsNothingAndAdvancesTheWatermark is AC-3.1, AC-3.4,
 // AC-3.5, AC-3.6, AC-3.7: every one of the ways a `Tools: <Profile>` label
 // can fail to resolve — including the legacy `lf:tools=` syntax it replaced

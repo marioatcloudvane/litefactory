@@ -1424,6 +1424,15 @@ func (d *Daemon) run(
 	// agent that is — no label at all means the configured default agent,
 	// [store.AgentClaude] today, the same way an absent "Tools: " label
 	// means the configured default tool surface.
+	// attachmentsAllowed is the US-5 permission gate: a resolved "Tools:
+	// <Profile>" label present AND that profile's attachments key true.
+	// Computed here, in the same narrowing stage that resolves ToolProfile
+	// above, and deliberately not inside resolveTools, which stays a pure
+	// label-to-profile-key ladder with no side effects (T-5.5). No label at
+	// all (tools.Resolved == nil) is false, the same off-by-default outcome
+	// as an absent "Tools: " label means for the tool surface itself.
+	attachmentsAllowed := tools.Resolved != nil && tools.Resolved.Attachments
+
 	if tools.Resolved != nil {
 		effectiveAgent := selectedAgent
 		if !tools.Resolved.HasStanzaFor(effectiveAgent) {
@@ -1458,6 +1467,7 @@ func (d *Daemon) run(
 			}
 			return ""
 		}(),
+		AttachmentsAllowed: attachmentsAllowed,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)

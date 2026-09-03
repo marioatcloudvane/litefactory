@@ -279,6 +279,60 @@ func TestResolveTools_ProfileWithNoClaudeStanzaResolvesWithEmptyToolsButKeepsRes
 	}
 }
 
+// TestResolveTools_IgnoresAttachmentsField is T-5.5: resolveTools stays a
+// pure label-to-profile-key ladder with no gating side effect from the new
+// Attachments permission (US-5). It proves this two ways — structurally,
+// because [toolDecision] has no field a gate value could even travel in, and
+// behaviourally, because a profile with attachments: true resolves to the
+// exact same decision (Profile/Tools/AllowedTools/Resolved) as an otherwise
+// identical profile with attachments: false. The gate itself is computed one
+// stage later, in tick.go's per-agent narrowing, not here.
+func TestResolveTools_IgnoresAttachmentsField(t *testing.T) {
+	withAttachments := map[string]config.ToolProfile{
+		"research": {
+			Attachments: true,
+			Claude:      &config.ToolProfileClaude{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}},
+		},
+	}
+	withoutAttachments := map[string]config.ToolProfile{
+		"research": {
+			Attachments: false,
+			Claude:      &config.ToolProfileClaude{Tools: []string{"Read", "Grep", "Glob"}, AllowedTools: []string{"Read"}},
+		},
+	}
+
+	dWith := &Daemon{toolProfiles: withAttachments, toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
+	dWithout := &Daemon{toolProfiles: withoutAttachments, toolCeiling: []string{"Read", "Edit", "Bash", "Grep", "Glob"}}
+
+	decisionWith := dWith.resolveTools([]string{"Tools: Research"})
+	decisionWithout := dWithout.resolveTools([]string{"Tools: Research"})
+
+	if decisionWith.refused() || decisionWithout.refused() {
+		t.Fatalf("a well-formed label refused: with=%s without=%s", decisionWith.Refusal, decisionWithout.Refusal)
+	}
+	if decisionWith.Profile != decisionWithout.Profile {
+		t.Errorf("Profile differs by attachments: %q vs %q", decisionWith.Profile, decisionWithout.Profile)
+	}
+	if !equalStrings(decisionWith.Tools, decisionWithout.Tools) {
+		t.Errorf("Tools differs by attachments: %v vs %v", decisionWith.Tools, decisionWithout.Tools)
+	}
+	if !equalStrings(decisionWith.AllowedTools, decisionWithout.AllowedTools) {
+		t.Errorf("AllowedTools differs by attachments: %v vs %v", decisionWith.AllowedTools, decisionWithout.AllowedTools)
+	}
+	if decisionWith.Resolved == nil || decisionWithout.Resolved == nil {
+		t.Fatalf("Resolved is nil: with=%v without=%v", decisionWith.Resolved, decisionWithout.Resolved)
+	}
+	// The one field that is allowed, and expected, to differ: it is exactly
+	// what the operator configured, carried through untouched for stage 3 to
+	// read later — resolveTools neither reads nor acts on it itself.
+	if !decisionWith.Resolved.Attachments {
+		t.Errorf("Resolved.Attachments = false, want true: resolveTools must carry the profile through untouched")
+	}
+	if decisionWithout.Resolved.Attachments {
+		t.Errorf("Resolved.Attachments = true, want false: resolveTools must carry the profile through untouched")
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

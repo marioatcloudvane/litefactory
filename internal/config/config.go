@@ -296,6 +296,21 @@ type Claude struct {
 	// explicit carve-out from the secret-name env strip, since ANTHROPIC_API_KEY
 	// matches the KEY pattern.
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
+	// AttachmentMaxImageBytes is the per-image size ceiling attachment
+	// ingestion (US-3) will enforce for a run whose resolved tool profile
+	// grants [ToolProfile.Attachments]. It is a policy default, not itself a
+	// permission — the permission lives on the profile.
+	AttachmentMaxImageBytes int64 `yaml:"attachment_max_image_bytes"`
+	// AttachmentMaxDocumentBytes is the per-document size ceiling, analogous
+	// to AttachmentMaxImageBytes for non-image attachments.
+	AttachmentMaxDocumentBytes int64 `yaml:"attachment_max_document_bytes"`
+	// AttachmentMaxTotalBytes is the ceiling on the combined size of every
+	// attachment ingested for one turn, regardless of how that total splits
+	// across images and documents.
+	AttachmentMaxTotalBytes int64 `yaml:"attachment_max_total_bytes"`
+	// AttachmentMaxCount is the ceiling on the number of attachments ingested
+	// for one turn.
+	AttachmentMaxCount int `yaml:"attachment_max_count"`
 }
 
 // ToolProfile is one named tool surface an operator authored in config.yaml,
@@ -313,6 +328,15 @@ type ToolProfile struct {
 	// Codex is this profile's Codex stanza. nil means this profile has
 	// nothing to say about a Codex-routed run.
 	Codex *ToolProfileCodex `yaml:"codex"`
+	// Attachments gates attachment ingestion for a run resolved to this
+	// profile (US-5): false, the default, means a turn behaves exactly as it
+	// does today — internal/attach's pre-step never runs, no fetch is
+	// attempted, no new prompt content appears. It is agent-agnostic (unlike
+	// Claude/Codex above) because it is a permission, not a capability — it
+	// grants no new tool, it only decides whether the pre-step runs before
+	// the subprocess is spawned, and that decision does not depend on which
+	// coding-agent tool the run addresses.
+	Attachments bool `yaml:"attachments"`
 }
 
 // HasStanzaFor reports whether this profile carries a stanza for the named
@@ -376,13 +400,17 @@ func Defaults() Config {
 			APIBase: DefaultAPIBase,
 		},
 		Claude: Claude{
-			Binary:              DefaultClaudeBinary,
-			Model:               DefaultClaudeModel,
-			AutoCompact:         DefaultClaudeAutoCompact,
-			Tools:               defaultTools(),
-			AllowedTools:        defaultAllowedTools(),
-			TimeoutSeconds:      DefaultClaudeTimeoutSeconds,
-			ForwardAnthropicEnv: false,
+			Binary:                     DefaultClaudeBinary,
+			Model:                      DefaultClaudeModel,
+			AutoCompact:                DefaultClaudeAutoCompact,
+			Tools:                      defaultTools(),
+			AllowedTools:               defaultAllowedTools(),
+			TimeoutSeconds:             DefaultClaudeTimeoutSeconds,
+			ForwardAnthropicEnv:        false,
+			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
+			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
+			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
+			AttachmentMaxCount:         DefaultAttachmentMaxCount,
 		},
 		Tiers: Tiers{
 			ModelByTier: defaultModelByTier(),
@@ -408,6 +436,18 @@ const (
 	// DefaultClaudeModel is the model the top-level session runs on when
 	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
 	DefaultClaudeModel = "sonnet"
+	// DefaultAttachmentMaxImageBytes is 5 MiB, the default per-image size
+	// ceiling for attachment ingestion (US-5).
+	DefaultAttachmentMaxImageBytes = 5 * 1024 * 1024
+	// DefaultAttachmentMaxDocumentBytes is 10 MiB, the default per-document
+	// size ceiling for attachment ingestion (US-5).
+	DefaultAttachmentMaxDocumentBytes = 10 * 1024 * 1024
+	// DefaultAttachmentMaxTotalBytes is 25 MiB, the default combined size
+	// ceiling across every attachment ingested for one turn (US-5).
+	DefaultAttachmentMaxTotalBytes = 25 * 1024 * 1024
+	// DefaultAttachmentMaxCount is 10, the default ceiling on the number of
+	// attachments ingested for one turn (US-5).
+	DefaultAttachmentMaxCount = 10
 )
 
 // NotInitializedError reports that $LF_HOME has no config.yaml, which means

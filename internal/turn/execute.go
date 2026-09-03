@@ -281,6 +281,21 @@ type Request struct {
 	// agent it was created with, and a later run whose label resolves to a
 	// different one is refused rather than resumed or silently restarted.
 	Agent agent.Kind
+
+	// AttachmentsAllowed is the US-5 permission gate: true only when a
+	// resolved "Tools: <Profile>" label is present AND that profile's
+	// attachments key is true. It is computed by the daemon's per-agent
+	// narrowing stage (tick.go), the same stage that resolves ToolProfile
+	// above — deliberately not by [resolveTools]'s pure label ladder, which
+	// has no side effects and stays that way.
+	//
+	// This is a permission, not a capability: true grants no new tool (no
+	// WebFetch/WebSearch implied). It only decides whether internal/attach's
+	// pre-step runs before the subprocess is spawned. False — the default,
+	// and the outcome whenever no label resolved a profile at all — means
+	// this turn performs zero fetch attempts and produces prompt/argv bytes
+	// identical to a build without this feature (AC-5.1, AC-5.2).
+	AttachmentsAllowed bool
 }
 
 func (r Request) validate() error {

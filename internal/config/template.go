@@ -180,6 +180,14 @@ claude:
   #
   # tool_profiles:
   #   research:
+  #     # attachments opts this profile into attachment ingestion (US-5): a
+  #     # run resolved to it may have GitHub-hosted attachments fetched and
+  #     # ingested before the subprocess is spawned. It is agent-agnostic —
+  #     # written at this level, not nested under claude: or codex: below —
+  #     # and grants no new tool by itself (no WebFetch/WebSearch implied);
+  #     # it only gates internal/attach's pre-step. Left out, as with every
+  #     # other profile, it defaults to false and behaviour is unchanged.
+  #     attachments: true
   #     claude:
   #       # Read-only by construction: no Edit, no Write. Bash is on the
   #       # surface but every rule for it is qualified, so the agent can look
@@ -221,6 +229,17 @@ claude:
   # forwarded stale or wrong ANTHROPIC_API_KEY silently overrides that and
   # produces exactly the indefinite hang the timeout above exists to end.
   forward_anthropic_env: %t
+
+  # Attachment ingestion size ceilings (US-5). These are policy defaults —
+  # they take effect only for a run whose resolved "Tools: <Profile>" label
+  # carries "attachments: true" under tool_profiles below. A turn with no
+  # such label, or a profile with attachments left at its false default,
+  # ignores these entirely: no fetch is attempted, no new prompt content
+  # appears.
+  attachment_max_image_bytes: %d
+  attachment_max_document_bytes: %d
+  attachment_max_total_bytes: %d
+  attachment_max_count: %d
 
 # agents groups configuration for coding-agent tools under a vendor-scoped
 # key, alongside the deprecated top-level claude: above. Setting both claude:
@@ -279,6 +298,10 @@ func DefaultFileContents() []byte {
 		yamlList("allowed_tools", d.Claude.AllowedTools),
 		d.Claude.TimeoutSeconds,
 		d.Claude.ForwardAnthropicEnv,
+		d.Claude.AttachmentMaxImageBytes,
+		d.Claude.AttachmentMaxDocumentBytes,
+		d.Claude.AttachmentMaxTotalBytes,
+		d.Claude.AttachmentMaxCount,
 		renderModelByTier(d.Tiers.ModelByTier),
 	))
 }
