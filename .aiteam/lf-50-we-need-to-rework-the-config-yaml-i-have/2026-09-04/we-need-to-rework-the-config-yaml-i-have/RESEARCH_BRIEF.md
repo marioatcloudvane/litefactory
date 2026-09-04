@@ -114,3 +114,55 @@ Static inspection found these concrete unfinished areas:
 
 - [V] Use the explicit `/implement <instruction>` command now to enter the prepared continuation workflow.
 - [V] Treat free-text routing reliability and command documentation as a separate follow-up scope: consider weighting only the current authorized instruction, recognizing deterministic intent prefixes before model classification, documenting commands, and testing stored-selection/label/command/classifier precedence.
+
+## Run 0012 — Focused post-merge delta audit
+
+### Delta boundary
+
+- [O] The owner reported that changes from other branches were pulled in and requested a focused codebase-change check rather than a full research rerun.
+- [V] The audited range is `dde65eb06ab0461e54aecc503e21c0519c2325a2..3003244b9d11b6644e1a21d4932ed84243fe8043`.
+- [V] Three merges from current `main` entered the feature branch: `96ad477`, `70e15c8`, and `3003244`.
+- [V] The largest runtime addition is attachment ingestion, introducing `internal/attach`, authenticated GitHub asset fetching, turn-level ingestion, prompt handoff, and attachment audit manifests.
+- [V] No incoming SQL/store accessor, Codex runner, Claude runner, or CLI production change overlaps the redesign after checkpoint `f6203ce`.
+- [V] The prior continuation tests for mode routing, legacy-label refusal, fail-closed resolution, slice ownership, and Validate security remain present (`internal/daemon/tools_test.go:18-99`, `internal/daemon/tools_internal_test.go:12-79`, `internal/config/toolprofiles_test.go:20-117`).
+
+### Compatible incoming behavior
+
+- [V] Attachment permission is agent-neutral and profile-scoped through `ToolProfile.Attachments` (`internal/config/config.go:319-330`).
+- [V] The daemon copies the selected mode profile's attachment permission into the turn request after resolving mode and agent (`internal/daemon/tick.go:1476-1518`).
+- [V] Canonical permission routing survived: Research/Plan/Implement/Validate select their profiles, Spike maps to Implement, and legacy `lf:tools=` labels refuse dispatch (`internal/daemon/tools.go:31-55`, `internal/daemon/tick.go:1469-1474`).
+- [V] The attachment package remains a leaf; GitHub owns authenticated fetching and turn owns ingestion, so package direction remains coherent.
+
+### Conflicts and newly exposed gaps
+
+- [V] Four agent-neutral attachment limits were placed under `agents.claude`, although they govern litefactory ingestion for both Claude and Codex. The default constructor itself notes that these values fit more naturally under global settings (`internal/config/config.go:294-308`, `internal/config/config.go:420-430`).
+- [V] The generated configuration claims to show the complete canonical structure but emits neither the attachment limit keys nor any per-profile `attachments` flags (`internal/config/template.go:11-17`, `internal/config/template.go:49-95`, `internal/config/template.go:121-131`).
+- [V] All generated/default profiles leave attachments disabled because the profile defaults never set the new boolean true (`internal/config/config.go:467-477`). The pipeline exists, but a fresh generated file does not expose how to enable it.
+- [V] `agents.codex.default_sandbox` remains in the schema with a label-fallback comment even though every mode/profile/agent stanza is mandatory and runtime resolution has no fallback (`internal/config/config.go:118-129`, `internal/daemon/tools.go:41-55`).
+- [V] Several incoming or surviving comments still say attachment/profile authority comes from a `Tools: <Profile>` label (`internal/turn/execute.go:302-314`, `internal/turn/tools_test.go:21-26`, `internal/turn/report.go:208-228`).
+- [V] Unreachable reply kinds and guidance for the old `Tools: <Profile>` flow remain beside the valid legacy-label refusal (`internal/report/reply.go:40-67`, `internal/report/reply.go:425-461`, `internal/report/reply.go:520-532`).
+
+### Testing and gate impact
+
+- [V] Existing attachment tests cover the turn-level boolean gate, but daemon routing tests do not yet assert that attachment permission follows the resolved mode profile.
+- [V] Generated-config tests must now cover attachment limits and explicit profile flags once the template is corrected.
+- [V] Codex-only configuration needs coverage proving attachment limits remain available and bounded without a Claude stanza.
+- [V] Merge commit `3003244` records `go build`, `go vet`, and `go test ./...` as passing at merge time, but also records nine pre-existing feature-branch lint failures. These are historical results; no live gate ran in this read-only Research audit.
+
+### Re-pinning requirements
+
+- [V] Re-pin the continuation plan from `dde65eb06ab0461e54aecc503e21c0519c2325a2` to `3003244b9d11b6644e1a21d4932ed84243fe8043`.
+- [V] Re-pin routing to `internal/daemon/tools.go:31-55` and `internal/daemon/tick.go:1469-1518`.
+- [V] Re-pin Validate policy/tests to `internal/config/policy.go:428-467` and `internal/config/toolprofiles_test.go:20-65`.
+- [V] Expand complete-template and stale-guidance scope to the attachment settings/profile flags and the surviving label-oriented comments/reply paths.
+
+### New open questions
+
+- [V] Should the four attachment ceilings move immediately from `agents.claude` into agent-neutral `settings`?
+- [V] Which canonical modes should have `attachments: true` in generated defaults?
+- [V] Should unreachable old-profile reply kinds be removed or intentionally retained as compatibility API?
+- [V] Should `agents.codex.default_sandbox` be removed now that complete per-mode profiles are mandatory and runtime has no fallback?
+
+### Updated recommendation
+
+- [V] Do not rerun the original broad research. Run a narrow Plan update against the current head to settle the four questions above, re-pin citations, and add attachment/template/routing tests to the continuation scope. Then resume Implement with targeted config/daemon/turn/report tests followed by the full repository gate.
