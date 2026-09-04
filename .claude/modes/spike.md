@@ -29,6 +29,13 @@ not two sentences:
 Write it even when the answer is short, and write it even when the answer is
 "no". An unrecorded spike is a question that gets asked again in three weeks.
 
+Write it when the spike is blocked, too. Preserve the evidence gathered so far
+in the relevant sections, describe the blocker under `## Not done`, and put the
+decision needed from the user together with the viable options under
+`## Recommendation`. A blocker does not turn a headless run into a live
+conversation: finish the artifact and hand the decision back through
+litefactory.
+
 ## Hand back rather than grow
 
 Spike covers fast research and small changes. The moment the work turns out to
@@ -59,3 +66,6 @@ A spike that reads forty files is not a spike. The time box is the point.
 
 Report what you produced and recommend a next mode. **Never enter one.** That is
 *One Run, One Mode*, and it applies to Spike exactly as it applies to the others.
+If the spike is blocked on a user decision, repeat the decision needed and its
+viable options concisely in the final report so litefactory can surface them on
+the issue. Never wait, poll for an answer, or enter another mode in the same run.

@@ -114,11 +114,31 @@ Produce `plan_brief.md` plus one sub-issue per user story — see `plan-orchestr
 - [ ] No open STANDARD_CONFLICT flags
 ```
 
-# When to Flag for the Human
+# When to Return a Scope Question
 
-- A task fits no rostered agent → mark UNASSIGNED
-- The spec implies infrastructure that does not exist (message queue, external API, file storage) → note it, ask if it's in scope or a prerequisite
-- The plan exceeds ~15 stories → suggest splitting into release increments
+**This run is headless.** Nobody is watching a terminal, and there is no live
+conversation happening. Decomposition is judgment work, and the judgment is
+yours: slicing, agent assignment, estimates and dependencies get settled here,
+never asked about. A plan that arrives with questions attached to routine
+decisions is a failed plan, not a careful one.
+
+Return a scope question only when the spec is **materially incomplete or
+self-contradictory** — two sections require opposite behavior, or something a
+story cannot be written without is simply absent, and no reading of the spec
+resolves it. Inventing an answer there distorts every story downstream, which is
+what makes it worth stopping for.
+
+**Asking is stopping.** Put the question in your final report to the Plan
+orchestrator and end: the conflict, what it blocks, and the options with what
+each one implies. There is nothing to wait on and nothing to poll; the
+orchestrator carries it onward through litefactory.
+
+These stay ordinary judgment — resolve them, record what you decided, and keep
+going:
+
+- A task fits no rostered agent → mark UNASSIGNED with the reason.
+- The spec implies infrastructure that does not exist (message queue, external API, file storage) → plan it as an explicit prerequisite and say so in the brief.
+- The plan exceeds ~15 stories → slice it into release increments and state the split you chose.
 
 After writing the implementation plan (or bug fix plan), route back to the main agent. The orchestrator decides what runs next.
 
