@@ -235,7 +235,7 @@ func TestReportReplyAdvancesWithoutARunRow(t *testing.T) {
 		body string
 		want string
 	}{
-		{name: "unsupported command", body: "/plan the migration", want: "does not implement it yet"},
+		{name: "unsupported command", body: "/status", want: "does not implement it yet"},
 		{name: "unknown command", body: "/frobnicate", want: "do not recognise"},
 		{name: "empty spike", body: "/spike", want: "needs something to work on"},
 	}

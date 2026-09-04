@@ -232,6 +232,8 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
+	// Mode is the concrete workflow mode selected before this turn starts.
+	Mode agent.Mode
 	// SessionID is the task, from store.GetOrCreateSession.
 	SessionID int64
 	// Issue describes the issue.
@@ -313,6 +315,8 @@ func (r Request) validate() error {
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
+	case r.Mode != "" && !r.Mode.Valid():
+		return invalidRequest("mode %q is not research, plan, implement or spike", r.Mode)
 	default:
 		return nil
 	}
@@ -321,8 +325,12 @@ func (r Request) validate() error {
 // mode is the run mode. For a command it is the command word without its
 // slash, so the runs row, the commit trailer and the metadata document all say
 // the same thing and none of them has to be kept in step by hand. Free text
-// named no command, so it is [InferMode].
+// named no command. The fallback is retained for old direct callers and tests;
+// production daemon requests always carry [Request.Mode].
 func (r Request) mode() string {
+	if r.Mode.Valid() {
+		return string(r.Mode)
+	}
 	if r.Command.Kind == KindFreeText {
 		return harness.InferMode
 	}

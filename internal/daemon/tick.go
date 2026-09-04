@@ -1172,6 +1172,12 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
+		// A mode label is one-shot. Stop after one actionable instruction so
+		// the next tick refreshes the issue and cannot reuse this tick's stale
+		// label snapshot for a second comment.
+		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() {
+			return true, nil
+		}
 	}
 	return false, nil
 }
@@ -1272,6 +1278,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
+	if err := d.cleanupModeLabel(ctx, t); err != nil {
+		return d.leave(ctx, t, log, "could not finish mode-label cleanup", err)
+	}
 
 	// The self-filter runs first and matches on numeric ids, never handles
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
@@ -1375,6 +1384,70 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	workflowEnabled := len(d.classifiers) > 0
+	selection := store.ModeSelection{}
+	selectionErr := store.ErrNotFound
+	if workflowEnabled {
+		selection, selectionErr = d.db.GetModeSelection(ctx, t.session.ID, trigger.CommentID)
+	}
+	haveSelection := selectionErr == nil
+	var mode agent.Mode
+	var labelled bool
+	var err error
+	switch {
+	case selectionErr == nil:
+		mode, err = storedMode(selection)
+		labelled = selection.LabelApplied
+	case !errors.Is(selectionErr, store.ErrNotFound):
+		return selectionErr
+	default:
+		mode, labelled, err = resolveModeLabel(t.issue.Labels)
+	}
+	if err != nil {
+		var refusal *modeRefusal
+		if errors.As(err, &refusal) {
+			return d.refuseMode(ctx, t, trigger, refusal.kind)
+		}
+		return d.leave(ctx, t, log, "mode selection was refused", err)
+	}
+	commandMode, commanded := command.Mode()
+	if labelled && commanded && mode != commandMode {
+		return d.refuseMode(ctx, t, trigger, report.ReplyConflictingModeSelection)
+	}
+	if !labelled && commanded {
+		mode = commandMode
+	}
+	if !haveSelection && !labelled && !commanded {
+		mode, err = d.classifyMode(ctx, t, command.Text)
+		if err != nil {
+			// Compatibility for dependency-light daemon tests that predate the
+			// classifier seam. Production startup always supplies one.
+			if len(d.classifiers) == 0 {
+				mode = ""
+			} else {
+				return d.leave(ctx, t, log, "mode classification failed", err)
+			}
+		}
+	}
+	if workflowEnabled && mode.Valid() && !haveSelection {
+		_, err = d.db.GetOrCreateModeSelection(ctx, store.ModeSelection{
+			SessionID: t.session.ID, TriggerCommentID: trigger.CommentID,
+			Mode: string(mode), Label: mode.Label(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	labels, canLabel := d.forge.(labelForge)
+	canLabel = canLabel && len(d.classifiers) > 0
+	if mode.Valid() && !labelled && canLabel {
+		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
+			return d.leave(ctx, t, log, "could not apply the selected mode label", err)
+		}
+		if err := d.db.MarkModeLabelApplied(ctx, t.session.ID, trigger.CommentID); err != nil {
+			return err
+		}
+	}
 	// The agent-selection label is resolved first, before the tool-profile
 	// ladder and before anything is locked, fetched or written. This is stage
 	// 1 of the four-stage refusal precedence: when it refuses, the tools
@@ -1390,7 +1463,7 @@ func (d *Daemon) run(
 	}
 	selectedAgent := agentChoice.Agent
 	if selectedAgent == "" {
-		selectedAgent = store.AgentClaude
+		selectedAgent = string(d.defaultAgent)
 	}
 
 	// The tool profile is resolved here, before anything is locked, fetched or
@@ -1441,6 +1514,7 @@ func (d *Daemon) run(
 	}
 
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
+		Mode:      mode,
 		SessionID: t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
@@ -1495,6 +1569,18 @@ func (d *Daemon) run(
 	posted, err := d.reporter.ReportTurn(ctx, turnResult)
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
+	}
+	if mode.Valid() && canLabel {
+		if err := d.db.MarkModeCleanupPending(ctx, t.session.ID, trigger.CommentID); err != nil {
+			return err
+		}
+		if err := labels.RemoveIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
+			d.markBacklog(ctx, log, t.session.ID)
+			return fmt.Errorf("remove the consumed mode label: %w", err)
+		}
+		if err := d.db.DeleteModeSelection(ctx, t.session.ID, trigger.CommentID); err != nil {
+			return err
+		}
 	}
 	log.InfoContext(ctx, "turn complete",
 		slog.String("disposition", turnResult.Disposition.String()),

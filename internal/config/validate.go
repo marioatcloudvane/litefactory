@@ -54,6 +54,7 @@ const (
 )
 
 var (
+	agentDisplayNameRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
 	// envVarNameRE matches a POSIX environment variable name. github.token_env
 	// holds a name, never a value.
 	envVarNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -71,6 +72,9 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
+	if !agentDisplayNameRE.MatchString(c.DefaultAgent) {
+		errs = append(errs, fmt.Errorf("default_agent: %q is not a canonical coding-agent name", c.DefaultAgent))
+	}
 
 	if c.PollIntervalSeconds < MinPollIntervalSeconds || c.PollIntervalSeconds > MaxPollIntervalSeconds {
 		errs = append(errs, fmt.Errorf("poll_interval_seconds: %d is out of range; must be between %d and %d",

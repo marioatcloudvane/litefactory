@@ -46,6 +46,10 @@ poll_interval_seconds: %d
 # budget, and lower it if runs start interfering with each other.
 max_concurrent_runs: %d
 
+# Coding-agent implementation used when no Coding Agent label is present and
+# for classifying requests with no Mode label.
+default_agent: "%s"
+
 # Fallback base branch for ` + "`repo add`" + ` when --base is omitted and the remote
 # HEAD cannot be determined. Empty means there is no fallback.
 default_base_branch: ""
@@ -268,6 +272,12 @@ claude:
 #     writable_roots:
 #       - "/Users/you/Library/Caches/go-build"
 #       - "/Users/you/go/pkg/mod"
+#     # network_access lifts the sandbox's ban on network syscalls. No
+#     # directory grant reaches it: without it the sandbox refuses even a
+#     # loopback bind, so every test standing a fake server up with
+#     # net/http/httptest panics and a run cannot verify its own work. The
+#     # switch is not loopback-only -- granting it grants outbound network.
+#     network_access: true
 
 # tiers is litefactory's own table answering "for this coding-agent tool, at
 # this capability tier, which --model value runs": the vendor-neutral
@@ -287,6 +297,7 @@ func DefaultFileContents() []byte {
 	return []byte(fmt.Sprintf(configHeader,
 		MinPollIntervalSeconds, MaxPollIntervalSeconds, d.PollIntervalSeconds,
 		MinMaxConcurrentRuns, MaxMaxConcurrentRuns, d.MaxConcurrentRuns,
+		d.DefaultAgent,
 		d.FeaturePrefix,
 		d.WorktreeRetainDays,
 		d.LogLevel,

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -236,6 +237,32 @@ func (c *Client) GetIssue(ctx context.Context, repo Repo, number int) (Issue, er
 			repo, number, ErrInvalidArgument)
 	}
 	return convertIssue(payload), nil
+}
+
+// AddIssueLabel adds one exact label without replacing any other label.
+func (c *Client) AddIssueLabel(ctx context.Context, repo Repo, number int, label string) error {
+	if err := repo.Validate(); err != nil || number <= 0 || label == "" {
+		return fmt.Errorf("github: add issue label: %w", ErrInvalidArgument)
+	}
+	_, _, err := do(ctx, c, func(ctx context.Context) ([]*gogithub.Label, *gogithub.Response, error) {
+		return c.api.Issues.AddLabelsToIssue(ctx, repo.Owner, repo.Name, number, []string{label})
+	})
+	return err
+}
+
+// RemoveIssueLabel removes one exact label without replacing any other label.
+func (c *Client) RemoveIssueLabel(ctx context.Context, repo Repo, number int, label string) error {
+	if err := repo.Validate(); err != nil || number <= 0 || label == "" {
+		return fmt.Errorf("github: remove issue label: %w", ErrInvalidArgument)
+	}
+	_, _, err := do(ctx, c, func(ctx context.Context) (struct{}, *gogithub.Response, error) {
+		resp, err := c.api.Issues.RemoveLabelForIssue(ctx, repo.Owner, repo.Name, number, label)
+		return struct{}{}, resp, err
+	})
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 // convertIssue narrows the SDK's issue to the fields M0 reads.

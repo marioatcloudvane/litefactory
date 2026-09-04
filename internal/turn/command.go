@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // SpikeCommand is the only command litefactory acts on at M0.
@@ -16,8 +18,7 @@ const SpikeCommand = "/spike"
 //
 // The list is sorted; keep it that way.
 var knownCommands = []string{
-	"/approve", "/implement", "/include", "/plan",
-	"/research", "/reset", "/retry", "/status",
+	"/approve", "/include", "/reset", "/retry", "/status",
 }
 
 // CommandKind is what a comment body turned out to be asking for.
@@ -40,14 +41,8 @@ const (
 	KindSpike
 
 	// KindFreeText is an owner comment that opens with something other than a
-	// command token. It spawns a run whose mode the agent decides for itself.
-	//
-	// litefactory does not classify the request. The worktree the run executes
-	// in holds the target repository's own CLAUDE.md, and if that file defines
-	// modes then it is the authority on which one this comment calls for. The
-	// prompt says so; the agent reads it and routes itself. Doing the same
-	// reasoning here would cost a second model call to derive a label the run
-	// derives anyway.
+	// command token. It spawns a run whose mode the daemon resolves before the
+	// turn starts.
 	KindFreeText
 
 	// KindSpikeEmpty is "/spike" with no text after it. It draws a reply
@@ -205,7 +200,7 @@ func ParseCommand(body string) Command {
 
 	name := strings.ToLower(token)
 	switch {
-	case name == SpikeCommand:
+	case name == SpikeCommand || name == "/research" || name == "/plan" || name == "/implement":
 		text := strings.TrimSpace(rest)
 		if text == "" {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
@@ -216,6 +211,14 @@ func ParseCommand(body string) Command {
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}
+}
+
+// Mode returns the concrete mode named by an actionable slash command.
+func (c Command) Mode() (agent.Mode, bool) {
+	if c.Kind != KindSpike || len(c.Name) < 2 {
+		return "", false
+	}
+	return agent.ParseMode(c.Name[1:])
 }
 
 // firstToken splits off the first whitespace-delimited token of body and

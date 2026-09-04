@@ -64,9 +64,9 @@ func TestParseCommand(t *testing.T) {
 			want: Command{Kind: KindSpike, Name: "/spike", Text: "fix the login bug"},
 		},
 		{
-			name: "an autocapitalised unsupported command",
+			name: "an autocapitalised mode command",
 			body: "/Plan the work",
-			want: Command{Kind: KindUnsupported, Name: "/plan"},
+			want: Command{Kind: KindSpike, Name: "/plan", Text: "the work"},
 		},
 
 		// AC-2.20: the argument is missing.
@@ -88,9 +88,9 @@ func TestParseCommand(t *testing.T) {
 
 		// AC-2.18: known but not yet supported. Each of these is a real
 		// command in M1 or later.
-		{name: "research", body: "/research the failure mode", want: Command{Kind: KindUnsupported, Name: "/research"}},
-		{name: "plan", body: "/plan", want: Command{Kind: KindUnsupported, Name: "/plan"}},
-		{name: "implement", body: "/implement T-001.2", want: Command{Kind: KindUnsupported, Name: "/implement"}},
+		{name: "research", body: "/research the failure mode", want: Command{Kind: KindSpike, Name: "/research", Text: "the failure mode"}},
+		{name: "plan", body: "/plan", want: Command{Kind: KindSpikeEmpty, Name: "/plan"}},
+		{name: "implement", body: "/implement T-001.2", want: Command{Kind: KindSpike, Name: "/implement", Text: "T-001.2"}},
 		{name: "approve", body: "/approve", want: Command{Kind: KindUnsupported, Name: "/approve"}},
 		{name: "include", body: "/include docs/spec.md", want: Command{Kind: KindUnsupported, Name: "/include"}},
 		{name: "retry", body: "/retry", want: Command{Kind: KindUnsupported, Name: "/retry"}},
