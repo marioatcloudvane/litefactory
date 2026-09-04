@@ -81,3 +81,11 @@ Static inspection found these concrete unfinished areas:
 - [V] Run 0006 was dispatched as Research mode, whose contract forbids code changes, test implementation, and continuation of the Implement workflow.
 - [V] The implementation-ready continuation remains the eight-step sequence above. No additional research or planning is required.
 - [V] The next run must be opened in Implement mode and should resume at the unit-test gate rather than repeating production development.
+
+## Run 0009 — Handoff verification
+
+- [O] The owner requested continuation.
+- [V] The current session now contains `plan_brief.md`, `feature-spec.md`, and all six required `US-*.md` acceptance-criteria files.
+- [V] The session manifest marks Research and Plan complete and Implement not started.
+- [V] The handoff blocker identified in run 0007 is resolved. No further research or planning is required.
+- [V] Run 0009 was dispatched as Research mode, so it cannot execute the now-ready Implement workflow. The next Implement run can start immediately from the six continuation stories.
