@@ -89,3 +89,28 @@ Static inspection found these concrete unfinished areas:
 - [V] The session manifest marks Research and Plan complete and Implement not started.
 - [V] The handoff blocker identified in run 0007 is resolved. No further research or planning is required.
 - [V] Run 0009 was dispatched as Research mode, so it cannot execute the now-ready Implement workflow. The next Implement run can start immediately from the six continuation stories.
+
+## Run 0010 — Repeated Research-routing diagnosis
+
+### Verified routing behavior
+
+- [O] The owner again requested implementation in plain language, but run 0010 was dispatched as Research.
+- [V] Plain free-text comments are classified by a coding-agent classifier when no stored selection, canonical mode label, or actionable slash command supplies the mode (`internal/daemon/tick.go:1397-1422`).
+- [V] The classifier prompt includes the issue title, original issue body, and current authorized instruction (`internal/daemon/mode.go:62-97`).
+- [V] Explicit commands `/research`, `/plan`, `/implement`, `/validate`, and `/spike` are recognized case-insensitively when followed by a non-empty instruction (`internal/turn/command.go:185-221`).
+- [V] An actionable slash command supplies the mode directly and bypasses classifier inference, unless a conflicting canonical Mode label is present (`internal/daemon/tick.go:1413-1419`).
+- [V] The exact deterministic continuation comment is: `/implement continue the approved plan and finish it`.
+- [V] Applying exactly one `Mode: Implement` label before commenting is an alternative; successful reporting removes the temporary label (`internal/agent/mode.go:34-57`, `internal/daemon/tick.go:1541-1551`).
+- [V] A bare `/implement` is not actionable because it has no instruction (`internal/turn/command.go:203-208`).
+
+### Root-cause assessment
+
+- [V] The `Mode: research` header in a run prompt is downstream evidence; the daemon resolves the mode before constructing the coding-agent prompt (`internal/harness/prompt.go:420-446`).
+- [W] Most likely, repeated natural-language requests reached the nondeterministic classifier, and the original research-oriented issue body biased classification toward Research. A stale `Mode: Research` label is possible but less likely because successful runs remove mode labels and retry pending cleanup (`internal/daemon/tick.go:1281-1283`, `internal/daemon/tick.go:1541-1551`).
+- [V] This is a product reliability/discoverability defect rather than a slash-command parsing defect. The reliable command exists, but the README does not document it (`README.md:1-2`).
+- [V] Misclassification is security-relevant because the selected mode directly chooses the run's permission profile (`internal/daemon/tools.go:23-47`).
+
+### Follow-up recommendation
+
+- [V] Use the explicit `/implement <instruction>` command now to enter the prepared continuation workflow.
+- [V] Treat free-text routing reliability and command documentation as a separate follow-up scope: consider weighting only the current authorized instruction, recognizing deterministic intent prefixes before model classification, documenting commands, and testing stored-selection/label/command/classifier precedence.
