@@ -25,8 +25,8 @@
 ## Story Index
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Router trusts the daemon-resolved mode header | S | — | (created) |
-| US-2 | Cross-reference comment protects the mode header format | XS | US-1 (soft) | (created) |
+| US-1 | Router trusts the daemon-resolved mode header | S | — | https://github.com/marioatcloudvane/litefactory/issues/71 |
+| US-2 | Cross-reference comment protects the mode header format | XS | US-1 (soft) | https://github.com/marioatcloudvane/litefactory/issues/72 |
 
 ## Out of Scope
 - Coding-agent-tool defaulting (Claude/Codex) — already fully implemented (`default_agent`); no work.
