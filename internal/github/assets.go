@@ -97,7 +97,21 @@ func (c *Client) FetchAsset(ctx context.Context, rawURL string) (io.ReadCloser, 
 		return nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	// Built with c.api.NewRequest, the SDK's own request constructor, rather
+	// than a hand-rolled net/http call, so that request construction goes
+	// through the SDK as D1 requires (see sdk_test.go's
+	// TestEveryEndpointGoesThroughTheSDK). c.api.NewRequest resolves an
+	// absolute URL — parsed.String() always is one here, since
+	// assetURLAllowed rejects anything without an https scheme — against its
+	// own base URL, which for an absolute reference simply returns that
+	// reference untouched (see net/url's URL.Parse), so this still dials
+	// exactly the attachment host, never api.github.com.
+	//
+	// The request is still sent with httpClient.Do below, not c.api.BareDo:
+	// BareDo always sends over the SDK's own unexported client, which would
+	// bypass the CheckRedirect set on httpClient above and drop the
+	// redirect-hop SSRF re-check.
+	req, err := c.api.NewRequest(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("github: fetch asset: %w", err)
 	}

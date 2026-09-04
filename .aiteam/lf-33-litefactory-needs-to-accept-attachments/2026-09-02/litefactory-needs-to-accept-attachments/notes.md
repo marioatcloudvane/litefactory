@@ -43,6 +43,38 @@ confirm code reviewer concurs with that read during Phase 1.5.
 T-6.5 (regression test) intentionally left to the unit test engineer in Phase 3, per
 this team's convention that implementation engineers do not write tests.
 
+## Second resumption (2026-09-04, new run)
+
+Prior resumed run was itself cut off after landing US-6 (commit `87cc675`). Verified
+current state before continuing: `go build ./...` green; `go vet ./...` and
+`go test ./...` both fail for two reasons, neither belonging to US-6's own files
+(`internal/attach/{doc,errors,reason,rejection}.go`), both first appearing in the
+same `87cc675` commit alongside US-6's:
+
+- `internal/github/scratch_test.go` fails to compile (`client.BareDo` called with
+  an extra `context.Context` argument the current signature doesn't take). Name and
+  shape suggest a leftover ad-hoc exploration file, not a real test — this team's
+  engineers don't write tests as part of implementation tasks.
+- `internal/config/paths.go` imports `internal/naming`, which fails
+  `internal/config`'s pinned `TestValidationHasNoThirdPartyImports` purity test.
+  `internal/naming/paths.go` also exists (18 lines, same shape) — looks like a
+  confused duplicate: the `config.Paths` landing-dir method (US-3's T-3.7) plus a
+  first, wrong-package attempt at `FetchAsset`'s home (US-3's T-3.3, in
+  `internal/github/assets.go` + `errors.go`) apparently got started opportunistically
+  during the US-6 session, ahead of the dependency order, and left broken when that
+  session was cut off.
+
+None of this is a scope or architecture question — it's leftover partial/broken
+code from an interrupted run, on files that US-3 owns outright (T-3.3, T-3.7).
+Folded into the US-3 engineer's brief below with an explicit instruction to inspect,
+reconcile or replace, and leave the repo green rather than starting T-3.3/T-3.7 from
+a blank slate.
+
+Continuing in the plan's Workflow order, sequentially (per the first resumption's
+documented reasoning: US-3/US-4/US-6/US-7/US-8 all funnel through the new shared
+`internal/attach` package and US-7/US-8 both touch the manifest shape, a real
+file-overlap risk under parallel agents): US-3 next, then US-7, US-4, US-8.
+
 ## Code Review Advisories
 
 (populated after Phase 1.5)
