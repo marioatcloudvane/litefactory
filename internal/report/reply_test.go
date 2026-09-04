@@ -31,7 +31,7 @@ func TestToolsRefusalReplies(t *testing.T) {
 		{
 			name:  "malformed value describes the rule and quotes nothing",
 			reply: report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel},
-			wants: []string{"does not name a usable tool profile", "Nothing was run", "not repeated here"},
+			wants: []string{"no longer supported", "Remove every", "Nothing was run", "not repeated here"},
 		},
 		{
 			name:  "ambiguous names neither label",

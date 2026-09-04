@@ -57,7 +57,7 @@ func TestDaemonRunWithoutADatabaseIsAPrecondition(t *testing.T) {
 // the bot and has no anonymous mode, so a missing credential is a refusal
 // rather than a warning.
 func TestDaemonRunWithoutACredentialIsAPrecondition(t *testing.T) {
-	h := newDaemonHome(t, "log_level: info\n")
+	h := newDaemonHome(t, "settings:\n  log_level: info\n"+canonicalClaudeConfig)
 	h.migrate()
 
 	code, _, stderr := h.runDaemon("daemon", "run")

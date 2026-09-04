@@ -35,6 +35,21 @@ func TestCanonicalRootsAndLegacyDiagnostics(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsAdditionalYAMLDocuments(t *testing.T) {
+	_, err := Decode(strings.NewReader("agents:\n  claude: {}\n---\nsettings:\n  log_level: debug\n"))
+	if err == nil || !strings.Contains(err.Error(), "document") {
+		t.Fatalf("Decode additional document error = %v", err)
+	}
+}
+
+func TestCanonicalConfigurationRejectsLiteralSecrets(t *testing.T) {
+	body := strings.Replace(string(DefaultFileContents()), `default_base_branch: ""`, `default_base_branch: "ghp_123456789012345678901234567890123456"`, 1)
+	err := parse(t, body)
+	if !errors.Is(err, ErrLiteralSecret) || strings.Contains(err.Error(), "ghp_123456") {
+		t.Fatalf("literal-secret error = %v", err)
+	}
+}
+
 func TestSettingsValidation(t *testing.T) {
 	tests := []struct {
 		name, key string

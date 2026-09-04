@@ -1,6 +1,7 @@
 package daemon_test
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log/slog"
@@ -24,13 +25,17 @@ import (
 func (f *fixture) setup(claudeDir string) daemon.Setup {
 	f.t.Helper()
 
-	cfg := config.Defaults()
+	cfg, err := config.Decode(bytes.NewReader(config.DefaultFileContents()))
+	if err != nil {
+		f.t.Fatalf("decode canonical config: %v", err)
+	}
 	cfg.Providers.GitHub.APIBase = f.forge.server.URL
 	cfg.Agents.Claude.SettingsPath = f.paths.SettingsPath()
+	cfg.Agents.Codex = nil
 
 	return daemon.Setup{
 		Paths:   f.paths,
-		Config:  &cfg,
+		Config:  cfg,
 		DB:      f.db,
 		Token:   secrets.NewToken(testToken),
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),

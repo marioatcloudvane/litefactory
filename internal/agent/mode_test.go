@@ -10,7 +10,7 @@ func TestModeVocabularyAndLabels(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ value, label string }{
 		{"research", "Mode: Research"}, {"plan", "Mode: Plan"},
-		{"implement", "Mode: Implement"}, {"spike", "Mode: Spike"},
+		{"implement", "Mode: Implement"}, {"validate", "Mode: Validate"}, {"spike", "Mode: Spike"},
 	} {
 		mode, ok := agent.ParseMode(tc.value)
 		if !ok || mode.Label() != tc.label {

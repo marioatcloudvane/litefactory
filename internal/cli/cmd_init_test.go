@@ -132,14 +132,14 @@ func writeInitConfig(t *testing.T, paths config.Paths, body string) {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatalf("create %s: %v", paths.Home(), err)
 	}
-	if err := os.WriteFile(paths.ConfigPath(), []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(paths.ConfigPath(), []byte(withCanonicalProfiles(t, body)), 0o600); err != nil {
 		t.Fatalf("write config.yaml: %v", err)
 	}
 }
 
 // initBotConfig is a config.yaml naming a fake API base and the token variable.
 func initBotConfig(apiBase string) string {
-	return fmt.Sprintf("# written by the test\ngithub:\n  api_base: %q\n  token_env: %q\n", apiBase, initTokenEnvVar)
+	return fmt.Sprintf("# written by the test\nproviders:\n  github:\n    api_base: %q\n    token_env: %q\nagents:\n  claude: {}\n", apiBase, initTokenEnvVar)
 }
 
 // listIdentities reads the identities table back, which is the only honest way
@@ -227,15 +227,20 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 	if cfg.Settings.PollIntervalSeconds != config.DefaultPollIntervalSeconds {
 		t.Errorf("poll_interval_seconds = %d, want %d", cfg.Settings.PollIntervalSeconds, config.DefaultPollIntervalSeconds)
 	}
-	if cfg.Providers.GitHub.TokenEnv != "" || cfg.Providers.GitHub.TokenKeychain.Service != "" {
-		t.Error("the default config.yaml names a credential source; it must reference nothing until the operator says so")
+	if cfg.Providers.GitHub.TokenEnv != "" || cfg.Providers.GitHub.TokenKeychain.Service != "litefactory" || cfg.Providers.GitHub.TokenKeychain.Account != "github-bot" {
+		t.Error("the default config.yaml does not carry the documented keychain reference")
 	}
 
 	list := listIdentities(t, paths)
-	if len(list) != 1 {
-		t.Fatalf("stored %d identities, want 1 (the owner)", len(list))
+	if len(list) != 2 {
+		t.Fatalf("stored %d identities, want owner and bot", len(list))
 	}
-	owner := list[0]
+	var owner store.Identity
+	for _, identity := range list {
+		if identity.Role == store.RoleOwner {
+			owner = identity
+		}
+	}
 	switch {
 	case owner.Role != store.RoleOwner:
 		t.Errorf("role = %q, want %q", owner.Role, store.RoleOwner)
@@ -253,12 +258,8 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 	if !strings.Contains(stdout.String(), "github: marioatcloudvane") {
 		t.Errorf("stdout does not echo `github: <handle>`:\n%s", stdout)
 	}
-	// AC-0.5: no bot configured is a warning, not a failure, and it names what
-	// is still needed.
-	for _, want := range []string{"warning", "token_keychain", "security add-generic-password"} {
-		if !strings.Contains(stderr.String(), want) {
-			t.Errorf("the missing-bot warning does not mention %q:\n%s", want, stderr)
-		}
+	if stderr.Len() != 0 {
+		t.Errorf("init with the generated credential reference warned unexpectedly:\n%s", stderr)
 	}
 }
 
@@ -504,7 +505,7 @@ func TestInitRejectsABrokenConfig(t *testing.T) {
 	}{
 		{
 			name:     "a literal credential",
-			body:     "github:\n  token_env: \"LF_TOKEN\"\ndefault_base_branch: \"" + initBotToken + "\"\n",
+			body:     "providers:\n  github:\n    token_env: \"LF_TOKEN\"\nsettings:\n  default_base_branch: \"" + initBotToken + "\"\nagents:\n  claude: {}\n",
 			wantCode: ExitPrecondition,
 			wantHas:  []string{"default_base_branch"},
 		},

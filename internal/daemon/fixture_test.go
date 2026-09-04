@@ -260,6 +260,8 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
 	mux.HandleFunc("GET "+repos+"/issues/{number}/comments", f.handleListComments)
 	mux.HandleFunc("POST "+repos+"/issues/{number}/comments", f.handlePostComment)
+	mux.HandleFunc("POST "+repos+"/issues/{number}/labels", f.handleAddLabels)
+	mux.HandleFunc("DELETE "+repos+"/issues/{number}/labels/{label}", f.handleRemoveLabel)
 	mux.HandleFunc("POST "+repos+"/issues/comments/{id}/reactions", f.handleReaction)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -269,6 +271,61 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+func (f *forgeServer) handleRemoveLabel(w http.ResponseWriter, r *http.Request) {
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	rs := f.state(r.PathValue("owner"), r.PathValue("repo"))
+	for i := range rs.issues {
+		if rs.issues[i].Number != number {
+			continue
+		}
+		labels := rs.issues[i].Labels[:0]
+		for _, label := range rs.issues[i].Labels {
+			if label.Name != r.PathValue("label") {
+				labels = append(labels, label)
+			}
+		}
+		rs.issues[i].Labels = labels
+	}
+	f.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (f *forgeServer) handleAddLabels(w http.ResponseWriter, r *http.Request) {
+	var labels []string
+	if err := json.NewDecoder(r.Body).Decode(&labels); err != nil {
+		http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
+		return
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	rs := f.state(r.PathValue("owner"), r.PathValue("repo"))
+	var issue *fakeIssue
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].Labels = append(rs.issues[i].Labels, toFakeLabels(labels...)...)
+			copy := rs.issues[i]
+			issue = &copy
+			break
+		}
+	}
+	f.mu.Unlock()
+	if issue == nil {
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(issue.Labels)
 }
 
 func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {

@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -396,13 +398,17 @@ func TestIntervalOutsideTheClampIsAStartupError(t *testing.T) {
 	}
 
 	inRange, err := daemon.New(daemon.Options{
-		DB:         f.db,
-		Forge:      f.client,
-		Filter:     f.filter,
-		Turn:       f.turns,
-		Reporter:   f.reporter,
-		InstanceID: "daemon-instance-test",
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DefaultAgent: agent.Kind(store.AgentClaude),
+		ToolProfiles: config.DefaultToolProfiles().Permissions,
+		Agents:       turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:  map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
+		DB:           f.db,
+		Forge:        f.client,
+		Filter:       f.filter,
+		Turn:         f.turns,
+		Reporter:     f.reporter,
+		InstanceID:   "daemon-instance-test",
+		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		t.Fatalf("a daemon with no interval configured: %v", err)
