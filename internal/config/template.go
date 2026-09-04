@@ -32,6 +32,11 @@ settings:
   worktree_root: %q # empty means the per-repository sibling default
   worktree_retain_days: %d # informational; cleanup is currently explicit
   log_level: %q # debug, info, warn or error
+  # Attachment ingestion is additionally gated per workflow mode below.
+  attachment_max_image_bytes: %d # valid range: %d..%d
+  attachment_max_document_bytes: %d # valid range: %d..%d
+  attachment_max_total_bytes: %d # valid range: %d..%d
+  attachment_max_count: %d # valid range: %d..%d
 
 providers:
   github:
@@ -64,7 +69,6 @@ agents:
   codex:
     binary: %q
     model_tier: %q
-    default_sandbox: %q
     timeout_seconds: %d
     writable_roots: [] # add absolute compiler-cache paths only when needed
     network_access: false
@@ -83,11 +87,16 @@ tool_profiles:
 		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
-		d.Settings.WorktreeRetainDays, d.Settings.LogLevel, d.Providers.GitHub.APIBase,
+		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
+		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
+		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
+		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
+		d.Settings.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount,
+		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
 		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools),
 		claude.SettingsPath, claude.TimeoutSeconds, claude.ForwardAnthropicEnv,
-		codex.Binary, codex.ModelTier, codex.DefaultSandbox, codex.TimeoutSeconds,
+		codex.Binary, codex.ModelTier, codex.TimeoutSeconds,
 		renderModelByTier(d.Tiers.ModelByTier),
 	)
 	for _, name := range canonicalPermissionProfiles {
@@ -120,6 +129,7 @@ func renderModelByTier(models map[Kind]map[Tier]string) string {
 
 func renderToolProfile(b *strings.Builder, name string, profile ToolProfile) {
 	fmt.Fprintf(b, "    %s:\n", name)
+	fmt.Fprintf(b, "      attachments: %t\n", profile.Attachments)
 	if profile.Claude != nil {
 		b.WriteString("      claude:\n")
 		b.WriteString(yamlList(8, "tools", profile.Claude.Tools))

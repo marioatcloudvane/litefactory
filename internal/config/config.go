@@ -82,13 +82,17 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
-	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
-	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
-	DefaultBaseBranch   string `yaml:"default_base_branch"`
-	FeaturePrefix       string `yaml:"feature_prefix"`
-	WorktreeRoot        string `yaml:"worktree_root"`
-	WorktreeRetainDays  int    `yaml:"worktree_retain_days"`
-	LogLevel            string `yaml:"log_level"`
+	PollIntervalSeconds        int    `yaml:"poll_interval_seconds"`
+	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch          string `yaml:"default_base_branch"`
+	FeaturePrefix              string `yaml:"feature_prefix"`
+	WorktreeRoot               string `yaml:"worktree_root"`
+	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
+	LogLevel                   string `yaml:"log_level"`
+	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
+	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
+	AttachmentMaxTotalBytes    int64  `yaml:"attachment_max_total_bytes"`
+	AttachmentMaxCount         int    `yaml:"attachment_max_count"`
 }
 
 // Agents groups the fully typed configuration for every supported coding
@@ -114,19 +118,6 @@ type Codex struct {
 	Binary string `yaml:"binary"`
 	// ModelTier selects the concrete model through tiers.model_by_tier.codex.
 	ModelTier Tier `yaml:"model_tier"`
-
-	// DefaultSandbox is the sandbox mode a run uses when no "Tools: <Profile>"
-	// label resolved a profile carrying a codex: stanza (AC-7.7). It is required
-	// whenever agents.codex is configured at all: a configured Codex with
-	// no default is a startup error (AC-7.8), because unlike
-	// claude.tool_ceiling there is nothing to default it from — a run has
-	// exactly one sandbox mode, not a surface to narrow.
-	//
-	// BLOCKED-BY-US-1 (T-7.3): a plain string rather than a typed enum,
-	// because Codex's accepted sandbox values were never measured. This
-	// package validates only that it is non-empty, never that it is one of
-	// Codex's real values — see [validateCodex].
-	DefaultSandbox string `yaml:"default_sandbox"`
 
 	// TimeoutSeconds is the hard wall-clock kill for one Codex run, bounded
 	// the same way [Claude.TimeoutSeconds] is (T-7.1). There is no
@@ -268,12 +259,6 @@ type Claude struct {
 	// anything at all. [Load] resolves the default once, before validation, so
 	// config validation and the harness read the same slice.
 	ToolCeiling []string `yaml:"tool_ceiling"`
-	// ToolProfiles are operator-authored named tool surfaces, keyed by the
-	// name an issue label selects them with. Absent means a nil map, which
-	// leaves every run on Tools.
-	//
-	// The key is a lookup key and never reaches the claude command line; only
-	// the config-authored strings inside the profile do.
 	// TimeoutSeconds is the hard wall-clock kill for one run. It is
 	// independent of any event-driven completion detection because a bad
 	// credential makes claude retry internally and hang indefinitely,
@@ -291,31 +276,15 @@ type Claude struct {
 	// explicit carve-out from the secret-name env strip, since ANTHROPIC_API_KEY
 	// matches the KEY pattern.
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
-	// AttachmentMaxImageBytes is the per-image size ceiling attachment
-	// ingestion (US-3) will enforce for a run whose resolved tool profile
-	// grants [ToolProfile.Attachments]. It is a policy default, not itself a
-	// permission — the permission lives on the profile.
-	AttachmentMaxImageBytes int64 `yaml:"attachment_max_image_bytes"`
-	// AttachmentMaxDocumentBytes is the per-document size ceiling, analogous
-	// to AttachmentMaxImageBytes for non-image attachments.
-	AttachmentMaxDocumentBytes int64 `yaml:"attachment_max_document_bytes"`
-	// AttachmentMaxTotalBytes is the ceiling on the combined size of every
-	// attachment ingested for one turn, regardless of how that total splits
-	// across images and documents.
-	AttachmentMaxTotalBytes int64 `yaml:"attachment_max_total_bytes"`
-	// AttachmentMaxCount is the ceiling on the number of attachments ingested
-	// for one turn.
-	AttachmentMaxCount int `yaml:"attachment_max_count"`
 }
 
 // ToolProfile is one mode's permission surface, broken into one stanza per
-// configured coding agent (T-7.1). The selected mode resolves the profile,
-// which is then narrowed to whichever
-// agent the run is addressed to — Claude reads [ToolProfile.Claude], Codex
-// reads [ToolProfile.Codex] — and an agent this profile carries no stanza
-// for refuses the run (report.ReplyProfileNotAvailableForAgent) rather than
-// falling back to the other stanza or to that agent's own default surface.
-// A grant written for one tool is never reinterpreted as another's.
+// configured coding agent. The selected mode resolves the profile, which is
+// then narrowed to whichever agent the run is addressed to — Claude reads
+// [ToolProfile.Claude] and Codex reads [ToolProfile.Codex]. A missing stanza is
+// a configuration error; it never falls back to another stanza or an
+// agent-global surface. A grant written for one tool is never reinterpreted as
+// another's.
 type ToolProfile struct {
 	// Claude is this profile's Claude stanza. nil means this profile has
 	// nothing to say about a Claude-routed run.
@@ -390,13 +359,17 @@ type ToolProfileCodex struct {
 func Defaults() Config {
 	return Config{
 		Settings: Settings{
-			PollIntervalSeconds: DefaultPollIntervalSeconds,
-			MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
-			DefaultBaseBranch:   "",
-			FeaturePrefix:       DefaultFeaturePrefix,
-			WorktreeRoot:        "",
-			WorktreeRetainDays:  DefaultWorktreeRetainDays,
-			LogLevel:            DefaultLogLevel,
+			PollIntervalSeconds:        DefaultPollIntervalSeconds,
+			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,
+			DefaultBaseBranch:          "",
+			FeaturePrefix:              DefaultFeaturePrefix,
+			WorktreeRoot:               "",
+			WorktreeRetainDays:         DefaultWorktreeRetainDays,
+			LogLevel:                   DefaultLogLevel,
+			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
+			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
+			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
+			AttachmentMaxCount:         DefaultAttachmentMaxCount,
 		},
 		Providers: Providers{
 			GitHub: GitHub{
@@ -417,21 +390,6 @@ func DefaultClaude() Claude {
 		Binary: DefaultClaudeBinary, ModelTier: TierBalanced,
 		AutoCompact: DefaultClaudeAutoCompact, Tools: defaultTools(),
 		AllowedTools: defaultAllowedTools(), TimeoutSeconds: DefaultClaudeTimeoutSeconds,
-		// Attachment ceilings arrived on main (issue #33) while this branch
-		// was moving agent configuration under `agents:`. They were set by
-		// Defaults() there, which no longer builds a Claude at all, so they
-		// are assembled here with the rest of this agent's defaults.
-		//
-		// They sit on Claude because that is the struct main put them on and
-		// moving them is a design change rather than a merge. They are not
-		// really Claude's: an attachment ceiling bounds litefactory's own
-		// ingestion and applies whichever agent the run is routed to, so
-		// `settings:` is their more natural home under this branch's
-		// hierarchy. Left for the re-plan to decide rather than settled here.
-		AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
-		AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
-		AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
-		AttachmentMaxCount:         DefaultAttachmentMaxCount,
 	}
 }
 
@@ -441,7 +399,6 @@ func DefaultCodex() Codex {
 	return Codex{
 		Binary:         DefaultCodexBinary,
 		ModelTier:      TierBalanced,
-		DefaultSandbox: DefaultCodexSandbox,
 		TimeoutSeconds: DefaultCodexTimeoutSeconds,
 	}
 }
@@ -464,17 +421,18 @@ func DefaultToolProfiles() ToolProfiles {
 	// shell verification through its independently enforced read-only sandbox.
 	readTools := []string{"Read", "Glob", "Grep", "Task"}
 	readAllowed := []string{"Read", "Glob", "Grep"}
-	profile := func(tools, allowed []string, sandbox string) ToolProfile {
+	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
 		return ToolProfile{
-			Claude: &ToolProfileClaude{Tools: slices.Clone(tools), AllowedTools: slices.Clone(allowed)},
-			Codex:  &ToolProfileCodex{Sandbox: sandbox},
+			Claude:      &ToolProfileClaude{Tools: slices.Clone(tools), AllowedTools: slices.Clone(allowed)},
+			Codex:       &ToolProfileCodex{Sandbox: sandbox},
+			Attachments: attachments,
 		}
 	}
 	return ToolProfiles{Permissions: map[string]ToolProfile{
-		"research":  profile(artifactTools, artifactAllowed, "workspace-write"),
-		"plan":      profile(artifactTools, artifactAllowed, "workspace-write"),
-		"implement": profile(implementTools, implementAllowed, "workspace-write"),
-		"validate":  profile(readTools, readAllowed, "read-only"),
+		"research":  profile(artifactTools, artifactAllowed, "workspace-write", true),
+		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
+		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
+		"validate":  profile(readTools, readAllowed, "read-only", false),
 	}}
 }
 
@@ -491,7 +449,6 @@ const (
 	DefaultClaudeTimeoutSeconds = 1800
 	DefaultClaudeAutoCompact    = "100k"
 	DefaultCodexBinary          = "codex"
-	DefaultCodexSandbox         = "workspace-write"
 	DefaultCodexTimeoutSeconds  = 1800
 	// DefaultClaudeModel is the balanced Claude entry in the central tier map.
 	DefaultClaudeModel = "sonnet"
@@ -608,8 +565,8 @@ func Decode(r io.Reader) (*Config, error) {
 // defaultConfiguredAgents seeds only agent stanzas the YAML actually names,
 // so decoding can apply field defaults without inventing an implicit runner.
 func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
 		return nil
 	}
 	root := doc.Content[0]
@@ -640,8 +597,8 @@ func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
 // literalAgentModelError gives the removed per-agent model key an actionable
 // replacement before KnownFields can reduce it to a generic unknown-key error.
 func literalAgentModelError(data []byte) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
 		return nil
 	}
 	root := doc.Content[0]
@@ -682,8 +639,8 @@ var legacySettingsPaths = map[string]string{
 // legacySettingsError makes the deliberate breaking schema migration useful
 // to an operator: strict decoding alone can only say that a key is unknown.
 func legacySettingsError(data []byte) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
 		return nil // The strict decoder below reports syntax and shape errors.
 	}
 	root := doc.Content[0]
@@ -703,8 +660,8 @@ func legacySettingsError(data []byte) error {
 // legacyProvidersError adds the replacement path that strict decoding cannot
 // infer for the intentionally removed root-level github key.
 func legacyProvidersError(data []byte) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
 		return nil // The strict decoder below reports syntax and shape errors.
 	}
 	root := doc.Content[0]
@@ -722,8 +679,8 @@ func legacyProvidersError(data []byte) error {
 // legacyAgentsError gives removed and unsupported agent keys exact migration
 // paths before KnownFields reports only their Go decoding context.
 func legacyAgentsError(data []byte) error {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
 		return nil
 	}
 	root := doc.Content[0]
@@ -749,6 +706,14 @@ func legacyAgentsError(data []byte) error {
 		}
 	}
 	return nil
+}
+
+func decodeYAMLDocument(data []byte) (yaml.Node, bool) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return yaml.Node{}, false
+	}
+	return doc, true
 }
 
 // applyPathDefaults fills in the defaults that can only be known once

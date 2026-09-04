@@ -35,12 +35,10 @@ var agentKindName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
 // this feature existed (AC-2.1). Otherwise either Refusal is set and nothing
 // runs, or a Kind resolved and Agent carries its name.
 //
-// This is stage 1 of the four-stage refusal precedence documented in the
-// plan brief: it is evaluated before the tools-profile ladder, and when it
-// refuses, the tools ladder is never reached in that tick. What a resolved
-// decision is used *for* — routing a run to a different [agent.Kind], or
-// refusing a mid-conversation switch — belongs to later stories (US-3,
-// US-7); this type only carries the ladder's answer.
+// Agent selection is evaluated before the surviving obsolete-permission-label
+// check. What a resolved decision is used *for* — routing a run to a different
+// [agent.Kind], or refusing a mid-conversation switch — belongs to the caller;
+// this type only carries the selection answer.
 type agentDecision struct {
 	// Refusal is why the run must not happen, or [report.ReplyInvalid] when
 	// it may.

@@ -205,15 +205,12 @@ type ReplyRequest struct {
 	// answered by the run report — and an empty comment is consumed with
 	// [Reporter.Consume] instead.
 	//
-	// It is not read at all when Refusal is set: what a tool-permission refusal
-	// answers is the label on the issue, and it answers it the same way whatever
-	// the comment asked for.
+	// It is not read when Refusal is set: a refusal answers issue metadata and
+	// has the same shape whatever the comment asked for.
 	Command Command
 
-	// Refusal, when set, makes this a tool-permission refusal rather than an
-	// answer to the command: the lf:tools= label on the issue could not be
-	// resolved, so nothing was run and the thread is owed an explanation
-	// (AC-3.1 to AC-3.4).
+	// Refusal, when set, makes this a metadata refusal rather than an answer to
+	// the command. This includes the retained obsolete lf:tools= refusal.
 	//
 	// It has to be a field of its own rather than another [CommandKind], because
 	// a refusal is drawn by precisely the commands that *do* spawn a run. Both
@@ -221,13 +218,6 @@ type ReplyRequest struct {
 	// ask about the command, and both give the wrong answer for a refusal; this
 	// is what they branch on first.
 	Refusal report.ReplyKind
-
-	// Profile is the tool profile name the label asked for. It belongs to
-	// [report.ReplyUnknownToolProfile] alone and is empty everywhere else, which
-	// is how the malformed and ambiguous refusals are kept structurally unable
-	// to echo label text (S-9). internal/report checks it against the
-	// profile-name pattern again before rendering it (S-8).
-	Profile string
 
 	// Agent is the coding-agent-tool name an lf:agent= label asked for. It
 	// belongs to [report.ReplyUnknownAgent] alone and is empty everywhere
@@ -258,7 +248,7 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
-			req.Refusal.RefusesProfileForAgent() || req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
+			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -273,9 +263,9 @@ func (req ReplyRequest) validate() error {
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
-		!req.Refusal.RefusesProfileForAgent() && !req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
+		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
-			"profile-for-agent or agent-switch refusal", req.Refusal)
+			"mode-selection or agent-switch refusal", req.Refusal)
 	// Only when this is not a refusal. A refusal is triggered by a command that
 	// would have spawned a run, and a command that spawns a run draws no reply —
 	// so asking this question of a refusal refuses the refusal.
@@ -485,7 +475,6 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Ref:            req.Ref,
 		Kind:           kind,
 		Command:        req.Command.Name,
-		Profile:        req.Profile,
 		Agent:          req.Agent,
 		OwningAgent:    req.OwningAgent,
 		RequestedAgent: req.RequestedAgent,

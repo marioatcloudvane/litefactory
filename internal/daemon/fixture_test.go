@@ -314,8 +314,8 @@ func (f *forgeServer) handleAddLabels(w http.ResponseWriter, r *http.Request) {
 	for i := range rs.issues {
 		if rs.issues[i].Number == number {
 			rs.issues[i].Labels = append(rs.issues[i].Labels, toFakeLabels(labels...)...)
-			copy := rs.issues[i]
-			issue = &copy
+			issueCopy := rs.issues[i]
+			issue = &issueCopy
 			break
 		}
 	}
@@ -579,25 +579,6 @@ func (f *forgeServer) closeIssueIn(owner, name string, number int) {
 		}
 	}
 	f.t.Fatalf("no issue %d to close in %s/%s", number, owner, name)
-}
-
-// setLabels replaces an issue's labels on the primary repository, the way a
-// maintainer relabeling it on GitHub does, and touches its update time the
-// same way [forgeServer.addComment] does for a comment: relabeling is a real
-// edit to the issue, and a tick that filtered on `since` has to see it
-// (AC-2.10).
-func (f *forgeServer) setLabels(number int, labels ...string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	rs := f.state(testOwnerName, testRepoName)
-	for i := range rs.issues {
-		if rs.issues[i].Number == number {
-			rs.issues[i].Labels = toFakeLabels(labels...)
-			rs.issues[i].UpdatedAt = f.now()
-			return
-		}
-	}
-	f.t.Fatalf("no issue %d to relabel", number)
 }
 
 // staleIssue backdates an issue's UpdatedAt on the primary repository.
@@ -1190,15 +1171,6 @@ func (f *fixture) issueWithLabels(title string, labels ...string) {
 		User:   stranger(),
 		Labels: toFakeLabels(labels...),
 	})
-}
-
-// relabel replaces the labels on the fixture's one issue (AC-2.10): a
-// maintainer changing their mind about which profile a run should have,
-// between one comment and the next.
-func (f *fixture) relabel(labels ...string) {
-	f.t.Helper()
-
-	f.forge.setLabels(testIssue, labels...)
 }
 
 // assignedIssue registers an issue with the given body, assigned to the owner:

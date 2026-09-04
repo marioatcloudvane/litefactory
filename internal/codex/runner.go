@@ -39,10 +39,9 @@ type Options struct {
 
 // Runner executes the Codex CLI for work and classification requests.
 type Runner struct {
-	binary  config.Executable
-	home    string
-	sandbox string
-	model   string
+	binary config.Executable
+	home   string
+	model  string
 	// writable are the operator-configured directories added to the
 	// sandbox alongside the worktree, one --add-dir each. Copied at
 	// construction so a later mutation of the config cannot change what an
@@ -89,7 +88,7 @@ func New(opts Options) (*Runner, error) {
 			return nil, fmt.Errorf("invalid codex options: writable root %q must be absolute", root)
 		}
 	}
-	return &Runner{binary: binary, home: opts.Paths.Home(), sandbox: opts.Codex.DefaultSandbox,
+	return &Runner{binary: binary, home: opts.Paths.Home(),
 		model: model, writable: append([]string(nil), opts.Codex.WritableRoots...),
 		network: opts.Codex.NetworkAccess, userConfig: opts.Codex.AllowUserConfig,
 		timeout: time.Duration(opts.Codex.TimeoutSeconds) * time.Second,
@@ -153,10 +152,11 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		return nil, fmt.Errorf("%w: worktree %s is not a directory", agent.ErrInvalidRequest, req.WorktreePath)
 	}
 
-	sandbox := r.sandbox
-	if p, ok := req.Permissions.Payload.(Sandbox); ok && p.Mode != "" {
-		sandbox = p.Mode
+	p, ok := req.Permissions.Payload.(Sandbox)
+	if !ok || p.Mode == "" {
+		return nil, fmt.Errorf("%w: codex permissions require a sandbox", agent.ErrInvalidRequest)
 	}
+	sandbox := p.Mode
 	if sandbox != "read-only" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: unsupported codex sandbox %q", agent.ErrInvalidRequest, sandbox)
 	}

@@ -402,10 +402,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
 //
-// The two tool lists are the request's when it carries a resolved profile and
+// The two tool lists are the request's when it carries mode-selected permissions and
 // the runner's configured ones otherwise — see [Runner.surface]. Only config
-// strings are ever joined in here; the profile *name* that selected them is
-// not, and neither is anything else that came from GitHub.
+// strings are ever joined in here; nothing that came from GitHub is included.
 func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
@@ -495,11 +494,11 @@ func (r *Runner) exec(
 	//
 	// The tool lists now arrive on the request rather than only from the runner,
 	// and that is the part worth being precise about. They are copies of
-	// operator-authored strings out of config.yaml, selected by a profile name
-	// that was validated against the operator's own profile map, and validate
+	// operator-authored strings out of config.yaml, selected by the resolved
+	// run mode, and validate
 	// has just checked every one of them against r.ceiling — so nothing here can
-	// exceed a bound set outside GitHub. The name that selected them stays off
-	// argv entirely: it is a lookup key, never a value.
+	// exceed a bound set outside GitHub. The mode-profile name stays off argv
+	// entirely: it is a lookup key, never a value.
 	//
 	// So no string originating from GitHub is ever joined into this argv. The
 	// untrusted input — the prompt built from the issue — goes on stdin below,
@@ -550,9 +549,9 @@ func (r *Runner) exec(
 	defer closeAll(stdoutR, stderrR)
 
 	// The three tool attributes report the surface this run was actually
-	// invoked with, not the runner's configured defaults: with a profile in
+	// invoked with, not the runner's configured defaults: with a mode profile in
 	// play the two differ, and the log line is the only place the difference is
-	// visible after the fact. tool_profile is empty when no profile applied.
+	// visible after the fact. tool_profile is empty when no mode profile was supplied.
 	tools, allowedTools := r.surface(req)
 	logger.Info("coding agent started",
 		slog.String("agent", "claude"),

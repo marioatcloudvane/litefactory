@@ -43,16 +43,10 @@ func validateAutoCompact(c *Claude) []error {
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
 
-// profileKeyRE matches a tool-profile name as it is stored in config.yaml —
-// the lower-cased map key, not the label's displayed value. It is
-// deliberately narrower than a tool name: an operator types a profile's
-// display name into a GitHub label as "Tools: <Name>" (internal/daemon's
-// toolProfileName requires an upper-case first letter to match), and that
-// value is lower-cased before it is ever compared against this key, so
-// "Tools: Research" and a configured profile key of "research" are the same
-// profile. This key itself stays lower-case and free of anything that could
-// be mistaken for a shell or YAML construct. Forty characters is far more
-// than a label of this shape ever needs.
+// profileKeyRE matches a mode-selected permission-profile name in config.yaml.
+// It stays lower-case and free of anything that could be mistaken for a shell
+// or YAML construct. Forty characters comfortably covers the mode vocabulary
+// while leaving room for future modes.
 var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // defaultTools is the --tools surface `init` writes. It is the real boundary,
@@ -350,8 +344,9 @@ func validateToolCeiling(c *Claude) []error {
 // validateToolProfiles checks the operator-authored profiles (AC-1.4, AC-1.6,
 // AC-1.7, T-7.1).
 //
-// A nil or empty map is the normal case and is not an error: with no profiles
-// configured the feature is inert and every run uses claude.tools.
+// The canonical research, plan, implement, and validate profiles are
+// mandatory. Each is selected by its resolved run mode; absence is a
+// configuration error and never falls back to claude.tools.
 func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 	ceiling := effectiveToolCeiling(c)
 	inCeiling := toolSet(ceiling)
@@ -381,8 +376,8 @@ func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 var canonicalPermissionProfiles = []string{"research", "plan", "implement", "validate"}
 
 // validatePermissionProfiles checks the complete mode-by-agent matrix. A run
-// must never fall back merely because one cell was omitted, and a per-run
-// Codex sandbox may narrow but never widen the agent-wide boundary.
+// must never fall back merely because one cell was omitted. Each Codex cell
+// is the sole sandbox authority for that mode.
 func validatePermissionProfiles(c *Config) []error {
 	profiles := c.ToolProfiles.Permissions
 	var errs []error
@@ -413,17 +408,6 @@ func validatePermissionProfiles(c *Config) []error {
 	if c.Agents.Claude != nil {
 		errs = append(errs, validateToolProfiles(c.Agents.Claude, profiles)...)
 		errs = append(errs, validateNoForbiddenFlag(c.Agents.Claude, profiles)...)
-	}
-	if c.Agents.Codex != nil {
-		for _, name := range canonicalPermissionProfiles {
-			profile, ok := profiles[name]
-			if !ok || profile.Codex == nil {
-				continue
-			}
-			if c.Agents.Codex.DefaultSandbox == "read-only" && profile.Codex.Sandbox == "workspace-write" {
-				errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q].codex.sandbox: workspace-write widens agents.codex.default_sandbox read-only", name))
-			}
-		}
 	}
 	if profile, ok := profiles["validate"]; ok {
 		if profile.Claude != nil {

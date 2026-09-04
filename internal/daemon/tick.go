@@ -1448,12 +1448,8 @@ func (d *Daemon) run(
 			return err
 		}
 	}
-	// The agent-selection label is resolved first, before the tool-profile
-	// ladder and before anything is locked, fetched or written. This is stage
-	// 1 of the four-stage refusal precedence: when it refuses, the tools
-	// ladder below is never reached in this tick, because a run whose
-	// coding-agent tool cannot be determined has nothing for a tool surface
-	// to apply to.
+	// Resolve the agent-selection label before checking for an obsolete
+	// permission label and before anything is locked, fetched, or written.
 	agentChoice := d.resolveAgent(t.issue.Labels)
 	if agentChoice.refused() {
 		return d.refuseAgent(ctx, t, trigger, agentChoice, log)
@@ -1481,10 +1477,7 @@ func (d *Daemon) run(
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
 	}
-	// The US-5 ingestion permission, resolved with the rest of the profile.
-	// It arrived on main read off a "Tools: <Profile>" label; here it comes
-	// from the profile the run's mode selected, which is the same permission
-	// reached by this branch's mechanism.
+	// The ingestion permission is resolved with the rest of the mode profile.
 	attachmentsAllowed := tools.Attachments
 	log = log.With(slog.String("tool_profile", tools.Profile))
 	log.InfoContext(ctx, "selected the mode permission profile for this run",
@@ -1617,10 +1610,6 @@ func (d *Daemon) refuseTools(
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
 		Refusal:   decision.Refusal,
-		// Empty for every refusal but the unknown one, which is the only refusal
-		// that may name what it was asked for. internal/report re-checks it
-		// before rendering (S-8).
-		Profile: decision.Profile,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "could not refuse the tool profile this issue asks for",
@@ -1633,73 +1622,14 @@ func (d *Daemon) refuseTools(
 	return nil
 }
 
-// refuseProfileForAgent answers a resolved "Tools: <Profile>" label that
-// carries no stanza for the agent this run would otherwise use — stage 3 of the
-// four-stage refusal precedence (T-7.2). A profile with a stanza for one
-// agent and none for another is not treated as "fall back to that agent's
-// own default surface": the whole point of a profile is the operator's
-// explicit boundary, and a run this daemon cannot resolve a surface for is
-// refused rather than widened (AC-7.1).
-//
-// Its shape mirrors [Daemon.refuseTools] and [Daemon.refuseAgent] exactly,
-// including the issue-body path posting nothing, for the same reasons
-// documented on those two.
-func (d *Daemon) refuseProfileForAgent(
-	ctx context.Context,
-	t *task,
-	trigger turn.Trigger,
-	profile string,
-	agentName string,
-	log *slog.Logger,
-) error {
-	log = log.With(
-		slog.String("profile_agent_refusal", report.ReplyProfileNotAvailableForAgent.String()),
-		slog.String("profile", profile),
-		slog.String("agent", agentName))
-
-	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its resolved tool profile has no "+
-			"stanza for this run's coding-agent tool. Nothing was run and no comment was posted, "+
-			"because there is no comment to answer; the next comment on this issue is refused "+
-			"on the thread")
-		return nil
-	}
-
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
-		Ref:       t.ref,
-		SessionID: t.session.ID,
-		CommentID: trigger.CommentID,
-		Refusal:   report.ReplyProfileNotAvailableForAgent,
-		// Both safe to name: Profile already passed toolProfileName before
-		// [Daemon.resolveTools] resolved it, and Agent is either the
-		// configured default (never label text) or a value that already
-		// passed agentKindName in [Daemon.resolveAgent]. internal/report
-		// re-checks both before rendering (S-8).
-		Profile: profile,
-		Agent:   agentName,
-	})
-	if err != nil {
-		return d.leave(ctx, t, log, "could not refuse the tool profile for this run's coding-agent tool",
-			d.orphaned(ctx, log, posted, err))
-	}
-	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the resolved tool profile has no stanza for "+
-			"this run's coding-agent tool",
-			slog.Int64("reply_comment_id", posted.CommentID))
-	}
-	return nil
-}
-
 // refuseAgent answers a Coding Agent label that could not be resolved into a
 // coding-agent tool: unknown, malformed, ambiguous, or named on a daemon
 // with no implementation of it running at all.
 //
-// It is stage 1 of the four-stage refusal precedence, and it is checked
-// before [Daemon.refuseTools] is ever reached for the same tick, per the
-// plan brief: an lf:agent= refusal is reported and the tools ladder is never
-// evaluated. Everything else about its shape mirrors [Daemon.refuseTools]
-// exactly, including the issue-body path posting nothing, for the same
-// reasons documented there.
+// It is checked before [Daemon.refuseTools] for the same tick: an agent
+// refusal is reported without inspecting or echoing any obsolete permission
+// label payload. Everything else about its shape mirrors [Daemon.refuseTools],
+// including the issue-body path posting nothing.
 func (d *Daemon) refuseAgent(
 	ctx context.Context,
 	t *task,

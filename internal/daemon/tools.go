@@ -16,17 +16,9 @@ type toolDecision struct {
 	Tools        []string
 	AllowedTools []string
 	Sandbox      string
-	// Attachments is the US-5 ingestion permission, carried through from the
-	// resolved profile. It arrived on main gated by a "Tools: <Profile>"
-	// label; under this branch's model the same key is read off the profile
-	// the run's *mode* selects, so the permission survives the change of
-	// mechanism unaltered — it is still a property of the profile, and still
-	// agent-agnostic, because it grants no tool and only decides whether the
-	// ingestion pre-step runs at all.
+	// Attachments is the agent-agnostic ingestion permission selected by mode.
 	Attachments bool
 }
-
-func (d toolDecision) refused() bool { return d.Refusal != report.ReplyInvalid }
 
 // resolveTools selects permissions from the already-resolved workflow mode and
 // coding agent. Spike remains its own mode while borrowing implement authority.

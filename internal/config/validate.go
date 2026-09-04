@@ -84,6 +84,22 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Errorf("settings.worktree_retain_days: %d is out of range; must be between %d and %d",
 			s.WorktreeRetainDays, MinWorktreeRetainDays, MaxWorktreeRetainDays))
 	}
+	if s.AttachmentMaxImageBytes < MinAttachmentBytes || s.AttachmentMaxImageBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if s.AttachmentMaxDocumentBytes < MinAttachmentBytes || s.AttachmentMaxDocumentBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_document_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if s.AttachmentMaxTotalBytes < MinAttachmentBytes || s.AttachmentMaxTotalBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_total_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if s.AttachmentMaxCount < MinAttachmentMaxCount || s.AttachmentMaxCount > MaxAttachmentMaxCount {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_count: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
+	}
 	if s.FeaturePrefix == "" {
 		errs = append(errs, errors.New("settings.feature_prefix: must not be empty; it is the first segment of every task branch"))
 	} else if !refComponentRE.MatchString(s.FeaturePrefix) || strings.Contains(s.FeaturePrefix, "..") {
@@ -226,23 +242,6 @@ func validateClaude(c *Claude) []error {
 		errs = append(errs, fmt.Errorf("claude.timeout_seconds: %d is out of range; must be between %d and %d",
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
 	}
-	if c.AttachmentMaxImageBytes < MinAttachmentBytes || c.AttachmentMaxImageBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxDocumentBytes < MinAttachmentBytes || c.AttachmentMaxDocumentBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_document_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxTotalBytes < MinAttachmentBytes || c.AttachmentMaxTotalBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_total_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxCount < MinAttachmentMaxCount || c.AttachmentMaxCount > MaxAttachmentMaxCount {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_count: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
-	}
-
 	errs = append(errs, validateAutoCompact(c)...)
 	errs = append(errs, validateTools("claude.tools", c.Tools)...)
 	errs = append(errs, validateAllowedTools("claude.allowed_tools", c.AllowedTools)...)
@@ -293,17 +292,6 @@ func validateCodex(c *Codex) []error {
 		errs = append(errs, fmt.Errorf("agents.codex.binary: %q must be an absolute path or a bare command name", c.Binary))
 	}
 
-	if c.DefaultSandbox == "" {
-		// BLOCKED-BY-US-1 (T-7.3): this checks presence only. Once the
-		// measured sandbox enum lands, this becomes a membership check
-		// against it, and the most-restrictive measured value becomes the
-		// [Defaults]/template.go constant an absent key defaults to instead
-		// of an outright refusal.
-		errs = append(errs, errors.New("agents.codex.default_sandbox: must not be empty; "+
-			"a configured agents.codex requires an explicit default sandbox mode (AC-7.8)"))
-	} else if c.DefaultSandbox != "read-only" && c.DefaultSandbox != "workspace-write" {
-		errs = append(errs, fmt.Errorf("agents.codex.default_sandbox: %q must be read-only or workspace-write", c.DefaultSandbox))
-	}
 	// Matches claude.timeout_seconds's own bounds (T-7.1): the wall-clock
 	// kill is the same kind of value for either tool, and there is no
 	// measurement suggesting Codex needs a different window.
@@ -369,7 +357,6 @@ func (c *Config) normalize() {
 	}
 	if c.Agents.Codex != nil {
 		c.Agents.Codex.Binary = strings.TrimSpace(c.Agents.Codex.Binary)
-		c.Agents.Codex.DefaultSandbox = strings.TrimSpace(c.Agents.Codex.DefaultSandbox)
 		c.Agents.Codex.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Codex.ModelTier)))
 	}
 }

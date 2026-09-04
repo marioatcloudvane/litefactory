@@ -24,6 +24,7 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-04 — Run 0013 recorded owner decisions for attachment settings/defaults and removal of obsolete profile compatibility surfaces
 - 2026-09-04 — Post-merge Plan updated at current head; seven delta stories replace the stale continuation plan
 - 2026-09-04 — Run 0015 requested implementation in plain text but was dispatched as Research; the ready implementation handoff was reconfirmed
+- 2026-09-04 — Run 0016 implemented US-1 through US-7 and reached a clean code review; completion is blocked only by two unchanged macOS process-tree tests that cannot inspect children in the restricted sandbox
 
 ## Notes
 

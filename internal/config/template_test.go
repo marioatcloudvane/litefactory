@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDefaultFileMatchesDefaults is the anti-drift check. The shipped
@@ -50,6 +51,87 @@ func TestDefaultFileValidates(t *testing.T) {
 func TestDefaultFileHasNoCredential(t *testing.T) {
 	if class, found := ClassifySecret(string(DefaultFileContents())); found {
 		t.Errorf("the default config file contains something shaped like a credential (%s)", class)
+	}
+}
+
+// TestDefaultFileIsStructurallyComplete checks key presence independently of
+// Decode's merge-on-default behavior. Without this check, a supported defaulted
+// key can disappear from the operator-facing reference while the anti-drift
+// comparison still passes.
+func TestDefaultFileIsStructurallyComplete(t *testing.T) {
+	type rawSettings struct {
+		AttachmentMaxImageBytes    *int64 `yaml:"attachment_max_image_bytes"`
+		AttachmentMaxDocumentBytes *int64 `yaml:"attachment_max_document_bytes"`
+		AttachmentMaxTotalBytes    *int64 `yaml:"attachment_max_total_bytes"`
+		AttachmentMaxCount         *int   `yaml:"attachment_max_count"`
+	}
+	type rawProfile struct {
+		Attachments *bool              `yaml:"attachments"`
+		Claude      *ToolProfileClaude `yaml:"claude"`
+		Codex       *ToolProfileCodex  `yaml:"codex"`
+	}
+	var raw struct {
+		Settings rawSettings `yaml:"settings"`
+		Agents   struct {
+			Claude map[string]yaml.Node `yaml:"claude"`
+			Codex  map[string]yaml.Node `yaml:"codex"`
+		} `yaml:"agents"`
+		ToolProfiles struct {
+			Permissions map[string]rawProfile `yaml:"permissions"`
+		} `yaml:"tool_profiles"`
+	}
+	if err := yaml.Unmarshal(DefaultFileContents(), &raw); err != nil {
+		t.Fatalf("decode generated YAML structure: %v", err)
+	}
+
+	defaults := Defaults().Settings
+	ceilings := []struct {
+		name string
+		got  *int64
+		want int64
+	}{
+		{"attachment_max_image_bytes", raw.Settings.AttachmentMaxImageBytes, defaults.AttachmentMaxImageBytes},
+		{"attachment_max_document_bytes", raw.Settings.AttachmentMaxDocumentBytes, defaults.AttachmentMaxDocumentBytes},
+		{"attachment_max_total_bytes", raw.Settings.AttachmentMaxTotalBytes, defaults.AttachmentMaxTotalBytes},
+	}
+	for _, ceiling := range ceilings {
+		if ceiling.got == nil {
+			t.Errorf("generated settings omit %s", ceiling.name)
+		} else if *ceiling.got != ceiling.want {
+			t.Errorf("generated %s = %d, want %d", ceiling.name, *ceiling.got, ceiling.want)
+		}
+	}
+	if raw.Settings.AttachmentMaxCount == nil {
+		t.Error("generated settings omit attachment_max_count")
+	} else if *raw.Settings.AttachmentMaxCount != defaults.AttachmentMaxCount {
+		t.Errorf("generated attachment_max_count = %d, want %d", *raw.Settings.AttachmentMaxCount, defaults.AttachmentMaxCount)
+	}
+
+	for _, name := range canonicalPermissionProfiles {
+		profile, ok := raw.ToolProfiles.Permissions[name]
+		if !ok {
+			t.Errorf("generated permissions omit %s profile", name)
+			continue
+		}
+		if profile.Attachments == nil {
+			t.Errorf("generated %s profile omits attachments", name)
+		}
+		if profile.Claude == nil || profile.Codex == nil {
+			t.Errorf("generated %s profile must include both agent authorities", name)
+		}
+	}
+	if _, found := raw.Agents.Codex["default_sandbox"]; found {
+		t.Error("generated agents.codex contains removed default_sandbox key")
+	}
+	for _, key := range []string{
+		"attachment_max_image_bytes",
+		"attachment_max_document_bytes",
+		"attachment_max_total_bytes",
+		"attachment_max_count",
+	} {
+		if _, found := raw.Agents.Claude[key]; found {
+			t.Errorf("generated agents.claude contains moved %s key", key)
+		}
 	}
 }
 

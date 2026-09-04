@@ -72,6 +72,124 @@ func TestSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestAttachmentCeilingsDefaultForCodexOnlyConfiguration(t *testing.T) {
+	cfg := canonicalConfig(t)
+	cfg.Agents.Claude = nil
+	cfg.agentOrder = []Kind{KindCodex}
+	for name, profile := range cfg.ToolProfiles.Permissions {
+		profile.Claude = nil
+		cfg.ToolProfiles.Permissions[name] = profile
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	want := Defaults().Settings
+	if cfg.Settings.AttachmentMaxImageBytes != want.AttachmentMaxImageBytes ||
+		cfg.Settings.AttachmentMaxDocumentBytes != want.AttachmentMaxDocumentBytes ||
+		cfg.Settings.AttachmentMaxTotalBytes != want.AttachmentMaxTotalBytes ||
+		cfg.Settings.AttachmentMaxCount != want.AttachmentMaxCount {
+		t.Fatalf("Codex-only attachment ceilings = %+v, want %+v", cfg.Settings, want)
+	}
+}
+
+func TestAttachmentCeilingOmissionUsesDefaults(t *testing.T) {
+	body := string(DefaultFileContents())
+	for _, line := range []string{
+		"  attachment_max_image_bytes: " + strconv.FormatInt(DefaultAttachmentMaxImageBytes, 10) + "\n",
+		"  attachment_max_document_bytes: " + strconv.FormatInt(DefaultAttachmentMaxDocumentBytes, 10) + "\n",
+		"  attachment_max_total_bytes: " + strconv.FormatInt(DefaultAttachmentMaxTotalBytes, 10) + "\n",
+		"  attachment_max_count: " + strconv.Itoa(DefaultAttachmentMaxCount) + "\n",
+	} {
+		body = strings.Replace(body, line, "", 1)
+	}
+
+	cfg, err := Decode(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Decode omitted ceilings: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate omitted ceilings: %v", err)
+	}
+	want := Defaults().Settings
+	if cfg.Settings.AttachmentMaxImageBytes != want.AttachmentMaxImageBytes ||
+		cfg.Settings.AttachmentMaxDocumentBytes != want.AttachmentMaxDocumentBytes ||
+		cfg.Settings.AttachmentMaxTotalBytes != want.AttachmentMaxTotalBytes ||
+		cfg.Settings.AttachmentMaxCount != want.AttachmentMaxCount {
+		t.Fatalf("omitted attachment ceilings = %+v, want %+v", cfg.Settings, want)
+	}
+}
+
+func TestAttachmentCeilingsAcceptCanonicalBounds(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Settings)
+	}{
+		{"image lower/accepted", func(s *Settings) { s.AttachmentMaxImageBytes = MinAttachmentBytes }},
+		{"image upper/accepted", func(s *Settings) { s.AttachmentMaxImageBytes = MaxAttachmentBytes }},
+		{"document lower/accepted", func(s *Settings) { s.AttachmentMaxDocumentBytes = MinAttachmentBytes }},
+		{"document upper/accepted", func(s *Settings) { s.AttachmentMaxDocumentBytes = MaxAttachmentBytes }},
+		{"total lower/accepted", func(s *Settings) { s.AttachmentMaxTotalBytes = MinAttachmentBytes }},
+		{"total upper/accepted", func(s *Settings) { s.AttachmentMaxTotalBytes = MaxAttachmentBytes }},
+		{"count lower/accepted", func(s *Settings) { s.AttachmentMaxCount = MinAttachmentMaxCount }},
+		{"count upper/accepted", func(s *Settings) { s.AttachmentMaxCount = MaxAttachmentMaxCount }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := canonicalConfig(t)
+			tt.mutate(&cfg.Settings)
+
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate canonical bound: %v", err)
+			}
+		})
+	}
+}
+
+func TestAttachmentCeilingsReportAllCanonicalErrors(t *testing.T) {
+	cfg := canonicalConfig(t)
+	cfg.Settings.AttachmentMaxImageBytes = 0
+	cfg.Settings.AttachmentMaxDocumentBytes = MinAttachmentBytes - 1
+	cfg.Settings.AttachmentMaxTotalBytes = MaxAttachmentBytes + 1
+	cfg.Settings.AttachmentMaxCount = 0
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted invalid attachment ceilings")
+	}
+	for _, path := range []string{
+		"settings.attachment_max_image_bytes",
+		"settings.attachment_max_document_bytes",
+		"settings.attachment_max_total_bytes",
+		"settings.attachment_max_count",
+	} {
+		if !strings.Contains(err.Error(), path) {
+			t.Errorf("aggregate error %q omits %q", err, path)
+		}
+	}
+}
+
+func TestAttachmentAndSandboxLegacyLocationsAreRejected(t *testing.T) {
+	tests := []struct {
+		name, body, want string
+	}{
+		{"Claude image ceiling/rejected", "agents:\n  claude:\n    attachment_max_image_bytes: 1024\n", "attachment_max_image_bytes"},
+		{"Claude document ceiling/rejected", "agents:\n  claude:\n    attachment_max_document_bytes: 1024\n", "attachment_max_document_bytes"},
+		{"Claude total ceiling/rejected", "agents:\n  claude:\n    attachment_max_total_bytes: 1024\n", "attachment_max_total_bytes"},
+		{"Claude count ceiling/rejected", "agents:\n  claude:\n    attachment_max_count: 1\n", "attachment_max_count"},
+		{"Codex default sandbox/rejected", "agents:\n  codex:\n    default_sandbox: read-only\n", "default_sandbox"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Decode(strings.NewReader(tt.body))
+
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Decode error = %v, want strict rejection naming %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func defaultSettingValue(key string) int {
 	switch key {
 	case "poll_interval_seconds":

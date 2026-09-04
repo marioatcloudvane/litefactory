@@ -300,7 +300,7 @@ type Request struct {
 	Agent agent.Kind
 
 	// AttachmentsAllowed is the US-5 permission gate: true only when a
-	// resolved "Tools: <Profile>" label is present AND that profile's
+	// selected mode profile is present AND that profile's
 	// attachments key is true. It is computed by the daemon's per-agent
 	// narrowing stage (tick.go), the same stage that resolves ToolProfile
 	// above — deliberately not by [resolveTools]'s pure label ladder, which

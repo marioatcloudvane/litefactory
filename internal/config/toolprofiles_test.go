@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -83,6 +84,41 @@ func TestCanonicalPermissionMatrix(t *testing.T) {
 	}
 	if validate.Codex.Sandbox != "read-only" {
 		t.Errorf("validate sandbox=%q", validate.Codex.Sandbox)
+	}
+}
+
+func TestCanonicalAttachmentPermissionsAndOverrides(t *testing.T) {
+	tests := []struct {
+		name        string
+		profile     string
+		wantDefault bool
+	}{
+		{"research/default enabled", "research", true},
+		{"plan/default enabled", "plan", true},
+		{"implement/default disabled", "implement", false},
+		{"validate/default disabled", "validate", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defaults := DefaultToolProfiles()
+			if got := defaults.Permissions[tt.profile].Attachments; got != tt.wantDefault {
+				t.Fatalf("%s attachments = %t, want %t", tt.profile, got, tt.wantDefault)
+			}
+
+			body := strings.Replace(string(DefaultFileContents()),
+				"    "+tt.profile+":\n      attachments: "+strconv.FormatBool(tt.wantDefault),
+				"    "+tt.profile+":\n      attachments: "+strconv.FormatBool(!tt.wantDefault), 1)
+			cfg, err := Decode(strings.NewReader(body))
+			if err != nil {
+				t.Fatalf("Decode override: %v", err)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate override: %v", err)
+			}
+			if got := cfg.ToolProfiles.Permissions[tt.profile].Attachments; got == tt.wantDefault {
+				t.Fatalf("%s explicit attachment override was not retained", tt.profile)
+			}
+		})
 	}
 }
 
