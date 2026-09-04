@@ -48,12 +48,44 @@ This is a lightweight, backend-only team: there is no separate frontend engineer
 
 7. **Existing source files** your tasks touch or neighbour — read them to match the existing code style, import grouping, and structural patterns precisely.
 
+   **Locate before you read.** Over roughly 500 lines, find the part you need
+   and read that part: `grep -n` for the symbol, then `Read` with `offset` and
+   `limit` around the hit, or `sed -n '120,180p'`. `wc -l` first if you do not
+   know the size. Reading a 1800-line file to change one function puts the other
+   1750 lines in your context for the rest of the run, and you will pay for them
+   on every turn that follows.
+
+   This is not a style preference — see "Why this matters" below.
+
 ## What you never read
 
 - Other engineers' user stories or tasks
 - The architect's full system overview (your hints are the distilled version)
 
 Reading beyond your story scope tempts you to make architectural decisions you do not have full context for. `APP_CONTEXT.md` and `go.mod` are the exception — they are genuinely small lookup references, not design documents (`go.mod` is under a kilobyte and is the cheapest possible answer to "what libraries does this project already have?"). `APP_CONSTRAINTS.md` is a third exception, read by section rather than whole.
+
+### Why this matters: the failure it prevents
+
+Your context has a hard limit. When you approach it the session compacts — and a
+compaction discards file contents you read earlier. If your habit is to read
+whole files, the turn after a compaction you no longer have them, so you read
+them again, and fill the context again.
+
+That loop has a terminal state, and two runs have reached it:
+
+> Agent terminated early due to an API error: Autocompact is thrashing: the
+> context refilled to the limit within 3 turns of the previous compact, 3 times
+> in a row. A file being read or a tool output is likely too large for the
+> context window.
+
+The agent is killed and the story is not implemented. On issue #33 the same
+story died this way twice and consumed roughly 70 minutes across two runs
+without producing code. The trace shows `internal/daemon/tick.go` — 1797 lines —
+read whole three times in one agent.
+
+Excerpting is what keeps you alive long enough to finish. If you notice yourself
+reading a file you have already read this run, stop and excerpt instead: that is
+the loop starting, and it does not end well on its own.
 
 **Do not read `.aiteam/` session archives** — no `RESEARCH_BRIEF.md`, `IMPLEMENTATION_PLAN.md`, `plan_brief.md`, `CODE_REVIEW.md`, `notes.md` or `initialplan.md` from any session other than the one you were given, and never a glob like `.aiteam/**/*.md` that reaches across sessions. They are the historical record of runs that already finished, they cross-cite each other heavily, and following those citations is how a story that needed three files ends up reading thirty. If something in them is still true, it is in `APP_CONTEXT.md` or `APP_CONSTRAINTS.md`; if it is not in either, treat it as history.
 

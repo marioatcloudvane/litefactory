@@ -9,36 +9,65 @@ import (
 )
 
 // toolLabelPrefix is the whole of the label vocabulary: one label, of the shape
-// lf:tools=<profile>, naming a profile the operator wrote in config.yaml.
+// "Tools: <Profile>", naming a profile the operator wrote in config.yaml.
 //
 // It is *detected* case-insensitively and *accepted* only byte-exact, and the
-// distance between those two is the whole of D-6. GitHub label names keep the
-// case they were typed in, so a case-sensitive scan would not see "LF:Tools="
-// at all: the run would proceed on the harness's default surface having
-// silently ignored a permission request, which is the one outcome this feature
-// exists to prevent. Seeing the label and then refusing it turns the typo into a
-// loud refusal instead — a maintainer who mis-typed the prefix is told so on the
-// thread rather than left to assume a profile took effect.
+// distance between those two is the whole of D-6 — the same split
+// [agentLabelPrefix] documents, byte for byte. GitHub label names keep the
+// case they were typed in, so a case-sensitive scan would not see
+// "tools: research" at all: the run would proceed on the harness's default
+// surface having silently ignored a permission request, which is the one
+// outcome this feature exists to prevent. Seeing the label and then refusing
+// it turns the typo into a loud refusal instead — a maintainer who mis-typed
+// the prefix is told so on the thread rather than left to assume a profile
+// took effect.
 //
-// So "lf:tools=research" resolves the research profile, and "LF:Tools=research"
+// So "Tools: Research" resolves the research profile, and "tools: Research"
 // is a malformed label: refused, not resolved, and never a no-op.
 //
-// The value after the "=" is held to the same standard for the same reason. It
-// is a lookup key, it is compared to the configuration exactly as it arrived,
-// and [toolProfileName] admits lowercase only — so "lf:tools=Research" is
-// malformed too.
-const toolLabelPrefix = "lf:tools="
+// The value after the prefix is held to a related but not identical standard.
+// [toolProfileName] requires an upper-case first letter — the same shape
+// [agentKindName] requires of a coding-agent name — and the whole value is
+// then lower-cased before it is used as the lookup key, so "Tools: Research"
+// and a configured profile key of "research" are the same profile. A value
+// that does not start with an upper-case letter, such as "Tools: research",
+// is malformed: the display shape is part of what is checked, not just the
+// character set.
+const toolLabelPrefix = "Tools: "
 
-// toolProfileName is the shape of a profile name, and it is the same pattern
-// internal/config validates the operator's profile keys against at startup.
+// legacyToolLabelPrefix is the label syntax this feature shipped with before
+// the rename to [toolLabelPrefix]: lf:tools=<profile>. It is matched
+// case-insensitively, the same way [toolLabelPrefix] is detected, and any
+// match at all — regardless of casing, of the value that follows it, or of
+// how many such labels an issue carries — is refused (US-2).
 //
-// The two copies are deliberate rather than shared. This one is not validating
-// configuration — that already happened, at boot, where it belongs. It is
-// deciding whether a string that arrived from the forge is even the *shape* of a
-// key, before it is used as one and long before internal/report is asked to
-// print it back. A label that fails here never becomes a map lookup and never
-// becomes text in a comment.
-var toolProfileName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
+// The refusal exists so an issue that still carries the old label is never
+// silently treated as carrying no label at all. Before this rung existed, an
+// operator who had not yet relabelled an issue would have a run resolve with
+// no tool profile and no indication anything was wrong — the exact silent
+// permission drop this whole feature exists to prevent, just relocated to the
+// rename instead of the original feature. Refusing loudly, and naming the new
+// notation in the reply, is what lets that operator notice and relabel
+// instead of assuming a profile is still active.
+//
+// It is checked before [toolLabelPrefix]'s own ladder runs (see
+// [Daemon.resolveTools]), so an issue carrying both an old-style and a
+// new-style label is refused for carrying the old one rather than falling
+// through to resolve the new one — the old label is a syntax error on this
+// issue regardless of what else is present, and it is not this function's
+// job to guess which of the two the operator meant to leave behind.
+const legacyToolLabelPrefix = "lf:tools="
+
+// toolProfileName is the shape of a tool-profile label's *displayed* value —
+// deliberately the same pattern [agentKindName] holds a label's displayed
+// agent name to, not the pattern internal/config validates a profile's
+// stored *key* against (config.profileKeyRE). The two differ on purpose: a
+// human types "Tools: Research" onto a label, upper-case first letter to
+// match [agentLabelPrefix]'s "Coding Agent: Claude" convention, and this
+// package lower-cases the whole value before it is ever used as a map key
+// into d.toolProfiles — see [Daemon.resolveTools]. A label that fails this
+// check never becomes a map lookup and never becomes text in a comment.
+var toolProfileName = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
 
 // toolDecision is what the labels on an issue say about the tools its next run
 // may have.
@@ -56,12 +85,12 @@ type toolDecision struct {
 	// Profile is the resolved profile name, and it is set on exactly two paths:
 	// a successful resolution, and the unknown-profile refusal, which is the one
 	// refusal allowed to name what it could not find. It has passed
-	// [toolProfileName] in either case, so it is safe to render — and
-	// internal/report checks that for itself before it does (S-8).
+	// [toolProfileName] in either case (after lower-casing), so it is safe to
+	// render — and internal/report checks that for itself before it does (S-8).
 	//
-	// The malformed and ambiguous refusals leave it empty, and that is the whole
-	// mechanism by which they cannot echo label text: there is no field for the
-	// text to travel in (S-9).
+	// Every other refusal, [report.ReplyLegacyToolLabel] included, leaves it
+	// empty, and that is the whole mechanism by which they cannot echo label
+	// text: there is no field for the text to travel in (S-9).
 	Profile string
 
 	// MiscasedPrefix records that this malformed refusal was drawn by a label
@@ -101,36 +130,52 @@ func (d toolDecision) refused() bool { return d.Refusal != report.ReplyInvalid }
 // The labels are the tick's fresh snapshot and are read again on every tick;
 // nothing here is cached, and no API call is made for them. The rules, in order:
 //
-//   - No label whose prefix equals lf:tools= ignoring case: nothing is resolved
-//     and nothing is set. This is the overwhelmingly common case and it must
-//     stay indistinguishable from the behaviour before profiles existed. A
-//     label that does not carry the prefix in any casing is not a tools label
-//     at all and is passed over in silence, not refused.
+//   - Any label whose prefix equals [legacyToolLabelPrefix] ignoring case: the
+//     old lf:tools= syntax, refused loudly rather than treated as absent
+//     (US-2). This is checked before anything below, and unconditionally —
+//     casing, the value, and how many such labels are present are all
+//     irrelevant to this rung, because the label itself is a syntax error on
+//     this issue regardless of what it says.
+//   - No label whose prefix equals "Tools: " ignoring case: nothing is
+//     resolved and nothing is set. This is the overwhelmingly common case and
+//     it must stay indistinguishable from the behaviour before profiles
+//     existed. A label that does not carry the prefix in any casing is not a
+//     tools label at all and is passed over in silence, not refused.
 //   - More than one such label: ambiguous, and refused. One is never picked and
 //     two are never unioned — "which of these two permission grants did you
 //     mean" has no safe answer, and inventing one is how a narrow label gets
 //     quietly widened by a second one somebody else applied. A mis-cased label
 //     counts as one of the two; see the comment on the count below.
-//   - The single label's prefix, byte for byte: it must be the lowercase
-//     lf:tools=. Anything else is malformed, and refused (AC-3.5). This is the
+//   - The single label's prefix, byte for byte: it must be "Tools: ", exactly.
+//     Anything else is malformed, and refused (AC-3.5). This is the
 //     accept-strictly half of D-6 and it is the only reason the detection above
 //     is lenient at all.
-//   - A value that is not the shape of a profile name, including the empty
-//     string: malformed, and refused.
-//   - A well-formed value that is not a key of the profile map: unknown, and
-//     refused. An absent or empty tool_profiles map takes this path too, and
-//     that is D-5: a label asking for a named permission set, on a daemon that
-//     has none configured, is answered by refusing rather than by silently
-//     running with everything the default surface allows.
+//   - A value that is not the shape [toolProfileName] describes, including the
+//     empty string: malformed, and refused.
+//   - A well-formed value, lower-cased, that is not a key of the profile map:
+//     unknown, and refused. An absent or empty tool_profiles map takes this
+//     path too, and that is D-5: a label asking for a named permission set, on
+//     a daemon that has none configured, is answered by refusing rather than
+//     by silently running with everything the default surface allows.
 //   - A key of the map: resolved.
 //
-// The lookup is an exact map index on the value's own bytes. It is not trimmed,
-// lower-cased or otherwise repaired first, because the profile keys were not
-// normalised when the operator's config was validated either: a lookup that
-// canonicalised more than the key space does could match a profile the operator
-// cannot see in their own file. The prefix is not repaired either, for the
-// stronger reason that repairing it is indistinguishable from accepting it.
+// The lookup is an exact map index on the lower-cased value. The profile keys
+// themselves were not normalised when the operator's config was validated
+// either, so this is the one deliberate exception to "the label is not
+// repaired before it is used": lower-casing is part of the accepted shape,
+// not a repair of a rejected one — see [toolProfileName]'s doc. The prefix is
+// never repaired, for the stronger reason that repairing it is
+// indistinguishable from accepting it.
 func (d *Daemon) resolveTools(labels []string) toolDecision {
+	for _, label := range labels {
+		if len(label) < len(legacyToolLabelPrefix) {
+			continue
+		}
+		if strings.EqualFold(label[:len(legacyToolLabelPrefix)], legacyToolLabelPrefix) {
+			return toolDecision{Refusal: report.ReplyLegacyToolLabel}
+		}
+	}
+
 	// A label that was seen, with the two facts the rules below need about it:
 	// whether the prefix survived a byte comparison as well as a folded one, and
 	// what followed it. Neither the label nor this struct leaves this function.
@@ -153,7 +198,7 @@ func (d *Daemon) resolveTools(labels []string) toolDecision {
 
 	// Counted before any of them is judged, and a mis-cased label counts in the
 	// total. Two detected labels are two permission requests however they were
-	// typed, so "lf:tools=research" beside "LF:Tools=build" is ambiguous rather
+	// typed, so "Tools: Research" beside "tools: Build" is ambiguous rather
 	// than malformed, and that ordering is chosen rather than incidental:
 	//
 	//   - The malformed reply tells the maintainer to fix the shape of a label.
@@ -179,10 +224,11 @@ func (d *Daemon) resolveTools(labels []string) toolDecision {
 	if !label.exactPrefix {
 		return toolDecision{Refusal: report.ReplyMalformedToolLabel, MiscasedPrefix: true}
 	}
-	name := label.value
-	if !toolProfileName.MatchString(name) {
+	displayName := label.value
+	if !toolProfileName.MatchString(displayName) {
 		return toolDecision{Refusal: report.ReplyMalformedToolLabel}
 	}
+	name := strings.ToLower(displayName)
 	profile, ok := d.toolProfiles[name]
 	if !ok {
 		return toolDecision{Refusal: report.ReplyUnknownToolProfile, Profile: name}

@@ -45,3 +45,6 @@ go.work.sum
 
 # One-off maintenance script, not part of the build
 /reset-session-8.sh
+
+# Personal Claude Code permission overrides — never committed.
+.claude/settings.local.json

@@ -86,6 +86,14 @@ batch; continue only after every result required by the step has returned. A
 missing, failed, or blocked report is an explicit step failure, not a reason to
 retry invisibly. Never substitute your own guess for a child's findings.
 
+**Every `Task` call sets `subagent_type` explicitly, to a roster name.**
+Omitting it does not fail — it silently resolves to `general-purpose`, which
+carries none of this team's instructions and reports `DONE` all the same, so the
+substitution is invisible in the log. The names you may use here are
+`requirements-engineer`, `go-architect`, `proxy-product-owner`,
+`research-orchestrator` and `codebase-tour`. The field takes an agent name and
+nothing else — never a note or a placeholder.
+
 ## Choreography
 
 ### 1. Requirements Engineer
@@ -105,13 +113,22 @@ report the planning step as failed or blocked; do not retry it invisibly.
 
 Invoke `go-architect`. Pass:
 - `$session/feature-spec.md`
+- `$session` itself — the architect writes its review there
 - The platform skill path: `.claude/skills/go/platform-constraints.md`
 
-**The architect writes no file.** Its findings are the foreground `Task` result.
-Consume that result directly; a missing or failed result blocks synthesis and is
-not a reason to invoke the architect again for status.
+**The architect writes `$session/ARCH_REVIEW.md` and returns a short pointer to
+it**, not the review itself. Read that file when you synthesise. The foreground
+`Task` result gives you the verdict, the cross-story decisions and any
+DEVIATION; everything else is in the file.
 
-Architect performs a role-switching review and returns findings inline — no files written:
+A missing or failed result blocks synthesis and is not a reason to invoke the
+architect again for status. Neither is a *short* result: brevity is the contract
+here, not a symptom of a truncated run. Check for `ARCH_REVIEW.md` once. If the
+result says it failed, or the file is absent after it returned, report that and
+stop — re-running the architect is the single most expensive mistake available
+at this step, and a run on issue #33 spent 34 of its 61 minutes making it.
+
+Architect performs a role-switching review covering:
 
 - **Engineering lens**: feasibility, implementation order, dependency risks
 - **Platform lens**: reads `.claude/skills/go/platform-constraints.md`, flags applicable constraints
@@ -120,7 +137,7 @@ Architect performs a role-switching review and returns findings inline — no fi
 
 ### 3. Synthesise
 
-Combine RE spec + architect findings into two artifacts, not one:
+Combine RE spec + `$session/ARCH_REVIEW.md` into two artifacts, not one:
 
 - **`$session/plan_brief.md`** — the shared-context document (contract below). Holds only what two or more stories need.
 - **One sub-issue per user story** — each story's own tasks, acceptance criteria and architecture notes, in the sub-issue format below.

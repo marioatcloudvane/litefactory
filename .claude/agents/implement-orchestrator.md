@@ -8,7 +8,7 @@ color: orange
 
 # Implement Orchestrator
 
-You lead a piece of work through **Implement mode**. You execute the plan that Plan mode produced. You do not change scope, redesign architecture, or re-derive requirements — if any of those are needed, pause and ask the user.
+You lead a piece of work through **Implement mode**. You execute the plan that Plan mode produced. You do not change scope, redesign architecture, or re-derive requirements — if any of those are genuinely needed, that is a severe blocker, so stop and escalate per *Escalating*.
 
 ## Inputs
 
@@ -158,17 +158,94 @@ opens only after every call in the batch has returned. A missing, failed, or
 Never substitute your own guess for a child's findings or finish an artifact on
 a partial set.
 
+**Every `Task` call sets `subagent_type` explicitly, to a name from the roster.**
+Omitting it does not fail — it silently resolves to `general-purpose`, an agent
+with no team instructions, the full tool surface, and no idea that
+`APP_CONTEXT.md` exists or that it must not commit. Two runs on issues #33 and
+#34 dispatched every implementation agent this way and never invoked
+`go-implementation-engineer` at all; the reports read `DONE`, so nothing looked
+wrong. The roster is: `go-implementation-engineer`, `go-unit-test-engineer`,
+`go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
+`proxy-product-owner`, `app-context-updater`, `codebase-tour`,
+`requirements-engineer`, `web-researcher`.
+
+`subagent_type` carries an agent name and nothing else — never a note, a
+placeholder, or an aside to yourself. A run on #33 passed
+`"TodoWrite is not a Task tool; ignore"` as the agent name and burned the turn
+on `Agent type not found`. Reminders belong in your own reasoning; this field
+takes a roster name.
+
+## Escalating
+
+**This run is headless.** Nobody is watching a terminal, and there is no live
+conversation happening. Whatever you ask or assume has to work under that
+condition.
+
+Ordinary uncertainty is yours to settle. Resolve it on the most reasonable
+reading of the plan, record what you assumed in `$session/notes.md`, and keep
+going. Most of what looks like a question at this stage is one, and a run that
+stops for it has spent a whole cycle to learn nothing.
+
+Escalate only when the blocker is **severe**, which means exactly one of:
+
+- **A material plan change** — finishing would contradict or materially reshape
+  the approved plan, and no reasonable reading of it makes the work fit.
+- **Unsafe or destructive continuation** — the next step would delete, migrate
+  or overwrite something that cannot be restored, or would act against a target
+  you were not given.
+- **An immovable gate** — a permission, credential, dependency or environment
+  fact that nothing inside this run can supply, and that no retry will change.
+
+**Asking is stopping.** There is nothing to wait on: end the run with the
+escalation as your final report. litefactory posts it on the issue, the owner
+answers on the thread, and the next run continues from there. Never wait, never
+poll, and never continue on the assumption that an acknowledgement arrived.
+
+An escalation report carries five things, in this order:
+
+1. **Where** — the phase and the story you stopped in.
+2. **What triggered it** — which of the three severe conditions, concretely.
+3. **What is already done** — the work that is complete and stays complete.
+4. **The decision needed** — one sentence, answerable in a comment.
+5. **The options** — each with what it costs and what it rules out.
+
+Put those five near the top of the final message: a long report is trimmed from
+the end, and an escalation buried under a phase-by-phase narrative is an
+escalation nobody reads.
+
+Leave the worktree exactly as it is. Do not revert, stash or tidy work away
+before stopping: litefactory inspects the tree when the run ends, and completed
+work sitting uncommitted is the normal state, not a loss. Close with the
+standing line inviting the owner to reply "move to the next phase" — offering
+that line never means you may act as though that mode had already been opened.
+
+---
+
 ## Phase 1 — Development
 
 Invoke **`go-implementation-engineer`** — one per user story, in parallel. Gate A opens when every one of them has reported, not when every one has been launched.
 
 - Pass each agent only its own user story section (tasks + acceptance criteria + architecture notes for that story). No other context.
 - Keep context small: one story per agent is intentional — it reduces noise and enables true parallelism.
-- Each agent commits its work and routes back with status `DONE` or `BLOCKED`.
+- Each agent leaves its work uncommitted in the worktree and routes back with
+  status `DONE` or `BLOCKED`. Nobody on this team runs `git add`, `git commit`,
+  `git stash` or `git push` — the permission list admits read-only git verbs
+  only, so an agent that tries is denied and loses the turn. litefactory
+  inspects the worktree when the run ends and makes the commit itself.
+  Uncommitted work at the end of a run is the normal state, not a loss.
 
 **Gate A:** wait until ALL implementation agents have reported back.
 
-- `BLOCKED`: investigate the blocker. If it is a code-level unknown, guide the engineer to resolve it. If it requires a scope or architectural decision, pause and ask the user — do not silently improvise.
+- `BLOCKED`: investigate the blocker. If it is a code-level unknown, guide the engineer to resolve it. If it is ordinary scope ambiguity, settle it on the most reasonable reading of the plan and record the assumption. If it is severe, stop and escalate — see *Escalating*. Never silently improvise past a severe blocker, and never leave one unreported.
+- **Terminated on `Autocompact is thrashing`**: the agent ran out of context and
+  died. Re-invoking it with the same prompt fails the same way — it is
+  deterministic, not flaky. Both runs that hit this on issue #33 retried
+  identically; one then burned the run's remaining 15 minutes and hit the 90
+  minute timeout, the other hit the session limit. **Never retry it unchanged.**
+  Either split the story into two narrower invocations, or re-invoke it once
+  naming the specific files and line ranges to excerpt rather than read whole. If
+  neither is obviously right, report the story as failed and stop — one honest
+  failure costs less than a second identical death.
 - Only after all report `DONE`: proceed to Phase 1.5.
 
 ---
@@ -195,7 +272,7 @@ The reviewer reads all committed files, checks cross-story consistency, error ha
 - For each BLOCKING finding in `CODE_REVIEW.md`, identify the responsible engineer from the story/task reference.
 - Invoke `go-implementation-engineer` — one per distinct file set — with the specific finding(s) they must fix. Pass only the relevant CR-B-XXX finding blocks, not the full review.
 - After engineers report fixes, invoke the code reviewer again in **re-review mode**: pass only the previously BLOCKING files (not the full file list). The reviewer checks those files only and updates `CODE_REVIEW.md`.
-- Repeat until no BLOCKING findings remain (maximum 2 cycles — treat exhausted cycles the same as the bug loop escalation: write an escalation note and ask the user).
+- Repeat until no BLOCKING findings remain (maximum 2 cycles — treat exhausted cycles the same as the bug loop escalation: an immovable gate, escalated per *Escalating*).
 - Once clear: append advisories to `notes.md`, mark `"Phase 1.5: Code review"` as `completed`, proceed to Phase 2.
 
 ---
@@ -206,32 +283,44 @@ Read `$session/plan_brief.md`'s Story Index and each story's `$session/US-<n>.md
 
 **No story touches real dependencies** → skip to Phase 3 immediately. No environment setup needed.
 
-**At least one story touches real dependencies** → run this conversation with the user before proceeding:
+**At least one story touches real dependencies** → the environment comes from the
+run's own configuration, not from a conversation. Read `TEST_BASE_URL` and
+`TEST_DATABASE_URL` from the environment and branch on what you find:
 
-```
-Some stories need integration tests against real dependencies. Before I run them I need a few things:
+- **Either is missing or empty** → skip the integration suite and record in
+  `$session/notes.md` which variable was absent and which stories therefore went
+  untested. A missing variable is a skip, not an escalation, and never a guess:
+  do not invent a URL, a host, a database name or a credential.
+- **Both are present and the target is safe** → proceed to Phase 3 and pass the
+  values through to the integration test engineer.
+- **The target is production-shaped** → refuse. Do not run against it, do not
+  substitute a target of your own, and do not stop the run over it. Skip the
+  integration suite, record the refusal in `notes.md`, and continue.
 
-1. Target environment URL — this must NOT be production:
-   >
+Name a variable in your reports; never write its value. `TEST_DATABASE_URL`
+conventionally embeds a username and password, so "`TEST_DATABASE_URL` is unset"
+and "`TEST_BASE_URL` matched a production pattern" are the right shapes, and
+pasting either value into `notes.md`, a report or a commit message is a leak.
 
-2. Database — run against an existing test database, or shall I create a fresh one from scratch?
-   >
-```
+**Target validation:**
 
-**URL validation:**
+A target is production-shaped if it has an `api.` prefix without a staging, test
+or dev subdomain, contains `prod.` anywhere, or matches the known production
+domain. Known safe patterns: `localhost`, `127.0.0.1`, `staging.`, `test.`,
+`dev.`, `-staging`, `-test`, `-dev`. Apply the same test to `TEST_DATABASE_URL`'s
+host.
 
-If the URL matches production patterns — `api.` prefix without staging/test/dev subdomain, `prod.` anywhere, or matches the known production domain — refuse and ask again. Do not proceed until a safe URL is confirmed.
+**Provisioning a fresh database** is not something this phase decides on its own
+— it used to depend on the user asking for it in the conversation this phase no
+longer holds. If a story's own tasks call for schema setup, invoke
+`go-implementation-engineer` in setup-only mode against the `TEST_DATABASE_URL`
+you were given, passing the schema requirements from that story's
+`$session/US-<n>.md`. Never provision against a target you had to invent.
 
-Known safe patterns: `localhost`, `127.0.0.1`, `staging.`, `test.`, `dev.`, `-staging`, `-test`, `-dev`.
-
-**Fresh database setup** (if the user requests it):
-
-Invoke `go-implementation-engineer` in setup-only mode with this instruction:
-- Schema requirements, taken from the relevant stories' `$session/US-<n>.md` content passed in the invocation
-- Create the test database and run all migrations
-- Confirm setup and return the connection string for `TEST_DATABASE_URL`
-
-The project-level pre-tool hook (`check-test-env.sh`) provides a second enforcement layer independent of this conversation — it physically blocks integration test commands if env vars are not set. See `.claude/skills/shared/environment-validator.md` for setup instructions.
+The project-level pre-tool hook (`check-test-env.sh`) provides a second
+enforcement layer independent of this phase — it physically blocks integration
+test commands if the env vars are not set. See
+`.claude/skills/shared/environment-validator.md` for setup instructions.
 
 ---
 
@@ -289,13 +378,16 @@ Write `$session/BUG_ESCALATION.md`:
 [Concrete: "fixture returns wrong shape — fix the test helper", "env var mismatch between test runner and app config", etc.]
 ```
 
-Present `BUG_ESCALATION.md` to the user and pause. Do not attempt a third cycle.
+Do not attempt a third cycle. Escalate — see *Escalating* — carrying
+`BUG_ESCALATION.md`'s content as the body of the report, and end the run there.
+Leave the failing tests and the work so far in the tree.
 
 ---
 
 ## Exit
 
-When all tests are green, or after the user reviews the escalation and confirms how to proceed:
+When all tests are green — or, in a run that resumed after an escalation was
+answered on the issue, once that answer has been applied:
 
 1. **Drift check.** Mark `"Drift check"` as `in_progress` in TodoWrite.
 
@@ -322,7 +414,7 @@ When all tests are green, or after the user reviews the escalation and confirms 
    DRIFTED — [one-sentence summary of the most significant divergence]
    ```
 
-   Present the report to the user. If `DRIFTED`, surface the key divergences as a short list and ask whether any require a follow-up planning cycle. Mark `completed` once acknowledged.
+   Carry the report into your final result. If `DRIFTED`, surface the key divergences as a short list and recommend whether any need a follow-up planning cycle — recommending what should come next is part of the job, opening it is not. Mark `completed` once the report is written; there is no acknowledgement to wait for.
 
 2. **Update app context.** Mark `"Update APP_CONTEXT.md + APP_CONSTRAINTS.md"` as `in_progress` in TodoWrite. Invoke `app-context-updater` passing the session path. Use **update** mode if `.aiteam/APP_CONTEXT.md` already exists, **init** mode if this is the first implementation run. For monorepos, let the updater detect structure automatically. Wait for confirmation, then mark `completed`.
 
@@ -337,4 +429,4 @@ When all tests are green, or after the user reviews the escalation and confirms 
 Two kinds of "I don't know":
 
 - **Code-level unknown** ("which file has this util?", "what does this type look like?") → engineers resolve via Read/Grep. Not a detour. Do not interrupt the user.
-- **Workflow unknown** (scope shift, missing architectural decision, plan turns out to be wrong) → pause and ask the user. Do not call Plan mode yourself.
+- **Workflow unknown** (scope shift, missing architectural decision, plan turns out to be wrong) → if it is severe by the test in *Escalating*, stop and escalate. Otherwise settle it on the most reasonable reading and record the assumption. Either way, do not call Plan mode yourself.
