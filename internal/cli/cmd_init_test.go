@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -165,6 +167,36 @@ func listIdentities(t *testing.T, paths config.Paths) []store.Identity {
 	return list
 }
 
+// emptyKeychain is a keychain that holds nothing, which is what a machine
+// looks like before the operator has run `security add-generic-password`.
+//
+// Every test that lets `init` generate a config.yaml must install one. The
+// generated file names a live token_keychain reference (US-8/AC-8.3), so the
+// resolver runs on the ordinary path; without this stub it reads the real
+// login keychain of whoever runs the suite, and the assertions below then
+// depend on that machine's contents and lock state rather than on init.
+func emptyKeychain(context.Context, string, string) (string, error) {
+	return "", secrets.ErrNotFound
+}
+
+// newInitRouter is newTestRouter with a keychain stub installed.
+func newInitRouter(
+	t *testing.T, keychain func(context.Context, string, string) (string, error),
+) (router *Router, stdout, stderr *bytes.Buffer) {
+	t.Helper()
+
+	stdout, stderr = &bytes.Buffer{}, &bytes.Buffer{}
+	env := &Env{
+		Stdout:   stdout,
+		Stderr:   stderr,
+		Stdin:    strings.NewReader(""),
+		Logger:   slog.New(slog.DiscardHandler),
+		Version:  "1.2.3-test",
+		Keychain: keychain,
+	}
+	return NewRouter("litefactory", env, Commands()), stdout, stderr
+}
+
 // newLoggingRouter is newTestRouter with a logger that can be read back, for
 // the tests that assert on what was logged.
 func newLoggingRouter(t *testing.T) (router *Router, stdout, stderr, logs *bytes.Buffer) {
@@ -194,7 +226,7 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 
 	paths := newInitHome(t)
 	newInitGH().install(t)
-	router, stdout, stderr := newTestRouter(t)
+	router, stdout, stderr := newInitRouter(t, emptyKeychain)
 
 	if code := router.Run(t.Context(), []string{"init"}); code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -231,16 +263,20 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 		t.Error("the default config.yaml does not carry the documented keychain reference")
 	}
 
+	// One identity, not two. The generated file names a keychain item, but on
+	// a machine that has never had `security add-generic-password` run against
+	// it that item does not exist yet — so the bot is unresolved and only the
+	// owner is stored. This is the same fresh-machine outcome AC-0.5 has always
+	// described; naming a reference in the generated file (US-8/AC-8.3) changed
+	// what init *looks for*, not what it can find before the operator acts.
+	//
+	// The resolved-bot path has its own coverage in TestInitStoresTheBotIdentity,
+	// which supplies a credential rather than reading the developer's keychain.
 	list := listIdentities(t, paths)
-	if len(list) != 2 {
-		t.Fatalf("stored %d identities, want owner and bot", len(list))
+	if len(list) != 1 {
+		t.Fatalf("stored %d identities, want the owner alone", len(list))
 	}
-	var owner store.Identity
-	for _, identity := range list {
-		if identity.Role == store.RoleOwner {
-			owner = identity
-		}
-	}
+	owner := list[0]
 	switch {
 	case owner.Role != store.RoleOwner:
 		t.Errorf("role = %q, want %q", owner.Role, store.RoleOwner)
@@ -258,8 +294,54 @@ func TestInitCreatesTheHomeConfigAndDatabase(t *testing.T) {
 	if !strings.Contains(stdout.String(), "github: marioatcloudvane") {
 		t.Errorf("stdout does not echo `github: <handle>`:\n%s", stdout)
 	}
-	if stderr.Len() != 0 {
-		t.Errorf("init with the generated credential reference warned unexpectedly:\n%s", stderr)
+	// AC-0.5: an unresolved bot is a warning, not a failure, and it names both
+	// the reference that was tried and the command that fixes it. Asserting the
+	// warning is silent-failure insurance: this is the one message standing
+	// between a new operator and a daemon that refuses to start (S-5) for a
+	// reason they were never told about.
+	// The remedy is the whole point of the message, so it is asserted as the
+	// exact command including the configured service and account: a warning
+	// that says "store a token" without saying how is the thing this test
+	// exists to prevent. It does not assert the config.yaml keys any more —
+	// the generated file already carries them, so repeating the YAML would be
+	// telling the operator to add what is already there.
+	for _, want := range []string{
+		"warning",
+		"security add-generic-password -s litefactory -a github-bot -w",
+		paths.ConfigPath(),
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("the unresolved-bot warning does not mention %q:\n%s", want, stderr)
+		}
+	}
+}
+
+// TestInitKeepsTheGenericWarningForARealFailure pins the other side of the
+// branch TestInitCreatesTheHomeConfigAndDatabase covers. A missing keychain
+// item means "you have not stored the token yet" and gets the remedy; a locked
+// keychain means "something is wrong with what you configured" and must keep
+// the generic wording. Telling an operator with a locked keychain to run
+// `security add-generic-password` would send them to store a second copy of a
+// token they already have.
+func TestInitKeepsTheGenericWarningForARealFailure(t *testing.T) {
+	paths := newInitHome(t)
+	newInitGH().install(t)
+	locked := func(context.Context, string, string) (string, error) {
+		return "", secrets.ErrInteractionNotAllowed
+	}
+	router, _, stderr := newInitRouter(t, locked)
+
+	if code := router.Run(t.Context(), []string{"init"}); code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+	if strings.Contains(stderr.String(), "security add-generic-password") {
+		t.Errorf("a locked keychain was told to store a new token:\n%s", stderr)
+	}
+	if !strings.Contains(stderr.String(), "could not be resolved") {
+		t.Errorf("the generic warning did not fire for a locked keychain:\n%s", stderr)
+	}
+	if list := listIdentities(t, paths); len(list) != 1 {
+		t.Fatalf("stored %d identities, want the owner alone", len(list))
 	}
 }
 

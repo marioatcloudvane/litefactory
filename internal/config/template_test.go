@@ -22,6 +22,21 @@ func TestDefaultFileMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the default config file does not decode: %v", err)
 	}
+	// The generated file configures four things Defaults() deliberately leaves
+	// unset, so each is added to want here rather than being a drift the check
+	// should catch. They are listed explicitly, and only these four are
+	// allowed: an undocumented fifth line would let a real drift be silenced by
+	// the same mechanism, which would make this check worse than absent.
+	//
+	//   Agents / agentOrder / ToolProfiles — an absent agents mapping must not
+	//     silently configure runners, so Defaults() cannot supply them; the
+	//     generated file, which exists to be a complete example, must.
+	//   TokenKeychain — the credential reference cannot go in Defaults(),
+	//     because Decode merges onto Defaults() and validation rejects
+	//     token_keychain and token_env both being set. Defaulting it in would
+	//     make every token_env-only config.yaml fail to start. The generated
+	//     file names it as the starter reference (US-8/AC-8.3); it is a
+	//     suggestion in a file the operator edits, not a runtime default.
 	want := Defaults()
 	claude, codex := DefaultClaude(), DefaultCodex()
 	want.Agents = Agents{Claude: &claude, Codex: &codex}
