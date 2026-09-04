@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -32,6 +32,23 @@ asked for; nothing here licenses starting the next one.
   header; recommended a documentation-only conditional-trust fix in
   `CLAUDE.md`/`AGENTS.md`. Recommended scope for Plan mode narrowed
   accordingly.
+- 2026-09-04 — Plan mode completed (headless run; author had already closed
+  all open questions in the research brief). requirements-engineer wrote
+  `feature-spec.md`; go-architect reviewed it and recommended collapsing the
+  spec's four candidate stories into two, since three of them are one
+  paragraph in one file and cannot be authored, reviewed, or shipped
+  independently. Wrote `plan_brief.md` plus two per-story sub-issues:
+  US-1 (`US-1.md`) — insert a precondition branch at the top of
+  `CLAUDE.md`'s `## Classify` section that trusts the daemon-resolved
+  `- Mode: X` prompt header when present, skipping steps 1-3, while
+  leaving `## Gate` and the existing fallback classification untouched;
+  no `AGENTS.md` edit needed (confirmed it already defers unconditionally
+  to `CLAUDE.md`). US-2 (`US-2.md`) — comment-only cross-reference at
+  `internal/harness/prompt.go:423`/`:566` documenting that `CLAUDE.md`
+  depends on the exact `- Mode: %s\n` literal, with no new test (existing
+  tests already pin the literal). Documentation-only change throughout;
+  no Go behavior change. Story Index links pending sub-issue creation by
+  litefactory.
 
 ## Notes
 
