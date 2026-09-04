@@ -16,6 +16,7 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-04 — session created
 - 2026-09-04 — Research complete: RESEARCH_BRIEF.md written (codebase-tour ran; web-researcher had no web access — issue #73 needs `lf:tools=web` label for a follow-up on Claude Code/Agent SDK wire-format questions)
+- 2026-09-04 — Research re-run with `lf:tools=web` access: web-researcher resolved all six previously-open Claude Code/Agent SDK wire-format questions against Anthropic's primary docs (cost/token breakdown, per-model usage, sub-agent attributability, cache pricing stability, streaming granularity, SDK/CLI schema parity). RESEARCH_BRIEF.md updated in place — codebase findings unchanged, Domain/Problem Space, Constraints & Risks, Open Questions and Recommended Scope revised.
 
 ## Notes
 
