@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -219,6 +220,13 @@ func prepare(
 	// the same call.
 	mayAsk := req.Command.Tagged && modeMayAsk(req.mode())
 
+	// Attachments are fetched here: after the worktree and the runs row
+	// exist — the landing directory is named for this run's ordinal — and
+	// before the prompt is assembled, because the prompt is where they are
+	// handed off. A failure to fetch never fails the turn (see
+	// [ingestAttachments]).
+	attachments := ingestAttachments(ctx, opts, req, ref, run.Ordinal, logger)
+
 	promptInput := harness.PromptInput{
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
@@ -237,6 +245,7 @@ func prepare(
 		PreviousMayAsk:    previousMayAsk(previous, resume, previousTriggerBody, req.Issue.Body),
 		PreviousMode:      previous.Mode,
 		History:           history,
+		Attachments:       attach.PromptSection(attachments.Accepted),
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
@@ -578,6 +587,71 @@ func previousMayAsk(previous store.Run, resume bool, previousTriggerBody, issueB
 		body = issueBody
 	}
 	return HasAskTag(body) && modeMayAsk(previous.Mode)
+}
+
+// ingestAttachments fetches the attachments referenced by the run's trigger
+// and issue body, and reports what landed.
+//
+// # It never fails the turn
+//
+// There is no error return, and that is the design rather than a shortcut. An
+// attachment is extra context, not a precondition: a run whose screenshot
+// would not download is a run that proceeds without the screenshot, exactly
+// as every run before this feature existed did. Turning a flaky CDN into a
+// failed turn would trade a small loss of context for a total one. Individual
+// refusals become [attach.Rejection] values, which US-7's manifest will
+// render; a failure of the whole operation is logged here and the turn
+// carries on with nothing.
+//
+// # Two gates, both required
+//
+// [Request.AttachmentsAllowed] is authority — the resolved tool profile said
+// this run may ingest (US-5). A non-nil [Options.AssetFetcher] is capability.
+// Neither implies the other, and a turn missing either fetches nothing. The
+// check is here rather than inside internal/attach because the permission is
+// a property of this turn, not of ingestion.
+//
+// # Why the trigger is scanned first
+//
+// The comment that started the run is scanned before the issue body, so when
+// a turn's ceilings can only admit some of the attachments, the ones the
+// reporter just attached win over ones that have been sitting on the issue
+// since it was filed. [attach.Scan] collapses duplicates by URL, so an image
+// referenced in both places is fetched once and counted once — including the
+// case where the trigger *is* the issue body, which scans the same text
+// twice by construction.
+func ingestAttachments(
+	ctx context.Context,
+	opts Options,
+	req Request,
+	ref naming.Ref,
+	ordinal int,
+	logger *slog.Logger,
+) attach.Result {
+	if !req.AttachmentsAllowed || opts.AssetFetcher == nil {
+		return attach.Result{}
+	}
+	refs := attach.Scan(req.Trigger.Body, req.Issue.Body)
+	if len(refs) == 0 {
+		return attach.Result{}
+	}
+
+	dir, err := naming.AttachmentsDir(opts.Paths.Home(), ref, ordinal)
+	if err != nil {
+		logger.WarnContext(ctx, "attachments were skipped: the landing directory could not be derived",
+			slog.String("error", err.Error()))
+		return attach.Result{}
+	}
+	result, err := attach.Ingest(ctx, opts.AssetFetcher, dir, refs, opts.AttachmentLimits)
+	if err != nil {
+		logger.WarnContext(ctx, "attachments were skipped", slog.String("error", err.Error()))
+		return attach.Result{}
+	}
+	logger.InfoContext(ctx, "attachments ingested",
+		slog.Int("accepted", len(result.Accepted)),
+		slog.Int("rejected", len(result.Rejected)),
+	)
+	return result
 }
 
 // historyRole maps the store's classification onto the label the prompt renders

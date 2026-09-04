@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -259,7 +260,20 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// than built twice.
 			SubIssueCreator:  client,
 			SubIssueRenderer: renderer,
-			Logger:           s.Logger,
+			// Attachment ingestion (US-3). The same forge client again: it
+			// is the only thing holding the installation token, which is
+			// what a private-repo attachment fetch needs, and keeping the
+			// fetch there is what lets the SSRF allow-list sit in one place.
+			// The ceilings come from the same config the tool profiles above
+			// were resolved from — a run's permission to ingest and the
+			// limits it ingests under are one decision, made in one file.
+			AssetFetcher: client,
+			AttachmentLimits: attach.Limits{
+				MaxImageBytes: s.Config.Claude.AttachmentMaxImageBytes,
+				MaxTotalBytes: s.Config.Claude.AttachmentMaxTotalBytes,
+				MaxCount:      s.Config.Claude.AttachmentMaxCount,
+			},
+			Logger: s.Logger,
 		}),
 		Reporter: reporter,
 		// The same two keys the harness was built from above, so the profile a

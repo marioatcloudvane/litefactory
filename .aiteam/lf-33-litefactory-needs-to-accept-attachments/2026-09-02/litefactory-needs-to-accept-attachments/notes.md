@@ -75,6 +75,60 @@ documented reasoning: US-3/US-4/US-6/US-7/US-8 all funnel through the new shared
 `internal/attach` package and US-7/US-8 both touch the manifest shape, a real
 file-overlap risk under parallel agents): US-3 next, then US-7, US-4, US-8.
 
+## US-3 — DONE, applied by hand from the CLI (2026-09-04)
+
+Run 7 was stopped at 42 minutes rather than left to time out. Four Implement runs
+(90m timeout, 40m, 90m timeout, 42m) had produced four of eight stories, so US-3
+was built directly instead. The three causes those runs died of are now fixed and
+in this branch: the Bash allow-list gained grep/sed -n/head/tail/wc, the
+orchestrator learned that a thrashed agent is deterministic, and
+`internal/github/scratch_test.go` — which no agent could delete — is gone.
+
+What already existed from earlier runs and was kept: T-3.2 (the SSRF allow-list)
+and T-3.3 (`Client.FetchAsset`) in `internal/github/assets.go`, and
+`naming.AttachmentsDir` for T-3.7's landing path.
+
+New in `internal/attach`:
+
+- `scan.go` — finds attachments in markdown, HTML `<img>` and bare URLs, across
+  several bodies at once, deduplicating by URL. A URL that is not GitHub-hosted
+  never becomes a Ref, which is what makes AC-3.2 true by construction rather
+  than by a check further down.
+- `sniff.go` — `http.DetectContentType` over the first 512 bytes decides the
+  type and the extension. The declared Content-Type and the filename are never
+  consulted (AC-3.5).
+- `name.go` — mints the on-disk name from litefactory's own ordinal plus a
+  slug. `name_test.go` pins it against traversal, separators, NUL, leading dots
+  and dashes, and a 4KB name.
+- `ingest.go` — bounded concurrent fetch (T-3.11), stream-time size enforcement
+  with mid-stream abort (T-3.5), the ceiling precedence, and `PromptSection`.
+
+**Deviation from the spec, deliberate.** US-3's architecture note says attachments
+land under `$session/attachments/` via a new `config.Paths` method. They land
+under `<RunsDir>/NNNN.attachments` instead, $LF_HOME-rooted. That decision was
+made by an earlier run and is kept: an attachment inside the worktree shows up in
+that repository's own `git status` and can collide with the coding agent's
+commits. The first attempt at the `config.Paths` method also broke
+`internal/config`'s purity test by importing `internal/naming`; the helper
+belongs in `internal/naming`, where it now is.
+
+**Two things worth knowing for review.**
+
+Writes go through `os.Root`, not through joined path strings. `mintFileName` is
+proven safe by its own test, but this is the one place in litefactory where text a
+stranger typed on a public issue reaches a file creation, and `os.Root` makes
+containment a kernel guarantee rather than a property of my sanitizer. It also
+retires the one `gosec` G304 finding this story introduced, without a `#nosec`.
+
+Cancellation had a real bug, found by its own test. `fetchAll` raced context
+cancellation against acquiring a worker slot in one `select`; when both are ready
+Go picks at random, so a cancelled run still dialed for however many workers won
+the toss. The context is now re-checked after the slot is held.
+
+Not done here, by design: US-4 (documents), US-7 (the manifest) and US-8 (retry
+hardening). `Rejection` values are produced and returned but nothing renders them
+yet — that is US-7's integration point, as the US-6 engineer recommended.
+
 ## Code Review Advisories
 
 (populated after Phase 1.5)

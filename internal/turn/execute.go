@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -144,6 +145,24 @@ type Options struct {
 	// forge client and a renderer to construct a valid Options.
 	SubIssueCreator  SubIssueCreator
 	SubIssueRenderer SubIssueRenderer
+
+	// AssetFetcher fetches attachment bytes, and AttachmentLimits are the
+	// ceilings that ingestion runs under. *github.Client satisfies the
+	// first; internal/config supplies the second.
+	//
+	// A nil fetcher disables ingestion for every turn, the same tolerance
+	// SubIssueCreator gets and for the same reason: a great many callers of
+	// this package, tests above all, have no occasion to fetch an
+	// attachment and should not have to supply a forge client to construct
+	// a valid Options. Ingestion is skipped, not refused — a turn that
+	// cannot fetch attachments is still a turn that can do its work, which
+	// is not true of a missing database or clone gate.
+	//
+	// The permission gate is a separate thing and lives on the request
+	// ([Request.AttachmentsAllowed], US-5). This is capability; that is
+	// authority. Both must be present before a single byte is fetched.
+	AssetFetcher     attach.Fetcher
+	AttachmentLimits attach.Limits
 
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
