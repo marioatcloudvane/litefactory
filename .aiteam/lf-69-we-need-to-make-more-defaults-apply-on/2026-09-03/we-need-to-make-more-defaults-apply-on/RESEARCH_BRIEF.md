@@ -11,6 +11,34 @@ Headless run; no clarification available. Ambiguity in "standard agent" (coding-
 sub-agent persona) is resolved below under Constraints & Risks, with the assumption stated
 explicitly.
 
+### Follow-up (2026-09-04) — author clarifications on the run-0001 open questions
+
+The issue author (@marioatcloudvane) replied to the first research pass with direct answers to
+four of the five open questions below, plus a new, more specific research question of their own.
+Their comment, verbatim:
+
+> some comments:
+>
+> Part 2: as I understand, claude.md and agents.md will always force the agent to infer the mode,
+> independnt if there is a mode set by litefactory. is this true? how can we avoid it?
+>
+> Part 3: this is part of the design and ok that way!
+>
+> as of your open questions:
+>
+> 1: yes, coding agent tool
+> 2: mode defaulting: if no mode is set, it should infer the mode from the llm
+> 3: no, litefactory should not know that at the moment
+> 4: unassigned is no problem; if no assignment is done it is fine to not react, this is what a
+> human must resolve
+> 5: skip this
+
+This resolves Open Questions 1, 3, 4 and 5 from run 0001 outright (see **Open Questions**, marked
+closed below), confirms Question 2's premise as intended behavior rather than a gap, and raises one
+new, concrete question — whether `CLAUDE.md`/`AGENTS.md`'s mode-classification instructions
+actually ignore a mode the daemon has already resolved. That question is investigated in full below
+as **Part 4**.
+
 ## Codebase Context
 
 litefactory is a standalone Go polling daemon (`internal/daemon/`), not a GitHub Action/webhook
@@ -81,6 +109,13 @@ no-op that leaves the harness's default tool surface untouched (`tools.go:104-10
 AC-2.3). [V]
 
 ### Part 2 — Mode defaulting: partially solved, and the "complicated" part is real
+
+**Resolved 2026-09-04:** the author confirmed the LLM-classification fallback described below *is*
+the intended mode-defaulting behavior ("if no mode is set, it should infer the mode from the llm")
+— this is not a gap to close, it is the design. What remained open was whether that inference step
+runs *redundantly* against a mode the daemon had already resolved by other means; that question is
+answered in **Part 4** below. The technical description of the LLM-fallback mechanism that follows
+is retained because Part 4 depends on it.
 
 There is **no static `default_mode` config knob** analogous to `default_agent`. When mode is
 unresolved by stored selection, label, or slash command, `tick.go:1420-1421` calls
@@ -162,6 +197,92 @@ agent does not), not merely a missing default value.
    a single-agent shop could hit friction if it ever adds a second agent later or authors a
    profile carelessly.
 
+### Part 4 — `CLAUDE.md`'s Classify section re-infers mode unconditionally, even when the daemon already resolved one (new, 2026-09-04)
+
+**The author's claim is confirmed true.** `CLAUDE.md`'s `## Classify` section (`CLAUDE.md:15-22`)
+reads, verbatim:
+
+```
+## Classify
+For every new request, in this order:
+1. Slash command — /research, /plan, /implement, /spike.
+2. Explicit natural language — the user named a mode.
+3. Inferred intent — classify by what is being asked for...
+```
+
+"For every new request, in this order" is unconditional. Neither `CLAUDE.md` nor `AGENTS.md`
+(the only other project-instructions file in the repo, root-level only — confirmed by search, no
+other `AGENTS.md` exists) contains any branch that says "skip this if the harness already told
+you the mode." `AGENTS.md:41-44` explicitly defers to `CLAUDE.md`'s Classify section for Codex
+runs and adds nothing of its own on this point. [V]
+
+**Why this happens, traced end to end:**
+
+1. The daemon resolves mode entirely in Go, *before* any prompt is built: stored selection → issue
+   label → slash command → LLM classifier fallback (`internal/daemon/tick.go:1387-1440`, already
+   established in Part 2 above). [V]
+2. The resolved mode is passed into the turn as `turn.Request.Mode`
+   (`internal/daemon/tick.go:1507-1508`), carried through `Request.mode()`
+   (`internal/turn/execute.go:310-323`) into `harness.PromptInput.Mode`
+   (`internal/turn/prepare.go:226,228`). [V]
+3. `harness.BuildPrompt`'s `writeHeader` renders it as one plain-text line — `fmt.Fprintf(b, "-
+   Mode: %s\n", strings.TrimSpace(in.Mode))` (`internal/harness/prompt.go:423`) — positioned
+   *before* the `## Instruction` section of the stdin prompt the coding-agent CLI receives. [V]
+4. The slash-command token itself, if any (e.g. `/research`), is **stripped** before it reaches the
+   prompt: `Command.Text = strings.TrimSpace(rest)` keeps only the text *after* the first token
+   (`internal/turn/command.go:203-208`). So even on a run triggered by an explicit `/research`
+   slash command, the agent's own copy of `CLAUDE.md`-Classify-step-1 ("slash command") has no
+   command text left to match against — the only surviving evidence of the resolved mode is the
+   `- Mode: X` header line. [V]
+5. `claude` (or Codex) is invoked as a subprocess with the prompt on stdin, and reads `CLAUDE.md` /
+   `AGENTS.md` **unconditionally**, because the CLI reads project-instructions files by working
+   directory as an unconditional CLI convention — the process's cwd is the run's worktree
+   (`internal/harness/doc.go:51-52`, documenting: "claude runs *inside the worktree*, so it reads
+   that branch's CLAUDE.md... A branch is third-party content."). There is no
+   `--system-prompt`-equivalent flag or other mechanism in the documented invocation contract
+   (`doc.go:13-17`) that swaps in a different instructions file, or skips loading one, depending on
+   whether Go already resolved a mode. [V]
+6. The one place the codebase *does* deliberately bridge Go's resolution to `CLAUDE.md`'s classify
+   logic is `writeInferGuidance` (`internal/harness/prompt.go:608-634`), and it fires **only** when
+   `strings.TrimSpace(in.Mode) == InferMode` (`prompt.go:444`, resume path `prompt.go:574`) — i.e.,
+   only in the one case where Go itself could **not** resolve a mode. Its own doc comment
+   (`prompt.go:608-622`) frames pointing the agent at the target repo's own `CLAUDE.md` as
+   deliberately cheap ("costs one paragraph") *precisely because* it is reserved for the unresolved
+   case — confirming the authors already treat `CLAUDE.md`'s classify prose as a **fallback**, not
+   as logic that should run on every request. [V]
+
+**So the honest framing is not "CLAUDE.md is buggy," it is "CLAUDE.md's prose and the daemon's Go
+resolution are two separate, non-communicating decisions run in sequence."** Go picks a mode (by
+whatever means) and stamps one plain-text header line into the prompt; the agent then reads that
+prompt and, per `CLAUDE.md`'s own unconditional Classify instructions, re-derives a mode itself
+from the (command-word-stripped) instruction text — regardless of what the header line already
+says. It is technically possible for `CLAUDE.md`'s prose to reference that header line, since it is
+plain text sitting in the prompt before the instructions the agent follows are even reached in
+Claude's own reading order — but nothing in `CLAUDE.md` or `AGENTS.md` currently does so, and
+nothing in the Go code enforces that the two stay in agreement; the "contract" between
+`tick.go`'s ladder and `CLAUDE.md`'s Classify prose is entirely informal, since `CLAUDE.md` is a
+plain markdown file outside Go's compile/test boundary. [V]
+
+**What "avoiding it" would concretely look like:** add one conditional branch to the top of
+`CLAUDE.md`'s `## Classify` section (and mirror it in `AGENTS.md`, or have `AGENTS.md` keep
+deferring to `CLAUDE.md` as it already does) that reads roughly: *"If this prompt already states a
+resolved mode (the `- Mode: X` line above), treat that as authoritative and skip steps 1–3 below;
+only classify from scratch when no such line is present or it reads `infer`."* This is a
+documentation-only change — no new Go capability is required, because the header line already
+exists in every prompt today (`prompt.go:423`) regardless of mode; the only thing missing is an
+instruction telling the agent to look at it. Two things Plan mode should settle before sizing this,
+surfaced by this research:
+
+- **Exact wording of the "authoritative" line.** Should the check be "trust it always" or "trust it
+  unless it's obviously wrong for the request" — the latter re-introduces exactly the redundant
+  inference the fix is meant to remove, so the recommendation is the former: trust the header
+  unconditionally when present and not `infer`.
+- **`Gate` interacts with this too.** `CLAUDE.md`'s `## Gate` section (`CLAUDE.md:31-43`) checks
+  session-artifact prerequisites (e.g. Plan requires `RESEARCH_BRIEF.md`) independently of mode
+  resolution; a mode trusted from the header still needs its Gate prerequisite checked exactly as
+  today. This finding only concerns skipping the *Classify* re-derivation, not the *Gate* check,
+  and the two should not be conflated when this is scoped.
+
 ### Concrete zero-label walkthrough (fresh `litefactory init`, brand-new user, single-agent shop)
 
 Traced end-to-end in code:
@@ -179,28 +300,34 @@ Traced end-to-end in code:
 
 ## Constraints & Risks
 
-- **Ambiguity in "standard agent."** The issue text could mean either (a) the coding-agent *tool*
-  (Claude vs. Codex — the AI harness invoked), which is what `internal/daemon/agent.go` and
-  `default_agent` actually control, or (b) a sub-agent *persona* within a mode
-  (e.g. `go-architect`, `codebase-tour`), which are Task-tool invocations internal to an
-  orchestrator run and have no label-driven selection at all — they are chosen by orchestrator
-  logic/prompts, not by GitHub labels. **Assumption taken for this brief: the request means sense
-  (a), the coding-agent tool**, because that is the only sense in which "one coding agent" and "a
-  label is present" map onto real code (`agent.go`), and because the request explicitly pairs it
-  with mode, which is also a top-level label-driven daemon concept. Flagged as an open question
-  below in case the requester meant something narrower or broader.
+- **Ambiguity in "standard agent" — resolved 2026-09-04.** The issue text could originally have
+  meant either (a) the coding-agent *tool* (Claude vs. Codex), which is what
+  `internal/daemon/agent.go` and `default_agent` actually control, or (b) a sub-agent *persona*
+  within a mode (e.g. `go-architect`, `codebase-tour`). The author confirmed sense (a) directly
+  ("yes, coding agent tool"); this brief's original assumption was correct, and sense (b) is
+  confirmed out of scope for this issue.
 - **Config-level default already exists and is documented in the template comment** — any change
   here should extend `default_agent`/`config.Defaults()` rather than reinvent it, to preserve the
   parallel structure across the three label ladders (explicitly called out at `agent.go:73-77` as
   intentional symmetry with `resolveTools`).
 - **The mode gate (Research→Plan→Implement, Spike standalone) lives only in `CLAUDE.md` prose**,
-  not in Go. Any change that tries to make mode defaulting "session-state aware" (e.g., "default
-  to Research if no brief exists yet") would need to either (a) teach `internal/daemon` to read
-  session-artifact presence before calling `classifyMode` — a materially new capability, since the
-  daemon currently has zero knowledge of `.aiteam/` session file layout — or (b) leave the gate
-  logic where it is (LLM router prompt) and merely skip the *label-independent* classification
-  call when a cheaper heuristic is confidently correct. These are different-sized changes; Plan
-  mode should scope which one is intended before estimating stories.
+  not in Go — this observation stands, but its original implication (that Plan mode should choose
+  between a session-state-aware Go-side shortcut and leaving the gate logic where it is) is now
+  **superseded**: the author confirmed the LLM-classification fallback is the intended
+  mode-defaulting mechanism (Open Question 2, closed), so no new `.aiteam/`-layout awareness should
+  be added to `internal/daemon`. What the author *did* flag as unresolved — whether that
+  classification step runs redundantly against an already-daemon-resolved mode — is a narrower,
+  separate concern, investigated and answered in **Part 4** above; it does not require the daemon
+  to gain session-state awareness, only for `CLAUDE.md`'s prose to trust a value the daemon already
+  computes.
+- **`CLAUDE.md` and `AGENTS.md` sit outside Go's compile/test boundary (Part 4).** Both are plain
+  markdown files read by the coding-agent CLI via working directory
+  (`internal/harness/doc.go:51-52`), not validated or type-checked against
+  `internal/daemon`/`internal/turn`'s actual mode-resolution behavior. Any fix here (the
+  recommended Classify-section branch from Part 4) is a prose change with no compiler or test
+  suite to catch drift if the Go side's header format (`prompt.go:423`, `"- Mode: %s\n"`) ever
+  changes — worth a code comment cross-reference at `prompt.go:423` pointing at the `CLAUDE.md`
+  section that depends on its exact format, if this is implemented.
 - **The "refuse loudly" philosophy is the dominant design invariant** across all label handling in
   this codebase (explicit inline documentation at multiple sites: `agent.go`, `tools.go`, the
   `ReplyKind` enum). Any new default behavior must default only on *absence*, never paper over
@@ -214,57 +341,102 @@ Traced end-to-end in code:
 
 ## Open Questions
 
-1. Does "default to the standard agent" mean the coding-agent tool (Claude/Codex, sense (a)
-   above) or something else? This brief assumes (a); Plan mode should confirm before scoping any
-   work, since the (a) reading is already fully solved and the story might otherwise be empty.
-2. For mode: does the requester want (i) a genuinely static `default_mode` config knob analogous
-   to `default_agent` (simple, but loses the "infer intent from the request text" behavior that
-   currently makes unlabeled issues usable at all), (ii) a session-state-aware shortcut that
-   skips the LLM classification call in unambiguous cases (e.g., no brief yet ⇒ Research) —
-   requiring new Go-side awareness of `.aiteam/` session layout, or (iii) simply documenting that
-   the existing LLM-classification fallback already constitutes "mode defaulting" and closing this
-   half of the issue as already-solved, matching how agent defaulting is already solved? These are
-   different-sized pieces of work and Plan mode cannot size them without this answer.
-3. Should `litefactory init` be taught to detect which agent(s) are actually configured/available
-   (e.g., inspect which `agents.*` stanzas are uncommented, or probe for the `claude`/`codex`
-   binaries) and seed `default_agent` accordingly, rather than always writing `"Claude"`? This
-   directly serves the issue's own example ("when we only have one coding agent") but was not
-   explicitly asked for — flagged as a plausible Part 3 addition rather than assumed in scope.
-4. What is the acceptable channel for improving the silent-unassigned-issue experience, given
-   that a same-thread reply is ruled out by the security rationale at `tick.go:1034-1038`? Candidates
-   surfaced by this research: a friendlier `litefactory init` completion message describing the
-   assignment requirement, and/or a README/docs page — neither was explicitly requested, both fall
-   under the issue's own "check where else we can ease the usage" clause.
-5. Is the empty-body silent no-op (`tick.go:1081-1082`) intentionally undocumented, or an
-   oversight worth a one-line doc comment / reply? Low-stakes; noted for completeness rather than
-   as a likely story.
+Questions 1, 3, 4 and 5 below were answered directly by the issue author on 2026-09-04 and are
+recorded here as **closed**, with the answer kept alongside the original question rather than
+deleted, so the history of what was asked and resolved stays intact. Question 2's premise was
+confirmed by the author as intended behavior, but it depended on the new Part 2/Part 4 question
+the author raised in the same comment — see the resolution note under Question 2.
 
-No web-research questions were identified — every question in this brief resolves against this
-repository's own Go source and prose documentation; nothing here turns on third-party library or
-platform behavior.
+1. ~~Does "default to the standard agent" mean the coding-agent tool (Claude/Codex, sense (a)
+   above) or something else?~~ **CLOSED — confirmed 2026-09-04.** Author's answer: "yes, coding
+   agent tool." Sense (a) is confirmed correct, and per Part 1 above, that reading is already
+   fully implemented — no new work needed for this half of the original issue.
+2. ~~For mode: does the requester want (i) a static `default_mode` config knob, (ii) a
+   session-state-aware classification shortcut, or (iii) confirmation that the existing
+   LLM-classification fallback already constitutes "mode defaulting"?~~ **CLOSED — confirmed
+   2026-09-04, reading (iii).** Author's answer: "mode defaulting: if no mode is set, it should
+   infer the mode from the llm" — i.e., the current LLM-classification fallback (`mode.go:87-96`)
+   is the intended behavior, not a gap to close with a static default or session-state shortcut.
+   **This resolution is conditional on the follow-up question the author raised in the same
+   comment** — whether that inference step runs redundantly against a mode the daemon had *already*
+   resolved by other means (stored selection / label / slash command), which would make the
+   "infer from the LLM" design partially undermined by the router agent re-inferring on top of it.
+   That question is investigated in full as **Part 4** above. Short answer from Part 4: yes, this
+   redundant re-inference is real and confirmed in code; Part 4 gives a concrete, documentation-only
+   recommendation to eliminate it while preserving reading (iii) as the intended design.
+3. ~~Should `litefactory init` be taught to detect which agent(s) are actually
+   configured/available... and seed `default_agent` accordingly?~~ **CLOSED — declined
+   2026-09-04.** Author's answer: "no, litefactory should not know that at the moment." Out of
+   scope; do not pursue agent-tooling auto-detection at `init` time.
+4. ~~What is the acceptable channel for improving the silent-unassigned-issue experience?~~
+   **CLOSED — confirmed as correct-by-design, 2026-09-04.** Author's answer: "unassigned is no
+   problem; if no assignment is done it is fine to not react, this is what a human must resolve."
+   The silence at `tick.go:1079-1080` is confirmed intentional and should not be changed; no
+   onboarding-message or docs work is needed to soften it.
+5. ~~Is the empty-body silent no-op (`tick.go:1081-1082`) intentionally undocumented, or an
+   oversight worth a one-line doc comment / reply?~~ **CLOSED — skipped, 2026-09-04.** Author's
+   answer: "skip this." Not being pursued; the empty-body no-op is left exactly as found, without
+   further documentation work.
+
+### New open items surfaced by Part 4 (2026-09-04)
+
+No further clarification is needed from the author to act on Part 4's finding — the investigation
+answered its own question definitively ("is this true?" → yes, confirmed in code) and produced a
+concrete, scoped recommendation (a conditional branch at the top of `CLAUDE.md`'s `## Classify`
+section, mirrored in/deferred-to by `AGENTS.md`, trusting an already-present `- Mode: X` header line
+when it is not `infer`). What remains for **Plan mode** to settle, not the author:
+
+- Whether to word the new Classify-section branch as "trust the header unconditionally when
+  present and not `infer`" (this brief's recommendation, see Part 4) or something more
+  conservative, and how to phrase it so a router agent reads it correctly on every run.
+  This is an implementation/wording decision, not a fact this research left unresolved.
+- Whether `AGENTS.md` should gain the identical conditional text directly, or continue deferring
+  entirely to `CLAUDE.md`'s Classify section (its current pattern, `AGENTS.md:41-44`) so the fix
+  only needs to be written once. Both are structurally workable given AGENTS.md's existing
+  deferral; Plan mode should pick one for consistency with the rest of that file.
+
+No web-research questions were identified in either research pass — every question in this brief
+resolves against this repository's own Go source and prose documentation (`CLAUDE.md`, `AGENTS.md`,
+`internal/daemon`, `internal/turn`, `internal/harness`); nothing here turns on third-party library
+or platform behavior.
 
 ## Recommended scope for Plan mode
 
-**In scope:**
-- Closing the loop on Question 1 and Question 2 with the requester (or, if headless, taking the
-  most conservative reading: report agent-defaulting as already-solved/no-op, and scope mode
-  changes to the smallest of the three (i)/(ii)/(iii) options — likely (iii), documenting the
-  existing behavior, unless the requester's next comment says otherwise).
-- If (ii) is confirmed in scope: designing the session-state-aware mode shortcut, including how
-  much of `.aiteam/` layout knowledge is acceptable to add to `internal/daemon` (a genuinely new
-  capability, not a small tweak) versus keeping the gate check in the LLM router only.
-- The `litefactory init` agent-detection improvement (Question 3), if confirmed in scope — a
-  self-contained, independently shippable story regardless of the mode-defaulting decision.
-- A first pass at user-facing documentation of the three label conventions and the assignment
-  requirement (Question 4), sized as documentation-only work, not a code change.
+**Updated 2026-09-04** following the author's clarifications. Most of the original candidate scope
+has now been explicitly closed by the author; what remains is narrower and more concrete than run
+0001 left it.
 
-**Out of scope:**
+**In scope:**
+- **Part 4's `CLAUDE.md`/`AGENTS.md` fix.** Add a conditional branch to the top of `CLAUDE.md`'s
+  `## Classify` section (`CLAUDE.md:15-22`) that checks the prompt's existing `- Mode: X` header
+  line (`internal/harness/prompt.go:423`) and treats it as authoritative — skipping steps 1–3 —
+  whenever it is present and not `infer`. This is the one substantive piece of new work this
+  research identified as both requested and unresolved. It is documentation-only: no Go code
+  change is required, since the header line is already emitted on every run regardless of mode.
+  Plan mode should decide the exact wording (see Open Questions, "New open items") and whether
+  `AGENTS.md` gets the same text directly or keeps deferring to `CLAUDE.md`.
+
+**Confirmed already solved / correct-by-design — no work needed:**
+- Agent defaulting (Question 1) — already fully implemented (`default_agent`, Part 1 above).
+- Mode defaulting via LLM-classification fallback (Question 2, reading (iii)) — confirmed as the
+  intended design once Part 4's redundant-inference fix lands; no static `default_mode` knob and no
+  session-state-aware shortcut is wanted.
+- Silent unassigned-issue behavior (Question 4) — confirmed a deliberate, correct security
+  boundary; explicitly not a UX gap to fix.
+
+**Explicitly out of scope (declined by the author or already ruled out in run 0001):**
+- `litefactory init` agent-tooling auto-detection (Question 3) — declined: "litefactory should not
+  know that at the moment."
+- Any change to the silent unassigned-issue path (Question 4) or the empty-body no-op (Question 5)
+  — both declined/skipped by the author.
 - Re-implementing or restructuring the existing agent-label or tools-label ladders — both are
   already correct and intentionally symmetric; do not touch `agent.go`/`tools.go` resolution logic
   itself.
-- Changing the silent behavior of the authorization gate at `tick.go:1079-1080` — that silence is
-  a deliberate security property, not a defaulting gap, and should not be "fixed" by adding a
-  reply.
+- A session-state-aware Go-side mode shortcut (reading (ii) from run 0001) — superseded by the
+  author's confirmation of reading (iii); do not build new `.aiteam/`-layout awareness into
+  `internal/daemon`.
+- User-facing documentation of label conventions — not requested in the follow-up comment; drop
+  from scope unless raised again separately.
 - Sub-agent/persona selection within a mode run (Task-tool orchestration) — no label mechanism
   exists for this today and the issue's own wording does not clearly ask for one; out of scope
-  unless the requester confirms sense (b) from the ambiguity note above.
+  unless the requester confirms sense (b) from the original ambiguity note in Constraints & Risks.

@@ -21,6 +21,17 @@ asked for; nothing here licenses starting the next one.
   session-state shortcut). Several other onboarding/usage-friction gaps
   identified (silent unassigned-issue path, no agent-tooling detection at
   `init`, no user-facing label docs).
+- 2026-09-04 — Research mode follow-up run; RESEARCH_BRIEF.md updated in
+  place. Author closed open questions 1, 3, 4, 5 (agent-tool sense
+  confirmed; init agent-detection declined; silent unassigned-issue
+  behavior confirmed correct-by-design; empty-body doc-comment skipped) and
+  confirmed question 2's premise (LLM-classification fallback is the
+  intended mode-defaulting design). New Part 4 finding added: confirmed
+  true that `CLAUDE.md`'s Classify section unconditionally re-infers mode
+  even when the daemon already resolved one via the `- Mode: X` prompt
+  header; recommended a documentation-only conditional-trust fix in
+  `CLAUDE.md`/`AGENTS.md`. Recommended scope for Plan mode narrowed
+  accordingly.
 
 ## Notes
 
