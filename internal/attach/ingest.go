@@ -1,6 +1,7 @@
 package attach
 
 import (
+	"archive/zip"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // maxConcurrentFetches bounds how many attachments are in flight at once
@@ -31,6 +33,51 @@ const maxConcurrentFetches = 4
 // while still carrying the suffix, so nothing an agent could mistake for an
 // ingested attachment is ever left in the landing directory (AC-3.4).
 const partialSuffix = ".part"
+
+// The fetch timing budgets (US-8, T-8.2). They live here rather than in
+// internal/github because CONC-6 holds that package to "retries nothing,
+// sleeps nowhere" — a rule worth keeping, since it is what makes every forge
+// call in this codebase cost a predictable single round trip. The retry and
+// the clock therefore sit one layer up, where a slow attachment is a
+// rejection rather than a stuck turn.
+const (
+	// perFetchTimeout bounds one attachment's download, including its retry
+	// attempt separately.
+	perFetchTimeout = 30 * time.Second
+	// perTurnTimeout bounds all of a turn's attachment work together, so a
+	// body carrying ten slow files cannot hold a run open for five minutes
+	// no matter how well each individual fetch behaves.
+	perTurnTimeout = 120 * time.Second
+)
+
+// Route records which attempt actually produced an attachment's bytes, so
+// the manifest can say whether the first try worked or the retry saved it
+// (US-8, T-8.3). Operationally that is the difference between "attachments
+// are fine" and "attachments only work because we retry", which is exactly
+// what the unverified installation-token report this retry defends against
+// would look like from the outside.
+type Route int
+
+const (
+	// RouteNone is an attachment that never produced bytes.
+	RouteNone Route = iota
+	// RouteFirstAttempt means the first fetch succeeded.
+	RouteFirstAttempt
+	// RouteRetry means the first fetch failed and the retry succeeded.
+	RouteRetry
+)
+
+// String renders the route for the manifest.
+func (r Route) String() string {
+	switch r {
+	case RouteFirstAttempt:
+		return "first attempt"
+	case RouteRetry:
+		return "retry"
+	default:
+		return "not fetched"
+	}
+}
 
 // cancelledDetail is the [Rejection.Detail] for an attachment the run ended
 // before reaching. It is litefactory's own words, like every other detail
@@ -64,6 +111,11 @@ type Fetcher interface {
 type Limits struct {
 	// MaxImageBytes is the per-image ceiling.
 	MaxImageBytes int64
+	// MaxDocumentBytes is the per-document ceiling (US-4). Documents are
+	// allowed more room than images because a spec PDF or a slide deck is
+	// routinely larger than a screenshot, and the point of admitting them at
+	// all is that the agent works from the real document.
+	MaxDocumentBytes int64
 	// MaxTotalBytes is the ceiling on every accepted attachment combined.
 	MaxTotalBytes int64
 	// MaxCount is the ceiling on how many attachments are accepted.
@@ -83,6 +135,12 @@ type Attachment struct {
 	MediaType string
 	// Bytes is the size on disk.
 	Bytes int64
+	// Kind is the family the sniffed bytes put it in, which is what decides
+	// how the prompt describes it: an image the agent can look at, or a
+	// document it has to open with its own tooling.
+	Kind Kind
+	// Route is which attempt produced these bytes (US-8).
+	Route Route
 }
 
 // Result is everything one turn's ingestion decided: what landed, and what
@@ -94,6 +152,11 @@ type Attachment struct {
 type Result struct {
 	Accepted []Attachment
 	Rejected []Rejection
+	// Records is one entry per attachment considered, accepted or rejected,
+	// in the same order (US-7). Accepted and Rejected are the views the
+	// prompt and the reply need; this is the audit trail, and it is the only
+	// one of the three that accounts for every attachment in one list.
+	Records []Record
 }
 
 // Empty reports whether the turn had no attachments at all — nothing
@@ -164,28 +227,60 @@ func Ingest(ctx context.Context, f Fetcher, dir string, refs []Ref, lim Limits) 
 	}
 	defer func() { _ = root.Close() }()
 
+	// The whole turn's attachment work shares one budget (AC-8.2). Every
+	// per-fetch budget below is taken off this context, so it can shorten an
+	// attempt but never extend the turn past this point.
+	ctx, cancel := context.WithTimeout(ctx, perTurnTimeout)
+	defer cancel()
+
 	fetched := fetchAll(ctx, f, root, admitted, lim)
 
 	var result Result
 	var total int64
+	// One record per attachment, built here rather than in each worker, so
+	// that "exactly one" (AC-7.1) is a property of this single loop and not
+	// of every early return above it.
+	record := func(ref Ref, out outcome, state Outcome, file string) {
+		rec := Record{
+			Name:      ref.Name,
+			Source:    stripQuery(ref.URL),
+			MediaType: out.attachment.MediaType,
+			Bytes:     out.attachment.Bytes,
+			File:      file,
+			Outcome:   state,
+			Route:     out.route,
+			At:        time.Now(),
+		}
+		if out.rejection != nil {
+			rec.Reason = out.rejection.Reason
+			rec.Detail = out.rejection.Detail
+		}
+		result.Records = append(result.Records, rec)
+	}
+
 	for i, out := range fetched {
 		switch {
 		case out.rejection != nil:
 			result.Rejected = append(result.Rejected, *out.rejection)
+			record(admitted[i], out, OutcomeRejected, "")
 		case lim.MaxTotalBytes > 0 && total+out.attachment.Bytes > lim.MaxTotalBytes:
 			// The stream itself fit; the turn's remaining budget did not.
 			// Remove the partial rather than leaving bytes nothing will
 			// reference.
 			removeQuietly(root, out.partName)
-			result.Rejected = append(result.Rejected,
-				reject(admitted[i].Name, ReasonOverTotalBytes,
-					fmt.Sprintf("%d bytes would exceed the turn's %d byte budget", out.attachment.Bytes, lim.MaxTotalBytes)))
+			rj := reject(admitted[i].Name, ReasonOverTotalBytes,
+				fmt.Sprintf("%d bytes would exceed the turn's %d byte budget", out.attachment.Bytes, lim.MaxTotalBytes))
+			result.Rejected = append(result.Rejected, rj)
+			out.rejection = &rj
+			record(admitted[i], out, OutcomeRejected, "")
 		default:
-			final := strings.TrimSuffix(out.partName, partialSuffix)
+			final := out.finalName
 			if err := root.Rename(out.partName, final); err != nil {
 				removeQuietly(root, out.partName)
-				result.Rejected = append(result.Rejected,
-					reject(admitted[i].Name, ReasonFetchFailed, "could not be saved"))
+				rj := reject(admitted[i].Name, ReasonFetchFailed, "could not be saved")
+				result.Rejected = append(result.Rejected, rj)
+				out.rejection = &rj
+				record(admitted[i], out, OutcomeRejected, "")
 				continue
 			}
 			total += out.attachment.Bytes
@@ -195,12 +290,14 @@ func Ingest(ctx context.Context, f Fetcher, dir string, refs []Ref, lim Limits) 
 			// root by relative name.
 			att.Path = filepath.Join(dir, final)
 			result.Accepted = append(result.Accepted, att)
+			record(admitted[i], out, OutcomeAccepted, final)
 		}
 	}
 
 	for _, ref := range overCount {
-		result.Rejected = append(result.Rejected,
-			reject(ref.Name, ReasonOverCount, fmt.Sprintf("the turn accepts at most %d attachments", lim.MaxCount)))
+		rj := reject(ref.Name, ReasonOverCount, fmt.Sprintf("the turn accepts at most %d attachments", lim.MaxCount))
+		result.Rejected = append(result.Rejected, rj)
+		record(ref, outcome{rejection: &rj}, OutcomeRejected, "")
 	}
 	return result, nil
 }
@@ -212,6 +309,13 @@ type outcome struct {
 	rejection  *Rejection
 	attachment Attachment
 	partName   string
+	// route is which attempt produced the bytes.
+	route Route
+	// finalName is the name to rename partName to on commit. It is carried
+	// rather than derived by trimming partialSuffix because a ZIP container
+	// does not know its own extension until [classifyZip] has read the
+	// landed file (US-4).
+	finalName string
 }
 
 // fetchAll runs the fetches concurrently and returns their outcomes in refs
@@ -254,7 +358,61 @@ func fetchAll(ctx context.Context, f Fetcher, root *os.Root, refs []Ref, lim Lim
 }
 
 // fetchOne fetches, sniffs, bounds and lands a single attachment.
+// fetchOne fetches a single attachment, retrying exactly once if the first
+// attempt failed to produce bytes (US-8, T-8.1).
+//
+// # Exactly one retry, and only for a failure
+//
+// The retry fires only for [ReasonFetchFailed]. An attachment refused for
+// its type or its size was not a failure — it was a decision, and repeating
+// it would waste a round trip to reach the same answer. Structuring it as
+// two straight-line calls rather than a loop is deliberate: "never a loop"
+// (AC-8.1) is then a property of the shape, not of a bound someone has to
+// maintain.
+//
+// # What "re-resolved URL" means here
+//
+// [Ref.URL] is the stable github.com/user-attachments address, not the
+// signed one. GitHub answers it with a redirect to a short-lived signed URL
+// on an object host, and FetchAsset follows that redirect fresh on every
+// call. So asking again with the same Ref really does re-resolve the
+// signature — which is precisely the failure this retry exists for, since a
+// signed URL that expired between resolution and download is the shape of
+// the problem the story describes.
+//
+// # Why any fetch failure, not just 401/404
+//
+// The story names ErrAssetUnauthorized and 404 specifically. This package
+// cannot see that sentinel: it does not import internal/github, by design
+// and by test, and consuming the fetcher through an interface is what keeps
+// the package holding the installation token out of the import graph of the
+// package parsing stranger-supplied markdown. Retrying every fetch failure
+// is a superset of the required behaviour and costs at most one extra round
+// trip on an attachment that was going to be reported as unfetchable
+// anyway. If the distinction ever earns its keep, the honest way to get it
+// is an error-classifying method on the Fetcher interface, not an import.
 func fetchOne(ctx context.Context, f Fetcher, root *os.Root, ordinal int, ref Ref, lim Limits) outcome {
+	out := attemptFetch(ctx, f, root, ordinal, ref, lim, RouteFirstAttempt)
+	if out.rejection == nil || out.rejection.Reason != ReasonFetchFailed {
+		return out
+	}
+	// A turn that has already run out of time does not get a second attempt:
+	// the retry would fail on the same expired context and only delay the
+	// report.
+	if ctx.Err() != nil {
+		return out
+	}
+	return attemptFetch(ctx, f, root, ordinal, ref, lim, RouteRetry)
+}
+
+// attemptFetch is one download: fetch, sniff, bound, land. It is called at
+// most twice per attachment.
+func attemptFetch(ctx context.Context, f Fetcher, root *os.Root, ordinal int, ref Ref, lim Limits, route Route) outcome {
+	// Each attempt gets its own budget, so a retry is not punished for how
+	// long the attempt before it took (AC-8.2).
+	ctx, cancel := context.WithTimeout(ctx, perFetchTimeout)
+	defer cancel()
+
 	body, _, err := f.FetchAsset(ctx, ref.URL)
 	if err != nil {
 		// The declared Content-Type is discarded deliberately: sniffing
@@ -271,15 +429,22 @@ func fetchOne(ctx context.Context, f Fetcher, root *os.Root, ordinal int, ref Re
 	}
 	head = head[:n]
 
-	mediaType, ext, ok := sniff(head)
-	if !ok {
-		return outcome{rejection: ptr(reject(ref.Name, ReasonUnsupportedType, unsupportedDetail(mediaType)))}
+	mediaType, ext, kind := sniff(head)
+	if kind == KindUnsupported {
+		// The sniffed type rides along on the rejection so the manifest can
+		// say what the bytes actually were, not merely that they were wrong.
+		return outcome{
+			rejection:  ptr(reject(ref.Name, ReasonUnsupportedType, unsupportedDetail(mediaType))),
+			attachment: Attachment{MediaType: mediaType},
+			route:      route,
+		}
 	}
 
-	// The binding ceiling is whichever is smaller. Knowing which one bound
-	// the stream is what lets an abort report the turn-wide reason ahead of
-	// the per-file one, as the reason vocabulary requires.
-	bound, reason := bindingLimit(lim)
+	// The binding ceiling is whichever is smaller, and which one it was
+	// decides whether an overrun is reported as a per-file or a turn-wide
+	// refusal. The per-file half depends on the kind: a slide deck is
+	// measured against the document ceiling, not the image one (AC-4.2).
+	bound, reason := bindingLimit(lim, kind)
 
 	partName := mintFileName(ordinal, ref.Name, ext) + partialSuffix
 	file, err := root.OpenFile(partName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
@@ -298,23 +463,57 @@ func fetchOne(ctx context.Context, f Fetcher, root *os.Root, ordinal int, ref Re
 		// and the partial file goes away here, so no oversized bytes
 		// survive anywhere (AC-3.4).
 		removeQuietly(root, partName)
-		return outcome{rejection: ptr(reject(ref.Name, reason, fmt.Sprintf("exceeds the %d byte limit", bound)))}
+		return outcome{
+			rejection:  ptr(reject(ref.Name, reason, fmt.Sprintf("exceeds the %d byte limit", bound))),
+			attachment: Attachment{MediaType: mediaType, Bytes: written, Kind: kind},
+			route:      route,
+		}
+	}
+
+	// A ZIP is only provisionally accepted by sniff: it may be a DOCX, a
+	// PPTX, or an archive of holiday photos, and the part that says which is
+	// past the 512 bytes sniff saw. Now that the whole file has landed —
+	// under the document ceiling, so this reads nothing unbounded — its
+	// entry names settle it (US-4).
+	if mediaType == zipMediaType {
+		settled, settledExt, ok := classifyLandedZip(root, partName, written)
+		if !ok {
+			removeQuietly(root, partName)
+			return outcome{
+				rejection:  ptr(reject(ref.Name, ReasonUnsupportedType, unsupportedDetail(zipMediaType))),
+				attachment: Attachment{MediaType: zipMediaType, Bytes: written, Kind: kind},
+				route:      route,
+			}
+		}
+		mediaType, ext = settled, settledExt
 	}
 
 	return outcome{
-		attachment: Attachment{Name: ref.Name, MediaType: mediaType, Bytes: written},
+		attachment: Attachment{Name: ref.Name, MediaType: mediaType, Bytes: written, Kind: kind, Route: route},
 		partName:   partName,
+		route:      route,
+		finalName:  mintFileName(ordinal, ref.Name, ext),
 	}
 }
 
-// bindingLimit reports the smaller of the per-image and turn-total ceilings,
-// and which [RejectionReason] an overflow of it should carry.
+// bindingLimit reports the ceiling a fetch of this kind is bounded by, and
+// which [RejectionReason] an overflow of it should carry.
 //
-// When the turn's whole budget is smaller than one image's allowance, a file
-// that overruns has overrun the turn, and saying [ReasonOversized] would
-// point the reader at a per-file setting that was never the constraint.
-func bindingLimit(lim Limits) (int64, RejectionReason) {
-	perFile, total := lim.MaxImageBytes, lim.MaxTotalBytes
+// The per-file half depends on the kind: images are measured against
+// [Limits.MaxImageBytes] and documents against [Limits.MaxDocumentBytes],
+// which is US-4's only change to how sizing works — the mechanism that
+// aborts an oversized stream is US-3's, unchanged (AC-4.2).
+//
+// The turn-wide total then competes with it, and the smaller wins. When the
+// turn's whole budget is smaller than one file's allowance, a file that
+// overruns has overrun the turn, and saying [ReasonOversized] would point
+// the reader at a per-file setting that was never the constraint.
+func bindingLimit(lim Limits, kind Kind) (int64, RejectionReason) {
+	perFile := lim.MaxImageBytes
+	if kind == KindDocument {
+		perFile = lim.MaxDocumentBytes
+	}
+	total := lim.MaxTotalBytes
 	switch {
 	case perFile <= 0 && total <= 0:
 		return 0, ReasonOversized // no ceiling at all
@@ -325,6 +524,27 @@ func bindingLimit(lim Limits) (int64, RejectionReason) {
 	default:
 		return total, ReasonOverTotalBytes
 	}
+}
+
+// classifyLandedZip opens a landed ZIP through the run's root and settles
+// what it is from its entry names.
+//
+// The file is opened, read and closed here so the handle's lifetime is one
+// function long: zip.Reader reads lazily from whatever it is given, so
+// handing it a file whose close is somebody else's problem is how a run ends
+// up holding descriptors for every archive it ever looked at.
+func classifyLandedZip(root *os.Root, name string, size int64) (mediaType, ext string, ok bool) {
+	f, err := root.Open(name)
+	if err != nil {
+		return zipMediaType, "", false
+	}
+	defer func() { _ = f.Close() }()
+
+	r, err := zip.NewReader(f, size)
+	if err != nil {
+		return zipMediaType, "", false
+	}
+	return classifyZip(r)
 }
 
 // copyBounded writes head and then the rest of src to dst, stopping as soon
@@ -376,10 +596,18 @@ func copyBounded(dst io.Writer, src io.Reader, head []byte, bound int64) (writte
 // and the fact that it is going to an agent rather than to a comment does
 // not make it trustworthy.
 //
+// When any document is present, a closing note says litefactory did not
+// convert it (AC-4.3). That is not politeness: litefactory deliberately
+// performs no conversion, installs no pandoc or Poppler, and carries no
+// DOCX parser, so a PDF or a slide deck arrives exactly as it was uploaded.
+// Whether the agent's own tooling can open it is genuinely unknown — US-4
+// ships this plumbing without gating ingestion on proof that it can
+// (AC-4.4) — and an agent told plainly that the file is raw will try its own
+// tools instead of assuming litefactory already extracted the text.
+//
 // Rejections are not rendered here. What the agent needs is the list of
 // files it can actually open; why some other file did not make it is the
-// operator's business, and belongs in the run report and the manifest that
-// US-7 builds.
+// operator's business, and belongs in the run report and the manifest.
 //
 // The empty string means there is nothing to say, and the caller must then
 // render no section at all (AC-3.3).
@@ -387,13 +615,22 @@ func PromptSection(accepted []Attachment) string {
 	if len(accepted) == 0 {
 		return ""
 	}
-	lines := make([]string, 0, len(accepted))
+	lines := make([]string, 0, len(accepted)+2)
+	documents := false
 	for _, att := range accepted {
 		name, named := attachmentNameSpan(att.Name)
 		if !named {
 			name = "`attachment`"
 		}
 		lines = append(lines, fmt.Sprintf("- %s — %s (%s, %d bytes)", att.Path, name, att.MediaType, att.Bytes))
+		if att.Kind == KindDocument {
+			documents = true
+		}
+	}
+	if documents {
+		lines = append(lines, "",
+			"The documents above are exactly as they were uploaded. litefactory does not "+
+				"convert them, so open or extract them with your own tools if you need their contents.")
 	}
 	return strings.Join(lines, "\n")
 }

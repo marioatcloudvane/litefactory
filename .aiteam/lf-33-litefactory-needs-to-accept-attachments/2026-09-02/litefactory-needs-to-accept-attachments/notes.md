@@ -129,6 +129,70 @@ Not done here, by design: US-4 (documents), US-7 (the manifest) and US-8 (retry
 hardening). `Rejection` values are produced and returned but nothing renders them
 yet — that is US-7's integration point, as the US-6 engineer recommended.
 
+## US-4, US-8, US-7 — DONE, applied by hand from the CLI (2026-09-04)
+
+Built in dependency order after US-3: types, then the retry that adds the route
+field, then the manifest that records it.
+
+**US-4 — documents.** PDF is a magic number and needs nothing new. DOCX and PPTX
+are not: both are ordinary ZIP archives beginning `PK`, exactly like
+holiday-photos.zip, and what tells them apart is the part inside —
+`word/document.xml` versus `ppt/presentation.xml` — which in a real Office file
+sits well past the 512 bytes the sniffer sees, because `[Content_Types].xml` is
+stored first and is larger than that alone. So a ZIP is accepted provisionally,
+landed under the document ceiling, and classified from its entry names with
+stdlib `archive/zip` (no parsing dependency, per the story). A plain archive
+renamed `.docx` is refused and removed. The cost is that an unsupported archive
+touches disk before it is rejected; it takes the same removal path an oversized
+file does.
+
+**US-8 — retry and budgets.** `internal/github` stays single-shot; the retry and
+both timeouts (30s per fetch, 120s per turn) live in `internal/attach`, per the
+plan's CONC-6 resolution. `internal/github/assets_policy_test.go` now enforces
+that split from both sides: `assets.go` may not import `time`, contain a loop, or
+call `time.Sleep`, and `internal/attach` must still carry the timeouts and the
+retry route. Without it, the natural fix for "attachments sometimes 404" is three
+lines in the wrong package that compile and pass everything else.
+
+Two deliberate readings worth review:
+
+- *"Re-resolved URL"* (AC-8.1) is satisfied by asking again with the same
+  `Ref.URL`. That URL is the stable `user-attachments` address; GitHub answers it
+  with a redirect to a short-lived **signed** URL, and `FetchAsset` follows that
+  redirect fresh on every call. So a second call genuinely re-resolves the
+  signature, which is precisely the expiry the story is defending against.
+- *Retry scope.* The story names `ErrAssetUnauthorized` and 404. `internal/attach`
+  cannot see that sentinel — it does not import `internal/github`, by design and
+  by test — so it retries **any** fetch failure exactly once. That is a superset
+  of the required behaviour at the cost of one round trip on an attachment that
+  was going to be reported unfetchable anyway. A decision (unsupported type,
+  oversized) is never retried. If the distinction ever earns its keep, the honest
+  way to get it is an error-classifying method on the `Fetcher` interface, not an
+  import.
+
+**US-7 — the manifest.** `attachments.md` in the worktree's `.aiteam/`, so
+litefactory's end-of-run commit picks it up like any other change; rewritten per
+run, with history left to git. No table, no migration (AC-7.4). Not routed
+through `internal/redact` (AC-7.3) — that guards text going to a forge comment,
+and what keeps this file safe is instead that `stripQuery` runs at record
+construction, so a signed URL's credential never reaches a `Record` at all.
+T-7.3's proposed store migration stays dropped, as the story instructs.
+
+**One bug found by its own test.** The manifest renders a markdown table, and a
+pipe is a legal filename character that `attachmentNameSpan` does not stop at —
+and a pipe survives inside backticks too, because a table is split into cells
+before code spans are parsed. An attachment named `a|b` therefore split its row
+and shifted every value after it, which in an audit record means reporting the
+wrong byte count against the wrong file. Escaped where the table is built, not in
+the shared sanitizer, which has no idea it is being put in one.
+
+Also corrected while reviewing rendered output: an oversized attachment was
+recorded with route "not fetched" when it had in fact been fetched and then
+overran. Post-fetch rejections now carry their route.
+
+All five remaining stories of this plan are now implemented. `make check` clean:
+22 packages, golangci-lint 0 issues.
+
 ## Code Review Advisories
 
 (populated after Phase 1.5)

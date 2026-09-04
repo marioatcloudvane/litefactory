@@ -269,9 +269,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// limits it ingests under are one decision, made in one file.
 			AssetFetcher: client,
 			AttachmentLimits: attach.Limits{
-				MaxImageBytes: s.Config.Claude.AttachmentMaxImageBytes,
-				MaxTotalBytes: s.Config.Claude.AttachmentMaxTotalBytes,
-				MaxCount:      s.Config.Claude.AttachmentMaxCount,
+				MaxImageBytes:    s.Config.Claude.AttachmentMaxImageBytes,
+				MaxDocumentBytes: s.Config.Claude.AttachmentMaxDocumentBytes,
+				MaxTotalBytes:    s.Config.Claude.AttachmentMaxTotalBytes,
+				MaxCount:         s.Config.Claude.AttachmentMaxCount,
 			},
 			Logger: s.Logger,
 		}),

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -226,6 +228,7 @@ func prepare(
 	// handed off. A failure to fetch never fails the turn (see
 	// [ingestAttachments]).
 	attachments := ingestAttachments(ctx, opts, req, ref, run.Ordinal, logger)
+	writeAttachmentManifest(ctx, worktree.Path(), ref, run.Ordinal, attachments, logger)
 
 	promptInput := harness.PromptInput{
 		Ref:               ref,
@@ -652,6 +655,75 @@ func ingestAttachments(
 		slog.Int("rejected", len(result.Rejected)),
 	)
 	return result
+}
+
+// aiteamDirName is the team's directory at the worktree root, where the
+// attachment manifest is written. internal/repos keeps its own unexported
+// copy for the registration check; this is the one this package writes into,
+// and the two are deliberately independent — a change to what makes a
+// repository count as aiteam-installed should not silently relocate a run's
+// artefacts.
+const aiteamDirName = ".aiteam"
+
+// writeAttachmentManifest writes attachments.md into the worktree's .aiteam
+// directory (US-7).
+//
+// # Why the worktree, and not $LF_HOME
+//
+// The landed bytes go to $LF_HOME, deliberately, so an attachment never
+// shows up in the repository's own git status. The manifest goes the other
+// way for the opposite reason: it is meant to be committed. litefactory
+// commits the worktree at the end of every run, so putting the record there
+// makes its history git's history — which is the entire durability story
+// this story is allowed, since the spec's Out of Scope list rules out a
+// table and a migration for it (AC-7.4).
+//
+// It is rewritten per run rather than appended to. A run's manifest
+// describes that run's attachments, and the previous run's version is one
+// git log away; appending would grow a file nobody prunes and make "what did
+// this run see" a search rather than a read.
+//
+// # Not a reply
+//
+// Nothing here passes through internal/redact, and that is correct rather
+// than an omission (AC-7.3): the redactor guards text on its way to a forge
+// comment, and this is a worktree artefact. What keeps it safe is how the
+// records were built — internal/attach strips the query string from every
+// URL at construction, so the signed credential never reaches a Record in
+// the first place, and no record ever carries attachment bytes.
+//
+// # It never fails the turn
+//
+// Like ingestion itself, a manifest that could not be written is logged and
+// stepped over. The attachments are already fetched and already named in the
+// prompt; failing the run at this point would throw away work that
+// succeeded in order to report that the paperwork did not.
+func writeAttachmentManifest(
+	ctx context.Context,
+	worktreePath string,
+	ref naming.Ref,
+	ordinal int,
+	result attach.Result,
+	logger *slog.Logger,
+) {
+	body := attach.Manifest(ref.String(), ordinal, result.Records)
+	if body == "" {
+		return
+	}
+	dir := filepath.Join(worktreePath, aiteamDirName)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		logger.WarnContext(ctx, "the attachment manifest was not written",
+			slog.String("error", err.Error()))
+		return
+	}
+	path := filepath.Join(dir, attach.ManifestFile)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		logger.WarnContext(ctx, "the attachment manifest was not written",
+			slog.String("path", path), slog.String("error", err.Error()))
+		return
+	}
+	logger.InfoContext(ctx, "attachment manifest written",
+		slog.String("path", path), slog.Int("records", len(result.Records)))
 }
 
 // historyRole maps the store's classification onto the label the prompt renders

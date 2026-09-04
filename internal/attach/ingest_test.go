@@ -51,6 +51,10 @@ func (f *fakeFetcher) serve(url string, payload []byte) *fakeFetcher {
 	return f
 }
 
+// errAlwaysFails stands in for a transport failure whose text carries a
+// signed URL, which is the shape the redaction assertions care about.
+var errAlwaysFails = errors.New("404 while fetching https://github.com/user-attachments/assets/gone?token=SECRET")
+
 func (f *fakeFetcher) fail(url string, err error) *fakeFetcher {
 	f.errs[url] = err
 	return f
@@ -90,7 +94,7 @@ func refsFor(names ...string) []Ref {
 }
 
 // generous is a Limits with every ceiling well clear of the test payloads.
-var generous = Limits{MaxImageBytes: 1 << 20, MaxTotalBytes: 4 << 20, MaxCount: 10}
+var generous = Limits{MaxImageBytes: 1 << 20, MaxDocumentBytes: 4 << 20, MaxTotalBytes: 8 << 20, MaxCount: 10}
 
 // dirEntries lists the base names left in dir, so a test can assert on what
 // actually survived rather than on what the result claims survived.
@@ -186,7 +190,8 @@ func TestIngestAbortsOversizedMidStreamAndLeavesNothing(t *testing.T) {
 
 // TestIngestTrustsTheBytesNotTheClaims is AC-3.5. The payload is a PDF; the
 // name says .png and the served header says image/png. Neither lie is
-// believed, and — because US-3 is images only — a real PDF is declined.
+// believed: the file lands as the PDF it actually is, under the extension
+// its bytes earned.
 func TestIngestTrustsTheBytesNotTheClaims(t *testing.T) {
 	t.Parallel()
 
@@ -199,8 +204,38 @@ func TestIngestTrustsTheBytesNotTheClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
+	if len(got.Accepted) != 1 {
+		t.Fatalf("accepted %d, want 1: %+v", len(got.Accepted), got)
+	}
+	att := got.Accepted[0]
+	if att.MediaType != "application/pdf" {
+		t.Errorf("MediaType = %q, want application/pdf: the declared image/png must not be believed", att.MediaType)
+	}
+	if att.Kind != KindDocument {
+		t.Errorf("Kind = %v, want KindDocument", att.Kind)
+	}
+	if !strings.HasSuffix(att.Path, ".pdf") {
+		t.Errorf("landed at %s, want a .pdf: the .png in the name must not be believed", att.Path)
+	}
+}
+
+// TestIngestDeclinesATypeItDoesNotAccept covers the other side of sniffing:
+// bytes that are neither a supported image nor a supported document are
+// refused, and nothing is left behind.
+func TestIngestDeclinesATypeItDoesNotAccept(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	url := assetURL("notes.png")
+	f := newFetcher().serve(url, []byte("just some plain text, honestly"))
+	f.declare[url] = "image/png"
+
+	got, err := Ingest(context.Background(), f, dir, []Ref{{Name: "notes.png", URL: url}}, generous)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
 	if len(got.Accepted) != 0 {
-		t.Fatalf("accepted %+v; the declared type and extension must not be believed", got.Accepted)
+		t.Fatalf("accepted %+v, want none", got.Accepted)
 	}
 	if len(got.Rejected) != 1 || got.Rejected[0].Reason != ReasonUnsupportedType {
 		t.Fatalf("rejections = %+v, want one ReasonUnsupportedType", got.Rejected)
