@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -219,6 +222,14 @@ func prepare(
 	// the same call.
 	mayAsk := req.Command.Tagged && modeMayAsk(req.mode())
 
+	// Attachments are fetched here: after the worktree and the runs row
+	// exist — the landing directory is named for this run's ordinal — and
+	// before the prompt is assembled, because the prompt is where they are
+	// handed off. A failure to fetch never fails the turn (see
+	// [ingestAttachments]).
+	attachments := ingestAttachments(ctx, opts, req, ref, run.Ordinal, logger)
+	writeAttachmentManifest(ctx, worktree.Path(), ref, run.Ordinal, attachments, logger)
+
 	promptInput := harness.PromptInput{
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
@@ -237,6 +248,7 @@ func prepare(
 		PreviousMayAsk:    previousMayAsk(previous, resume, previousTriggerBody, req.Issue.Body),
 		PreviousMode:      previous.Mode,
 		History:           history,
+		Attachments:       attach.PromptSection(attachments.Accepted),
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
@@ -578,6 +590,140 @@ func previousMayAsk(previous store.Run, resume bool, previousTriggerBody, issueB
 		body = issueBody
 	}
 	return HasAskTag(body) && modeMayAsk(previous.Mode)
+}
+
+// ingestAttachments fetches the attachments referenced by the run's trigger
+// and issue body, and reports what landed.
+//
+// # It never fails the turn
+//
+// There is no error return, and that is the design rather than a shortcut. An
+// attachment is extra context, not a precondition: a run whose screenshot
+// would not download is a run that proceeds without the screenshot, exactly
+// as every run before this feature existed did. Turning a flaky CDN into a
+// failed turn would trade a small loss of context for a total one. Individual
+// refusals become [attach.Rejection] values, which US-7's manifest will
+// render; a failure of the whole operation is logged here and the turn
+// carries on with nothing.
+//
+// # Two gates, both required
+//
+// [Request.AttachmentsAllowed] is authority — the resolved tool profile said
+// this run may ingest (US-5). A non-nil [Options.AssetFetcher] is capability.
+// Neither implies the other, and a turn missing either fetches nothing. The
+// check is here rather than inside internal/attach because the permission is
+// a property of this turn, not of ingestion.
+//
+// # Why the trigger is scanned first
+//
+// The comment that started the run is scanned before the issue body, so when
+// a turn's ceilings can only admit some of the attachments, the ones the
+// reporter just attached win over ones that have been sitting on the issue
+// since it was filed. [attach.Scan] collapses duplicates by URL, so an image
+// referenced in both places is fetched once and counted once — including the
+// case where the trigger *is* the issue body, which scans the same text
+// twice by construction.
+func ingestAttachments(
+	ctx context.Context,
+	opts Options,
+	req Request,
+	ref naming.Ref,
+	ordinal int,
+	logger *slog.Logger,
+) attach.Result {
+	if !req.AttachmentsAllowed || opts.AssetFetcher == nil {
+		return attach.Result{}
+	}
+	refs := attach.Scan(req.Trigger.Body, req.Issue.Body)
+	if len(refs) == 0 {
+		return attach.Result{}
+	}
+
+	dir, err := naming.AttachmentsDir(opts.Paths.Home(), ref, ordinal)
+	if err != nil {
+		logger.WarnContext(ctx, "attachments were skipped: the landing directory could not be derived",
+			slog.String("error", err.Error()))
+		return attach.Result{}
+	}
+	result, err := attach.Ingest(ctx, opts.AssetFetcher, dir, refs, opts.AttachmentLimits)
+	if err != nil {
+		logger.WarnContext(ctx, "attachments were skipped", slog.String("error", err.Error()))
+		return attach.Result{}
+	}
+	logger.InfoContext(ctx, "attachments ingested",
+		slog.Int("accepted", len(result.Accepted)),
+		slog.Int("rejected", len(result.Rejected)),
+	)
+	return result
+}
+
+// aiteamDirName is the team's directory at the worktree root, where the
+// attachment manifest is written. internal/repos keeps its own unexported
+// copy for the registration check; this is the one this package writes into,
+// and the two are deliberately independent — a change to what makes a
+// repository count as aiteam-installed should not silently relocate a run's
+// artefacts.
+const aiteamDirName = ".aiteam"
+
+// writeAttachmentManifest writes attachments.md into the worktree's .aiteam
+// directory (US-7).
+//
+// # Why the worktree, and not $LF_HOME
+//
+// The landed bytes go to $LF_HOME, deliberately, so an attachment never
+// shows up in the repository's own git status. The manifest goes the other
+// way for the opposite reason: it is meant to be committed. litefactory
+// commits the worktree at the end of every run, so putting the record there
+// makes its history git's history — which is the entire durability story
+// this story is allowed, since the spec's Out of Scope list rules out a
+// table and a migration for it (AC-7.4).
+//
+// It is rewritten per run rather than appended to. A run's manifest
+// describes that run's attachments, and the previous run's version is one
+// git log away; appending would grow a file nobody prunes and make "what did
+// this run see" a search rather than a read.
+//
+// # Not a reply
+//
+// Nothing here passes through internal/redact, and that is correct rather
+// than an omission (AC-7.3): the redactor guards text on its way to a forge
+// comment, and this is a worktree artefact. What keeps it safe is how the
+// records were built — internal/attach strips the query string from every
+// URL at construction, so the signed credential never reaches a Record in
+// the first place, and no record ever carries attachment bytes.
+//
+// # It never fails the turn
+//
+// Like ingestion itself, a manifest that could not be written is logged and
+// stepped over. The attachments are already fetched and already named in the
+// prompt; failing the run at this point would throw away work that
+// succeeded in order to report that the paperwork did not.
+func writeAttachmentManifest(
+	ctx context.Context,
+	worktreePath string,
+	ref naming.Ref,
+	ordinal int,
+	result attach.Result,
+	logger *slog.Logger,
+) {
+	body := attach.Manifest(ref.String(), ordinal, result.Records)
+	if body == "" {
+		return
+	}
+	dir := filepath.Join(worktreePath, aiteamDirName)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		logger.WarnContext(ctx, "the attachment manifest was not written",
+			slog.String("error", err.Error()))
+		return
+	}
+	path := filepath.Join(dir, attach.ManifestFile)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		logger.WarnContext(ctx, "the attachment manifest was not written",
+			slog.String("path", path), slog.String("error", err.Error()))
+		return
+	}
+	logger.InfoContext(ctx, "attachment manifest written",
+		slog.String("path", path), slog.Int("records", len(result.Records)))
 }
 
 // historyRole maps the store's classification onto the label the prompt renders

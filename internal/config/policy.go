@@ -59,11 +59,16 @@ func validateAutoCompact(c *Claude) []error {
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
 
-// profileKeyRE matches a tool-profile name. It is deliberately narrower than a
-// tool name: a profile name is typed into a GitHub label by a human, as
-// lf:tools=<name>, so it stays lower-case and free of anything that could be
-// mistaken for a shell or YAML construct. Forty characters is far more than a
-// label of this shape ever needs.
+// profileKeyRE matches a tool-profile name as it is stored in config.yaml —
+// the lower-cased map key, not the label's displayed value. It is
+// deliberately narrower than a tool name: an operator types a profile's
+// display name into a GitHub label as "Tools: <Name>" (internal/daemon's
+// toolProfileName requires an upper-case first letter to match), and that
+// value is lower-cased before it is ever compared against this key, so
+// "Tools: Research" and a configured profile key of "research" are the same
+// profile. This key itself stays lower-case and free of anything that could
+// be mistaken for a shell or YAML construct. Forty characters is far more
+// than a label of this shape ever needs.
 var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // defaultTools is the --tools surface `init` writes. It is the real boundary,
@@ -121,6 +126,34 @@ func defaultAllowedTools() []string {
 		"Bash(go test:*)",
 		"Bash(go vet:*)",
 		"Bash(gofmt:*)",
+		// Read-only text inspection. These are here to stop agents reading
+		// whole files when they need eight lines of one.
+		//
+		// Without them a run on issue #33 lost two implementation agents to
+		// "Autocompact is thrashing: the context refilled to the limit within
+		// 3 turns of the previous compact, 3 times in a row". The progress
+		// trace shows why: unable to excerpt, the agent re-read
+		// internal/daemon/tick.go — 1797 lines — whole, three times, after
+		// each compaction discarded it. The absent permission and the context
+		// limit are the same bug seen from two ends.
+		//
+		// They also unblock the pipelines the project's own checks are written
+		// as: `gofmt -l . | grep -v '^$'` was refused as "multiple operations",
+		// because claude evaluates each stage of a pipe against this list
+		// separately and grep was not on it.
+		//
+		// sed is admitted only as `sed -n`, its read-only form. Bare `sed:*`
+		// would carry `sed -i`, which rewrites a file in place and belongs to
+		// the Edit tool and its permission rules. Verified: `sed -n '2,3p' f`
+		// is allowed and `sed -i '' 's/a/b/' f` is denied with f unchanged.
+		//
+		// cat and tee stay out for the reason given above at mkdir, and awk
+		// stays out because its program text can redirect into a file.
+		"Bash(grep:*)",
+		"Bash(sed -n:*)",
+		"Bash(head:*)",
+		"Bash(tail:*)",
+		"Bash(wc:*)",
 	}
 }
 
@@ -348,7 +381,7 @@ func validateToolProfiles(c *Claude) []error {
 	for _, name := range sortedProfileNames(c.ToolProfiles) {
 		profile := c.ToolProfiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what an lf:tools= label carries", name, name))
+			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what a \"Tools: <Profile>\" label resolves to once lower-cased", name, name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {

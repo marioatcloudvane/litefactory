@@ -327,7 +327,7 @@ func TestTemplateWritesToolKeysAsCommentsOnly(t *testing.T) {
 		"#   research:",
 		"#     claude:",
 		"hard upper bound",
-		"lf:tools=",
+		"Tools: ",
 	} {
 		if !strings.Contains(contents, want) {
 			t.Errorf("template no longer contains %q", want)
