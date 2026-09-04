@@ -39,6 +39,18 @@ const (
 	// value is already trustworthy when the sweep lands.
 	MinWorktreeRetainDays = 1
 	MaxWorktreeRetainDays = 3650
+	// MinAttachmentBytes and MaxAttachmentBytes bound each of the three
+	// attachment size ceilings (US-5): image, document and total. The floor
+	// rules out a zero or negative ceiling that would make ingestion refuse
+	// every attachment while still reporting attachments: true; the 200 MiB
+	// ceiling is a guard against a typed extra digit rather than a measured
+	// limit, well above the 25 MiB total default.
+	MinAttachmentBytes = 1024
+	MaxAttachmentBytes = 200 * 1024 * 1024
+	// MinAttachmentMaxCount and MaxAttachmentMaxCount bound the number of
+	// attachments ingested for one turn (US-5).
+	MinAttachmentMaxCount = 1
+	MaxAttachmentMaxCount = 100
 )
 
 var (
@@ -213,6 +225,22 @@ func validateClaude(c *Claude) []error {
 	if c.TimeoutSeconds < MinClaudeTimeoutSeconds || c.TimeoutSeconds > MaxClaudeTimeoutSeconds {
 		errs = append(errs, fmt.Errorf("claude.timeout_seconds: %d is out of range; must be between %d and %d",
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
+	}
+	if c.AttachmentMaxImageBytes < MinAttachmentBytes || c.AttachmentMaxImageBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("claude.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
+			c.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if c.AttachmentMaxDocumentBytes < MinAttachmentBytes || c.AttachmentMaxDocumentBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("claude.attachment_max_document_bytes: %d is out of range; must be between %d and %d",
+			c.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if c.AttachmentMaxTotalBytes < MinAttachmentBytes || c.AttachmentMaxTotalBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("claude.attachment_max_total_bytes: %d is out of range; must be between %d and %d",
+			c.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes))
+	}
+	if c.AttachmentMaxCount < MinAttachmentMaxCount || c.AttachmentMaxCount > MaxAttachmentMaxCount {
+		errs = append(errs, fmt.Errorf("claude.attachment_max_count: %d is out of range; must be between %d and %d",
+			c.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
 	}
 
 	errs = append(errs, validateAutoCompact(c)...)

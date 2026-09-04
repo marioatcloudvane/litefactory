@@ -1470,7 +1470,7 @@ func (d *Daemon) run(
 	// and no label value crosses this boundary into logs or replies.
 	if legacyToolsLabel(t.issue.Labels) {
 		return d.refuseTools(ctx, t, trigger,
-			toolDecision{Refusal: report.ReplyMalformedToolLabel}, log)
+			toolDecision{Refusal: report.ReplyLegacyToolLabel}, log)
 	}
 
 	// Select permissions only after both the concrete mode and effective agent
@@ -1481,6 +1481,11 @@ func (d *Daemon) run(
 		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
 			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
 	}
+	// The US-5 ingestion permission, resolved with the rest of the profile.
+	// It arrived on main read off a "Tools: <Profile>" label; here it comes
+	// from the profile the run's mode selected, which is the same permission
+	// reached by this branch's mechanism.
+	attachmentsAllowed := tools.Attachments
 	log = log.With(slog.String("tool_profile", tools.Profile))
 	log.InfoContext(ctx, "selected the mode permission profile for this run",
 		slog.Any("tools", tools.Tools),
@@ -1505,11 +1510,12 @@ func (d *Daemon) run(
 		Command: command,
 		// Copies of the mode-selected operator configuration. No forge label
 		// contributes permission data to this request.
-		Tools:        append([]string(nil), tools.Tools...),
-		AllowedTools: append([]string(nil), tools.AllowedTools...),
-		ToolProfile:  tools.Profile,
-		Agent:        agent.Kind(selectedAgent),
-		CodexSandbox: tools.Sandbox,
+		Tools:              append([]string(nil), tools.Tools...),
+		AllowedTools:       append([]string(nil), tools.AllowedTools...),
+		ToolProfile:        tools.Profile,
+		Agent:              agent.Kind(selectedAgent),
+		CodexSandbox:       tools.Sandbox,
+		AttachmentsAllowed: attachmentsAllowed,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
@@ -1565,8 +1571,8 @@ func (d *Daemon) run(
 // refuseTools answers any obsolete lf:tools= label. The label's value is not
 // carried into this function, so neither logs nor replies can echo it.
 //
-// Nothing runs. That is the point: a label is a permission request, and the four
-// ways of failing to understand one all have the same safe answer, which is to
+// Nothing runs. That is the point: a label is a permission request, and every
+// way of failing to understand one has the same safe answer, which is to
 // decline and say so (C9). Falling through to the default surface would answer
 // "which tools may this have" with "the ones it would have had anyway", which is
 // the failure this whole feature exists to prevent.
@@ -1627,8 +1633,8 @@ func (d *Daemon) refuseTools(
 	return nil
 }
 
-// refuseProfileForAgent answers a resolved lf:tools= profile that carries no
-// stanza for the agent this run would otherwise use — stage 3 of the
+// refuseProfileForAgent answers a resolved "Tools: <Profile>" label that
+// carries no stanza for the agent this run would otherwise use — stage 3 of the
 // four-stage refusal precedence (T-7.2). A profile with a stanza for one
 // agent and none for another is not treated as "fall back to that agent's
 // own default surface": the whole point of a profile is the operator's
@@ -1652,7 +1658,7 @@ func (d *Daemon) refuseProfileForAgent(
 		slog.String("agent", agentName))
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its resolved lf:tools= profile has no "+
+		log.InfoContext(ctx, "refusing to run the issue body: its resolved tool profile has no "+
 			"stanza for this run's coding-agent tool. Nothing was run and no comment was posted, "+
 			"because there is no comment to answer; the next comment on this issue is refused "+
 			"on the thread")
@@ -1677,7 +1683,7 @@ func (d *Daemon) refuseProfileForAgent(
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the resolved lf:tools= profile has no stanza for "+
+		log.InfoContext(ctx, "refused a run: the resolved tool profile has no stanza for "+
 			"this run's coding-agent tool",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}

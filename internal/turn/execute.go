@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -145,6 +146,24 @@ type Options struct {
 	SubIssueCreator  SubIssueCreator
 	SubIssueRenderer SubIssueRenderer
 
+	// AssetFetcher fetches attachment bytes, and AttachmentLimits are the
+	// ceilings that ingestion runs under. *github.Client satisfies the
+	// first; internal/config supplies the second.
+	//
+	// A nil fetcher disables ingestion for every turn, the same tolerance
+	// SubIssueCreator gets and for the same reason: a great many callers of
+	// this package, tests above all, have no occasion to fetch an
+	// attachment and should not have to supply a forge client to construct
+	// a valid Options. Ingestion is skipped, not refused — a turn that
+	// cannot fetch attachments is still a turn that can do its work, which
+	// is not true of a missing database or clone gate.
+	//
+	// The permission gate is a separate thing and lives on the request
+	// ([Request.AttachmentsAllowed], US-5). This is capability; that is
+	// authority. Both must be present before a single byte is fetched.
+	AssetFetcher     attach.Fetcher
+	AttachmentLimits attach.Limits
+
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
 }
@@ -279,6 +298,21 @@ type Request struct {
 	// agent it was created with, and a later run whose label resolves to a
 	// different one is refused rather than resumed or silently restarted.
 	Agent agent.Kind
+
+	// AttachmentsAllowed is the US-5 permission gate: true only when a
+	// resolved "Tools: <Profile>" label is present AND that profile's
+	// attachments key is true. It is computed by the daemon's per-agent
+	// narrowing stage (tick.go), the same stage that resolves ToolProfile
+	// above — deliberately not by [resolveTools]'s pure label ladder, which
+	// has no side effects and stays that way.
+	//
+	// This is a permission, not a capability: true grants no new tool (no
+	// WebFetch/WebSearch implied). It only decides whether internal/attach's
+	// pre-step runs before the subprocess is spawned. False — the default,
+	// and the outcome whenever no label resolved a profile at all — means
+	// this turn performs zero fetch attempts and produces prompt/argv bytes
+	// identical to a build without this feature (AC-5.1, AC-5.2).
+	AttachmentsAllowed bool
 }
 
 func (r Request) validate() error {

@@ -16,6 +16,14 @@ type toolDecision struct {
 	Tools        []string
 	AllowedTools []string
 	Sandbox      string
+	// Attachments is the US-5 ingestion permission, carried through from the
+	// resolved profile. It arrived on main gated by a "Tools: <Profile>"
+	// label; under this branch's model the same key is read off the profile
+	// the run's *mode* selects, so the permission survives the change of
+	// mechanism unaltered — it is still a property of the profile, and still
+	// agent-agnostic, because it grants no tool and only decides whether the
+	// ingestion pre-step runs at all.
+	Attachments bool
 }
 
 func (d toolDecision) refused() bool { return d.Refusal != report.ReplyInvalid }
@@ -34,7 +42,7 @@ func (d *Daemon) resolveTools(mode agent.Mode, kind agent.Kind) (toolDecision, b
 	if !ok || !profile.HasStanzaFor(string(kind)) {
 		return toolDecision{}, false
 	}
-	decision := toolDecision{Profile: profileName}
+	decision := toolDecision{Profile: profileName, Attachments: profile.Attachments}
 	switch string(kind) {
 	case string(config.KindClaude):
 		decision.Tools = append([]string(nil), profile.Claude.Tools...)

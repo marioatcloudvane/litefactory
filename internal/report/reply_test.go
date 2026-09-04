@@ -7,11 +7,12 @@ import (
 	"github.com/cloudvane/litefactory/internal/report"
 )
 
-// TestToolsRefusalReplies covers the three run-less replies a lf:tools= label
-// that cannot be resolved draws (US-3): unknown, malformed, and ambiguous.
-// Each is its own [report.ReplyKind] (D-4) rather than one struct with a
-// reason field, so this is the behavioural proof that the three read as three
-// distinct answers rather than one templated one.
+// TestToolsRefusalReplies covers the four run-less replies a "Tools: <Profile>"
+// label that cannot be resolved draws (US-3, US-2): unknown, malformed,
+// ambiguous, and the old lf:tools= syntax itself. Each is its own
+// [report.ReplyKind] (D-4) rather than one struct with a reason field, so
+// this is the behavioural proof that the four read as four distinct answers
+// rather than one templated one.
 func TestToolsRefusalReplies(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -29,14 +30,31 @@ func TestToolsRefusalReplies(t *testing.T) {
 			wants: []string{"`research`", "no configuration", "Nothing was run"},
 		},
 		{
+			// This kind carries main's meaning again: a "Tools: " label that
+			// will not parse. It had been overloaded on this branch to carry
+			// the obsolete-label message, which now has a kind of its own.
+			// Nothing on this branch emits it — permissions come from the
+			// run's mode, not a label — but the text is kept correct rather
+			// than left describing a different refusal.
 			name:  "malformed value describes the rule and quotes nothing",
 			reply: report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel},
-			wants: []string{"no longer supported", "Remove every", "Nothing was run", "not repeated here"},
+			wants: []string{"does not name a usable tool profile", "Nothing was run", "not repeated here"},
 		},
 		{
 			name:  "ambiguous names neither label",
 			reply: report.Reply{Ref: testRef, Kind: report.ReplyAmbiguousToolLabels},
 			wants: []string{"more than one", "Neither label was chosen", "Nothing was run"},
+		},
+		{
+			// main told the operator to replace the old label with a
+			// "Tools: <Profile>" one. On this branch that advice would send
+			// them to apply a label nothing reads, because permissions are
+			// selected from the resolved mode. The kind is main's; the
+			// remedy it names has to be this branch's.
+			name:    "legacy lf:tools= label says to remove it and quotes nothing of it",
+			reply:   report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel},
+			wants:   []string{"no longer reads", "Remove every", "resolved run mode", "Nothing was run"},
+			mustNot: []string{"Tools: <Profile>"},
 		},
 	}
 

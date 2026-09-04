@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/attach"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -265,6 +266,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// than built twice.
 			SubIssueCreator:  client,
 			SubIssueRenderer: renderer,
+			// Attachment ingestion (US-3). The same forge client again: it
+			// is the only thing holding the installation token, which is
+			// what a private-repo attachment fetch needs, and keeping the
+			// fetch there is what lets the SSRF allow-list sit in one place.
+			// The ceilings come from the same config the tool profiles above
+			// were resolved from — a run's permission to ingest and the
+			// limits it ingests under are one decision, made in one file.
+			AssetFetcher:     client,
+			AttachmentLimits: attachmentLimits(s.Config),
 			Logger:           s.Logger,
 		}),
 		Reporter: reporter,
@@ -354,4 +364,47 @@ func NewInstanceID() (string, error) {
 		host = "unknown-host"
 	}
 	return fmt.Sprintf("%s-%d-%s", host, os.Getpid(), hex.EncodeToString(suffix)), nil
+}
+
+// attachmentLimits reads the attachment ceilings out of the configuration.
+//
+// The ceilings arrived on main (issue #33) as fields on the top-level Claude
+// stanza, read as cfg.Claude.AttachmentMax*. This branch moved agent
+// configuration under `agents:` and made each agent optional, so that path no
+// longer exists and the stanza can be absent entirely — a daemon configured
+// for Codex alone is valid here (AC-7.7).
+//
+// An absent Claude stanza therefore yields the zero value, and every ceiling
+// in internal/attach treats non-positive as "no ceiling". That is the wrong
+// default for a size limit, so the package defaults are used instead: a
+// missing stanza should mean "the ordinary limits", never "unbounded".
+//
+// The ceilings are not really Claude's — they bound litefactory's own
+// ingestion whichever agent a run is routed to — so under this branch's
+// hierarchy they belong under `settings:`. Moving them is a design change
+// rather than a merge, and is left for the re-plan.
+func attachmentLimits(cfg *config.Config) attach.Limits {
+	limits := attach.Limits{
+		MaxImageBytes:    config.DefaultAttachmentMaxImageBytes,
+		MaxDocumentBytes: config.DefaultAttachmentMaxDocumentBytes,
+		MaxTotalBytes:    config.DefaultAttachmentMaxTotalBytes,
+		MaxCount:         config.DefaultAttachmentMaxCount,
+	}
+	if cfg == nil || cfg.Agents.Claude == nil {
+		return limits
+	}
+	claude := cfg.Agents.Claude
+	if claude.AttachmentMaxImageBytes > 0 {
+		limits.MaxImageBytes = claude.AttachmentMaxImageBytes
+	}
+	if claude.AttachmentMaxDocumentBytes > 0 {
+		limits.MaxDocumentBytes = claude.AttachmentMaxDocumentBytes
+	}
+	if claude.AttachmentMaxTotalBytes > 0 {
+		limits.MaxTotalBytes = claude.AttachmentMaxTotalBytes
+	}
+	if claude.AttachmentMaxCount > 0 {
+		limits.MaxCount = claude.AttachmentMaxCount
+	}
+	return limits
 }

@@ -37,18 +37,18 @@ const (
 	// ReplyEmptySpike answers a bare "/spike" with nothing after it (AC-2.20).
 	ReplyEmptySpike
 
-	// ReplyUnknownToolProfile answers an lf:tools= label naming a profile the
-	// operator has not configured — including the case where no profiles are
-	// configured at all, which is the same answer from the thread's point of
-	// view: the profile you asked for is not there.
+	// ReplyUnknownToolProfile answers a "Tools: <Profile>" label naming a
+	// profile the operator has not configured — including the case where no
+	// profiles are configured at all, which is the same answer from the
+	// thread's point of view: the profile you asked for is not there.
 	//
 	// It is the one refusal that names what it was asked for, in [Reply.Profile],
 	// and it may do so precisely because the name passed the profile-name
 	// pattern before it got here and is checked against it again below.
 	ReplyUnknownToolProfile
 
-	// ReplyMalformedToolLabel answers an lf:tools= label whose value is not the
-	// shape of a profile name at all, the empty value included.
+	// ReplyMalformedToolLabel answers a "Tools: <Profile>" label whose value is
+	// not the shape of a profile name at all, the empty value included.
 	//
 	// It carries no profile and quotes nothing back. The label text failed the
 	// one check that would have made it safe to print, so the reply describes
@@ -57,8 +57,8 @@ const (
 	// habit of whoever edits this next.
 	ReplyMalformedToolLabel
 
-	// ReplyAmbiguousToolLabels answers an issue carrying more than one lf:tools=
-	// label.
+	// ReplyAmbiguousToolLabels answers an issue carrying more than one
+	// "Tools: <Profile>" label.
 	//
 	// It names neither of them. Naming both would echo exactly the text
 	// [ReplyMalformedToolLabel] refuses to echo, with the added indignity that
@@ -96,9 +96,9 @@ const (
 	// number — so the request is refused rather than guessed at.
 	ReplyAgentSwitchRefused
 
-	// ReplyProfileNotAvailableForAgent answers a resolved lf:tools= profile
-	// that carries no stanza for the agent this run would otherwise use. A
-	// profile with a stanza for one tool and none for another is not treated
+	// ReplyProfileNotAvailableForAgent answers a resolved "Tools: <Profile>"
+	// label that carries no stanza for the agent this run would otherwise use.
+	// A profile with a stanza for one tool and none for another is not treated
 	// as "fall back to that tool's own default surface" — the whole point of
 	// a profile is the operator's explicit boundary, and a run this package
 	// cannot resolve a surface for is refused rather than widened.
@@ -109,6 +109,23 @@ const (
 	ReplyAmbiguousModeLabels
 	// ReplyConflictingModeSelection answers a command/label disagreement.
 	ReplyConflictingModeSelection
+
+	// ReplyLegacyToolLabel answers an issue or comment still carrying the old
+	// lf:tools=<profile> label syntax, which this feature shipped with before
+	// the label was renamed to "Tools: <Profile>" (US-2).
+	//
+	// It exists so a legacy label is never treated the same as no label at
+	// all. Silently ignoring it would resolve the run with no tool profile
+	// and no indication anything was wrong — the exact silent permission drop
+	// this whole feature exists to prevent, just relocated to the rename. The
+	// reply names the new notation so the operator relabels rather than
+	// assuming a profile is still active.
+	//
+	// Like [ReplyMalformedToolLabel] and [ReplyAmbiguousToolLabels] it carries
+	// no field for the label text to travel in (S-9): the label itself is a
+	// syntax error regardless of what value follows it, so there is nothing
+	// about it worth quoting back.
+	ReplyLegacyToolLabel
 )
 
 // String renders the kind for logs and test failures.
@@ -142,6 +159,8 @@ func (k ReplyKind) String() string {
 		return "ambiguous_mode_labels"
 	case ReplyConflictingModeSelection:
 		return "conflicting_mode_selection"
+	case ReplyLegacyToolLabel:
+		return "legacy_tool_label"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -161,6 +180,8 @@ func (k ReplyKind) valid() bool {
 	case ReplyAgentSwitchRefused, ReplyProfileNotAvailableForAgent:
 		return true
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
+		return true
+	case ReplyLegacyToolLabel:
 		return true
 	case ReplyInvalid:
 		return false
@@ -189,7 +210,7 @@ func (k ReplyKind) RefusesMode() bool {
 // this package owns what its own kinds mean.
 func (k ReplyKind) RefusesTools() bool {
 	switch k {
-	case ReplyUnknownToolProfile, ReplyMalformedToolLabel, ReplyAmbiguousToolLabels:
+	case ReplyUnknownToolProfile, ReplyMalformedToolLabel, ReplyAmbiguousToolLabels, ReplyLegacyToolLabel:
 		return true
 	case ReplyInvalid, ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
 		return false
@@ -258,8 +279,9 @@ type Reply struct {
 	// answering. Empty is allowed and produces slightly vaguer wording.
 	Command string
 
-	// Profile is the tool profile name an lf:tools= label asked for, and it is
-	// read by [ReplyUnknownToolProfile] and [ReplyProfileNotAvailableForAgent].
+	// Profile is the tool profile name a "Tools: <Profile>" label asked for,
+	// and it is read by [ReplyUnknownToolProfile] and
+	// [ReplyProfileNotAvailableForAgent].
 	//
 	// It reaches this package from a label anybody with triage permission can
 	// apply, so it is checked against [profileNamePattern] here before it is
@@ -284,17 +306,19 @@ type Reply struct {
 	RequestedAgent string
 }
 
-// profileNamePattern is the shape of an operator-authored tool profile name.
-//
-// internal/config validates the operator's profile keys against this pattern at
-// startup and internal/daemon checks a label's value against it before using it
-// as a lookup key, so by the time a name arrives here it has been checked twice.
-// It is checked a third time all the same, and the pattern is written out here
-// rather than imported, for the reason given at [commandSpan]: this package is
-// the one place where text that came from a third party is echoed into a comment
-// litefactory signs its own name to, and the restriction is re-applied here
-// rather than assumed. A rule that is only enforced by whoever remembers to
-// enforce it upstream is not a rule.
+// profileNamePattern is the shape of an operator-authored tool profile *key*,
+// as stored in `tool_profiles` — lower-case, unlike the upper-case-first shape
+// a "Tools: <Profile>" label's displayed value must have (internal/daemon's
+// toolProfileName). internal/config validates the operator's profile keys
+// against this pattern at startup, and internal/daemon lower-cases a label's
+// value before using it as a lookup key, so by the time a name arrives here it
+// has already taken this shape twice over. It is checked a third time all the
+// same, and the pattern is written out here rather than imported, for the
+// reason given at [commandSpan]: this package is the one place where text
+// that came from a third party is echoed into a comment litefactory signs its
+// own name to, and the restriction is re-applied here rather than assumed. A
+// rule that is only enforced by whoever remembers to enforce it upstream is
+// not a rule.
 var profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // profileSpan renders a tool profile name for quoting back.
@@ -409,23 +433,32 @@ func (r Reply) body() string {
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
 		b.WriteString("Add the profile to `tool_profiles` in litefactory's config, or take the " +
-			"`lf:tools=` label off the issue, and comment again.")
+			"`Tools: ` label off the issue, and comment again.")
 
 	case ReplyMalformedToolLabel:
-		b.WriteString("The `lf:tools=` label on this issue is no longer supported. ")
+		b.WriteString("The `Tools: ` label on this issue does not name a usable tool profile. ")
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("Remove every `lf:tools=` label and comment again. Litefactory now selects " +
-			"`research`, `plan`, `implement`, or `validate` permissions automatically from the " +
-			"resolved run mode. The label text is not repeated here on purpose.")
+		b.WriteString("A tool profile label looks like `Tools: Research` — an upper-case first " +
+			"letter, then letters, digits, `-` and `_`, up to 40 characters, naming one of the " +
+			"profiles in litefactory's config. The label text is not repeated here on purpose.")
 
 	case ReplyAmbiguousToolLabels:
-		b.WriteString("This issue carries more than one `lf:tools=` label, so there is no single " +
+		b.WriteString("This issue carries more than one `Tools: ` label, so there is no single " +
 			"answer to which tools this run should have had. ")
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
 		b.WriteString("Neither label was chosen and they were not combined. Leave exactly one " +
-			"`lf:tools=` label on the issue and comment again.")
+			"`Tools: ` label on the issue and comment again.")
+
+	case ReplyLegacyToolLabel:
+		b.WriteString("This issue carries the old `lf:tools=` label, which litefactory no longer reads. ")
+		b.WriteString(toolsRefusalSentence)
+		b.WriteString(sectionGap)
+		b.WriteString("Remove every `lf:tools=` label and comment again. Litefactory now selects " +
+			"`research`, `plan`, `implement`, or `validate` permissions automatically from the " +
+			"resolved run mode, so no permission label is needed. The label text is not repeated " +
+			"here on purpose.")
 
 	case ReplyAmbiguousAgentLabels:
 		b.WriteString("This issue carries more than one `Coding Agent: …` label, so there is no single " +
@@ -495,7 +528,7 @@ func (r Reply) body() string {
 		b.WriteString(" ")
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("Add a stanza for that tool to the profile, or take the `lf:tools=` label off " +
+		b.WriteString("Add a stanza for that tool to the profile, or take the `Tools: ` label off " +
 			"the issue, and comment again.")
 
 	case ReplyInvalid:

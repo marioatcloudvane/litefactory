@@ -58,6 +58,21 @@ var (
 	// past [maxPages]. Truncating silently would drop comments, so this is an
 	// error rather than a short result.
 	ErrTooManyPages = errors.New("too many pages")
+
+	// ErrAssetNotAllowed reports a [Client.FetchAsset] URL — the one given, or
+	// one a redirect pointed at — that is not on the GitHub attachment
+	// host/path allow-list. FetchAsset never dials such a URL: this is
+	// returned before the request goes out, or from CheckRedirect before a
+	// redirect is followed, so a URL this package will not touch is also one
+	// it never leaks the installation token to.
+	ErrAssetNotAllowed = errors.New("asset url is not on the allow-list")
+
+	// ErrAssetUnauthorized reports HTTP 401 or 404 from [Client.FetchAsset]:
+	// the attachment's signed URL has expired or the credential cannot see
+	// it. It is deliberately not [ErrUnauthorized] or [ErrNotFound] — an
+	// asset fetch failure is not an API call failure, and callers that
+	// classify attachment rejections need to tell the two apart.
+	ErrAssetUnauthorized = errors.New("asset access rejected")
 )
 
 // APIError is the detail shared by every non-2xx response.
