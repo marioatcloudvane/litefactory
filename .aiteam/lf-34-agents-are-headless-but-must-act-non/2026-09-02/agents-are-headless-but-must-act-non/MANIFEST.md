@@ -14,6 +14,17 @@ asked for; nothing here licenses starting the next one.
 
 ## History
 
+- 2026-09-04 — Research mode investigated the repeated write failures for
+  agent-definition roots. Confirmed litefactory grants normal edit/workspace
+  permissions and contains no subpath denylist; the rejection originates in a
+  higher-priority external host policy protecting `.claude/agents` and
+  `.codex/skills`. Documented immediate options (trusted manual edit,
+  supported host exception, unverified cross-agent edit) and durable designs
+  (explicit synchronizer, canonical source plus generation, constrained
+  post-run patch application, thin wrappers). Recommended finishing issue #34
+  through a trusted edit or narrow supported exception and handling durable
+  synchronization as a separate security-reviewed feature.
+
 - 2026-09-02 — session created, run started from issue #34 comment ("do it"),
   no command named, classified as Research mode.
 - 2026-09-02 — Research mode completed. codebase-tour traced the headless/asking
