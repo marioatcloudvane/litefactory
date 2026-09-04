@@ -108,13 +108,8 @@ type Options struct {
 	// package re-checks only what it would otherwise crash on.
 	Claude config.Claude
 
-	// Tiers is the litefactory-owned tier→model table (US-6). It is what
-	// Claude.ModelTier, when set, is resolved through: the --model flag is
-	// resolved from tier to a concrete model name here, at the point the
-	// Claude [agent.Runner] implementation is built, because only the
-	// selected implementation knows which tool's column of the table
-	// applies to it.
-	Tiers config.Tiers
+	// Model is the concrete model resolved once by startup configuration.
+	Model string
 
 	// Environ is the daemon's own environment in os.Environ form. It is the
 	// input to the allowlist (SD-4), and its PATH is what claude.binary is
@@ -188,20 +183,9 @@ func New(opts Options) (*Runner, error) {
 	// and resolves against opts.Tiers, so a miss here means opts was
 	// assembled by hand rather than loaded — the same class of caller the
 	// settingsPath and Model defaulting below already accounts for.
-	model := opts.Claude.Model
-	if opts.Claude.ModelTier != "" {
-		resolved, ok := opts.Tiers.ResolveModel(config.KindClaude, opts.Claude.ModelTier)
-		if !ok {
-			return nil, invalidOptions("claude.model_tier %q has no entry in tiers.model_by_tier.claude", opts.Claude.ModelTier)
-		}
-		model = resolved
-	}
-	// Defaulted here as well as in config.Defaults, for the same reason
-	// settingsPath is: a config.Claude assembled by hand rather than loaded
-	// carries a zero Model, and an empty --model value is not a flag claude
-	// will accept.
+	model := strings.TrimSpace(opts.Model)
 	if model == "" {
-		model = config.DefaultClaudeModel
+		return nil, invalidOptions("a startup-resolved model is required")
 	}
 	autoCompact := opts.Claude.AutoCompact
 	if autoCompact == "" {
@@ -418,10 +402,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
 //
-// The two tool lists are the request's when it carries a resolved profile and
+// The two tool lists are the request's when it carries mode-selected permissions and
 // the runner's configured ones otherwise — see [Runner.surface]. Only config
-// strings are ever joined in here; the profile *name* that selected them is
-// not, and neither is anything else that came from GitHub.
+// strings are ever joined in here; nothing that came from GitHub is included.
 func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
@@ -511,11 +494,11 @@ func (r *Runner) exec(
 	//
 	// The tool lists now arrive on the request rather than only from the runner,
 	// and that is the part worth being precise about. They are copies of
-	// operator-authored strings out of config.yaml, selected by a profile name
-	// that was validated against the operator's own profile map, and validate
+	// operator-authored strings out of config.yaml, selected by the resolved
+	// run mode, and validate
 	// has just checked every one of them against r.ceiling — so nothing here can
-	// exceed a bound set outside GitHub. The name that selected them stays off
-	// argv entirely: it is a lookup key, never a value.
+	// exceed a bound set outside GitHub. The mode-profile name stays off argv
+	// entirely: it is a lookup key, never a value.
 	//
 	// So no string originating from GitHub is ever joined into this argv. The
 	// untrusted input — the prompt built from the issue — goes on stdin below,
@@ -566,9 +549,9 @@ func (r *Runner) exec(
 	defer closeAll(stdoutR, stderrR)
 
 	// The three tool attributes report the surface this run was actually
-	// invoked with, not the runner's configured defaults: with a profile in
+	// invoked with, not the runner's configured defaults: with a mode profile in
 	// play the two differ, and the log line is the only place the difference is
-	// visible after the fact. tool_profile is empty when no profile applied.
+	// visible after the fact. tool_profile is empty when no mode profile was supplied.
 	tools, allowedTools := r.surface(req)
 	logger.Info("coding agent started",
 		slog.String("agent", "claude"),

@@ -111,9 +111,9 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 		WorktreeRoot:  opts.worktrees,
 		FeaturePrefix: opts.prefix,
 	}, repos.Defaults{
-		BaseBranch:    rt.cfg.DefaultBaseBranch,
-		WorktreeRoot:  rt.cfg.WorktreeRoot,
-		FeaturePrefix: rt.cfg.FeaturePrefix,
+		BaseBranch:    rt.cfg.Settings.DefaultBaseBranch,
+		WorktreeRoot:  rt.cfg.Settings.WorktreeRoot,
+		FeaturePrefix: rt.cfg.Settings.FeaturePrefix,
 	})
 	if err != nil {
 		return repoRegistrationError(cmd, err)

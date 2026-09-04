@@ -276,6 +276,8 @@ func TestCommentsAreProcessedInAscendingIDOrder(t *testing.T) {
 	f.forge.addComment(testIssue, 60, owner(), "/spike second")
 
 	f.settle()
+	f.settle()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{50, 60, 70}) {
 		t.Errorf("turns ran for %v, want [50 60 70]", got)
@@ -335,6 +337,9 @@ func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	// point of AC-PAR-5.2: no change to UpdatedAt, and the comment is still
 	// found again.
 	f.forge.onPostComment = nil
+	f.settle()
+	f.settle()
+	f.settle()
 	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 11, 12, 13}) {
@@ -449,6 +454,8 @@ func TestLockedTaskLeavesTheCommentUnconsumed(t *testing.T) {
 	// A later tick retries, which is the whole point of not consuming it.
 	f.turns.set(f.ranSuccessfully)
 	f.settle()
+	f.settle()
+	f.settle()
 
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{31, 31, 32}) {
 		t.Errorf("turns ran for %v, want [31 31 32]", got)
@@ -484,8 +491,8 @@ func TestDeferredTaskDoesNotStallTheOthers(t *testing.T) {
 		t.Errorf("needs_poll is clear on the locked task; it consumed nothing and must be "+
 			"reconsidered\nlogs:\n%s", f.logs)
 	}
-	if session := f.sessionOf(124); session.NeedsPoll {
-		t.Errorf("needs_poll is set on the task that drained cleanly\nlogs:\n%s", f.logs)
+	if session := f.sessionOf(124); !session.NeedsPoll {
+		t.Errorf("needs_poll is clear before the one-shot mode-label refresh\nlogs:\n%s", f.logs)
 	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{61, 62}) {
 		t.Errorf("turns ran for %v, want [61 62]: the second task is unaffected", got)

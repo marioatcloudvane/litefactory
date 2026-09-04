@@ -220,6 +220,9 @@ func TestFiveCommentsOnOneIssueOccupyExactlyOneSlot(t *testing.T) {
 	if err := f.daemon.Quiesce(f.t.Context()); err != nil {
 		t.Fatalf("Quiesce: %v\nlogs:\n%s", err, f.logs)
 	}
+	for range 5 {
+		f.settle()
+	}
 
 	session := f.session()
 	if got := f.turns.triggersFor(session.ID); !slices.Equal(got, queue) {

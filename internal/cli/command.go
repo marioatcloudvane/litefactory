@@ -63,6 +63,19 @@ type Env struct {
 	Logger *slog.Logger
 	// Version is the build version reported by --version.
 	Version string
+	// Keychain reads a macOS keychain generic password, and is the test seam
+	// for it. Nil — the production value — uses /usr/bin/security, exactly as
+	// [secrets.Resolver] documents.
+	//
+	// It exists because the generated config.yaml now names a live
+	// token_keychain reference (US-8/AC-8.3), so `init` reaches for the
+	// keychain on the ordinary path rather than only when an operator has
+	// configured one. Without a seam every test that lets `init` generate a
+	// config reads the developer's own login keychain: the result then depends
+	// on whether that machine happens to hold a litefactory/github-bot item and
+	// whether it is unlocked, and on a locked machine macOS may block on an
+	// allow-access dialog no test can answer.
+	Keychain func(ctx context.Context, service, account string) (string, error)
 }
 
 // ArgSpec declares a command's positional arguments.

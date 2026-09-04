@@ -167,7 +167,8 @@ func newRunner(t *testing.T, dir string, writable ...string) (*Runner, error) {
 	}
 	return New(Options{
 		Paths:   config.NewPaths(filepath.Join(dir, "lfhome")),
-		Codex:   config.Codex{Binary: binary, DefaultSandbox: "workspace-write", TimeoutSeconds: 30, WritableRoots: writable},
+		Codex:   config.Codex{Binary: binary, TimeoutSeconds: 30, WritableRoots: writable},
+		Model:   "gpt-test",
 		Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=test"},
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -178,7 +179,8 @@ func request(t *testing.T, path agent.RunPath) agent.Request {
 	worktree := t.TempDir()
 	return agent.Request{Ref: naming.Ref{Forge: "github", Owner: "acme", Repo: "api", Issue: 1}, RunOrdinal: 1,
 		SegmentOrdinal: 1, Session: agent.SessionRef{Ref: "local-ref"}, Mode: "infer", Path: path,
-		WorktreePath: worktree, Prompt: "do the task"}
+		WorktreePath: worktree, Prompt: "do the task",
+		Permissions: agent.Permissions{Profile: "implement", Payload: Sandbox{Mode: "workspace-write"}}}
 }
 
 func mustRead(t *testing.T, path string) []byte {

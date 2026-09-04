@@ -80,6 +80,7 @@ func newFixture(t *testing.T, script string, adjust ...func(*config.Claude)) *fi
 	runner, err := New(Options{
 		Paths:   config.NewPaths(f.home),
 		Claude:  claude,
+		Model:   config.DefaultClaudeModel,
 		Environ: fixtureEnviron(f.binDir, f.home, root),
 		Logger:  discardLogger(),
 	})
@@ -836,6 +837,7 @@ func TestNewRejectsAnUnresolvableBinary(t *testing.T) {
 	_, err := New(Options{
 		Paths:   config.NewPaths(home),
 		Claude:  config.Claude{Binary: "claude", Tools: []string{"Read"}, TimeoutSeconds: 30},
+		Model:   config.DefaultClaudeModel,
 		Environ: []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"},
 		Logger:  discardLogger(),
 	})
@@ -856,6 +858,7 @@ func TestNewRejectsUnusableOptions(t *testing.T) {
 		return Options{
 			Paths:   config.NewPaths(home),
 			Claude:  config.Claude{Binary: "/bin/sh", Tools: []string{"Read"}, TimeoutSeconds: 30},
+			Model:   config.DefaultClaudeModel,
 			Environ: []string{"PATH=/bin"},
 			Logger:  discardLogger(),
 		}
@@ -1240,29 +1243,8 @@ func TestRunPassesConfiguredAutoCompactThreshold(t *testing.T) {
 // The runner never derives or rewrites it: whatever config validation admitted
 // is what the child is asked to run on, so the recorded command line is an
 // honest record of which model did the work.
-func TestRunPassesTheConfiguredModel(t *testing.T) {
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.Model = "claude-opus-5"
-	})
-	f.run(t)
-
-	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
-	i := slices.Index(argv, "--model")
-	if i < 0 || i == len(argv)-1 {
-		t.Fatalf("argv carries no --model value: %q", argv)
-	}
-	if got := argv[i+1]; got != "claude-opus-5" {
-		t.Errorf("--model = %q, want %q", got, "claude-opus-5")
-	}
-}
-
-// TestRunDefaultsTheModelWhenUnset covers the config.Claude that was assembled
-// by hand rather than loaded — a test, or an embedder — where Model is the zero
-// value. It must not reach argv empty: "--model" followed by "" is a flag with
-// no value, which claude rejects, and the failure would land at run time on
-// every run rather than at startup on one.
-func TestRunDefaultsTheModelWhenUnset(t *testing.T) {
-	f := newFixture(t, successScript(t)) // fixture leaves Model empty
+func TestRunPassesTheStartupResolvedModel(t *testing.T) {
+	f := newFixture(t, successScript(t))
 	f.run(t)
 
 	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
@@ -1271,7 +1253,20 @@ func TestRunDefaultsTheModelWhenUnset(t *testing.T) {
 		t.Fatalf("argv carries no --model value: %q", argv)
 	}
 	if got := argv[i+1]; got != config.DefaultClaudeModel {
-		t.Errorf("--model = %q, want the default %q", got, config.DefaultClaudeModel)
+		t.Errorf("--model = %q, want %q", got, config.DefaultClaudeModel)
+	}
+}
+
+// TestRunDefaultsTheModelWhenUnset covers the config.Claude that was assembled
+// by hand rather than loaded — a test, or an embedder — where Model is the zero
+// value. It must not reach argv empty: "--model" followed by "" is a flag with
+// no value, which claude rejects, and the failure would land at run time on
+// every run rather than at startup on one.
+func TestNewRejectsMissingStartupResolvedModel(t *testing.T) {
+	root := t.TempDir()
+	_, err := New(Options{Paths: config.NewPaths(root), Claude: config.DefaultClaude(), Environ: []string{"PATH=/usr/bin:/bin"}, Logger: discardLogger()})
+	if err == nil || !strings.Contains(err.Error(), "startup-resolved model") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

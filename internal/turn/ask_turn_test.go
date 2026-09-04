@@ -83,6 +83,7 @@ func TestTheTagIsHonouredOnlyFromTheTriggeringComment(t *testing.T) {
 			req := f.request()
 			req.Trigger.Body = "have another look at the retry path"
 			req.Command = ParseCommand(req.Trigger.Body)
+			req.Mode = ""
 			if tc.mutate != nil {
 				tc.mutate(&req)
 			}
@@ -113,6 +114,7 @@ func TestATaggedCommentGrantsPermissionAndLosesItsTag(t *testing.T) {
 	req := f.request()
 	req.Trigger.Body = "have another look at the retry path\n" + AskTag
 	req.Command = ParseCommand(req.Trigger.Body)
+	req.Mode = ""
 	if result := f.execute(req); !result.Succeeded() {
 		t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
 	}
@@ -226,6 +228,7 @@ func TestPermissionIsRecoveredFromThePreviousTrigger(t *testing.T) {
 			req := f.request()
 			req.Trigger.Body = tc.body
 			req.Command = ParseCommand(tc.body)
+			req.Mode = ""
 			if result := f.execute(req); !result.Succeeded() {
 				t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
 			}
@@ -262,6 +265,7 @@ func TestPermissionIsRecoveredFromTheIssueBody(t *testing.T) {
 	req.Issue.Body = "the health endpoint is wrong\n" + AskTag
 	req.Trigger.Body = "yes, the second one"
 	req.Command = ParseCommand(req.Trigger.Body)
+	req.Mode = ""
 	if result := f.execute(req); !result.Succeeded() {
 		t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
 	}

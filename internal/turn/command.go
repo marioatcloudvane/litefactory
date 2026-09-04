@@ -200,7 +200,7 @@ func ParseCommand(body string) Command {
 
 	name := strings.ToLower(token)
 	switch {
-	case name == SpikeCommand || name == "/research" || name == "/plan" || name == "/implement":
+	case name == SpikeCommand || name == "/research" || name == "/plan" || name == "/implement" || name == "/validate":
 		text := strings.TrimSpace(rest)
 		if text == "" {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}

@@ -270,7 +270,7 @@ func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
 		"run report":      render(t, rep, successRun()).String(),
 		"failure report":  render(t, rep, failureRun()).String(),
 		"run-less reply":  renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"}),
-		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel}),
+		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel}),
 		"unknown command": renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"}),
 	}
 

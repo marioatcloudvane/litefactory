@@ -42,7 +42,7 @@ const (
 const (
 	// DefaultConcurrentRuns is how many runs may be in flight when none is
 	// configured. It is a conservative placeholder rather than a measurement;
-	// see [config.Config.MaxConcurrentRuns].
+	// see [config.Settings.MaxConcurrentRuns].
 	DefaultConcurrentRuns = config.DefaultMaxConcurrentRuns
 	// MinConcurrentRuns is the fewest runs allowed in flight: one, which is
 	// the serial daemon litefactory was before the ceiling existed.
@@ -143,9 +143,7 @@ type Options struct {
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
 
-	// ToolProfiles are the operator's named tool surfaces, keyed by the name an
-	// lf:tools= label selects them with. Optional: a nil or empty map means no
-	// label can resolve, which is what a config with no tool_profiles asks for.
+	// ToolProfiles are the canonical mode permission surfaces.
 	//
 	// It is read-only for the life of the daemon and never written to. Whatever
 	// a resolution takes out of it is copied first — see [Daemon.resolveTools].
@@ -327,15 +325,13 @@ func New(opts Options) (*Daemon, error) {
 	}
 	defaultAgent := opts.DefaultAgent
 	if defaultAgent == "" {
-		defaultAgent = agent.Kind(store.AgentClaude)
+		return nil, invalidOptions("a default agent is required")
 	}
-	if opts.DefaultAgent != "" {
-		if _, ok := opts.Agents[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
-		}
-		if _, ok := opts.Classifiers[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
-		}
+	if _, ok := opts.Agents[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
+	}
+	if _, ok := opts.Classifiers[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
 	}
 
 	return &Daemon{
@@ -348,7 +344,7 @@ func New(opts Options) (*Daemon, error) {
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
-		toolProfiles: maps.Clone(opts.ToolProfiles),
+		toolProfiles: cloneToolProfiles(opts.ToolProfiles),
 		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach

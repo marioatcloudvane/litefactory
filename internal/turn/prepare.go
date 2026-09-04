@@ -129,15 +129,10 @@ func prepare(
 		return nil, fmt.Errorf("derive the session ref for task %s: %w", ref, err)
 	}
 	// resolvedKind is what the daemon's label ladder decided (internal/daemon's
-	// Daemon.resolveAgent, stage 1), carried in on req.Agent. Empty means no
-	// Coding Agent label was on the issue, which resolves to the configured
-	// default agent the same way an absent lf:tools= label resolves to the
-	// harness's default surface (AC-2.1) — applied here, once, rather than at
-	// every call site that used to spell out store.AgentClaude by hand.
+	// Daemon.resolveAgent, stage 1), carried in on req.Agent. The daemon has
+	// already replaced an absent label with the first configured agent, so this
+	// layer never invents a vendor-specific fallback.
 	resolvedKind := req.Agent
-	if resolvedKind == "" {
-		resolvedKind = agent.Kind(store.AgentClaude)
-	}
 
 	// GetOrCreateSegment's stored-row-wins semantics are what make this one
 	// call sufficient for both the ordinary path and the switch refusal
@@ -261,11 +256,8 @@ func prepare(
 	}
 
 	// Permissions carries no vendor-named field crossing this boundary
-	// (AC-5.2): the zero value means no profile was resolved, and it is
-	// left that way rather than reached for when req carries no tool
-	// surface at all — which is every run before profiles existed and every
-	// run today whose issue carries no lf:tools= label. When a profile did
-	// resolve one, its payload is narrowed into harness.ToolSurface here and
+	// (AC-5.2). The daemon resolves a mode profile before dispatch and its
+	// payload is narrowed into harness.ToolSurface here and
 	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
 	// exactly the shape this package must not otherwise know.
 	var permissions agent.Permissions

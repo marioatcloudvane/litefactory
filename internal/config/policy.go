@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -27,23 +28,6 @@ var modelNameRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]*$`)
 
 var autoCompactRE = regexp.MustCompile(`^(?:auto|(?:[1-9][0-9]{2}|1000)k|1M)$`)
 
-// validateModel checks the --model value.
-//
-// Empty is rejected rather than treated as "omit the flag": [Defaults] fills
-// claude.model in before anything reads it, so an empty value here means the
-// operator wrote one, and writing model: "" is far more likely to be a mistake
-// than a request to let the CLI pick.
-func validateModel(c *Claude) []error {
-	entry := strings.TrimSpace(c.Model)
-	switch {
-	case entry == "":
-		return []error{fmt.Errorf("claude.model: must not be empty; omit the key to get %q", DefaultClaudeModel)}
-	case !modelNameRE.MatchString(entry):
-		return []error{fmt.Errorf("claude.model: %q is not a model name; --model takes an alias such as %q or a full model ID such as \"claude-opus-5\"", c.Model, DefaultClaudeModel)}
-	}
-	return nil
-}
-
 func validateAutoCompact(c *Claude) []error {
 	entry := strings.TrimSpace(c.AutoCompact)
 	if entry == "" {
@@ -59,16 +43,10 @@ func validateAutoCompact(c *Claude) []error {
 // parenthesised qualifier such as Bash(git status:*).
 var toolRuleRE = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9_-]*)(?:\((.*)\))?$`)
 
-// profileKeyRE matches a tool-profile name as it is stored in config.yaml —
-// the lower-cased map key, not the label's displayed value. It is
-// deliberately narrower than a tool name: an operator types a profile's
-// display name into a GitHub label as "Tools: <Name>" (internal/daemon's
-// toolProfileName requires an upper-case first letter to match), and that
-// value is lower-cased before it is ever compared against this key, so
-// "Tools: Research" and a configured profile key of "research" are the same
-// profile. This key itself stays lower-case and free of anything that could
-// be mistaken for a shell or YAML construct. Forty characters is far more
-// than a label of this shape ever needs.
+// profileKeyRE matches a mode-selected permission-profile name in config.yaml.
+// It stays lower-case and free of anything that could be mistaken for a shell
+// or YAML construct. Forty characters comfortably covers the mode vocabulary
+// while leaving room for future modes.
 var profileKeyRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // defaultTools is the --tools surface `init` writes. It is the real boundary,
@@ -244,7 +222,7 @@ func isAllowAllQualifier(qualifier string) bool {
 // validateNoForbiddenFlag refuses any configured value that smuggles the
 // permission-skipping flag into the claude command line — through the binary
 // path, the tool surface or a permission rule.
-func validateNoForbiddenFlag(c *Claude) []error {
+func validateNoForbiddenFlag(c *Claude, profiles map[string]ToolProfile) []error {
 	flag := forbiddenFlag()
 	var errs []error
 	check := func(key, value string) {
@@ -253,7 +231,6 @@ func validateNoForbiddenFlag(c *Claude) []error {
 		}
 	}
 	check("claude.binary", c.Binary)
-	check("claude.model", c.Model)
 	check("claude.settings_path", c.SettingsPath)
 	for i, v := range c.Tools {
 		check(fmt.Sprintf("claude.tools[%d]", i), v)
@@ -264,8 +241,8 @@ func validateNoForbiddenFlag(c *Claude) []error {
 	for i, v := range c.ToolCeiling {
 		check(fmt.Sprintf("claude.tool_ceiling[%d]", i), v)
 	}
-	for _, name := range sortedProfileNames(c.ToolProfiles) {
-		profile := c.ToolProfiles[name]
+	for _, name := range sortedProfileNames(profiles) {
+		profile := profiles[name]
 		if profile.Claude == nil {
 			continue
 		}
@@ -286,11 +263,11 @@ func validateNoForbiddenFlag(c *Claude) []error {
 // two lists the way they appear in config.yaml, so an error points at a line
 // the reader can find: claude.tool_profiles["research"].claude.tools[3].
 func profileToolsKey(name string) string {
-	return fmt.Sprintf("claude.tool_profiles[%q].claude.tools", name)
+	return fmt.Sprintf("tool_profiles.permissions[%q].claude.tools", name)
 }
 
 func profileAllowedToolsKey(name string) string {
-	return fmt.Sprintf("claude.tool_profiles[%q].claude.allowed_tools", name)
+	return fmt.Sprintf("tool_profiles.permissions[%q].claude.allowed_tools", name)
 }
 
 // sortedProfileNames orders the profile map for iteration.
@@ -367,25 +344,22 @@ func validateToolCeiling(c *Claude) []error {
 // validateToolProfiles checks the operator-authored profiles (AC-1.4, AC-1.6,
 // AC-1.7, T-7.1).
 //
-// A nil or empty map is the normal case and is not an error: with no profiles
-// configured the feature is inert and every run uses claude.tools.
-func validateToolProfiles(c *Claude) []error {
-	if len(c.ToolProfiles) == 0 {
-		return nil
-	}
-
+// The canonical research, plan, implement, and validate profiles are
+// mandatory. Each is selected by its resolved run mode; absence is a
+// configuration error and never falls back to claude.tools.
+func validateToolProfiles(c *Claude, profiles map[string]ToolProfile) []error {
 	ceiling := effectiveToolCeiling(c)
 	inCeiling := toolSet(ceiling)
 
 	var errs []error
-	for _, name := range sortedProfileNames(c.ToolProfiles) {
-		profile := c.ToolProfiles[name]
+	for _, name := range sortedProfileNames(profiles) {
+		profile := profiles[name]
 		if !profileKeyRE.MatchString(name) {
-			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: %q is not a usable profile name; use lower-case letters, digits, underscore and dash, starting with a letter or digit, up to 40 characters, because this name is what a \"Tools: <Profile>\" label resolves to once lower-cased", name, name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
 		}
 
 		if profile.Claude == nil && profile.Codex == nil {
-			errs = append(errs, fmt.Errorf("claude.tool_profiles[%q]: must have a claude: stanza, a codex: stanza, or both; an empty profile has nothing to grant any coding-agent tool", name))
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: must contain every configured agent", name))
 			continue
 		}
 
@@ -394,6 +368,83 @@ func validateToolProfiles(c *Claude) []error {
 		}
 		if profile.Codex != nil {
 			errs = append(errs, validateToolProfileCodex(name, profile.Codex)...)
+		}
+	}
+	return errs
+}
+
+var canonicalPermissionProfiles = []string{"research", "plan", "implement", "validate"}
+
+// validatePermissionProfiles checks the complete mode-by-agent matrix. A run
+// must never fall back merely because one cell was omitted. Each Codex cell
+// is the sole sandbox authority for that mode.
+func validatePermissionProfiles(c *Config) []error {
+	profiles := c.ToolProfiles.Permissions
+	var errs []error
+	for _, name := range canonicalPermissionProfiles {
+		profile, ok := profiles[name]
+		if !ok {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions: missing required profile %q", name))
+			continue
+		}
+		if c.Agents.Claude != nil && profile.Claude == nil {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: missing configured agent claude", name))
+		}
+		if c.Agents.Claude == nil && profile.Claude != nil {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q].claude: agent is not configured", name))
+		}
+		if c.Agents.Codex != nil && profile.Codex == nil {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: missing configured agent codex", name))
+		}
+		if c.Agents.Codex == nil && profile.Codex != nil {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q].codex: agent is not configured", name))
+		}
+	}
+	for _, name := range sortedProfileNames(profiles) {
+		if !slices.Contains(canonicalPermissionProfiles, name) {
+			errs = append(errs, fmt.Errorf("tool_profiles.permissions[%q]: unknown profile; use exactly research, plan, implement, or validate", name))
+		}
+	}
+	if c.Agents.Claude != nil {
+		errs = append(errs, validateToolProfiles(c.Agents.Claude, profiles)...)
+		errs = append(errs, validateNoForbiddenFlag(c.Agents.Claude, profiles)...)
+	}
+	if profile, ok := profiles["validate"]; ok {
+		if profile.Claude != nil {
+			errs = append(errs, validateClaudeValidateProfile(profile.Claude)...)
+		}
+		if profile.Codex != nil && profile.Codex.Sandbox != "read-only" {
+			errs = append(errs, errors.New("tool_profiles.permissions[\"validate\"].codex.sandbox: validate must use read-only"))
+		}
+	}
+	return errs
+}
+
+// validateClaudeValidateProfile makes Validate read-only by construction.
+// Claude has no filesystem sandbox equivalent to Codex's read-only mode, and
+// --allowedTools is additive to ambient permissions. Consequently no Bash
+// qualifier is a load-bearing restriction: once Bash is in --tools, an
+// operator's personal settings may approve mutating commands. Claude Validate
+// therefore cannot run shell verification safely; Codex Validate can do so
+// inside its separately enforced read-only sandbox.
+func validateClaudeValidateProfile(stanza *ToolProfileClaude) []error {
+	readOnlyTools := toolSet([]string{"Read", "Glob", "Grep", "Task"})
+	readOnlyRules := toolSet([]string{"Read", "Glob", "Grep"})
+
+	var errs []error
+	toolsKey := profileToolsKey("validate")
+	for i, raw := range stanza.Tools {
+		tool := strings.TrimSpace(raw)
+		if toolNameRE.MatchString(tool) && !readOnlyTools[tool] {
+			errs = append(errs, fmt.Errorf("%s[%d]: %q is not permitted in the read-only validate profile; use only Read, Glob, Grep, or Task (Claude Validate cannot safely grant Bash because ambient permissions are additive)", toolsKey, i, tool))
+		}
+	}
+
+	allowedKey := profileAllowedToolsKey("validate")
+	for i, raw := range stanza.AllowedTools {
+		rule := strings.TrimSpace(raw)
+		if toolRuleRE.MatchString(rule) && !readOnlyRules[rule] {
+			errs = append(errs, fmt.Errorf("%s[%d]: %q is not a read-only validate permission; use only Read, Glob, or Grep (Claude Validate cannot safely grant Bash because ambient permissions are additive)", allowedKey, i, rule))
 		}
 	}
 	return errs
@@ -444,10 +495,10 @@ func validateToolProfileClaude(name string, stanza *ToolProfileClaude, inCeiling
 // validateToolProfileCodex checks one profile's codex: stanza.
 func validateToolProfileCodex(name string, stanza *ToolProfileCodex) []error {
 	if strings.TrimSpace(stanza.Sandbox) == "" {
-		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: must not be empty", name)}
+		return []error{fmt.Errorf("tool_profiles.permissions[%q].codex.sandbox: must not be empty", name)}
 	}
 	if stanza.Sandbox != "read-only" && stanza.Sandbox != "workspace-write" {
-		return []error{fmt.Errorf("claude.tool_profiles[%q].codex.sandbox: %q must be read-only or workspace-write", name, stanza.Sandbox)}
+		return []error{fmt.Errorf("tool_profiles.permissions[%q].codex.sandbox: %q must be read-only or workspace-write", name, stanza.Sandbox)}
 	}
 	return nil
 }
