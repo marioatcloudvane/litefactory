@@ -100,3 +100,14 @@ plan's own US-4 story: no sub-agent, and no retry, can self-grant write access t
 `.claude/agents/**.md` or `.claude/modes/**.md` in this session. It affects every
 remaining story in the plan (US-2 through US-9 all target files under one of these
 two directories) and blocks Phase 1 in full.
+## Blocker — Implement run 0007, Gate A
+
+- Resumed from interrupted run 0006.
+- US-6 is DONE: `.claude/modes/spike.md` contains the blocked-needs-decision behavior and passes `git diff --check`.
+- US-2 is BLOCKED: writes denied for `.claude/agents/requirements-engineer.md` and `.codex/skills/requirements-engineer/SKILL.md`.
+- US-4 is BLOCKED: writes denied for `.claude/agents/implement-orchestrator.md` and `.codex/skills/implement-orchestrator/SKILL.md`.
+- US-7 is BLOCKED: writes denied for `.claude/agents/proxy-product-owner.md` and `.codex/skills/proxy-product-owner/SKILL.md`.
+- US-8 is BLOCKED: writes denied for `.claude/agents/go-architect.md` and `.codex/skills/go-architect/SKILL.md`.
+- Relative and absolute `apply_patch` attempts were rejected before writing as outside-project/read-only under the active sandbox. No partial paired edits exist.
+- Gate A remains closed. Code review, environment setup, tests, drift check, context update, and Implement completion were not started.
+- Resume requirement: grant this run write access to both `.claude/agents/**` and `.codex/skills/**`, then implement US-2, US-4, US-7, and US-8. Preserve the completed US-6 edit.
