@@ -1,32 +1,32 @@
-# US-4 — Canonical regression restoration
+# US-4 — Complete generated configuration
 
-> As a maintainer, I want applicable regression coverage preserved so that the schema migration does not hide unrelated breakage.
+> As an operator, I want generated configuration to expose the full attachment policy so it remains an authoritative editing reference.
 
-This story audits deleted tests and restores every still-valid invariant against the canonical configuration.
+This story integrates merged settings and defaults into the canonical template.
 
 ## Why This Matters
 
-A breaking schema legitimately retires some tests, but a large deletion can also discard safety and edge-case coverage accidentally. Each removed case must be classified rather than copied blindly or silently abandoned.
+The file claims completeness but omits supported limits and flags, hiding functionality and security policy.
 
 ## Architecture Notes
 
-- Restore tests beside their owning packages using current canonical fixtures; real SQLite is allowed only for existing transactional store behavior.
-- Platform: preserve TEST-1 through TEST-4, TEST-7, and TEST-10; add no mocks, dependencies, tags, or duplicate fixtures.
-- Risk: never change production behavior solely to satisfy an obsolete test.
+- Interpolate effective values from centralized defaults under CFG-3.
+- Platform: include all roots, limits, agents, tiers, profiles, flags, and sandboxes; preserve CFG-4.
+- Risk: avoid whitespace-only tests and removed keys.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-4.1 | Audit deleted cases and restore every still-applicable regression against canonical YAML | test | T-1.1, T-2.1, T-3.1 | L |
+| T-4.1 | Complete generated canonical configuration | infra | T-1.1, T-2.1, T-3.1 | S |
+| T-4.2 | Add round-trip, defaults-equivalence, and completeness coverage | test | T-4.1 | S |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-4.1 | Every deleted configuration/tier case is classified as retired or still applicable. |
-| AC-4.2 | Applicable tests cover strict roots/documents, bounds, ordered defaults, tier resolution, profile completeness and agent mismatch, secret rejection, runner construction, ceilings, and slice ownership. |
-| AC-4.3 | Retired grant and fallback behavior appears only as refusal or canonical-behavior tests. |
-| AC-4.4 | Validate is included in the canonical mode vocabulary tests. |
-| AC-4.5 | No dependency, mocking framework, integration tag, or duplicate fixture is introduced. |
+| AC-4.1 | Generated YAML shows all global ceilings with defaults. |
+| AC-4.2 | Every profile shows attachment flag and agent authority. |
+| AC-4.3 | No removed keys or literal secrets appear. |
+| AC-4.4 | Generated YAML round-trips and agrees with defaults. |
 

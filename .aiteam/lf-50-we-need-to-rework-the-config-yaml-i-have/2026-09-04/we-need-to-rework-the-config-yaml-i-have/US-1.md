@@ -1,31 +1,33 @@
-# US-1 — Automatic mode-selected profile coverage
+# US-1 — Global optional attachment ceilings
 
-> As an operator, I want every workflow mode to select the intended permissions automatically so that runtime authority is predictable.
+> As an operator, I want attachment limits in global settings so that they apply consistently to every coding agent.
 
-This story proves the implemented mode-to-profile routing for both coding agents.
+This story relocates the four limits while preserving their defaults and bounds.
 
 ## Why This Matters
 
-The configuration redesign removed a separate permission label and made mode the authority selector. Without end-to-end routing coverage, a future fallback or ordering mistake could silently grant the wrong permissions.
+Litefactory ingests attachments before either agent runs, so Claude ownership is misleading and breaks Codex-only configuration. Omission must stay convenient without masking invalid explicit values.
 
 ## Architecture Notes
 
-- Extend established daemon fixtures; profile selection stays in `internal/daemon` and runners only consume resolved permissions.
-- Platform: preserve copied slices under CONC-1 and use existing quiescence helpers rather than sleeps under TEST-8/9.
-- Risk: Spike must remain recorded as Spike even while borrowing Implement permissions.
+- Keep schema/defaults/bounds in `internal/config`; daemon setup consumes canonical settings.
+- Platform: preserve CFG-1/2/5/6; legacy locations fail strict decoding and omission means defaults.
+- Risk: do not change numeric values, ingestion behavior, or add aliases.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-1.1 | Add complete daemon mode-to-profile routing coverage for Claude and Codex | test | — | M |
+| T-1.1 | Relocate optional attachment ceilings to global settings | infra | — | S |
+| T-1.2 | Cover explicit, omitted, bounded, zero, and legacy-location loading | test | T-1.1 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1.1 | Research, Plan, Implement, and Validate select their like-named profile for Claude and Codex. |
-| AC-1.2 | Spike selects Implement permissions for both agents while remaining recorded as Spike. |
-| AC-1.3 | Tests assert the resolved profile and permission payload, not merely fake invocation. |
-| AC-1.4 | Missing required runtime data cannot fall back to broader authority. |
+| AC-1.1 | All four ceilings are accepted only beneath `settings`. |
+| AC-1.2 | Omission applies current defaults. |
+| AC-1.3 | Zero and out-of-range values fail with canonical paths and aggregate errors. |
+| AC-1.4 | Legacy Claude keys are rejected without alias or rewrite. |
+| AC-1.5 | Codex-only configuration receives the same defaults. |
 

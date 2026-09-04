@@ -1,32 +1,32 @@
-# US-6 — Demonstrable delivery completion
+# US-6 — Attachment routing coverage
 
-> As a maintainer, I want the complete quality and delivery gates recorded so that the redesign can ship with trustworthy evidence.
+> As an operator, I want attachment access proven across every mode and agent so ingestion matches configuration.
 
-This story reviews the continuation, resolves in-scope failures, and completes the required artifacts.
+This story verifies daemon mode/profile resolution into turn requests.
 
 ## Why This Matters
 
-The previous run ended after production development but before test completion. Passing isolated checks is not enough; the final state must satisfy the repository's full gate after every fix and accurately record any drift.
+Turn tests prove the boolean gate but not that the daemon chose the correct profile. Both agents and Spike need coverage without real downloads.
 
 ## Architecture Notes
 
-- Review all continuation-touched test and production files together, then use only repository-prescribed gates; use `go build ./...` when useful and never `make build`.
-- Platform: a design-enforcement failure triggers production inspection rather than weakening the test under TEST-10.
-- Risk: never claim a gate passed before its final post-fix rerun, and keep persistent context descriptive rather than historical.
+- Extend daemon fixtures and capture resolved requests; do not duplicate ingestion tests.
+- Platform: use quiescence/rendezvous under TEST-8/9 and preserve copied payloads under CONC-1.
+- Risk: assert run mode, profile, attachment value, and an explicit override.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-6.1 | Run code review and full quality gates, resolving in-scope failures | test | T-4.1, T-5.1 | M |
-| T-6.2 | Refresh drift, persistent-context, and implementation manifest artifacts | infra | T-6.1 | S |
+| T-6.1 | Cover attachment routing for every mode and both agents | test | T-1.1, T-2.1, T-3.1 | M |
+| T-6.2 | Preserve permission, Validate, and legacy-label coverage | test | T-5.1, T-6.1 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-6.1 | Code review reports no blocking findings. |
-| AC-6.2 | Formatting, vet, pinned lint, race-enabled tests, and `make check` pass. |
-| AC-6.3 | No gate writes `dist/` or modifies runtime state. |
-| AC-6.4 | Drift, context, and manifest artifacts accurately record final behavior and verification. |
+| AC-6.1 | Five modes are covered for Claude and Codex. |
+| AC-6.2 | Research/Plan enable; Implement/Validate disable; Spike stays Spike and disables. |
+| AC-6.3 | An explicit override reaches the request unchanged. |
+| AC-6.4 | Payload and legacy-label dispatch absence are asserted without real downloads/runners. |
 

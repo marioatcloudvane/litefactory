@@ -1,31 +1,32 @@
-# US-3 — Obsolete label refusal coverage
+# US-3 — Profile-only Codex sandbox
 
-> As an operator, I want obsolete permission labels rejected clearly so that old issue metadata cannot silently change authority.
+> As an operator, I want each mode profile to be the sole Codex sandbox authority so no hidden fallback can widen execution.
 
-This story replaces outdated grant expectations with comprehensive pre-dispatch refusal tests.
+This story removes the redundant agent-level sandbox field.
 
 ## Why This Matters
 
-Old labels may remain on existing issues after the migration. They must neither regain their former power nor be ignored ambiguously, and hostile label text must not leak into external replies or logs.
+Every agent already requires a sandbox in every mode profile. A second default source is confusing and risks fallback behavior.
 
 ## Architecture Notes
 
-- Exercise black-box daemon behavior with existing forge and executor fakes; refusal rendering remains in `internal/report`.
-- Platform: preserve SEC-5 and report-before-state semantics; assert that neither runner dispatches.
-- Risk: malformed, mixed-case, and multiple labels must not create alternate grant paths.
+- Remove the field from schema/defaults/validation/template/comments; the adapter consumes resolved permissions.
+- Platform: strict rejection is the migration; preserve Validate read-only and mandatory profiles.
+- Risk: do not replace it with empty-value fallback or invoke real Codex.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-3.1 | Replace legacy label-selection expectations with pre-dispatch refusal coverage | test | — | S |
+| T-3.1 | Remove Codex default sandbox and make profiles authoritative | infra | — | S |
+| T-3.2 | Cover Codex-only defaults, removed-key rejection, and Validate policy | test | T-1.1, T-3.1 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-3.1 | Every case-insensitive `lf:tools=` prefix refuses before Claude or Codex dispatch. |
-| AC-3.2 | Label values cannot select, override, or grant a profile. |
-| AC-3.3 | Multiple and malformed legacy values provide no alternative grant path. |
-| AC-3.4 | External guidance is actionable without echoing untrusted label content. |
+| AC-3.1 | The field is absent from schema, defaults, template, and runtime. |
+| AC-3.2 | The removed key fails strict decoding. |
+| AC-3.3 | Every mode gets sandbox only from its profile. |
+| AC-3.4 | Codex-only config defaults limits and rejects workspace-write Validate. |
 
