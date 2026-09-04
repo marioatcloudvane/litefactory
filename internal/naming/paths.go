@@ -31,6 +31,13 @@ const (
 	// of the event stream under the same ordinal stem.
 	RunMetaExt = ".meta.json"
 
+	// AttachmentsDirSuffix names the directory a run's fetched attachments
+	// land in, the sibling of its log and meta files under the same ordinal
+	// stem. It is a directory suffix rather than a file extension, but
+	// shares [runArtefactPath]'s stem so all three artefacts of one run sort
+	// together.
+	AttachmentsDirSuffix = ".attachments"
+
 	// logsDirName and runsDirName spell out $LF_HOME/logs/runs from S-1.
 	logsDirName = "logs"
 	runsDirName = "runs"
@@ -98,6 +105,17 @@ func RunLogPath(home string, ref Ref, ordinal int) (string, error) {
 // ordinal stem.
 func RunMetaPath(home string, ref Ref, ordinal int) (string, error) {
 	return runArtefactPath(home, ref, ordinal, RunMetaExt)
+}
+
+// AttachmentsDir returns the directory a run's fetched attachments land in:
+// <RunsDir>/NNNN.attachments. It is $LF_HOME-rooted, the same as
+// [RunLogPath] and [RunMetaPath], and never inside the task's git worktree —
+// an attachment landing in the worktree would show up in that repository's
+// own git status and risk collision with the coding agent's own commits.
+// Neither this function nor its caller creates the directory; that is left
+// to whichever ingestion code writes the first file into it.
+func AttachmentsDir(home string, ref Ref, ordinal int) (string, error) {
+	return runArtefactPath(home, ref, ordinal, AttachmentsDirSuffix)
 }
 
 // FormatRunOrdinal renders a run ordinal as the zero-padded NNNN stem used in
