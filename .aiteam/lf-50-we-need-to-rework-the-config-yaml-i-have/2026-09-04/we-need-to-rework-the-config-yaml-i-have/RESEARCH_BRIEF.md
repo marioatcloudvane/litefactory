@@ -166,3 +166,17 @@ Static inspection found these concrete unfinished areas:
 ### Updated recommendation
 
 - [V] Do not rerun the original broad research. Run a narrow Plan update against the current head to settle the four questions above, re-pin citations, and add attachment/template/routing tests to the continuation scope. Then resume Implement with targeted config/daemon/turn/report tests followed by the full repository gate.
+
+## Run 0013 — Owner decisions on post-merge questions
+
+- [O] Move the four attachment ceilings from `agents.claude` to agent-neutral `settings`.
+- [O] The attachment ceiling settings are optional. When omitted, they use the current established default values.
+- [O] Generated/default permission profiles enable attachments for Research and Plan.
+- [O] Conservative interpretation recorded for the unspecified modes: Implement and Validate default to attachments disabled; Spike inherits the Implement profile and is therefore also disabled by default. Operators may explicitly enable supported profile flags where canonical validation permits it.
+- [O] Remove unreachable old-profile reply kinds and guidance; backward compatibility for that internal reply surface is not required.
+- [O] Remove `agents.codex.default_sandbox`; complete per-mode Codex profiles are the sole sandbox selectors.
+
+### Planning handoff
+
+- [V] The post-merge product decisions are now complete. The narrow Plan update should re-pin to current head and add exactly these deltas: optional attachment ceilings under `settings` with preserved defaults; explicit attachment flags in the complete generated config; Research/Plan enabled defaults; daemon mode-to-attachment routing coverage including Spike→Implement; removal of obsolete reply kinds/guidance; removal of Codex's redundant default sandbox; and canonical tests for omitted/defaulted values and Codex-only configuration.
+- [V] No additional Research questions remain for the merged-code overlap.

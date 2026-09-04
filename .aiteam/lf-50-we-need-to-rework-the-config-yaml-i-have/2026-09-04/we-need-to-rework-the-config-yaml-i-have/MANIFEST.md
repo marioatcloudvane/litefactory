@@ -21,6 +21,7 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-04 — Run 0009 verified the complete Implement handoff; execution deferred because the run was dispatched in Research mode
 - 2026-09-04 — Run 0010 diagnosed repeated free-text Research routing and verified `/implement <instruction>` as the deterministic continuation trigger
 - 2026-09-04 — Run 0012 completed focused post-merge delta research; attachment/config overlaps and re-planning decisions identified
+- 2026-09-04 — Run 0013 recorded owner decisions for attachment settings/defaults and removal of obsolete profile compatibility surfaces
 
 ## Notes
 
