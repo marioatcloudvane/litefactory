@@ -65,10 +65,20 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
-		"AddCommentReaction",  // POST …/issues/comments/{id}/reactions
-		"AddSubIssue",         // POST /repos/{o}/{r}/issues/{n}/sub_issues
-		"AuthenticatedUser",   // GET  /user
-		"CreateIssue",         // POST /repos/{o}/{r}/issues
+		"AddCommentReaction", // POST …/issues/comments/{id}/reactions
+		"AddSubIssue",        // POST /repos/{o}/{r}/issues/{n}/sub_issues
+		"AuthenticatedUser",  // GET  /user
+		"CreateIssue",        // POST /repos/{o}/{r}/issues
+		// FetchAsset is not a gogithub.Client endpoint call at all — it is a
+		// raw net/http GET against an attachment CDN host (github.com,
+		// *.githubusercontent.com), reusing this client's authenticated
+		// http.Client. It is pinned here anyway, alongside the real
+		// endpoints, because it is still "a thing litefactory can do to a
+		// forge" and belongs on the same list LF-18 extracts a protocol
+		// from — and because this package is the only one holding the
+		// installation token, so it is the only place an attachment fetch
+		// can safely happen (US-3).
+		"FetchAsset",          // GET <allow-listed attachment URL>
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments

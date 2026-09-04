@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cloudvane/litefactory/internal/naming"
 )
 
 // EnvHome is the environment variable that overrides the default $LF_HOME.
@@ -81,6 +83,22 @@ func (p Paths) DaemonLogPath() string { return filepath.Join(p.LogsDir(), daemon
 // (<forge>/<owner>/<repo>/<issue>/NNNN.jsonl) is built by internal/naming,
 // which owns ordinal formatting.
 func (p Paths) RunsDir() string { return filepath.Join(p.LogsDir(), runsDirName) }
+
+// AttachmentsDir is the directory one run's fetched attachments land in:
+// $LF_HOME/logs/runs/<forge>/<owner>/<repo>/<issue>/NNNN.attachments, the
+// sibling of that run's NNNN.jsonl and NNNN.meta.json under the same ordinal
+// stem. Like [Paths.RunsDir], the per-task subtree and ordinal stem are built
+// by internal/naming, which owns that formatting; this method only anchors
+// it at this Paths' own $LF_HOME. The directory is never inside the task's
+// git worktree, so a fetched attachment can never show up in that
+// repository's own git status.
+func (p Paths) AttachmentsDir(ref naming.Ref, runOrdinal int) (string, error) {
+	dir, err := naming.AttachmentsDir(p.home, ref, runOrdinal)
+	if err != nil {
+		return "", fmt.Errorf("attachments dir: %w", err)
+	}
+	return dir, nil
+}
 
 // LockPath is $LF_HOME/daemon.lock, the dedicated file the daemon flocks to
 // enforce a single instance. It is deliberately not the database file, which
