@@ -33,12 +33,12 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Automatic mode-selected profile coverage | M | — | *(filled by litefactory after sub-issue creation)* |
-| US-2 | Read-only Validate coverage | M | — | *(filled by litefactory after sub-issue creation)* |
-| US-3 | Obsolete label refusal coverage | S | — | *(filled by litefactory after sub-issue creation)* |
-| US-4 | Canonical regression restoration | L | US-1, US-2, US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-5 | Accurate operational guidance | S | US-1, US-2, US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-6 | Demonstrable delivery completion | M | US-4, US-5 | *(filled by litefactory after sub-issue creation)* |
+| US-1 | Automatic mode-selected profile coverage | M | — | https://github.com/marioatcloudvane/litefactory/issues/51 |
+| US-2 | Read-only Validate coverage | M | — | https://github.com/marioatcloudvane/litefactory/issues/52 |
+| US-3 | Obsolete label refusal coverage | S | — | https://github.com/marioatcloudvane/litefactory/issues/53 |
+| US-4 | Canonical regression restoration | L | US-1, US-2, US-3 | https://github.com/marioatcloudvane/litefactory/issues/54 |
+| US-5 | Accurate operational guidance | S | US-1, US-2, US-3 | https://github.com/marioatcloudvane/litefactory/issues/55 |
+| US-6 | Demonstrable delivery completion | M | US-4, US-5 | https://github.com/marioatcloudvane/litefactory/issues/56 |
 
 ## Out of Scope
 
