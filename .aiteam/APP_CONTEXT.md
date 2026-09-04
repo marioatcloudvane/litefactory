@@ -54,14 +54,18 @@ identity      →  (nothing)          leaf. the only package that execs `gh`.
 launchd       →  (nothing)          leaf. the macOS LaunchAgent.
 logging       →  (nothing)          leaf. slog construction + file sink.
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
+planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies.
+attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
 
+agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
 github        →  naming, redact, secrets
-harness       →  config, naming
-report        →  git, harness, naming, redact
+codex         →  agent, config, naming
+harness       →  agent, config, naming
+report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  config, git, github, harness, naming, redact, report, store
-daemon        →  config, git, github, harness, naming, redact, report, repos, secrets, store, turn
+turn          →  agent, attach, codex, config, git, github, harness, naming, planbrief, redact, report, store
+daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store
 cmd/litefactory → cli, config, logging
 ```
@@ -80,7 +84,7 @@ The load-bearing consequences:
   reusing `turn.CommandKind`, and why the mapping is a small switch at the call
   site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
   reply shape, you add a `ReplyKind` **and** a case in that switch.
-  Note `report` is *not* a leaf — it imports `git`, `harness`, `naming`, `redact`.
+  Note `report` is *not* a leaf — it imports `agent`, `git`, `naming`, `redact`.
 - **`internal/harness` is the only place that executes `claude`.** It owns the
   subprocess, the argv, the child environment allowlist, the kill sweep, and it
   writes the run's `NNNN.jsonl` event stream.
@@ -94,21 +98,25 @@ The load-bearing consequences:
   split is a named invariant (`internal/daemon/doc.go`,
   `internal/turn/doc.go`); it is what makes the whole business path testable
   without waiting for anything.
-
 - **`internal/daemon` importing `internal/repos` is new and deliberately
   cycle-free** — added when the startup worktree-collision check
   (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
   function rather than reimplementing it. `repos` still imports nothing back
   from `daemon`.
+- **`internal/agent` is the vendor-neutral contract two Runners implement** —
+  `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
+  `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
+  implementation may inspect `Permissions.Payload`, which differs by `Kind`.
 
 ### Read the `doc.go` files
 
-Eleven packages carry a `doc.go` whose prose is the real specification for that
-package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`, `naming`,
-`redact`, `repos`, `report`, `turn` — and `config` and `store` carry theirs at
-the top of `config.go` / `store.go`. **Read the one for the package you are
-about to touch before you touch it.** They record what was measured, what was
-tried and rejected, and what breaks if you do the obvious thing.
+Fourteen packages carry a `doc.go` whose prose is the real specification for
+that package — `agent`, `attach`, `daemon`, `git`, `github`, `harness`,
+`identity`, `launchd`, `naming`, `planbrief`, `redact`, `repos`, `report`,
+`turn` — and `config` and `store` carry theirs at the top of `config.go` /
+`store.go`. **Read the one for the package you are about to touch before you
+touch it.** They record what was measured, what was tried and rejected, and
+what breaks if you do the obvious thing.
 
 ---
 
@@ -128,7 +136,10 @@ tried and rejected, and what breaks if you do the obvious thing.
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
-| run `claude` | `internal/harness` | The only place |
+| run `claude` or the OpenAI Codex CLI | `internal/harness` / `internal/codex` | Each implements `agent.Runner`; `harness` is the only place that execs `claude`, `codex` the only one that execs the Codex CLI |
+| add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
+| parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
+| classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |

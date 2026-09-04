@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -68,6 +68,28 @@ asked for; nothing here licenses starting the next one.
   implementation. Not diff-verified against `0df1fb4` (no diff tool
   available to the sub-agent) — read-and-confirmed only, flagged as a
   caveat in the brief.
+- 2026-09-04 — Implement mode completed. Both stories delivered in one
+  run, comment/documentation-only, no Go behavior change: US-1 inserted
+  the mode-header trust precondition at the top of `CLAUDE.md`'s
+  `## Classify` section (steps 1-3, the "sounds like" table, `## Gate`,
+  and `AGENTS.md` all confirmed byte-for-byte/zero-diff unchanged); US-2
+  added cross-reference comments at the `"- Mode: %s\n"` emission sites
+  in `internal/harness/prompt.go` (`writeHeader` line 480,
+  `writeResumeHeader` line 630 — located by content search per the
+  re-verification's stale-line-number caveat, not by the cited numbers).
+  Code review verdict ADVISORY_ONLY (2 non-blocking advisories, recorded
+  in `CODE_REVIEW.md` and `notes.md`; no BLOCKING findings, no rework
+  cycle needed). No real-dependency stories, so Phase 2 environment setup
+  and integration tests were both skipped. Unit test verification: 974
+  passed, 0 failed, `gofmt`/`go vet` clean, no test added/modified/removed
+  (per plan's explicit "no new test" decision — existing literal pins
+  confirmed intact). No bug loop needed. `DRIFT_REPORT.md` verdict: CLEAN.
+  `APP_CONTEXT.md`/`APP_CONSTRAINTS.md` updated (also opportunistically
+  fixed the previously-known-stale package map: `internal/agent`,
+  `internal/codex`, `internal/planbrief`, `internal/attach` now listed;
+  added `STYLE-8` documenting the CLAUDE.md/prompt.go literal contract).
+  Code left uncommitted in the worktree per team convention; litefactory
+  commits and pushes after this run ends.
 
 ## Notes
 

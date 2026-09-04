@@ -278,9 +278,14 @@ These are not style rules. Each has a test or a type that fails if you break it.
   only arity-checked positionals plus `*cli.Env`. Exit code comes from the error
   kind: `*UsageError` (bad command line) vs `*PreconditionError` (machine not
   ready) vs plain error.
-- **STYLE-7** — Eleven packages carry a `doc.go` whose prose is the real
+- **STYLE-7** — Fourteen packages carry a `doc.go` whose prose is the real
   specification for that package. You MUST read the one for the package you are
   about to touch, before you touch it.
+- **STYLE-8** — `internal/harness/prompt.go`'s `"- Mode: %s\n"` header line
+  (emitted by `writeHeader` and `writeResumeHeader`) and `CLAUDE.md`'s
+  `## Classify` section's trust of that exact literal MUST change together, in
+  the same commit. No test catches the `CLAUDE.md` side drifting — `prompt_test.go`
+  and `prompt_body_test.go` pin only the Go string, not the prose that depends on it.
 
 ---
 
