@@ -363,20 +363,20 @@ not a drive-by.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Agent registry + teams-by-reference JSON schema | L | — | pending creation |
-| US-2 | Three-layer config resolution (embedded → org → repo-local) | M | US-1, US-3 | pending creation |
-| US-3 | `schemaVersion` migrate-on-load, hand-written sequential steps | M | US-1 | pending creation |
-| US-4 | CLI scaffold + `litefactory team list` | L | US-2, US-5, US-9, US-10 (interleaved — see Workflow) | pending creation |
-| US-5 | Pluggable per-harness renderer contract | L | US-2 (T-17 also needs US-6/7/8 — see Workflow) | pending creation |
-| US-6 | Claude renderer → `.claude/agents/<agent>.md` | M | US-5 | pending creation |
-| US-7 | Codex renderer → `.codex/skills/<agent>/SKILL.md` | M | US-5 | pending creation |
-| US-8 | opencode renderer → `.opencode/agents/<agent>.md` | M | US-5 | pending creation |
-| US-9 | `team add` — hashing, lockfile, atomic writes, install command | L | US-2, US-5 (engine); US-4 (CLI wiring — see Workflow) | pending creation |
-| US-10 | `team status` — drift detection against the version generated from | L | US-9, US-4 | pending creation |
-| US-11 | `team update` — safe-to-overwrite vs. must-flag | L | US-4, US-9, US-10 | pending creation |
-| US-12 | Upstream-change reporting against installed `contentVersion` | S | US-10, US-11 (no new tasks — see Workflow) | pending creation |
-| US-13 | `team manage <agent> set/get/unset <param>=<value>` | L | US-4, US-14 (final test task also needs US-9/10/11) | pending creation |
-| US-14 | Allowlist + forbidden-flag + secret-scan validation of every settable parameter | S | — | pending creation |
+| US-1 | Agent registry + teams-by-reference JSON schema | L | — | https://github.com/marioatcloudvane/litefactory/issues/74 |
+| US-2 | Three-layer config resolution (embedded → org → repo-local) | M | US-1, US-3 | https://github.com/marioatcloudvane/litefactory/issues/75 |
+| US-3 | `schemaVersion` migrate-on-load, hand-written sequential steps | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/76 |
+| US-4 | CLI scaffold + `litefactory team list` | L | US-2, US-5, US-9, US-10 (interleaved — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/77 |
+| US-5 | Pluggable per-harness renderer contract | L | US-2 (T-17 also needs US-6/7/8 — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/78 |
+| US-6 | Claude renderer → `.claude/agents/<agent>.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/79 |
+| US-7 | Codex renderer → `.codex/skills/<agent>/SKILL.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/80 |
+| US-8 | opencode renderer → `.opencode/agents/<agent>.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/81 |
+| US-9 | `team add` — hashing, lockfile, atomic writes, install command | L | US-2, US-5 (engine); US-4 (CLI wiring — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/82 |
+| US-10 | `team status` — drift detection against the version generated from | L | US-9, US-4 | https://github.com/marioatcloudvane/litefactory/issues/83 |
+| US-11 | `team update` — safe-to-overwrite vs. must-flag | L | US-4, US-9, US-10 | https://github.com/marioatcloudvane/litefactory/issues/84 |
+| US-12 | Upstream-change reporting against installed `contentVersion` | S | US-10, US-11 (no new tasks — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/85 |
+| US-13 | `team manage <agent> set/get/unset <param>=<value>` | L | US-4, US-14 (final test task also needs US-9/10/11) | https://github.com/marioatcloudvane/litefactory/issues/86 |
+| US-14 | Allowlist + forbidden-flag + secret-scan validation of every settable parameter | S | — | https://github.com/marioatcloudvane/litefactory/issues/87 |
 
 ## Out of Scope
 
