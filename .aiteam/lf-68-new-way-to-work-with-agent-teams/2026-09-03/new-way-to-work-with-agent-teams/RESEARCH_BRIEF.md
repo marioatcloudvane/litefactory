@@ -277,6 +277,14 @@ This is not a detail to resolve unilaterally — it changes what "add a team to 
 mechanically (write JSON only vs. write JSON + generate/write harness-native files vs. call out
 to `aiteam`). Carried into Open Questions and Recommended Scope below.
 
+**[R2 — resolved in Plan mode, not re-litigated here]** `plan_brief.md`'s binding Scope Decision
+(DEV-1) settles this in favor of option (a): litefactory adopts write-ownership of the five Owned
+Paths (`.aiteam/team.json`, `.aiteam/team.lock.json`, `.claude/agents/<agent>.md`,
+`.codex/skills/<agent>/SKILL.md`, `.opencode/agents/<agent>.md`) as an explicit, scoped override
+of the `cmd_repo.go:57-58` rule, sanctioned by the human sponsor before planning began. This
+research brief's Open Question 1 (below) is retained for provenance but should be read as
+answered by the plan, not as still-open.
+
 ### 5. Config versioning and migration — the explicitly-flagged hard problem
 
 **[W]** The generally low-ceremony, well-established external pattern: an explicit
@@ -320,6 +328,11 @@ rather than introducing the project's first schema/migration dependency.
    by the request itself as needing comprehensive research; this run surfaces the axis split as
    its main contribution and leaves the mechanism to Plan mode.
 
+**[R2 — resolved in Plan mode]** `plan_brief.md`'s Shared Decision 1 (the three-hash model:
+`renderedHash`/`sourceHash`/`baseSourceHash`, plus a top-level `hashVersion` distinct from the
+lockfile's own `schemaVersion`) is the mechanism this axis-2 question needed. It is now settled
+and binding; see the Addendum below for how it surfaces in a concrete lockfile.
+
 ### 6. Two-tier fallback/override precedence — external naming conventions
 
 **[W]** No single naming convention is a strict de facto standard, but recognizable patterns
@@ -332,6 +345,10 @@ project/repo config), not strictly two — worth considering whether litefactory
 user-override request is really two tiers or should be three (litefactory-shipped fallback →
 organization/corporate config → repo-local override).
 
+**[R2 — resolved in Plan mode]** Settled as three tiers, exactly as flagged: embedded fallback
+(`//go:embed`) → org layer (`--team-config`/`$LF_HOME/config.yaml`'s `team_config:` key) → repo-
+local `.aiteam/team.json`. See `plan_brief.md`'s Shared Decision 2, "Chain B."
+
 ## Constraints & Risks
 
 - **[V] Ownership-boundary risk (see Domain §4).** This is the single biggest risk to scope
@@ -339,7 +356,7 @@ organization/corporate config → repo-local override).
   whether litefactory now writes `.claude/agents/`/`.codex/skills/` files (previously
   `aiteam`'s job, per explicit doc comment) risks either duplicating `aiteam`'s responsibility
   or building a JSON source-of-truth that never actually reaches the harnesses that need to
-  read it.
+  read it. *(Resolved in Plan mode — see DEV-1. Retained here for provenance.)*
 - **[V] No existing Go abstraction for "an agent" as data.** This is greenfield package design,
   not a refactor — expect real design effort in Plan mode, not just CLI plumbing.
 - **[V] `internal/config` purity constraint.** If the team config is meant to layer into or
@@ -375,10 +392,8 @@ organization/corporate config → repo-local override).
 1. **Does litefactory take over ownership of `.claude/agents/*.md` / `.codex/skills/*/SKILL.md`
    generation from `aiteam`, or does the new JSON config sit alongside `aiteam`'s output as a
    separate, litefactory-only source of truth that still needs a bridge to reach the harness
-   tools?** This determines whether `team add`/`team update` write harness-native files
-   directly, call out to `aiteam`, or only manage JSON that nothing yet consumes at runtime.
-   Not resolved by this run — needs an explicit decision, likely from whoever owns `aiteam`'s
-   scope, before Plan mode can commit to a mechanism.
+   tools?** *(Answered by `plan_brief.md` DEV-1: litefactory takes ownership, scoped to five
+   named Owned Paths. Retained for provenance, not open in practice.)*
 2. **[V]** The string "opencode" appears nowhere in this repo's in-scope code or docs, but
    *does* appear in 7 files under prior `.aiteam/` session artifacts tied to feature slugs
    `lf-setup` and `lf-8-add-codex-as-second-party-item` (content not read — out of this
@@ -386,30 +401,20 @@ organization/corporate config → repo-local override).
    `.aiteam/APP_CONTEXT.md`/`APP_CONSTRAINTS.md` for whether opencode support was already
    scoped or decided against, rather than this feature re-deriving that decision from scratch.
 3. **What exactly does `litefactory team manage <agentname> set <param>=<value>` need to be
-   able to set?** The request names it but does not enumerate the parameter surface. Candidates
-   surfaced by this research: `model` (per harness), `tools`/`permission` (per harness,
-   different shapes per harness as shown in Domain §1), `description`, team membership
-   (shared vs. team-scoped), and harness-specific fields (`sandbox_mode`,
-   `model_reasoning_effort` for Codex; `mode`, `temperature` for opencode). Plan mode needs to
-   pick an initial parameter surface and an extension story for harness-specific fields, since
-   a flat `key=value` CLI syntax does not naturally express nested/per-harness structure.
+   able to set?** *(Answered by `plan_brief.md`'s US-13/US-14: a closed parameter allowlist,
+   validated via `config.ContainsForbiddenFlag` and `config.ClassifySecret`.)*
 4. **How does the content/override versioning problem (Domain §5, axis 2) actually resolve
-   when litefactory ships a new fallback team config?** Does a user's override pin against a
-   fallback version, get a `team update --check-fallback`-style diff, or auto-merge silently?
-   This is the piece explicitly called out by the requester as needing comprehensive research
-   and this run has only split the problem into two axes and surfaced external non-answers
-   (no dominant library) — the actual mechanism is unresolved and should be a first-class
-   design question for Plan mode, not an implementation detail.
+   when litefactory ships a new fallback team config?** *(Answered by `plan_brief.md` Shared
+   Decision 1 — the three-hash model and the `team status`/`team update` decision table.)*
 5. **Where should the fallback JSON physically live inside the litefactory repo**, and how is
-   it distributed to installed copies of litefactory (embedded via `go:embed` at build time,
-   analogous to `internal/store`'s embedded migrations, vs. fetched at runtime)? Not
-   investigated this run; `go:embed` is the pattern already used for SQL migrations
-   (`internal/store/migrate.go:20`) and is the natural default to propose, but Plan mode should
-   confirm no separate distribution mechanism (e.g. a package registry) was intended.
+   it distributed to installed copies of litefactory? *(Answered: `//go:embed`, per
+   `plan_brief.md`'s Out of Scope note "Distributing the fallback config outside the binary —
+   `//go:embed` only.")*
 6. **[V]** A possible mismatch between `.claude/AGENT_ROSTER.md` (13 rows) and `.claude/agents/*.md`
    (13 files) was flagged by the codebase tour but not cross-verified row-by-row this run — if
    real, it's a live example of the exact drift a config-driven roster is meant to eliminate,
-   worth a quick confirmation before Plan mode cites it as motivation.
+   worth a quick confirmation before Plan mode cites it as motivation. *(Still genuinely open —
+   not addressed by `plan_brief.md`.)*
 
 ## Recommended scope for Plan mode
 
@@ -440,3 +445,372 @@ organization/corporate config → repo-local override).
   unless that context says otherwise.
 - Adopting any external cross-tool standard (Agent Manifest, A2A Agent Card) as the schema —
   Domain §2 found none fit for purpose; design litefactory's own schema instead.
+
+---
+
+## Addendum — 2026-09-04 Follow-up: CLI repo-scoping & sample team-config JSON
+
+**Context.** `plan_brief.md` and its 14 sub-issues (US-1..US-14) are complete and are *not*
+edited by this addendum — reconciling the plan against these findings is a future Plan run's
+job. The human sponsor reviewed the sub-issues and raised two concrete questions before approving
+any change to the plan. This addendum answers both, headless (no clarifying question was put to
+a human; ambiguities are resolved with the most reasonable reading and recorded as assumptions).
+
+### Follow-up Request
+
+1. The plan's CLI surface (`team list`, `team add`, `team update`, `team manage`, ...) gives every
+   command a `--repo <path>` flag, but doesn't visibly separate "commands that operate on
+   litefactory itself" from "commands that operate on one connected repo's installed team," and
+   doesn't explain how `--repo` relates to how litefactory already names/addresses a connected
+   repo elsewhere. Research the existing convention and use it to classify the plan's six
+   commands and to shape the repo-scoped ones concretely.
+2. Produce one concrete, realistic sample of a team-config JSON document, consistent with the
+   schema and drift-detection design already locked in `plan_brief.md`.
+
+### 1. How litefactory already identifies a connected repo — findings
+
+**[V] `repo add <path>` derives identity; it does not accept an assigned name.** It takes a
+positional filesystem path (`ArgSpec{Names: []string{"path"}, Min: 1}`,
+`internal/cli/cmd_repo.go:59`) and *derives* an identifier by reading the clone's `origin` remote
+and parsing it into `git.RepoRef{Forge, Owner, Name}` (`internal/repos/registration.go:144-194`,
+`internal/git/remote.go:24-38`). The stored row (`store.Repo`, `internal/store/repos.go:14-44`)
+has a surrogate int64 `ID` plus `Path`, `Forge`, `Owner`, `Name`; `Repo.Slug()`
+(`internal/store/repos.go:48`) renders `owner/name`.
+
+**[V] The only column that is actually `UNIQUE` is `path`**
+(`internal/store/migrations/0001_init.sql:32`) — `UpsertRepo` is keyed on path
+(`internal/store/repos.go:58-92`). `(forge, owner, name)` has only a plain, non-unique index
+(`0001_init.sql:47`). Nothing stops two different registered clones from resolving to the same
+`owner/name` (two local checkouts of one GitHub repo). This matters for what follows.
+
+**[V] Neither `repo list` nor any existing `repo` subcommand lets a user select one specific
+already-registered repo.** `repo list` (`internal/cli/cmd_repo.go:72-86`) takes no arguments and
+always prints every registered repo. There is no `repo show`. So the `repo` noun itself has no
+precedent for "address one repo."
+
+**[V] The real precedent lives in a different command group: `logs`.**
+`litefactory logs <issue> [--repo owner/name]` (`internal/cli/cmd_logs.go:70-171`) is the one
+place litefactory disambiguates "which registered repo." The flag is declared to take exactly
+`owner/name` (`parseRepoFlag`, `cmd_logs.go:851-862`, rejecting anything that isn't a single
+`/`-separated pair), resolved via `store.DB.GetRepoBySlug(ctx, forge, owner, name)`
+(`internal/store/repos.go:115-126`, doc comment: "This is how `--repo owner/name` resolves"). A
+positional task ref can carry the repo too (`github:acme/api#123`, `naming.ParseRef`,
+`internal/naming/ref.go:62-90`) — passing both a ref and `--repo` is a usage error
+(`cmd_logs.go:170`). Because `owner/name` is not DB-unique (see above), a match against more than
+one registered repo returns `*store.AmbiguousIssueError` (`internal/store/errors.go:24-60`),
+printed as `"Pass --repo owner/name to choose one:"` (`cmd_logs.go:802-809`) — ambiguity is a
+handled, expected case, not an edge case litefactory currently ignores. `task clean <issue>`
+(`internal/cli/cmd_task.go:29-49,163-181`) deliberately has *no* `--repo` flag and refuses
+outright on ambiguity instead, so the `logs` pattern is a deliberate design choice, not the only
+option in the codebase, but it is the only one that supports disambiguated addressing.
+
+**[V] The `owner/name` component charset is validated** by `naming.validateRefComponent`
+(`internal/naming/ref.go:95-124`): ASCII letters, digits, `.`, `_`, `-` only — chosen because
+these components are interpolated into filesystem paths
+(`$LF_HOME/logs/runs/<forge>/<owner>/<repo>/<issue>`). This is filename-safe and CLI-safe, and
+would be equally usable for team-command addressing.
+
+**[V] No `<noun> <identifier> <verb>` shape exists anywhere in litefactory today.** Every
+existing multi-word command is registered as a flat, space-joined literal `Command.Name`
+(`Name: "repo add"`, `cmd_repo.go:51`; `Name: "task clean"`, `cmd_task.go:31`) — see
+`internal/cli/commands.go`. The closest existing pattern for "address one repo" is a **flag after
+the verb** (`logs <issue> --repo owner/name`), not a positional segment between noun and verb.
+`litefactory teams <repo_name> <command>` (the shape floated in review) would be a genuinely new
+CLI dispatch pattern — the literal-string `Command.Name` matching convention has no support today
+for a variable middle segment, so adopting it would mean inventing new router logic solely for
+this feature, where extending the flag convention needs none.
+
+**[R this run] Note on terminology collision.** `plan_brief.md`'s own provenance marker grammar
+uses `team=<slug>` for the *team's* slug (e.g. `go-team-lite`). This is a different "slug" from
+the *repo's* `owner/name` slug found here. Both are real, both are called "slug," and Plan mode
+should use distinct field/flag names (e.g. `--repo` for the repo slug, `team` positional/field for
+the team slug) so a reconciliation pass doesn't conflate them.
+
+### 2. Recommendation — litefactory-level vs. repo-level split
+
+| Command | Level | Repo argument | Why |
+|---|---|---|---|
+| `team list` | **litefactory-level** | none | Lists team names + membership from the resolved embedded⊕org layers only. Nothing repo-specific to show without a target repo, so it should not require one. |
+| `team show <team>` | **litefactory-level**, with an optional repo-scoped preview | optional `--repo <owner/name>` | Without `--repo`: shows the embedded⊕org resolution (what any repo would get by default). With `--repo`: additionally layers that repo's `.aiteam/team.json`, naming which layer supplied each field — a genuine preview, not a write. |
+| `team add <team>` | **repo-level** | required `--repo <owner/name>` | Installs generated files into exactly one connected repo. |
+| `team status` | **repo-level** | required `--repo <owner/name>` | Drift-checks one repo's installed lockfile. |
+| `team update` | **repo-level** | required `--repo <owner/name>` | Rewrites one repo's installed files. |
+| `team manage <agent> set\|get\|unset` | **repo-level** | required `--repo <owner/name>` | Writes to one repo's `.aiteam/team.json` (`set`/`unset`); `get` reads the same repo-scoped resolution. |
+
+**Concrete, binding recommendation for Plan mode to reconcile against `plan_brief.md`'s CLI
+surface (Shared Decision 2):**
+
+- **Change `--repo <path>` to `--repo <owner/name>`**, matching the existing `logs` convention
+  exactly (same flag name, same shape, same validation, same
+  `store.DB.GetRepoBySlug`/`AmbiguousIssueError` resolution path) — do not invent a second way to
+  address a repo. Keep the flag-after-verb shape (`team add <team> --repo <owner/name>`); do not
+  adopt the `teams <repo> <command>` positional shape (see dispatch-mechanism cost above).
+- **This is a real, not cosmetic, design change from the current draft.** The plan's current
+  `--repo` resolves an arbitrary filesystem path (default `.`, requiring only a `.git` entry, no
+  registration check at all) — it can target *any* git working tree, registered with litefactory
+  or not. Switching to `owner/name` means `team` commands can only ever target repos that have
+  already been through `repo add`. That is a deliberate narrowing (consistent addressing, reuses
+  ambiguity handling) but it removes the "run against any git checkout" capability the current
+  draft has by default. Plan mode must decide this explicitly, not inherit it silently.
+- **Default when `--repo` is omitted, for repo-level commands:** resolve cwd against the repos
+  registry (absolute path lookup); if the cwd matches exactly one registered repo, use it; if it
+  matches none, fail with `PreconditionError` naming that cwd is not a registered repo and
+  suggesting `repo add`; cwd can never match *more than one* registered repo since `path` is
+  DB-unique, so no ambiguity is possible on this path specifically (ambiguity only arises from
+  `owner/name` lookups). This preserves today's "just cd into the repo and run the command" UX
+  without reintroducing the raw-path behavior.
+- **`team list` and the litefactory-level half of `team show` need no `--repo` at all** and should
+  not require one — this is the direct fix for the reviewer's "listing what's available in
+  litefactory itself" expectation.
+
+### 3. Sample team-config JSON, consistent with `plan_brief.md`'s locked design
+
+Three documents, worked as one consistent example, because the plan deliberately keeps them
+separate (Shared Decision 1: the config document and the lockfile answer different questions and
+have different owners). Hash values below are **illustrative placeholders** (repeated-hex
+patterns for readability), not computed hashes — Plan/Implement mode must compute real ones.
+Agent names are drawn from this repo's actual current roster
+(`.claude/agents/*.md`) for realism.
+
+**(A) Embedded fallback (`//go:embed`, litefactory-shipped, `schemaVersion: 1`)** — abbreviated to
+five representative agents rather than the full 13-agent roster:
+
+```json
+{
+  "schemaVersion": 1,
+  "agents": {
+    "requirements-engineer": {
+      "description": "Runs the planning conversation; produces feature-spec.md.",
+      "harnesses": {
+        "claude": { "tools": ["Glob", "Grep", "Read", "Write", "TodoWrite"], "model": "sonnet" },
+        "codex":  { "sandboxMode": "workspace-write" },
+        "opencode": { "mode": "primary", "permission": { "edit": "allow", "bash": "ask" } }
+      }
+    },
+    "go-architect": {
+      "description": "Reviews plan_brief.md and adds architectural hints per story.",
+      "harnesses": {
+        "claude": { "tools": ["Read", "Write", "Glob", "Grep", "Bash", "TodoWrite"], "model": "opus" },
+        "codex":  { "sandboxMode": "workspace-write", "modelReasoningEffort": "high" },
+        "opencode": { "mode": "primary", "permission": { "edit": "allow", "bash": "allow" } }
+      }
+    },
+    "go-implementation-engineer": {
+      "description": "Implements one user story's tasks at a time.",
+      "harnesses": {
+        "claude": { "tools": ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoWrite"], "model": "sonnet" },
+        "codex":  { "sandboxMode": "workspace-write" },
+        "opencode": { "mode": "subagent", "permission": { "edit": "allow", "bash": "allow" } }
+      }
+    },
+    "go-code-reviewer": {
+      "description": "Reviews Phase 1 output against architectural hints; writes CODE_REVIEW.md.",
+      "harnesses": {
+        "claude": { "tools": ["Read", "Write", "Glob", "Grep", "Bash", "TodoWrite"], "model": "sonnet" },
+        "codex":  { "sandboxMode": "read-only" },
+        "opencode": { "mode": "subagent", "permission": { "edit": "deny", "bash": "ask" } }
+      }
+    },
+    "codebase-tour": {
+      "description": "Runs the Two-Pass Codebase Tour for Research mode.",
+      "harnesses": {
+        "claude": { "tools": ["Read", "Glob", "Grep", "TodoWrite"], "model": "haiku" },
+        "codex":  { "sandboxMode": "read-only" }
+      }
+    }
+  },
+  "shared": ["requirements-engineer", "codebase-tour"],
+  "teams": [
+    {
+      "name": "go-team",
+      "description": "Go backend feature delivery: plan, implement, review.",
+      "agents": ["requirements-engineer", "go-architect", "go-implementation-engineer", "go-code-reviewer", "codebase-tour"]
+    }
+  ]
+}
+```
+
+**(B) Repo-local override (`.aiteam/team.json`, written by `team manage`, layered per Chain B)** —
+a realistic partial override, not a redefinition: bumps one agent's model, disables another
+(excluded from every team and all generated output, per the plan's "removal is `disabled: true`,
+never deletion" rule), and adds one repo-specific agent that has **no embedded definition at
+all** (the case `baseSourceHash: ""` exists for):
+
+```json
+{
+  "schemaVersion": 1,
+  "agents": {
+    "go-implementation-engineer": {
+      "harnesses": { "claude": { "model": "opus" } }
+    },
+    "go-code-reviewer": {
+      "disabled": true
+    },
+    "docs-writer": {
+      "description": "Repo-specific: keeps README and docs/ in sync with shipped code.",
+      "harnesses": {
+        "claude": { "tools": ["Read", "Write", "Glob", "Grep"], "model": "sonnet" },
+        "codex":  { "sandboxMode": "workspace-write" }
+      }
+    }
+  },
+  "teams": [
+    {
+      "name": "go-team-lite",
+      "description": "This repo's trimmed team: skip code review, use opus for implementation, add a docs writer.",
+      "agents": ["requirements-engineer", "go-architect", "go-implementation-engineer", "docs-writer"]
+    }
+  ]
+}
+```
+
+**(C) Lockfile (`.aiteam/team.lock.json`, litefactory-exclusive, after `team add go-team-lite
+--harness claude,codex`)** — `.opencode/` is omitted because this repo's `--harness` auto-detect
+found only `.claude/`/`.codex/` present; `go-code-reviewer` correctly produces **no artifacts**
+(disabled, excluded from output). Artifacts are sorted by path, as required:
+
+```json
+{
+  "schemaVersion": 1,
+  "hashVersion": 1,
+  "team": "go-team-lite",
+  "artifacts": [
+    {
+      "path": ".claude/agents/docs-writer.md",
+      "agent": "docs-writer",
+      "harness": "claude",
+      "contentVersion": 1,
+      "renderedHash": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "sourceHash":   "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+      "baseSourceHash": ""
+    },
+    {
+      "path": ".claude/agents/go-architect.md",
+      "agent": "go-architect",
+      "harness": "claude",
+      "contentVersion": 1,
+      "renderedHash": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "sourceHash":   "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+      "baseSourceHash": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+    },
+    {
+      "path": ".claude/agents/go-implementation-engineer.md",
+      "agent": "go-implementation-engineer",
+      "harness": "claude",
+      "contentVersion": 1,
+      "renderedHash": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "sourceHash":   "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "baseSourceHash": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4"
+    },
+    {
+      "path": ".claude/agents/requirements-engineer.md",
+      "agent": "requirements-engineer",
+      "harness": "claude",
+      "contentVersion": 1,
+      "renderedHash": "d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5",
+      "sourceHash":   "d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5",
+      "baseSourceHash": "d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5"
+    },
+    {
+      "path": ".codex/skills/docs-writer/SKILL.md",
+      "agent": "docs-writer",
+      "harness": "codex",
+      "contentVersion": 1,
+      "renderedHash": "e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
+      "sourceHash":   "e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6e6",
+      "baseSourceHash": ""
+    },
+    {
+      "path": ".codex/skills/go-architect/SKILL.md",
+      "agent": "go-architect",
+      "harness": "codex",
+      "contentVersion": 1,
+      "renderedHash": "f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7",
+      "sourceHash":   "f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7",
+      "baseSourceHash": "f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7"
+    },
+    {
+      "path": ".codex/skills/go-implementation-engineer/SKILL.md",
+      "agent": "go-implementation-engineer",
+      "harness": "codex",
+      "contentVersion": 1,
+      "renderedHash": "0808080808080808080808080808080808080808080808080808080808080808",
+      "sourceHash":   "0808080808080808080808080808080808080808080808080808080808080808",
+      "baseSourceHash": "0909090909090909090909090909090909090909090909090909090909090909"
+    },
+    {
+      "path": ".codex/skills/requirements-engineer/SKILL.md",
+      "agent": "requirements-engineer",
+      "harness": "codex",
+      "contentVersion": 1,
+      "renderedHash": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "sourceHash":   "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+      "baseSourceHash": "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+    }
+  ]
+}
+```
+
+**What this example demonstrates, mapped to the locked design:**
+- `go-architect` and `requirements-engineer` (shared): all three hashes equal per artifact — the
+  file is exactly what the embedded fallback would produce, untouched by any override, and
+  unedited on disk. `team status` reports `clean`.
+- `go-implementation-engineer`: `renderedHash == sourceHash` (freshly installed, no drift) but
+  `baseSourceHash` differs from `sourceHash` — the repo-local override (`model: opus`) changed
+  the fully-resolved definition relative to the embedded-only baseline. This is exactly the
+  `source-changed` signal Shared Decision 1's `baseSourceHash` exists to carry, independent of
+  drift.
+- `docs-writer`: `baseSourceHash: ""` — a repo-local-only agent with no embedded definition,
+  the documented legitimate state, not corruption.
+- `go-code-reviewer`: `disabled: true` in the override → zero lockfile entries, zero generated
+  files, correctly excluded from the installed team.
+- Every generated file's first body line would carry the provenance marker, e.g.:
+  `<!-- litefactory: agent=docs-writer team=go-team-lite contentVersion=1 -->` — matching
+  `plan_brief.md`'s stated grammar (`agent=<name> team=<slug> contentVersion=<n> ...`). The
+  trailing `...` in that grammar is unspecified beyond these three fields; Plan mode should
+  finalize whether `harness` or `hashVersion` belong in the marker too.
+
+**Assumption made this run, flagged as a new open question:** the lockfile above assumes **one
+installed team per repo** (a single top-level `team` field). Neither `plan_brief.md`'s Shared
+Decision 1 nor its Story Index states whether a second `team add <other-team>` on the same repo
+is expected to extend the same lockfile (multiple teams, artifacts unioned) or is disallowed
+outright. This is now Open Question 7 below.
+
+### New Open Questions (continuing the numbering above)
+
+7. **Can a repo have more than one team installed at once?** `team add <team>` is
+   currently singular; the lockfile's shape (one `team` field vs. an array, or a `team` field per
+   artifact instead of top-level) depends on the answer. Not addressed by `plan_brief.md`;
+   this addendum's sample assumes single-team-per-repo as the more conservative reading.
+8. **Should `team list`/`team show` truly need zero `--repo` for their litefactory-level form,** or
+   is there a real repo-level need to ask "which team, if any, is currently installed in *this*
+   repo" (distinct from `team status`'s per-artifact drift report, which doesn't surface the
+   installed team's name/description on its own)? This addendum recommends `team show <team>
+   --repo <owner/name>` cover that need as a preview, but Plan mode should confirm that's
+   sufficient rather than warranting a dedicated read command.
+9. **`--repo owner/name` inherits `logs`'s ambiguity handling** (two registered clones resolving
+   to the same `owner/name`) — Plan mode needs an explicit sentinel/error path for this in
+   `internal/team` (an `ErrAmbiguousRepo`-shaped equivalent to `store.AmbiguousIssueError`),
+   not an assumption that `owner/name` is unique.
+10. **The exact provenance-marker field grammar** (`agent=<name> team=<slug> contentVersion=<n>
+    ...`) needs its trailing fields finalized — this addendum's sample used only the three
+    fields `plan_brief.md` states explicitly; whether `harness` and/or `hashVersion` belong in
+    the marker too is unresolved.
+
+### Recommended scope update for Plan mode (this addendum only — does not edit `plan_brief.md`)
+
+- Change Shared Decision 2's `--repo <path>` to `--repo <owner/name>` on the five repo-level
+  commands (`team show` optionally, `team add`, `team status`, `team update`, `team manage`),
+  resolved via the existing `store.DB.GetRepoBySlug` path, with cwd-based default resolution
+  through the repos registry (not a raw `.git` check) as described above.
+  `--repo`'s absence should not be an error for `team list` or for `team show` used without a
+  repo-preview.
+  This is a **breaking change to an already-drafted CLI surface**, not an addition — it should
+  be reconciled explicitly in the sub-issues that define it (`US-4`, and the acceptance criteria
+  in `US-9`, `US-10`, `US-11`, `US-13` that reference `--repo`), not layered on top silently.
+- Add the four new open questions above to whatever Plan mode treats as its residual-risk list
+  for this feature.
+- The JSON samples above are illustrative, not the literal schema Plan mode must ship — but they
+  are consistent with every binding decision already recorded in `plan_brief.md` and can be used
+  directly as fixtures for golden-file tests (Shared Decision 3) once real hashes replace the
+  placeholders.
