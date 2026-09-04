@@ -135,6 +135,13 @@ batch; continue only after both reports have returned. A missing, failed, or
 blocked report is an explicit research failure, not a reason to retry invisibly.
 Never substitute your own guess for a child's findings.
 
+**Every `Task` call sets `subagent_type` explicitly, to a roster name.**
+Omitting it does not fail — it silently resolves to `general-purpose`, which
+carries none of this team's instructions and reports back as if it did. The
+names you may use here are `codebase-tour`, `web-researcher` and
+`app-context-updater`. The field takes an agent name and nothing else — never a
+note or a placeholder.
+
 ## RESEARCH_BRIEF.md structure
 
 ```
