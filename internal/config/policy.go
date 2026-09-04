@@ -105,6 +105,34 @@ func defaultAllowedTools() []string {
 		"Bash(go test:*)",
 		"Bash(go vet:*)",
 		"Bash(gofmt:*)",
+		// Read-only text inspection. These are here to stop agents reading
+		// whole files when they need eight lines of one.
+		//
+		// Without them a run on issue #33 lost two implementation agents to
+		// "Autocompact is thrashing: the context refilled to the limit within
+		// 3 turns of the previous compact, 3 times in a row". The progress
+		// trace shows why: unable to excerpt, the agent re-read
+		// internal/daemon/tick.go — 1797 lines — whole, three times, after
+		// each compaction discarded it. The absent permission and the context
+		// limit are the same bug seen from two ends.
+		//
+		// They also unblock the pipelines the project's own checks are written
+		// as: `gofmt -l . | grep -v '^$'` was refused as "multiple operations",
+		// because claude evaluates each stage of a pipe against this list
+		// separately and grep was not on it.
+		//
+		// sed is admitted only as `sed -n`, its read-only form. Bare `sed:*`
+		// would carry `sed -i`, which rewrites a file in place and belongs to
+		// the Edit tool and its permission rules. Verified: `sed -n '2,3p' f`
+		// is allowed and `sed -i '' 's/a/b/' f` is denied with f unchanged.
+		//
+		// cat and tee stay out for the reason given above at mkdir, and awk
+		// stays out because its program text can redirect into a file.
+		"Bash(grep:*)",
+		"Bash(sed -n:*)",
+		"Bash(head:*)",
+		"Bash(tail:*)",
+		"Bash(wc:*)",
 	}
 }
 

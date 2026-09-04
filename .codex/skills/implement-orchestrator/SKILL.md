@@ -171,17 +171,48 @@ opens only after every call in the batch has returned. A missing, failed, or
 Never substitute your own guess for a child's findings or finish an artifact on
 a partial set.
 
+**Every `Task` call sets `subagent_type` explicitly, to a name from the roster.**
+Omitting it does not fail — it silently resolves to `general-purpose`, an agent
+with no team instructions, the full tool surface, and no idea that
+`APP_CONTEXT.md` exists or that it must not commit. Two runs on issues #33 and
+#34 dispatched every implementation agent this way and never invoked
+`go-implementation-engineer` at all; the reports read `DONE`, so nothing looked
+wrong. The roster is: `go-implementation-engineer`, `go-unit-test-engineer`,
+`go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
+`proxy-product-owner`, `app-context-updater`, `codebase-tour`,
+`requirements-engineer`, `web-researcher`.
+
+`subagent_type` carries an agent name and nothing else — never a note, a
+placeholder, or an aside to yourself. A run on #33 passed
+`"TodoWrite is not a Task tool; ignore"` as the agent name and burned the turn
+on `Agent type not found`. Reminders belong in your own reasoning; this field
+takes a roster name.
+
 ## Phase 1 — Development
 
 Invoke **`go-implementation-engineer`** — one per user story, in parallel. Gate A opens when every one of them has reported, not when every one has been launched.
 
 - Pass each agent only its own user story section (tasks + acceptance criteria + architecture notes for that story). No other context.
 - Keep context small: one story per agent is intentional — it reduces noise and enables true parallelism.
-- Each agent commits its work and routes back with status `DONE` or `BLOCKED`.
+- Each agent leaves its work uncommitted in the worktree and routes back with
+  status `DONE` or `BLOCKED`. Nobody on this team runs `git add`, `git commit`,
+  `git stash` or `git push` — the permission list admits read-only git verbs
+  only, so an agent that tries is denied and loses the turn. litefactory
+  inspects the worktree when the run ends and makes the commit itself.
+  Uncommitted work at the end of a run is the normal state, not a loss.
 
 **Gate A:** wait until ALL implementation agents have reported back.
 
 - `BLOCKED`: investigate the blocker. If it is a code-level unknown, guide the engineer to resolve it. If it requires a scope or architectural decision, pause and ask the user — do not silently improvise.
+- **Terminated on `Autocompact is thrashing`**: the agent ran out of context and
+  died. Re-invoking it with the same prompt fails the same way — it is
+  deterministic, not flaky. Both runs that hit this on issue #33 retried
+  identically; one then burned the run's remaining 15 minutes and hit the 90
+  minute timeout, the other hit the session limit. **Never retry it unchanged.**
+  Either split the story into two narrower invocations, or re-invoke it once
+  naming the specific files and line ranges to excerpt rather than read whole. If
+  neither is obviously right, report the story as failed and stop — one honest
+  failure costs less than a second identical death.
 - Only after all report `DONE`: proceed to Phase 1.5.
 
 ---
