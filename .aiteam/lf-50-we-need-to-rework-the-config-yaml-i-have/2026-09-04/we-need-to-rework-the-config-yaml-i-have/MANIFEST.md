@@ -23,6 +23,7 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-04 — Run 0012 completed focused post-merge delta research; attachment/config overlaps and re-planning decisions identified
 - 2026-09-04 — Run 0013 recorded owner decisions for attachment settings/defaults and removal of obsolete profile compatibility surfaces
 - 2026-09-04 — Post-merge Plan updated at current head; seven delta stories replace the stale continuation plan
+- 2026-09-04 — Run 0015 requested implementation in plain text but was dispatched as Research; the ready implementation handoff was reconfirmed
 
 ## Notes
 

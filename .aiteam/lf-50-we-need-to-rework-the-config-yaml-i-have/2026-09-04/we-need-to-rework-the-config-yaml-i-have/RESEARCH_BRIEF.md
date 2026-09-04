@@ -180,3 +180,11 @@ Static inspection found these concrete unfinished areas:
 
 - [V] The post-merge product decisions are now complete. The narrow Plan update should re-pin to current head and add exactly these deltas: optional attachment ceilings under `settings` with preserved defaults; explicit attachment flags in the complete generated config; Research/Plan enabled defaults; daemon mode-to-attachment routing coverage including Spike→Implement; removal of obsolete reply kinds/guidance; removal of Codex's redundant default sandbox; and canonical tests for omitted/defaulted values and Codex-only configuration.
 - [V] No additional Research questions remain for the merged-code overlap.
+
+## Run 0015 — Implementation handoff blocked by mode classification
+
+- [O] The owner requested implementation and completion of the approved work.
+- [V] The run was dispatched as Research because the plain-text request did not deterministically select Implement mode.
+- [V] The current session contains the updated approved plan, architecture review, feature specification, and seven implementation stories; there is no remaining planning blocker.
+- [V] Research mode prohibits production-code changes and test execution, so this run made no implementation changes.
+- [V] The deterministic continuation comment is `/implement execute the updated post-merge plan and finish all quality gates`.
