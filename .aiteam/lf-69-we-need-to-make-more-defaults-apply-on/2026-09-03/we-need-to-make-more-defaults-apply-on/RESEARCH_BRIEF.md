@@ -283,6 +283,33 @@ surfaced by this research:
   today. This finding only concerns skipping the *Classify* re-derivation, not the *Gate* check,
   and the two should not be conflated when this is scoped.
 
+### Part 5 — Re-verification after `main` merge (2026-09-04, post-merge)
+
+**Trigger.** After Part 4's finding and Plan mode's `plan_brief.md`/`US-1.md`/`US-2.md` were written (all citing commit `0df1fb4`), `main` was merged into this branch, bringing in an unrelated attachments/documents/images feature (issue #33's US-3/US-4/US-7/US-8: image fetching, document handling, one retry, audit trail). The author asked, in a follow-up comment, to re-verify the prior finding against the branch's current state before any Plan-mode rework happens. This section records that re-verification, run via a fresh `codebase-tour` pass over the current tree (no git-diff tool was available to the sub-agent, so this is direct reading of current line ranges, not a byte-diff against `0df1fb4` — noted as a caveat below, not treated as a gap).
+
+**Bottom line: the finding and recommended fix from Part 4 still hold exactly as written. What has drifted is citation line numbers only — the shape, behavior, and recommendation are unchanged.** [V]
+
+1. **`CLAUDE.md`'s `## Classify` and `## Gate` — confirmed unchanged, same line numbers.** `## Classify` heading `CLAUDE.md:15`, body `CLAUDE.md:17-22`, table `CLAUDE.md:24-29` — still the unconditional "For every new request, in this order: 1. Slash command 2. Explicit natural language 3. Inferred intent," word for word, with **no branch anywhere** that checks a resolved mode or a `- Mode: X` header. `## Gate` heading `CLAUDE.md:31`, table `CLAUDE.md:35-40`, text `CLAUDE.md:42-43` — same shape, same Research/Plan/Implement prerequisites. The attachments merge did not touch `CLAUDE.md` at all; it contains no mention of attachments/documents/images anywhere in its 129 lines. **Part 4's core claim — that Classify unconditionally re-infers mode even when the daemon already resolved one — remains true today, verified fresh against the current tree, not merely carried forward.** [V]
+
+2. **`internal/harness/prompt.go` — the `"- Mode: %s\n"` literal still exists at both sites, but line numbers moved (file grew above these functions from new attachment-handling code inserted earlier in the file).**
+   - `writeHeader` (cold path): now `prompt.go:477-525` (previously cited `:423`); the `"- Mode: %s\n"` emission itself is now at `prompt.go:480`.
+   - `writeResumeHeader` (resume path): now `prompt.go:621-663` (previously cited `:566`); emission now at `prompt.go:623`.
+   - `writeInferGuidance`: now `prompt.go:680-691` (previously `:608-634`); trigger condition (`strings.TrimSpace(in.Mode) == InferMode`, plus the resume-path variant) is unchanged.
+   - Behavior at all three sites is unchanged — only position in the file moved. **This is a citation-staleness issue, not a finding that changes the recommendation.** [V]
+   - New, and worth flagging for whoever implements US-2: a new `writeAttachments` function (`prompt.go:373`, called from `BuildPrompt`) now sits immediately after the header-writing calls (`BuildPrompt` calls `writeHeader`/`writeResumeHeader` at `prompt.go:360/362`, then `writeAttachments` at `:373`) and before the `## Context` section. It does not touch the `Mode:` literal or its surrounding lines, but it is new code physically adjacent to the region US-2's comment edit targets — an implementer should expect nearby diff noise from the attachments feature in that function neighborhood and confirm the comment insertion doesn't collide with it. `PromptInput` also gained a sibling `Attachments string` field (`prompt.go:328`); the `Mode string` field itself is unchanged in kind, still present, just now has more neighbors in the struct (struct starts `prompt.go:169`, `Mode` at `:184`). [V]
+
+3. **No new routing-competing file was introduced by the merge.** Exactly one `AGENTS.md` exists (repo root only, confirmed by glob), and it still defers to `CLAUDE.md`'s Classify section at the **same line numbers as before**, `AGENTS.md:41-44`, verbatim identical text. The new `internal/attach` package (ingest/manifest/scan/sniff/name/reason/rejection/errors, plus its own `doc.go`) is entirely about attachment sniffing and rejection vocabulary and a new `## Attachments` prompt section (`prompt.go:307-328, 410-430`) — confirmed by reading its `doc.go` in full that it defines no classification or routing scheme and does not compete with `CLAUDE.md`'s Classify section. [V]
+
+4. **The mode-resolution Go pipeline is intact, shape and behavior unchanged; line numbers drifted modestly.** `Daemon.run`'s mode-resolution block is still at `internal/daemon/tick.go:1387-1431` (previously `:1387-1440`, close); `d.classifyMode` (`internal/daemon/mode.go:87-96`) is **exactly unchanged**, same lines, same body. `Request.mode()` moved from `internal/turn/execute.go:310-323` to `execute.go:349-357` (same logic: valid mode wins, else free-text infers, else command-name-minus-slash). `harness.PromptInput.Mode` assignment moved from `prepare.go:226,228` to `prepare.go:237` (`Mode: req.mode()`), `PreviousMode` to `prepare.go:249`. **One genuine new-adjacency finding, informational only:** the attachments feature spliced its own logic directly next to this code path — `ingestAttachments`/`writeAttachmentManifest` (`prepare.go:230-231`) sit immediately above the `promptInput := harness.PromptInput{...}` literal that carries `Mode: req.mode()` at `:237`, and a new `attachmentsAllowed` computation (`tick.go:1500-1507`, "the US-5 permission gate") sits between the tool-profile-narrowing stage and the `turn.Execute(...)` call. `turn.Request` gained an `AttachmentsAllowed bool` field (`execute.go:306-319`), appended at the struct's end, not spliced next to `Mode` — it does not interact with mode resolution or `## Gate` logic in any way found. This is noted for completeness, not because it changes anything about the recommended fix. [V]
+
+5. **Test pins on the `"- Mode: %s\n"` literal — confirmed unchanged, exact same line numbers.** `internal/harness/prompt_test.go:340` and `:427`, `internal/harness/prompt_body_test.go:152` all still assert the literal at the same lines cited in `plan_brief.md`'s Shared Decisions. No rework needed there. [V]
+
+6. **One prior citation should be dropped, not relied on.** `internal/harness/doc.go:51-52` (claude reads the target repo's `CLAUDE.md`/`.claude/settings.json`/hooks unconditionally by working directory, no flag to disable it) is confirmed word-for-word unchanged and solid. The prior brief's companion citation `doc.go:13-17` for "no flag to swap/skip it" does **not** correspond to CLAUDE.md-reading content in the current file — those lines are the bare CLI invocation example, unrelated to project-instructions-file loading. This looks like the original citation over-attributed a paraphrase to the wrong line range rather than a drift caused by the merge (the surrounding "residual risks" paragraph, `doc.go:53-59`, does support the same underlying claim). Flagging so it isn't repeated as a direct quote. [V]
+
+**What this means for the existing plan.** Part 4's finding and its recommended fix (a precondition branch at the top of `CLAUDE.md`'s `## Classify` section trusting a present, non-`infer` `- Mode: X` header) require **no change in substance** — the mechanism it depends on (the header literal, its two emission sites, `writeInferGuidance`'s fallback trigger, `## Gate`'s independence from Classify) is all still present and behaving identically. What needs attention before implementation is narrower: **`US-2.md`'s task table and acceptance criteria (T-2, AC-9) cite `internal/harness/prompt.go:423` and `:566` by exact line number** — those are now stale and should read `:480` (inside `writeHeader`, `:477-525`) and `:623` (inside `writeResumeHeader`, `:621-663`) respectively, or be re-worded to cite the function names instead of raw line numbers to survive future drift. `US-1.md` does not cite Go line numbers directly (it references the header mechanism by concept and cites `AGENTS.md:41-44` and `internal/turn/prepare.go:226,228`, the latter of which has also moved to `:237/:249` and would benefit from the same refresh) so is lower-risk but not citation-clean either. **This is a citation-staleness correction for Plan mode to make, not a re-scoping** — the story boundaries, acceptance criteria content, and out-of-scope list in `plan_brief.md` all remain valid as written. [V]
+
+**Caveat on method.** This re-verification was done by direct reading of the current tree, not a git diff against `0df1fb4` (no diff tool was available to the sub-agent that performed it). The confidence level is therefore "read and confirmed against current source," same as the rest of this brief's `[V]` tags, but it does not carry the additional certainty a line-by-line diff would provide. If Plan mode wants that stronger guarantee before finalizing exact line numbers in the sub-issues, a `git diff 0df1fb4..HEAD -- CLAUDE.md AGENTS.md internal/harness/prompt.go internal/daemon/tick.go internal/daemon/mode.go internal/turn/execute.go internal/turn/prepare.go` would settle it definitively; this brief's findings above should be treated as accurate but not diff-verified.
+
 ### Concrete zero-label walkthrough (fresh `litefactory init`, brand-new user, single-agent shop)
 
 Traced end-to-end in code:
@@ -395,6 +422,17 @@ when it is not `infer`). What remains for **Plan mode** to settle, not the autho
   only needs to be written once. Both are structurally workable given AGENTS.md's existing
   deferral; Plan mode should pick one for consistency with the rest of that file.
 
+### New open item surfaced by Part 5 (2026-09-04, post-merge)
+
+Not a fact left unresolved — a correction Plan mode needs to make before implementation proceeds:
+
+- `US-2.md`'s T-2/AC-9 cite `internal/harness/prompt.go:423` and `:566` by exact line number; current
+  lines are `:480` (inside `writeHeader`, now `:477-525`) and `:623` (inside `writeResumeHeader`, now
+  `:621-663`). `US-1.md` cites `internal/turn/prepare.go:226,228`, now `:237`/`:249`. See Part 5 above
+  for the full re-verification. No re-scoping is implied — story boundaries and acceptance-criteria
+  content are unaffected, only the raw line numbers need refreshing (or re-wording to cite function
+  names instead, to survive future drift from unrelated feature work landing on this branch).
+
 No web-research questions were identified in either research pass — every question in this brief
 resolves against this repository's own Go source and prose documentation (`CLAUDE.md`, `AGENTS.md`,
 `internal/daemon`, `internal/turn`, `internal/harness`); nothing here turns on third-party library
@@ -402,9 +440,16 @@ or platform behavior.
 
 ## Recommended scope for Plan mode
 
-**Updated 2026-09-04** following the author's clarifications. Most of the original candidate scope
-has now been explicitly closed by the author; what remains is narrower and more concrete than run
-0001 left it.
+**Updated 2026-09-04** following the author's clarifications, and **re-verified 2026-09-04
+(post-merge)** against the current tree after `main` was merged into this branch (see Part 5). The
+scope below is unchanged in substance by that re-verification; only line-number citations inside
+`plan_brief.md`/`US-1.md`/`US-2.md` need refreshing before implementation (see Part 5's closing
+paragraph and the new open item above) — this is not a re-scoping and does not require a new
+requirements-engineer or architect pass, only a citation refresh, most likely inside the existing
+sub-issues' text.
+
+Most of the original candidate scope has now been explicitly closed by the author; what remains is
+narrower and more concrete than run 0001 left it.
 
 **In scope:**
 - **Part 4's `CLAUDE.md`/`AGENTS.md` fix.** Add a conditional branch to the top of `CLAUDE.md`'s

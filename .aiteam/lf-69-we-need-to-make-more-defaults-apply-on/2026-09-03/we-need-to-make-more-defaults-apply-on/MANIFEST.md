@@ -49,6 +49,25 @@ asked for; nothing here licenses starting the next one.
   tests already pin the literal). Documentation-only change throughout;
   no Go behavior change. Story Index links pending sub-issue creation by
   litefactory.
+- 2026-09-04 — Research mode re-verification run (post-`main`-merge).
+  Author asked to re-check the prior finding against the branch's
+  current state after `main` (attachments/documents/images feature,
+  #33's US-3/US-4/US-7/US-8) was merged in. `RESEARCH_BRIEF.md` updated
+  in place with a new Part 5: Part 4's finding and recommended fix are
+  confirmed unchanged in substance — `CLAUDE.md`'s Classify section still
+  unconditionally re-infers mode, same line numbers (`:15-22`, Gate
+  `:31-43`); `AGENTS.md`'s deferral is unchanged (`:41-44`); the
+  `"- Mode: %s\n"` literal and its test pins are unchanged in content but
+  the emitting functions moved (`writeHeader` now `prompt.go:477-525`,
+  emission at `:480`; `writeResumeHeader` now `:621-663`, emission at
+  `:623`; `writeInferGuidance` now `:680-691`) because new attachment-
+  handling code was inserted earlier in the file. No new routing-
+  competing file was introduced by the merge. Net effect: no re-scoping
+  needed, but `US-2.md`'s T-2/AC-9 (and `US-1.md`'s `prepare.go`
+  citation) reference stale line numbers that should be refreshed before
+  implementation. Not diff-verified against `0df1fb4` (no diff tool
+  available to the sub-agent) — read-and-confirmed only, flagged as a
+  caveat in the brief.
 
 ## Notes
 
