@@ -34,13 +34,13 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Global optional attachment ceilings | M | — | *(filled by litefactory after sub-issue creation)* |
-| US-2 | Mode-specific attachment defaults | S | — | *(filled by litefactory after sub-issue creation)* |
-| US-3 | Profile-only Codex sandbox | M | — | *(filled by litefactory after sub-issue creation)* |
-| US-4 | Complete generated configuration | M | US-1, US-2, US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-5 | Remove obsolete profile reply surfaces | S | — | *(filled by litefactory after sub-issue creation)* |
-| US-6 | Attachment routing coverage | M | US-1, US-2, US-3 | *(filled by litefactory after sub-issue creation)* |
-| US-7 | Regression and delivery closure | L | US-1–US-6 | *(filled by litefactory after sub-issue creation)* |
+| US-1 | Global optional attachment ceilings | M | — | https://github.com/marioatcloudvane/litefactory/issues/51 |
+| US-2 | Mode-specific attachment defaults | S | — | https://github.com/marioatcloudvane/litefactory/issues/52 |
+| US-3 | Profile-only Codex sandbox | M | — | https://github.com/marioatcloudvane/litefactory/issues/53 |
+| US-4 | Complete generated configuration | M | US-1, US-2, US-3 | https://github.com/marioatcloudvane/litefactory/issues/54 |
+| US-5 | Remove obsolete profile reply surfaces | S | — | https://github.com/marioatcloudvane/litefactory/issues/55 |
+| US-6 | Attachment routing coverage | M | US-1, US-2, US-3 | https://github.com/marioatcloudvane/litefactory/issues/56 |
+| US-7 | Regression and delivery closure | L | US-1–US-6 | https://github.com/marioatcloudvane/litefactory/issues/57 |
 
 ## Out of Scope
 
