@@ -75,3 +75,9 @@ Static inspection found these concrete unfinished areas:
 7. Correct stale production comments and remove obsolete refusal machinery only where it has no remaining behavior.
 8. Re-run code review if production cleanup changes behavior, run `make check`, then produce the drift/context/manifest completion artifacts.
 
+## Run 0006 — Mode mismatch
+
+- [O] The owner explicitly requested: “implement it and finish it.”
+- [V] Run 0006 was dispatched as Research mode, whose contract forbids code changes, test implementation, and continuation of the Implement workflow.
+- [V] The implementation-ready continuation remains the eight-step sequence above. No additional research or planning is required.
+- [V] The next run must be opened in Implement mode and should resume at the unit-test gate rather than repeating production development.
