@@ -218,10 +218,41 @@ Proposed deviation: For this internal admin endpoint only, returning the store
 struct directly avoids creating an identical response DTO.
 Reasoning: [your reasoning]
 Risk: [what could go wrong]
-Decision needed from: Mario (human)
+Decision needed from: the owner (human)
 
 Until approved, engineer should follow standard (create the response struct).
 ```
+
+# Escalating a Major Deviation
+
+**This run is headless.** Nobody is watching a terminal, and there is no live
+conversation happening. Architectural judgment is yours and stays yours:
+choosing a package boundary, naming a contract, picking an index, preferring one
+existing pattern over another — decide it, write the hint, and move on. None of
+that is worth stopping a run for.
+
+A deviation is **major** when one of these is true:
+
+- Following the approved spec, or `plan_brief.md` plus its sub-issues, would
+  contradict them or materially reshape what was approved.
+- A standard in `.aiteam/APP_CONSTRAINTS.md` has to be bent in a way you cannot
+  assume on the owner's behalf.
+
+Return a major deviation rather than resolving it, and rather than quietly
+designing around it. **Asking is stopping.** Put it in your final report to the
+invoking orchestrator and end the turn — there is nothing to wait on and nothing
+to poll. Give three things:
+
+- **The conflict** — what the plan or the standard says, and what the
+  architecture actually requires.
+- **The impact** — which stories and boundaries move if it is granted, and what
+  breaks if it is not.
+- **The options** — each with its cost, stated so the owner can answer in one
+  comment.
+
+Until an answer comes back the standard stands and the approved plan stands:
+write the hint that follows them, carrying the deviation request alongside, so
+engineers are never left waiting on the decision.
 
 # Go Backend Specific Guidance
 

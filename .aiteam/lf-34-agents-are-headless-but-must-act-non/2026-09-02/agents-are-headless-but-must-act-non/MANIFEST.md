@@ -7,12 +7,39 @@
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
 - [ ] **Implement** — code + tests *(not started)*
-- [ ] **Spike** — `SPIKE.md` *(not started)*
+- [x] **Spike** — `SPIKE.md` *(done)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
 asked for; nothing here licenses starting the next one.
 
 ## History
+
+- 2026-09-04 — Spike mode, run from the CLI at the owner's request. Diagnosed
+  the write blocker and applied three of the four remaining pairs by hand.
+  **This corrects the 2026-09-04 Research entry below**, which is wrong on its
+  central point: the rejection is not a host policy protecting both
+  agent-definition roots. Codex 0.152.1 unconditionally demotes `.git`,
+  `.agents` and `.codex` to read-only inside every writable root; `.claude` is
+  not in that list, and `.claude/agents/**` is writable by Codex — reproduced in
+  an isolated repo with litefactory's exact flags. The four stories stalled
+  because each edits a pair and the engineers correctly refused to write half of
+  one; US-6 landed precisely because `.claude/modes/spike.md` has no Codex
+  counterpart. Separately, Claude Code's own guard covers `.claude/**`, so
+  neither tool can write both trees — which makes cross-agent editing (the
+  research brief's option 3, rated "likely too fragile") the actual shape of the
+  constraint. US-2, US-7 and US-8 applied to both halves; pair bodies verified
+  byte-identical, wrappers intact, no `Mario` remaining, `git diff --check`,
+  `gofmt`, `go vet`, `go test ./...` and `make check` all clean. US-4 initially
+  refused by a second, different guard: Claude Code's auto-mode classifier
+  blocks every write to `.claude/agents/implement-orchestrator.md`, including a
+  single-word one, because it is the only definition of the four granting `Bash`
+  and `Task` together. Cleared at the owner's direction with a narrow allow rule
+  for that one path in `.claude/settings.local.json` (gitignored, local to the
+  operator's machine, not part of this branch), after which US-4 was applied to
+  both halves. All five stories are now implemented. Full record in `SPIKE.md`.
+  Implement remains unticked — Gate A has not been run, code review, environment
+  setup, testing, drift check and context update were not started, and only a
+  human opens the next mode.
 
 - 2026-09-04 — Research mode investigated the repeated write failures for
   agent-definition roots. Confirmed litefactory grants normal edit/workspace
