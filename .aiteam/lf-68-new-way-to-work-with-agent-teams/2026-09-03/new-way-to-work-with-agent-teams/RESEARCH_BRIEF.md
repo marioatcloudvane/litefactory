@@ -65,6 +65,30 @@ The five refinements, taken as settled fact for this pass:
 This is again a headless run: no clarifying question was put to a human. New ambiguities are
 resolved with the most reasonable reading and flagged explicitly below.
 
+## Refinement Notice — 2026-09-05, fourth pass
+
+The sponsor reviewed the worked JSON example the third pass produced (specifically the go-team
+example carried through into `US-17.md`/`SPIKE.md`) and raised one further, narrower concern,
+quoted verbatim from a comment on issue #68: "ok, the json is almost fine, but one thing i dont
+like yet: we have the agents as a separate top level element and this will become complicated if
+we have 20-30 teams. therefore, each team should have all information inline for agents that are
+not shared with other teams. this reduces on big fat element as the 'agents' element would be
+right now!"
+
+This does **not** reopen the accepted index-based design (second pass) or any of the third pass's
+five refinements — it is a further, narrower refinement of the same accepted design, addressing
+only the *top-level shape* of the schema, not its concept. **What changes, in one sentence:** the
+flat top-level `agents` map is removed; each team now inlines the `{source, dest}` definitions for
+the agents that belong to it alone, and `shared` becomes the single place a cross-team agent is
+defined, once. See Domain §1 for the full revision, including a resolved decision on what happens
+when a non-shared agent turns out to be needed by more than one team.
+
+This is again a headless run: no clarifying question was put to a human. The one substantive
+judgment call this pass had to make (the duplication/shared-promotion tension) is recorded below as
+a resolved decision, not an Open Question, per this run's judgment that it is decidable directly
+from the sponsor's own stated goals (avoid one big undifferentiated element; avoid duplication) —
+not something that genuinely needs sponsor input to settle.
+
 ## Request
 
 litefactory's agent teams (the specialist sub-agents — go-architect, requirements-engineer,
@@ -111,6 +135,13 @@ codebase-tour, web-researcher, etc. — and the orchestrators that invoke them) 
     (Domain §10).
 13. The first shipped team must be a real "go-team" sourced from this repo's own existing
     Go-specific agents (Domain §11).
+
+**Refinement added this pass (2026-09-05, fourth pass), folded into the numbered request above:**
+
+14. The index schema's top-level shape changes so no single element grows unbounded as team count
+    grows: the flat top-level `agents` map is removed, each team inlines the `{source, dest}`
+    definitions for its own non-shared agents, and `shared` becomes a key→`{source, dest}` map in
+    its own right rather than a list of keys pointing into the old flat map (Domain §1).
 
 ## Codebase Context
 
@@ -245,62 +276,109 @@ This is carried into Domain §10 and Open Questions below as new, unresolved des
 
 ### 1. The corrected index shape
 
-**[R this run]** The index is a pure lookup table, not a config document:
+**[R this run]** The index is a pure lookup table, not a config document.
 
-**[R 2026-09-05, revised for Refinement 2]** Each `agents` entry is now an object carrying both a
-**source path** (where the markdown actually lives, relative to the index's own git repo root) and
-a **destination filename** (what it is written as once imported), rather than a bare filename
+**[R 2026-09-05, revised for Refinement 2]** Each agent entry — wherever it is defined (see the
+fourth-pass restructuring immediately below for *where* that now is) — carries both a **source
+path** (where the markdown actually lives, relative to the index's own git repo root) and a
+**destination filename** (what it is written as once imported), rather than a bare filename
 string — a source file can have an arbitrary, historically-named path, and land under a different,
-specific name in the target repo:
+specific name in the target repo.
+
+**[R 2026-09-05, fourth pass — schema restructured, replacing the flat top-level `agents` map]**
+The sponsor reviewed the worked example this shape produced once it was concrete enough to look
+ahead at (`US-17.md`/`SPIKE.md`'s go-team example) and flagged a scaling problem in a comment on
+issue #68: a single flat `agents` map holding every agent from every team becomes one increasingly
+large, undifferentiated block as the number of teams grows toward the 20s and 30s — the "big fat
+element" concern, quoted verbatim in the Refinement Notice above. This pass keeps the `{source,
+dest}` leaf shape from Refinement 2 exactly as it was, and removes only the flat map that used to
+hold every leaf in one place:
+
+- There is no top-level `agents` map anymore.
+- Each team inlines its own `agents` object directly under its `teams[]` entry — a key→`{source,
+  dest}` map, scoped to only the agents that belong to that team alone. A team with 5 agents carries
+  exactly 5 entries in its own block, regardless of how many other teams exist alongside it.
+- `shared` changes from a list of key-strings that pointed into the old flat map (Refinement 2's
+  shape) to a map of key→`{source, dest}` in its own right — the same leaf shape as before, now
+  carrying the full definition directly, since there is no longer a flat map for it to reference.
+- A team's effective agent set is unchanged in principle from the prior pass: its own inline
+  `agents` plus every key in `shared` (still subject to Open Question 2, which this restructuring
+  does not resolve either way — implicit-for-every-team and opt-in-per-team are both still
+  expressible whether the shared definitions live in a flat map or inline).
+
+Worked example, using the real go-team roster already locked in `US-17.md`/`SPIKE.md` (13 agents:
+5 inlined under `go-team`, 8 in `shared`) — only the top-level shape changes here, not the roster:
 
 ```json
 {
-  "agents": {
-    "requirements-engineer": {
-      "source": "teams/shared/agents-mmh.md",
-      "dest": "agents.md"
-    },
-    "go-architect": {
-      "source": "teams/go-team/go-architect.md",
-      "dest": "go-architect.md"
-    },
-    "go-implementation-engineer": {
-      "source": "teams/go-team/go-impl.md",
-      "dest": "go-implementation-engineer.md"
-    }
+  "shared": {
+    "codebase-tour": { "source": "teams/shared/codebase-tour.md", "dest": "codebase-tour.md" },
+    "web-researcher": { "source": "teams/shared/web-researcher.md", "dest": "web-researcher.md" },
+    "requirements-engineer": { "source": "teams/shared/requirements-engineer.md", "dest": "requirements-engineer.md" },
+    "proxy-product-owner": { "source": "teams/shared/proxy-product-owner.md", "dest": "proxy-product-owner.md" },
+    "app-context-updater": { "source": "teams/shared/app-context-updater.md", "dest": "app-context-updater.md" },
+    "research-orchestrator": { "source": "teams/shared/research-orchestrator.md", "dest": "research-orchestrator.md" },
+    "plan-orchestrator": { "source": "teams/shared/plan-orchestrator.md", "dest": "plan-orchestrator.md" },
+    "implement-orchestrator": { "source": "teams/shared/implement-orchestrator.md", "dest": "implement-orchestrator.md" }
   },
-  "shared": ["requirements-engineer"],
   "teams": [
-    { "name": "go-team", "agents": ["go-architect", "go-implementation-engineer"] }
+    {
+      "name": "go-team",
+      "agents": {
+        "go-architect": { "source": "teams/go-team/go-architect.md", "dest": "go-architect.md" },
+        "go-implementation-engineer": { "source": "teams/go-team/go-implementation-engineer.md", "dest": "go-implementation-engineer.md" },
+        "go-code-reviewer": { "source": "teams/go-team/go-code-reviewer.md", "dest": "go-code-reviewer.md" },
+        "go-unit-test-engineer": { "source": "teams/go-team/go-unit-test-engineer.md", "dest": "go-unit-test-engineer.md" },
+        "go-integration-test-engineer": { "source": "teams/go-team/go-integration-test-engineer.md", "dest": "go-integration-test-engineer.md" }
+      }
+    }
   ]
 }
 ```
 
-- `agents` maps a short key to a `{source, dest}` pair. `source` is resolved relative to the index
-  source's own git repo root (Domain §2) — this **replaces** the prior pass's unresolved "sibling
-  `agents/` directory" guess and directly answers former Open Question 8: paths are explicit per
-  entry, not implied by a fixed convention.
-- `dest` is the filename the per-harness renderer uses as the canonical, harness-agnostic body name
-  for that key before wrapping it in each harness's own frontmatter (Domain §4). **[R this run]
-  flagged assumption:** under Domain §4's already-settled design, per-agent output files are named
-  by their own agent *key* (`.claude/agents/<key>.md`, `.codex/skills/<key>/SKILL.md`), not by
-  `dest` — so in the common case `dest` is redundant with `<key>.md` and mainly documents/stages the
-  canonical body name pre-rendering. Whether `dest` should ever be allowed to diverge from
-  `<key>.md` in the shipped output (as opposed to just the staging step) is not settled — carried to
-  Open Questions.
-- `shared` is a list of keys usable by *any* team — not a separate parallel definition, the same
-  key as it appears in `agents`.
-- `teams` is a list of `{name, agents: [key, ...]}`; a team's effective member list is its own
-  `agents` plus the whole `shared` list (**[R this run] assumption, flagged**: shared agents are
-  implicitly included in every team rather than requiring each team to list them explicitly —
-  the alternative reading, where a team must opt into each shared agent by name, is also
-  consistent with the sponsor's wording and should be confirmed before Plan mode locks the schema).
-- **[V] Nothing about this JSON is ever written into a target repo.** `team add`/`team update`
-  read it, resolve markdown paths from it, and copy/render only the markdown — the index file
-  itself never appears inside `.aiteam/`, `.claude/`, `.codex/`, or anywhere else in the target
-  repo. This directly reverses the prior brief's `.aiteam/team.json` design, which proposed writing
-  a (then config-carrying) JSON document into the target repo as a repo-local override; that design
-  is dropped, not adapted.
+- `shared` maps a key directly to its `{source, dest}` pair — usable by *any* team, defined exactly
+  once.
+- Each team's `agents` maps a key directly to its `{source, dest}` pair for agents that belong to
+  that team alone.
+- `dest` keeps its Refinement-2 meaning: the filename the per-harness renderer uses as the
+  canonical, harness-agnostic body name for that key before wrapping it in each harness's own
+  frontmatter (Domain §4). The same already-flagged assumption from Refinement 2 still applies
+  unchanged: in the common case `dest` is redundant with `<key>.md` (Open Question 13).
+- `teams` remains a list of `{name, agents: {...}}` objects, not restructured into a name-keyed map.
+  **[R this run] flagged, not changed:** the same "no reason for one undifferentiated blob at 20-30
+  teams" reasoning that motivated this pass could equally apply to how `teams` itself is listed, but
+  the sponsor's complaint was specific to the `agents` element — this pass does not extrapolate a
+  change the sponsor did not ask for (see Open Question 17).
+- **[V] Still true, unchanged by this pass:** nothing about this JSON is ever written into a target
+  repo. `team add`/`team update` read it, resolve markdown paths from it, and copy/render only the
+  markdown — the index file itself never appears inside `.aiteam/`, `.claude/`, `.codex/`, or
+  anywhere else in the target repo.
+
+**[R 2026-09-05, fourth pass] Resolved: what happens when a non-shared agent is genuinely needed by
+more than one team.** The inlined shape reopens, at a smaller scale, exactly the duplication problem
+the sponsor is trying to eliminate: two teams could each write their own inline entry for what is
+conceptually "the same" agent, with two independent `{source, dest}` pairs free to drift the moment
+either team's entry is edited without the other. **Resolved as a structural invariant, not left to
+convention or to a later reader's discretion:** an agent key is defined in exactly one place in the
+whole index — either inline under exactly one team, or once under `shared` — never both, and never
+inlined under two different teams. If a second team comes to need an agent that is already inlined
+under a first team, that agent is by definition no longer team-specific; it moves to `shared`, it is
+not copied. The index loader should treat a key appearing in more than one place (two teams, or a
+team and `shared` simultaneously) as a validation error, not a silent last-write-wins merge or a
+"whichever the loader sees first" ambiguity — the same way two conflicting definitions of one
+identifier are an error in most schemas, not a merge problem.
+
+This resolution has a real, named cost, stated plainly rather than smoothed over: because `shared`
+keys are, per the still-open Open Question 2, currently assumed implicitly available to *every*
+team, promoting a key out of one team's inline map because a *second* team also needs it makes that
+key visible to the other 18-28 teams too, whether or not they want it. That cost is not new to this
+pass — it already exists in `shared`'s implicit-availability design from the second pass — but this
+restructuring is what makes it bite at the two-team boundary specifically, not only at the
+"shared with everyone" boundary. The cleanest long-term fix for that specific cost is Open Question
+2 resolving toward explicit per-team opt-in rather than blanket implicit inclusion, so that adding a
+key to `shared` only broadens availability to the teams that actually ask for it. That is carried
+forward as a sharpened version of Open Question 2 (see Open Question 16), not re-decided here, since
+it is a distinct question from the duplication problem just resolved above.
 
 **[R this run] Open sub-question this run could not settle from the sponsor's one-line example:**
 is the index's mapping **one markdown file per agent key, harness-agnostic**, or does the source
@@ -315,9 +393,10 @@ job for `team add` than "copy a file verbatim": it becomes a small per-harness r
 one canonical body in Claude's YAML frontmatter for `.claude/agents/<key>.md` and in Codex's
 narrower frontmatter for `.codex/skills/<key>/SKILL.md`. This is carried into Open Questions below
 because it changes the shape of `team add`'s implementation non-trivially, and the sponsor's brief
-example does not disambiguate it. **Refinement 2's source/dest split does not resolve this
-sub-question either way** — it is orthogonal (it fixes *where* a source lives and *what it's called*
-once imported, not *how many* variants exist per key).
+example does not disambiguate it. **Neither Refinement 2's source/dest split nor the fourth pass's
+inlining restructuring resolves this sub-question either way** — both are orthogonal to it (they
+fix *where* a source lives, *what it's called* once imported, and *which top-level element* it
+lives under, not *how many* variants exist per key).
 
 ### 2. The index source is configurable — what already exists to build this on, and what does not
 
@@ -739,6 +818,23 @@ not written as a story here** — see Recommended scope for Plan mode.
   drift (each worktree's generated files becoming invisible, untracked, and independently stale)
   rather than removing a tracking burden — Plan mode should not schedule these as independent,
   parallelizable stories.
+- **[V] New this pass (fourth) — `plan_brief.md`, all 18 `US-*.md` sub-issues (especially
+  `US-17.md`), and `SPIKE.md` all embed the flat top-level `agents` map shape this pass removes**,
+  and are therefore stale relative to Domain §1's revised schema on top of already being stale for
+  the reasons recorded in the 2026-09-04 Correction Notice. Explicitly not touched by this run, per
+  instruction — reconciliation is a future Plan pass's job.
+- **[V] New this pass (fourth) — a second, independent inconsistency surfaced while comparing this
+  brief's schema to the already-drafted go-team worked example:** `US-17.md`/`SPIKE.md`'s concrete
+  JSON uses `source`/`dest` to describe a one-time *bootstrap construction* mapping (`source` = an
+  existing file already in litefactory's own current repo tree, e.g. `.claude/agents/go-
+  architect.md`; `dest` = where that file lands once copied into the `teams/` layout being built) —
+  a different meaning from this brief's own Domain §1 schema-level `source`/`dest` (`source` = a
+  path within the already-built `teams/` layout; `dest` = the canonical installed body filename in
+  a *target* repo). Neither this pass's restructuring nor the third pass's original Refinement 2
+  noticed this drift when it was introduced. Reconciling the two meanings, and updating
+  `US-17.md`/`SPIKE.md`'s worked examples to both the inlined shape and one consistent `source`/
+  `dest` meaning, is left to the future Plan pass that already owns reconciling the stale Plan
+  artifacts — flagged here so it is not missed.
 
 ## Open Questions
 
@@ -748,7 +844,10 @@ not written as a story here** — see Recommended scope for Plan mode.
    add` must render, not just copy) but this needs sponsor confirmation before Plan mode commits to
    a renderer design.
 2. **Are shared-list agents implicit in every team, or must a team explicitly reference each shared
-   key it wants?** (Domain §1.) Assumed implicit this run; changes the schema either way.
+   key it wants?** (Domain §1.) Assumed implicit this run; changes the schema either way. **[R
+   this run, fourth pass] sharpened, not resolved:** the fourth pass's resolution of the
+   cross-team-duplication tension (an agent needed by 2+ teams must move to `shared`) makes this
+   question matter more as team count grows — see Open Question 16.
 3. **Does litefactory take over write-ownership of `AGENTS.md`/`CLAUDE.md`/per-agent harness files
    inside a target repo, overriding `cmd_repo.go`'s existing disclaimer, or does some other tool
    still own that boundary and litefactory only prepares content for it to apply?** This was
@@ -808,13 +907,30 @@ not written as a story here** — see Recommended scope for Plan mode.
     `app-context-updater`), leaving only the five Go-specific agents as go-team-specific members
     (Domain §11)? Assumed yes this run as the most natural reading of "shared across teams" applied
     to this repo's own roster; needs confirmation before Plan mode's bootstrap story is written.
+16. **New this pass (fourth) — should `shared`'s implicit-availability-to-every-team semantics
+    (Open Question 2) be reconsidered specifically because of the inlined-schema restructuring?**
+    This pass's resolution of the "agent needed by 2 teams" tension (Domain §1) requires promoting
+    such an agent to `shared`, which — under Q2's current implicit-inclusion assumption — makes it
+    available to every team, not just the two that need it, a cost that gets larger as the team
+    count grows toward the 20-30 scale the sponsor is planning for. Not resolved here; carried as a
+    sharpened version of Open Question 2, not a new independent question.
+17. **New this pass (fourth) — should `teams` also move from an array to a name-keyed map, for the
+    same "no reason for it to be one undifferentiated blob at 20-30 teams" reasoning just applied
+    to `agents`/`shared`?** The sponsor's complaint was specific to the `agents` element; this pass
+    leaves `teams` as an array rather than extrapolating a change the sponsor didn't ask for, but
+    flags it as a natural next question if `teams` itself becomes unwieldy to scan at scale.
 
 ## Recommended scope for Plan mode
 
 **In scope:**
-- Design the index schema exactly as a key→`{source, dest}` map plus `shared`/`teams` lists
-  (Domain §1, as revised by Refinement 2), resolving Open Questions 1–2, 13, and 14 before
-  finalizing it.
+- Design the index schema exactly as revised this pass (Domain §1): no top-level `agents` map —
+  each team inlines a key→`{source, dest}` map of its own non-shared agents, `shared` is itself a
+  key→`{source, dest}` map of cross-team agents, and the index loader enforces the one-definition-
+  per-key invariant (a key lives inline under exactly one team, or once under `shared`, never both
+  and never duplicated across teams). Resolve Open Questions 1–2, 13, 14, 16, and 17 before
+  finalizing it, and reconcile `US-17.md`/`SPIKE.md`'s already-drafted worked examples (flat-map
+  shape, and a differing `source`/`dest` meaning — see Constraints & Risks) to this shape rather
+  than inheriting them unchanged.
 - Design `team add <repo-identifier> <team>`'s fuzzy repo resolver (Domain §5) — substring match
   against the registered repo's `Name`, exact `owner/name` as an always-available fallback,
   ambiguity handling reusing the existing `AmbiguousIssueError` presentation style.
@@ -880,3 +996,9 @@ model and are not carried forward.
 additive: it revises the index schema's shape (Domain §1) and the default source's concreteness
 (Domain §2) in place, and adds three new domain sections (§9–§11) alongside everything the second
 pass established.
+
+**Nor does the 2026-09-05 fourth pass (the top-level `agents`-map → per-team-inline restructuring)
+supersede anything above it** — it is additive in the same sense: it revises Domain §1's worked
+example and field descriptions in place to remove the flat top-level `agents` map, adds a resolved
+decision on cross-team duplication, and adds two new Open Questions (16–17), without reopening the
+second pass's accepted index-based design or any of the third pass's five refinements.
