@@ -2,11 +2,14 @@ package cli
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // bindTailFlagsForTest builds a flag set with logsOptions.bind registered on
@@ -256,4 +259,181 @@ func readFromRaw(t *testing.T, path string, offset int64) []string {
 		return nil
 	}
 	return strings.Split(rest, "\n")
+}
+
+// splitStdout is like readFrom's split step but works directly on captured
+// stdout from a full CLI dispatch instead of a file, for the end-to-end
+// tail-by-default tests below.
+func splitStdout(stdout string) []string {
+	trimmed := strings.TrimSuffix(stdout, "\n")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
+}
+
+// TestLogsBareView_TailByDefault is AC-9.1 and AC-9.3: the bare `litefactory
+// logs` view tails the app log the same way the issue path does — showing the
+// last 200 records by default, honoring -n, honoring --all, and — when -n
+// asks for more records than the file has — simply printing everything the
+// file contains rather than erroring.
+func TestLogsBareView_TailByDefault(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		totalLines int
+		wantFirst  string
+		wantLast   string
+		wantCount  int
+	}{
+		{
+			name:       "default/prints last 200 records",
+			args:       []string{"logs", "--raw"},
+			totalLines: 500,
+			wantCount:  defaultTailLines,
+			wantFirst:  "line 300",
+			wantLast:   "line 499",
+		},
+		{
+			name:       "dash n/prints last N records",
+			args:       []string{"logs", "--raw", "-n", "20"},
+			totalLines: 100,
+			wantCount:  20,
+			wantFirst:  "line 80",
+			wantLast:   "line 99",
+		},
+		{
+			name:       "all/prints every record",
+			args:       []string{"logs", "--raw", "--all"},
+			totalLines: 500,
+			wantCount:  500,
+			wantFirst:  "line 0",
+			wantLast:   "line 499",
+		},
+		{
+			name:       "n exceeds record count/prints every record without erroring",
+			args:       []string{"logs", "--raw", "-n", "5000"},
+			totalLines: 12,
+			wantCount:  12,
+			wantFirst:  "line 0",
+			wantLast:   "line 11",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// t.Setenv forbids t.Parallel in this package's convention.
+			home := t.TempDir()
+			t.Setenv(config.EnvHome, home)
+			logsDir := filepath.Join(home, "logs")
+			if err := os.MkdirAll(logsDir, 0o700); err != nil {
+				t.Fatalf("mkdir logs dir: %v", err)
+			}
+			writeTailFixture(t, logsDir, makeLines(tt.totalLines), true)
+
+			code, stdout, stderr := runBareLogs(t, home, tt.args...)
+
+			if code != ExitOK {
+				t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+			}
+			got := splitStdout(stdout)
+			if len(got) != tt.wantCount {
+				t.Fatalf("got %d lines, want %d (stdout: %q)", len(got), tt.wantCount, stdout)
+			}
+			if got[0] != tt.wantFirst || got[len(got)-1] != tt.wantLast {
+				t.Fatalf("tail window = [%q .. %q], want [%q .. %q]", got[0], got[len(got)-1], tt.wantFirst, tt.wantLast)
+			}
+		})
+	}
+}
+
+// TestLogsBareView_TailFlagErrors is AC-9.2: passing -n and --all together, or
+// passing -n 0, against the bare app-log view is rejected with a usage error
+// (exit 2) that names the offending flag, exactly as the unit-level
+// validateTailFlags checks already prove in isolation — this proves the same
+// contract holds through the real CLI dispatch path.
+func TestLogsBareView_TailFlagErrors(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantErrText string
+	}{
+		{
+			name:        "n and all together/exits usage naming both flags",
+			args:        []string{"logs", "--raw", "-n", "20", "--all"},
+			wantErrText: "-n and --all are mutually exclusive",
+		},
+		{
+			name:        "n zero/exits usage naming -n",
+			args:        []string{"logs", "--raw", "-n", "0"},
+			wantErrText: "-n takes a line count of 1 or more",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv(config.EnvHome, home)
+
+			code, _, stderr := runBareLogs(t, home, tt.args...)
+
+			if code != ExitUsage {
+				t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitUsage, stderr)
+			}
+			if !strings.Contains(stderr, tt.wantErrText) {
+				t.Fatalf("stderr = %q, want it to contain %q", stderr, tt.wantErrText)
+			}
+		})
+	}
+}
+
+// TestTailOffsetMultiChunkBackwardScan is AC-9.4: tailOffset's backward scan
+// reads the file in tailScanChunkSize-byte steps rather than loading it whole,
+// so it must give the right answer even when the requested tail window itself
+// spans more than one chunk — none of the other fixtures in this file are
+// large enough to exercise that multi-chunk loop. Fixed-width records make the
+// expected offset computable by hand instead of by re-deriving the algorithm
+// under test.
+func TestTailOffsetMultiChunkBackwardScan(t *testing.T) {
+	dir := t.TempDir()
+	const totalLines = 20000
+	const wantLines = 10000 // the requested tail window itself must exceed one chunk
+	lines := make([]string, totalLines)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %06d", i)
+	}
+	path := writeTailFixture(t, dir, lines, true)
+
+	lineWidth := int64(len(lines[0]) + 1) // +1 for the trailing newline
+	wantWindowBytes := int64(wantLines) * lineWidth
+	if wantWindowBytes <= tailScanChunkSize {
+		t.Fatalf("requested tail window is %d bytes, want it to exceed tailScanChunkSize (%d) "+
+			"so this test actually exercises the multi-chunk backward scan", wantWindowBytes, tailScanChunkSize)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
+	wantOffset := info.Size() - wantWindowBytes
+	if wantOffset <= 0 {
+		t.Fatalf("fixture too small for this test: size=%d, window=%d", info.Size(), wantWindowBytes)
+	}
+
+	offset, err := tailOffset(path, wantLines)
+	if err != nil {
+		t.Fatalf("tailOffset: %v", err)
+	}
+
+	if offset != wantOffset {
+		t.Fatalf("offset = %d, want %d", offset, wantOffset)
+	}
+	got := readFrom(t, path, offset)
+	if len(got) != wantLines {
+		t.Fatalf("got %d lines, want %d", len(got), wantLines)
+	}
+	wantFirst := fmt.Sprintf("line %06d", totalLines-wantLines)
+	wantLast := fmt.Sprintf("line %06d", totalLines-1)
+	if got[0] != wantFirst || got[len(got)-1] != wantLast {
+		t.Fatalf("tail window = [%q .. %q], want [%q .. %q]", got[0], got[len(got)-1], wantFirst, wantLast)
+	}
 }

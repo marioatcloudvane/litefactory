@@ -208,3 +208,101 @@ writes local files only (daemon.log via config.Paths.DaemonLogPath(), and US-6's
 existing internal/launchd machinery). No TEST_BASE_URL / TEST_DATABASE_URL provisioning is
 applicable. Proceeding directly to Phase 3 -- Testing, dispatching go-unit-test-engineer
 only; go-integration-test-engineer is skipped for this feature.
+
+## Phase 3 -- Testing (continuation run, 2026-09-05)
+
+This run resumed after a prior Implement run's tail was cut short. Development
+(US-1..US-9) and code review (cycle 2 = ADVISORY_ONLY) were already closed and
+committed as `a963729`; this run's scope was strictly Phase 3 unit tests, the
+integration-test skip decision (already settled above), and the final gate.
+No production-code re-verification was performed per the dispatching
+instruction; no genuine defect was found by any test agent, so no
+implementation code was touched.
+
+**First dispatch (two parallel go-unit-test-engineer invocations):**
+- Engineer covering US-4/US-5/US-6/US-7/US-8: succeeded outright. Added
+  `cmd_daemon_test.go` (new), extended `cmd_daemon_agent_test.go` and
+  `cmd_logs_app_test.go`. 130/130 tests passing, 74.3% coverage,
+  `gofmt`/`go vet` clean. Closed CR-A-002 (T-6.6) in full. Confirmed US-4
+  already covered by pre-existing tests.
+- Engineer covering US-1/US-2/US-3/US-9 (including the CR-A-001/CR-A-003
+  golden-test and follow-path gaps, and the CR-A-001/CR-A-005 stray-file
+  deletion): **terminated with `Autocompact is thrashing`** -- deterministic
+  context exhaustion, not a flaky failure. Root cause: the assigned scope
+  combined reading several large pre-existing test files
+  (`cmd_logs_render_test.go` 648 lines, `cmd_logs_test.go` 1350 lines,
+  `cmd_logs_tail_test.go` 259 lines) with authoring a substantial new golden
+  test file for a 440-line renderer, in one agent turn budget. Per this
+  team's explicit rule for this failure mode, did not retry unchanged;
+  instead split the scope into two narrower invocations.
+
+**Recovery dispatch (two parallel, narrower go-unit-test-engineer
+invocations):**
+- Engineer A2, US-3 golden test + cleanup only, explicitly instructed to grep
+  for symbols rather than read the large pre-existing files in full: added
+  `cmd_logs_slog_test.go` (new). Closed CR-A-001/CR-A-005 in full: T-3.9
+  golden test (`TestRenderSlogLine_GoldenMatchesTextHandler` and siblings,
+  byte-identical diff against real `slog.TextHandler`/`slog.NewJSONHandler`
+  output covering typed attrs, `WithGroup` flattening, attribute order,
+  RFC3339-ms timestamps, non-JSON passthrough) all passing; confirmed
+  `cmd_logs_slog.go` already listed in `logsSourceFiles`; **deleted
+  `internal/cli/zzverify_slog_test.go`** (`rm` was not refused this time --
+  the earlier sandbox restriction blocking deletion has lifted). One
+  deliberate, documented design choice: `time.Duration` attrs are excluded
+  from the strict byte-identity assertion because JSON cannot distinguish a
+  Duration from a plain int64 (an accepted, pre-documented limitation in
+  `cmd_logs_slog.go`'s own package comment, not a defect) -- locked in as its
+  own test asserting the plain-nanosecond rendering instead. No production
+  code touched. `go test ./internal/cli/... -race -cover`: 78.4% coverage,
+  all passing.
+- Engineer A3, US-1/US-2/US-9 gap-filling, explicitly instructed to avoid
+  reading `cmd_logs_render_test.go`/`cmd_logs_test.go` in full: added
+  `cmd_logs_static_test.go` (new, AC-2.5 AST-based no-goroutine/no-channel
+  static check) and `cmd_logs_app_follow_test.go` (new, closes CR-A-003/T-2.5
+  in full: AC-2.1 streaming-under-cancellation, AC-2.2 `msg=result` non-stop
+  regression, AC-2.3 wait-for-nonexistent-file, AC-2.4 truncation-resume);
+  extended `cmd_logs_tail_test.go` with AC-9.1/9.2/9.3 end-to-end table tests
+  and `TestTailOffsetMultiChunkBackwardScan` (AC-9.4, a 20,000-line fixture
+  forcing the backward-scan through multiple 64 KiB chunks, expected offset
+  hand-computed rather than derived from the algorithm under test).
+  Confirmed US-1 already fully covered by pre-existing tests. One
+  process-only note: discovered and resolved a helper-name collision
+  (`appendToFile`) against the parallel A2/B agents' concurrent edits to the
+  shared package -- adapted to the already-existing signature rather than
+  duplicating. No genuine production defect found; no production code
+  touched. `go test ./internal/cli/... -race -cover`: 255/255 passing, 79.6%
+  coverage.
+
+**Remaining advisories from CODE_REVIEW.md after Phase 3:**
+- CR-A-004 (three unchecked `f.Close()` in `cmd_logs_app.go` lines 143/153/161,
+  non-hot-path): not addressed this run -- out of scope (style/lint advisory,
+  no test can "fail" against it, and fixing it is a production-code change
+  with no defect behind it; left for a future cleanup pass per the code
+  reviewer's own ADVISORY classification).
+- CR-A-006 (optional symmetry test for malformed `--grep` on the no-issue
+  path): not addressed -- explicitly marked optional/non-regression-risk by
+  the reviewer.
+
+## Integration tests -- SKIPPED (confirmed again this run)
+
+Re-confirmed via plan_brief.md's Cross-Story Constraints (Platform/Security
+sections): no story in this feature opens a database, makes an external HTTP
+call, or touches a message queue -- every story is local-filesystem
+(`daemon.log`) or CLI flag/argv logic only. `go-integration-test-engineer` was
+not invoked. This matches the Phase 2 determination above; no
+`TEST_BASE_URL`/`TEST_DATABASE_URL` lookup was needed since no story qualifies
+in the first place.
+
+## Final gate (this run, 2026-09-05)
+
+- `go build ./...` -- clean, whole module.
+- `go vet ./...` -- clean, whole module.
+- `go test ./...` -- all 20 packages pass, including `internal/cli` (63.9s,
+  the affected package, now containing all Phase 3 additions) and every other
+  package in the module (agent, attach, codex, config, daemon, git, github,
+  gittest, harness, identity, launchd, logging, naming, planbrief, redact,
+  report, repos, secrets, store, turn, cmd/litefactory).
+- No failures anywhere. Zero bug-loop cycles needed.
+- Worktree left uncommitted (expected/normal): 3 modified test files, 1
+  deleted scratch file, 4 new test files, all under `internal/cli/`.
+  litefactory commits this itself after the run ends.
