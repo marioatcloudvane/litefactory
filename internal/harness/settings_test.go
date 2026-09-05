@@ -23,9 +23,17 @@ func TestDefaultSettingsIsValidJSONAndDeniesTheObviousTargets(t *testing.T) {
 		t.Fatalf("settings do not round-trip: %v", err)
 	}
 
-	if settings.Permissions.DefaultMode != "default" {
-		t.Errorf("defaultMode = %q; a headless run has nobody to prompt, but bypass is not the answer",
-			settings.Permissions.DefaultMode)
+	// The document and argv must agree, so this is pinned to the same constant
+	// the command line is built from rather than to a literal.
+	if settings.Permissions.DefaultMode != PermissionMode {
+		t.Errorf("defaultMode = %q, want %q; the settings document and --permission-mode must not disagree",
+			settings.Permissions.DefaultMode, PermissionMode)
+	}
+	// Whatever the mode is, it is never the one that discards the deny rules
+	// below. bypassPermissions is the moral equivalent of the flag
+	// config.forbiddenFlag names.
+	if settings.Permissions.DefaultMode == "bypassPermissions" {
+		t.Error("defaultMode is bypassPermissions; the deny rules are the boundary and this discards them")
 	}
 	if settings.EnableAllProjectMCPServers {
 		t.Error("project MCP servers are enabled; a run must not pick up the branch's .mcp.json")
@@ -40,6 +48,14 @@ func TestDefaultSettingsIsValidJSONAndDeniesTheObviousTargets(t *testing.T) {
 	for _, want := range []string{".ssh", ".aws", ".config/gh"} {
 		if !strings.Contains(deny, want) {
 			t.Errorf("%s is not denied:\n%s", want, deny)
+		}
+	}
+	// litefactory makes the commit and the push; no agent does. Under
+	// PermissionMode "auto" an absent allow-rule is a question for a classifier
+	// rather than a refusal, so this ban only holds if it is written as a deny.
+	for _, want := range []string{"git add", "git commit", "git push", "git stash"} {
+		if !strings.Contains(deny, want) {
+			t.Errorf("%q is not denied, so an agent could make its own commit:\n%s", want, deny)
 		}
 	}
 }

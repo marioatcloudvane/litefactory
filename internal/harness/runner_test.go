@@ -263,6 +263,7 @@ func TestRunUsesTheVerifiedInvocation(t *testing.T) {
 		{"--session-id", testSessionID},
 		{"--tools", "Read,Edit"},
 		{"--settings", filepath.Join(f.home, "claude-settings.json")},
+		{"--permission-mode", PermissionMode},
 		{"--allowedTools", "Read,Edit(./**)"},
 		{"--strict-mcp-config", ""},
 	} {
@@ -1216,6 +1217,7 @@ func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 		"--session-id", testSessionID,
 		"--tools", "Read,Edit",
 		"--settings", filepath.Join(f.home, "claude-settings.json"),
+		"--permission-mode", PermissionMode,
 		"--model", config.DefaultClaudeModel,
 		"--autocompact", config.DefaultClaudeAutoCompact,
 		"--allowedTools", "Read,Edit(./**)",

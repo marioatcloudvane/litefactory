@@ -84,6 +84,29 @@ const ioGrace = 10 * time.Second
 // that and bounds what a run that panics in a loop can cost in memory.
 const stderrTailBytes = 64 << 10
 
+// PermissionMode is the value of claude's --permission-mode on every run
+// litefactory starts.
+//
+// It is a constant on purpose and must not become a config.yaml key. A knob
+// there is a way to widen the permission boundary from configuration, which is
+// the same reasoning that keeps config.forbiddenFlag's flag out of the tree.
+// Changing this is a code change and is reviewed like one.
+//
+// "auto" has a classifier judge each action rather than failing everything the
+// allowlist does not already name. Until now no --permission-mode was passed at
+// all, so runs reported permissionMode "default": prompt when no rule covers
+// it. A headless run has nobody to answer a prompt, so every uncovered action
+// resolved to "Permission prompts are not available in this context" and became
+// a hard denial — the asyncAgent reason behind 386 denials across 119 runs.
+// Measured on this machine with an identical probe: ten denials under dontAsk,
+// none under auto, and an rm the agent had been refused eight times went
+// through.
+//
+// The settings document's deny rules remain the boundary. "bypassPermissions"
+// is what discards them and is the moral equivalent of config.forbiddenFlag's
+// flag; it must never be set here.
+const PermissionMode = "auto"
+
 // runLogFileMode is 0600 and runArtefactDirMode is 0700, matching S-1: the run
 // log is unredacted and may contain anything claude read.
 const (
@@ -390,9 +413,15 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 //   - --tools is the real tool boundary (SD-2).
 //   - --settings points at the litefactory-controlled file, so a run does not
 //     inherit the operator's personal permissions.
-//   - --allowedTools is the narrower permission list. It is additive to the
-//     operator's settings and therefore defence in depth, not the boundary, but
-//     AC-3.14 requires it and a narrow list is worth having anyway.
+//   - --permission-mode decides everything the rules do not name. See
+//     PermissionMode.
+//   - --allowedTools is the narrower permission list, additive to the
+//     operator's settings. Under --permission-mode auto it is a fast path: an
+//     action it names is permitted without consulting the classifier, and one
+//     it does not name is judged rather than refused outright. That is a
+//     change from the behaviour this comment used to describe — while runs
+//     were in "default" the list was the effective boundary, because anything
+//     outside it needed a prompt that a headless run could not answer.
 //   - --strict-mcp-config makes claude ignore every MCP configuration except
 //     the ones passed with --mcp-config. None are, so no MCP server is
 //     reachable — including a .mcp.json committed on the branch being worked.
@@ -424,6 +453,11 @@ func (r *Runner) args(req agent.Request) []string {
 		// is the exact opposite of what an empty list looks like it asks for.
 		"--tools", strings.Join(tools, ","),
 		"--settings", r.settingsPath,
+		// Unconditional, and next to --settings because the two are read
+		// together: the settings document supplies the deny rules and this
+		// says how everything they do not name is decided. See PermissionMode
+		// for why the value is a constant rather than configuration.
+		"--permission-mode", PermissionMode,
 		// Unconditional, so that the model a run used is a property of this
 		// argv and readable in the recorded command line, rather than of
 		// whatever the CLI defaults to. It sets the top-level session only:
