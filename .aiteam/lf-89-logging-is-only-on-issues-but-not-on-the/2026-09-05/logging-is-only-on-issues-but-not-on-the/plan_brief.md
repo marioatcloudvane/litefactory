@@ -45,15 +45,15 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Bare `litefactory logs` shows litefactory's own log | M | US-3, US-9 | |
-| US-2 | `-f` follow on the app log | M | US-3, US-9 | |
-| US-3 | Render re-parsed JSON as stock `slog.TextHandler` text | L | — | |
-| US-4 | Bare invocation stops printing a usage block; help stays at `logs --help` | S | US-1 | |
-| US-5 | `--level` as a display-time filter on `logs` | S | US-3 | |
-| US-6 | `--level` as a write-time flag on `daemon run`/`daemon start` | M | — | |
-| US-7 | Carry `--grep`/`-i`/`--invert` to the app log | S | US-3 | |
-| US-8 | Stderr advisory when the requested level was never captured | S | US-5 | |
-| US-9 | Tail by default | M | US-3 | |
+| US-1 | Bare `litefactory logs` shows litefactory's own log | M | US-3, US-9 | https://github.com/marioatcloudvane/litefactory/issues/91 |
+| US-2 | `-f` follow on the app log | M | US-3, US-9 | https://github.com/marioatcloudvane/litefactory/issues/92 |
+| US-3 | Render re-parsed JSON as stock `slog.TextHandler` text | L | — | https://github.com/marioatcloudvane/litefactory/issues/93 |
+| US-4 | Bare invocation stops printing a usage block; help stays at `logs --help` | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/94 |
+| US-5 | `--level` as a display-time filter on `logs` | S | US-3 | https://github.com/marioatcloudvane/litefactory/issues/95 |
+| US-6 | `--level` as a write-time flag on `daemon run`/`daemon start` | M | — | https://github.com/marioatcloudvane/litefactory/issues/96 |
+| US-7 | Carry `--grep`/`-i`/`--invert` to the app log | S | US-3 | https://github.com/marioatcloudvane/litefactory/issues/97 |
+| US-8 | Stderr advisory when the requested level was never captured | S | US-5 | https://github.com/marioatcloudvane/litefactory/issues/98 |
+| US-9 | Tail by default | M | US-3 | https://github.com/marioatcloudvane/litefactory/issues/99 |
 
 ## Out of Scope
 
