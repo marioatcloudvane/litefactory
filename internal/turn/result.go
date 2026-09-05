@@ -169,13 +169,12 @@ type Result struct {
 	LogPath  string
 
 	// ToolsRequested is the tool surface this turn asked claude for, and
-	// ToolProfile is the operator-authored profile it came from — empty when no
-	// profile was selected. Both are set from the request, so they survive a
+	// ToolProfile is the canonical mode profile it came from. Both are set from
+	// the request, so they survive a
 	// turn that never started a subprocess; the resolved surface, which only an
 	// init event can supply, stays on Harness.
 	//
-	// ToolProfile is a validated profile name from the operator's config, never
-	// text originating from the forge.
+	// ToolProfile is selected from the resolved mode, never forge text.
 	ToolsRequested []string
 	ToolProfile    string
 

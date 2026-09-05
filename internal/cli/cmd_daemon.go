@@ -24,10 +24,11 @@ import (
 const daemonNoTokenMessage = `no bot token is configured, so the daemon does not know which account it posts as.
   Store one in the keychain and reference it in %s:
       security add-generic-password -s litefactory -a github-bot -w
-      github:
-        token_keychain:
-          service: "litefactory"
-          account: "github-bot"
+      providers:
+        github:
+          token_keychain:
+            service: "litefactory"
+            account: "github-bot"
   Then run ` + "`litefactory init`" + ` to record the bot identity`
 
 // newDaemonRunCommand declares "litefactory daemon run", the foreground poll
@@ -131,7 +132,7 @@ func openDaemonDB(ctx context.Context, paths config.Paths) (*store.DB, error) {
 // environment variable it looked for is a message that costs an evening.
 func resolveDaemonToken(ctx context.Context, paths config.Paths, cfg *config.Config) (secrets.Token, error) {
 	ref, configured := secrets.ReferenceFrom(
-		cfg.GitHub.TokenKeychain.Service, cfg.GitHub.TokenKeychain.Account, cfg.GitHub.TokenEnv)
+		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	if !configured {
 		return secrets.Token{}, Preconditionf(daemonNoTokenMessage, paths.ConfigPath())
 	}
@@ -162,8 +163,9 @@ func resolveTokenHint(err error, paths config.Paths) string {
   the console. The token is read once at startup, so one unlock covers the whole run —
   but the keychain re-locks on sleep, and the next start will need another one.
   Or drop the keychain for a foreground run — replace token_keychain in %s with
-      github:
-        token_env: "LITEFACTORY_GITHUB_TOKEN"
+      providers:
+        github:
+          token_env: "LITEFACTORY_GITHUB_TOKEN"
   and export that variable in the shell you start the daemon from.`, paths.ConfigPath())
 }
 
@@ -206,7 +208,7 @@ func writeDaemonRunReport(out io.Writer, startup daemon.Startup) {
 	fmt.Fprintf(tw, "  instance\t%s\n", startup.InstanceID)
 	fmt.Fprintf(tw, "  interval\t%s\n", startup.Interval)
 	fmt.Fprintf(tw, "  concurrency\t%d run(s) at a time, across all repos\n", startup.MaxConcurrentRuns)
-	fmt.Fprintf(tw, "  default agent\t%s\n", startup.DefaultAgent)
+	fmt.Fprintf(tw, "  default agent\t%s (first entry under agents)\n", startup.DefaultAgent)
 	fmt.Fprintf(tw, "  api\t%s\n", startup.APIBase)
 	fmt.Fprintf(tw, "  repos\t%d registered (one listing per repo per tick)\n", startup.Repos)
 	fmt.Fprintf(tw, "  owner\t%s (id %d)\n", startup.Identities.OwnerHandle, startup.Identities.OwnerUserID)

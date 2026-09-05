@@ -89,11 +89,28 @@ func newDaemonHome(t *testing.T, configBody string) *daemonHome {
 
 	paths := config.NewPaths(lfHome)
 	if configBody != "" {
+		configBody = withCanonicalProfiles(t, configBody)
 		if err := os.WriteFile(paths.ConfigPath(), []byte(configBody), 0o600); err != nil {
 			t.Fatalf("write config.yaml: %v", err)
 		}
 	}
 	return &daemonHome{t: t, paths: paths, home: userHome, fake: &fakeLaunchctl{}}
+}
+
+func withCanonicalProfiles(t *testing.T, body string) string {
+	t.Helper()
+	if strings.Contains(body, "tool_profiles:") {
+		return body
+	}
+	defaults := string(config.DefaultFileContents())
+	i := strings.Index(defaults, "tool_profiles:")
+	if i < 0 {
+		t.Fatal("default config has no tool_profiles section")
+	}
+	profiles := defaults[i:]
+	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"workspace-write\"\n", "")
+	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"read-only\"\n", "")
+	return body + "\n" + profiles
 }
 
 // migrate creates the database `daemon status` reads the poll cursor from.
@@ -152,15 +169,21 @@ func (h *daemonHome) plist() string {
 	return string(body)
 }
 
-const keychainConfig = `github:
-  token_keychain:
-    service: litefactory
-    account: lf-bot
+const canonicalClaudeConfig = `agents:
+  claude: {}
 `
 
-const tokenEnvConfig = `github:
-  token_env: LF_TEST_BOT_TOKEN
-`
+const keychainConfig = `providers:
+  github:
+    token_keychain:
+      service: litefactory
+      account: lf-bot
+` + canonicalClaudeConfig
+
+const tokenEnvConfig = `providers:
+  github:
+    token_env: LF_TEST_BOT_TOKEN
+` + canonicalClaudeConfig
 
 // TestDaemonStartMaterialisesThePATH is AC-2.2. launchd would hand the daemon
 // /usr/bin:/bin:/usr/sbin:/sbin, which has no Homebrew claude in it, so the
@@ -327,7 +350,7 @@ func TestDaemonStartRefusesATokenEnvThatIsNotSet(t *testing.T) {
 // status` from being a mystery: with no bot token the daemon exits at startup,
 // and the only place that can be explained is here.
 func TestDaemonStartWarnsWithNoCredential(t *testing.T) {
-	h := newDaemonHome(t, "poll_interval_seconds: 30\n")
+	h := newDaemonHome(t, "settings:\n  poll_interval_seconds: 30\n"+canonicalClaudeConfig)
 
 	code, stdout, stderr := h.run("daemon", "start")
 	if code != ExitOK {

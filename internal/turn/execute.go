@@ -263,15 +263,11 @@ type Request struct {
 	// that spawns a run; a reply-only command is the caller's to handle.
 	Command Command
 
-	// Tools and AllowedTools are the tool surface a resolved tool profile
-	// grants this turn, and ToolProfile is the name of the profile they came
-	// from. All three are empty when no lf:tools= label selected one, and the
-	// run then takes the harness's configured surface exactly as it did before
-	// profiles existed (AC-2.3).
+	// Tools and AllowedTools are the tool surface the resolved mode profile
+	// grants this turn, and ToolProfile is its canonical mode-profile name.
 	//
-	// Every string here is operator-authored configuration. The label only ever
-	// chose *which* profile; nothing that originated on the forge travels in
-	// these fields, and that is what keeps C2 true all the way to argv. The
+	// Every string here is operator-authored configuration. Nothing that
+	// originated on the forge travels in these fields. The
 	// caller has already copied them out of the configuration it holds for the
 	// life of the process, because [preparation.request] is mutated in place on
 	// the cold-rerun path.
@@ -293,7 +289,7 @@ type Request struct {
 	// Agent is the coding-agent tool this turn resolved to, from the daemon's
 	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
 	// means no Coding Agent label was on the issue, which resolves to the
-	// configured default agent — [store.AgentClaude] today — the same way an
+	// configured default agent — the first agents entry — the same way an
 	// absent lf:tools= label resolves to the harness's default surface
 	// (AC-2.1). [prepare] is what applies that default; nothing here does.
 	//
@@ -304,7 +300,7 @@ type Request struct {
 	Agent agent.Kind
 
 	// AttachmentsAllowed is the US-5 permission gate: true only when a
-	// resolved "Tools: <Profile>" label is present AND that profile's
+	// selected mode profile is present AND that profile's
 	// attachments key is true. It is computed by the daemon's per-agent
 	// narrowing stage (tick.go), the same stage that resolves ToolProfile
 	// above — deliberately not by [resolveTools]'s pure label ladder, which
@@ -334,8 +330,10 @@ func (r Request) validate() error {
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
+	case r.Agent == "":
+		return invalidRequest("no coding agent was selected")
 	case r.Mode != "" && !r.Mode.Valid():
-		return invalidRequest("mode %q is not research, plan, implement or spike", r.Mode)
+		return invalidRequest("mode %q is not research, plan, implement, validate or spike", r.Mode)
 	default:
 		return nil
 	}

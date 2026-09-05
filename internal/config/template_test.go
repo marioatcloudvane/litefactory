@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"gopkg.in/yaml.v3"
 )
 
 // TestDefaultFileMatchesDefaults is the anti-drift check. The shipped
@@ -21,7 +22,29 @@ func TestDefaultFileMatchesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the default config file does not decode: %v", err)
 	}
-	if diff := cmp.Diff(Defaults(), *cfg); diff != "" {
+	// The generated file configures four things Defaults() deliberately leaves
+	// unset, so each is added to want here rather than being a drift the check
+	// should catch. They are listed explicitly, and only these four are
+	// allowed: an undocumented fifth line would let a real drift be silenced by
+	// the same mechanism, which would make this check worse than absent.
+	//
+	//   Agents / agentOrder / ToolProfiles — an absent agents mapping must not
+	//     silently configure runners, so Defaults() cannot supply them; the
+	//     generated file, which exists to be a complete example, must.
+	//   TokenKeychain — the credential reference cannot go in Defaults(),
+	//     because Decode merges onto Defaults() and validation rejects
+	//     token_keychain and token_env both being set. Defaulting it in would
+	//     make every token_env-only config.yaml fail to start. The generated
+	//     file names it as the starter reference (US-8/AC-8.3); it is a
+	//     suggestion in a file the operator edits, not a runtime default.
+	want := Defaults()
+	claude, codex := DefaultClaude(), DefaultCodex()
+	want.Agents = Agents{Claude: &claude, Codex: &codex}
+	want.Agents.Codex.WritableRoots = []string{}
+	want.Providers.GitHub.TokenKeychain = Keychain{Service: "litefactory", Account: "github-bot"}
+	want.ToolProfiles = DefaultToolProfiles()
+	want.agentOrder = []Kind{KindClaude, KindCodex}
+	if diff := cmp.Diff(want, *cfg, cmp.AllowUnexported(Config{})); diff != "" {
 		t.Errorf("the default config file has drifted from Defaults() (-want +got):\n%s", diff)
 	}
 }
@@ -43,6 +66,87 @@ func TestDefaultFileValidates(t *testing.T) {
 func TestDefaultFileHasNoCredential(t *testing.T) {
 	if class, found := ClassifySecret(string(DefaultFileContents())); found {
 		t.Errorf("the default config file contains something shaped like a credential (%s)", class)
+	}
+}
+
+// TestDefaultFileIsStructurallyComplete checks key presence independently of
+// Decode's merge-on-default behavior. Without this check, a supported defaulted
+// key can disappear from the operator-facing reference while the anti-drift
+// comparison still passes.
+func TestDefaultFileIsStructurallyComplete(t *testing.T) {
+	type rawSettings struct {
+		AttachmentMaxImageBytes    *int64 `yaml:"attachment_max_image_bytes"`
+		AttachmentMaxDocumentBytes *int64 `yaml:"attachment_max_document_bytes"`
+		AttachmentMaxTotalBytes    *int64 `yaml:"attachment_max_total_bytes"`
+		AttachmentMaxCount         *int   `yaml:"attachment_max_count"`
+	}
+	type rawProfile struct {
+		Attachments *bool              `yaml:"attachments"`
+		Claude      *ToolProfileClaude `yaml:"claude"`
+		Codex       *ToolProfileCodex  `yaml:"codex"`
+	}
+	var raw struct {
+		Settings rawSettings `yaml:"settings"`
+		Agents   struct {
+			Claude map[string]yaml.Node `yaml:"claude"`
+			Codex  map[string]yaml.Node `yaml:"codex"`
+		} `yaml:"agents"`
+		ToolProfiles struct {
+			Permissions map[string]rawProfile `yaml:"permissions"`
+		} `yaml:"tool_profiles"`
+	}
+	if err := yaml.Unmarshal(DefaultFileContents(), &raw); err != nil {
+		t.Fatalf("decode generated YAML structure: %v", err)
+	}
+
+	defaults := Defaults().Settings
+	ceilings := []struct {
+		name string
+		got  *int64
+		want int64
+	}{
+		{"attachment_max_image_bytes", raw.Settings.AttachmentMaxImageBytes, defaults.AttachmentMaxImageBytes},
+		{"attachment_max_document_bytes", raw.Settings.AttachmentMaxDocumentBytes, defaults.AttachmentMaxDocumentBytes},
+		{"attachment_max_total_bytes", raw.Settings.AttachmentMaxTotalBytes, defaults.AttachmentMaxTotalBytes},
+	}
+	for _, ceiling := range ceilings {
+		if ceiling.got == nil {
+			t.Errorf("generated settings omit %s", ceiling.name)
+		} else if *ceiling.got != ceiling.want {
+			t.Errorf("generated %s = %d, want %d", ceiling.name, *ceiling.got, ceiling.want)
+		}
+	}
+	if raw.Settings.AttachmentMaxCount == nil {
+		t.Error("generated settings omit attachment_max_count")
+	} else if *raw.Settings.AttachmentMaxCount != defaults.AttachmentMaxCount {
+		t.Errorf("generated attachment_max_count = %d, want %d", *raw.Settings.AttachmentMaxCount, defaults.AttachmentMaxCount)
+	}
+
+	for _, name := range canonicalPermissionProfiles {
+		profile, ok := raw.ToolProfiles.Permissions[name]
+		if !ok {
+			t.Errorf("generated permissions omit %s profile", name)
+			continue
+		}
+		if profile.Attachments == nil {
+			t.Errorf("generated %s profile omits attachments", name)
+		}
+		if profile.Claude == nil || profile.Codex == nil {
+			t.Errorf("generated %s profile must include both agent authorities", name)
+		}
+	}
+	if _, found := raw.Agents.Codex["default_sandbox"]; found {
+		t.Error("generated agents.codex contains removed default_sandbox key")
+	}
+	for _, key := range []string{
+		"attachment_max_image_bytes",
+		"attachment_max_document_bytes",
+		"attachment_max_total_bytes",
+		"attachment_max_count",
+	} {
+		if _, found := raw.Agents.Claude[key]; found {
+			t.Errorf("generated agents.claude contains moved %s key", key)
+		}
 	}
 }
 
@@ -72,9 +176,9 @@ func TestDefaultFileDocumentsTheTwoToolKeys(t *testing.T) {
 func TestDefaultFileDocumentsTheConcurrencyCeiling(t *testing.T) {
 	contents := string(DefaultFileContents())
 
-	wantRange := fmt.Sprintf("between %d and %d", MinMaxConcurrentRuns, MaxMaxConcurrentRuns)
+	wantRange := fmt.Sprintf("valid range: %d..%d", MinMaxConcurrentRuns, MaxMaxConcurrentRuns)
 	wantValue := fmt.Sprintf("max_concurrent_runs: %d", DefaultMaxConcurrentRuns)
-	for _, want := range []string{wantValue, wantRange, "not a measurement"} {
+	for _, want := range []string{wantValue, wantRange} {
 		if !strings.Contains(contents, want) {
 			t.Errorf("the default config file does not contain %q", want)
 		}
@@ -149,13 +253,13 @@ func TestLoadReadsTheWrittenFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.PollIntervalSeconds != DefaultPollIntervalSeconds {
-		t.Errorf("PollIntervalSeconds = %d, want %d", cfg.PollIntervalSeconds, DefaultPollIntervalSeconds)
+	if cfg.Settings.PollIntervalSeconds != DefaultPollIntervalSeconds {
+		t.Errorf("PollIntervalSeconds = %d, want %d", cfg.Settings.PollIntervalSeconds, DefaultPollIntervalSeconds)
 	}
 	// An empty settings_path is filled in from $LF_HOME, so the harness never
 	// has to decide what "empty" means.
-	if cfg.Claude.SettingsPath != paths.SettingsPath() {
-		t.Errorf("Claude.SettingsPath = %q, want %q", cfg.Claude.SettingsPath, paths.SettingsPath())
+	if cfg.Agents.Claude.SettingsPath != paths.SettingsPath() {
+		t.Errorf("Claude.SettingsPath = %q, want %q", cfg.Agents.Claude.SettingsPath, paths.SettingsPath())
 	}
 }
 
@@ -205,7 +309,7 @@ func TestLoadPreservesTheSecretSentinel(t *testing.T) {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatalf("EnsureHome: %v", err)
 	}
-	body := "github:\n  token_env: ghp_0123456789abcdefghijklmnopqrstuvwx\n"
+	body := "providers:\n  github:\n    token_env: ghp_0123456789abcdefghijklmnopqrstuvwx\n"
 	if err := os.WriteFile(paths.ConfigPath(), []byte(body), 0o600); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}

@@ -85,8 +85,8 @@ type Request struct {
 	// Prompt is delivered on the child's stdin, never in argv (AC-3.12).
 	Prompt string
 
-	// Permissions is the tool surface a resolved profile grants this run.
-	// The zero value means no profile applied, and every implementation
+	// Permissions is the tool surface the resolved run mode grants this run.
+	// The zero value means no mode profile was supplied, and every implementation
 	// falls back to its own configured surface — never to granting nothing,
 	// which is a materially different thing to at least one implementation.
 	// See [Permissions] for why its payload is opaque here.

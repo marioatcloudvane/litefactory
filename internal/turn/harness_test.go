@@ -124,10 +124,11 @@ func realRunner(t *testing.T, f *fixture, script string) (*harness.Runner, strin
 
 	runner, err := harness.New(harness.Options{
 		Paths: f.paths,
+		Model: config.DefaultClaudeModel,
 		Claude: config.Claude{
 			Binary:         "claude",
-			Tools:          []string{"Read", "Edit"},
-			AllowedTools:   []string{"Read", "Edit(./**)"},
+			Tools:          []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"},
+			AllowedTools:   config.DefaultClaude().AllowedTools,
 			SettingsPath:   filepath.Join(f.paths.Home(), "claude-settings.json"),
 			TimeoutSeconds: 60,
 		},

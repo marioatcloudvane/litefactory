@@ -27,16 +27,36 @@ const (
 	initNoTokenWarning = `warning: no bot token is configured, so litefactory does not know which account it posts as.
   Store one in the keychain and reference it in %s:
       security add-generic-password -s litefactory -a github-bot -w
-      github:
-        token_keychain:
-          service: "litefactory"
-          account: "github-bot"
+      providers:
+        github:
+          token_keychain:
+            service: "litefactory"
+            account: "github-bot"
   Then run ` + "`litefactory init`" + ` again. The daemon refuses to start until this resolves.
 `
 
 	initTokenFailedWarning = `warning: the bot identity could not be resolved: %v
   Everything else was written; the bot identity is the only thing missing.
   Fix the reference in %s and run ` + "`litefactory init`" + ` again. The daemon refuses to start until this resolves.
+`
+
+	// initKeychainMissingWarning covers the case the generated config.yaml
+	// creates: the reference is present and correct, and the keychain item it
+	// names simply does not exist yet.
+	//
+	// Before the generated file named a reference (US-8/AC-8.3), a fresh
+	// machine ended on [initNoTokenWarning], which carries the
+	// `security add-generic-password` line. Now it ends here instead, and
+	// [initTokenFailedWarning]'s "fix the reference" is advice for a reference
+	// that is not broken — it would send a new operator to edit a file that is
+	// already right. The service and account are the configured names rather
+	// than fixed text, so the command can be pasted as printed; they are
+	// identifiers, never the credential.
+	initKeychainMissingWarning = `warning: no bot token is stored yet, so litefactory does not know which account it posts as.
+  The reference in %s is correct; the keychain item it names does not exist yet.
+  Store the token, then run ` + "`litefactory init`" + ` again:
+      security add-generic-password -s %s -a %s -w
+  The daemon refuses to start until this resolves.
 `
 )
 
@@ -119,7 +139,7 @@ func runInit(ctx context.Context, env *Env) (err error) {
 		return Preconditionf(
 			"the configured bot token belongs to the same account as the owner: %s (id %d).\n"+
 				"  litefactory would read its own comments as instructions and loop forever on the first run.\n"+
-				"  Point github.token_keychain or github.token_env at a separate machine or bot account.\n"+
+				"  Point providers.github.token_keychain or providers.github.token_env at a separate machine or bot account.\n"+
 				"  Neither identity was stored",
 			owner.Login, owner.UserID)
 	}
@@ -163,7 +183,7 @@ func runInit(ctx context.Context, env *Env) (err error) {
 // transient API error left the machine without an owner identity either.
 func resolveBotIdentity(ctx context.Context, env *Env, paths config.Paths, cfg *config.Config) (github.User, bool) {
 	ref, configured := secrets.ReferenceFrom(
-		cfg.GitHub.TokenKeychain.Service, cfg.GitHub.TokenKeychain.Account, cfg.GitHub.TokenEnv)
+		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	if !configured {
 		fmt.Fprintf(env.Stderr, initNoTokenWarning, paths.ConfigPath())
 		return github.User{}, false
@@ -172,14 +192,23 @@ func resolveBotIdentity(ctx context.Context, env *Env, paths config.Paths, cfg *
 	// The token lives in this function and in the client it builds, and it is a
 	// secrets.Token throughout: every formatting verb on it prints [redacted],
 	// so the warnings below cannot leak it however they are phrased (AC-0.11).
-	token, err := secrets.Resolver{}.Resolve(ctx, ref)
+	token, err := secrets.Resolver{Keychain: env.Keychain}.Resolve(ctx, ref)
 	if err != nil {
-		fmt.Fprintf(env.Stderr, initTokenFailedWarning, err, paths.ConfigPath())
+		// A keychain item that is merely absent is the fresh-machine state, not
+		// a misconfiguration, and it gets the warning that says how to fix it.
+		// Every other failure — a locked keychain, an empty value, an
+		// unreadable environment variable — keeps the generic wording, because
+		// the remedy for those is genuinely "look at what you configured".
+		if ref.Source == secrets.SourceKeychain && errors.Is(err, secrets.ErrNotFound) {
+			fmt.Fprintf(env.Stderr, initKeychainMissingWarning, paths.ConfigPath(), ref.Service, ref.Account)
+		} else {
+			fmt.Fprintf(env.Stderr, initTokenFailedWarning, err, paths.ConfigPath())
+		}
 		return github.User{}, false
 	}
 
 	client, err := github.New(github.Options{
-		APIBase:   cfg.GitHub.APIBase,
+		APIBase:   cfg.Providers.GitHub.APIBase,
 		Token:     token,
 		Logger:    env.Logger,
 		UserAgent: initUserAgent(env),

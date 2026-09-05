@@ -32,6 +32,7 @@ func TestACleanDrainClearsTheBacklogFlag(t *testing.T) {
 
 	f.forge.addComment(testIssue, 201, owner(), "/spike add the endpoint")
 	f.settle()
+	f.settle() // refresh after consuming the one-shot mode label
 
 	if got := f.watermark(); got != 201 {
 		t.Fatalf("watermark is %d, want 201: the comment must actually have been consumed", got)
@@ -134,6 +135,8 @@ func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 
 	f.forge.onPostComment = nil
 	f.settle()
+	f.settle()
+	f.settle() // consume the second instruction, then prove the backlog self-heals
 
 	if got := f.watermark(); got != 212 {
 		t.Fatalf("watermark is %d after the retry, want 212", got)
