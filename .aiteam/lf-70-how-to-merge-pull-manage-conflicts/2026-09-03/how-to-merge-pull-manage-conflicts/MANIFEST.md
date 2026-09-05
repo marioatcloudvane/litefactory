@@ -31,6 +31,25 @@ asked for; nothing here licenses starting the next one.
   points web research could not settle; Constraints & Risks and Recommended
   scope for Plan mode updated accordingly. Research mode is now complete with
   no outstanding blocked questions.
+- 2026-09-05 — Research mode re-run (third pass): issue owner raised three
+  follow-up questions — pre-run staleness/drift detection, conditional
+  auto-sync of base into a task branch, and centralizing git handling in
+  litefactory itself rather than in agents. `codebase-tour` and
+  `web-researcher` invoked concurrently (headless run, no clarifying
+  questions asked). `RESEARCH_BRIEF.md` updated with a new "Follow-up
+  Research" section: a concrete drift-check placement at the existing
+  `prepareClone` fetch checkpoint, an "if A then B" auto-sync decision tree
+  (fast-forward/clean-merge → sync and disclose, conflict → stop and flag)
+  drawing on Dependabot/Renovate prior art, explicit risk-asymmetry framing
+  (per-issue branch sync vs. the categorically separate, out-of-scope case of
+  merging into shared main), and confirmation that git-exec is already
+  centralized in `internal/git` with one named, documented exception (Claude
+  agents' leaky `--allowedTools` Bash surface). Original Open Question 5
+  (backoff.go retry semantics) resolved: it does not retry git operations.
+  Six new open questions added (thresholds, comment placement, Codex sandbox
+  network-block status, the Bash loophole's disposition, per-project
+  base-branch config gap, and conflict-fallback scope). Recommended scope for
+  Plan mode extended accordingly. Research mode remains complete.
 
 ## Notes
 
