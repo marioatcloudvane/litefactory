@@ -1,5 +1,14 @@
 # US-2 — Three-layer config resolution (embedded → org → repo-local)
 
+> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index now titles this story
+> "Index source resolution (embedded default → static path override → registered-repo override)" —
+> the corrected design resolves *where the index JSON comes from*, not a three-layer per-field
+> merge of full agent definitions. **Everything below this note still describes the REJECTED
+> design** (Chain A / Chain B, per-field override merge into a typed `ResolvedAgent`) and has not
+> been rewritten. The general shape of "more than one source, precedence between them" likely
+> survives; the specific merge semantics almost certainly do not. A full body rewrite is deferred
+> to a follow-up planning pass. See `plan_brief.md`'s top-of-file Reconciliation Note.
+
 > As a platform operator, I want litefactory to resolve an agent's configuration across a shipped
 > fallback, an optional organization-supplied file, and the repo's own overrides, so that a team
 > can customize one field of an agent without forking its entire definition.

@@ -1,5 +1,14 @@
 # US-4 — CLI scaffold + `litefactory team list`
 
+> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
+> `_(rescoped, light)_`: the CLI scaffold itself (six `Command` constructors, `--repo`/`--harness`
+> handling, exit-code translation) is largely design-agnostic and likely survives close to as
+> written. What is stale is the **cross-story dependency list** below (US-5's renderer contract,
+> US-10's drift classification, US-9's atomic-write layer) — those stories' own scope has shifted
+> under the corrected design, so this story's sequencing needs to be re-checked against their
+> rewritten bodies in the follow-up pass, even if this story's own tasks change little. See
+> `plan_brief.md`'s top-of-file Reconciliation Note.
+
 > As a platform operator, I want `litefactory team list` to show me the teams and agents resolved
 > for this repo, so that I can see what would be generated before anything is written.
 

@@ -1,5 +1,14 @@
 # US-3 — `schemaVersion` migration on load
 
+> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story
+> as `_(rescoped, light)_` — its core concern (an older on-disk `schemaVersion` must keep loading
+> against a newer binary) survives the design correction essentially unchanged, since a versioned
+> migration step is needed regardless of whether the JSON is a merged config or a pure index. What
+> is stale below is only the assumption that the migrated object is the rejected three-layer
+> config shape — the migration target type will follow whatever US-1/US-2 land on. No task or AC
+> rewrite is expected to be large; still deferred to the follow-up pass for consistency with every
+> other rescoped story. See `plan_brief.md`'s top-of-file Reconciliation Note.
+
 > As a platform operator, I want an older on-disk team config to keep loading correctly against a
 > newer version of litefactory, so that upgrading the binary doesn't silently break an existing
 > customization.

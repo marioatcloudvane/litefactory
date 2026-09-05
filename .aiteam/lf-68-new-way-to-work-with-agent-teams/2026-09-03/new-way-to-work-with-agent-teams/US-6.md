@@ -1,5 +1,14 @@
 # US-6 — Claude renderer
 
+> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
+> `_(rescoped, light)_`. The Claude-specific output shape (YAML frontmatter + Markdown body at
+> `.claude/agents/<agent>.md`) is expected to survive largely unchanged; what may shift is the
+> renderer's *input* (a markdown source resolved via the index, plus US-18's root-file composition,
+> rather than a three-layer-merged `ResolvedAgent`) — see US-5's reconciliation note. This story
+> now also depends on US-18 (root-file composition), not reflected in the Depends-On list below.
+> A full body rewrite is deferred to a follow-up planning pass. See `plan_brief.md`'s top-of-file
+> Reconciliation Note.
+
 > As an operator running Claude Code against this repo, I want each of my team's agents rendered
 > as a Claude sub-agent file, so that Claude picks it up without any manual conversion.
 

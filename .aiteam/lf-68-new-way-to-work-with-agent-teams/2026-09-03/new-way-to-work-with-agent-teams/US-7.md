@@ -1,5 +1,12 @@
 # US-7 — Codex renderer
 
+> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
+> `_(rescoped, light)_`. The Codex-specific output shape (skill directory at
+> `.codex/skills/<agent>/SKILL.md`) is expected to survive largely unchanged; what may shift is
+> the renderer's *input*, per US-5's reconciliation note. This story now also depends on US-18
+> (root-file composition), not reflected in the Depends-On list below. A full body rewrite is
+> deferred to a follow-up planning pass. See `plan_brief.md`'s top-of-file Reconciliation Note.
+
 > As an operator running Codex against this repo, I want each of my team's agents rendered as a
 > Codex skill, so that Codex picks it up without any manual conversion.
 

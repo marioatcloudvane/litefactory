@@ -1,5 +1,16 @@
 # US-9 — `team add` (hashing, lockfile, atomic writes, install)
 
+> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index retains this story's title
+> essentially as-is. **The three-hash model referenced below (`renderedHash`/`sourceHash`/
+> `baseSourceHash`) belongs to the REJECTED design** — under the corrected design, drift
+> classification is provenance-marker based (see US-10's rescoped note), not three-hash based, so
+> this story's hashing/lockfile scope needs to be re-checked against whatever US-10 settles on in
+> the follow-up pass. The atomic-write, symlink-refusal, and lockfile-exists-refuses-`team add`
+> behaviours are expected to survive largely unchanged. This story now also depends on US-18
+> (root-file composition) and US-19 (fuzzy repo resolution), not reflected in the Depends-On
+> column below. A full body rewrite is deferred to a follow-up planning pass. See
+> `plan_brief.md`'s top-of-file Reconciliation Note.
+
 > As a platform operator, I want `litefactory team add <team>` to generate every harness file a
 > team needs and record exactly what it generated, so that I have a reliable starting point and
 > something to detect drift against later.

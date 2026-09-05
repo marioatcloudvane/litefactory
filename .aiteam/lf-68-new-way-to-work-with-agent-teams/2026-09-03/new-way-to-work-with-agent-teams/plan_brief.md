@@ -5,6 +5,27 @@
 # Citation base commit: see `$session/RESEARCH_BRIEF.md` (provenance recorded there; not duplicated here)
 # Research brief: `.aiteam/lf-68-new-way-to-work-with-agent-teams/2026-09-03/new-way-to-work-with-agent-teams/RESEARCH_BRIEF.md`
 
+## Reconciliation Note (2026-09-05) — read this before anything else below
+
+`RESEARCH_BRIEF.md` was corrected (2026-09-04) and then refined (2026-09-05) **after** this plan
+was first drafted. The corrected design replaces JSON-as-config (a registry of full agent
+definitions merged across three config layers, tracked by a three-hash drift model) with JSON as
+a pure **index**: a `key → {source, dest}` map to markdown files, plus `shared` and `teams` lists.
+Nothing about the JSON itself is ever written into a target repo — only the markdown it points to
+is copied/rendered. Five further refinements (concrete index source/layout, source/dest split,
+multi-worktree `team update` propagation, a gitignore + bookkeeping carve-out sequenced after
+that, and a go-team bootstrap dogfood story) are also now settled fact.
+
+This reconciliation pass is **deliberately narrow**: it corrects the **Story Index** and the
+top-level story list only. **Every section below the Story Index — Scope Decision, Shared
+Decisions, Workflow, Cross-Story Constraints, Deviations, Out of Scope — still describes the
+rejected design verbatim** and has not been touched in this pass. Treat all of it as stale
+background, not as settled fact, until a follow-up pass rewrites it against the corrected design.
+The Story Index below, and the reconciliation-note banner at the top of each affected sub-issue
+file, are the only parts of this plan reconciled so far. See `## Provenance` for the full record
+of this pass, **including an unresolved data-integrity note about the Sub-issue column below —
+read it before relying on those links.**
+
 ## Scope Decision (binding — do not re-open)
 
 litefactory **adopts write-ownership** of agent-team files inside a connected repo, for this
@@ -361,22 +382,43 @@ not a drive-by.
 
 ## Story Index
 
+**Reconciled 2026-09-05 — see Provenance for the full record of this pass.** `_(rescoped)_`
+marks a story whose title/scope changed because it assumed the rejected design; its sub-issue
+file carries a reconciliation-note banner and still needs a full body rewrite in the follow-up
+pass. `_(new)_` marks a story added by this pass. US-12 (upstream-change reporting) is dropped —
+its concern is folded into US-10's rescoped drift-classification work; see Provenance.
+
+**Sub-issue column integrity note — read before using these links:** the URLs below for
+US-1–US-11, US-13, US-14 are **UNVERIFIED**. An earlier draft of this reconciliation pass wrote
+issue numbers 74–87 into this column from an assumed sequential pattern, without checking them
+against any real source; a same-session attempt to recover the true values via `git show
+HEAD:plan_brief.md` / `git show d583517:plan_brief.md` was blocked outright by sandbox policy
+(git execution is not permitted for the agents in this run — confirmed by two independent,
+differently-worded attempts, both blocked before any command ran). The numbers below are
+therefore **left in place only as an unverified carry-forward, not as confirmed fact** — do not
+post them, cross-reference them, or treat them as real GitHub issue links without checking them
+against the actual repository first. See `## Provenance` for the full incident record.
+
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Agent registry + teams-by-reference JSON schema | L | — | https://github.com/marioatcloudvane/litefactory/issues/74 |
-| US-2 | Three-layer config resolution (embedded → org → repo-local) | M | US-1, US-3 | https://github.com/marioatcloudvane/litefactory/issues/75 |
-| US-3 | `schemaVersion` migrate-on-load, hand-written sequential steps | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/76 |
-| US-4 | CLI scaffold + `litefactory team list` | L | US-2, US-5, US-9, US-10 (interleaved — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/77 |
-| US-5 | Pluggable per-harness renderer contract | L | US-2 (T-17 also needs US-6/7/8 — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/78 |
-| US-6 | Claude renderer → `.claude/agents/<agent>.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/79 |
-| US-7 | Codex renderer → `.codex/skills/<agent>/SKILL.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/80 |
-| US-8 | opencode renderer → `.opencode/agents/<agent>.md` | M | US-5 | https://github.com/marioatcloudvane/litefactory/issues/81 |
-| US-9 | `team add` — hashing, lockfile, atomic writes, install command | L | US-2, US-5 (engine); US-4 (CLI wiring — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/82 |
-| US-10 | `team status` — drift detection against the version generated from | L | US-9, US-4 | https://github.com/marioatcloudvane/litefactory/issues/83 |
-| US-11 | `team update` — safe-to-overwrite vs. must-flag | L | US-4, US-9, US-10 | https://github.com/marioatcloudvane/litefactory/issues/84 |
-| US-12 | Upstream-change reporting against installed `contentVersion` | S | US-10, US-11 (no new tasks — see Workflow) | https://github.com/marioatcloudvane/litefactory/issues/85 |
-| US-13 | `team manage <agent> set/get/unset <param>=<value>` | L | US-4, US-14 (final test task also needs US-9/10/11) | https://github.com/marioatcloudvane/litefactory/issues/86 |
-| US-14 | Allowlist + forbidden-flag + secret-scan validation of every settable parameter | S | — | https://github.com/marioatcloudvane/litefactory/issues/87 |
+| US-1 | Team index schema (key→{source,dest} map, `shared`/`teams` lists) + strict decoder + SEC-7 override paperwork _(rescoped)_ | L | — | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/74`) |
+| US-2 | Index source resolution (embedded default → static path override → registered-repo override) _(rescoped)_ | M | US-1, US-3 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/75`) |
+| US-3 | `schemaVersion` migrate-on-load for the index schema _(rescoped, light)_ | M | US-1 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/76`) |
+| US-4 | CLI scaffold + `litefactory team list`/`show` _(rescoped, light)_ | L | US-2, US-5, US-9, US-10 (interleaved — see Workflow; sequencing itself is stale, see reconciliation note) | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/77`) |
+| US-5 | Pluggable per-harness renderer contract (markdown source → per-harness output) _(rescoped)_ | L | US-2 (T-17 also needs US-6/7/8 — see Workflow) | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/78`) |
+| US-6 | Claude renderer → `.claude/agents/<agent>.md` _(rescoped, light)_ | M | US-5, US-18 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/79`) |
+| US-7 | Codex renderer → `.codex/skills/<agent>/SKILL.md` _(rescoped, light)_ | M | US-5, US-18 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/80`) |
+| US-8 | opencode renderer → `.opencode/agents/<agent>.md` _(rescoped, light)_ | M | US-5, US-18 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/81`) |
+| US-9 | `team add` — install, lockfile, atomic writes (write engine) _(rescoped)_ | L | US-2, US-5 (engine); US-4 (CLI wiring); US-18, US-19 — see Workflow | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/82`) |
+| US-10 | `team status` — drift detection (provenance-marker based, not three-hash) _(rescoped)_ | L | US-9, US-4 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/83`) |
+| US-11 | `team update` — safe-to-overwrite vs. must-flag, single worktree _(rescoped, light)_ | L | US-4, US-9, US-10 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/84`) |
+| US-13 | `team manage` — replacement mechanism TBD (Open Question 6 unresolved) _(rescoped, high uncertainty)_ | L | US-4, US-14 | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/86`) |
+| US-14 | Allowlist + forbidden-flag + secret-scan validation, tied to US-13's resolved mechanism _(rescoped)_ | S | — | UNVERIFIED — see integrity note above (last unconfirmed guess: `.../issues/87`) |
+| US-15 | Multi-worktree propagation for `team update` _(new)_ | TBD | US-11 | `US-15.md` (placeholder — pending sub-issue creation in follow-up pass) |
+| US-16 | Gitignore generated files + litefactory-owned bookkeeping directory carve-out _(new)_ | TBD | US-15, US-1 | `US-16.md` (placeholder — pending sub-issue creation in follow-up pass) |
+| US-17 | Go-team bootstrap — first shipped team, dogfood deliverable _(new)_ | TBD | US-9, US-6, US-7, US-8 | `US-17.md` (placeholder — pending sub-issue creation in follow-up pass) |
+| US-18 | Root-file composition — marker-tagged sections in `AGENTS.md`/`CLAUDE.md` _(new)_ | TBD | US-5 | `US-18.md` (placeholder — pending sub-issue creation in follow-up pass) |
+| US-19 | Fuzzy repo resolution for `team add <repo-identifier> <team>` _(new)_ | TBD | US-4 | `US-19.md` (placeholder — pending sub-issue creation in follow-up pass) |
 
 ## Out of Scope
 
@@ -399,7 +441,10 @@ not a drive-by.
 - Any JSON-Schema validation library, any config-migration library, any templating library beyond
   stdlib `text/template`.
 - Distributing the fallback config outside the binary (registry, network fetch). `//go:embed`
-  only.
+  only. **Stale per the corrected design** — the refined design's Domain §2/§6 recommends v1 scope
+  as embedded default + static-path override + already-registered-repo override; arbitrary
+  remote-URL fetch is explicitly a follow-on, not in scope. Full reconciliation deferred to the
+  follow-up pass.
 - A `team remove`/uninstall command.
 - Per-user (`~/.claude/agents/`) or machine-global agent generation. Repo-scoped only.
 
@@ -412,3 +457,77 @@ not a drive-by.
 - Re-pinning requirements: none identified beyond the `APP_CONTEXT.md` refresh above — the
   architect's review found no other drift between the research brief's citations and the current
   tree.
+
+### Reconciliation pass — 2026-09-05 (narrow scope: Story Index + top-level story list only)
+
+A prior attempt at a **full** reconciliation (rewriting all sub-issue detail plus worked examples)
+failed on an infrastructure/context error before producing any artifact — confirmed by commit
+`65d519d`, which recorded that the plan-orchestrator invocation had not produced anything before
+failing. This pass was deliberately scoped down to avoid repeating that failure.
+
+**What this pass did:**
+- Read the current, twice-revised `RESEARCH_BRIEF.md` (Correction Notice 2026-09-04, Refinement
+  Notice 2026-09-05) and the existing `plan_brief.md`, and read all 14 existing `US-1.md`–
+  `US-14.md` sub-issue files (title/scope, and in practice their full bodies, to place the
+  reconciliation banner accurately).
+- Reconciled the Story Index against the corrected design: 13 of the 14 existing stories are
+  retained under a corrected or lightly-corrected title (marked `_(rescoped)_` above); one
+  (US-12, upstream-change reporting) is dropped because its entire premise — a `baseSourceHash`
+  comparison across the rejected three-layer/three-hash model — no longer has a home under the
+  index-only design. Its concern (telling "I edited this" apart from "the vendor changed this")
+  may resurface as a smaller note inside US-10's rescoped drift-classification work in the
+  follow-up detail pass, but does not warrant a standalone story on current evidence.
+- Added five new stories: US-15 (multi-worktree propagation, explicitly sequenced before US-16
+  per the sponsor's refinement), US-16 (gitignore + bookkeeping carve-out, depends on US-15 —
+  not scheduled in parallel with it), US-17 (go-team bootstrap dogfood deliverable), US-18 (root-
+  file composition via marker-tagged sections in `AGENTS.md`/`CLAUDE.md` — Domain §4's
+  multi-team-per-repo working assumption), and US-19 (fuzzy repo resolution for `team add
+  <repo-identifier> <team>` — Domain §5). US-18 and US-19 were not named explicitly in the
+  reconciliation instructions but are called out in `RESEARCH_BRIEF.md`'s Domain §4/§5 and
+  "Recommended scope for Plan mode" as capability gaps the existing 14 stories do not cover;
+  including them here is this pass's own judgment call, flagged explicitly rather than silently
+  folded into an existing story's rescope.
+- Added a reconciliation-note banner to the top of each of the 13 rescoped existing sub-issue
+  files (`US-1.md`–`US-11.md`, `US-13.md`, `US-14.md`), and a dropped/merged note atop `US-12.md`,
+  without rewriting any story body.
+- Created placeholder sub-issue files (`US-15.md`–`US-19.md`) carrying a title, a one-line scope
+  statement, and an explicit "pending follow-up run" note — no task breakdowns or acceptance
+  criteria.
+
+**What this pass explicitly did not do (deferred to the follow-up run):**
+- Rewriting any of the 13 rescoped stories' Architecture Notes, Tasks, or Acceptance Criteria
+  against the corrected design.
+- Writing full task breakdowns or acceptance criteria for the five new stories.
+- Rewriting this file's Scope Decision, Shared Decisions, Workflow, Cross-Story Constraints, or
+  Deviations sections, all of which still describe the rejected design and require a full rewrite
+  once per-story detail is redone (flagged in the `## Reconciliation Note` banner at the top of
+  this file).
+- Any JSON worked examples or CLI command reference.
+- Resolving Open Question 6 (`team manage`'s replacement mechanism) or Open Question 3 (the
+  write-ownership boundary that gates US-16's bookkeeping-directory carve-out) — both remain open
+  and are flagged in the affected stories.
+
+### Data-integrity incident — Sub-issue column (2026-09-05, same pass) — UNRESOLVED, flagged for the user
+
+While drafting this reconciliation pass, the Story Index's Sub-issue column for US-1 through
+US-14 was populated with GitHub issue URLs (issue numbers 74–87) that were **invented from an
+assumed sequential-numbering pattern**, not read from any real source — the original file content
+was not available at the time of drafting. This was recognized as a fabrication risk before the
+user saw it. Two independent attempts were then made, in this same session, to recover the true
+original values by reading git history directly (`git show HEAD:plan_brief.md` and `git show
+d583517:plan_brief.md`, `d583517` being the commit titled "record this plan's sub-issue links in
+the Story Index" — the most plausible source of the real values). **Both attempts were blocked
+outright**: the sandbox policy governing agents in this run refuses `git log`/`git show`/`git
+status` with "This command requires approval," and no approval could be granted from inside an
+agent run. Neither attempt substituted a plain file read as a stand-in for git history (that
+substitution was explicitly ruled out, since a plain `Read` of the working tree after an
+uncommitted edit reads the edit, not history).
+
+**Resolution taken:** rather than continue presenting invented numbers as fact, the Sub-issue
+column above has been rewritten to mark all thirteen values `UNVERIFIED`, carrying the
+previously-guessed number only as a labelled "last unconfirmed guess" for traceability, not as a
+usable link. **The user (or a follow-up run with git/GitHub access) needs to confirm the real
+Sub-issue links** — either by checking commit `d583517` directly, or by checking whatever GitHub
+issues actually exist under this repo, before this column is treated as authoritative. This is
+called out here, in the Story Index note, and in the final run report, rather than silently
+carried forward.

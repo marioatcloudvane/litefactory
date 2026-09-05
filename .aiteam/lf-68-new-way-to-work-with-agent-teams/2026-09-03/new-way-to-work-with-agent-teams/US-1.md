@@ -1,5 +1,16 @@
 # US-1 — Agent registry + teams-by-reference JSON schema
 
+> **RECONCILIATION NOTE (2026-09-05).** `RESEARCH_BRIEF.md` was corrected and then refined after
+> this story was written. `plan_brief.md`'s Story Index now titles this story "Team index schema
+> (key→{source,dest} map, `shared`/`teams` lists) + strict decoder + SEC-7 override paperwork" —
+> JSON is a pure index into markdown files, not a merged, three-layer config object. **Everything
+> below this note still describes the REJECTED design** (a fully-typed `AgentDefinition`/
+> `HarnessStanza` registry merged across layers) and has not been rewritten. Treat the two-phase
+> decoder need, the SEC-7 override paperwork (T-34/T-33), and the filename-safety-pattern
+> requirement as likely still applicable; treat the specific types and merge-shape as stale. A
+> full body rewrite against the corrected design is deferred to a follow-up planning pass. See
+> `plan_brief.md`'s top-of-file Reconciliation Note for the full picture.
+
 > As a platform operator, I want to define a reusable agent once and reference it by name from
 > multiple teams, so that I don't have to duplicate its prompt and configuration every time a
 > team needs it.

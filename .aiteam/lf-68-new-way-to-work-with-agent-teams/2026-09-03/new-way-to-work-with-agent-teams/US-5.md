@@ -1,5 +1,17 @@
 # US-5 — Pluggable per-harness renderer contract
 
+> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index now titles this story
+> "Pluggable per-harness renderer contract (markdown source → per-harness output)." Under the
+> corrected design the renderer's input is a resolved **markdown source file** referenced by the
+> index (plus whatever root-file composition US-18 requires), not a fully-merged, three-layer
+> `ResolvedAgent` struct. **Everything below this note still describes the REJECTED design's
+> input shape** — the contract's *purity and failure-mode* requirements (loud failure on an
+> inexpressible field, determinism obligations, one implementation per harness in a map) are
+> expected to survive; the exact `Render(agent ResolvedAgent)` signature is not. A full body
+> rewrite is deferred to a follow-up planning pass. New dependency: this story now also depends on
+> US-18 (root-file composition), not reflected below. See `plan_brief.md`'s top-of-file
+> Reconciliation Note.
+
 > As a platform maintainer, I want one shared agent definition to translate into any number of
 > harness-specific file formats through a single pluggable contract, so that adding a new harness
 > later doesn't require touching every renderer that already exists.
