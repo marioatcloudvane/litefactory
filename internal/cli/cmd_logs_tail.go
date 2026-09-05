@@ -6,6 +6,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
+
+	"github.com/cloudvane/litefactory/internal/logging"
 )
 
 // defaultTailLines is how many records the app log view shows when neither
@@ -48,6 +50,29 @@ func validateTailFlags(cmd *Command, fs *flag.FlagSet, opts logsOptions, hasIssu
 	}
 	if opts.tailN < 1 {
 		return Usagef(cmd, "-n takes a line count of 1 or more, got %d", opts.tailN)
+	}
+	return nil
+}
+
+// validateLevelFlag enforces the --level rules for the app log view (US-5,
+// AC-5.4).
+//
+// --level only applies to the app log view, exactly like -n and --all:
+// hasIssue is true on the per-issue run log path, where passing --level is a
+// usage error naming the flag, mirroring validateTailFlags's treatment of -n
+// and --all. On the app log path, a --level value that was explicitly set
+// must parse via logging.ParseLevel; a value outside that vocabulary is a
+// usage error that names the vocabulary explicitly (AC-5.2) rather than
+// propagating logging.ParseLevel's own wrapped error text.
+func validateLevelFlag(cmd *Command, fs *flag.FlagSet, opts logsOptions, hasIssue bool) error {
+	if !explicitlySet(fs, "level") {
+		return nil
+	}
+	if hasIssue {
+		return Usagef(cmd, "--level only applies to the app log view; drop --level")
+	}
+	if _, err := logging.ParseLevel(opts.level); err != nil {
+		return Usagef(cmd, "--level must be one of debug, info, warn, error, got %q", opts.level)
 	}
 	return nil
 }

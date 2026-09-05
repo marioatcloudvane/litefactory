@@ -9,22 +9,27 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/config"
+	"github.com/cloudvane/litefactory/internal/logging"
 )
 
 // issueOnlyFlags are the flags that only make sense against a specific
 // issue's run log. They are rejected, naming themselves, when "litefactory
 // logs" is invoked with no issue (T-1.4).
 //
-// -n and --all are deliberately not listed here: they are the app log's own
-// flags, and validateTailFlags (US-9) already rejects them symmetrically on
-// the issue path. --raw is deliberately not listed either: raw pass-through
-// applies to the app log view too. -f is deliberately not listed either: the
-// app log can be followed exactly as an issue's run log can (US-2).
-var issueOnlyFlags = []string{"run", "runs", "only", "grep", "i", "invert", "full", "repo"}
+// -n, --all and --level are deliberately not listed here: they are the app
+// log's own flags, and validateTailFlags (US-9) and validateLevelFlag (US-5)
+// already reject them symmetrically on the issue path. --raw is deliberately
+// not listed either: raw pass-through applies to the app log view too. -f is
+// deliberately not listed either: the app log can be followed exactly as an
+// issue's run log can (US-2). --grep, -i and --invert are deliberately not
+// listed either: they filter the app log's rendered (or, with --raw, raw)
+// line just as they filter an issue's run log (US-7).
+var issueOnlyFlags = []string{"run", "runs", "only", "full", "repo"}
 
 // flagToken renders name the way it was spelled on the command line: a
 // single dash for single-letter flags, a double dash otherwise, matching how
@@ -72,7 +77,7 @@ func issueArgError(cmd *Command, arg string) error {
 // Unlike runLogs, this opens no database and requires no prior "litefactory
 // init" (AC-1.2): daemon.log is the only file read, and its path comes
 // exclusively from config.Paths.DaemonLogPath().
-func runAppLog(ctx context.Context, env *Env, opts logsOptions) error {
+func runAppLog(ctx context.Context, env *Env, cmd *Command, opts logsOptions) error {
 	paths, err := config.Locate()
 	if err != nil {
 		return err
@@ -84,11 +89,35 @@ func runAppLog(ctx context.Context, env *Env, opts logsOptions) error {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 
+	grep, err := newLineFilter(opts.grep, opts.ignoreCase, opts.invert)
+	if err != nil {
+		return Usagef(cmd, "%s", err)
+	}
+
 	var sink logSink
 	if opts.raw {
-		sink = &rawSink{out: env.Stdout}
+		sink = &rawSink{out: env.Stdout, grep: grep}
 	} else {
-		sink = newSlogTextSink(env.Stdout)
+		sink = newSlogTextSink(env.Stdout, grep)
+	}
+
+	// levelSink, when --level was given, wraps sink so records below the
+	// threshold never reach it (US-5) — composing before --grep, which sink
+	// itself applies to whatever survives the level filter (US-7). levelSink
+	// also tracks whether any record at or above the threshold was ever
+	// captured; runAppLog consults that once, after the initial tail pass
+	// below, to decide whether to print US-8's stderr advisory.
+	var levelSink *levelFilterSink
+	if opts.level != "" {
+		threshold, parseErr := logging.ParseLevel(opts.level)
+		if parseErr != nil {
+			// validateLevelFlag already rejected an unparseable --level
+			// before runAppLog was ever reached; this is unreachable in
+			// practice but handled rather than ignored.
+			return Usagef(cmd, "--level must be one of debug, info, warn, error, got %q", opts.level)
+		}
+		levelSink = newLevelFilterSink(sink, threshold)
+		sink = levelSink
 	}
 
 	// #nosec G304 -- path is litefactory's own artefact path, obtained from
@@ -144,6 +173,19 @@ func runAppLog(ctx context.Context, env *Env, opts logsOptions) error {
 	}
 	if closeErr != nil {
 		return closeErr
+	}
+
+	// US-8, AC-8.1: if a --level was requested but the initial tail pass
+	// never saw a record at or above it, that is worth a nudge toward the
+	// fix — the daemon was very likely started without --level set high
+	// enough to capture what was asked for. This is checked exactly once,
+	// here, after the initial pass and before any follow loop begins
+	// (AC-8.2): a follow loop runs indefinitely, and repeating the advisory
+	// on every poll tick would drown it out rather than help.
+	if levelSink != nil && !levelSink.seen {
+		fmt.Fprintf(env.Stderr, "no %s (or higher) records were captured; "+
+			"restart the daemon with `daemon start --level %s` to capture them\n",
+			opts.level, opts.level)
 	}
 
 	if !opts.follow {
@@ -309,4 +351,59 @@ func emitAppLogLines(sink logSink, pending *[]byte) error {
 			return err
 		}
 	}
+}
+
+// appLogLineLevel decodes line's top-level "level" field and parses it via
+// logging.ParseLevel. It reports ok=false when line is not decodable as a
+// single JSON object, has no "level" field, or that field's value is not a
+// non-empty string logging.ParseLevel accepts — the caller must treat any of
+// those as "unrecognized" and always show the line (AC-5.3).
+func appLogLineLevel(line []byte) (slog.Level, bool) {
+	fields, ok := decodeJSONObjectLine(line)
+	if !ok {
+		return 0, false
+	}
+	for _, f := range fields {
+		if f.key != "level" {
+			continue
+		}
+		if f.val.kind != jsonKindString || f.val.str == "" {
+			return 0, false
+		}
+		lvl, err := logging.ParseLevel(f.val.str)
+		if err != nil {
+			return 0, false
+		}
+		return lvl, true
+	}
+	return 0, false
+}
+
+// levelFilterSink drops app log lines below a minimum level before passing
+// them to next, and tracks whether any line at or above that level was ever
+// seen — the signal runAppLog uses, after the initial tail pass, to decide
+// whether to print US-8's stderr advisory (AC-8.1).
+//
+// A line whose level is missing or unrecognized is always passed through
+// (AC-5.3): "at or above a threshold" is not decidable for a line whose level
+// this sink could not determine, and the safer failure is to show it rather
+// than hide it.
+type levelFilterSink struct {
+	next      logSink
+	threshold slog.Level
+	seen      bool
+}
+
+func newLevelFilterSink(next logSink, threshold slog.Level) *levelFilterSink {
+	return &levelFilterSink{next: next, threshold: threshold}
+}
+
+func (s *levelFilterSink) write(line []byte) (bool, error) {
+	if lvl, ok := appLogLineLevel(line); ok {
+		if lvl < s.threshold {
+			return false, nil
+		}
+		s.seen = true
+	}
+	return s.next.write(line)
 }

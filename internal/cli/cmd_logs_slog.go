@@ -45,15 +45,22 @@ import (
 // implements logSink so it can sit alongside rawSink and renderSink as a
 // selectable pipeline stage.
 type slogTextSink struct {
-	out io.Writer
+	out  io.Writer
+	grep *lineFilter
 }
 
 // newSlogTextSink builds a sink writing TextHandler-equivalent lines to out.
-func newSlogTextSink(out io.Writer) *slogTextSink {
-	return &slogTextSink{out: out}
+// grep, built by newLineFilter, is matched against the rendered line (US-7);
+// a nil grep, exactly like a nil grep on rawSink, shows every line.
+func newSlogTextSink(out io.Writer, grep *lineFilter) *slogTextSink {
+	return &slogTextSink{out: out, grep: grep}
 }
 
 // write renders one daemon.log line and writes it, followed by a newline.
+//
+// grep is matched against the rendered line, not the raw JSON: --grep on the
+// app log view searches what a reader actually sees (US-7), the same
+// contract rawSink honors against the raw line when --raw is given instead.
 //
 // done is always false: unlike a run log, the app log has no terminal event —
 // the daemon just keeps logging until it exits, so there is nothing for this
@@ -61,12 +68,18 @@ func newSlogTextSink(out io.Writer) *slogTextSink {
 func (s *slogTextSink) write(line []byte) (bool, error) {
 	var out string
 	if rendered, ok := renderSlogLine(line); ok {
+		if !s.grep.match([]byte(rendered)) {
+			return false, nil
+		}
 		out = rendered + "\n"
 	} else {
 		// Not valid JSON, or valid JSON that isn't an object: pass it through
 		// exactly as read — including whatever trailing newline (or lack of
 		// one, for a truncated final line) it already had — rather than drop
-		// it or fail the whole view.
+		// it or fail the whole view. --grep still applies to this raw text.
+		if !s.grep.match(line) {
+			return false, nil
+		}
 		out = string(line)
 	}
 	if _, err := io.WriteString(s.out, out); err != nil {

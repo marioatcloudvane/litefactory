@@ -76,6 +76,10 @@ type logsOptions struct {
 	// all shows the whole app log instead of just its tail (--all). Like
 	// tailN, it only applies to the app log view.
 	all bool
+	// level is the minimum level (debug, info, warn, error) the app log view
+	// shows; empty means no filtering. Like tailN and all, it only applies to
+	// the app log view (US-5).
+	level string
 }
 
 // bind registers the logs flags on fs.
@@ -95,6 +99,8 @@ func (o *logsOptions) bind(fs *flag.FlagSet) {
 		"(default 200; app log view only)")
 	fs.BoolVar(&o.all, "all", false, "show the whole app log instead of the last records "+
 		"(app log view only)")
+	fs.StringVar(&o.level, "level", "", "show only records at or above `level` "+
+		"(debug, info, warn, error; app log view only)")
 }
 
 // filtering reports whether the caller asked for a subset of the log. It is
@@ -142,9 +148,13 @@ func newLogsCommand() *Command {
 			"own log, daemon.log under $LF_HOME/logs: what the daemon itself has been\n" +
 			"doing, rendered the same labelled-line way as above. It shows the last\n" +
 			"200 records by default; -n N shows a different count and --all shows\n" +
-			"the whole file. Flags that only apply to an issue's run log (--run,\n" +
-			"--runs, -f, --only, --grep, -i, --invert, --full, --repo) are rejected\n" +
-			"when no issue is given, and -n/--all are rejected when one is.\n\n" +
+			"the whole file. --level LEVEL shows only records at or above that level\n" +
+			"(debug, info, warn, error); a level the app log never captured prints a\n" +
+			"note on stderr suggesting `daemon start --level LEVEL`. --grep, -i and\n" +
+			"--invert apply here too, filtering the rendered (or, with --raw, raw)\n" +
+			"line. Flags that only apply to an issue's run log (--run, --runs, -f,\n" +
+			"--only, --full, --repo) are rejected when no issue is given, and\n" +
+			"-n/--all/--level are rejected when one is.\n\n" +
 			"Examples:\n" +
 			"  litefactory logs                       litefactory's own log\n" +
 			"  litefactory logs -n 500                 the last 500 lines of it\n" +
@@ -165,8 +175,11 @@ func newLogsCommand() *Command {
 			if err := validateTailFlags(cmd, fs, opts, hasIssue); err != nil {
 				return err
 			}
+			if err := validateLevelFlag(cmd, fs, opts, hasIssue); err != nil {
+				return err
+			}
 			if !hasIssue {
-				return runAppLog(ctx, env, opts)
+				return runAppLog(ctx, env, cmd, opts)
 			}
 			return runLogs(ctx, env, cmd, opts, args[0])
 		}
