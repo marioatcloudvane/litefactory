@@ -77,6 +77,14 @@ type Config struct {
 	// WorktreeRoot globally overrides the per-repo sibling default of S-6.
 	// Empty means "use the sibling default". Must be absolute when set.
 	WorktreeRoot string `yaml:"worktree_root"`
+	// TeamConfig is the static-path override for the team index (US-2 tier
+	// 2): when set, litefactory reads its team index and markdown tree from
+	// this path instead of the embedded default, and the embedded default is
+	// not consulted at all. Empty means "use the embedded default, unless a
+	// registered-repo override applies". Must be absolute when set. A
+	// configured-but-missing path is a hard startup error, never a silent
+	// fallback to the embedded default (US-2 AC-3).
+	TeamConfig string `yaml:"team_config"`
 	// WorktreeRetainDays is recorded for the future sweep. It is read and
 	// validated at M0 and nothing acts on it (D-5, AC-3.26).
 	WorktreeRetainDays int `yaml:"worktree_retain_days"`
@@ -435,6 +443,7 @@ func Defaults() Config {
 		DefaultBaseBranch:   "",
 		FeaturePrefix:       DefaultFeaturePrefix,
 		WorktreeRoot:        "",
+		TeamConfig:          "",
 		WorktreeRetainDays:  DefaultWorktreeRetainDays,
 		LogLevel:            DefaultLogLevel,
 		GitHub: GitHub{

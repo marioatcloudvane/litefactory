@@ -55,7 +55,9 @@ func newRepoAddCommand() *Command {
 			"read from the clone itself; nothing is fetched over the network. Running it\n" +
 			"again on the same path updates the registration instead of duplicating it.\n\n" +
 			"aiteam must already be installed in the repository — run `npx aiteam` there\n" +
-			"first. litefactory never installs it and never writes inside the clone.",
+			"first. litefactory never installs it, and otherwise never writes inside the\n" +
+			"clone except to compose and materialize agent team definitions under each\n" +
+			"harness's own directory (.claude/agents/, .codex/skills/, .opencode/agents/).",
 		Args: ArgSpec{Names: []string{"path"}, Min: 1},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {

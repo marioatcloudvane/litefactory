@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "teams": [
+    {
+      "name": "go-team",
+      "agents": {
+        "go-implementation-engineer": {
+          "source": "agents/go-implementation-engineer.md",
+          "dest": ".claude/agents/go-implementation-engineer.md"
+        }
+      }
+    }
+  ],
+  "shared": {
+    "codebase-tour": {
+      "source": "agents/codebase-tour.md",
+      "dest": ".claude/agents/codebase-tour.md"
+    }
+  }
+}

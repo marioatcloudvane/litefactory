@@ -1341,3 +1341,37 @@ The doc comments on `pool.wait`, `pool.quiesce` and `Daemon.Quiesce`
 (`internal/daemon/pool.go`) make the mechanical case in full and are the
 authority on it. This entry records only what they cannot: that the export was a
 decision, and which future request it is waiting for.
+
+## Amendment: SEC-7 override for Configurable Agent Teams — Owned Paths (interim)
+
+- **Amendment:** 2026-09-06, plan
+  `.aiteam/main/go-team/plan_brief.md` (US-1, T-34; sponsor-approved override of
+  SEC-7)
+- **Status:** amendment — sponsor-approved, scope expected to be refined by US-16
+
+SEC-7 says litefactory MUST NOT write inside a registered clone. The
+"Configurable Agent Teams" feature is a deliberate, sponsor-approved exception:
+it composes and writes each harness's agent/skill definitions into the
+registered clone itself, because that is where the harness (Claude Code, Codex,
+opencode) reads them from at run time. There is no way to honor the letter of
+SEC-7 and deliver this feature — the override is the point, not a gap.
+
+**Owned Paths, as understood at this stage of the plan:**
+
+- `.claude/agents/`
+- `.codex/skills/`
+- `.opencode/agents/`
+
+These are the three harness-specific directories this feature writes to, inside
+a registered clone, once teams are composed and materialized. This list is
+deliberately narrow and deliberately provisional: it names only the
+harness-facing output directories as they are understood at US-1 time, before
+any bookkeeping/composition-tracking directory exists.
+
+It is expected to be corrected — not merely extended — once US-16 lands its own
+bookkeeping directory design (a `.litefactory/`-rooted location, and any
+root-file composition targets that story introduces). Until then, treat this
+entry as the floor of the override's scope, not its ceiling: any story that
+needs to write somewhere else inside a registered clone must widen this list
+explicitly, by its own amendment, rather than assume the override already
+covers it.

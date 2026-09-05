@@ -62,6 +62,13 @@ feature_prefix: "%s"
 # /Users/you/dev/.lf-worktrees/acme-api.
 worktree_root: ""
 
+# Static-path override for the team index: when set, litefactory reads its
+# team index and markdown tree from this path instead of the shipped default,
+# in full, and the shipped default is not consulted at all. Empty means "use
+# the shipped default, unless a registered repo has been designated instead".
+# Must be an absolute path when set.
+team_config: ""
+
 # How long a finished task's worktree is kept, in days. Read and validated, but
 # nothing is removed automatically yet — use ` + "`litefactory task clean <issue>`" + `.
 worktree_retain_days: %d
