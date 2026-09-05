@@ -1,81 +1,76 @@
-# US-1 — Agent registry + teams-by-reference JSON schema
+# US-1 — Team index schema (key→{source,dest} map, `shared`/`teams` lists) + strict decoder + SEC-7 override paperwork
 
-> **RECONCILIATION NOTE (2026-09-05).** `RESEARCH_BRIEF.md` was corrected and then refined after
-> this story was written. `plan_brief.md`'s Story Index now titles this story "Team index schema
-> (key→{source,dest} map, `shared`/`teams` lists) + strict decoder + SEC-7 override paperwork" —
-> JSON is a pure index into markdown files, not a merged, three-layer config object. **Everything
-> below this note still describes the REJECTED design** (a fully-typed `AgentDefinition`/
-> `HarnessStanza` registry merged across layers) and has not been rewritten. Treat the two-phase
-> decoder need, the SEC-7 override paperwork (T-34/T-33), and the filename-safety-pattern
-> requirement as likely still applicable; treat the specific types and merge-shape as stale. A
-> full body rewrite against the corrected design is deferred to a follow-up planning pass. See
-> `plan_brief.md`'s top-of-file Reconciliation Note for the full picture.
+> As a platform operator, I want to define a reusable agent once, as a name pointing at a markdown
+> source file, and reference that name by key from multiple teams' agent lists, so that adding an
+> agent to a second team costs one line, not a copy-pasted file.
 
-> As a platform operator, I want to define a reusable agent once and reference it by name from
-> multiple teams, so that I don't have to duplicate its prompt and configuration every time a
-> team needs it.
-
-This story lays the foundation everything else in the feature builds on: the config types, a
-decoder strict enough to catch a typo'd key anywhere in the file, and the paperwork that records
-why litefactory is now allowed to write inside a connected repo at all.
+Delivers the index schema itself — the `internal/team` package's types and a strict two-phase
+decoder for the key→{source,dest} map plus `shared`/`teams` lists — plus the SEC-7 override
+paperwork every other story in this feature depends on landing first.
 
 ## Why This Matters
 
-Today, adding an agent to a second team means copy-pasting its whole definition — prompt, tool
-list, model settings — and the two copies drift apart the first time either one is edited. This
-story fixes that at the data-model level: an agent is defined once, in a registry, and a team
-just lists which agents it uses. What's genuinely hard here isn't the data model itself, it's the
-decoder: Go's built-in "reject unknown fields" check doesn't work once a field is a map (which
-several of ours are), so a misspelled key inside one would currently load silently instead of
-failing loudly — catching that is the single largest piece of work in this story, not a footnote.
-This story also carries the paperwork for a separate, already-made decision: litefactory is being
-given permission to write a small, fixed set of files inside a user's repository for the first
-time ever, and that exception needs to be written down precisely, not just implied by new code
-showing up.
+Today, adding the same agent to two teams means copying a whole agent definition twice, and any
+later edit has to be made in both places or the copies drift apart. This story turns the JSON file
+into a lookup table instead: give an agent a name once, point it at one markdown file, and let any
+number of teams list that name. It is also the one piece every other line of code in this feature
+stands on — writing a JSON decoder that reliably says "you made a typo at this exact spot" is
+harder than it sounds, so this story hand-builds that check rather than relying on a library that
+can't do it for this shape of file. Finally, it carries paperwork for a rule change the project's
+sponsor already approved before planning began: litefactory is normally forbidden from writing
+files inside a repo it doesn't own, and this feature needs a narrow, on-the-record exception, which
+this story documents first, before any code exists to exercise it.
 
 ## Architecture Notes
 
-- New package `internal/team`, sibling to `internal/config`. Ships a `doc.go` recording the
-  three-hash drift model and the drift decision table (Shared Decision 1 in `plan_brief.md`) —
-  even though those decisions are consumed by later stories, this package's doc file is where the
-  project convention ("`doc.go` is the real spec") puts them.
-- `internal/team` may import exactly one litefactory package: `internal/config`, and only for
-  `config.ClassifySecret` and the newly exported `config.ContainsForbiddenFlag` (US-14). Never the
-  reverse — `internal/cli` depends on `internal/team`, not the other way around.
-- **Sizing flag:** `json.Decoder.DisallowUnknownFields()` does not reject an unknown key inside a
-  `map[string]X` (hits the `agents`, `harnesses`, and `permission` maps), and its error carries no
-  path. Delivering "unknown key at any nesting depth, naming its dotted path" needs a hand-written
-  two-phase decode: a generic `map[string]any` walk against a known-key table, accumulating
-  dotted paths and aggregating with `errors.Join`, then a typed decode. This is the single biggest
-  sizing risk in the story — size it as L, not S.
-- Agent registry keys and team slugs both need the same filename-safety pattern:
-  `^[a-z0-9][a-z0-9-]{0,63}$`. This is a gap in the original spec, flagged by the architect —
-  specify and enforce it here, at the type/decode layer, since every later story writes a file
-  named after one of these keys.
-- DEV-1 (SEC-7 override): `internal/git/surface_test.go` pins `git.Clone`'s method set (forbids
-  git verbs) — it does not forbid filesystem writes under the clone root via `os`, so nothing in
-  this feature touches that test or adds a method to `git.Clone`. What must change is the
-  self-contradicting prose at `internal/cli/cmd_repo.go:57-58` ("litefactory never installs it and
-  never writes inside the clone"), plus a durable record of the override's exact scope. **Land
-  T-34 and T-33 first, before any other task in this feature** — they record the sanction the rest
-  of the feature is written under.
+- New package `internal/team` (sibling to `internal/config`); ships a `doc.go`.
+- Pure index schema: `Index{SchemaVersion int, Agents map[string]AgentEntry, Shared []string,
+  Teams []TeamEntry}`. `AgentEntry{Source, Dest string}` — `Source` is a path to a markdown file,
+  resolved relative to whichever root is in effect (embedded snapshot / static-path override /
+  registered-repo, see US-2). `Dest` is a harness-neutral destination fragment consumed by a
+  renderer (US-5/6/7/8), not a literal file path.
+- **Open Question 13, resolved:** `Dest` stays an explicit field rather than being derived from
+  `key`, even though every worked example so far sets it to a deterministic function of the key.
+  Assumption, documented here: deriving it would silently foreclose ever having two destinations
+  for one key, or a key that isn't itself filename-safe; keeping it explicit costs one JSON field.
+- **Open Question 14, resolved:** the index file's own path is `teams/index.json`, relative to
+  whichever root is in effect. Not sponsor-confirmed; assumed here and reused by US-2 and US-17.
+- Filename-safety pattern for `key` (agent registry keys) and `TeamEntry.Name` (team slugs):
+  `^[a-z0-9][a-z0-9-]{0,63}$`, enforced at decode/validate time — every later story writes a file
+  named after one of these.
+- Two-phase decode required: `json.Decoder.DisallowUnknownFields()` doesn't catch an unknown key
+  inside `agents` (a `map[string]X`) and carries no path in its error. Phase 1: a generic
+  `map[string]any` walk against a known-key table at every level, accumulating dotted paths (e.g.
+  `agents.go-architect.souce`), aggregated via `errors.Join`. Phase 2: typed decode once phase 1
+  passes clean. **Sizing flag: this task is size L, not S — the single biggest sizing risk in this
+  story.**
+- `doc.go` records the index schema's shape and validation rules only. It does not embed a
+  three-hash drift model (that belonged to the rejected design) and does not need to anticipate
+  US-10's classification scheme — that lives in whatever `internal/team` addition US-10 lands.
+- DEV-1 (SEC-7 override) paperwork: **T-34/T-33 must land first, before any other task in this
+  feature.** T-34 writes the `.aiteam/AC_AMENDMENTS.md` entry recording the override's exact scope
+  (the Owned Paths list in `plan_brief.md`'s Scope Decision — US-16 later extends this list by one
+  entry, via its own amendment). T-33 corrects the self-contradicting help text at
+  `internal/cli/cmd_repo.go:57-58`.
+- Import restriction: `internal/team` may import only `internal/config`, and only for
+  `config.ClassifySecret` and the newly-exported `config.ContainsForbiddenFlag` (US-14).
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-34 | Write `.aiteam/AC_AMENDMENTS.md` entry recording the SEC-7 override's exact scope (the five Owned Paths, nothing else) | doc | — | XS |
-| T-33 | Amend `internal/cli/cmd_repo.go:57-58` help text so it no longer contradicts this feature's behaviour | doc | T-34 | XS |
-| T-01 | `internal/team` package skeleton + `doc.go` (three-hash model, drift decision table) | setup | — | XS |
-| T-02 | `TeamConfig` / `AgentDefinition` / `HarnessStanza` types, incl. agent-key/team-slug filename-safety pattern | data | T-01 | S |
-| T-03 | Two-phase decode: generic `map[string]any` walk against a known-key table, dotted-path accumulation, `errors.Join` aggregation, then typed decode | logic | T-02 | L |
-| T-04 | Tests: unknown key at arbitrary nesting depth names its dotted path; a config with multiple faults reports them in stable sorted order | test | T-03 | M |
+| T-34 | Write `.aiteam/AC_AMENDMENTS.md` entry recording SEC-7 override scope | doc | — | XS |
+| T-33 | Amend `cmd_repo.go:57-58` self-contradicting help text | doc | T-34 | XS |
+| T-01 | `internal/team` package skeleton + `doc.go` | setup | — | XS |
+| T-02 | Index types (`Index`, `AgentEntry`, `TeamEntry`) incl. filename-safety pattern for keys/slugs | data | T-01 | S |
+| T-03 | Two-phase decode (generic map walk + dotted-path accumulation + `errors.Join`, then typed decode) | logic | T-02 | L |
+| T-04 | Tests: unknown-key dotted-path naming, stable sorted multi-fault order, dedup of an agent referenced by two teams | test | T-03 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | A JSON config with `schemaVersion`, `agents`, `shared`, and `teams` loads into typed Go values; an agent referenced by two teams is decoded from a single registry entry, not duplicated. |
-| AC-2 | An unknown key at any nesting depth, in any layer, produces a load error naming its dotted path. |
-| AC-3 | Validation errors from a config with multiple faults are emitted in a stable, sorted order across repeated runs. |
-| AC-4 | `internal/cli/cmd_repo.go`'s help text no longer claims litefactory never writes inside a connected repo; `.aiteam/AC_AMENDMENTS.md` records the SEC-7 override's exact scope. |
+| AC-1 | A well-formed index (`schemaVersion`, `agents` map of `{source,dest}` pairs, `shared` list, `teams` list) decodes into typed Go values; an agent key referenced by two different teams' `agents` arrays resolves to one `AgentEntry`, not a duplicated decode. |
+| AC-2 | An unknown key at any nesting depth (top level, inside one `agents` entry, inside one `teams` entry) is rejected naming its exact dotted path. |
+| AC-3 | Multiple simultaneous validation faults are reported together, in stable sorted order, not one at a time. |
+| AC-4 | `cmd_repo.go`'s help text no longer contradicts this feature's Owned Paths, and `.aiteam/AC_AMENDMENTS.md` records the SEC-7 override's exact scope. |

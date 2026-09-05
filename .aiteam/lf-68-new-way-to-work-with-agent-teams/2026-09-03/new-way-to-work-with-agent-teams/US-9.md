@@ -1,69 +1,73 @@
-# US-9 — `team add` (hashing, lockfile, atomic writes, install)
+# US-9 — `team add <repo-identifier> <team>` write engine
 
-> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index retains this story's title
-> essentially as-is. **The three-hash model referenced below (`renderedHash`/`sourceHash`/
-> `baseSourceHash`) belongs to the REJECTED design** — under the corrected design, drift
-> classification is provenance-marker based (see US-10's rescoped note), not three-hash based, so
-> this story's hashing/lockfile scope needs to be re-checked against whatever US-10 settles on in
-> the follow-up pass. The atomic-write, symlink-refusal, and lockfile-exists-refuses-`team add`
-> behaviours are expected to survive largely unchanged. This story now also depends on US-18
-> (root-file composition) and US-19 (fuzzy repo resolution), not reflected in the Depends-On
-> column below. A full body rewrite is deferred to a follow-up planning pass. See
-> `plan_brief.md`'s top-of-file Reconciliation Note.
+> As a platform operator, I want to add a team's agents to a target repo with one command, and know
+> that either every file lands correctly or nothing changes at all, so that a failed or interrupted
+> run never leaves my repo half-configured.
 
-> As a platform operator, I want `litefactory team add <team>` to generate every harness file a
-> team needs and record exactly what it generated, so that I have a reliable starting point and
-> something to detect drift against later.
-
-This story is the write engine of the whole feature: hashing, the lockfile format, atomic writes,
-and the `team add` command itself.
+Delivers the write engine behind `team add`: resolve the target repo, render every agent in the
+named team for every active harness, and write the results atomically, recording enough about what
+was written for `team status` (US-10) to later tell a hand-edit apart from an upstream change.
 
 ## Why This Matters
 
-This is the first point in the plan where litefactory actually writes inside someone else's repo
-— which is new, deliberate, and carries real risk if done carelessly: overwriting a file the
-operator didn't know was already there, or leaving a repo half-written if something fails midway.
-This story is where the plan's hashing and lockfile design gets built for the first time — every
-later story that talks about drift or updates is reading the record this story creates. Getting
-the atomicity right (everything written, or nothing) and refusing to clobber an unrelated file
-that happens to already exist at a target path are the two things this story cannot get wrong.
+Installing a team into a repo touches several files across one or more harness directories in one
+step. If that step is interrupted partway — a crash, a full disk, a bad markdown file — the repo
+must not end up with three files written and a fourth missing; that's a harder mess to diagnose
+than the command simply having refused to run at all. This story also plants the one piece of
+bookkeeping every later story that talks about drift depends on: a record, kept outside the files
+themselves, of exactly what was written and from what source, so a later run can tell "someone
+edited this file by hand" apart from "the file upstream changed" without needing to re-derive the
+answer from state that no longer exists by then.
 
 ## Architecture Notes
 
-- The hashing/lockfile engine here (T-18, T-19, T-20, T-23, T-24) must land **before** US-4's CLI
-  scaffold (T-25), since that scaffold's error translation depends on this story's sentinel
-  errors; this story's own CLI wiring (T-28) lands **after** T-25. This story spans both sides of
-  that coupling — see `plan_brief.md`'s Workflow section.
-- The three-hash model (`renderedHash`, `sourceHash`, `baseSourceHash`), the `hashVersion` field,
-  and the lockfile's structural invariants (sorted entries, no duplicate paths, path validation
-  against traversal) are Shared Decision 1 in `plan_brief.md` — this story is their first
-  implementation, not the place they are defined or re-argued.
-- Write ordering is fixed: every artifact is written via temp-file-then-rename; the whole command
-  is all-or-nothing; the lockfile itself is written last, only after every artifact has succeeded.
-- Every write target is checked with `os.Lstat` first and refused if it is a symlink — this closes
-  a real path to writing outside the five Owned Paths via a symlink planted at a target location.
-- `team add` refuses outright if a lockfile already exists for this repo, and points the operator
-  at `team update` instead of silently overwriting.
-- Use `internal/gittest`'s `AssertUnchanged` / `Capture`+`Snapshot.Diff` to prove `--dry-run`
-  writes nothing and that a failed `team add` leaves no partial install — not hand-rolled
-  directory walks.
+- Replaces the rejected three-hash drift model entirely. What this story writes is a **provenance
+  marker**, recorded per rendered file in a lockfile, not a config layer: `{agentKey, harness,
+  destPath, sourcePath, sourceHash, renderedHash}` — `sourceHash` is a content hash of the markdown
+  source at write time, `renderedHash` is a content hash of the bytes actually written. Two hashes,
+  not three: there is no `baseSourceHash` because there is no merged-config baseline left to hash
+  against (US-2). US-10 consumes this record; this story only produces it.
+- **Bookkeeping directory, resolved here (Open Question 12):** the lockfile lives at
+  `.litefactory/team.lock.json`, a new litefactory-owned directory distinct from `.aiteam/` (which
+  is reserved for planning-session artifacts, not per-repo installed-team bookkeeping). Assumption,
+  documented here since no sponsor confirmation exists: `.litefactory/` is created on first `team
+  add` if absent. US-16 depends on this directory existing and adds gitignore/protection rules for
+  it — it does not invent the name.
+- `team add <repo-identifier> <team>` first resolves `<repo-identifier>` to a concrete registered
+  repo via US-19's fuzzy resolver (exact `owner/name`, else case-insensitive substring match,
+  ambiguity surfaced rather than guessed) — this story's own scope is everything after that repo is
+  known.
+- Render-then-write-atomically: every agent in the named team (plus every agent in `shared`, per
+  US-2's implicit-availability resolution) is rendered for every active harness (US-5's contract)
+  *before* any file is written; a failure at any renderer aborts the whole operation with nothing
+  written. Writes themselves happen under a per-repo lock on the lockfile (`flock`-style), so two
+  concurrent `team add` invocations against the same repo serialize rather than race.
+- An agent whose renderer output is a marker-tagged root-file section (US-18) is written via US-18's
+  insertion mechanics, not as a standalone file — this story's atomic-write guarantee covers both
+  output shapes uniformly (all sections and all standalone files in one all-or-nothing batch).
+- Re-running `team add` for a team already fully installed, with nothing changed upstream, is a
+  no-op: the write engine compares the fresh render against the current lockfile record first, and
+  skips the write when both `sourceHash` and `renderedHash` already match.
+- Depends on US-18 (marker-tagged-section writes) and US-19 (repo resolution) landing first, per the
+  Story Index. Atomic-write/lockfile mechanics themselves are unchanged from the original design
+  intent — only the record's shape (two hashes, not three) and its location (`.litefactory/`, not
+  `.aiteam/`) changed.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-18 | Canonical hash input + `hashVersion`; `renderedHash`/`sourceHash`/`baseSourceHash` computation | logic | US-2 T-08, US-5 T-13 | M |
-| T-19 | Lockfile types, marshal, load-time invariant validation incl. path-traversal rejection | data | T-18 | M |
-| T-20 | Tests: lockfile round-trip, sortedness, traversal-path rejection, newer-schema refusal | test | T-19 | M |
-| T-23 | Atomic write layer: `os.Lstat` symlink refusal, owned-path allowlist at the write site, temp+rename, lockfile written last | logic | T-19 | M |
-| T-24 | Tests: symlink refusal; no partial install on mid-loop failure; `--dry-run` writes nothing (`gittest.AssertUnchanged`) | test | T-23 | L |
-| T-28 | `team add` command incl. `--dry-run`, `--adopt` | api | US-4 T-25, T-23 | M |
+| T-18 | Lockfile schema (`.litefactory/team.lock.json`): per-file `{agentKey,harness,destPath,sourcePath,sourceHash,renderedHash}` records | data | US-1 T-02 | M |
+| T-19 | `.litefactory/` bookkeeping directory bootstrap (create on first write if absent) | setup | T-18 | XS |
+| T-20 | `<repo-identifier>` resolution integration (calls US-19's fuzzy resolver) | logic | US-19 | S |
+| T-23 | Atomic write engine: render-all-then-write-all-or-nothing, per-repo lockfile lock, no-op short-circuit when nothing changed | logic | T-18, T-20, US-18 | L |
+| T-24 | Tests: idempotent re-add is a no-op; concurrent `team add` invocations serialize via lock; a renderer failure partway leaves zero files written | test | T-23 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | `team add` creates the harness artifacts plus a lockfile with one entry per artifact, each carrying `renderedHash` and `sourceHash`. |
-| AC-2 | `team add` against a pre-existing, unmanaged file at an owned path aborts, names the path, and leaves the filesystem unchanged. |
-| AC-3 | `team add --adopt` overwrites that file and records it; a following `team status` reports it clean. |
-| AC-4 | A renderer failure partway through `team add` leaves the filesystem unchanged — no partial install, no lockfile written. |
+| AC-1 | `team add <repo-identifier> <team>` writes every agent in the named team plus every `shared` agent, for every active harness, or writes nothing at all if any renderer fails. |
+| AC-2 | Each written file has a corresponding lockfile record at `.litefactory/team.lock.json` carrying `sourceHash` and `renderedHash`. |
+| AC-3 | Two concurrent `team add` invocations against the same repo do not interleave writes; the lockfile never ends up with a torn or partial record. |
+| AC-4 | Re-running `team add` for a team already installed, with no upstream change, writes nothing and reports a no-op. |

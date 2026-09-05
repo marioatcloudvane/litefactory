@@ -1,60 +1,50 @@
-# US-4 — CLI scaffold + `litefactory team list`
+# US-4 — CLI scaffold + `litefactory team list`/`team show`
 
-> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
-> `_(rescoped, light)_`: the CLI scaffold itself (six `Command` constructors, `--repo`/`--harness`
-> handling, exit-code translation) is largely design-agnostic and likely survives close to as
-> written. What is stale is the **cross-story dependency list** below (US-5's renderer contract,
-> US-10's drift classification, US-9's atomic-write layer) — those stories' own scope has shifted
-> under the corrected design, so this story's sequencing needs to be re-checked against their
-> rewritten bodies in the follow-up pass, even if this story's own tasks change little. See
-> `plan_brief.md`'s top-of-file Reconciliation Note.
+> As a platform operator, I want a single place I can ask "what teams and agents are available, and
+> where did each one come from" before anything gets written to my repo, so that I can check the
+> effect of a command before running one that writes files.
 
-> As a platform operator, I want `litefactory team list` to show me the teams and agents resolved
-> for this repo, so that I can see what would be generated before anything is written.
-
-This story stands up the `team` command family's shared plumbing and delivers the first
-read-only command against it.
+Delivers the CLI scaffold shared by every `team` subcommand, plus the two read-only commands
+(`team list`, `team show`) that exercise it first.
 
 ## Why This Matters
 
-Before an operator ever asks litefactory to write anything into their repo, they need a safe way
-to see what it would do — which teams exist, which agents each one resolves to, and (for a single
-agent) which config layer actually supplied each field. This story delivers that visibility, and
-along with it the one-time wiring — command registration, `--repo` handling, exit codes — that
-every other `team` command in this feature reuses rather than reinventing.
+Every other `team` command reuses the same argument parsing, repo resolution, and
+error-to-exit-code translation this story builds once. Shipping the read-only commands first means
+an operator can see what a later write would do before trusting it with real files.
 
 ## Architecture Notes
 
-- This story's CLI scaffold (T-25) is a **hard coupling**, not a simple first step: it centralizes
-  every other command's sentinel-error → exit-code translation, so it depends on US-5's renderer
-  contract, US-10's drift classification, and US-9's atomic-write layer already existing. Expect
-  it to land mid-plan, not first, despite reading as "the CLI story" — see `plan_brief.md`'s
-  Workflow section for the full sequencing.
-- `team show` is not its own user story in the spec; it ships alongside `team list` in the same
-  command file, as one of the six commands confirmed in `plan_brief.md`'s CLI Decision (Shared
-  Decisions §2).
-- `--repo` resolves to an absolute path and requires a `.git` entry at exactly that path — no
-  walk-up, unlike read-only commands elsewhere in litefactory, because a write command silently
-  targeting the wrong repo from a subdirectory is a worse failure mode than requiring the operator
-  to `cd` first.
-- `--harness` defaults to whichever of `.claude/`, `.codex/`, `.opencode/` is already present in
-  the repo, falling back to `claude,codex` when none is detected; the detected/selected set is
-  printed, never applied invisibly.
-- Exit codes (apply to every `team` command via this scaffold): `UsageError` → 2,
-  `PreconditionError` → 3, plain error → 1. Full table in `plan_brief.md` Shared Decisions §2.
+- The CLI scaffold itself is design-agnostic and survives close to as originally planned: six
+  `Command` constructors, one line each in `Commands()`, no switch statement, no mutable registry;
+  `--repo` resolves to an absolute path and requires an exact `.git` entry at that path (no
+  walk-up, since this scaffold also serves write commands); `--harness` defaults to whichever of
+  `.claude/`/`.codex/`/`.opencode/` is already present, falling back to `claude,codex` when none is
+  detected, with the detection result printed; exit codes: `UsageError`→2, `PreconditionError`→3,
+  plain error→1.
+- **Hard coupling, unchanged:** T-25 (the scaffold) depends on US-5's renderer contract, US-10's
+  drift classification, and US-9's atomic-write layer already existing, because the scaffold
+  centralises error-sentinel-to-exit-code translation for all six commands — it lands mid-plan, not
+  first, even though `team list` itself is simple. `team show` ships in the same file as `team
+  list`, not as its own story.
+- AC-2 is rewritten in this pass: the earlier "which config layer supplied this field" framing
+  assumed the rejected three-layer merge and has no meaning under the pure-index model, where only
+  one index source is ever in effect at a time (US-2). `team show`'s per-agent report now names
+  which index source (embedded / static-path-override / registered-repo) resolved the team and
+  agent being shown, not a per-field provenance table.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
 | T-25 | `cmd_team.go`: six `Command` constructors + `Commands()` registration + sentinel-error→exit-code translation | api | US-5 T-13, US-10 T-21, US-9 T-23 | L |
-| T-26 | `--repo` resolution (absolute, exact-path `.git` check, no walk-up) + `--harness` detection with fallback | logic | T-25 | M |
-| T-27 | `team list` / `team show` incl. `--json` | api | T-25 | M |
+| T-26 | `--repo` resolution + `--harness` detection | logic | T-25 | M |
+| T-27 | `team list`/`team show` incl. `--json` | api | T-25 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | `team list` prints the resolved teams, agents, and shared settings for the repo, and writes no file. |
-| AC-2 | `team show <team>` reports, per agent and per field, which config layer supplied that field's value. |
-| AC-3 | Every `team` command is registered by exactly one constructor and one line in `Commands()`; there is no switch statement and no mutable command registry. |
+| AC-1 | `team list` prints every resolved team and agent, and which index source is in effect, without writing any file. |
+| AC-2 | `team show <team>` reports, per agent, which index source (embedded / static-path-override / registered-repo) resolved that team's entry — not a per-field layer breakdown, since only one source is ever in effect. |
+| AC-3 | Every team command is registered by exactly one constructor and exactly one `Commands()` line; no switch statement or mutable registry exists anywhere in `cmd_team.go`. |

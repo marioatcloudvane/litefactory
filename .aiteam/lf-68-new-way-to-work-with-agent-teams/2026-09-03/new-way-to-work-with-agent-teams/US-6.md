@@ -1,44 +1,38 @@
-# US-6 — Claude renderer
+# US-6 — Claude renderer → `.claude/agents/<agent>.md`
 
-> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
-> `_(rescoped, light)_`. The Claude-specific output shape (YAML frontmatter + Markdown body at
-> `.claude/agents/<agent>.md`) is expected to survive largely unchanged; what may shift is the
-> renderer's *input* (a markdown source resolved via the index, plus US-18's root-file composition,
-> rather than a three-layer-merged `ResolvedAgent`) — see US-5's reconciliation note. This story
-> now also depends on US-18 (root-file composition), not reflected in the Depends-On list below.
-> A full body rewrite is deferred to a follow-up planning pass. See `plan_brief.md`'s top-of-file
-> Reconciliation Note.
+> As a platform operator using Claude as my coding agent harness, I want each shared agent
+> definition rendered into Claude's own sub-agent format automatically, so that I never hand-write
+> `.claude/agents/*.md` files myself.
 
-> As an operator running Claude Code against this repo, I want each of my team's agents rendered
-> as a Claude sub-agent file, so that Claude picks it up without any manual conversion.
-
-This story implements the Claude-specific renderer against the contract defined in US-5.
+Delivers the Claude renderer, converting a resolved markdown source's frontmatter and body into
+`.claude/agents/<agent>.md`.
 
 ## Why This Matters
 
-Claude Code expects a sub-agent as a Markdown file with a specific YAML frontmatter shape. Rather
-than an operator hand-writing that file and keeping it in sync with the team's shared definition
-by hand, this story generates it directly from the resolved agent — the part worth calling out is
-that Claude's `tools` field wants a flat comma-separated list, which is a small but easy-to-miss
-formatting detail that a hand-maintained file would silently get subtly wrong over time.
+Claude reads sub-agents from a specific file location with a YAML frontmatter convention. Without a
+renderer, every agent added to a team means someone hand-writing that file correctly, including
+keeping the tool list in sync as it changes.
 
 ## Architecture Notes
 
-- Implements `Render` for harness key `claude`, registered in US-5's harness map — no changes
-  outside this renderer's own file are expected.
-- Output path: `.claude/agents/<agent>.md`.
-- Determinism and golden-file test coverage for this harness are delivered by US-5's T-17, not
-  duplicated as a separate task here.
+- Implements `Render` for harness key `claude`; input is US-5's `ResolvedSource{Frontmatter, Body}`
+  (frontmatter carries `name`, `description`, `tools`, etc.).
+- Output path `.claude/agents/<agent>.md` for a standalone artifact, or — for an agent composed
+  into a root file per US-18 — the marker-tagged section US-18 defines. This renderer supports both
+  output shapes per US-5's contract.
+- Frontmatter's `tools` field renders as a comma-separated list.
+- Determinism/golden-file coverage is delivered by US-5's shared T-17, not duplicated here.
+- **New dependency: US-18**, for the root-file composition output shape.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-14 | Claude renderer: `.claude/agents/<agent>.md`, YAML frontmatter (`name`, `description`, `tools` as comma-separated list) + Markdown body | logic | US-5 T-13 | M |
+| T-14 | Claude renderer: YAML frontmatter (name/description/tools-as-comma-list) + markdown body; standalone-file and marker-tagged-section output shapes | logic | US-5 T-13, US-18 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | The Claude renderer's output has YAML frontmatter with `name` and `description`, and `tools` rendered as a comma-separated list. |
-| AC-2 | Determinism (byte-identical repeat renders) and golden-file coverage for this harness are verified by US-5's shared renderer test suite. |
+| AC-1 | Frontmatter has `name` and `description`; `tools` renders as a comma-separated list. |
+| AC-2 | Determinism/golden-file coverage is verified by US-5's shared suite. |

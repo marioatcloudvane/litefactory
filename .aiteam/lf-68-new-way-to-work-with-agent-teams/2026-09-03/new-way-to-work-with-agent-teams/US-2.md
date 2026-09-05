@@ -1,61 +1,68 @@
-# US-2 — Three-layer config resolution (embedded → org → repo-local)
+# US-2 — Index source resolution (embedded default → static path override → registered-repo override)
 
-> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index now titles this story
-> "Index source resolution (embedded default → static path override → registered-repo override)" —
-> the corrected design resolves *where the index JSON comes from*, not a three-layer per-field
-> merge of full agent definitions. **Everything below this note still describes the REJECTED
-> design** (Chain A / Chain B, per-field override merge into a typed `ResolvedAgent`) and has not
-> been rewritten. The general shape of "more than one source, precedence between them" likely
-> survives; the specific merge semantics almost certainly do not. A full body rewrite is deferred
-> to a follow-up planning pass. See `plan_brief.md`'s top-of-file Reconciliation Note.
+> As a platform operator, I want litefactory to know where to load the team index and its markdown
+> files from — a shipped default, or a location I point it at — without merging content from more
+> than one place, so that customizing which teams are available doesn't require forking or
+> patching litefactory itself.
 
-> As a platform operator, I want litefactory to resolve an agent's configuration across a shipped
-> fallback, an optional organization-supplied file, and the repo's own overrides, so that a team
-> can customize one field of an agent without forking its entire definition.
-
-This story implements the merge logic that turns three separate JSON layers into the single
-resolved agent definition every later story (rendering, hashing, `team list`) reads from.
+Delivers the logic that picks exactly one index source in a fixed precedence order, replacing the
+previously-planned three-layer field-by-field config merge.
 
 ## Why This Matters
 
-Every team that uses litefactory will eventually want to change something small about a shared
-agent — a different model, a stricter tool list — without maintaining a full fork of that agent's
-definition. This story is what makes that possible: it defines exactly how a value set in the
-repo overrides one set by the organization, which in turn overrides litefactory's own shipped
-default, field by field rather than whole-file. The genuinely tricky part, already resolved by
-design review but easy to get wrong in code, is that there are two different questions hiding
-inside "where does the config come from" — which file supplies the organization's layer at all,
-versus how three layers' worth of content actually combine — and conflating them is how a
-customization silently stops taking effect the moment someone adds an organization-wide file.
+The earlier design would have let a company-wide file and a per-repo file each override individual
+settings of a shipped default, field by field. That turned out to be the wrong shape: what
+actually varies between organizations isn't individual settings on one agent, it's *which whole
+set of teams and agents* is available at all. This story replaces "merge three files together"
+with "pick one file to read," in a fixed order: litefactory's own shipped default, unless the
+operator points it at a different file on disk, unless the operator has registered an external
+repo to source teams from instead. One thing the earlier design assumed is dropped here, and the
+reasoning is recorded rather than left silent: whether an agent can be turned off without removing
+it from every team's list has no clean equivalent left in this simpler model.
 
 ## Architecture Notes
 
-- Two independent precedence chains — implement them as two separate pieces of logic, not one:
-  **Chain A** (which file supplies the org layer: `--team-config` flag, then `team_config` key in
-  `$LF_HOME/config.yaml`, then none) and **Chain B** (how three layers' content composes:
-  embedded → org → repo-local, later overrides earlier per field, lists replaced wholesale, an
-  agent can be added but never deleted by a higher layer — removal is `"disabled": true`). Full
-  definitions are in `plan_brief.md`'s Shared Decisions §2 — implement against that text, it is
-  not repeated here.
-- `team_config` must be an absolute path, enforced in `config.validate` (CFG-8: path-joining
-  against `$LF_HOME` stays confined to `internal/config`). A configured-but-missing or relative
-  `team_config` is a load error, never a silent fallback to embedded-only.
-- This story's merge logic (T-08) depends on US-3's migration existing — merge always operates on
-  already-current-schema config from every layer, never on a not-yet-migrated one.
+- Replaces Chain A/Chain B (`plan_brief.md` Shared Decision 2) entirely — no per-field merge, no
+  `disabled: true`. This is a source-*selection* problem: exactly one index is read per
+  invocation, in this precedence order (first hit wins, the others are never consulted):
+  1. **Embedded default** — `//go:embed` snapshot of `https://github.com/marioatcloudvane/
+     litefactory/teams`, always present (T-05).
+  2. **Static filesystem path override** — resolved from `--team-config`/`team_config` (T-10,
+     reusing CFG-8's absolute-path validation via T-11's `config.TeamConfig` key).
+  3. **Registered-repo override** — an already-registered repo named by the operator (ties into
+     US-19's fuzzy resolution for identifying which registered repo is meant).
+- `disabled: true` is dropped as a concept. **Resolved assumption:** under the pure-index model, an
+  agent is "in" a team purely because that team's `agents` array names its key. There is no merged
+  per-agent config object left to carry a `disabled` flag over. Removing an agent from a team is
+  just editing that team's `agents` array in whichever index is in effect.
+- The `shared` list's agents are available to every team implicitly (**Open Question 2, resolved as
+  implicit** — no per-team listing needed). Reused by US-17.
+- T-05 (embed) embeds the default index (`teams/index.json`) plus every markdown file it points at,
+  as one snapshot tree — not a "fallback config object."
+- T-08 is index-source-*selection* logic, not a merge: given the three candidate sources, resolve
+  which one is in effect and load its index plus markdown tree, with no field-level mixing between
+  sources ever occurring.
+- T-10 (static-path-override resolution) locates the `--team-config`/`team_config` path if given,
+  else falls through to the next tier.
+- T-11 (`config.TeamConfig` key: `Defaults()` + `template.go` entry + absolute-path validation) is
+  unchanged — still the link for the static-path-override tier.
+- A configured-but-missing static-path override is a hard error (exit 3), never a silent fallback
+  to embedded.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-05 | `//go:embed` fallback config assets + loader | setup | US-1 T-02 | S |
-| T-08 | Three-layer merge into `ResolvedAgent` (Chain B: per-field override, wholesale list replace, `disabled: true` removal) | logic | T-05, US-3 T-06 | M |
-| T-09 | Tests: three-layer precedence; `disabled: true` removes the agent from every team and from generated output | test | T-08 | M |
-| T-10 | Org-layer location resolution (Chain A: `--team-config` flag, then `team_config` config key, then none) | logic | T-08 | S |
-| T-11 | `config.TeamConfig` key: `Defaults()` + `template.go` entry, absolute-path validation in `config.validate` | data | — | S |
+| T-05 | `//go:embed` default index snapshot (`teams/index.json` + markdown tree) + loader | setup | US-1 T-02 | S |
+| T-08 | Index-source-selection logic: resolve exactly one of embedded/static-path/registered-repo | logic | T-05, US-3 T-06 | M |
+| T-09 | Tests: static-path overrides embedded; registered-repo overrides static-path; no field-level mixing ever occurs | test | T-08 | M |
+| T-10 | Static-path-override location resolution (`--team-config`/`team_config`) | logic | T-08 | S |
+| T-11 | `config.TeamConfig` key: `Defaults()` + `template.go` entry + absolute-path validation | data | — | S |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | A value set in all three layers resolves to the repo-local one; a value set only in the fallback layer survives an org layer that sets a different field on the same agent. |
-| AC-2 | Setting `"disabled": true` on an agent removes it from every team it belongs to and from all generated output. |
+| AC-1 | When a static-path override is configured, its index and markdown tree is used in full and the embedded default is not consulted at all; when none is configured, the embedded default is used in full. |
+| AC-2 | When both a static-path override and a registered-repo override are available, the registered-repo override is used and the static-path override is not consulted (precedence: embedded < static-path < registered-repo). |
+| AC-3 | A configured-but-missing static-path override fails with a precondition error naming the path checked; it never falls back silently to the embedded default. |

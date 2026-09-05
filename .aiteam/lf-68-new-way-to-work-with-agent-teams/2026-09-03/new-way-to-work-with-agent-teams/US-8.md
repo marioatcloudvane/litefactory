@@ -1,42 +1,42 @@
-# US-8 — opencode renderer
+# US-8 — opencode renderer → `.opencode/agents/<agent>.md`
 
-> **RECONCILIATION NOTE (2026-09-05, light).** `plan_brief.md`'s Story Index carries this story as
-> `_(rescoped, light)_`. The opencode-specific output shape (`.opencode/agents/<agent>.md` with a
-> structured `permission` object) is expected to survive largely unchanged; what may shift is the
-> renderer's *input*, per US-5's reconciliation note. This story now also depends on US-18
-> (root-file composition), not reflected in the Depends-On list below. A full body rewrite is
-> deferred to a follow-up planning pass. See `plan_brief.md`'s top-of-file Reconciliation Note.
+> As a platform operator using opencode as my coding agent harness, I want each shared agent
+> definition rendered into opencode's own agent-file format automatically, so that I never
+> hand-write `.opencode/agents/*.md` files myself.
 
-> As an operator running opencode against this repo, I want each of my team's agents rendered as
-> an opencode agent file, so that opencode picks it up without any manual conversion.
-
-This story implements the opencode-specific renderer against the contract defined in US-5.
+Delivers the opencode renderer, converting a resolved markdown source's frontmatter and body into
+`.opencode/agents/<agent>.md`.
 
 ## Why This Matters
 
-opencode's agent format carries a structured `permission` object rather than a flat tool list,
-which is the field-shape opencode's own file format actually requires — this renderer's job is to
-map the resolved agent's permission-related settings into that shape faithfully, and to fail
-loudly rather than approximate if a permission setting doesn't have a clean opencode equivalent.
+opencode has its own agent-file convention, distinct from both Claude's and Codex's. Supporting it
+without a renderer would mean a third hand-maintained copy of every agent definition.
 
 ## Architecture Notes
 
-- Implements `Render` for harness key `opencode`, registered in US-5's harness map.
-- Output path: `.opencode/agents/<agent>.md`.
-- litefactory generates this file but does not run opencode as a harness — that remains explicitly
-  out of scope (see `plan_brief.md` Out of Scope). This story is file generation only.
-- Determinism and golden-file test coverage for this harness are delivered by US-5's T-17, not
-  duplicated as a separate task here.
+- Implements `Render` for harness key `opencode`; input is US-5's `ResolvedSource{Frontmatter,
+  Body}`.
+- Output path `.opencode/agents/<agent>.md` for a standalone artifact, or — for an agent composed
+  into a root file per US-18 — the marker-tagged section US-18 defines, mirroring US-6's Claude
+  renderer in supporting both output shapes.
+- opencode support is itself an open item (Open Question 10, credential/format details still
+  thin in RESEARCH_BRIEF.md); this story implements the format as best understood from the brief
+  and flags any remaining format uncertainty as a task-level risk rather than blocking the story.
+- A frontmatter field with no opencode equivalent fails loudly per US-5 AC-2, naming the field's
+  dotted path.
+- Determinism/golden-file coverage is delivered by US-5's shared T-17, not duplicated here.
+- **New dependency: US-18**, for the root-file composition output shape.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-16 | opencode renderer: `.opencode/agents/<agent>.md`, `description` frontmatter + `permission` object | logic | US-5 T-13 | M |
+| T-16 | opencode renderer: agent-file layout + frontmatter-to-opencode-field mapping; standalone-file and marker-tagged-section output shapes | logic | US-5 T-13, US-18 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | The opencode renderer writes an agent file with a `description` frontmatter field and a `permission` object reflecting the agent's configured permissions. |
-| AC-2 | Determinism (byte-identical repeat renders) and golden-file coverage for this harness are verified by US-5's shared renderer test suite. |
+| AC-1 | Output lands at `.opencode/agents/<agent>.md` with frontmatter fields mapped to their opencode equivalents. |
+| AC-2 | A frontmatter field with no opencode equivalent fails loudly naming the dotted field path, rather than being silently dropped. |
+| AC-3 | Determinism/golden-file coverage is verified by US-5's shared suite. |

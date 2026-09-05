@@ -1,64 +1,67 @@
-# US-5 — Pluggable per-harness renderer contract
+# US-5 — Pluggable per-harness renderer contract (markdown source → per-harness output)
 
-> **RECONCILIATION NOTE (2026-09-05).** `plan_brief.md`'s Story Index now titles this story
-> "Pluggable per-harness renderer contract (markdown source → per-harness output)." Under the
-> corrected design the renderer's input is a resolved **markdown source file** referenced by the
-> index (plus whatever root-file composition US-18 requires), not a fully-merged, three-layer
-> `ResolvedAgent` struct. **Everything below this note still describes the REJECTED design's
-> input shape** — the contract's *purity and failure-mode* requirements (loud failure on an
-> inexpressible field, determinism obligations, one implementation per harness in a map) are
-> expected to survive; the exact `Render(agent ResolvedAgent)` signature is not. A full body
-> rewrite is deferred to a follow-up planning pass. New dependency: this story now also depends on
-> US-18 (root-file composition), not reflected below. See `plan_brief.md`'s top-of-file
-> Reconciliation Note.
+> As a platform operator, I want one harness-neutral agent definition to produce correct output for
+> every harness litefactory supports, through a contract that fails loudly rather than silently
+> dropping something it can't express, so that adding a new harness never means rewriting every
+> existing agent.
 
-> As a platform maintainer, I want one shared agent definition to translate into any number of
-> harness-specific file formats through a single pluggable contract, so that adding a new harness
-> later doesn't require touching every renderer that already exists.
-
-This story defines the renderer contract every concrete harness (Claude, Codex, opencode, and
-whatever comes next) implements against.
+Delivers the pluggable renderer contract — a pure function per harness, registered in a map — whose
+input is now a resolved markdown source (frontmatter plus body) rather than a merged config object.
 
 ## Why This Matters
 
-Three AI coding harnesses each want an agent described in their own, quite different file format
-— YAML frontmatter plus Markdown, a skill directory, an agent file with a permissions object —
-and that list will grow. The plan considered three ways to bridge one shared definition to many
-output formats and is committing to one of them here, deliberately, rather than leaving it as a
-menu of options: a small pure-function contract, one implementation per harness, selected from a
-map by name. The part that's easy to get wrong is failure behavior — a renderer that can't express
-some field of an agent's definition must say so loudly and refuse to write anything, rather than
-quietly dropping the field, which is exactly the failure mode template-file approaches default to
-and exactly why they were rejected.
+Three different tools (Claude, Codex, opencode) each want agent definitions in a different shape —
+YAML frontmatter plus markdown, a skill directory, an agent file with a permission object — and
+this feature needs to support new tools later without touching every agent already defined. The
+hardest part isn't formatting: it's making sure the tool never quietly loses information it doesn't
+know how to express in one of the formats — it has to say so loudly instead. This story also
+settles a question the earlier plan left implicit: once there's no merged config object anymore,
+where do the per-harness settings a renderer actually needs — a tool list, a model, permissions —
+live? The answer is recorded here as an explicit assumption rather than left open.
 
 ## Architecture Notes
 
-- **Recommendation and the two rejected alternatives (per-harness template files; a common
-  intermediate schema with adapters) are recorded in full, with reasoning, in `plan_brief.md`'s
-  Shared Decisions §3.** Implement against that text; it is not repeated here.
-- Contract: `Render(agent ResolvedAgent) ([]RenderedFile, error)`, where `RenderedFile{Path,
-  Bytes}` is deliberately **not** the lockfile's `Artifact` type — a renderer cannot compute
-  `renderedHash`/`sourceHash`/`baseSourceHash` and must not be asked to. The caller hashes only
-  after every renderer in a run has succeeded.
-- Renderers are pure: no filesystem access, no network, no clock. Determinism obligations (sort
-  before iterating any map, never range a map inside a template, explicit trailing newline, no
-  timestamp/version/hostname in output) are binding on every renderer — see `plan_brief.md`
-  Cross-Story Constraints: Platform.
-- This story's own test task (T-17) depends on the three concrete renderers (US-6, US-7, US-8)
-  existing — it is the last task to close within this story, not the first, even though it's
-  filed here because it exercises the contract itself.
+- The recommendation and the two rejected alternatives (per-harness template files; a common
+  intermediate schema with per-harness adapters) are recorded once, in `plan_brief.md` Shared
+  Decision 3, and are not repeated here.
+- **Input shape, resolved:** the `Render` contract's input is no longer `ResolvedAgent` (a merged
+  three-layer struct). It is a `ResolvedSource` built from the markdown file `AgentEntry.Source`
+  points at: a small structured **frontmatter** block (YAML, at the top of the source file — `name`,
+  `description`, `tools`, `model`, and any other harness-relevant field a renderer needs) plus the
+  **body** (the markdown prompt content). This is a new, explicit assumption: the pure index model
+  removes the merged config object, so per-agent structured fields have to live somewhere, and the
+  natural place is frontmatter on the same file the index already points at — one file to edit, not
+  two.
+- Contract: `Render(source ResolvedSource) ([]RenderedFile, error)`, `RenderedFile{Path, Bytes}` —
+  deliberately not the lockfile's `Artifact` type (a renderer doesn't compute hashes or know US-10's
+  classification scheme; the caller hashes/classifies after every renderer in the run succeeds).
+- Renderers are pure (no fs/network/clock access). Determinism obligations, unchanged: sort before
+  iterating any map, never range a map inside a template, explicit `\n` endings with exactly one
+  trailing newline, no timestamp/version/hostname in output.
+- A renderer given a frontmatter field it cannot express in its target format fails loudly, naming
+  the agent key, the harness, and the dotted field path — no partial write, no silent drop.
+- **New dependency: US-18** (root-file composition). A renderer's output can now also be a
+  marker-tagged section of a shared root file (`AGENTS.md`/`CLAUDE.md`), not only a standalone
+  per-agent file. This story's contract accommodates both shapes by letting `RenderedFile.Path`
+  name either a standalone file or, per US-18's convention, a target root file plus a
+  marker-tagged-section identity — the mechanics of marker insertion/detection are US-18's own
+  scope, not repeated here.
+- T-13's dependency changes from the old `US-2 T-08` (three-layer merge) to US-2's rewritten T-08
+  (index-source-selection) — the resolved index plus the markdown tree it points at. T-17 (the
+  shared contract test) depends on the three concrete renderers (US-6/7/8) existing and closes last
+  within this story, exercising all three plus a fake fourth harness for the extensibility check.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|-----------|-----|
-| T-13 | Renderer interface + harness registry map keyed by name + `RenderedFile{Path, Bytes}` type | api | US-2 T-08 | S |
-| T-17 | Tests: golden-file + render-twice-byte-equality per harness; fake-harness extensibility test (a test-only harness added purely as a new map entry, no other package touched) | test | US-6 T-14, US-7 T-15, US-8 T-16 | L |
+| T-13 | `Renderer` interface + harness registry map + `RenderedFile{Path,Bytes}` + `ResolvedSource{Frontmatter,Body}` types | api | US-2 T-08 | S |
+| T-17 | Tests: golden-file + render-twice byte-equality per harness; fake-harness extensibility test | test | US-6 T-14, US-7 T-15, US-8 T-16 | L |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-1 | A fake harness, added as a new map entry only, passes the same contract test suite with no change to any other package. |
-| AC-2 | A renderer given a field it cannot express returns an error naming the agent, the harness, and the dotted field path; nothing is written. |
-| AC-3 | Two consecutive renders of the same resolved agent produce byte-identical output, for every registered harness. |
+| AC-1 | A fake harness, added purely as a new map entry, passes the same contract test suite as the three real harnesses without any other package being touched. |
+| AC-2 | A renderer given a frontmatter field it cannot express in its target harness format fails loudly, naming the agent key, the harness, and the dotted field path — nothing is written. |
+| AC-3 | Two consecutive renders of the same resolved source produce byte-identical output, for every registered harness. |
