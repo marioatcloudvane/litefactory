@@ -32,10 +32,10 @@ it from every team's list has no clean equivalent left in this simpler model.
   3. **Registered-repo override** — an already-registered repo named by the operator (ties into
      US-19's fuzzy resolution for identifying which registered repo is meant).
 - `disabled: true` is dropped as a concept. **Resolved assumption:** under the pure-index model, an
-  agent is "in" a team purely because that team's `agents` array names its key. There is no merged
-  per-agent config object left to carry a `disabled` flag over. Removing an agent from a team is
-  just editing that team's `agents` array in whichever index is in effect.
-- The `shared` list's agents are available to every team implicitly (**Open Question 2, resolved as
+  agent is "in" a team purely because that team's inline `agents` map names its key. There is no
+  merged per-agent config object left to carry a `disabled` flag over. Removing an agent from a team
+  is just editing that team's inline `agents` map in whichever index is in effect.
+- The `shared` map's agents are available to every team implicitly (**Open Question 2, resolved as
   implicit** — no per-team listing needed). Reused by US-17.
 - T-05 (embed) embeds the default index (`teams/index.json`) plus every markdown file it points at,
   as one snapshot tree — not a "fallback config object."

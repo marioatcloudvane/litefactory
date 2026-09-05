@@ -4,8 +4,9 @@
 > version of litefactory, and a too-new index file to fail with a clear message rather than a
 > confusing crash, so that upgrading litefactory doesn't silently break my team setup.
 
-Delivers sequential `schemaVersion` migration for the index schema (key→{source,dest} map plus
-`shared`/`teams` lists), retargeted from the previously-planned three-layer config shape.
+Delivers sequential `schemaVersion` migration for the index schema (per-team inline `agents` maps,
+a top-level `shared` map, each entry a `{source,dest}` pair), retargeted from the previously-planned
+three-layer config shape.
 
 ## Why This Matters
 

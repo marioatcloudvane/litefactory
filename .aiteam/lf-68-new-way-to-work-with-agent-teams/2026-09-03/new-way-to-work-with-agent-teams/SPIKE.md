@@ -24,35 +24,41 @@ was captured from a real run.
 ### Sample JSON index (the `go-team` default, from US-17)
 
 Sourced from this repo's own real agents. 5 Go-specialist agents named
-directly under `go-team`; 8 generic/orchestration agents in `shared` (implicitly
-available to every team, per US-2); 5 host-level tooling entries (`claude`,
-`Explore`, `general-purpose`, `Plan`, `statusline-setup`) deliberately excluded
-— they are not agents this feature installs into a repo.
+directly, inline, under `go-team`'s own `agents` map; 8 generic/orchestration
+agents in the top-level `shared` map (implicitly available to every team, per
+US-2); 5 host-level tooling entries (`claude`, `Explore`, `general-purpose`,
+`Plan`, `statusline-setup`) deliberately excluded — they are not agents this
+feature installs into a repo. Every entry's `source` names where the markdown
+already lives under `teams/` in this repo (per US-1/US-2's schema-level
+meaning); `dest` is the harness-neutral installed filename. Getting each file
+from its pre-migration `.claude/agents/<key>.md` location to its `teams/`
+location was a one-time bootstrap copy, done once before this index was
+written — not a field this schema carries.
 
 ```json
 {
   "schemaVersion": 1,
-  "agents": {
-    "go-architect": { "source": ".claude/agents/go-architect.md", "dest": "teams/go-team/go-architect.md" },
-    "go-implementation-engineer": { "source": ".claude/agents/go-implementation-engineer.md", "dest": "teams/go-team/go-implementation-engineer.md" },
-    "go-code-reviewer": { "source": ".claude/agents/go-code-reviewer.md", "dest": "teams/go-team/go-code-reviewer.md" },
-    "go-unit-test-engineer": { "source": ".claude/agents/go-unit-test-engineer.md", "dest": "teams/go-team/go-unit-test-engineer.md" },
-    "go-integration-test-engineer": { "source": ".claude/agents/go-integration-test-engineer.md", "dest": "teams/go-team/go-integration-test-engineer.md" },
-    "codebase-tour": { "source": ".claude/agents/codebase-tour.md", "dest": "teams/shared/codebase-tour.md" },
-    "web-researcher": { "source": ".claude/agents/web-researcher.md", "dest": "teams/shared/web-researcher.md" },
-    "requirements-engineer": { "source": ".claude/agents/requirements-engineer.md", "dest": "teams/shared/requirements-engineer.md" },
-    "proxy-product-owner": { "source": ".claude/agents/proxy-product-owner.md", "dest": "teams/shared/proxy-product-owner.md" },
-    "app-context-updater": { "source": ".claude/agents/app-context-updater.md", "dest": "teams/shared/app-context-updater.md" },
-    "research-orchestrator": { "source": ".claude/agents/research-orchestrator.md", "dest": "teams/shared/research-orchestrator.md" },
-    "plan-orchestrator": { "source": ".claude/agents/plan-orchestrator.md", "dest": "teams/shared/plan-orchestrator.md" },
-    "implement-orchestrator": { "source": ".claude/agents/implement-orchestrator.md", "dest": "teams/shared/implement-orchestrator.md" }
+  "shared": {
+    "codebase-tour": { "source": "teams/shared/codebase-tour.md", "dest": "codebase-tour.md" },
+    "web-researcher": { "source": "teams/shared/web-researcher.md", "dest": "web-researcher.md" },
+    "requirements-engineer": { "source": "teams/shared/requirements-engineer.md", "dest": "requirements-engineer.md" },
+    "proxy-product-owner": { "source": "teams/shared/proxy-product-owner.md", "dest": "proxy-product-owner.md" },
+    "app-context-updater": { "source": "teams/shared/app-context-updater.md", "dest": "app-context-updater.md" },
+    "research-orchestrator": { "source": "teams/shared/research-orchestrator.md", "dest": "research-orchestrator.md" },
+    "plan-orchestrator": { "source": "teams/shared/plan-orchestrator.md", "dest": "plan-orchestrator.md" },
+    "implement-orchestrator": { "source": "teams/shared/implement-orchestrator.md", "dest": "implement-orchestrator.md" }
   },
-  "shared": [
-    "codebase-tour", "web-researcher", "requirements-engineer", "proxy-product-owner",
-    "app-context-updater", "research-orchestrator", "plan-orchestrator", "implement-orchestrator"
-  ],
   "teams": [
-    { "name": "go-team", "agents": ["go-architect", "go-implementation-engineer", "go-code-reviewer", "go-unit-test-engineer", "go-integration-test-engineer"] }
+    {
+      "name": "go-team",
+      "agents": {
+        "go-architect": { "source": "teams/go-team/go-architect.md", "dest": "go-architect.md" },
+        "go-implementation-engineer": { "source": "teams/go-team/go-implementation-engineer.md", "dest": "go-implementation-engineer.md" },
+        "go-code-reviewer": { "source": "teams/go-team/go-code-reviewer.md", "dest": "go-code-reviewer.md" },
+        "go-unit-test-engineer": { "source": "teams/go-team/go-unit-test-engineer.md", "dest": "go-unit-test-engineer.md" },
+        "go-integration-test-engineer": { "source": "teams/go-team/go-integration-test-engineer.md", "dest": "go-integration-test-engineer.md" }
+      }
+    }
   ]
 }
 ```
@@ -118,6 +124,11 @@ $ litefactory team list --json
 {"indexSource":"embedded","schemaVersion":1,"teams":[{"name":"go-team","agents":["go-architect","go-implementation-engineer","go-code-reviewer","go-unit-test-engineer","go-integration-test-engineer"]}],"shared":["codebase-tour","web-researcher","requirements-engineer","proxy-product-owner","app-context-updater","research-orchestrator","plan-orchestrator","implement-orchestrator"]}
 ```
 
+`--json` output lists agent keys per team/shared as plain string arrays — a
+simplified display view, distinct from the persisted index file's own
+`{source,dest}`-valued maps shown above; it carries no `source`/`dest` fields
+and needs no change when the on-disk schema's shape changes.
+
 #### `team show <team>`
 
 Per-agent report naming which single index source resolved each agent —
@@ -147,9 +158,10 @@ contains `/` → exact `owner/name` match only; otherwise a case-insensitive
 substring match against `ListRepos()`. Zero matches → not-found error naming
 the search term; more than one → `AmbiguousRepoError` listing every match.
 Refuses if `.litefactory/team.lock.json` already exists for this repo,
-pointing at `team update` instead. Renders every agent in the named team plus
-every `shared` agent, for every active harness, atomically — all writes
-succeed or none do. Re-running with nothing changed is a no-op. (US-9, US-19)
+pointing at `team update` instead. Renders every agent in the named team's own
+`agents` map plus every agent in the top-level `shared` map, for every active
+harness, atomically — all writes succeed or none do. Re-running with nothing
+changed is a no-op. (US-9, US-19)
 
 ```
 $ litefactory team add nginx-router go-team

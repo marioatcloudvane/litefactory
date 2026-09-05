@@ -5,16 +5,18 @@
 # Citation base commit: see `$session/RESEARCH_BRIEF.md` (provenance recorded there; not duplicated here)
 # Research brief: `.aiteam/lf-68-new-way-to-work-with-agent-teams/2026-09-03/new-way-to-work-with-agent-teams/RESEARCH_BRIEF.md`
 
-## Reconciliation status (as of 2026-09-05, third pass) — read this before anything else below
+## Reconciliation status (as of 2026-09-05, fourth pass) — read this before anything else below
 
 `RESEARCH_BRIEF.md` was corrected (2026-09-04) and then refined (2026-09-05) **after** this plan
 was first drafted. The corrected design replaces JSON-as-config (a registry of full agent
 definitions merged across three config layers, tracked by a three-hash drift model) with JSON as
-a pure **index**: a `key → {source, dest}` map to markdown files, plus `shared` and `teams` lists.
-Nothing about the JSON itself is ever written into a target repo — only the markdown it points to
-is copied/rendered.
+a pure **index**: per-team inline `agents` maps plus a top-level `shared` map, each keyed by agent
+key and valued `{source, dest}` — never a top-level flat `agents` registry, and never a plain list
+of key-strings. An agent key is defined in exactly one place; a duplicate is a validation error at
+load time, never a merge. Nothing about the JSON itself is ever written into a target repo — only
+the markdown it points to is copied/rendered.
 
-Reconciliation has run in three passes:
+Reconciliation has run in four passes:
 
 - **First pass (narrow, 2026-09-05):** corrected the Story Index and top-level story list only —
   added five new stories (US-15–US-19), dropped US-12, and stamped a reconciliation-note banner on
@@ -23,15 +25,24 @@ Reconciliation has run in three passes:
   Architecture Notes, Tasks, Acceptance Criteria — of all 18 surviving stories (US-1 through US-11,
   US-13 through US-19) against the corrected index design. Every sub-issue file stands on its own
   as the authoritative source for that story's detail; none of them needs a further body rewrite.
-- **Third pass (this one, shared-sections rewrite, 2026-09-05):** rewrote *this file's* own
-  Scope Decision, Shared Decisions, Workflow, Cross-Story Constraints and Deviations sections,
-  which had been left describing the rejected three-layer-merge/three-hash design verbatim through
-  both prior passes. Those sections now reflect the same corrected design the 18 sub-issues already
-  use. **The Story Index's row set (18 stories: US-1–US-11, US-13–US-19) was not touched by this
-  pass** — same IDs, titles, sizes and dependencies as the second pass left them. See `##
-  Provenance` for the full record of what changed, including the still-unresolved state of the
-  Sub-issue link column (no real GitHub sub-issue exists yet for any story — read the Provenance
-  entry before treating that column as anything but a pending handoff).
+- **Third pass (shared-sections rewrite, 2026-09-05):** rewrote this file's own Scope Decision,
+  Shared Decisions, Workflow, Cross-Story Constraints and Deviations sections, which had been left
+  describing the rejected three-layer-merge/three-hash design verbatim through both prior passes.
+  Those sections now reflect the same corrected design the 18 sub-issues already use. **The Story
+  Index's row set (18 stories: US-1–US-11, US-13–US-19) was not touched by this pass** — same IDs,
+  titles, sizes and dependencies as the second pass left them.
+- **Fourth pass (schema-consistency reconciliation, this one, 2026-09-05):** the third pass rewrote
+  Shared Decision 1's prose but left its struct definitions stating the earlier, since-rejected flat
+  shape (`Index.Agents map[string]AgentEntry`, `Shared []string`, `TeamEntry.Agents []string`) —
+  a shape `US-1.md`, `US-13.md`, `US-17.md` and `SPIKE.md` no longer used once the accepted schema
+  (inline per-team `agents` maps plus a top-level `shared` map, duplicate key = validation error,
+  never a merge) was settled. This pass rewrote Shared Decision 1 to match those four documents,
+  corrected the Story Index's US-1 title cell to the wording `US-1.md` itself now carries, and
+  brought `US-17.md` and `SPIKE.md` fully into line with the same schema and with consistent
+  `source`/`dest` terminology (schema-level meaning: `source` is the already-built `teams/`-relative
+  markdown path; `dest` is the harness-neutral installed filename). See `## Provenance` for the full
+  record, including which of the five directly-conflicting documents needed a full rewrite versus a
+  small terminology fix.
 
 ## Scope Decision (binding — do not re-open)
 
@@ -75,15 +86,26 @@ of them lives in a single sub-issue. Implement mode must treat all four as settl
 
 ### 1. Index schema, source resolution & schema migration (spans US-1, US-2, US-3, US-19)
 
-The index is a pure map, never a merged config: `Index{SchemaVersion int, Agents
-map[string]AgentEntry, Shared []string, Teams []TeamEntry}`, `AgentEntry{Source, Dest string}`,
-`TeamEntry{Name string, Agents []string}`. Agent keys and team slugs share one filename-safety
-pattern: `^[a-z0-9][a-z0-9-]{0,63}$`. Decoding is strict: a hand-written two-phase decode (a
-generic `map[string]any` walk against a known-key table, accumulating dotted-path errors via
-`errors.Join`, then a typed decode) rejects an unknown key at any nesting depth and names its
-dotted path — `json.Decoder.DisallowUnknownFields()` cannot do this alone (it does not reach
-inside a `map[string]X` value and its error text carries no path). This two-phase decoder (US-1) is
-the single biggest sizing risk in the feature.
+The index is a pure lookup, never a merged config, and never a flat top-level agent registry:
+`Index{SchemaVersion int, Shared map[string]AgentEntry, Teams []TeamEntry}`, `TeamEntry{Name string,
+Agents map[string]AgentEntry}` — each team's own `Agents` map is inline and holds only that team's
+non-shared agents; `Shared` is itself a key→`AgentEntry` map, not a list of key-strings pointing
+elsewhere. `AgentEntry{Source, Dest string}` is unchanged by this shape: `Source` is a path to a
+markdown file, resolved relative to whichever root is in effect (embedded snapshot / static-path
+override / registered-repo, see below); `Dest` is a harness-neutral destination fragment consumed
+by a renderer (US-5/6/7/8), not a literal file path. **Duplicate-key invariant:** an agent key is
+defined in exactly one place — inline under one team's `Agents` map, or once under the top-level
+`Shared` map — never both, and never under two teams. A key appearing in more than one of these
+locations is a validation error at load time, naming the key and every location it was found in;
+the decoder never merges, dedups, or silently prefers one location over another. Promoting an agent
+from a team's inline map to `Shared` (or the reverse) is always a *move* — delete from the old
+location, add to the new one — never a copy that leaves the key defined in both places at once.
+Agent keys and team slugs share one filename-safety pattern: `^[a-z0-9][a-z0-9-]{0,63}$`. Decoding
+is strict: a hand-written two-phase decode (a generic `map[string]any` walk against a known-key
+table, accumulating dotted-path errors via `errors.Join`, then a typed decode) rejects an unknown
+key at any nesting depth and names its dotted path — `json.Decoder.DisallowUnknownFields()` cannot
+do this alone (it does not reach inside a `map[string]X` value and its error text carries no path).
+This two-phase decoder (US-1) is the single biggest sizing risk in the feature.
 
 **Exactly one index source is in effect at a time — there is no field-level merging across
 sources, ever.** Precedence, first hit wins:
@@ -421,7 +443,7 @@ body, pending real sub-issue creation.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Team index schema (key→{source,dest} map, `shared`/`teams` lists) + strict decoder + SEC-7 override paperwork _(rescoped)_ | L | — | `US-1.md` (body finalized; GitHub issue not yet created) |
+| US-1 | Team index schema (inline per-team `agents` maps + top-level `shared` map, key→{source,dest}) + strict decoder + SEC-7 override paperwork _(rescoped)_ | L | — | `US-1.md` (body finalized; GitHub issue not yet created) |
 | US-2 | Index source resolution (embedded default → static path override → registered-repo override) _(rescoped)_ | M | US-1, US-3 | `US-2.md` (body finalized; GitHub issue not yet created) |
 | US-3 | `schemaVersion` migrate-on-load for the index schema _(rescoped, light)_ | M | US-1 | `US-3.md` (body finalized; GitHub issue not yet created) |
 | US-4 | CLI scaffold + `litefactory team list`/`show` _(rescoped, light)_ | L | US-2, US-5, US-9, US-10 (interleaved — see Workflow; sequencing itself is stale, see reconciliation note) | `US-4.md` (body finalized; GitHub issue not yet created) |
@@ -575,7 +597,7 @@ silently decided):
   `.aiteam/` (reserved for planning-session artifacts).
 - **Open Question 15** (US-17) — all 8 generic/orchestration agents go in `shared`; only the 5
   Go-specialist agents are named directly under `go-team`.
-- **Open Question 2** (US-2) — the `shared` list is implicitly available to every team; no team
+- **Open Question 2** (US-2) — the `shared` map is implicitly available to every team; no team
   needs to name a shared agent explicitly to use it.
 
 **Open Questions from the original 15 that remained genuinely unresolved after this pass, before
@@ -664,3 +686,82 @@ second pass wrote it** (pointing at the local `US-<n>.md` files, explicitly mark
 not yet created") — not fabricated, not silently left ambiguous. Creating the 18 real sub-issues
 and populating this column with their links remains an explicit open item for whichever run has
 the capability to perform it.
+
+### Schema-consistency reconciliation pass — 2026-09-05 (fourth pass)
+
+**Trigger:** a sponsor comment on issue #68 asking for a narrow Plan reconciliation pass to rewrite
+"those five documents" against the accepted index schema. Investigation confirmed the five
+directly-conflicting documents were `plan_brief.md`, `US-1.md`, `US-13.md`, `US-17.md` and
+`SPIKE.md`: all five had, at various points, described or implied a flat top-level `agents`
+registry with `Shared []string` / `TeamEntry.Agents []string` (plain key-string lists pointing into
+that registry) — a shape superseded by the accepted design (per-team inline `agents` maps plus a
+top-level `shared` map, each entry keyed by agent key and valued `{source,dest}`, with duplicate
+key across locations treated as a load-time validation error, never a merge, dedup, or silent
+promotion). `US-2.md`, `US-3.md`, `US-5.md` and `US-9.md` were checked as mildly/indirectly
+affected candidates; `US-5.md` and `US-9.md` needed no change (their references are to `AgentEntry`
+or to the unrelated lockfile record shape, both unaffected by the map-vs-list correction).
+
+**Scope, explicitly:** a terminology/shape reconciliation only — no re-plan, no change to scope,
+story boundaries, or task decomposition beyond what the schema correction itself required. This
+pass did not reopen Domain §1's schema decision (already settled, and reaffirmed here, not
+re-litigated); did not touch the 11 confirmed-unaffected stories (US-4, US-6, US-7, US-8, US-10,
+US-11, US-14, US-15, US-16, US-18, US-19) or `RESEARCH_BRIEF.md`; and made no commits.
+
+**What this pass did:**
+- Rewrote `US-1.md`'s struct definitions and Architecture Notes to `Index{SchemaVersion int, Shared
+  map[string]AgentEntry, Teams []TeamEntry}` / `TeamEntry{Name string, Agents map[string]AgentEntry}`
+  (`AgentEntry{Source, Dest string}` unchanged), added the duplicate-key invariant as an explicit
+  bullet and a new AC-5, and updated T-04 to test a duplicate key across two teams (or a team and
+  `shared`) failing validation and naming both locations.
+- Rewrote `US-13.md`'s Open Question 6 resolution bullet ("agents array" → inline `agents` map);
+  left its `AgentEntry`/`AgentEntry.Source` references unchanged, since that leaf type did not
+  change shape.
+- Rewrote `US-17.md` in full: added a "bootstrap step, distinct from the index's own `source`/`dest`
+  fields" bullet describing, in prose only (no JSON field), the one-time copy of each agent's
+  markdown from `.claude/agents/<key>.md` to its new `teams/<team-or-shared>/<key>.md` home;
+  corrected the `source`/`dest` description (schema-level meaning: `source` is the path in the
+  already-built `teams/` layout, relative to the index's own repo root; `dest` is the harness-neutral
+  installed filename) — the prior text had these backwards; replaced the worked-example JSON with
+  the corrected shared-map-plus-inline-team-map shape; reworded AC-1/AC-2/AC-3 and T-62 to "inline
+  `agents` map"/"top-level `shared` map" language, preserving every AC's original substantive intent
+  (exactly 5 go-specialist agents inline under `go-team`, exactly 8 shared agents in the top-level
+  `shared` map, none of the 5 host-level tooling entries anywhere, every `source` path resolving
+  under `teams/`).
+- Rewrote `SPIKE.md`'s "Sample JSON index" section: reworded its intro to describe the inline-
+  per-team/shared-map split and the one-time bootstrap copy; replaced the JSON block verbatim to
+  mirror `US-17.md`'s corrected worked example exactly; corrected the `team add` command
+  description ("every agent in the named team's own `agents` map plus every agent in the top-level
+  `shared` map," not "every agent in the named team plus every `shared` agent"); and added an
+  explicit sentence resolving a previously-tentative point — `team list --json`-style CLI output
+  samples elsewhere in the file need no change, since they show agent keys as plain string arrays
+  (a simplified display view) and carry no `source`/`dest` fields, unlike the persisted index file
+  itself. Every other section of `SPIKE.md` (global flags, exit codes, `team show`/`status`/
+  `update`/`manage` sample outputs, "Decisions worth remembering," "Not done," "Recommendation") was
+  left unchanged, since none of it depends on the schema's internal shape.
+- Rewrote this file's Shared Decision 1: replaced the struct definitions with the corrected shape,
+  added the duplicate-key invariant and the promote-is-a-move-not-a-copy rule (mirroring `US-1.md`'s
+  corrected Architecture Notes), and corrected the Story Index's US-1 title cell to the exact
+  wording `US-1.md` itself now carries. No other Shared Decision, Workflow step, Cross-Story
+  Constraint, Deviation, or Story Index row needed a change — none of them restated the struct
+  shape or the `shared`-as-list assumption; they were already schema-shape-agnostic.
+- Fixed the two confirmed light-touch documents: `US-2.md` ("that team's `agents` array names its
+  key" / "editing that team's `agents` array" / "the `shared` list's agents are available" → "agents
+  map" / "inline `agents` map" / "the `shared` map's agents are available," respectively — no other
+  content in that file changed); `US-3.md` (opening paragraph's "the index schema (key→{source,dest}
+  map plus `shared`/`teams` lists)" reworded to "the index schema (per-team inline `agents` maps, a
+  top-level `shared` map, each entry a `{source,dest}` pair)" — no other content in that file
+  changed).
+
+**What this pass explicitly did not do:** touch `US-5.md` or `US-9.md` (confirmed clean — no
+flat-registry or list-shaped language present); touch any of the 11 confirmed-unaffected stories;
+touch `RESEARCH_BRIEF.md`; reopen the schema decision itself; change any story's scope, dependency,
+size, or task decomposition beyond the terminology/shape fix described above; commit or push
+anything. Historical Provenance entries above (first through third pass) are left exactly as
+written — they are the record of what those passes actually produced, not a live description of
+the current schema, and are not restated or corrected here even where a phrase they used (e.g. "the
+`shared` list") reflects language current usage has since moved past.
+
+**Result:** the schema/terminology conflict the sponsor flagged is resolved across all five
+directly-conflicting documents. Implement mode can resume from `US-1.md` per the established
+dependency ordering (Workflow step 2) with a consistent schema description across every touched
+document.
