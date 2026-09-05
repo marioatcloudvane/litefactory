@@ -256,6 +256,76 @@ func TestDaemonStartLoadsTheAgent(t *testing.T) {
 	}
 }
 
+// TestDaemonStartWithLevelWritesItIntoTheProgramArguments is US-6, AC-6.3:
+// `daemon start --level debug` writes a plist whose ProgramArguments end
+// with `daemon run --level debug`, and the effective level is reported back
+// in the command's own summary output (via the "program" line, which is the
+// only place the installed argv is echoed).
+func TestDaemonStartWithLevelWritesItIntoTheProgramArguments(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, stdout, stderr := h.run("daemon", "start", "--level", "debug")
+	if code != ExitOK {
+		t.Fatalf("daemon start --level debug: exit %d\nstderr:\n%s", code, stderr)
+	}
+
+	plist := h.plist()
+	for _, want := range []string{
+		"<string>daemon</string>",
+		"<string>run</string>",
+		"<string>--level</string>",
+		"<string>debug</string>",
+	} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("the plist does not contain %q:\n%s", want, plist)
+		}
+	}
+
+	if !strings.Contains(stdout, "daemon run --level debug") {
+		t.Errorf("`daemon start --level debug` did not report the effective level in its summary:\nstdout:\n%s", stdout)
+	}
+}
+
+// TestDaemonStartWithNoLevelOmitsIt is the complementary case: no --level
+// means no --level in the installed argv, and log_level in config.yaml keeps
+// governing the daemon.
+func TestDaemonStartWithNoLevelOmitsIt(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, stdout, stderr := h.run("daemon", "start")
+	if code != ExitOK {
+		t.Fatalf("daemon start: exit %d\nstderr:\n%s", code, stderr)
+	}
+
+	plist := h.plist()
+	if strings.Contains(plist, "--level") {
+		t.Errorf("the plist contains --level when none was requested:\n%s", plist)
+	}
+	if !strings.Contains(stdout, "daemon run\n") && !strings.Contains(stdout, "daemon run") {
+		t.Errorf("`daemon start` did not report the program it installed:\nstdout:\n%s", stdout)
+	}
+}
+
+// TestDaemonStartRejectsAnUnrecognizedLevel is US-6, AC-6.2's `daemon start`
+// counterpart: a bad --level value must fail before any plist is written or
+// launchctl is touched, exactly like `daemon run --level loud` fails before
+// the poll loop starts.
+func TestDaemonStartRejectsAnUnrecognizedLevel(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, _, stderr := h.run("daemon", "start", "--level", "loud")
+
+	if code != ExitUsage {
+		t.Fatalf("daemon start --level loud: exit %d, want %d\nstderr:\n%s", code, ExitUsage, stderr)
+	}
+	if _, err := os.Stat(h.plistPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an invalid --level should not have written a plist, stat error = %v", err)
+	}
+	if len(h.fake.calls) != 0 {
+		t.Errorf("an invalid --level should not have touched launchctl, got calls %v", h.fake.calls)
+	}
+}
+
 // TestDaemonStartReplacesAndReloads is the "re-running replaces and reloads
 // without error" half of AC-2.2.
 func TestDaemonStartReplacesAndReloads(t *testing.T) {

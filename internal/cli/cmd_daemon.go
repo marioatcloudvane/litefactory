@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/launchd"
+	"github.com/cloudvane/litefactory/internal/logging"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -31,12 +34,30 @@ const daemonNoTokenMessage = `no bot token is configured, so the daemon does not
             account: "github-bot"
   Then run ` + "`litefactory init`" + ` to record the bot identity`
 
+// daemonRunOptions holds the parsed flags of "litefactory daemon run".
+type daemonRunOptions struct {
+	// level overrides the configured log level for this run. It is bound here
+	// so --help and an unknown flag are handled correctly, but the value
+	// itself is never read from this struct: main resolves --level (via
+	// [LogLevelOverride]) before the logger exists, which is before this
+	// command's Handler ever runs. See the comment on the handler below and
+	// on [LogLevelOverride] for why the flag is declared in two places
+	// (DEV-1, US-6).
+	level string
+}
+
+// bind registers the daemon run flags on fs.
+func (o *daemonRunOptions) bind(fs *flag.FlagSet) {
+	fs.StringVar(&o.level, "level", "", "run at this log `level` instead of the configured one "+
+		"(debug, info, warn, error)")
+}
+
 // newDaemonRunCommand declares "litefactory daemon run", the foreground poll
 // loop that launchd executes.
 func newDaemonRunCommand() *Command {
 	return &Command{
 		Name:  "daemon run",
-		Usage: "daemon run",
+		Usage: "daemon run [--level level]",
 		Short: "Run the poll loop in the foreground until interrupted",
 		Long: "Run the poll loop in this process, in the foreground, until SIGINT or\n" +
 			"SIGTERM. This is what the launchd agent executes; run it directly to watch\n" +
@@ -44,13 +65,89 @@ func newDaemonRunCommand() *Command {
 			"It never forks and writes no pid file. A second instance refuses to start:\n" +
 			"the first one holds an exclusive lock on $LF_HOME/daemon.lock.\n\n" +
 			"git and claude are resolved before the first tick, so a binary that is not\n" +
-			"where the configuration says fails here rather than three hours into a run.",
-		New: func(*flag.FlagSet) Handler {
+			"where the configuration says fails here rather than three hours into a run.\n\n" +
+			"--level overrides log_level in config.yaml for this run only; config.yaml\n" +
+			"is never modified.",
+		New: func(fs *flag.FlagSet) Handler {
+			var opts daemonRunOptions
+			opts.bind(fs)
 			return func(ctx context.Context, env *Env, _ []string) error {
+				// opts.level is intentionally unused: by the time this Handler
+				// runs, main has already resolved --level with
+				// [LogLevelOverride] and built env.Logger at that level, before
+				// the router (and this command) existed. Binding it again here
+				// costs nothing and buys correct --help text and correct
+				// unknown-flag handling (DEV-1, US-6).
 				return runDaemonRun(ctx, env)
 			}
 		},
 	}
+}
+
+// LogLevelOverride resolves a --level flag out of a raw argv slice, before the
+// router or the logger exist.
+//
+// This duplicates the --level binding on "daemon run" (see daemonRunOptions
+// above) and, more distantly, on "daemon start" (daemonStartOptions). That
+// duplication is deliberate rather than an oversight: main builds env.Logger
+// before cli.Router ever parses a command's flags, because the logger needs
+// to exist before the very first log line, including "dispatch". By the time
+// the router's normal flag parsing would see --level, it is too late to
+// affect which level the logger was built with. This is the DEV-1 resolution
+// recorded in .aiteam/AC_AMENDMENTS.md for US-6 (Option A): read the flag
+// twice, once narrowly here for the level it actually controls, and once on
+// the command itself so --help and an unknown flag are still reported
+// correctly by the router.
+//
+// args is scanned by hand for a bare "--level"/"-level" (with a following
+// value) or a "--level=value"/"-level=value" form -- not with a
+// [flag.FlagSet]: fs.Parse stops at the first non-flag argument it meets,
+// which for these commands is the command name itself ("daemon", "run"),
+// before it ever reaches --level. A hand-rolled scan is unavoidable here,
+// not a second implementation of the parser: the keyword itself is still
+// parsed exclusively by [logging.ParseLevel] (D-4). Everything else in args
+// -- the command name, other flags -- is irrelevant here and ignored; the
+// router parses it properly afterwards. When --level appears more than
+// once, the last occurrence wins, matching how repeated flags behave under
+// [flag.FlagSet].
+//
+// It returns (level, true, nil) when --level was present and valid,
+// (0, false, nil) when it was absent, and (0, false, err) when it was present
+// but did not parse with [logging.ParseLevel]. A non-nil error here is a
+// usage error: the caller must report it and exit with [ExitUsage] before
+// opening the log sink or building the logger, never fall back to the
+// configured level silently.
+func LogLevelOverride(args []string) (slog.Level, bool, error) {
+	var (
+		level string
+		found bool
+	)
+	for i := 0; i < len(args); i++ {
+		switch arg := args[i]; {
+		case arg == "--level" || arg == "-level":
+			if i+1 >= len(args) {
+				return 0, false, fmt.Errorf("flag needs an argument: %s", arg)
+			}
+			level = args[i+1]
+			found = true
+			i++
+		case strings.HasPrefix(arg, "--level="):
+			level = strings.TrimPrefix(arg, "--level=")
+			found = true
+		case strings.HasPrefix(arg, "-level="):
+			level = strings.TrimPrefix(arg, "-level=")
+			found = true
+		}
+	}
+
+	if !found {
+		return 0, false, nil
+	}
+	parsed, err := logging.ParseLevel(level)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid --level %q: %w", level, err)
+	}
+	return parsed, true, nil
 }
 
 // runDaemonRun starts the poll loop and blocks until the process is signalled
@@ -243,10 +340,25 @@ func daemonClaudeOrigin(claude config.Executable) string {
 // newDaemonStartCommand declares "litefactory daemon start" (T-LF2.7).
 func newDaemonStartCommand() *Command { return daemonStartCommand(nil) }
 
+// daemonStartOptions holds the parsed flags of "litefactory daemon start".
+type daemonStartOptions struct {
+	// level, when set, is appended to the plist's ProgramArguments as
+	// "--level <level>" (US-6, AC-6.3), so the installed agent runs at this
+	// level on every future login rather than whatever log_level is in
+	// config.yaml. config.yaml itself is never modified.
+	level string
+}
+
+// bind registers the daemon start flags on fs.
+func (o *daemonStartOptions) bind(fs *flag.FlagSet) {
+	fs.StringVar(&o.level, "level", "", "install the agent to run at this log `level` "+
+		"(debug, info, warn, error)")
+}
+
 func daemonStartCommand(runner launchd.Runner) *Command {
-	return &Command{
+	cmd := &Command{
 		Name:  "daemon start",
-		Usage: "daemon start",
+		Usage: "daemon start [--level level]",
 		Short: "Write the launchd agent and load it",
 		Long: "Write ~/Library/LaunchAgents/" + launchd.DefaultLabel + ".plist and load it\n" +
 			"into your GUI session, so the daemon runs now and again at every login.\n\n" +
@@ -255,13 +367,26 @@ func daemonStartCommand(runner launchd.Runner) *Command {
 			"Your current PATH is copied into the plist and printed back, because a\n" +
 			"launchd agent is otherwise given only " + launchd.LaunchdPATH + "\n" +
 			"and would never find a Homebrew claude.\n\n" +
-			"Running it again replaces and reloads the agent.",
-		New: func(*flag.FlagSet) Handler {
-			return func(ctx context.Context, env *Env, _ []string) error {
-				return runDaemonStart(ctx, env, runner)
-			}
-		},
+			"--level installs the agent to run at that log level on every future login;\n" +
+			"config.yaml is not modified. Running the command again replaces and\n" +
+			"reloads the agent.",
 	}
+	cmd.New = func(fs *flag.FlagSet) Handler {
+		var opts daemonStartOptions
+		opts.bind(fs)
+		return func(ctx context.Context, env *Env, _ []string) error {
+			if opts.level != "" {
+				// Validated here, not just left to daemonProgram: a typo in
+				// --level should fail before a launchd agent is installed,
+				// not silently at its first "daemon run" tick.
+				if _, err := logging.ParseLevel(opts.level); err != nil {
+					return Usagef(cmd, "%s", err)
+				}
+			}
+			return runDaemonStart(ctx, env, runner, opts)
+		}
+	}
+	return cmd
 }
 
 // newDaemonStopCommand declares "litefactory daemon stop" (T-LF2.7).

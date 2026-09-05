@@ -67,7 +67,7 @@ func TestRouterExitCodes(t *testing.T) {
 			name:           "help exits 0 and lists every command",
 			args:           []string{"--help"},
 			wantCode:       ExitOK,
-			wantStdoutHas:  []string{"init", "repo add <path>", "repo list", "daemon run", "daemon start", "daemon stop", "daemon status", "logs <issue>", "task clean <issue>"},
+			wantStdoutHas:  []string{"init", "repo add <path>", "repo list", "daemon run", "daemon start", "daemon stop", "daemon status", "logs [<issue>]", "task clean <issue>"},
 			wantStdoutOnly: true,
 		},
 		{
@@ -89,10 +89,15 @@ func TestRouterExitCodes(t *testing.T) {
 			wantStderrHas: []string{`"daemon" needs a subcommand`, "daemon run", "daemon status"},
 		},
 		{
+			// logs used to be this case's subject: bare "litefactory logs"
+			// was a missing-positional usage error. It no longer is — bare
+			// logs now shows litefactory's own log (US-1) — so the arity
+			// check is exercised here against another command that still
+			// requires its positional, task clean, instead.
 			name:          "missing required positional exits 2",
-			args:          []string{"logs"},
+			args:          []string{"task", "clean"},
 			wantCode:      ExitUsage,
-			wantStderrHas: []string{"missing argument: <issue>", "logs <issue>"},
+			wantStderrHas: []string{"missing argument: <issue>", "task clean <issue>"},
 		},
 		{
 			name:          "unknown flag exits 2",

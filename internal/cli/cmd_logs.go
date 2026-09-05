@@ -69,6 +69,17 @@ type logsOptions struct {
 	full bool
 	// repo disambiguates an issue number registered in more than one repo.
 	repo string
+	// tailN is how many records the app log view shows by default (-n). It
+	// only applies to the app log view; validateTailFlags rejects it on the
+	// per-issue run log path.
+	tailN int
+	// all shows the whole app log instead of just its tail (--all). Like
+	// tailN, it only applies to the app log view.
+	all bool
+	// level is the minimum level (debug, info, warn, error) the app log view
+	// shows; empty means no filtering. Like tailN and all, it only applies to
+	// the app log view (US-5).
+	level string
 }
 
 // bind registers the logs flags on fs.
@@ -84,6 +95,12 @@ func (o *logsOptions) bind(fs *flag.FlagSet) {
 	fs.BoolVar(&o.invert, "invert", false, "show the lines --grep does not match")
 	fs.BoolVar(&o.full, "full", false, "do not shorten tool arguments or tool output")
 	fs.StringVar(&o.repo, "repo", "", "disambiguate the issue with `owner/name`")
+	fs.IntVar(&o.tailN, "n", defaultTailLines, "show the last `N` records of the app log "+
+		"(default 200; app log view only)")
+	fs.BoolVar(&o.all, "all", false, "show the whole app log instead of the last records "+
+		"(app log view only)")
+	fs.StringVar(&o.level, "level", "", "show only records at or above `level` "+
+		"(debug, info, warn, error; app log view only)")
 }
 
 // filtering reports whether the caller asked for a subset of the log. It is
@@ -108,8 +125,8 @@ func (o logsOptions) newSink(out io.Writer, kinds kindSet, grep *lineFilter) log
 func newLogsCommand() *Command {
 	cmd := &Command{
 		Name:  "logs",
-		Usage: "logs <issue> [--run N] [--only kinds] [--grep regexp] [--raw] [-f]",
-		Short: "Show the local, unredacted log for an issue",
+		Usage: "logs [<issue>] [--run N] [--only kinds] [--grep regexp] [--raw] [-f]",
+		Short: "Show the local, unredacted log for an issue, or litefactory's own log",
 		Long: "Show what the forge comment left out. Reads the database and the run logs\n" +
 			"under $LF_HOME directly, so it works with the daemon stopped. Output is\n" +
 			"never redacted.\n\n" +
@@ -127,17 +144,43 @@ func newLogsCommand() *Command {
 			"  result  how the run ended, and its final text\n" +
 			"  user    a user-role message that is not a tool result\n" +
 			"  other   anything else, including lines that are not JSON\n\n" +
+			"With no issue argument, `litefactory logs` instead shows litefactory's\n" +
+			"own log, daemon.log under $LF_HOME/logs: what the daemon itself has been\n" +
+			"doing, rendered the same labelled-line way as above. It shows the last\n" +
+			"200 records by default; -n N shows a different count and --all shows\n" +
+			"the whole file. --level LEVEL shows only records at or above that level\n" +
+			"(debug, info, warn, error); a level the app log never captured prints a\n" +
+			"note on stderr suggesting `daemon start --level LEVEL`. --grep, -i and\n" +
+			"--invert apply here too, filtering the rendered (or, with --raw, raw)\n" +
+			"line. Flags that only apply to an issue's run log (--run, --runs, -f,\n" +
+			"--only, --full, --repo) are rejected when no issue is given, and\n" +
+			"-n/--all/--level are rejected when one is.\n\n" +
 			"Examples:\n" +
+			"  litefactory logs                       litefactory's own log\n" +
+			"  litefactory logs -n 500                 the last 500 lines of it\n" +
 			"  litefactory logs 123 -f --only agent   watch what the agents are doing\n" +
 			"  litefactory logs 123 --only tool       every tool call the run made\n" +
 			"  litefactory logs 123 --grep 'go test'  only the lines mentioning it\n" +
 			"  litefactory logs 123 --raw             the JSONL, byte for byte",
-		Args: ArgSpec{Names: []string{"issue"}, Min: 1},
+		Args: ArgSpec{Names: []string{"issue"}, Min: 0},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var opts logsOptions
 		opts.bind(fs)
 		return func(ctx context.Context, env *Env, args []string) error {
+			hasIssue := len(args) > 0
+			if err := validateFlagApplicability(cmd, fs, hasIssue); err != nil {
+				return err
+			}
+			if err := validateTailFlags(cmd, fs, opts, hasIssue); err != nil {
+				return err
+			}
+			if err := validateLevelFlag(cmd, fs, opts, hasIssue); err != nil {
+				return err
+			}
+			if !hasIssue {
+				return runAppLog(ctx, env, cmd, opts)
+			}
 			return runLogs(ctx, env, cmd, opts, args[0])
 		}
 	}
@@ -835,7 +878,7 @@ func parseTaskArg(cmd *Command, arg string) (issue int, owner, name string, err 
 	}
 	issue, convErr := strconv.Atoi(strings.TrimPrefix(arg, "#"))
 	if convErr != nil || issue <= 0 {
-		return 0, "", "", Usagef(cmd, "issue must be a positive number, got %q", arg)
+		return 0, "", "", issueArgError(cmd, arg)
 	}
 	return issue, "", "", nil
 }
