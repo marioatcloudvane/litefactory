@@ -503,7 +503,7 @@ func TestLogsFollowRendersAsItStreams(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--only", "agent,system,result"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--only", "agent,system,result"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("the live writer never finished, so the follower was not streaming: %v", err)
@@ -572,7 +572,7 @@ func TestLogsFollowRenderedNeverEmitsAPartialLine(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--only", "text"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--only", "text"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("live writer: %v", err)

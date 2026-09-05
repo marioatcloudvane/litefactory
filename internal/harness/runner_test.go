@@ -597,6 +597,8 @@ func TestRunFailsOnIsErrorDespiteSuccessSubtype(t *testing.T) {
 // that with `set -m`, which puts the background job in its own process group,
 // and then asserts the sleeper is gone.
 func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
+	requireProcessEnumeration(t)
+
 	root := t.TempDir()
 	sleeperPID := filepath.Join(root, "sleeper.pid")
 	sleeperPGID := filepath.Join(root, "sleeper.pgid")

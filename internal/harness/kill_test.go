@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -14,6 +16,8 @@ import (
 // directly; TestRunTimeoutKillsTheWholeSubtree exercises it end to end.
 
 func TestDescendantsWalksMoreThanOneLevel(t *testing.T) {
+	requireProcessEnumeration(t)
+
 	// A shell that starts a shell that starts a sleeper: three levels, so a
 	// walk that only listed direct children would miss the bottom one.
 	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", "/bin/sh -c '/bin/sleep 30 & wait' & wait")
@@ -41,6 +45,43 @@ func TestDescendantsWalksMoreThanOneLevel(t *testing.T) {
 		if child <= 1 {
 			t.Errorf("the walk returned pid %d", child)
 		}
+	}
+}
+
+// requireProcessEnumeration skips only tests whose assertions depend on seeing
+// other processes. The managed macOS sandbox can deny both ps and pgrep when
+// sysmond is unavailable; treating that denial as an empty tree would turn an
+// environment prerequisite into a misleading subtree-kill failure.
+func requireProcessEnumeration(t *testing.T) {
+	t.Helper()
+
+	self := strconv.Itoa(os.Getpid())
+	out, err := exec.CommandContext(t.Context(), "/bin/ps", "-o", "pid=", "-p", self).CombinedOutput()
+	if err != nil {
+		t.Skipf("process enumeration unavailable: ps: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if !slices.Contains(strings.Fields(string(out)), self) {
+		t.Fatalf("ps did not report the test process %s: %q", self, out)
+	}
+
+	child := exec.CommandContext(context.WithoutCancel(t.Context()), "/bin/sleep", "30")
+	if err := child.Start(); err != nil {
+		t.Fatalf("start enumeration probe child: %v", err)
+	}
+	t.Cleanup(func() {
+		if child.Process != nil {
+			_ = child.Process.Kill()
+		}
+		_ = child.Wait()
+	})
+
+	out, err = exec.CommandContext(t.Context(), pgrepPath, "-P", self, ".").CombinedOutput()
+	if err != nil {
+		t.Skipf("process enumeration unavailable: pgrep: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	childPID := strconv.Itoa(child.Process.Pid)
+	if !slices.Contains(strings.Fields(string(out)), childPID) {
+		t.Fatalf("pgrep did not report probe child %s: %q", childPID, out)
 	}
 }
 
@@ -103,6 +144,29 @@ func TestChildrenReportsNothingForALeaf(t *testing.T) {
 	// not an error worth propagating.
 	if got := children(t.Context(), 2_000_000_000, discardLogger()); len(got) != 0 {
 		t.Errorf("children of a nonexistent pid = %v", got)
+	}
+}
+
+// BSD pgrep rejects a parent selector without a pattern. This confirms the
+// all-process pattern still returns a direct child after -P narrows the tree.
+func TestChildrenFindsKnownDirectChild(t *testing.T) {
+	requireProcessEnumeration(t)
+
+	cmd := exec.CommandContext(t.Context(), "/bin/sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start sleeper: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	})
+
+	if !waitFor(10*time.Second, func() bool {
+		return slices.Contains(children(t.Context(), os.Getpid(), discardLogger()), cmd.Process.Pid)
+	}) {
+		t.Errorf("children(%d) did not contain known direct child %d", os.Getpid(), cmd.Process.Pid)
 	}
 }
 

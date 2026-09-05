@@ -46,6 +46,13 @@ func newLogsHome(t *testing.T) *logsHome {
 
 	home := t.TempDir()
 	t.Setenv(config.EnvHome, home)
+	// An implicit issue follower uses the agent recorded on its completed run
+	// to obtain its successor deadline. Keep every follow fixture configured
+	// just as a real LF_HOME is; an absent config is an actionable error, not a
+	// legacy success fallback.
+	if err := os.WriteFile(config.NewPaths(home).ConfigPath(), config.DefaultFileContents(), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	db, err := store.Open(t.Context(), config.NewPaths(home).DBPath())
 	if err != nil {
@@ -1121,7 +1128,7 @@ func TestLogsFollowStreamsFromALiveWriter(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("the live writer never finished, so the follower was not streaming: %v", err)
@@ -1194,7 +1201,7 @@ func TestLogsFollowNeverEmitsAPartialLine(t *testing.T) {
 	}()
 
 	var stderr bytes.Buffer
-	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
+	code := f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"})
 
 	if err := <-writerDone; err != nil {
 		t.Fatalf("live writer: %v", err)
@@ -1237,7 +1244,7 @@ func TestLogsFollowOnAFinishedRunPrintsAndExits(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"})
+	code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"})
 	elapsed := time.Since(start)
 
 	if code != ExitOK {
@@ -1271,7 +1278,7 @@ func TestLogsFollowOnAFinishedRunPrintsAnUnterminatedTail(t *testing.T) {
 	defer cancel()
 
 	var stdout, stderr bytes.Buffer
-	if code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"}); code != ExitOK {
+	if code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"}); code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
 	}
 	if stdout.String() != content {
@@ -1346,5 +1353,118 @@ func TestLogsFollowWithoutAnEventLog(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no event log at") {
 		t.Errorf("stderr = %q, want it to name the missing file", stderr.String())
+	}
+}
+
+// TestLogsFollowIssueRollsForward keeps the issue-level form useful after the
+// run that was current at invocation has ended. Raw stdout remains suitable
+// for piping: rollover context goes exclusively to stderr.
+func TestLogsFollowIssueRollsForward(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 123)
+	first := f.allocateRun(session, 1001, time.Now().UTC())
+	firstLog := event("assistant", "first") + resultLine("first done")
+	f.writeLog(session, first.Ordinal, firstLog)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	out := &recordingWriter{}
+	var stderr bytes.Buffer
+	done := make(chan int, 1)
+	go func() { done <- f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "-f", "--raw"}) }()
+
+	if err := out.waitForWrites(ctx, 2); err != nil {
+		t.Fatalf("wait for first run: %v", err)
+	}
+	second := f.allocateRun(session, 1002, time.Now().UTC())
+	secondLog := event("assistant", "second")
+	f.writeLog(session, second.Ordinal, secondLog)
+
+	if err := out.waitForWrites(ctx, 3); err != nil {
+		t.Fatalf("wait for second run: %v", err)
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != ExitOK {
+			t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("follow did not stop after cancellation")
+	}
+	if got, want := out.joined(), firstLog+secondLog; got != want {
+		t.Errorf("raw stdout\n got %q\nwant %q", got, want)
+	}
+	if got, want := stderr.String(), "--- run 0002 ---\n"; got != want {
+		t.Errorf("raw rollover stderr\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestLogsFollowExplicitRunStaysPinned makes the explicit ordinal contract
+// distinct from issue-level following even when a newer log already exists.
+func TestLogsFollowExplicitRunStaysPinned(t *testing.T) {
+	f := newLogsHome(t)
+	session := f.session(f.repo("acme", "api"), 123)
+	first := f.allocateRun(session, 1001, time.Now().UTC())
+	firstLog := event("assistant", "first") + resultLine("first done")
+	f.writeLog(session, first.Ordinal, firstLog)
+	second := f.allocateRun(session, 1002, time.Now().UTC())
+	f.writeLog(session, second.Ordinal, event("assistant", "second")+resultLine("second done"))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var stdout, stderr bytes.Buffer
+	if code := f.newRouter(&stdout, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"}); code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
+	}
+	if got := stdout.String(); got != firstLog {
+		t.Errorf("explicit follow output\n got %q\nwant %q", got, firstLog)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("explicit follow emitted rollover context: %q", stderr.String())
+	}
+}
+
+// TestLogsFollowTerminalEventsAfterEOF regresses the retained-file EOF path:
+// each supported terminal protocol event is appended only after a prior line
+// has proved the follower drained to EOF.
+func TestLogsFollowTerminalEventsAfterEOF(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+	}{
+		{"claude result/exits", resultLine("done")},
+		{"codex completed/exits", event("turn.completed", "done")},
+		{"codex failed/exits", event("turn.failed", "provider limit")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newLogsHome(t)
+			session := f.session(f.repo("acme", "api"), 123)
+			run := f.allocateRun(session, 1001, time.Now().UTC())
+			path := f.writeLog(session, run.Ordinal, event("assistant", "before eof"))
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			out := &recordingWriter{}
+			var stderr bytes.Buffer
+			done := make(chan int, 1)
+			go func() {
+				done <- f.newRouter(out, &stderr).Run(ctx, []string{"logs", "123", "--run", "1", "-f", "--raw"})
+			}()
+			if err := out.waitForWrites(ctx, 1); err != nil {
+				t.Fatalf("wait for initial EOF drain: %v", err)
+			}
+			if err := appendToFile(path, tt.line); err != nil {
+				t.Fatalf("append terminal event: %v", err)
+			}
+			select {
+			case code := <-done:
+				if code != ExitOK {
+					t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr.String())
+				}
+			case <-ctx.Done():
+				t.Fatalf("wait for terminal event: %v", ctx.Err())
+			}
+		})
 	}
 }

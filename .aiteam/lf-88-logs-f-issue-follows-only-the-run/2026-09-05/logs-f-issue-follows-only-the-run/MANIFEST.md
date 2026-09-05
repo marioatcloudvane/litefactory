@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(completed 2026-09-05)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed 2026-09-05)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(completed 2026-09-05)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -18,5 +18,6 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-05 — Research started
 - 2026-09-05 — Research completed; `RESEARCH_BRIEF.md` written
 - 2026-09-05 — Plan completed; `plan_brief.md` and `US-001.md` written
+- 2026-09-05 — Implement completed; `make check` passed (fmt, vet, lint, race tests)
 
 ## Notes

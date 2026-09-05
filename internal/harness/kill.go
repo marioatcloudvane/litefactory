@@ -173,7 +173,9 @@ func children(ctx context.Context, parent int, logger *slog.Logger) []int {
 	defer cancel()
 
 	// #nosec G204 -- constant binary path; the only argument is a formatted int.
-	cmd := exec.CommandContext(scanCtx, pgrepPath, "-P", strconv.Itoa(parent))
+	// BSD pgrep requires a pattern even when -P selects the parent. A single
+	// dot matches every process name, leaving -P as the subtree boundary.
+	cmd := exec.CommandContext(scanCtx, pgrepPath, "-P", strconv.Itoa(parent), ".")
 	// An explicit empty environment: nil would mean os.Environ(), and this
 	// package hands no process the daemon's environment.
 	cmd.Env = []string{}

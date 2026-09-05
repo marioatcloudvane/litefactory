@@ -51,6 +51,9 @@ const codexFailedEventType = "turn.failed"
 type logsOptions struct {
 	// run selects a single run by ordinal; 0 means the newest run.
 	run int
+	// runExplicit distinguishes the default newest-run selection from an
+	// operator pin. A zero ordinal alone cannot preserve that distinction.
+	runExplicit bool
 	// runs lists the issue's runs instead of showing one run's log.
 	runs bool
 	// raw writes the run's JSONL to stdout byte for byte.
@@ -138,6 +141,11 @@ func newLogsCommand() *Command {
 		var opts logsOptions
 		opts.bind(fs)
 		return func(ctx context.Context, env *Env, args []string) error {
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "run" {
+					opts.runExplicit = true
+				}
+			})
 			return runLogs(ctx, env, cmd, opts, args[0])
 		}
 	}
@@ -214,23 +222,195 @@ func runLogs(ctx context.Context, env *Env, cmd *Command, opts logsOptions, issu
 	if err != nil {
 		return err
 	}
-	path, err := target.logPath(run)
-	if err != nil {
-		return err
-	}
 	sink := opts.newSink(env.Stdout, kinds, grep)
 	switch {
 	case opts.follow:
-		// A run that has already finished stops at end of file instead of
-		// waiting for events that will never come (AC-5.6).
-		return tailLog(ctx, sink, path, followInterval, run.Status != store.RunRunning)
+		return followRuns(ctx, env, paths, target, run, opts, sink)
 	case opts.raw && grep == nil:
+		path, err := target.logPath(run)
+		if err != nil {
+			return err
+		}
 		// The unfiltered raw view is a byte-for-byte copy and nothing else
 		// (AC-5.5); filtering it necessarily goes line by line instead.
 		return copyLog(env.Stdout, path)
 	default:
+		path, err := target.logPath(run)
+		if err != nil {
+			return err
+		}
 		return writeRun(env.Stdout, target, run, path, sink, opts)
 	}
+}
+
+// followRuns coordinates issue-level following. Explicit --run is deliberately
+// a pin; without it, a terminal ordinal is followed by the earliest later
+// ordinal that appears before the completed run's own agent timeout.
+func followRuns(ctx context.Context, env *Env, paths config.Paths, target logTarget, run store.Run, opts logsOptions, sink logSink) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		path, err := target.logPath(run)
+		if err != nil {
+			return err
+		}
+		finished := run.Status != store.RunRunning
+		terminal, err := tailLogObserved(ctx, sink, path, followInterval, finished, func(ctx context.Context) (bool, error) {
+			latest, err := loadRun(ctx, paths, run.ID)
+			if err != nil {
+				return false, err
+			}
+			run = latest
+			return latest.Status != store.RunRunning, nil
+		})
+		if err != nil {
+			return err
+		}
+		if !terminal || opts.runExplicit {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		deadline, err := successorDeadline(paths, run)
+		if err != nil {
+			return err
+		}
+		next, found, err := waitForSuccessor(ctx, paths, target.session.ID, run.Ordinal, deadline)
+		if err != nil || !found {
+			return err
+		}
+		if err := writeRolloverSeparator(env, opts.raw, next.Ordinal); err != nil {
+			return err
+		}
+		run = next
+	}
+}
+
+func loadRun(ctx context.Context, paths config.Paths, runID int64) (_ store.Run, err error) {
+	if err := ctx.Err(); err != nil {
+		return store.Run{}, err
+	}
+	db, err := store.Open(ctx, paths.DBPath())
+	if err != nil {
+		return store.Run{}, fmt.Errorf("open store while following run: %w", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	run, err := db.GetRun(ctx, runID)
+	if err != nil {
+		return store.Run{}, fmt.Errorf("refresh followed run %d: %w", runID, err)
+	}
+	return run, nil
+}
+
+func waitForSuccessor(ctx context.Context, paths config.Paths, sessionID int64, ordinal int, deadline time.Time) (store.Run, bool, error) {
+	ticker := time.NewTicker(followInterval)
+	defer ticker.Stop()
+	for {
+		if ctx.Err() != nil {
+			return store.Run{}, false, nil
+		}
+		runs, err := loadRuns(ctx, paths, sessionID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return store.Run{}, false, nil
+			}
+			return store.Run{}, false, err
+		}
+		if ctx.Err() != nil {
+			return store.Run{}, false, nil
+		}
+		for _, run := range runs {
+			if run.Ordinal > ordinal {
+				return run, true, nil
+			}
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return store.Run{}, false, nil
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-ctx.Done():
+			stopFollowTimer(timer)
+			return store.Run{}, false, nil
+		case <-ticker.C:
+			stopFollowTimer(timer)
+		case <-timer.C:
+			return store.Run{}, false, nil
+		}
+	}
+}
+
+func stopFollowTimer(timer *time.Timer) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+}
+
+func loadRuns(ctx context.Context, paths config.Paths, sessionID int64) (_ []store.Run, err error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	db, err := store.Open(ctx, paths.DBPath())
+	if err != nil {
+		return nil, fmt.Errorf("open store while waiting for next run: %w", err)
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	runs, err := db.ListRuns(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list runs while waiting for next run: %w", err)
+	}
+	return runs, nil
+}
+
+func successorDeadline(paths config.Paths, run store.Run) (time.Time, error) {
+	cfg, err := config.Load(paths)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load configuration for followed run %04d: %w", run.Ordinal, err)
+	}
+	var seconds int
+	switch run.Agent {
+	case store.AgentClaude:
+		if cfg.Agents.Claude == nil {
+			return time.Time{}, fmt.Errorf("followed run %04d used claude, but agents.claude is not configured", run.Ordinal)
+		}
+		seconds = cfg.Agents.Claude.TimeoutSeconds
+	case store.AgentCodex:
+		if cfg.Agents.Codex == nil {
+			return time.Time{}, fmt.Errorf("followed run %04d used codex, but agents.codex is not configured", run.Ordinal)
+		}
+		seconds = cfg.Agents.Codex.TimeoutSeconds
+	default:
+		return time.Time{}, fmt.Errorf("followed run %04d has unrecognized agent %q", run.Ordinal, run.Agent)
+	}
+	return time.Now().Add(time.Duration(seconds) * time.Second), nil
+}
+
+func writeRolloverSeparator(env *Env, raw bool, ordinal int) error {
+	out := env.Stdout
+	if raw {
+		out = env.Stderr
+	}
+	_, err := fmt.Fprintf(out, "--- run %04d ---\n", ordinal)
+	return err
 }
 
 // writeRun prints one run: its metadata summary, when the view is not a
@@ -623,14 +803,11 @@ func copyLog(out io.Writer, path string) (err error) {
 	return nil
 }
 
-// tailLog streams the run's event stream to sink as the daemon appends to it
-// (AC-5.6). What reaches stdout is whatever the sink makes of each line:
-// rendered lines by default, the raw bytes under --raw.
-//
-// It returns when the terminal event is written, when ctx is cancelled (SIGINT
-// reaches the command as a cancelled context, and interrupting a follow is a
-// normal way to end one, not a failure), or immediately after draining the file
-// when finished says the run has already ended.
+// tailLogObserved streams the run's event stream to sink as the daemon appends
+// to it (AC-5.6). What reaches stdout is whatever the sink makes of each line:
+// rendered lines by default, the raw bytes under --raw. Its optional
+// short-lived status observation detects a terminal database row when a killed
+// writer never emitted its final protocol event.
 //
 // The follow position is the offset of the open file handle — an
 // [io.ReadSeeker] held across ticks — so each tick resumes exactly where the
@@ -641,7 +818,13 @@ func copyLog(out io.Writer, path string) (err error) {
 // ticker and ctx together. That is what keeps `logs -f` responsive to Ctrl-C
 // while spending only one of the program's four goroutines — the one already
 // running this command.
-func tailLog(ctx context.Context, sink logSink, path string, interval time.Duration, finished bool) (err error) {
+//
+// A terminal database row is authoritative when a killed writer never emitted
+// its final protocol event; the final drain below preserves bytes written just
+// before that row became visible.
+func tailLogObserved(ctx context.Context, sink logSink, path string, interval time.Duration, finished bool,
+	observe func(context.Context) (bool, error),
+) (terminal bool, err error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -666,6 +849,9 @@ func tailLog(ctx context.Context, sink logSink, path string, interval time.Durat
 
 	buf := make([]byte, followReadSize)
 	for {
+		if ctx.Err() != nil {
+			return false, nil
+		}
 		if f == nil {
 			// #nosec G304 -- path comes from the runs row litefactory wrote, or
 			// is derived by naming from $LF_HOME and the validated task ref.
@@ -678,18 +864,18 @@ func tailLog(ctx context.Context, sink logSink, path string, interval time.Durat
 				// The run is allocated but claude has not written its first
 				// event yet. Wait for the file rather than failing.
 			case errors.Is(openErr, fs.ErrNotExist):
-				return fmt.Errorf("no event log at %s", path)
+				return false, fmt.Errorf("no event log at %s", path)
 			default:
-				return openErr
+				return false, openErr
 			}
 		}
 		if f != nil {
 			stop, drainErr := drainLog(ctx, f, sink, buf, &pending)
 			if drainErr != nil {
-				return drainErr
+				return false, drainErr
 			}
 			if stop {
-				return nil
+				return true, nil
 			}
 		}
 		if finished {
@@ -697,15 +883,28 @@ func tailLog(ctx context.Context, sink logSink, path string, interval time.Durat
 			// half of a future event — it is the file's real tail, left behind
 			// by a writer that was killed mid-line. Printing it keeps a follow
 			// of a finished run as complete as --raw.
-			return flushPending(sink, &pending)
+			return true, flushPending(sink, &pending)
 		}
 
 		select {
 		case <-ctx.Done():
 			// Interrupted mid-line: the partial stays unprinted rather than
 			// being emitted as a truncated event.
-			return nil
+			return false, nil
 		case <-ticker.C:
+			if observe == nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return false, nil
+			}
+			finished, err = observe(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return false, nil
+				}
+				return false, err
+			}
 		}
 	}
 }
