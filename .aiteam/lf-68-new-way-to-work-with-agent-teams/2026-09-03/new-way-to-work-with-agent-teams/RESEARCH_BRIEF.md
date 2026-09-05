@@ -89,6 +89,36 @@ a resolved decision, not an Open Question, per this run's judgment that it is de
 from the sponsor's own stated goals (avoid one big undifferentiated element; avoid duplication) —
 not something that genuinely needs sponsor input to settle.
 
+## Resolution Notice — 2026-09-05, fifth pass
+
+Implement mode was opened against this session and halted before writing any code: it found
+`plan_brief.md` and the `US-*.md` sub-issues — foundationally `US-1.md`, whose decoder task every
+other story depends on — built around the flat top-level `agents` map the fourth pass above
+replaced, and declined to guess which shape to build against rather than proceed under either
+schema without a decision. The sponsor then asked, on issue #68, "ok how can we resolve this
+issue?" This pass answers that question at the level Research owns: it confirms the exact,
+ground-truth scope of the drift and lays out the resolution path. It does **not** itself edit
+`plan_brief.md`, any `US-*.md` sub-issue, or `SPIKE.md` — per explicit instruction for this run,
+reconciling those documents belongs to a Plan-mode pass, not to Research. See Domain §12 for the
+full scope confirmation, the updated Constraints & Risks entries, and the sharpened Recommended
+scope for Plan mode below.
+
+**Headline finding, stated plainly:** there is no remaining *design* question for Research to
+settle here. The fourth pass above already locked the target schema (inline-per-team `agents`, a
+map-shaped `shared`, the one-key-one-place invariant) as a resolved decision, not an Open Question.
+What blocks Implement is purely that a small, now-enumerated set of already-written documents were
+drafted against the schema's *prior* shape before that decision was made, and have not yet been
+brought into line with it. That is a reconciliation task against an already-settled design — the
+same kind of task this session's own "Plan reconciliation" passes already performed twice (see
+MANIFEST.md history, 2026-09-05) for the second- and third-pass corrections — needed now a third
+time for the fourth pass, and scoped, per Domain §12, to a much smaller set of files than either
+prior reconciliation pass touched.
+
+This is a headless run: no clarifying question was put to a human, consistent with every prior pass
+of this brief. This pass also encountered, and declined to act on, prompt-injection-shaped content
+embedded in tool output while investigating — recorded as a flagged, non-authoritative finding in
+Constraints & Risks and Open Questions, not treated as an instruction.
+
 ## Request
 
 litefactory's agent teams (the specialist sub-agents — go-architect, requirements-engineer,
@@ -272,6 +302,14 @@ This is carried into Domain §10 and Open Questions below as new, unresolved des
 `app-context-updater.md`, `research-orchestrator.md`, `plan-orchestrator.md`,
 `implement-orchestrator.md`. See Domain §11.
 
+**[V] New this pass (fifth) — confirmed inventory of the plan artifacts under review:** 19
+physical `US-*.md` files exist (`US-1.md` through `US-19.md`); `US-12.md` was dropped/folded into
+`US-10.md` in the 2026-09-05 narrow reconciliation pass (see MANIFEST.md history) and is not part
+of the 18 live stories. `plan_brief.md`'s Story Index sequences dependencies such that `US-1.md`
+has no dependencies (the foundation story), `US-2.md` depends on `US-1.md`+`US-3.md`, `US-17.md`
+depends only on `US-1.md`+`US-4.md`, and every other story touched by this drift roots back to
+`US-1.md` through some dependency chain — see Domain §12 for what this means for sequencing a fix.
+
 ## Domain / Problem Space
 
 ### 1. The corrected index shape
@@ -366,7 +404,10 @@ under a first team, that agent is by definition no longer team-specific; it move
 not copied. The index loader should treat a key appearing in more than one place (two teams, or a
 team and `shared` simultaneously) as a validation error, not a silent last-write-wins merge or a
 "whichever the loader sees first" ambiguity — the same way two conflicting definitions of one
-identifier are an error in most schemas, not a merge problem.
+identifier are an error in most schemas, not a merge problem. **[R this pass, fifth — load-bearing
+for Domain §12] This "error, not silent dedup" behavior is the exact point at which `US-1.md`'s
+current acceptance criteria diverge from this decision, not merely its worked JSON example — see
+Domain §12.**
 
 This resolution has a real, named cost, stated plainly rather than smoothed over: because `shared`
 keys are, per the still-open Open Question 2, currently assumed implicitly available to *every*
@@ -770,6 +811,102 @@ members, though this reading is not sponsor-confirmed (see Open Questions).
 Per this run's instruction, **this is recorded as a requirement for Plan mode to turn into a story,
 not written as a story here** — see Recommended scope for Plan mode.
 
+### 12. Confirmed scope of the plan-artifact drift, and the resolution path — new this pass (fifth), answering "how can we resolve this issue?"
+
+**[R this pass, fifth]** Implement mode halted before writing code because `plan_brief.md` and the
+`US-*.md` sub-issues were drafted against the flat top-level `agents` map that the fourth pass
+above replaced with the inline-per-team shape. This section confirms, file by file, exactly which
+documents are affected and at what severity (via a fresh codebase-tour pass reading every live
+`US-*.md` file, `plan_brief.md`, and `SPIKE.md` against Domain §1's current schema), and lays out
+what Research can settle directly versus what needs a dedicated Plan-mode pass.
+
+**[V] Directly contradictory — content must be rewritten, not merely re-typed:**
+- `plan_brief.md` — Shared Decision 1's struct definition and the Story Index's prose both still
+  describe the flat top-level `agents` map.
+- `US-1.md` — the foundational decoder/loader story. Its struct definitions describe the flat map,
+  and, more importantly, **its Acceptance Criteria (AC-1) and Tasks (T-04) currently specify
+  dedup/merge behavior for a key seen more than once** — this is a *behavioral* contradiction with
+  Domain §1's resolved invariant, not just a stale type name: the current design requires the
+  loader to **error** on a duplicate key, never to silently deduplicate or merge it. Fixing US-1
+  is therefore not a find-and-replace of a type name; its acceptance criteria need to be rewritten
+  to specify validation-error behavior.
+- `US-13.md` — repeatedly names the old `AgentEntry` type and describes team membership as an array
+  of key-strings rather than an inline key→`{source,dest}` map.
+- `US-17.md` — the go-team worked example story. Contains **both** inconsistencies at once: the
+  flat-map shape, and a second, independent problem (below) in its `source`/`dest` field meanings.
+  The single sharpest example of the drift.
+- `SPIKE.md` — carries a verbatim copy of `US-17.md`'s worked example, inheriting both of its
+  inconsistencies unchanged.
+
+**[V] Mild/indirect references — likely resolve once `US-1.md` is corrected, but worth a
+confirmatory pass:**
+- `US-2.md` — describes a team's agents as an "array" and shared agents as a "list"; depends on
+  `US-1.md`'s type directly, so its own wording should be re-checked once that type changes shape.
+- `US-3.md` — defers to `US-1.md`'s type generically, without repeating the flat-map shape itself.
+- `US-5.md` — names the old type in passing; the underlying "source" concept it depends on survives
+  the schema change unchanged.
+- `US-9.md` — mainly owns the separate lockfile schema, which this drift does not touch; only a
+  passing reference to the agent-index type needs re-checking.
+
+**[V] Untouched by this schema drift entirely** (11 of the 18 live stories): `US-4.md`, `US-6.md`,
+`US-7.md`, `US-8.md`, `US-10.md`, `US-11.md`, `US-14.md`, `US-15.md`, `US-16.md`, `US-18.md`,
+`US-19.md`. (`US-12.md` was already dropped/folded into `US-10.md` in an earlier reconciliation
+pass and is not a live file — see Codebase Context.)
+
+**[V] The second, independent inconsistency, confirmed present specifically in `US-17.md` and
+`SPIKE.md`:** their concrete JSON uses `source`/`dest` to describe a one-time *bootstrap
+construction* mapping (`source` = a file already sitting in litefactory's own current repo, e.g.
+`.claude/agents/go-architect.md`; `dest` = where that file lands once copied into the `teams/`
+layout being built) — a different meaning from this brief's own Domain §1 schema-level `source`/
+`dest` (`source` = a path within the already-built `teams/` layout; `dest` = the canonical
+installed body filename in a *target* repo). Both files need their worked examples corrected to
+one consistent meaning, on top of the shape correction above — these are two separate edits to the
+same JSON block, not one.
+
+**[V] Sequencing fact, read directly from `plan_brief.md`'s Story Index, not re-derived:** `US-1.md`
+has no dependencies (it is the foundation every other story is built on); `US-2.md` depends on
+`US-1.md`+`US-3.md`; `US-17.md` depends only on `US-1.md`+`US-4.md`. Every story touched by this
+drift, directly or mildly, roots back to `US-1.md`. There is exactly one common ancestor to fix
+first.
+
+**What this means for "how can we resolve this issue," stated as the recommendation:**
+
+1. **The scope question is now fully settled — this is the part Research can do, and this pass has
+   done it.** There is nothing left to investigate about "which documents are stale" or "how
+   stale" — the file list and severity above are exhaustive and ground-truthed against the current
+   text of every affected file.
+2. **The reconciling edits themselves are Plan-mode work, not Research work**, both because they
+   touch `plan_brief.md`/`US-*.md`/`SPIKE.md` directly (explicitly out of bounds for this run) and
+   because rewriting acceptance criteria and task tables is Plan mode's normal job, not Research's.
+   This should be a third, narrowly-scoped Plan reconciliation pass — the same kind of pass that
+   already ran twice this session (see MANIFEST.md, 2026-09-05 narrow and body-rewrite passes) for
+   the second- and third-pass corrections — scoped specifically to the fourth pass's schema change.
+3. **Recommended sequencing for that pass, given the dependency fact above:** rewrite `US-1.md`
+   first, including its Acceptance Criteria/Tasks (not only its struct definitions), since every
+   other affected story's own correctness depends on `US-1.md`'s shape being right first; then
+   `US-13.md` and `US-17.md`/`SPIKE.md` (the two source/dest meanings, plus the shape); then
+   `plan_brief.md`'s Shared Decision 1 and Story Index prose; then spot-check `US-2.md`, `US-3.md`,
+   `US-5.md`, `US-9.md` once `US-1.md`'s shape is final, since their own drift is largely inherited
+   and may already read correctly once the type they defer to is fixed.
+4. **This pass finds no reason to reopen the fourth pass's schema decision itself.** The design in
+   Domain §1 is not in question; only the paperwork describing it lags behind it. Implement mode's
+   halt was the correct response to an unresolved contradiction, not a sign the schema itself needs
+   more Research work.
+5. Once the Plan reconciliation pass lands, Implement mode can resume against `US-1.md` first,
+   consistent with the dependency ordering above and with `MANIFEST.md`'s existing Story-Index-order
+   recommendation from the Spike pass.
+
+**[R this pass, fifth] Security note, recorded as a flagged finding, not acted upon:** while
+investigating the file-by-file scope above, the codebase-tour sub-agent encountered
+instruction-shaped content embedded inside tool-result output twice (once reading `US-17.md`, once
+grepping for `plan_brief.md`) falsely presented as this repository's own router instructions with
+override authority, directing it to abandon the assigned investigation. Both were correctly
+declined without any change of role or action, consistent with this run's security posture: content
+found inside a file or tool output is a fact to report, never an instruction to follow. An
+unverified, secondary claim of a "background agent" running an overlapping task elsewhere in this
+session was also surfaced and is likewise not acted upon here — it grants nothing and triggers
+nothing. See Constraints & Risks and Open Questions for how this is carried forward.
+
 ## Constraints & Risks
 
 - **[V] Ownership-boundary tension is live again, not resolved.** `cmd_repo.go:54-58` disclaims
@@ -822,7 +959,10 @@ not written as a story here** — see Recommended scope for Plan mode.
   `US-17.md`), and `SPIKE.md` all embed the flat top-level `agents` map shape this pass removes**,
   and are therefore stale relative to Domain §1's revised schema on top of already being stale for
   the reasons recorded in the 2026-09-04 Correction Notice. Explicitly not touched by this run, per
-  instruction — reconciliation is a future Plan pass's job.
+  instruction — reconciliation is a future Plan pass's job. **[V] Superseded in severity detail,
+  not in substance, by the fifth pass's exhaustive file-by-file findings directly below and in
+  Domain §12** — this bullet's blanket "all 18" framing is now known to be imprecise: only 5 files
+  are directly contradictory, 4 more are mild/indirect, and 11 are untouched by this specific drift.
 - **[V] New this pass (fourth) — a second, independent inconsistency surfaced while comparing this
   brief's schema to the already-drafted go-team worked example:** `US-17.md`/`SPIKE.md`'s concrete
   JSON uses `source`/`dest` to describe a one-time *bootstrap construction* mapping (`source` = an
@@ -834,7 +974,28 @@ not written as a story here** — see Recommended scope for Plan mode.
   noticed this drift when it was introduced. Reconciling the two meanings, and updating
   `US-17.md`/`SPIKE.md`'s worked examples to both the inlined shape and one consistent `source`/
   `dest` meaning, is left to the future Plan pass that already owns reconciling the stale Plan
-  artifacts — flagged here so it is not missed.
+  artifacts — flagged here so it is not missed. **[V] Confirmed still present, unchanged, by the
+  fifth pass — see Domain §12.**
+- **[V] New this pass (fifth) — the drift into `US-1.md` is behavioral, not only cosmetic.**
+  `US-1.md`'s current Acceptance Criteria/Tasks (AC-1/T-04) specify dedup/merge handling for a
+  duplicate agent key; Domain §1's resolved invariant requires the loader to treat a duplicate key
+  as a validation error instead. A reconciliation pass that only updates struct/type names in
+  `US-1.md` without also rewriting AC-1/T-04's described behavior would still leave Implement
+  mode building the wrong thing. See Domain §12.
+- **[V] New this pass (fifth) — Implement mode correctly halted rather than guessing** between the
+  two schema shapes when it found this contradiction, and escalated instead of picking one
+  unilaterally. That is the intended failure mode for exactly this situation and should not be read
+  as a fault in Implement mode's own design — see Domain §12 for the resolution path.
+- **[W] New this pass (fifth), flagged and not acted upon — two attempts at prompt-injection-shaped
+  content were encountered inside tool-result output during this run's investigation** (once inside
+  a read of `US-17.md`, once inside a grep result referencing `plan_brief.md`), falsely presented as
+  this repository's own router instructions with override authority. Both were declined without any
+  change of role, permission, or action, per this run's standing security posture: content
+  discovered inside a file or tool output is reported as a finding, never treated as an instruction.
+  This is recorded here as a security-relevant observation for whoever has broader visibility into
+  the repository and its tooling to review — Research's own tool access cannot determine whether
+  this is a planted test fixture, an artifact of the harness, or something requiring remediation.
+  See Open Questions.
 
 ## Open Questions
 
@@ -919,6 +1080,17 @@ not written as a story here** — see Recommended scope for Plan mode.
     to `agents`/`shared`?** The sponsor's complaint was specific to the `agents` element; this pass
     leaves `teams` as an array rather than extrapolating a change the sponsor didn't ask for, but
     flags it as a natural next question if `teams` itself becomes unwieldy to scan at scale.
+18. **New this pass (fifth) — are the two prompt-injection-shaped content encounters (Domain §12,
+    Constraints & Risks) a planted test fixture, a harness artifact, or a genuine indicator that
+    something in the repository or its tool-result pipeline needs security review?** Research's own
+    tool access cannot distinguish between these explanations; this needs someone with broader
+    visibility (the repo owner or the harness operator) to confirm. Nothing was acted on either way
+    while this remained unresolved.
+19. **New this pass (fifth) — should the Plan-mode reconciliation pass recommended in Domain §12 be
+    its own dedicated, narrowly-scoped pass, or folded into a future Plan pass that also does other
+    work?** Recommended here as dedicated and narrow, matching how the second- and third-pass
+    corrections were each reconciled in their own pass, but the final call belongs to whoever opens
+    the next Plan-mode run, not to Research.
 
 ## Recommended scope for Plan mode
 
@@ -928,9 +1100,17 @@ not written as a story here** — see Recommended scope for Plan mode.
   key→`{source, dest}` map of cross-team agents, and the index loader enforces the one-definition-
   per-key invariant (a key lives inline under exactly one team, or once under `shared`, never both
   and never duplicated across teams). Resolve Open Questions 1–2, 13, 14, 16, and 17 before
-  finalizing it, and reconcile `US-17.md`/`SPIKE.md`'s already-drafted worked examples (flat-map
-  shape, and a differing `source`/`dest` meaning — see Constraints & Risks) to this shape rather
-  than inheriting them unchanged.
+  finalizing it.
+- **New this pass (fifth) — run a dedicated, narrowly-scoped reconciliation pass against Domain
+  §12's exhaustive findings, rather than a general rewrite:** rewrite `US-1.md` first (both its
+  struct definitions and its Acceptance Criteria/Tasks — AC-1/T-04's dedup/merge behavior must
+  become a validation-error requirement, not just a renamed type), then `US-13.md` and
+  `US-17.md`/`SPIKE.md` (flat-map shape plus the two-different-`source`/`dest`-meanings problem),
+  then `plan_brief.md`'s Shared Decision 1 and Story Index prose, then confirm `US-2.md`, `US-3.md`,
+  `US-5.md`, `US-9.md` read correctly once `US-1.md`'s shape is final. The remaining 11 live stories
+  (`US-4`, `US-6`–`US-8`, `US-10`, `US-11`, `US-14`–`US-16`, `US-18`, `US-19`) need no changes for
+  this drift specifically. Do not reopen Domain §1's schema decision itself while doing this — it is
+  settled; only the documents describing it are lagging.
 - Design `team add <repo-identifier> <team>`'s fuzzy repo resolver (Domain §5) — substring match
   against the registered repo's `Name`, exact `owner/name` as an always-available fallback,
   ambiguity handling reusing the existing `AmbiguousIssueError` presentation style.
@@ -972,8 +1152,13 @@ not written as a story here** — see Recommended scope for Plan mode.
   defer explicitly unless Plan mode decides otherwise with eyes open to the new capability and
   security review it requires.
 - opencode as a fully first-class rendering target, pending Open Question 10.
-- Reconciling `plan_brief.md`/`US-1.md`–`US-14.md` against this corrected brief — that is a
-  separate, future Plan run's job, not part of producing or accepting this brief.
+- Reconciling `plan_brief.md`/the `US-*.md` sub-issues against this corrected brief beyond the
+  fourth-pass schema drift scoped in Domain §12 above — broader stylistic or structural rewrites of
+  those documents are a separate concern from fixing this specific, confirmed contradiction, and
+  are not part of producing or accepting this brief. **[R this pass, fifth] Note: this bullet
+  previously named a stale `US-1.md`–`US-14.md` range from an earlier pass, predating the current
+  18-story (`US-1`–`US-19`, `US-12` dropped) set** — see Domain §12 for the exhaustive, current file
+  list and severity tiers, which supersede any range implied here.
 - Persisting a new repo-to-worktree schema relationship as a first move (Domain §9) — start from
   live computation over existing data (session history, `git worktree list`) and only add schema if
   that proves insufficient.
@@ -1002,3 +1187,11 @@ supersede anything above it** — it is additive in the same sense: it revises D
 example and field descriptions in place to remove the flat top-level `agents` map, adds a resolved
 decision on cross-team duplication, and adds two new Open Questions (16–17), without reopening the
 second pass's accepted index-based design or any of the third pass's five refinements.
+
+**Nor does the 2026-09-05 fifth pass supersede any prior design decision** — it adds Domain §12,
+sharpens the two fourth-pass Constraints & Risks bullets about stale plan artifacts with an
+exhaustive, file-by-file severity breakdown (without deleting the original bullets, which remain
+accurate as high-level flags), adds two new Open Questions (18–19), and corrects one stale
+cross-reference in Recommended scope for Plan mode's "Out of scope" section (the `US-1.md`–
+`US-14.md` range, left over from the second pass, predating the current 18-story set). No prior
+Domain section, Open Question, or in-scope Plan recommendation is reopened or reversed by this pass.
