@@ -20,5 +20,6 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-05 — Research brief updated with scheduling decisions and proposal-flow investigation
 - 2026-09-05 — Plan brief and six sub-issue bodies completed
 - 2026-09-05 — Implemented scheduling controls, durable dispatch, proposal lifecycle, review repairs, and green race suite (23 packages)
+- 2026-09-05 — Audited commit history; corrected implementation commit attribution
 
 ## Notes

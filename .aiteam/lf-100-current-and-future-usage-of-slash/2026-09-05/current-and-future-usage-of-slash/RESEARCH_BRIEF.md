@@ -180,3 +180,29 @@ introduce a separate external scheduler unless exact wake-up semantics are
 explicitly required. Plan a separate bounded factory-controlled proposal call
 and durable proposal/acceptance lifecycle, rather than reusing normal work runs
 or the one-word mode classifier.
+
+## Post-implementation audit
+
+[V] The completed scheduling implementation is present in commit `c6fb438`,
+not in the final commit `9f6bd43`. Relative to `ae84e43`, `c6fb438` changes 34
+non-artifact production/test files (+2,520/-94 lines); `9f6bd43` changes only
+two session artifact files. The working tree is clean because both commits are
+already on `lf/100-current-and-future-usage-of-slash` and its tracked origin.
+
+[V] The implementation has deterministic `/schedule` recognition in
+`internal/turn/command.go:13-17,195-205`, strict control grammar in
+`internal/schedule/schedule.go:42-235`, durable schedule/proposal tables in
+`internal/store/migrations/0005_schedules.sql:1-52`, direct control handling
+and replies in `internal/daemon/tick.go:1348-1405`, and tick-driven stored
+payload dispatch in `internal/daemon/schedules.go:17-161`.
+
+[V] The configured coding agents do not infer schedule syntax. Only
+`--propose` invokes a bounded structured advisor; the Claude route is tool-free
+and the Codex route is read-only (`internal/agent/proposal.go:13-22,55-72`,
+`internal/harness/runner.go:70-112`, `internal/codex/runner.go:143-185`).
+
+[V] The previous run report was inaccurate in saying no commit or push occurred.
+This audit corrects that record. The source audit did not rerun the full test
+suite; it verified committed code and tests only. A single integrated test from
+inbound scheduling comment through reply, persistence, and later due dispatch
+was not evident in the focused test sources inspected.
