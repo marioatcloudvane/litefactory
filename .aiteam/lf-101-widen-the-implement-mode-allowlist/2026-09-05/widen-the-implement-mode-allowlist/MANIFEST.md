@@ -48,6 +48,31 @@ asked for; nothing here licenses starting the next one.
   label; whether the committed-dead-file workaround pattern needs its own
   safeguard), and the Recommended Scope section revised accordingly. Research
   remains complete/done; no mode change.
+- 2026-09-05 — Research follow-up: a third issue comment argued the
+  allowlist-widening approach is the wrong lever and proposed explicit
+  `--permission-mode` selection instead (AC-7 through AC-11), asking that the
+  original allowlist widening be demoted to a "fast path." A second
+  `codebase-tour` pass and a `web-researcher` pass (this one, unlike the
+  previous attempt, did have web access — the reason for the change was not
+  established) evaluated the comment's four central claims against the repo
+  and against Anthropic's official docs: (1) confirmed true — no
+  `--permission-mode` flag is ever built in `runner.go`'s `args()`, sessions
+  run in the CLI's hard-coded `"default"` mode; (2) partially true but
+  overstated — the "constant in code, never a config key" line exists
+  verbatim only inside a stale, unimplemented `.aiteam` planning session from
+  a different feature, not as a decision this codebase currently honors; (3)
+  confirmed accurate, with a real uncovered gap — `forbiddenFlag()` and
+  `validateNoForbiddenFlag` exist as described but do not, today, check for
+  `--permission-mode bypassPermissions`, so AC-9 names genuine new work; (4)
+  unanswerable from the repo alone, then answered externally with primary
+  Anthropic documentation — `auto` mode's classifier is real, and deny rules
+  are documented to be evaluated before and unoverridable by the classifier
+  (directly supporting AC-10), while the reporter's specific nested-subprocess
+  "Blocked by classifier" anecdote remains unreproduced and undocumented
+  anywhere found. `RESEARCH_BRIEF.md` updated in place with a new dedicated
+  section, four new Constraints & Risks entries, four new Open Questions
+  (#10-#13), and a revised Recommended Scope covering both proposals side by
+  side. Research remains complete/done; no mode change.
 
 ## Notes
 
@@ -63,4 +88,14 @@ asked for; nothing here licenses starting the next one.
   `web-researcher` pass to resolve whether Claude Code's own settings schema
   supports path-scoped `Bash` permission rules — this is currently the single
   largest unresolved technical question blocking a confident design for AC-3's
-  "scope to worktree path" ask.
+  "scope to worktree path" ask. **Update (third research pass):** a later
+  `web-researcher` call in this same session did have web access for an
+  unrelated question, so this may no longer be blocked — worth re-attempting
+  before assuming the label is still needed.
+- The issue now carries two candidate levers for the same underlying problem
+  (headless hard-denials): widening the `allowed_tools` allowlist (original
+  ask, AC-1..AC-6) and adopting an explicit `--permission-mode` per profile
+  (new ask, AC-7..AC-11). Both are evaluated in `RESEARCH_BRIEF.md`; Plan mode
+  will need to decide how they relate (combined story vs. sequenced) — see
+  the brief's Open Question #10.
+
