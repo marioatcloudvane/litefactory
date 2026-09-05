@@ -30,12 +30,12 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| T-100.1 | Command boundary and schedule grammar | M | — | Pending Litefactory sub-issue creation |
-| T-100.2 | Durable schedules, prerequisites, and proposals | L | T-100.1 | Pending Litefactory sub-issue creation |
-| T-100.3 | Direct scheduling controls and confirmations | L | T-100.1, T-100.2 | Pending Litefactory sub-issue creation |
-| T-100.4 | Due dispatch, dependency outcomes, and logging | L | T-100.2, T-100.3 | Pending Litefactory sub-issue creation |
-| T-100.5 | Agent schedule proposals and ID-based decisions | L | T-100.1, T-100.2, T-100.3, T-100.4 | Pending Litefactory sub-issue creation |
-| T-100.6 | End-to-end deterministic verification | M | T-100.1–T-100.5 | Pending Litefactory sub-issue creation |
+| T-100.1 | Command boundary and schedule grammar | M | — | https://github.com/marioatcloudvane/litefactory/issues/102 |
+| T-100.2 | Durable schedules, prerequisites, and proposals | L | T-100.1 | https://github.com/marioatcloudvane/litefactory/issues/103 |
+| T-100.3 | Direct scheduling controls and confirmations | L | T-100.1, T-100.2 | https://github.com/marioatcloudvane/litefactory/issues/104 |
+| T-100.4 | Due dispatch, dependency outcomes, and logging | L | T-100.2, T-100.3 | https://github.com/marioatcloudvane/litefactory/issues/105 |
+| T-100.5 | Agent schedule proposals and ID-based decisions | L | T-100.1, T-100.2, T-100.3, T-100.4 | https://github.com/marioatcloudvane/litefactory/issues/106 |
+| T-100.6 | End-to-end deterministic verification | M | T-100.1–T-100.5 | https://github.com/marioatcloudvane/litefactory/issues/107 |
 
 ## Out of Scope
 
