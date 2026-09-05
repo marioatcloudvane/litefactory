@@ -24,7 +24,7 @@
 ## Story Index
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|------------|-----------|
-| US-001 | Continuous and bounded issue log following | L | — | <!-- forge-subissue: US-001 --> |
+| US-001 | Continuous and bounded issue log following | L | — | https://github.com/marioatcloudvane/litefactory/issues/90 |
 
 ## Out of Scope
 - Non-follow log selection and output behavior, except the documented follow rollover separator.
