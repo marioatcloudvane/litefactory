@@ -192,16 +192,16 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Measure behind/ahead before every run | S | — | |
-| US-2 | Auto-merge the base branch when the merge is clean | L | US-1, US-7, US-8 | |
-| US-3 | Disclose every automatic change | M | US-2 | |
-| US-4 | Refuse the run and name the conflicting files | M | US-2 | |
-| US-5 | Render conflicts in plain language, safely | M | US-4 | |
-| US-6 | Verify per-issue sync is independent under concurrency | M | US-2 | |
-| US-7 | `lf:sync=` label opt-out | M | — | |
-| US-8 | Config-governed defaults and size cap | S | — | |
-| US-9 | Persist sync outcomes behind the internal/git boundary | M | US-1, US-2 | |
-| US-10 | Guarantee a failed or refused sync leaves the branch untouched | L | US-2 | |
+| US-1 | Measure behind/ahead before every run | S | — | https://github.com/marioatcloudvane/litefactory/issues/108 |
+| US-2 | Auto-merge the base branch when the merge is clean | L | US-1, US-7, US-8 | https://github.com/marioatcloudvane/litefactory/issues/109 |
+| US-3 | Disclose every automatic change | M | US-2 | https://github.com/marioatcloudvane/litefactory/issues/110 |
+| US-4 | Refuse the run and name the conflicting files | M | US-2 | https://github.com/marioatcloudvane/litefactory/issues/111 |
+| US-5 | Render conflicts in plain language, safely | M | US-4 | https://github.com/marioatcloudvane/litefactory/issues/112 |
+| US-6 | Verify per-issue sync is independent under concurrency | M | US-2 | https://github.com/marioatcloudvane/litefactory/issues/113 |
+| US-7 | `lf:sync=` label opt-out | M | — | https://github.com/marioatcloudvane/litefactory/issues/114 |
+| US-8 | Config-governed defaults and size cap | S | — | https://github.com/marioatcloudvane/litefactory/issues/115 |
+| US-9 | Persist sync outcomes behind the internal/git boundary | M | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/116 |
+| US-10 | Guarantee a failed or refused sync leaves the branch untouched | L | US-2 | https://github.com/marioatcloudvane/litefactory/issues/117 |
 
 ## Out of Scope
 
