@@ -235,6 +235,12 @@ type ReplyRequest struct {
 	// before rendering (S-8).
 	OwningAgent    string
 	RequestedAgent string
+
+	// ScheduleKind and Schedule describe a factory-owned scheduling response.
+	// They never carry the scheduled payload, so agent input is not echoed into
+	// Litefactory's signed comment.
+	ScheduleKind report.ReplyKind
+	Schedule     report.ScheduleReply
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -246,6 +252,15 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // A refusal names its own kind; everything else is the command's, through the
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
+	if req.ScheduleKind != report.ReplyInvalid {
+		return req.ScheduleKind, req.ScheduleKind == report.ReplyScheduleInvalid ||
+			req.ScheduleKind == report.ReplyScheduleConfirmed ||
+			req.ScheduleKind == report.ReplyScheduleBlocked ||
+			req.ScheduleKind == report.ReplyScheduleProposalReady ||
+			req.ScheduleKind == report.ReplyScheduleProposalAccepted ||
+			req.ScheduleKind == report.ReplyScheduleProposalRejected ||
+			req.ScheduleKind == report.ReplyScheduleProposalFailed
+	}
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
 			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
@@ -266,10 +281,17 @@ func (req ReplyRequest) validate() error {
 		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
 			"mode-selection or agent-switch refusal", req.Refusal)
+	case req.ScheduleKind != report.ReplyInvalid && req.ScheduleKind != report.ReplyScheduleInvalid &&
+		req.ScheduleKind != report.ReplyScheduleConfirmed && req.ScheduleKind != report.ReplyScheduleBlocked &&
+		req.ScheduleKind != report.ReplyScheduleProposalReady && req.ScheduleKind != report.ReplyScheduleProposalAccepted &&
+		req.ScheduleKind != report.ReplyScheduleProposalRejected && req.ScheduleKind != report.ReplyScheduleProposalFailed:
+		return invalidRequest("reply kind %s is not a schedule response", req.ScheduleKind)
+	case req.ScheduleKind != report.ReplyInvalid && req.refusing():
+		return invalidRequest("a reply cannot be both a schedule response and a refusal")
 	// Only when this is not a refusal. A refusal is triggered by a command that
 	// would have spawned a run, and a command that spawns a run draws no reply —
 	// so asking this question of a refusal refuses the refusal.
-	case !req.refusing() && !req.Command.NeedsReply():
+	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && !req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
 	if err := req.Ref.Validate(); err != nil {
@@ -478,6 +500,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Agent:          req.Agent,
 		OwningAgent:    req.OwningAgent,
 		RequestedAgent: req.RequestedAgent,
+		Schedule:       req.Schedule,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
@@ -697,11 +720,9 @@ func replyKind(kind CommandKind) (report.ReplyKind, bool) {
 	switch kind {
 	case KindSpikeEmpty:
 		return report.ReplyEmptySpike, true
-	case KindUnsupported:
-		return report.ReplyUnsupportedCommand, true
 	case KindUnknown:
 		return report.ReplyUnknownCommand, true
-	case KindNone, KindSpike, KindFreeText:
+	case KindNone, KindSpike, KindFreeText, KindSchedule:
 		return report.ReplyInvalid, false
 	default:
 		return report.ReplyInvalid, false

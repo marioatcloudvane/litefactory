@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -33,6 +34,33 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_token
 		if !strings.Contains(args, want) {
 			t.Errorf("argv %q missing %q", args, want)
 		}
+	}
+}
+
+func TestProposeScheduleIsReadOnlyAndDoesNotAllocateARun(t *testing.T) {
+	runner, argv := fakeRunner(t, `
+printf '%s\n' '{"type":"thread.started","thread_id":"proposal-thread"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\"items\":[{\"payload\":\"/implement T-1\",\"due_at\":\"2026-09-05T01:00:00Z\"}]}"}}'
+printf '%s\n' '{"type":"turn.completed"}'
+`)
+	proposal, err := runner.ProposeSchedule(t.Context(), agent.ScheduleProposalRequest{
+		Description: "split the implementation", ReceivedAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ProposeSchedule: %v", err)
+	}
+	if len(proposal.Items) != 1 || proposal.Items[0].Payload != "/implement T-1" {
+		t.Fatalf("proposal = %+v", proposal)
+	}
+	got := strings.Join(strings.Fields(string(mustRead(t, argv))), " ")
+	for _, want := range []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox read-only"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("argv %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "--add-dir") || strings.Contains(got, "resume") {
+		t.Errorf("proposal argv contains normal-run capability: %q", got)
 	}
 }
 

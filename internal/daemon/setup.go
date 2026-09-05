@@ -248,6 +248,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		DB:     s.DB,
 		Forge:  client,
 		Filter: filter,
+		// Schedule proposals are a separate, tool-free advisory call. They
+		// deliberately do not travel through turn.Execute, so no run is
+		// allocated and no worktree is created before owner acceptance.
+		ProposalGenerator: newProposalGenerator(defaultAgent, runners),
 		Turn: NewExecutor(turn.Options{
 			DB:      s.DB,
 			Git:     gitBinary,

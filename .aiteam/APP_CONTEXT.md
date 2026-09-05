@@ -56,6 +56,7 @@ logging       →  (nothing)          leaf. slog construction + file sink.
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
 planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies.
 attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
+schedule      →  (nothing)          leaf. parses factory-owned /schedule controls with injected time and location.
 
 agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
@@ -139,6 +140,7 @@ what breaks if you do the obvious thing.
 | run `claude` or the OpenAI Codex CLI | `internal/harness` / `internal/codex` | Each implements `agent.Runner`; `harness` is the only place that execs `claude`, `codex` the only one that execs the Codex CLI |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
+| parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |

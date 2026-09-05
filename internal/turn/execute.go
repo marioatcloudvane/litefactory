@@ -321,11 +321,11 @@ func (r Request) validate() error {
 		return invalidRequest("a session id is required")
 	case r.Issue.Number <= 0:
 		return invalidRequest("issue number %d must be positive", r.Issue.Number)
+	case r.Trigger.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	// Not "positive": 0 is the issue body run as the first instruction. See
 	// [Trigger.CommentID] for why the body's trigger id is 0 and not the
 	// issue's own id.
-	case r.Trigger.CommentID < 0:
-		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
