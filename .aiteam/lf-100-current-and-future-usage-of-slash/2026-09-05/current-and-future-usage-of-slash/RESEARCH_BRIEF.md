@@ -7,7 +7,12 @@
 requested forms are `/schedule -by hh:mm:ss` for a delay and `/schedule -to
 mm/dd/yyyy hh:mm:ss` for an absolute time. Scheduling must not be delegated to
 or interpreted by the selected coding agent. Logging should expose a
-`scheduled=<#>` field.
+`scheduled=<#>` field. The owner clarified that this count means outstanding
+scheduled items; scheduled work must not block later comments; absolute times
+default to the daemon device's local timezone but can state an explicit zone
+such as `UTC`; and `/schedule --propose` should ask a coding agent for a
+schedule that `/schedule --accept` can arm. The owner also asked whether
+`/implement <storyid>` already works.
 
 ## Codebase Context
 
@@ -74,6 +79,38 @@ milliseconds (`internal/store/store.go:202`). Normal daemon polling occurs at
 first poll at or after a due time unless a separate wake-up mechanism were
 introduced (`internal/config/validate.go:17`).
 
+## Follow-up findings and owner decisions
+
+[V] There is no Litefactory timezone setting. Therefore the stated device
+default means the daemon process's OS-local timezone, rather than a project
+configuration value. An explicit zone needs a grammar and validation policy;
+UTC is a valid explicit case.
+
+[O] A scheduled comment must not block later work. [V] The existing
+unconsumed-comment strategy cannot satisfy that rule because its watermark
+stops at the first outstanding comment (`internal/daemon/tick.go:1151`,
+`internal/daemon/tick.go:1165`). A schedule command must be durably recorded
+and consumed immediately, with due work dispatched later through a separate
+path. The existing `needs_poll` state is session-level rediscovery, not a
+per-comment schedule (`internal/store/migrations/0002_session_backlog.sql:4`).
+
+[V] The factory has a narrow agent-call precedent in free-text mode
+classification: it is stateless, tool-free, and accepts one exact mode token
+(`internal/daemon/mode.go:55`, `internal/daemon/mode.go:66`,
+`internal/harness/runner.go:20`, `internal/codex/runner.go:100`). It cannot
+carry a multi-item schedule. A normal work run allocates a run/worktree and has
+mode permissions. Consequently `--propose` needs its own bounded agent-call
+contract, factory-owned proposal format/report, and durable proposal record for
+later acceptance and restart safety.
+
+[V] `/implement <storyid>` does work as a mode/instruction handoff: the parser
+retains `T-001.2` as opaque instruction text (`internal/turn/command.go:201`,
+`internal/turn/command.go:217`; `internal/turn/command_test.go`), and prompt
+preparation supplies it to the agent (`internal/turn/prepare.go:228`,
+`internal/turn/prepare.go:248`). Litefactory does not validate the story ID,
+read the plan, or enforce plan-artifact existence. Those responsibilities are
+left to the selected agent's Implement-mode workflow (`CLAUDE.md:44`).
+
 ## Constraints & Risks
 
 - [V] Removing the five reserved commands is a parser/reply-contract change:
@@ -101,38 +138,45 @@ introduced (`internal/config/validate.go:17`).
   concurrency, parser, and logging test seams suited to this work
   (`internal/daemon/daemon.go:202`, `internal/daemon/clock_test.go:20`,
   `internal/turn/command_test.go:5`, `internal/store/migrate.go:24`).
+- [V] Proposal/acceptance is an additional lifecycle: each proposal needs an
+  issue/owner association and a terminal accepted, replaced, expired, or
+  rejected state. Factory comments are self-filtered, so `--accept` must be a
+  new owner comment (`internal/report/marker.go:45`, `internal/report/marker.go:80`).
+- [V] Due work is naturally eligible on the first poll at/after its due time and
+  can still await capacity. The existing `in_flight` and `deferred_sessions`
+  metrics are distinct from the requested outstanding `scheduled` count
+  (`internal/daemon/tick.go:77`, `internal/daemon/tick.go:177`).
 
 ## Open Questions
 
-1. Does the instruction follow the time specification in the same `/schedule`
-   comment? This is the natural fit for the current parser and is assumed below.
-2. Which timezone applies to `-to mm/dd/yyyy hh:mm:ss`? The specified format is
-   ambiguous; UTC would align with persistence/logs, while a configured local
-   timezone may better match operator expectations.
+1. Does the work instruction follow the time specification in the same
+   `/schedule` comment? This remains the natural parser fit and is assumed.
+2. What exact explicit-zone syntax should be accepted in addition to the
+   OS-local default: a trailing IANA zone/`UTC`, or a named flag?
 3. Should `-by` accept only `HH:MM:SS` below 24 hours, or a duration form that
    can represent multi-day delays? The stated "overnight" example fits either.
-4. Is due-time precision "first regular poll at or after due," or must the
-   daemon wake at the exact instant?
-5. Should a scheduled comment block later comments on the same issue, preserving
-   current strict ordering, or should later work be allowed to proceed?
-6. What does `scheduled=<#>` represent: a count of outstanding schedules, a
-   schedule/run ordinal, a comment identifier, or a due timestamp? A count is
-   the closest fit to the requested numeric placeholder and existing aggregate
-   logging style, but this is an inference.
-7. Should scheduling immediately acknowledge the owner, acknowledge only when
-   work begins, or do both?
+4. Should `--accept` apply to the latest proposal for the issue, or name a
+   proposal identifier?
+5. What should a proposed schedule contain: due times only, ordering only, or
+   one concrete scheduled work item per story?
+6. Should scheduling, proposal, and acceptance each have immediate factory
+   replies in addition to normal due-work reporting?
 
 ## Recommended scope for Plan mode
 
 Plan a Litefactory-only scheduling lifecycle: remove the five reserved command
 names; introduce an explicit schedule command parser and strict flag/time
 validation; persist scheduled-comment state and due time using a new embedded
-store migration; make daemon ticks identify and execute due items safely across
-restarts; define ordering, idempotency, reporting, and a precise
-`scheduled=<#>` log meaning; and cover parser, migration, due-time,
-restart, queue-order, duplicate, and logging behavior with deterministic tests.
+store migration; consume scheduling control comments immediately so later work
+can continue; make daemon ticks identify and execute due items safely across
+restarts; define local-default and explicit-zone parsing, idempotency,
+reporting, and the outstanding-count `scheduled=<#>` meaning; and cover parser,
+migration, due-time, restart, non-blocking queue, duplicate, timezone, and
+logging behavior with deterministic tests.
 
 Do not change agent prompts or agent-runner contracts beyond ensuring the agent
 receives the original work instruction only when the schedule is due. Do not
 introduce a separate external scheduler unless exact wake-up semantics are
-explicitly required.
+explicitly required. Plan a separate bounded factory-controlled proposal call
+and durable proposal/acceptance lifecycle, rather than reusing normal work runs
+or the one-word mode classifier.
