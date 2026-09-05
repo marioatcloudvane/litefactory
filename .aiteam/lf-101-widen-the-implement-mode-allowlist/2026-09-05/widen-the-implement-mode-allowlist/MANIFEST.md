@@ -4,7 +4,7 @@
 
 ## Modes
 
-- [ ] **Research** — `RESEARCH_BRIEF.md` *(not started)*
+- [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -20,6 +20,18 @@ asked for; nothing here licenses starting the next one.
   Gate rules, Plan cannot proceed without it and this run cannot skip the gate
   without explicit human approval (headless run, nobody to ask). No
   plan-orchestrator was invoked. No artifact was produced.
+- 2026-09-05 — Research requested (issue #101 comment "ok research it first!").
+  research-orchestrator invoked.
+- 2026-09-05 — Research complete. `codebase-tour` mapped the tool-permission
+  system (`internal/config/policy.go`, `internal/config/config.go`,
+  `internal/harness/settings.go`, `internal/harness/runner.go`) and the
+  "defence in depth, NOT the boundary" comment's occurrences. No web research
+  needed — the design rationale is sourced from litefactory's own prior spike
+  measurements (SD-2), not external docs. `RESEARCH_BRIEF.md` written with
+  seven open questions, most notably: the exact target tool list and the
+  386-denials evidence live only in the GitHub issue itself, not this repo;
+  and the writable-scratch-directory ask has no existing implementation to
+  extend. Recommended next step: run Plan mode on issue #101.
 
 ## Notes
 
@@ -29,5 +41,5 @@ asked for; nothing here licenses starting the next one.
   waive the gate. In this headless run that waiver isn't available, so the
   run stopped rather than silently substituting Research or fabricating a
   brief.
-- Recommended next step: run Research mode on issue #101 to produce
-  `RESEARCH_BRIEF.md`, then re-run Plan.
+- Research is now complete; `RESEARCH_BRIEF.md` exists in this session. Plan
+  mode's gate is satisfied. A human comment is still required to start Plan.
