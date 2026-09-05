@@ -32,6 +32,22 @@ asked for; nothing here licenses starting the next one.
   386-denials evidence live only in the GitHub issue itself, not this repo;
   and the writable-scratch-directory ask has no existing implementation to
   extend. Recommended next step: run Plan mode on issue #101.
+- 2026-09-05 — Research follow-up: new evidence from run 6 of #89 (a real
+  implement run where an agent was refused 8 times across 5 strategies trying
+  to delete its own scratch file, gave up and emptied it instead, and that
+  emptied file was committed) added to the issue as a comment, targeting AC-3
+  (workspace mutation) and AC-5 (scratch directory). A second `codebase-tour`
+  pass confirmed "scope rm/mv to the worktree path" is new design work on two
+  fronts (no path-scoped `Bash` rule precedent anywhere in this repo; the
+  worktree path is not currently plumbed into settings construction). A
+  `web-researcher` call to check whether Claude Code's settings schema even
+  supports a path-scoped `Bash` qualifier returned no web access — the issue
+  does not carry the `lf:tools=web` label. `RESEARCH_BRIEF.md` updated in
+  place (not replaced): new evidence section, new Codebase Context findings,
+  two new Open Questions (path-scoping feasibility pending the web-access
+  label; whether the committed-dead-file workaround pattern needs its own
+  safeguard), and the Recommended Scope section revised accordingly. Research
+  remains complete/done; no mode change.
 
 ## Notes
 
@@ -43,3 +59,8 @@ asked for; nothing here licenses starting the next one.
   brief.
 - Research is now complete; `RESEARCH_BRIEF.md` exists in this session. Plan
   mode's gate is satisfied. A human comment is still required to start Plan.
+- The `lf:tools=web` label is needed on issue #101 for a follow-up
+  `web-researcher` pass to resolve whether Claude Code's own settings schema
+  supports path-scoped `Bash` permission rules — this is currently the single
+  largest unresolved technical question blocking a confident design for AC-3's
+  "scope to worktree path" ask.
