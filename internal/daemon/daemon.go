@@ -123,6 +123,32 @@ type Reporter interface {
 	Consume(ctx context.Context, sessionID, commentID int64) (store.Watermark, error)
 }
 
+// ProposalGenerator is the bounded, structured boundary used only for
+// /schedule --propose. It is intentionally not agent.Runner or Executor: a
+// generator can suggest data, but cannot start a workflow, write schedules,
+// or decide an owner's approval.
+type ProposalGenerator interface {
+	ProposeSchedule(ctx context.Context, request ScheduleProposalRequest) (ScheduleProposal, error)
+}
+
+// ScheduleProposalRequest is the agent-safe description of advice requested
+// by an owner. The factory, not the generator, supplies time and issue scope.
+type ScheduleProposalRequest struct {
+	Description string
+	ReceivedAt  time.Time
+}
+
+// ScheduleProposal is structured advisory output from a ProposalGenerator.
+// It has no IDs or persistence fields because those remain factory-owned.
+type ScheduleProposal struct {
+	Items []ScheduleProposalItem
+}
+
+type ScheduleProposalItem struct {
+	Payload string
+	DueAt   time.Time
+}
+
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
@@ -142,6 +168,11 @@ type Options struct {
 
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
+
+	// ProposalGenerator may be nil when the configured coding tool has no
+	// bounded schedule-advice adapter. --propose then receives an immediate
+	// failure reply; it never falls through to a normal agent workflow.
+	ProposalGenerator ProposalGenerator
 
 	// ToolProfiles are the canonical mode permission surfaces.
 	//
@@ -260,6 +291,7 @@ type Daemon struct {
 	filter     Classifier
 	turn       Executor
 	reporter   Reporter
+	proposals  ProposalGenerator
 	instanceID string
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
@@ -340,6 +372,7 @@ func New(opts Options) (*Daemon, error) {
 		filter:     opts.Filter,
 		turn:       opts.Turn,
 		reporter:   opts.Reporter,
+		proposals:  opts.ProposalGenerator,
 		instanceID: opts.InstanceID,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may

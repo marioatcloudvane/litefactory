@@ -80,10 +80,10 @@ func newPool(size int) *pool {
 //     not mean what it says. This is the normal discharge, and the reason a true
 //     return should be followed immediately by the `go` that runs it.
 //  2. An immediate undo on this same goroutine, when it turns out no worker is
-//     started at all. [Daemon.offer] is the caller that does both: it takes a
-//     slot, then reads the issue and re-checks the rate-limit backoff, and
+//     started at all. [Daemon.offer] and [Daemon.offerSchedule] do both: they
+//     take a slot, then read the issue and re-check the rate-limit backoff, and
 //     either of those may end with nothing to run — a closed issue, a forge that
-//     would not answer, a hold armed under the dispatch loop. It calls done()
+//     would not answer, a hold armed under the dispatch loop. They call done()
 //     straight away in those branches, which is exact rather than merely
 //     tolerable: the Add and the Done are both on the Tick goroutine, and
 //     [pool.wait] runs only after the last Tick has returned.

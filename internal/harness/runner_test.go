@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -244,6 +245,41 @@ func TestRunSucceeds(t *testing.T) {
 
 	if log := f.runLog(t); strings.Count(log, "\n") != 2 {
 		t.Errorf("run log should hold two events:\n%s", log)
+	}
+}
+
+func TestProposeScheduleIsToolFreeAndDoesNotCreateARunLog(t *testing.T) {
+	advisorInit := `{"type":"system","subtype":"init","tools":[]}`
+	proposalLine := `{"type":"result","is_error":false,"result":"{\"items\":[{\"payload\":\"/implement T-1\",\"due_at\":\"2026-09-05T01:00:00Z\"}]}"}`
+	f := newFixture(t, dumpPrologue+emit(t, advisorInit)+emit(t, proposalLine))
+	proposal, err := f.runner.ProposeSchedule(t.Context(), agent.ScheduleProposalRequest{
+		Description: "split the implementation", ReceivedAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ProposeSchedule: %v", err)
+	}
+	if len(proposal.Items) != 1 || proposal.Items[0].Payload != "/implement T-1" {
+		t.Fatalf("proposal = %+v", proposal)
+	}
+	args, err := os.ReadFile(filepath.Join(f.home, "argv.dump"))
+	if err != nil {
+		t.Fatalf("read advisor argv: %v", err)
+	}
+	got := string(args)
+	for _, want := range []string{"--tools", "--strict-mcp-config"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("argv %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "--session-id") || strings.Contains(got, "--resume") {
+		t.Errorf("advisor argv contains normal-run capability: %q", got)
+	}
+	path, err := naming.RunLogPath(f.home, testRef, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("schedule advisor created normal run log %q: %v", path, err)
 	}
 }
 
@@ -598,6 +634,8 @@ func TestRunFailsOnIsErrorDespiteSuccessSubtype(t *testing.T) {
 // that with `set -m`, which puts the background job in its own process group,
 // and then asserts the sleeper is gone.
 func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
+	requireProcessListAccess(t)
+
 	root := t.TempDir()
 	sleeperPID := filepath.Join(root, "sleeper.pid")
 	sleeperPGID := filepath.Join(root, "sleeper.pgid")
