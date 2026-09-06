@@ -67,7 +67,7 @@ func buildMarkerSection(teams []string, agentKey string, body []byte) []byte {
 // RenderedHash, so Add's no-op short-circuit never leaves a stale team
 // list sitting in a root file.
 func markerSpanHash(teams []string, agentKey string, body []byte) string {
-	return hashBytes(buildMarkerSection(teams, agentKey, body))
+	return HashBytes(buildMarkerSection(teams, agentKey, body))
 }
 
 // parseBeginLine extracts the team list and agent key from one BEGIN

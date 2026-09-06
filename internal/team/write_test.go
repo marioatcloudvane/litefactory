@@ -10,7 +10,7 @@ import (
 )
 
 // standaloneRender builds a minimal AgentRender for a standalone (non
-// root-file) harness target, defaulting SourceHash to hashBytes of a
+// root-file) harness target, defaulting SourceHash to HashBytes of a
 // caller-supplied source-marker string so tests can vary it independently
 // of the rendered body.
 func standaloneRender(t *testing.T, harness, agentKey, source, body string) AgentRender {
@@ -24,7 +24,7 @@ func standaloneRender(t *testing.T, harness, agentKey, source, body string) Agen
 		Harness:    harness,
 		Teams:      []string{"go-team"},
 		SourcePath: source,
-		SourceHash: hashBytes([]byte(source)),
+		SourceHash: HashBytes([]byte(source)),
 		Files: []RenderedFile{
 			{Path: path, Bytes: []byte(body)},
 		},
@@ -49,7 +49,7 @@ func rootRender(t *testing.T, harness, agentKey string, teams []string, source, 
 		Harness:    harness,
 		Teams:      teams,
 		SourcePath: source,
-		SourceHash: hashBytes([]byte(source)),
+		SourceHash: HashBytes([]byte(source)),
 		Files: []RenderedFile{
 			{Path: rootFile, Bytes: []byte(body)},
 		},
@@ -88,7 +88,7 @@ func TestAddWritesStandaloneFileAndLockRecord(t *testing.T) {
 	if rec.AgentKey != "go-architect" || rec.Harness != "claude" || rec.DestPath != ".claude/agents/go-architect.md" {
 		t.Errorf("unexpected record: %+v", rec)
 	}
-	if rec.RenderedHash != hashBytes([]byte("# Go Architect\n")) {
+	if rec.RenderedHash != HashBytes([]byte("# Go Architect\n")) {
 		t.Errorf("RenderedHash = %q, want hash of body", rec.RenderedHash)
 	}
 }
@@ -154,7 +154,7 @@ func TestAddValidationFailureWritesNothing(t *testing.T) {
 		Harness:    "not-a-real-harness",
 		Teams:      []string{"go-team"},
 		SourcePath: "src/bad.md",
-		SourceHash: hashBytes([]byte("src/bad.md")),
+		SourceHash: HashBytes([]byte("src/bad.md")),
 		Files: []RenderedFile{
 			{Path: "whatever.md", Bytes: []byte("bad")},
 		},
@@ -184,7 +184,7 @@ func TestAddAggregatesAllValidationFailuresInOneBatch(t *testing.T) {
 		Harness:    "not-a-real-harness",
 		Teams:      []string{"go-team"},
 		SourcePath: "src/bad-harness.md",
-		SourceHash: hashBytes([]byte("src/bad-harness.md")),
+		SourceHash: HashBytes([]byte("src/bad-harness.md")),
 		Files: []RenderedFile{
 			{Path: "whatever.md", Bytes: []byte("bad")},
 		},
@@ -194,7 +194,7 @@ func TestAddAggregatesAllValidationFailuresInOneBatch(t *testing.T) {
 		Harness:    "claude",
 		Teams:      []string{"go-team"},
 		SourcePath: "src/go-tester.md",
-		SourceHash: hashBytes([]byte("src/go-tester.md")),
+		SourceHash: HashBytes([]byte("src/go-tester.md")),
 		Files: []RenderedFile{
 			{Path: ".claude/agents/someone-else.md", Bytes: []byte("nope")},
 		},
@@ -239,7 +239,7 @@ func TestAddRejectsUnownedPath(t *testing.T) {
 		Harness:    "claude",
 		Teams:      []string{"go-team"},
 		SourcePath: "src/go-architect.md",
-		SourceHash: hashBytes([]byte("src/go-architect.md")),
+		SourceHash: HashBytes([]byte("src/go-architect.md")),
 		Files: []RenderedFile{
 			{Path: ".claude/agents/someone-else.md", Bytes: []byte("nope")},
 		},
@@ -468,7 +468,7 @@ func TestAddWritesAgentToBothStandaloneAndRootFile(t *testing.T) {
 		Harness:    "claude",
 		Teams:      []string{"go-team"},
 		SourcePath: "src/go-architect.md",
-		SourceHash: hashBytes([]byte("src/go-architect.md")),
+		SourceHash: HashBytes([]byte("src/go-architect.md")),
 		Files: []RenderedFile{
 			{Path: path, Bytes: []byte("standalone body\n")},
 			{Path: RootFileClaude, Bytes: []byte("root section body\n")},
@@ -557,7 +557,7 @@ func TestAddLockRecordCarriesSourceHashAndRenderedHash(t *testing.T) {
 	if standaloneRec.SourcePath != standaloneAR.SourcePath {
 		t.Errorf("standalone SourcePath = %q, want %q", standaloneRec.SourcePath, standaloneAR.SourcePath)
 	}
-	if standaloneRec.RenderedHash != hashBytes([]byte("standalone body\n")) {
+	if standaloneRec.RenderedHash != HashBytes([]byte("standalone body\n")) {
 		t.Errorf("standalone RenderedHash = %q, want hash of written body", standaloneRec.RenderedHash)
 	}
 

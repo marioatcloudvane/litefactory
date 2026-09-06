@@ -57,14 +57,15 @@ render        →  (nothing)          leaf. per-harness renderer registry (claud
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
 
 redact        →  secrets
-team          →  config             `team add` write engine + team index decode/validate; no CLI wiring yet
+team          →  config             `team add` write engine + team index decode/validate
 github        →  naming, redact, secrets
 harness       →  config, naming
 report        →  git, harness, naming, redact
 repos         →  git, naming, store
 turn          →  config, git, github, harness, naming, redact, report, store
 daemon        →  config, git, github, harness, naming, redact, report, repos, secrets, store, turn
-cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store
+teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
+cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store, team, teamsource
 cmd/litefactory → cli, config, logging
 ```
 
@@ -101,19 +102,27 @@ The load-bearing consequences:
   plain-map registry; a harness gains a renderer by calling `render.Register`
   from its own package's `init`.
 - **`internal/team` may import only `internal/config`** (`doc.go`'s
-  Invariants), never `internal/render` — a future `internal/teamsource`
-  renders first and converts `render.RenderedFile` into `team.RenderedFile`.
-  It owns a bookkeeping directory at the *target* repo's root, `.litefactory/`
-  (distinct from this repo's own `.aiteam/`): `team.lock.json` (provenance)
-  and `.team.lock` (flock target).
+  Invariants), never `internal/render` — `internal/teamsource` renders first
+  and converts `render.RenderedFile` into `team.RenderedFile`, then calls
+  `team.Add`. It owns a bookkeeping directory at the *target* repo's root,
+  `.litefactory/` (distinct from this repo's own `.aiteam/`): `team.lock.json`
+  (provenance) and `.team.lock` (flock target).
+- **`internal/teamsource` sits above both `internal/team` and
+  `internal/render`** and is the only package that imports both. The chain is
+  `internal/cli -> internal/teamsource -> (internal/team, internal/render)`;
+  `RenderTeam` (`internal/teamsource/render.go`) is where roster reading,
+  parsing, per-harness rendering, hashing and shared-agent team collection for
+  `team add` happen — `internal/cli` calls it rather than doing any of that
+  itself. See `internal/teamsource/doc.go`.
 
 ### Read the `doc.go` files
 
-Thirteen packages carry a `doc.go` whose prose is the real specification for
+Fourteen packages carry a `doc.go` whose prose is the real specification for
 that package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`,
-`naming`, `redact`, `render`, `repos`, `report`, `team`, `turn` — and `config`
-and `store` carry theirs at the top of `config.go` / `store.go`. **Read the
-one for the package you are about to touch before you touch it.**
+`naming`, `redact`, `render`, `repos`, `report`, `team`, `teamsource`, `turn`
+— and `config` and `store` carry theirs at the top of `config.go` /
+`store.go`. **Read the one for the package you are about to touch before you
+touch it.**
 
 ---
 
@@ -134,9 +143,11 @@ one for the package you are about to touch before you touch it.**
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
-| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match. **Not wired to any CLI command yet** |
+| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
+| render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
+| resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
 | run `claude` | `internal/harness` | The only place |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |

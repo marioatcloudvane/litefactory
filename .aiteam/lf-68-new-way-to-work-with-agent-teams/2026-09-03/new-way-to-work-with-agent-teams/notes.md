@@ -206,3 +206,154 @@ Full findings in `$session/CODE_REVIEW.md`.
 
 Both non-blocking; not fixed this run per Phase 1.5 handling of
 ADVISORY-only findings.
+
+## 2026-09-06 — Implement run 21 (retroactively documented): US-4 `team add` CLI wiring
+
+No entry for this run existed in this file before now — it is added retroactively
+from the surviving artifacts (`CODE_REVIEW.md`'s original BLOCKING findings,
+`git log`, and the committed `internal/cli/cmd_team.go`) because the run that
+did this work ended (commit 76f3159) without completing its own close-out steps.
+
+**Scope, as far as can be reconstructed:** `team add`'s CLI wiring in
+`internal/cli/cmd_team.go` (791 lines, new file) plus a 6-line addition to
+`internal/cli/commands.go` registering the subcommand — the caller-side glue
+between US-4's CLI scaffold and US-9/US-18's already-landed `team.Add` engine.
+`team list`/`team show` were built in the same file with no BLOCKING findings
+against them.
+
+**Phase 1.5 — Code Review.** First pass returned **BLOCKING**, with two
+findings against `team add` specifically (full text preserved verbatim in
+`CODE_REVIEW.md`):
+
+- **CR-B-001**: each `team.AgentRender` was built with `Teams:
+  []string{teamName}` — always just the current invocation's team, never
+  merged with contributing teams already recorded for a shared agent. This
+  defeated US-18 AC-2 (one deduplicated marker block per shared agent, listing
+  every contributing team): a second team adding a shared agent would silently
+  drop the first team's membership from the marker's `team=` list.
+- **CR-B-002**: rendering/hashing/team-collection logic (`parseAgentSource`,
+  `hashSourceBytes`, and the render loop) was built inside `internal/cli`
+  instead of `internal/teamsource`, violating the package-boundary contract
+  documented in `internal/team/doc.go` and `write_types.go`, which assign this
+  responsibility to `internal/teamsource` — the same layering US-9/US-18's
+  engine already follows.
+
+The run stopped after this review pass without dispatching a fix cycle, and
+without any of its own close-out steps (no `DRIFT_REPORT.md`, no MANIFEST.md
+History entry, no notes.md entry, no `APP_CONTEXT.md`/`APP_CONSTRAINTS.md`
+update). That is the incomplete state this session (run 22, below) was asked
+to close out.
+
+## 2026-09-06 — Implement run 22: close out run 21 — fix CR-B-001/CR-B-002, add missing tests, complete bookkeeping
+
+**Scope** (per sponsor's issue #68 comment): fix exactly the two BLOCKING
+findings left open against `team add` in run 21, then complete the
+review/test/bookkeeping steps that run skipped. Explicitly out of bounds this
+run: US-10, US-11, US-13, US-17, and US-1's `manage` subcommand beyond its
+existing stub. No new user-story scope was started.
+
+**Phase 1 — Fix.** A single `go-implementation-engineer` fixed both findings
+together in one pass (per `CODE_REVIEW.md`'s own instruction that they belong
+at the same layer):
+
+- New file `internal/teamsource/render.go`: a `RosterEntry` type and a
+  `RenderTeam(root string, fsys fs.FS, teamName string, roster
+  []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` entry
+  point. Relocates `parseAgentSource` (now package-private inside
+  `internal/teamsource`) from `cmd_team.go`. For each (harness, agent key)
+  pair, calls the pre-existing `team.ExistingTeams(root, harness, agentKey)`
+  read accessor to discover prior contributing teams, unions the result with
+  the current `teamName`, and passes the full set through to the renderer and
+  into the returned `team.AgentRender.Teams` — closing CR-B-001 without
+  inventing new durable state, since `ExistingTeams` already existed for
+  exactly this purpose. Converts `render.RenderedFile` → `team.RenderedFile`
+  and aggregates per-entry errors via `errors.Join`.
+- `internal/cli/cmd_team.go`: `parseAgentSource`/`hashSourceBytes` deleted;
+  `runTeamAdd`'s render loop now builds `[]teamsource.RosterEntry` from the
+  existing roster result and calls `teamsource.RenderTeam`, passing its
+  output straight to `team.Add` — closing CR-B-002. Now-unused imports
+  (`crypto/sha256`, `encoding/hex`, `gopkg.in/yaml.v3`, `internal/render`)
+  removed.
+- `internal/team/hash.go`'s unexported `hashBytes` exported as `HashBytes`
+  (taking CR-A-001's advisory since this boundary was already being touched),
+  with call-site renames in `marker.go`, `write.go`, and the two existing
+  `_test.go` files in that package to keep them compiling.
+
+Build, vet, gofmt, and the existing test suite all passed clean after the
+fix.
+
+**Phase 1.5 — Re-review.** `go-code-reviewer` re-reviewed, scoped only to the
+seven touched files, independently re-ran build/vet/gofmt/test/grep checks,
+and confirmed both CR-B-001 and CR-B-002 resolved. Verdict: **ADVISORY_ONLY**
+(no third review cycle needed) — treated as satisfying "confirm CLEAN" for
+gating purposes, per this orchestrator's own rule that ADVISORY_ONLY is a
+terminal, non-blocking state equivalent to CLEAN. CR-A-001 (the original
+`hashSourceBytes` duplication advisory) is now moot, since the duplicated
+code was deleted rather than kept side by side. CR-A-002 (lockfile-exists
+short-circuit skips harness/index validation ordering) is unchanged/open.
+One new advisory recorded:
+
+## Code Review Advisories (Run 22, carried forward, non-blocking)
+
+- **CR-A-002** (carried from run 21's review, still open): the lockfile-exists
+  short-circuit in `team add` skips harness/index validation ordering —
+  non-functional, documentation-only suggestion.
+- **CR-A-003** (new): `teamsource.RenderTeam` calls `team.ExistingTeams` once
+  per (harness, roster entry) pair rather than loading the lockfile once and
+  querying it in memory — a performance nit on repeated per-entry lockfile
+  reads, not a correctness issue at today's team/agent-count scale.
+
+Neither blocks correctness or this run's acceptance criteria; recorded for a
+future pass.
+
+**Phase 2 — Environment setup.** Skipped. `team add`'s implementation
+(`internal/cli/cmd_team.go`, `internal/teamsource`, `internal/team`) is
+filesystem-only — no database, external HTTP call, or message queue — matching
+the same judgment already recorded for run 20. No `TEST_BASE_URL`/
+`TEST_DATABASE_URL` lookup was needed.
+
+**Phase 3 — Testing.** `go-unit-test-engineer` added the tests run 21 never
+wrote, scoped narrowly to `team add` and the newly-relocated `teamsource`
+logic (not a full-story re-test pass, and not touching `team list`/`team
+show`, which the engineer separately flagged as themselves still having no
+test coverage in this worktree — out of scope for this run, noted here as an
+open gap for a future pass):
+
+- `internal/teamsource/render_test.go` — `TestParseAgentSource`,
+  `TestRenderTeam_SingleHarnessSingleAgent`,
+  `TestRenderTeam_MultipleHarnesses`,
+  `TestRenderTeam_FirstEverAdd_TeamsIsJustCurrentTeam`,
+  `TestRenderTeam_SharedAgentWithExistingContributingTeam_UnionsTeams` (direct
+  regression coverage for CR-B-001 — asserts the union, not an overwrite, via
+  a real prior `team.Add` seeding a lockfile),
+  `TestRenderTeam_MalformedFrontmatterSource_ReturnsWrappedError`,
+  `TestRenderTeam_UnknownHarness_ReturnsError`.
+- `internal/cli/cmd_team_test.go` (new) — `TestTeamAddRejections` (missing
+  team argument, unknown `--harness` value, no `.git` at the repo path, an
+  already-existing lockfile → the four `UsageError`/`PreconditionError`/plain-
+  error exit-code paths) and `TestTeamAddSuccess` (full happy path: real
+  temp-dir fixtures for the team index, config, and target repo; asserts
+  stdout summary, on-disk rendered file content, and post-add lockfile
+  presence).
+
+`go test ./internal/teamsource/... ./internal/cli/... -race -cover`: all
+passing, `-race` clean, `go vet` clean. Coverage 44.6% (`teamsource`), 73.2%
+(`cli`, whole package). No bug loop was needed — zero test failures.
+
+**Assumptions made this run** (headless, no clarifying question put to a
+human):
+1. ADVISORY_ONLY satisfies the sponsor's "confirm CLEAN" instruction, per this
+   orchestrator's own Phase 1.5 handling rule that both verdicts gate
+   identically. Recorded here explicitly since the sponsor's prose named
+   "CLEAN" specifically.
+2. No new `internal/team` read accessor was needed for CR-B-001 — the
+   pre-existing `team.ExistingTeams` already covered the "prior contributing
+   teams for this (harness, agent key)" query the fix needed.
+3. `team list`/`team show`'s pre-existing lack of test coverage (discovered by
+   the unit-test engineer, not by this orchestrator) is left as-is — fixing it
+   was not part of this run's scope (fixing CR-B-001/CR-B-002 plus their
+   missing tests), and is noted here as an open item for a future pass rather
+   than silently expanded into.
+
+No commits or pushes made this run — worktree left for litefactory to inspect
+and commit.

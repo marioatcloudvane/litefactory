@@ -121,6 +121,13 @@ These are not style rules. Each has a test or a type that fails if you break it.
 - **SEC-16 [enforced]** — A root-file record's `RenderedHash` MUST hash only
   the marker span (`markerSpanHash`), never the whole file, so it cannot
   misfire on unrelated edits.
+- **SEC-17 [enforced]** — A caller assembling a shared agent's
+  `AgentRender.Teams` (`internal/teamsource.RenderTeam`) MUST union the new
+  team into `team.ExistingTeams(root, harness, agentKey)`'s result rather than
+  overwrite it. `upsertMarkerSection` (`internal/team/marker.go`) replaces a
+  shared agent's root-file section wholesale using only the `Teams` slice it
+  is handed; skipping the union silently drops every other team's attribution
+  from that agent's one deduplicated marker block.
 
 ---
 
@@ -336,3 +343,4 @@ rather than editing the test.
 | `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's plan and spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.7) |
 | `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
 | `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
+| `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |

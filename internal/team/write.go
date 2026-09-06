@@ -115,7 +115,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 					DestPath:     f.Path,
 					SourcePath:   ar.SourcePath,
 					SourceHash:   ar.SourceHash,
-					RenderedHash: hashBytes(f.Bytes),
+					RenderedHash: HashBytes(f.Bytes),
 					Teams:        encodeTeams(ar.Teams),
 				},
 			})

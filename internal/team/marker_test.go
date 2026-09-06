@@ -123,7 +123,7 @@ func TestMarkerSpanHashUnaffectedByContentOutsideMarkerSpan(t *testing.T) {
 			t.Fatalf("%s: locateMarkerSection did not find the section", name)
 		}
 		span := content[start:end]
-		got := hashBytes(span)
+		got := HashBytes(span)
 		if got != direct {
 			t.Errorf("%s: hash of extracted span = %q, want markerSpanHash result %q (content outside the marker span must not affect the hash)", name, got, direct)
 		}

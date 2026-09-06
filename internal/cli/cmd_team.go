@@ -12,8 +12,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -26,10 +24,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/cloudvane/litefactory/internal/config"
-	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/team"
 	"github.com/cloudvane/litefactory/internal/teamsource"
@@ -529,41 +524,6 @@ func runTeamShow(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptio
 	return nil
 }
 
-// parseAgentSource splits raw agent markdown into a render.ResolvedSource:
-// a "---"-delimited YAML frontmatter block decoded into render.Frontmatter,
-// plus the remaining body. internal/render deliberately does not do this
-// (internal/render/doc.go: "building a real ResolvedSource by reading and
-// splitting an actual markdown file is not this package's job") so it is
-// done here, once, for every agent team add renders.
-func parseAgentSource(raw []byte) (render.ResolvedSource, error) {
-	const delim = "---"
-	text := string(raw)
-	if !strings.HasPrefix(text, delim+"\n") {
-		return render.ResolvedSource{}, fmt.Errorf("missing leading %q frontmatter delimiter", delim)
-	}
-	rest := text[len(delim+"\n"):]
-	end := strings.Index(rest, "\n"+delim)
-	if end < 0 {
-		return render.ResolvedSource{}, fmt.Errorf("unterminated frontmatter block (no closing %q)", delim)
-	}
-	header := rest[:end]
-	body := strings.TrimPrefix(rest[end+len("\n"+delim):], "\n")
-
-	var fm render.Frontmatter
-	if err := yaml.Unmarshal([]byte(header), &fm); err != nil {
-		return render.ResolvedSource{}, fmt.Errorf("decode frontmatter: %w", err)
-	}
-	return render.ResolvedSource{Frontmatter: fm, Body: body}, nil
-}
-
-// hashSourceBytes returns the hex sha256 of an agent's raw source bytes, for
-// team.AgentRender.SourceHash — computed by the caller before invoking a
-// renderer, per that field's doc comment in internal/team/write_types.go.
-func hashSourceBytes(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
 // runTeamAdd implements `team add <team>`: it renders every agent resolved
 // for teamName — its own agents plus the index's shared agents, via the same
 // teamRoster merge list/show use — for every harness resolveTeamHarness
@@ -608,50 +568,14 @@ func runTeamAdd(ctx context.Context, env *Env, cmd *Command, opts teamRepoOption
 		return &UsageError{Cmd: cmd, Err: err}
 	}
 	roster := teamRoster(*t, resolved.Index.Shared)
-
-	var renders []team.AgentRender
-	var renderErrs []error
-	for _, harnessName := range harness.names {
-		renderer, lookupErr := render.Lookup(harnessName)
-		if lookupErr != nil {
-			renderErrs = append(renderErrs, lookupErr)
-			continue
-		}
-		for _, entry := range roster {
-			raw, readErr := fs.ReadFile(resolved.FS, entry.Agent.Source)
-			if readErr != nil {
-				renderErrs = append(renderErrs, fmt.Errorf("read %s: %w", entry.Agent.Source, readErr))
-				continue
-			}
-			source, parseErr := parseAgentSource(raw)
-			if parseErr != nil {
-				renderErrs = append(renderErrs, fmt.Errorf("%s: %w", entry.Agent.Source, parseErr))
-				continue
-			}
-			// A renderer error means every RenderedFile it produced (if any)
-			// must be discarded (internal/render/doc.go): nothing from this
-			// call is appended to renders below.
-			files, renderErr := renderer.Render(source)
-			if renderErr != nil {
-				renderErrs = append(renderErrs, fmt.Errorf("render %s for %s: %w", entry.Key, harnessName, renderErr))
-				continue
-			}
-			teamFiles := make([]team.RenderedFile, len(files))
-			for i, f := range files {
-				teamFiles[i] = team.RenderedFile{Path: f.Path, Bytes: f.Bytes}
-			}
-			renders = append(renders, team.AgentRender{
-				AgentKey:   entry.Key,
-				Harness:    harnessName,
-				Teams:      []string{teamName},
-				SourcePath: entry.Agent.Source,
-				SourceHash: hashSourceBytes(raw),
-				Files:      teamFiles,
-			})
-		}
+	sourceRoster := make([]teamsource.RosterEntry, len(roster))
+	for i, entry := range roster {
+		sourceRoster[i] = teamsource.RosterEntry{Key: entry.Key, Agent: entry.Agent}
 	}
-	if joined := errors.Join(renderErrs...); joined != nil {
-		return joined
+
+	renders, err := teamsource.RenderTeam(repoPath, resolved.FS, teamName, sourceRoster, harness.names)
+	if err != nil {
+		return err
 	}
 
 	result, err := team.Add(repoPath, renders)
