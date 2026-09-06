@@ -19,5 +19,6 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-06 — research update: mode-specific bundles, token measurement, and Validate split analysis completed
 - 2026-09-06 — Validate and specialist-skill composition spike completed
 - 2026-09-06 — team-first, mode-aware external-agent plan completed
+- 2026-09-06 — research update: owner removed legacy-index compatibility requirement
 
 ## Notes

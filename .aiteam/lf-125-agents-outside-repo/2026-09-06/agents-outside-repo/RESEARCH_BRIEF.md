@@ -179,3 +179,17 @@ Sources: [Codex skills](https://developers.openai.com/codex/skills/), [Codex sub
 [V] It is reasonable to expect smaller initial instruction catalogs with mode bundles. For Codex, the documented mechanism bounds all available-skill metadata but does not make it free; for Claude, official sources examined document selection mechanisms but not a comparable prompt-token accounting. Neither source establishes how much current classifier token use comes from agent discovery.
 
 [V] The decision criterion should be a controlled, version-pinned benchmark, not file byte counts. For each vendor and each mode, run the same fixed classification and work prompt with (a) current repository discovery and (b) the external mode bundle; record CLI version, effective configuration, input/output/total token usage where available, first-response latency, subagent count, task outcome, and any unexpected discovered agent. Compare median and p95 over repeated runs. A change that reduces classifier context but increases total task tokens through extra delegation is not a clear win.
+
+## Research Update — run 0005
+
+### Owner decision: no legacy compatibility
+
+[O] The owner states that the prior index version was never used and explicitly requires no backward/downward compatibility.
+
+[V] This removes the need for in-memory v1-to-v2 migration, legacy provenance/status, an explicit index-migration writer, and tests which preserve the former all-agent availability across every mode. Native schema v2 can be the only accepted index format from the first release.
+
+[V] The completed Plan artifact currently includes compatibility as US-4 and makes bundle wiring/inspection depend on it. That plan is now stale relative to this owner decision. A subsequent Plan run must remove US-4; remove the migration command/task from US-5; remove US-4 dependencies from US-3 and US-5; and replace migration-related acceptance criteria, tests and documentation with a hard rejection of unsupported schema versions. The remaining team-first schema, per-mode roster resolution, private external bundle and strict Validate design are unaffected.
+
+### Recommended scope for the next Plan update
+
+[V] Preserve four stories: team-first strict schema, ref/direct definition resolution, post-classification private mode bundles, and deterministic read-only team inspection. Make an unsupported `schemaVersion` a clear startup/inspection error naming the supported version. Do not retain a compatibility parser, converter, legacy label or operator migration command.
