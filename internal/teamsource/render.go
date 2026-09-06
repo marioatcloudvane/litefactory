@@ -132,3 +132,38 @@ func RenderTeam(root string, fsys fs.FS, teamName string, roster []RosterEntry, 
 	}
 	return renders, nil
 }
+
+// RenderCurrent re-renders exactly one agent's current source markdown for
+// one harness, independent of team membership and without touching the
+// provenance lockfile at all. It answers "what would this exact agent
+// produce today" — the fresh-render half of team status's drift
+// classification (internal/team.Classify) — as opposed to RenderTeam, whose
+// team-membership bookkeeping (team.ExistingTeams unioned with the team being
+// added) has no meaning for a status check: there is no team being added.
+//
+// It returns HashBytes of the raw source bytes read from sourcePath, plus the
+// rendered files that source produces for harnessName, converted to
+// team.RenderedFile the same way RenderTeam does.
+func RenderCurrent(fsys fs.FS, harnessName, sourcePath string) (sourceHash string, files []team.RenderedFile, err error) {
+	renderer, err := render.Lookup(harnessName)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, err := fs.ReadFile(fsys, sourcePath)
+	if err != nil {
+		return "", nil, fmt.Errorf("read %s: %w", sourcePath, err)
+	}
+	source, err := parseAgentSource(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", sourcePath, err)
+	}
+	renderedFiles, err := renderer.Render(source)
+	if err != nil {
+		return "", nil, fmt.Errorf("render %s for %s: %w", sourcePath, harnessName, err)
+	}
+	teamFiles := make([]team.RenderedFile, len(renderedFiles))
+	for i, f := range renderedFiles {
+		teamFiles[i] = team.RenderedFile{Path: f.Path, Bytes: f.Bytes}
+	}
+	return team.HashBytes(raw), teamFiles, nil
+}

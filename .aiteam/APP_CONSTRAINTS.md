@@ -128,6 +128,11 @@ These are not style rules. Each has a test or a type that fails if you break it.
   shared agent's root-file section wholesale using only the `Teams` slice it
   is handed; skipping the union silently drops every other team's attribution
   from that agent's one deduplicated marker block.
+- **SEC-18** — `internal/team` MUST NOT import `internal/render` or
+  `internal/teamsource`, preserving the `cli → teamsource → (team, render)`
+  dependency direction. `Classify` (`internal/team/status.go`) takes a
+  caller-computed fresh render rather than rendering itself, so importing
+  either package here would let the leaf depend on what already depends on it.
 
 ---
 
@@ -226,27 +231,20 @@ These are not style rules. Each has a test or a type that fails if you break it.
 ## 4. Concurrency and resource discipline (`CONC`)
 
 - **CONC-1** — Slices MUST be copied at struct boundaries, with
-  `append([]string(nil), …)` (11 existing sites across `harness/runner.go`,
-  `harness/meta.go`, `turn/execute.go`, `turn/report.go`, `daemon/daemon.go`,
-  `daemon/tools.go`, `daemon/tick.go`) or `slices.Clone` / `maps.Clone`.
-  Originally this defended a sequential bug: a request struct is mutated in place
-  on the cold-rerun path, and one `append` into spare capacity would rewrite the
-  operator's configuration for every later run in the process. **Under concurrent
-  turns it is load-bearing for isolation between live sibling turns** — two turn
-  workers legitimately hold requests built from the same configuration at the
-  same instant, so a missed copy is a data race, not a stale value. One of these
-  MUST NOT be removed on the grounds that nothing looked like it was reading the
-  slice again.
+  `append([]string(nil), …)` or `slices.Clone`/`maps.Clone` (11 sites across
+  `harness`, `turn`, `daemon`). Defends a sequential mutation bug and is now
+  load-bearing for isolation between concurrent turn workers holding requests
+  built from the same configuration — a missed copy is a data race, not a
+  stale value. MUST NOT be removed on the grounds that nothing looked like it
+  read the slice again.
 - **CONC-2** — Goroutine budgets MUST be documented and MUST stay tiny. The
-  inventory is four fixed goroutines — `harness/runner.go` (exactly two, one per
-  pipe, neither able to outlive `Run`), `daemon/daemon.go` (the loop), and
-  `cmd/litefactory/main.go` (the second-signal watcher) — plus at most
-  `max_concurrent_runs` turn workers dispatched from `Daemon.offer`
-  (`internal/daemon/tick.go`) via `pool.try` (`internal/daemon/pool.go`). With
-  `max_concurrent_runs` refused (never clamped) outside 1..16, the hard ceiling
-  on the process is twenty goroutines. A new goroutine MUST say in a comment what
-  bounds its lifetime. The one named termination condition for the worker pool is
-  `Daemon.Quiesce` — not a `select` on shutdown, and not a sleep.
+  inventory: two in `harness/runner.go` (one per pipe), the loop in
+  `daemon/daemon.go`, the second-signal watcher in `cmd/litefactory/main.go`,
+  plus at most `max_concurrent_runs` turn workers dispatched from
+  `Daemon.offer`/`pool.try`. With `max_concurrent_runs` refused (never
+  clamped) outside 1..16, the ceiling is twenty goroutines. A new goroutine
+  MUST say in a comment what bounds its lifetime. The pool's one termination
+  condition is `Daemon.Quiesce` — not a shutdown `select`, not a sleep.
 - **CONC-3** — A bad outcome MUST be a value, not an error. Across `turn`,
   `harness` and `daemon`, an operation that *happened and went badly* returns a
   result whose field says how; the `error` return is reserved for "could not be
@@ -300,11 +298,14 @@ These are not style rules. Each has a test or a type that fails if you break it.
   them verbatim; `*github.RateLimitError.RetryAfter` is read by the daemon's
   backoff; `*config.SecretError` carries the key and class but never the value.
   Formatting a string a caller has to re-parse SHOULD be avoided.
-- **STYLE-6** — CLI handlers MUST NOT read the flag set back. `Command.New(fs)`
-  binds flags and returns a *closure* capturing the values; the handler receives
-  only arity-checked positionals plus `*cli.Env`. Exit code comes from the error
-  kind: `*UsageError` (bad command line) vs `*PreconditionError` (machine not
-  ready) vs plain error.
+- **STYLE-6 [enforced]** — CLI handlers MUST NOT read the flag set back.
+  `Command.New(fs)` binds flags and returns a *closure* capturing the values;
+  the handler receives only arity-checked positionals plus `*cli.Env`. Exit
+  code comes from the error kind: `*UsageError` (bad command line) vs
+  `*PreconditionError` (machine not ready) vs plain error — a domain-level
+  finding (e.g. drift, a per-record failure) MUST exit via a plain error, never
+  `*UsageError`/`*PreconditionError`, which are reserved for flag and
+  precondition problems.
 - **STYLE-7** — Eighteen packages carry a `doc.go` whose prose is the real
   specification for that package. You MUST read the one for the package you are
   about to touch, before you touch it.
@@ -358,3 +359,4 @@ rather than editing the test.
 | `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
 | `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
 | `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |
+| `cli/cmd_team_status_test.go` | `team status` exits `ExitOK` only when every record is in sync, `ExitFailure` on any drift or per-record error, and reserves `ExitPrecondition` for a bad `--repo` (STYLE-6) |

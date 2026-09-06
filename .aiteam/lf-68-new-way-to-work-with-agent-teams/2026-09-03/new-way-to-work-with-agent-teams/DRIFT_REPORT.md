@@ -1,104 +1,92 @@
-# Drift Report — new-way-to-work-with-agent-teams (Run 22: close out run 21's `team add` CLI wiring)
+# Drift Report — new-way-to-work-with-agent-teams (Run 25)
 # Branch: lf/68-new-way-to-work-with-agent-teams | Date: 2026-09-06
 
-Scope of this report: this run only — fixing CR-B-001 and CR-B-002 (both
-BLOCKING findings left open against `team add`'s CLI wiring by run 21, which
-ended at commit 76f3159 without completing its own review/test/bookkeeping
-close-out), plus writing the missing unit tests and completing that
-close-out. Not a full-feature drift report. Run 20's report (US-9 + US-18) is
-superseded by this file for the same session per this orchestrator's
-single-drift-report-per-Exit convention; its content is preserved instead in
-`notes.md`'s Run 20 entry, which this run did not touch. Prior runs' stories
-(US-1/2/3/5/6/7/8/19, and run 21's own `team list`/`team show` work) are out
-of scope here.
+## Scope of this run
+US-10 (`team status` drift detection) plus the pre-existing `team list`/`team show`
+test-coverage gap flagged by runs 22 and 24. US-11, US-13 through US-17 and any
+extension to `team manage` beyond its existing stub were explicitly out of scope.
 
 ## Delivered as planned
 
-- **CR-B-001 fixed**: `internal/teamsource/render.go`'s new `RenderTeam`
-  entry point unions each rendered agent's contributing-teams list with
-  whatever `team.ExistingTeams(root, harness, agentKey)` already reports for
-  that (harness, agent key) pair, instead of overwriting it with
-  `[]string{teamName}`. Verified by a direct regression test
-  (`TestRenderTeam_SharedAgentWithExistingContributingTeam_UnionsTeams`) that
-  seeds a real prior `team.Add` and asserts the second team's render carries
-  both teams — the exact invariant US-18 AC-2 requires and CR-B-001 was
-  defeating.
-- **CR-B-002 fixed**: rendering/hashing/team-collection logic
-  (`parseAgentSource`, the render loop, `render.RenderedFile` →
-  `team.RenderedFile` conversion) moved out of `internal/cli` into the new
-  `internal/teamsource/render.go`, restoring the `cli -> teamsource ->
-  (team, render)` package-boundary contract documented in
-  `internal/team/doc.go`/`write_types.go`. `cmd_team.go`'s `runTeamAdd` now
-  calls `teamsource.RenderTeam` and passes its result straight to
-  `team.Add`.
-- Re-review by `go-code-reviewer`, scoped to the seven touched files,
-  independently confirmed both fixes and returned ADVISORY_ONLY (no third
-  cycle needed) — treated as satisfying the run's "confirm CLEAN" instruction
-  per this orchestrator's rule that ADVISORY_ONLY and CLEAN gate identically.
-- Missing unit tests added, as explicitly requested: `internal/teamsource
-  /render_test.go` (7 test functions covering `parseAgentSource` and
-  `RenderTeam`, including the CR-B-001 regression case, multi-harness
-  rendering, first-ever-add degrading to just the current team, malformed
-  source, unknown harness) and `internal/cli/cmd_team_test.go` (new —
-  `TestTeamAddRejections` covering all four `UsageError`/`PreconditionError`/
-  plain-error exit-code paths, and `TestTeamAddSuccess` covering the full
-  happy path end to end). `go test ./internal/teamsource/... ./internal/cli/...
-  -race -cover`: all passing, `-race` clean, `go vet` clean.
-- Bookkeeping this run was asked to complete: `notes.md` updated with a
-  retroactive account of run 21's undocumented work plus this run's own
-  narrative and advisories; this `DRIFT_REPORT.md`; `MANIFEST.md` History
-  entry (below); `APP_CONTEXT.md`/`APP_CONSTRAINTS.md` update via
-  `app-context-updater` in update mode.
+- T-21 (byte-comparison classification logic, US-10's five-state table) —
+  `internal/team/status.go`: `Status` enum, `String()`, `LoadLockfile`/`DecodeTeams`
+  wrappers, `Classify(root, rec, freshSourceHash, freshTeams, freshBody)` covering
+  In sync / Locally modified / Upstream updated / Conflict / Missing, for both
+  standalone files and root-file marker-span targets. Stdlib-only imports; no
+  `internal/render`/`internal/teamsource` import — the `cli -> teamsource ->
+  (team, render)` boundary contract is honored.
+- T-28 (`team status` command) — `internal/cli/cmd_team.go`: `newTeamStatusCommand`/
+  `runTeamStatus`, `--repo` flag, `--json` and table output, reuses
+  `resolveTeamRepoPath`/`openTeamRuntime`/`resolveTeamIndex` exactly as `team
+  list`/`team show` do. Exit code 0 only when every tracked record is In sync;
+  any drift or per-record failure is a plain non-zero exit, never
+  `UsageError`/`PreconditionError` — matches Shared Decision 2's exit-code
+  contract. `team.ErrNoLockfile` treated as vacuous success.
+- New narrow seam — `internal/teamsource/render.go`: `RenderCurrent(fsys,
+  harnessName, sourcePath)`, a team-membership-independent re-render of one
+  agent's current source, added specifically for `team status`'s "fresh
+  render" half of the comparison. `RenderTeam` itself untouched.
+- T-29 (tests) — AC-1/AC-2/AC-3 covered at two layers:
+  - `internal/team/status_test.go`: one reproduction per classification state
+    (including missing-file and both-sides-changed conflict) plus root-file
+    target variants.
+  - `internal/cli/cmd_team_status_test.go` (added in Phase 3, closing a gap the
+    implementation engineer's own layer didn't reach): CLI-level coverage —
+    flag parsing, `--repo` resolution, JSON vs. table output, exit-code mapping
+    across all five states plus the render/classify-error path, sort order,
+    no-lockfile case, bad-repo case.
+- Test-coverage gap (runs 22/24) closed — `internal/cli/cmd_team_list_show_test.go`:
+  `team list` happy path, empty-index case, `--json` mode, bad-repo error path;
+  `team show` happy path, unknown-team error path (asserts `ExitUsage`),
+  `--json` mode. Reused the existing `cmd_team_test.go` fixture/harness
+  conventions (temp-dir repos via `gittest`, no mocking framework introduced).
+- AC-2's hand-edit-risk note is emitted exactly for Locally modified and
+  Conflict records, verified by both test files.
+- AC-3's Missing-record path is reported (`Status: "missing"`), never skipped,
+  verified in both test files.
 
 ## Added scope
 
-- `internal/team/hash.go`'s unexported `hashBytes` was exported as
-  `HashBytes` (taking CR-A-001's pre-existing advisory since this boundary
-  was already being touched by the CR-B-002 relocation), with mechanical
-  call-site renames in `marker.go`, `write.go`, and their `_test.go` files.
-  This is a small, judgment-call addition beyond the letter of the two
-  BLOCKING findings, taken because it was already in scope of the same edit
-  and closes an existing advisory rather than leaving it to a future pass
-  that would touch the same lines again.
-- No other production behavior was added beyond what CR-B-001/CR-B-002
-  required.
+- CR-B-001 fix: `runTeamStatus`'s per-record loop now aggregates render/classify
+  failures via `errors.Join` instead of failing fast on the first error,
+  reporting each failing record as its own `Status: "error"` row. This was not
+  a plan item — it surfaced during Phase 1.5 code review as a violation of
+  AC-1/AC-3 (a record whose render/classify failed was being dropped from the
+  report entirely, which is a stronger failure than "skipped" — the whole
+  command aborted). Fixed within the review cycle; re-review confirmed no
+  remaining BLOCKING findings, verdict moved to ADVISORY_ONLY.
 
 ## Dropped or deferred
 
-- **`team list`/`team show` test coverage**: the unit test engineer reported
-  this run that these two `team` subcommands (built in run 21, in the same
-  file as `team add`) currently have no test coverage in this worktree,
-  contradicting an earlier assumption that they already did. Fixing that gap
-  was not part of this run's scope (the sponsor's instruction named
-  `cmd_team.go` and `internal/teamsource` test coverage for `team add`
-  specifically) and was left untouched rather than silently expanded into.
-  Flagged here and in `notes.md` as an open item for a future pass.
-- **CR-A-002** (lockfile-exists short-circuit skips harness/index validation
-  ordering, carried from run 21's review): still open, non-blocking,
-  documentation-only. Not fixed this run — no cycle handling requires an
-  ADVISORY finding to be fixed before Exit.
-- **CR-A-003** (new this run): `RenderTeam` re-reads the lockfile once per
-  (harness, roster entry) pair rather than loading it once per call — a
-  performance nit, not a correctness issue at today's scale. Not fixed this
-  run; recorded for a future pass.
-- US-10, US-11, US-13, US-17, and US-1's `manage` subcommand beyond its
-  existing stub remain untouched, exactly as instructed — not scope drops,
-  scope exclusions stated up front in the task.
+None. All three US-10 tasks (T-21, T-28, T-29) and both required test-coverage
+items (`team status`, `team list`/`team show`) were completed within this run.
 
 ## Architectural deviations
 
-- None. The one deviation that existed at the start of this run (rendering
-  logic living in `internal/cli` instead of `internal/teamsource`,
-  CR-B-002) is the deviation this run was dispatched to correct, and it has
-  been corrected — `cmd_team.go` now only orchestrates the CLI-facing
-  concerns (argument parsing, error mapping, output formatting) and calls
-  into `internal/teamsource` for rendering, matching how US-9/US-18's engine
-  is layered elsewhere.
+None. The five-state byte-comparison scheme was implemented exactly as
+specified in US-10 (no merged-config diff, no new hash type beyond
+`sourceHash`/`renderedHash`), the `cli -> teamsource -> (team, render)` import
+boundary was preserved, and the CLI-advertising decision (see below) followed
+Shared Decision 2's static six-command architecture without modification.
+
+## Decision recorded (not itself drift, but tracked per orchestrator instructions)
+
+With `team status` now real, `team update` and `team manage` remain
+unimplemented stubs. Decision: keep advertising all six `team` subcommands
+(list/show/add/status/update/manage) rather than hiding the two remaining
+stubs. Rationale (recorded in full in `notes.md`, Run 25 entry):
+1. `plan_brief.md`'s Shared Decision 2 specifies a static six-command
+   architecture — one `Command` constructor each, one line each in
+   `Commands()`, no switch/mutable registry — which structurally
+   pre-commits to always advertising all six.
+2. No story in this plan authorizes dynamic or conditional command
+   registration based on implementation status.
+3. The existing stub pattern (honest "not implemented yet, only validates
+   flags" help text) was already established by prior runs for exactly this
+   situation and remains unchanged for `team update`/`team manage`.
 
 ## Verdict
 
-CLEAN — this run's delivered work (two BLOCKING fixes, their regression
-tests, and the close-out bookkeeping) matches the task's scope exactly. The
-one open gap (`team list`/`team show` test coverage) predates this run,
-was not part of its assignment, and is recorded rather than silently
-expanded into or silently dropped.
+CLEAN — delivered matches plan within acceptable micro-decisions (the CR-B-001
+error-aggregation fix and the CLI-advertising decision, both recorded above and
+in `notes.md`).

@@ -19,8 +19,6 @@ Single Go module. Not a monorepo. Everything is under `internal/`, with
 `cmd/litefactory/main.go` as wiring only (umask, signal context, logger,
 dispatch, exit code).
 
-In a hurry? **[Do not reinvent these](#do-not-reinvent-these)** is the index.
-
 ---
 
 ## Before you run anything
@@ -61,7 +59,7 @@ schedule      →  (nothing)          leaf. parses factory-owned /schedule contr
 
 agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
-team          →  config             `team add` write engine + team index decode/validate
+team          →  config             write engine, index decode/validate, drift classifier (Status/Classify)
 github        →  naming, redact, secrets
 codex         →  agent, config, naming
 harness       →  agent, config, naming
@@ -114,13 +112,11 @@ The load-bearing consequences:
 
 ### Read the `doc.go` files
 
-Fourteen packages carry a `doc.go` whose prose is the real specification for
-that package — `agent`, `attach`, `daemon`, `git`, `github`, `harness`,
-`identity`, `launchd`, `naming`, `planbrief`, `redact`, `render`, `repos`,
-`report`, `schedule`, `team`, `teamsource`, `turn` — and `config` and `store` carry theirs at the top of `config.go` /
-`store.go`. **Read the one for the package you are about to touch before you
-touch it.** They record what was measured, what was tried and rejected, and
-what breaks if you do the obvious thing.
+Eighteen packages carry a `doc.go` whose prose is the real specification for
+that package; `config` and `store` carry theirs at the top of `config.go` /
+`store.go` instead. **Read the one for the package you are about to touch
+before you touch it.** They record what was measured, what was tried and
+rejected, and what breaks if you do the obvious thing.
 
 ---
 
@@ -149,8 +145,11 @@ what breaks if you do the obvious thing.
 | install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
+| classify an installed agent artifact's drift against its current source | `internal/team.Classify` | 5-state `Status` (`InSync`/`LocallyModified`/`UpstreamUpdated`/`Conflict`/`Missing`); byte comparison only, read-only, never mutates the lockfile; caller supplies the fresh render via `teamsource.RenderCurrent`. `LoadLockfile`/`DecodeTeams` are exported wrappers for external callers |
+| re-render one agent's current source for one harness, independent of team membership | `teamsource.RenderCurrent(fsys, harnessName, sourcePath)` | the fresh-render half `team.Classify` compares against; unlike `RenderTeam`, does no lockfile/team-union bookkeeping |
 | render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
 | resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
+| see which `team` CLI subcommands work vs. remain stubs | `internal/cli` | `list`/`show`/`add`/`status` implemented; `update`/`manage` intentional stubs — all six always registered via one `Command` constructor each |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
@@ -177,8 +176,7 @@ Before you touch the store:
   schema change is a new `.sql` file and nothing else — a migration library is
   an explicitly rejected dependency.
 
-NULL mapping in the store is uniform and worth copying: timestamps are
-`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text);
-text whose empty value carries no meaning is a plain `string`; forge ids are
-`int64` with 0 meaning NULL; and numbers whose zero is a *real* value (an exit
-code, a cost) are **pointers**.
+NULL mapping in the store is uniform: `time.Time` zero means NULL (stored as
+UTC RFC 3339 ms text); an always-meaningful string is a plain `string`; forge
+ids are `int64` with 0 meaning NULL; a value whose zero is real (an exit code,
+a cost) is a **pointer**.

@@ -6,9 +6,14 @@ package cli
 // resolve exactly one tier via internal/teamsource and print what it
 // contains. `team add` renders every agent resolved for a named team and
 // installs the result into a repo via internal/team's write engine. `team
-// status`, `team update` and `team manage` are declared here — so their
-// flags and --help text are accurate — but their behaviour lands in a later
-// story; invoking them today returns [ErrNotImplemented].
+// status` is also read-only: it classifies every file tracked by --repo's
+// provenance lockfile into one of five drift states by comparing installed
+// bytes against a fresh render of each agent's current source, using
+// internal/team.Classify; it writes nothing to disk and exits non-zero when
+// any tracked file is not in sync. `team update` and `team manage` are
+// declared here — so their flags and --help text are accurate — but their
+// behaviour lands in a later story; invoking them today returns
+// [ErrNotImplemented].
 
 import (
 	"context"
@@ -354,6 +359,40 @@ type teamShowJSON struct {
 	Agents        []teamShowAgentJSON `json:"agents"`
 }
 
+// teamStatusRecordJSON is one lockfile-tracked artifact in `team status`'s
+// report: which agent/harness/destination it is, which of the five
+// [team.Status] states it classifies as, and — only for Locally modified and
+// Conflict (AC-2) — a note that a hand-edit there is at risk of being
+// discarded by a future `team update`.
+type teamStatusRecordJSON struct {
+	AgentKey string `json:"agent_key"`
+	Harness  string `json:"harness"`
+	DestPath string `json:"dest_path"`
+	Status   string `json:"status"`
+	Note     string `json:"note,omitempty"`
+}
+
+// teamStatusJSON is `team status --json`'s top-level shape. InSync is true
+// only when every tracked record classified as [team.StatusInSync] (AC-1) —
+// it is what runTeamStatus's non-zero exit condition is derived from.
+type teamStatusJSON struct {
+	Repo    string                 `json:"repo"`
+	InSync  bool                   `json:"in_sync"`
+	Records []teamStatusRecordJSON `json:"records"`
+}
+
+// teamStatusNote returns the hand-edit-risk note team status attaches to a
+// Locally modified or Conflict record (AC-2), and an empty string for every
+// other state.
+func teamStatusNote(s team.Status) string {
+	switch s {
+	case team.StatusLocallyModified, team.StatusConflict:
+		return "hand-edited since install; a future team update could discard this change"
+	default:
+		return ""
+	}
+}
+
 // writeTeamListJSON encodes v to out as indented JSON.
 func writeTeamListJSON(out io.Writer, v teamListJSON) error {
 	enc := json.NewEncoder(out)
@@ -419,6 +458,42 @@ func writeTeamShowTable(out io.Writer, v teamShowJSON) {
 	}
 	// A failed write of already-reported output is not actionable.
 	_ = tw.Flush()
+}
+
+// writeTeamStatusJSON encodes v to out as indented JSON.
+func writeTeamStatusJSON(out io.Writer, v teamStatusJSON) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("encode team status json: %w", err)
+	}
+	return nil
+}
+
+// writeTeamStatusTable prints v as the human-readable form of `team status`.
+func writeTeamStatusTable(out io.Writer, v teamStatusJSON) {
+	fmt.Fprintf(out, "repo: %s\n\n", v.Repo)
+
+	if len(v.Records) == 0 {
+		fmt.Fprintln(out, "no files tracked by this repo's team lockfile")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(tw, "STATUS\tAGENT\tHARNESS\tDEST\tNOTE\n")
+	for _, r := range v.Records {
+		note := r.Note
+		if note == "" {
+			note = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", r.Status, r.AgentKey, r.Harness, r.DestPath, note)
+	}
+	// A failed write of already-reported output is not actionable.
+	_ = tw.Flush()
+
+	if v.InSync {
+		fmt.Fprintln(out, "\nall tracked files are in sync")
+	}
 }
 
 // runTeamList implements `team list` (AC-1): every resolved team and agent,
@@ -592,6 +667,143 @@ func runTeamAdd(ctx context.Context, env *Env, cmd *Command, opts teamRepoOption
 	return nil
 }
 
+// runTeamStatus implements `team status`: it classifies every file tracked
+// by --repo's provenance lockfile into one of team.Classify's five drift
+// states, by comparing installed bytes against a fresh render of each
+// record's agent's current source (internal/teamsource.RenderCurrent) and
+// the lockfile's own recorded hashes. It writes nothing to disk.
+//
+// A repo with no lockfile yet has nothing tracked, so AC-1's "every tracked
+// artifact is classified" holds vacuously and this returns nil rather than
+// an error — team.LoadLockfile already reports that case as an empty
+// Lockfile alongside team.ErrNoLockfile, so that one sentinel is tolerated
+// here and nothing else is.
+//
+// The returned error is a plain error, never a [UsageError] or
+// [PreconditionError]: drift is a normal outcome to report, not a usage
+// mistake or an unready machine, so the exit code it produces (via
+// [ExitCode]) is the plain-error exit rather than either of those two.
+func runTeamStatus(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, asJSON bool) (err error) {
+	repoPath, err := resolveTeamRepoPath(opts.repo)
+	if err != nil {
+		return err
+	}
+
+	rt, err := openTeamRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, rt.close()) }()
+
+	resolved, err := resolveTeamIndex(ctx, rt, repoPath)
+	if err != nil {
+		return err
+	}
+
+	lf, err := team.LoadLockfile(repoPath)
+	if err != nil && !errors.Is(err, team.ErrNoLockfile) {
+		return err
+	}
+
+	records := make([]teamStatusRecordJSON, 0, len(lf.Records))
+	inSync := true
+	drifted := 0
+	// recordErrs collects per-record failures that couldn't be classified
+	// into any of the five states (a render or classify error). Each such
+	// failure is isolated to its own report entry below rather than
+	// aborting the loop, matching the errors.Join aggregation convention
+	// internal/teamsource/render.go's RenderTeam already uses in this same
+	// package's call graph — a bad record must not hide every other
+	// record's status (AC-1, AC-3).
+	var recordErrs []error
+	for _, rec := range lf.Records {
+		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(resolved.FS, rec.Harness, rec.SourcePath)
+		if renderErr != nil {
+			wrapped := fmt.Errorf("re-render %s (%s): %w", rec.AgentKey, rec.Harness, renderErr)
+			recordErrs = append(recordErrs, wrapped)
+			inSync = false
+			drifted++
+			records = append(records, teamStatusRecordJSON{
+				AgentKey: rec.AgentKey,
+				Harness:  rec.Harness,
+				DestPath: rec.DestPath,
+				Status:   "error",
+				Note:     wrapped.Error(),
+			})
+			continue
+		}
+
+		// A source that no longer produces rec.DestPath at all is outside the
+		// five-state table's scope; freshBody stays nil so classifyBytes falls
+		// through to whichever of Locally modified or Conflict its SourceHash
+		// comparison implies, rather than erroring the whole report out.
+		var freshBody []byte
+		for _, f := range freshFiles {
+			if f.Path == rec.DestPath {
+				freshBody = f.Bytes
+				break
+			}
+		}
+
+		freshTeams := team.DecodeTeams(rec.Teams)
+		status, classifyErr := team.Classify(repoPath, rec, freshSourceHash, freshTeams, freshBody)
+		if classifyErr != nil {
+			wrapped := fmt.Errorf("classify %s (%s, %s): %w", rec.AgentKey, rec.Harness, rec.DestPath, classifyErr)
+			recordErrs = append(recordErrs, wrapped)
+			inSync = false
+			drifted++
+			records = append(records, teamStatusRecordJSON{
+				AgentKey: rec.AgentKey,
+				Harness:  rec.Harness,
+				DestPath: rec.DestPath,
+				Status:   "error",
+				Note:     wrapped.Error(),
+			})
+			continue
+		}
+
+		if status != team.StatusInSync {
+			inSync = false
+			drifted++
+		}
+		records = append(records, teamStatusRecordJSON{
+			AgentKey: rec.AgentKey,
+			Harness:  rec.Harness,
+			DestPath: rec.DestPath,
+			Status:   status.String(),
+			Note:     teamStatusNote(status),
+		})
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].DestPath != records[j].DestPath {
+			return records[i].DestPath < records[j].DestPath
+		}
+		if records[i].AgentKey != records[j].AgentKey {
+			return records[i].AgentKey < records[j].AgentKey
+		}
+		return records[i].Harness < records[j].Harness
+	})
+
+	out := teamStatusJSON{
+		Repo:    repoPath,
+		InSync:  inSync,
+		Records: records,
+	}
+
+	if asJSON {
+		if err := writeTeamStatusJSON(env.Stdout, out); err != nil {
+			return err
+		}
+	} else {
+		writeTeamStatusTable(env.Stdout, out)
+	}
+
+	if !inSync {
+		return errors.Join(append(recordErrs, fmt.Errorf("%d of %d tracked file(s) are not in sync", drifted, len(records)))...)
+	}
+	return nil
+}
+
 // newTeamListCommand declares "litefactory team list".
 func newTeamListCommand() *Command {
 	cmd := &Command{
@@ -662,19 +874,32 @@ func newTeamAddCommand() *Command {
 	return cmd
 }
 
-// newTeamStatusCommand declares "litefactory team status". Its flags parse
-// and its --help is accurate; its behaviour is a follow-up story.
+// newTeamStatusCommand declares "litefactory team status". Unlike list/show/
+// add, status does not resolve or select a harness to render prospectively —
+// every lockfile record already names its own harness — so it binds --repo
+// directly rather than the shared teamRepoOptions.bind, which would also
+// expose a --harness flag with no meaning here.
 func newTeamStatusCommand() *Command {
 	cmd := &Command{
 		Name:  "team status",
-		Usage: "team status [--repo path] [--harness list]",
-		Short: "Not yet implemented",
-		Long:  "team status is not implemented yet. This command currently only validates its flags.",
+		Usage: "team status [--repo path] [--json]",
+		Short: "Report drift between installed agent files and their current source",
+		Long: "Classify every file tracked by --repo's provenance lockfile into one of\n" +
+			"five states — in sync, locally modified, upstream updated, conflict, or\n" +
+			"missing — by comparing its installed bytes against a fresh render of its\n" +
+			"agent's current source and the lockfile's recorded hashes. Locally\n" +
+			"modified and conflicting files are flagged as at risk of being\n" +
+			"discarded by a future `team update`. Nothing is written to disk. Exits\n" +
+			"non-zero when any tracked file is not in sync.",
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var opts teamRepoOptions
-		opts.bind(fs)
-		return notImplemented(cmd.Name)
+		fs.StringVar(&opts.repo, "repo", ".",
+			"git repository whose provenance lockfile is checked for drift")
+		asJSON := fs.Bool("json", false, "emit JSON instead of a table")
+		return func(ctx context.Context, env *Env, args []string) error {
+			return runTeamStatus(ctx, env, cmd, opts, *asJSON)
+		}
 	}
 	return cmd
 }

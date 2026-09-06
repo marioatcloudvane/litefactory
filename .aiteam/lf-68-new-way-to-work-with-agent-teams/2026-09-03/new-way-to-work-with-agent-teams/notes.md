@@ -357,3 +357,107 @@ human):
 
 No commits or pushes made this run — worktree left for litefactory to inspect
 and commit.
+
+## 2026-09-06 — Implement run 25: US-10 (`team status` drift detection) + closing the `team list`/`team show` test-coverage gap
+
+**Scope** (per sponsor's request on issue #68): US-10 only, plus the open
+`team list`/`team show` test-coverage gap flagged by run 22 and independently
+noted again by run 24. Explicitly out of bounds this run: US-11, US-13, US-14,
+US-15, US-16, US-17, and any extension of `team manage` beyond its existing
+stub. Headless run — no clarifying questions were put to a human; ambiguities
+were settled on the most reasonable reading of the plan and recorded below.
+
+**Pre-run state read as ground truth, not re-verified**: `main` had been merged
+into this branch (`9530f3b`) shortly before this run started, restructuring
+config into a nested `Settings` struct (`TeamConfig` → `settings.team_config`
+across `config.go`, `validate.go`, `template.go`, `cmd_team.go`); `go test
+-race ./...` was reported green (26 packages) at that point.
+
+**Decision required by the sponsor and recorded here, as instructed — CLI
+surface for unimplemented subcommands.** With `team status` now real, `team
+update` and `team manage` remain registered stubs whose help text says "X is
+not implemented yet. This command currently only validates its flags."
+Decision: **keep advertising all six `team` subcommands** (`list`, `show`,
+`add`, `status`, `update`, `manage`) rather than hiding the two remaining
+stubs from `--help` until they land. Reasoning:
+1. `plan_brief.md`'s Shared Decision 2 architects the CLI surface as "six
+   commands, one `Command` constructor each, one line each in
+   `internal/cli/commands.go`'s `Commands()` — no switch, no mutable
+   registry." That statically pre-commits to registering all six regardless
+   of implementation status; conditionally hiding a subcommand would require
+   a registration mechanism the plan explicitly rules out.
+2. No story in the 18-story plan describes building dynamic/conditional
+   command registration, so building one now would be scope not asked for.
+3. The stub pattern (`"X is not implemented yet. This command currently only
+   validates its flags."`) is itself the plan's existing, honest way of
+   telling a user a subcommand isn't real yet — `team status` used exactly
+   this pattern before this run, and `team update`/`team manage` continue to
+   use it now. This is judged an acceptable ordinary-ambiguity resolution,
+   not a severe blocker, since a full worked precedent (the six-command
+   architecture) already existed to read from.
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out; the `team list`/`show` test gap is testing work, not
+new implementation, so it was scoped to Phase 3 instead). Delivered:
+- New `internal/team/status.go`: `Status` enum (`StatusInSync`,
+  `StatusLocallyModified`, `StatusUpstreamUpdated`, `StatusConflict`,
+  `StatusMissing`) with `String()`; exported `LoadLockfile`/`DecodeTeams`
+  wrappers; `Classify(root, rec, freshSourceHash, freshTeams, freshBody)` —
+  the five-state byte-comparison classifier from US-10's Architecture Notes,
+  handling both standalone targets and root-file marker-span targets;
+  read-only (only ever `os.ReadFile`, reuses the existing `refuseSymlink`
+  helper rather than a second one). Imports stdlib only — no
+  `internal/render`/`internal/teamsource` import, preserving `internal/team`'s
+  import-boundary contract.
+- New `internal/team/status_test.go`: one reproduction per classification
+  state (including the missing-file and both-sides-changed-conflict cases
+  T-29 calls for), plus two root-file-target variants and a `Status.String()`
+  table test.
+- Modified `internal/teamsource/render.go`: added `RenderCurrent(fsys,
+  harnessName, sourcePath) (sourceHash string, files []team.RenderedFile,
+  err error)` — a narrow, team-membership-independent re-render of one
+  agent's current source, giving `team status` the "fresh render" half of
+  each comparison without writing anything. `RenderTeam` itself untouched.
+- Modified `internal/cli/cmd_team.go`: replaced the `team status` stub with
+  `runTeamStatus`/`newTeamStatusCommand` plus JSON/table report helpers,
+  reusing the same `resolveTeamRepoPath`/`openTeamRuntime`/`resolveTeamIndex`
+  seam `team list`/`team show` already use. `team status` binds its own
+  `--repo` flag directly (no `--harness` — each lockfile record already
+  names its own harness, so exposing one would be misleading).
+  `team update`/`team manage` stubs confirmed unchanged.
+
+**Phase 1.5 — Code Review.** First pass: **BLOCKING** (CR-B-001) —
+`runTeamStatus`'s loop over lockfile records returned immediately from inside
+the loop on the first render/classify error, aborting the whole command and
+silently dropping every other record from the report — undermining AC-1
+("every tracked file classified") and AC-3 ("a missing-file record is
+classified Missing, not silently skipped") for realistic failure modes (e.g.
+a record whose source was since deleted/renamed), and diverging from this
+codebase's established aggregate-via-`errors.Join` convention (the very
+`teamsource.RenderTeam` this code calls into already follows it). Dispatched
+one `go-implementation-engineer` to fix: per-record render/classify failures
+are now isolated to that record's own report entry (`Status: "error"`, `Note`
+set to the wrapped error), the loop continues to every other record, and all
+per-record errors are aggregated via `errors.Join` alongside the existing
+"N of M not in sync" summary — exit-code contract preserved (still a plain
+error, never `UsageError`/`PreconditionError`). Re-review (scoped to
+`cmd_team.go`'s `runTeamStatus` only) independently re-ran build/vet/gofmt/
+test and confirmed the fix. Verdict: **ADVISORY_ONLY** — treated as
+satisfying "not ADVISORY_ONLY with open blockers" per this orchestrator's
+standing rule that ADVISORY_ONLY and CLEAN gate identically (both are
+terminal, non-blocking states); recorded explicitly since the sponsor's
+prose named "CLEAN" specifically. Full findings in `$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (Run 25, carried forward, non-blocking)
+
+- **CR-A-001**: `RenderCurrent` is called once per lockfile record with no
+  caching across records sharing the same `(harness, sourcePath)` pair — a
+  performance nit, not a correctness issue at today's scale.
+- **CR-A-002** (new): the fix for CR-B-001 introduces a sixth `Status:
+  "error"` outcome for records whose current source can no longer be
+  re-rendered/classified, but `newTeamStatusCommand`'s `--help` text and
+  `runTeamStatus`'s doc comment still describe only the original five drift
+  states — a documentation-completeness gap, not a functional defect.
+
+Neither blocks correctness or this run's acceptance criteria; recorded for a
+future pass.
