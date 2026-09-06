@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -42,6 +42,31 @@ asked for; nothing here licenses starting the next one.
   orphaned-runs-row gap) recorded under plan_brief.md's Out of Scope as an
   owner action item, not a story task, per the architect's own note that it is a
   repo-management action outside task decomposition.
+- 2026-09-06 — Implement complete (headless run, plain go-ahead "Ok implement
+  it!", no scope change). US-1 landed first alone (moved the sole
+  `SetSessionState(..., SessionRunning)` write in `prepare.go` to the last
+  statement before return; agent-switch refusals now leave `sessions.state`
+  untouched); US-2, US-3, US-4 landed together in parallel once US-1 was in the
+  worktree (US-2: read-and-confirm, all 8 sibling error sites correctly close
+  or route through unchanged `prepareFailed`; US-3: corrected 3 inaccurate
+  comments plus the assumed T-3.4 `prepareFailed` comment fix, treated as
+  already-approved per this run's dispatch instruction; US-4: 3 new regression
+  tests plus 2 pre-existing tests cited for AC-4.4). Code review
+  (`CODE_REVIEW.md`): verdict CLEAN, 0 BLOCKING, 0 ADVISORY — no fix cycle
+  needed. Environment setup: skipped, no story touches real infrastructure.
+  Testing: unit tests only (in-package real-SQLite fixture) — 108 tests
+  passed, 0 failed, 84.0% coverage in `internal/turn`, full-repo
+  `go test -race ./...` green across 22 packages, `go build`/`go vet`/`gofmt -l`
+  all clean. No bug loop needed — zero failures at any point. Drift check
+  (`DRIFT_REPORT.md`): verdict CLEAN, all tasks across all four stories
+  delivered, two minor non-defect discrepancies noted (an in-memory
+  `session.State` assignment added as a gap-fill, and a 9-vs-8 sibling-site
+  count with no behavioural difference). `APP_CONSTRAINTS.md` updated
+  (+CONC-7: the running-state write must stay last in `prepare` and must not
+  be wrapped in `context.WithoutCancel`); `APP_CONTEXT.md` left unchanged (no
+  package/API-surface fact changed). Files touched: `internal/turn/{prepare.go,
+  execute.go, report.go, execute_test.go}`, uncommitted in the worktree per
+  team convention (harness commits and pushes).
 
 ## Notes
 

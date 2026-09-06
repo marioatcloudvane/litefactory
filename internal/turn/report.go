@@ -314,9 +314,12 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 
 // reportAgentSwitchRefusal answers a [DispositionAgentSwitchRefused] turn
 // (US-3): a run whose resolved coding-agent tool does not own this session's
-// segment. No run was ever allocated — [prepare] returned before anything was
-// created — so this takes the reply shape every other label-driven refusal
-// uses ([ReplyRequest]/[ReportReply]) rather than the run-report one.
+// segment. No session-state transition has occurred and no runs row has been
+// allocated; the worktree already exists on disk and sessions.worktree_path
+// already records it, and both are idempotent and reused by the next turn.
+// Because no run was allocated, this takes the reply shape every other
+// label-driven refusal uses ([ReplyRequest]/[ReportReply]) rather than the
+// run-report one.
 //
 // The issue-body trigger is the one path that posts nothing, mirroring
 // [Daemon.refuseAgent] and its siblings in internal/daemon exactly: a run
