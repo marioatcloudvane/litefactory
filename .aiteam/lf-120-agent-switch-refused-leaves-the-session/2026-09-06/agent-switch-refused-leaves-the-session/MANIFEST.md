@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -20,6 +20,28 @@ asked for; nothing here licenses starting the next one.
   additional instances of the same inaccurate comment and seven additional
   call sites in prepare.go with the same class of bug (plain-error returns after
   the running-state write, with no cleanup at all).
+- 2026-09-06 — Plan complete (headless run, no user available to confirm before
+  writing; this is a re-trigger of a prior Plan run killed by a daemon restart
+  before producing anything). requirements-engineer wrote feature-spec.md
+  resolving the three flagged open questions (RQ-1: refusal leaves state
+  untouched, not idle/failed; RQ-2: fix all sibling sites in this same piece of
+  work; RQ-3: correct the inaccurate comments regardless of approach).
+  go-architect wrote ARCH_REVIEW.md, verdict APPROVED WITH AMENDMENTS: AMEND-1
+  corrected the sibling-site count from 7 to 8 (missing site:
+  prepare.go:159-169); AMEND-2 fixed the required comment wording to a narrow
+  true invariant rather than "nothing was created"; AMEND-3 flagged (but left to
+  the owner) that prepareFailed's doc comment is independently false. No owner
+  was available in this headless run to confirm AMEND-3, so it was accepted as
+  an assumption and folded into US-3 as an added task (T-3.4), recorded
+  explicitly as such in US-3.md. Synthesized plan_brief.md (shared decisions,
+  workflow, cross-story constraints, story index, out-of-scope, provenance) plus
+  four per-story sub-issues: US-1.md (move the state write), US-2.md (verify the
+  move closes all 8 sibling sites), US-3.md (correct the inaccurate comments,
+  plus the assumed T-3.4), US-4.md (regression tests for state-after-refusal and
+  state-during-dispatch). AC-12 (file a follow-up issue for pre-existing
+  orphaned-runs-row gap) recorded under plan_brief.md's Out of Scope as an
+  owner action item, not a story task, per the architect's own note that it is a
+  repo-management action outside task decomposition.
 
 ## Notes
 
