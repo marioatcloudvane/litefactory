@@ -36,7 +36,7 @@ func validTeamAgentSource(name, description, body string) string {
 // markdown source under a fresh temporary directory laid out the way
 // internal/teamsource expects a static-path override's root to look:
 // <dir>/teams/index.json and <dir>/teams/agents/<file>.md. It returns dir,
-// the static-path override value to put in config.yaml's team_config.
+// the static-path override value to put in config.yaml's settings.team_config.
 func newTeamIndexFixture(t *testing.T, teamName, agentKey string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -74,9 +74,9 @@ func newTeamIndexFixture(t *testing.T, teamName, agentKey string) string {
 }
 
 // newTeamHome points $LF_HOME at a fresh temporary directory and writes a
-// minimal config.yaml overriding team_config at fixtureDir, without going
-// through config.WriteDefault (whose O_EXCL guard and fixed empty
-// team_config template make it unsuitable for pre-seeding an override).
+// config.yaml overriding settings.team_config at fixtureDir, without going
+// through config.WriteDefault (whose O_EXCL guard makes it unsuitable for
+// pre-seeding an override).
 // team add's happy path needs no database: openTeamRuntime only opens one
 // when paths.DBPath() already exists on disk, and the static-path override
 // resolves the team index without one.
@@ -89,7 +89,14 @@ func newTeamHome(t *testing.T, fixtureDir string) config.Paths {
 	if err := paths.EnsureHome(); err != nil {
 		t.Fatalf("ensure home: %v", err)
 	}
-	yaml := "team_config: \"" + fixtureDir + "\"\n"
+	// Build on the canonical default rather than a hand-rolled minimal file:
+	// config validation requires whole sections (tool_profiles.permissions and
+	// friends) that a two-line YAML cannot satisfy.
+	yaml := strings.Replace(string(config.DefaultFileContents()),
+		`team_config: ""`, `team_config: "`+fixtureDir+`"`, 1)
+	if !strings.Contains(yaml, fixtureDir) {
+		t.Fatalf("default config.yaml no longer carries an empty team_config key to override")
+	}
 	if err := os.WriteFile(paths.ConfigPath(), []byte(yaml), 0o600); err != nil {
 		t.Fatalf("write config.yaml: %v", err)
 	}

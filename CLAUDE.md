@@ -14,6 +14,17 @@ not need them in order to route.
 
 ## Classify
 
+If the prompt's header carries a `- Mode: X` line, treat that as a precondition
+before anything else: when `X` is one of `research`, `plan`, `implement`, or
+`spike` (case-insensitive), that is the mode for this run — skip steps 1-3
+below entirely. When the header is absent, empty, or reads `infer`, run steps
+1-3 exactly as written below, unchanged. When the header is present but its
+value is none of those four, also run steps 1-3 exactly as written below, and
+additionally note in your final report that an unrecognized mode header was
+seen and ignored. In every case — header-trusted or not — `## Gate` still runs
+exactly as below: a header-trusted `plan` or `implement` still fails Gate if
+its prerequisite session file is missing.
+
 For every new request, in this order:
 
 1. **Slash command** — `/research`, `/plan`, `/implement`, `/spike`.

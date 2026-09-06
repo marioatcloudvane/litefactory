@@ -477,6 +477,17 @@ func writeContextIntro(b *strings.Builder, in PromptInput, hasHistory bool) {
 func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
 	fmt.Fprintf(b, "- Task: %s\n", in.Ref.String())
+	// AC-9: this exact literal — "- Mode: %s\n" — is what CLAUDE.md's
+	// ## Classify section parses to decide whether a run can trust the
+	// header and skip re-classification, rather than running its own
+	// steps 1-3. That consumer lives in a markdown file outside this
+	// package's compile boundary and has no test of its own, so if the
+	// format of this line drifts (wording, casing, spacing), the header-trust
+	// behavior in CLAUDE.md can silently stop matching with nothing here to
+	// catch it (AC-10). internal/harness/prompt_test.go and
+	// internal/harness/prompt_body_test.go pin the Go string as written
+	// today, but those tests protect only this side of the contract — they
+	// do not, and cannot, protect the CLAUDE.md prose that reads it (AC-11).
 	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 	if in.Branch != "" {
@@ -620,6 +631,13 @@ const (
 // Everything else the first prompt said is still in the transcript.
 func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
+	// AC-9/AC-10: same literal as writeHeader above, restated here because the
+	// mode can change between runs. CLAUDE.md's ## Classify section parses
+	// this "- Mode: %s\n" line on the resume path exactly as it does on the
+	// first prompt, to decide whether to trust the header instead of
+	// re-classifying. See writeHeader's comment for the mechanism and what a
+	// format drift breaks; no test here protects the CLAUDE.md side either
+	// (AC-11) — only the Go string is pinned.
 	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 

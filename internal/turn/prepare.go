@@ -76,6 +76,15 @@ type preparation struct {
 // Everything that can go wrong because of the state of the world is returned as
 // a *failure, which [Execute] turns into a reportable result rather than an
 // error. A database that will not answer is an ordinary error.
+//
+// Marking the task running is the last thing prepare does, not an early one:
+// the store write and its paired session.State assignment sit immediately
+// before the "run prepared" log line, after everything above them that can
+// still fail — including the agent-switch refusal — has already returned.
+// Every error return above that point therefore leaves sessions.state exactly
+// as the caller found it. This is an invariant about where one statement sits
+// in the function body, so it is not something a test can enforce from
+// outside; it can only be read, here and at the call site itself.
 func prepare(
 	ctx context.Context,
 	opts Options,
@@ -108,9 +117,6 @@ func prepare(
 		}
 		session.WorktreePath = worktree.Path()
 	}
-	if err = opts.DB.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
-		return nil, fmt.Errorf("mark task %s running: %w", ref, err)
-	}
 
 	shaBefore, err := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 	if err != nil {
@@ -129,15 +135,10 @@ func prepare(
 		return nil, fmt.Errorf("derive the session ref for task %s: %w", ref, err)
 	}
 	// resolvedKind is what the daemon's label ladder decided (internal/daemon's
-	// Daemon.resolveAgent, stage 1), carried in on req.Agent. Empty means no
-	// Coding Agent label was on the issue, which resolves to the configured
-	// default agent the same way an absent lf:tools= label resolves to the
-	// harness's default surface (AC-2.1) — applied here, once, rather than at
-	// every call site that used to spell out store.AgentClaude by hand.
+	// Daemon.resolveAgent, stage 1), carried in on req.Agent. The daemon has
+	// already replaced an absent label with the first configured agent, so this
+	// layer never invents a vendor-specific fallback.
 	resolvedKind := req.Agent
-	if resolvedKind == "" {
-		resolvedKind = agent.Kind(store.AgentClaude)
-	}
 
 	// GetOrCreateSegment's stored-row-wins semantics are what make this one
 	// call sufficient for both the ordinary path and the switch refusal
@@ -156,9 +157,10 @@ func prepare(
 		// A session with no segment yet always matches — GetOrCreateSegment
 		// just created one under resolvedKind — so this is reachable only
 		// when a prior run already committed this conversation to a
-		// different tool (AC-3.3, AC-3.1). Nothing above this point wrote
-		// anything the switch needs to undo: the segment row is the
-		// existing one, untouched, and no runs row has been allocated yet.
+		// different tool (AC-3.3, AC-3.1). No session-state transition has
+		// occurred and no runs row has been allocated; the worktree already
+		// exists on disk and sessions.worktree_path already records it, and
+		// both are idempotent and reused by the next turn.
 		return nil, &agentSwitchRefusal{owning: segment.Agent, requested: string(resolvedKind)}
 	}
 	kind := agent.Kind(segment.Agent)
@@ -261,11 +263,8 @@ func prepare(
 	}
 
 	// Permissions carries no vendor-named field crossing this boundary
-	// (AC-5.2): the zero value means no profile was resolved, and it is
-	// left that way rather than reached for when req carries no tool
-	// surface at all — which is every run before profiles existed and every
-	// run today whose issue carries no lf:tools= label. When a profile did
-	// resolve one, its payload is narrowed into harness.ToolSurface here and
+	// (AC-5.2). The daemon resolves a mode profile before dispatch and its
+	// payload is narrowed into harness.ToolSurface here and
 	// nowhere else, because Claude's --tools/--allowedTools vocabulary is
 	// exactly the shape this package must not otherwise know.
 	var permissions agent.Permissions
@@ -277,6 +276,26 @@ func prepare(
 			Payload: harness.ToolSurface{Tools: req.Tools, AllowedTools: req.AllowedTools},
 		}
 	}
+
+	// This is prepare's last store write, deliberately: every error
+	// return above this line — the agent-switch refusal (AC-3.1) included —
+	// leaves sessions.state exactly as it was when this call started, because
+	// nothing after it can fail. That ordering is what this comment records
+	// rather than what a test enforces: a test asserting "no write happened
+	// on the refusal path" cannot tell "correctly last" apart from "moved
+	// back up by a later edit" without re-deriving this same argument, so it
+	// is read here, not checked there.
+	//
+	// Moving the write this late does open a window where allocateRun's runs
+	// row (and the attachment manifest written above) can be observed as
+	// running before its session is marked running. That window is accepted,
+	// not mitigated: ReconcileOrphans already fails an orphaned running run
+	// and its session together at daemon start, and nothing else in this
+	// tree branches control flow on session.state.
+	if err = opts.DB.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
+		return nil, fmt.Errorf("mark task %s running: %w", ref, err)
+	}
+	session.State = store.SessionRunning
 
 	logger.Info("run prepared",
 		slog.Int("run_ordinal", run.Ordinal),

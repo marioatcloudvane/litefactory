@@ -42,7 +42,7 @@ const (
 const (
 	// DefaultConcurrentRuns is how many runs may be in flight when none is
 	// configured. It is a conservative placeholder rather than a measurement;
-	// see [config.Config.MaxConcurrentRuns].
+	// see [config.Settings.MaxConcurrentRuns].
 	DefaultConcurrentRuns = config.DefaultMaxConcurrentRuns
 	// MinConcurrentRuns is the fewest runs allowed in flight: one, which is
 	// the serial daemon litefactory was before the ceiling existed.
@@ -123,6 +123,32 @@ type Reporter interface {
 	Consume(ctx context.Context, sessionID, commentID int64) (store.Watermark, error)
 }
 
+// ProposalGenerator is the bounded, structured boundary used only for
+// /schedule --propose. It is intentionally not agent.Runner or Executor: a
+// generator can suggest data, but cannot start a workflow, write schedules,
+// or decide an owner's approval.
+type ProposalGenerator interface {
+	ProposeSchedule(ctx context.Context, request ScheduleProposalRequest) (ScheduleProposal, error)
+}
+
+// ScheduleProposalRequest is the agent-safe description of advice requested
+// by an owner. The factory, not the generator, supplies time and issue scope.
+type ScheduleProposalRequest struct {
+	Description string
+	ReceivedAt  time.Time
+}
+
+// ScheduleProposal is structured advisory output from a ProposalGenerator.
+// It has no IDs or persistence fields because those remain factory-owned.
+type ScheduleProposal struct {
+	Items []ScheduleProposalItem
+}
+
+type ScheduleProposalItem struct {
+	Payload string
+	DueAt   time.Time
+}
+
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
@@ -143,9 +169,12 @@ type Options struct {
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
 
-	// ToolProfiles are the operator's named tool surfaces, keyed by the name an
-	// lf:tools= label selects them with. Optional: a nil or empty map means no
-	// label can resolve, which is what a config with no tool_profiles asks for.
+	// ProposalGenerator may be nil when the configured coding tool has no
+	// bounded schedule-advice adapter. --propose then receives an immediate
+	// failure reply; it never falls through to a normal agent workflow.
+	ProposalGenerator ProposalGenerator
+
+	// ToolProfiles are the canonical mode permission surfaces.
 	//
 	// It is read-only for the life of the daemon and never written to. Whatever
 	// a resolution takes out of it is copied first — see [Daemon.resolveTools].
@@ -262,6 +291,7 @@ type Daemon struct {
 	filter     Classifier
 	turn       Executor
 	reporter   Reporter
+	proposals  ProposalGenerator
 	instanceID string
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
@@ -327,15 +357,13 @@ func New(opts Options) (*Daemon, error) {
 	}
 	defaultAgent := opts.DefaultAgent
 	if defaultAgent == "" {
-		defaultAgent = agent.Kind(store.AgentClaude)
+		return nil, invalidOptions("a default agent is required")
 	}
-	if opts.DefaultAgent != "" {
-		if _, ok := opts.Agents[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
-		}
-		if _, ok := opts.Classifiers[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
-		}
+	if _, ok := opts.Agents[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
+	}
+	if _, ok := opts.Classifiers[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
 	}
 
 	return &Daemon{
@@ -344,11 +372,12 @@ func New(opts Options) (*Daemon, error) {
 		filter:     opts.Filter,
 		turn:       opts.Turn,
 		reporter:   opts.Reporter,
+		proposals:  opts.ProposalGenerator,
 		instanceID: opts.InstanceID,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
-		toolProfiles: maps.Clone(opts.ToolProfiles),
+		toolProfiles: cloneToolProfiles(opts.ToolProfiles),
 		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach

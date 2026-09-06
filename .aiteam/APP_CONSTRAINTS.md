@@ -246,8 +246,7 @@ These are not style rules. Each has a test or a type that fails if you break it.
   `max_concurrent_runs` refused (never clamped) outside 1..16, the hard ceiling
   on the process is twenty goroutines. A new goroutine MUST say in a comment what
   bounds its lifetime. The one named termination condition for the worker pool is
-  `Daemon.Quiesce` — not a `select` on shutdown, and not a sleep. **This bullet
-  is the canonical statement of the inventory.**
+  `Daemon.Quiesce` — not a `select` on shutdown, and not a sleep.
 - **CONC-3** — A bad outcome MUST be a value, not an error. Across `turn`,
   `harness` and `daemon`, an operation that *happened and went badly* returns a
   result whose field says how; the `error` return is reserved for "could not be
@@ -260,6 +259,15 @@ These are not style rules. Each has a test or a type that fails if you break it.
 - **CONC-6** — Retries and sleeps MUST NOT appear below the daemon.
   `internal/github` retries nothing and sleeps nowhere; backoff is
   `internal/daemon`'s job.
+- **CONC-7 [enforced]** — In `internal/turn/prepare`,
+  `SetSessionState(ctx, session.ID, store.SessionRunning)` MUST remain the last
+  statement before a successful return, and MUST NOT be wrapped in
+  `context.WithoutCancel`: every error return above it, the agent-switch
+  refusal included (AC-3.1), MUST leave `sessions.state` untouched, and
+  wrapping the call would let it survive a cancelled turn. So `allocateRun`'s
+  `runs` row can briefly read `running` before its session does — accepted,
+  not a bug: `ReconcileOrphans` self-heals it at daemon start, and no
+  compensating logic MUST be added for it.
 
 ---
 
@@ -297,9 +305,14 @@ These are not style rules. Each has a test or a type that fails if you break it.
   only arity-checked positionals plus `*cli.Env`. Exit code comes from the error
   kind: `*UsageError` (bad command line) vs `*PreconditionError` (machine not
   ready) vs plain error.
-- **STYLE-7** — Thirteen packages carry a `doc.go` whose prose is the real
+- **STYLE-7** — Eighteen packages carry a `doc.go` whose prose is the real
   specification for that package. You MUST read the one for the package you are
   about to touch, before you touch it.
+- **STYLE-8** — `internal/harness/prompt.go`'s `"- Mode: %s\n"` header line
+  (emitted by `writeHeader` and `writeResumeHeader`) and `CLAUDE.md`'s
+  `## Classify` section's trust of that exact literal MUST change together, in
+  the same commit. No test catches the `CLAUDE.md` side drifting — `prompt_test.go`
+  and `prompt_body_test.go` pin only the Go string, not the prose that depends on it.
 
 ---
 
@@ -341,6 +354,7 @@ rather than editing the test.
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` (`TestNoStaleConcurrencyStatementSurvives`) | no `.go` file outside `.aiteam` says "locked by another daemon instance" (AC-PAR-8.4) |
 | `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's plan and spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.7) |
+| `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
 | `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
 | `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
 | `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |

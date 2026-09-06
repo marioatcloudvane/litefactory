@@ -357,8 +357,13 @@ RETURNING `+runColumns,
 		if err != nil {
 			return err
 		}
-		if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
-			return fmt.Errorf("advance watermark: %w", err)
+		// Factory-private schedule triggers had their source comments consumed
+		// when scheduling was acknowledged, so advancing a
+		// watermark with one would be both meaningless and unsafe.
+		if !IsScheduleTrigger(run.TriggerCommentID) {
+			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
+				return fmt.Errorf("advance watermark: %w", err)
+			}
 		}
 		return nil
 	})
@@ -507,6 +512,54 @@ RETURNING `+runColumns,
 				string(SessionFailed), FormatTime(now), failed.SessionID)
 			if err != nil {
 				return fmt.Errorf("fail session %d: %w", failed.SessionID, err)
+			}
+		}
+
+		// A schedule reservation precedes turn allocation. After a crash, a
+		// running schedule with no run never reached an agent and is safe to
+		// retry; one with a run inherits that run's durable terminal outcome.
+		// This is intentionally in the same transaction as orphan reconciliation
+		// so a restart cannot observe a reconciled run and stale reservation.
+		rows, err := tx.QueryContext(ctx,
+			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? ORDER BY id`, string(ScheduleRunning))
+		if err != nil {
+			return fmt.Errorf("find abandoned schedule reservations: %w", err)
+		}
+		scheduled, err := collectSchedules(rows)
+		closeErr := rows.Close()
+		if err != nil {
+			return fmt.Errorf("scan abandoned schedule reservations: %w", err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close abandoned schedule reservations: %w", closeErr)
+		}
+		for _, item := range scheduled {
+			run, runErr := scanRun(tx.QueryRowContext(ctx,
+				`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND trigger_comment_id = ?`, item.SessionID, item.TriggerID()))
+			if errors.Is(runErr, ErrNotFound) {
+				if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, started_at = NULL, updated_at = ? WHERE id = ? AND status = ?`,
+					string(SchedulePending), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
+					return fmt.Errorf("requeue abandoned schedule %d: %w", item.ID, err)
+				}
+				continue
+			}
+			if runErr != nil {
+				return fmt.Errorf("read scheduled run %d: %w", item.ID, runErr)
+			}
+			status := ScheduleFailed
+			if run.ExitCode != nil && *run.ExitCode == 0 {
+				status = ScheduleSucceeded
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, run_id = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?`,
+				string(status), run.ID, FormatTime(now), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
+				return fmt.Errorf("finish abandoned schedule %d: %w", item.ID, err)
+			}
+			if status == ScheduleFailed {
+				if err := blockDescendants(ctx, tx, item.ID, now); err != nil {
+					return fmt.Errorf("block descendants of abandoned schedule %d: %w", item.ID, err)
+				}
+			} else if err := resolveDependentDueTimes(ctx, tx, item.ID, now); err != nil {
+				return fmt.Errorf("resolve descendants of abandoned schedule %d: %w", item.ID, err)
 			}
 		}
 

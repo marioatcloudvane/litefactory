@@ -86,16 +86,18 @@ func TestParseCommand(t *testing.T) {
 			want: Command{Kind: KindSpikeEmpty, Name: "/spike"},
 		},
 
-		// AC-2.18: known but not yet supported. Each of these is a real
-		// command in M1 or later.
+		// The active work commands retain their established mode behavior.
 		{name: "research", body: "/research the failure mode", want: Command{Kind: KindSpike, Name: "/research", Text: "the failure mode"}},
 		{name: "plan", body: "/plan", want: Command{Kind: KindSpikeEmpty, Name: "/plan"}},
 		{name: "implement", body: "/implement T-001.2", want: Command{Kind: KindSpike, Name: "/implement", Text: "T-001.2"}},
-		{name: "approve", body: "/approve", want: Command{Kind: KindUnsupported, Name: "/approve"}},
-		{name: "include", body: "/include docs/spec.md", want: Command{Kind: KindUnsupported, Name: "/include"}},
-		{name: "retry", body: "/retry", want: Command{Kind: KindUnsupported, Name: "/retry"}},
-		{name: "reset", body: "/reset", want: Command{Kind: KindUnsupported, Name: "/reset"}},
-		{name: "status", body: "/status", want: Command{Kind: KindUnsupported, Name: "/status"}},
+		{name: "schedule is kept for factory grammar", body: "/schedule -by 02:00:00 /implement T-001.2", want: Command{Kind: KindSchedule, Name: "/schedule", Text: "-by 02:00:00 /implement T-001.2"}},
+
+		// Retired commands have no special status: all are unknown commands.
+		{name: "retired approve", body: "/approve", want: Command{Kind: KindUnknown, Name: "/approve"}},
+		{name: "retired include", body: "/include docs/spec.md", want: Command{Kind: KindUnknown, Name: "/include"}},
+		{name: "retired retry", body: "/retry", want: Command{Kind: KindUnknown, Name: "/retry"}},
+		{name: "retired reset", body: "/reset", want: Command{Kind: KindUnknown, Name: "/reset"}},
+		{name: "retired status", body: "/status", want: Command{Kind: KindUnknown, Name: "/status"}},
 
 		// AC-2.18: unknown slash commands get the same treatment.
 		{name: "an invented command", body: "/frobnicate the widget", want: Command{Kind: KindUnknown, Name: "/frobnicate"}},
@@ -176,11 +178,11 @@ func TestParseCommand(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("ParseCommand(%q) = %+v, want %+v", tt.body, got, tt.want)
 			}
-			// A kind that spawns carries text and nothing else does: an
-			// instruction with no instruction in it is the one shape the turn
-			// cannot execute.
-			if (got.Text != "") != got.Spawns() {
-				t.Errorf("ParseCommand(%q) = %+v: text is set exactly when the command spawns", tt.body, got)
+			// Work commands carry a run instruction; schedules retain their
+			// control text for the factory-only grammar and never spawn an agent.
+			carriesText := got.Spawns() || got.Kind == KindSchedule
+			if (got.Text != "") != carriesText {
+				t.Errorf("ParseCommand(%q) = %+v: text is set exactly for work or scheduling controls", tt.body, got)
 			}
 			if got.Spawns() != (got.Kind == KindSpike || got.Kind == KindFreeText) {
 				t.Errorf("ParseCommand(%q) = %+v: Spawns() disagrees with the kind", tt.body, got)
@@ -211,7 +213,7 @@ func TestCommandDisposition(t *testing.T) {
 		{kind: KindSpike, spawns: true, kindAsString: "spike"},
 		{kind: KindFreeText, spawns: true, kindAsString: "free_text"},
 		{kind: KindSpikeEmpty, needsReply: true, kindAsString: "spike_empty"},
-		{kind: KindUnsupported, needsReply: true, kindAsString: "unsupported"},
+		{kind: KindSchedule, kindAsString: "schedule"},
 		{kind: KindUnknown, needsReply: true, kindAsString: "unknown"},
 	}
 
@@ -238,16 +240,13 @@ func TestCommandDisposition(t *testing.T) {
 	}
 }
 
-// Every command in the known set must classify as unsupported rather than
-// unknown, so adding one to the vocabulary without implementing it cannot
-// silently change the reply an operator gets.
-func TestKnownCommandsAreUnsupported(t *testing.T) {
+func TestActiveCommandsAreNotUnknown(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range knownCommands {
+	for _, name := range []string{SpikeCommand, "/research", "/plan", "/implement", "/validate", ScheduleCommand} {
 		got := ParseCommand(name + " some argument")
-		if got.Kind != KindUnsupported {
-			t.Errorf("ParseCommand(%q) = %v, want %v", name, got.Kind, KindUnsupported)
+		if got.Kind == KindUnknown {
+			t.Errorf("ParseCommand(%q) = %v, want an active command", name, got.Kind)
 		}
 		if got.Name != name {
 			t.Errorf("ParseCommand(%q) reported the name %q", name, got.Name)

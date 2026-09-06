@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -24,12 +25,6 @@ const (
 	// than a message worth inventing.
 	ReplyInvalid ReplyKind = iota
 
-	// ReplyUnsupportedCommand answers a real command from a later milestone:
-	// "/plan", "/implement". The distinction from an unknown command is the
-	// whole point — "not yet" and "never heard of it" call for different
-	// things from the person who typed it (AC-2.18).
-	ReplyUnsupportedCommand
-
 	// ReplyUnknownCommand answers a slash command that is not in the
 	// vocabulary at all, which is usually a typo.
 	ReplyUnknownCommand
@@ -37,54 +32,20 @@ const (
 	// ReplyEmptySpike answers a bare "/spike" with nothing after it (AC-2.20).
 	ReplyEmptySpike
 
-	// ReplyUnknownToolProfile answers a "Tools: <Profile>" label naming a
-	// profile the operator has not configured — including the case where no
-	// profiles are configured at all, which is the same answer from the
-	// thread's point of view: the profile you asked for is not there.
-	//
-	// It is the one refusal that names what it was asked for, in [Reply.Profile],
-	// and it may do so precisely because the name passed the profile-name
-	// pattern before it got here and is checked against it again below.
-	ReplyUnknownToolProfile
-
-	// ReplyMalformedToolLabel answers a "Tools: <Profile>" label whose value is
-	// not the shape of a profile name at all, the empty value included.
-	//
-	// It carries no profile and quotes nothing back. The label text failed the
-	// one check that would have made it safe to print, so the reply describes
-	// the rule instead of the input — and [Reply] gives it no field to put the
-	// input in, which is what makes that a property of the type rather than a
-	// habit of whoever edits this next.
-	ReplyMalformedToolLabel
-
-	// ReplyAmbiguousToolLabels answers an issue carrying more than one
-	// "Tools: <Profile>" label.
-	//
-	// It names neither of them. Naming both would echo exactly the text
-	// [ReplyMalformedToolLabel] refuses to echo, with the added indignity that
-	// one of the two may be a well-formed profile name and the other an attempt
-	// to smuggle a sentence into a comment litefactory signs.
-	ReplyAmbiguousToolLabels
-
-	// ReplyAmbiguousAgentLabels answers an issue carrying more than one
-	// Coding Agent label, the agent-selection counterpart to
-	// [ReplyAmbiguousToolLabels] and shaped the same way for the same reason:
-	// it names neither label.
+	// ReplyAmbiguousAgentLabels answers an issue carrying more than one Coding
+	// Agent label. It names neither label.
 	ReplyAmbiguousAgentLabels
 
 	// ReplyMalformedAgentLabel answers a Coding Agent label whose value is not
 	// the shape of an agent name at all, the empty value included — the
-	// agent-selection counterpart to [ReplyMalformedToolLabel]. It carries no
-	// field for the label text to travel in, for the same reason that one
-	// does not.
+	// expected shape. It carries no field for the label text to travel in.
 	ReplyMalformedAgentLabel
 
 	// ReplyUnknownAgent answers a Coding Agent label naming a value that is a
 	// well-formed agent name but not one litefactory has a [Runner]
 	// implementation registered for. Unlike [ReplyMalformedAgentLabel] it may
 	// name what was asked for, because a value that passed the agent-name
-	// shape check is safe to quote back the same way a tool profile name is
-	// (see [ReplyUnknownToolProfile]).
+	// shape check makes it safe to quote back.
 	ReplyUnknownAgent
 
 	// ReplyAgentSwitchRefused answers a comment that asked to continue an
@@ -96,13 +57,6 @@ const (
 	// number — so the request is refused rather than guessed at.
 	ReplyAgentSwitchRefused
 
-	// ReplyProfileNotAvailableForAgent answers a resolved "Tools: <Profile>"
-	// label that carries no stanza for the agent this run would otherwise use.
-	// A profile with a stanza for one tool and none for another is not treated
-	// as "fall back to that tool's own default surface" — the whole point of
-	// a profile is the operator's explicit boundary, and a run this package
-	// cannot resolve a surface for is refused rather than widened.
-	ReplyProfileNotAvailableForAgent
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
@@ -111,8 +65,7 @@ const (
 	ReplyConflictingModeSelection
 
 	// ReplyLegacyToolLabel answers an issue or comment still carrying the old
-	// lf:tools=<profile> label syntax, which this feature shipped with before
-	// the label was renamed to "Tools: <Profile>" (US-2).
+	// lf:tools=<profile> label syntax.
 	//
 	// It exists so a legacy label is never treated the same as no label at
 	// all. Silently ignoring it would resolve the run with no tool profile
@@ -121,28 +74,39 @@ const (
 	// reply names the new notation so the operator relabels rather than
 	// assuming a profile is still active.
 	//
-	// Like [ReplyMalformedToolLabel] and [ReplyAmbiguousToolLabels] it carries
-	// no field for the label text to travel in (S-9): the label itself is a
+	// It carries no field for the label text to travel in (SEC-5): the label is a
 	// syntax error regardless of what value follows it, so there is nothing
 	// about it worth quoting back.
 	ReplyLegacyToolLabel
+
+	// ReplyScheduleInvalid answers a /schedule control whose factory grammar
+	// could not be accepted. It is deliberately a factory reply: no agent sees
+	// an invalid scheduling request.
+	ReplyScheduleInvalid
+
+	// ReplyScheduleConfirmed confirms that Litefactory durably recorded a
+	// direct scheduling control before consuming its source comment.
+	ReplyScheduleConfirmed
+
+	// ReplyScheduleBlocked tells the owner that a scheduled item will not run
+	// because one of its prerequisites failed.
+	ReplyScheduleBlocked
+
+	// Proposal replies are factory-owned acknowledgements. They never expose
+	// an agent's proposed payload in a signed forge comment.
+	ReplyScheduleProposalReady
+	ReplyScheduleProposalAccepted
+	ReplyScheduleProposalRejected
+	ReplyScheduleProposalFailed
 )
 
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
-	case ReplyUnsupportedCommand:
-		return "unsupported_command"
 	case ReplyUnknownCommand:
 		return "unknown_command"
 	case ReplyEmptySpike:
 		return "empty_spike"
-	case ReplyUnknownToolProfile:
-		return "unknown_tool_profile"
-	case ReplyMalformedToolLabel:
-		return "malformed_tool_label"
-	case ReplyAmbiguousToolLabels:
-		return "ambiguous_tool_labels"
 	case ReplyAmbiguousAgentLabels:
 		return "ambiguous_agent_labels"
 	case ReplyMalformedAgentLabel:
@@ -151,8 +115,6 @@ func (k ReplyKind) String() string {
 		return "unknown_agent"
 	case ReplyAgentSwitchRefused:
 		return "agent_switch_refused"
-	case ReplyProfileNotAvailableForAgent:
-		return "profile_not_available_for_agent"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -161,6 +123,20 @@ func (k ReplyKind) String() string {
 		return "conflicting_mode_selection"
 	case ReplyLegacyToolLabel:
 		return "legacy_tool_label"
+	case ReplyScheduleInvalid:
+		return "schedule_invalid"
+	case ReplyScheduleConfirmed:
+		return "schedule_confirmed"
+	case ReplyScheduleBlocked:
+		return "schedule_blocked"
+	case ReplyScheduleProposalReady:
+		return "schedule_proposal_ready"
+	case ReplyScheduleProposalAccepted:
+		return "schedule_proposal_accepted"
+	case ReplyScheduleProposalRejected:
+		return "schedule_proposal_rejected"
+	case ReplyScheduleProposalFailed:
+		return "schedule_proposal_failed"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -171,17 +147,19 @@ func (k ReplyKind) String() string {
 // valid reports whether k is one of the real kinds.
 func (k ReplyKind) valid() bool {
 	switch k {
-	case ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
-		return true
-	case ReplyUnknownToolProfile, ReplyMalformedToolLabel, ReplyAmbiguousToolLabels:
+	case ReplyUnknownCommand, ReplyEmptySpike:
 		return true
 	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
 		return true
-	case ReplyAgentSwitchRefused, ReplyProfileNotAvailableForAgent:
+	case ReplyAgentSwitchRefused:
 		return true
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
 		return true
 	case ReplyLegacyToolLabel:
+		return true
+	case ReplyScheduleInvalid, ReplyScheduleConfirmed, ReplyScheduleBlocked,
+		ReplyScheduleProposalReady, ReplyScheduleProposalAccepted,
+		ReplyScheduleProposalRejected, ReplyScheduleProposalFailed:
 		return true
 	case ReplyInvalid:
 		return false
@@ -200,9 +178,8 @@ func (k ReplyKind) RefusesMode() bool {
 	}
 }
 
-// RefusesTools reports whether k is one of the three tool-permission refusals:
-// a reply drawn by the labels on the issue rather than by the command in the
-// comment.
+// RefusesTools reports whether k refuses an obsolete permission label rather
+// than answering the command in the comment.
 //
 // It is exported because internal/turn has to tell the two apart — a refusal is
 // triggered by a command that *would* have spawned a run, so every guard that
@@ -210,9 +187,9 @@ func (k ReplyKind) RefusesMode() bool {
 // this package owns what its own kinds mean.
 func (k ReplyKind) RefusesTools() bool {
 	switch k {
-	case ReplyUnknownToolProfile, ReplyMalformedToolLabel, ReplyAmbiguousToolLabels, ReplyLegacyToolLabel:
+	case ReplyLegacyToolLabel:
 		return true
-	case ReplyInvalid, ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
+	case ReplyInvalid, ReplyUnknownCommand, ReplyEmptySpike:
 		return false
 	default:
 		return false
@@ -228,11 +205,8 @@ func (k ReplyKind) RefusesTools() bool {
 // reply answers a command" before it can decide what [ReplyRequest] shape is
 // valid, and this package owns what its own kinds mean.
 //
-// [ReplyAgentSwitchRefused] and [ReplyProfileNotAvailableForAgent] are also
-// agent-related, but they are drawn by later stages of the four-stage
-// refusal precedence (segment-ownership and per-agent stanza narrowing) with
-// their own request shapes, so they are deliberately excluded here — this
-// method answers only for the label ladder this story implements.
+// [ReplyAgentSwitchRefused] is also agent-related, but it is drawn from
+// segment ownership and has its own request shape.
 func (k ReplyKind) RefusesAgent() bool {
 	switch k {
 	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
@@ -242,24 +216,11 @@ func (k ReplyKind) RefusesAgent() bool {
 	}
 }
 
-// RefusesProfileForAgent reports whether k is the stage-3 refusal T-7.2
-// draws: a resolved lf:tools= profile with no stanza for the agent a run
-// would otherwise use. It is evaluated after the label ladders
-// [ReplyKind.RefusesTools] and [ReplyKind.RefusesAgent] answer for, which is
-// exactly why [RefusesAgent]'s own doc excludes it — this is its own request
-// shape, checked on its own, so a caller can tell all three refusal families
-// apart.
-func (k ReplyKind) RefusesProfileForAgent() bool {
-	return k == ReplyProfileNotAvailableForAgent
-}
-
 // RefusesSwitch reports whether k is [ReplyAgentSwitchRefused]: a reply
 // drawn when a session's resolved agent does not own the segment its
 // conversation already belongs to (US-3). It has its own request shape, read
 // from the store rather than from the issue's labels alone, which is exactly
-// why [RefusesAgent]'s own doc excludes it the same way it excludes
-// [RefusesProfileForAgent] — this method is what lets a caller tell all four
-// refusal families apart.
+// why [RefusesAgent]'s own doc excludes it.
 func (k ReplyKind) RefusesSwitch() bool {
 	return k == ReplyAgentSwitchRefused
 }
@@ -279,20 +240,9 @@ type Reply struct {
 	// answering. Empty is allowed and produces slightly vaguer wording.
 	Command string
 
-	// Profile is the tool profile name a "Tools: <Profile>" label asked for,
-	// and it is read by [ReplyUnknownToolProfile] and
-	// [ReplyProfileNotAvailableForAgent].
-	//
-	// It reaches this package from a label anybody with triage permission can
-	// apply, so it is checked against [profileNamePattern] here before it is
-	// rendered — see [profileSpan]. Empty, or anything that fails that check,
-	// produces a reply that describes the problem without quoting the input,
-	// which is the same shape [commandSpan] already imposes on command tokens.
-	Profile string
-
 	// Agent is the coding-agent-tool name an lf:agent= label asked for, or
 	// the one a resolved segment is already committed to. It is read by
-	// [ReplyUnknownAgent] and [ReplyProfileNotAvailableForAgent] alone, and
+	// [ReplyUnknownAgent] alone, and
 	// like Profile it is checked against [agentNamePattern] here before it
 	// is rendered — see [agentSpan].
 	Agent string
@@ -304,46 +254,35 @@ type Reply struct {
 	// before they are rendered, the same as [Agent].
 	OwningAgent    string
 	RequestedAgent string
+
+	// Schedule carries the safe, structured facts of a scheduling reply. It is
+	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
+	Schedule ScheduleReply
 }
 
-// profileNamePattern is the shape of an operator-authored tool profile *key*,
-// as stored in `tool_profiles` — lower-case, unlike the upper-case-first shape
-// a "Tools: <Profile>" label's displayed value must have (internal/daemon's
-// toolProfileName). internal/config validates the operator's profile keys
-// against this pattern at startup, and internal/daemon lower-cases a label's
-// value before using it as a lookup key, so by the time a name arrives here it
-// has already taken this shape twice over. It is checked a third time all the
-// same, and the pattern is written out here rather than imported, for the
-// reason given at [commandSpan]: this package is the one place where text
-// that came from a third party is echoed into a comment litefactory signs its
-// own name to, and the restriction is re-applied here rather than assumed. A
-// rule that is only enforced by whoever remembers to enforce it upstream is
-// not a rule.
-var profileNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
-
-// profileSpan renders a tool profile name for quoting back.
-//
-// Unlike [commandSpan] it does not salvage a prefix: a profile name is a lookup
-// key that either matched the operator's configuration or did not, and half of
-// one names nothing. Anything that fails the pattern produces no span at all and
-// the caller falls back to wording that quotes nothing.
-func profileSpan(profile string) (string, bool) {
-	if !profileNamePattern.MatchString(profile) {
-		return "", false
-	}
-	return "`" + profile + "`", true
+// ScheduleReply is the factory-owned information rendered for a scheduling
+// control. It deliberately carries no payload: an instruction is agent input,
+// not text Litefactory should echo into a signed comment.
+type ScheduleReply struct {
+	ID          int64
+	DueAt       time.Time
+	Delay       time.Duration
+	After       []int64
+	Outstanding int
+	ProposalID  int64
+	Count       int
 }
 
 // agentNamePattern is the shape of a coding-agent-tool name — deliberately
-// the same shape as [profileNamePattern], for the same reason: it is checked
-// again here, at the one place a value that reached this package from a
+// restricted to the config-key shape. It is checked again here, at the one
+// place a value that reached this package from a
 // forge label is echoed into a comment litefactory signs its own name to
 // (SEC-5), rather than trusted from whatever validated it upstream.
 var agentNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // agentSpan renders a coding-agent-tool name for quoting back, the same way
-// [profileSpan] does for a tool profile name: no salvaged prefix, nothing
-// rendered at all for anything that fails the pattern.
+// the same way as other untrusted names: no salvaged prefix, nothing rendered
+// at all for anything that fails the pattern.
 func agentSpan(name string) (string, bool) {
 	if !agentNamePattern.MatchString(name) {
 		return "", false
@@ -404,15 +343,6 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("```text\n/spike see whether the flaky checkout test is a race in the fixture\n```")
 
-	case ReplyUnsupportedCommand:
-		if named {
-			fmt.Fprintf(&b, "%s is a real command, but litefactory does not implement it yet.", span)
-		} else {
-			b.WriteString("That command is a real one, but litefactory does not implement it yet.")
-		}
-		b.WriteString(" ")
-		b.WriteString(onlyCommandSentence)
-
 	case ReplyUnknownCommand:
 		if named {
 			fmt.Fprintf(&b, "I do not recognise %s.", span)
@@ -422,41 +352,14 @@ func (r Reply) body() string {
 		b.WriteString(" ")
 		b.WriteString(onlyCommandSentence)
 
-	case ReplyUnknownToolProfile:
-		if profile, named := profileSpan(r.Profile); named {
-			fmt.Fprintf(&b, "This issue asks for the tool profile %s, which litefactory has no "+
-				"configuration for.", profile)
-		} else {
-			b.WriteString("This issue asks for a tool profile litefactory has no configuration for.")
-		}
-		b.WriteString(" ")
-		b.WriteString(toolsRefusalSentence)
-		b.WriteString(sectionGap)
-		b.WriteString("Add the profile to `tool_profiles` in litefactory's config, or take the " +
-			"`Tools: ` label off the issue, and comment again.")
-
-	case ReplyMalformedToolLabel:
-		b.WriteString("The `Tools: ` label on this issue does not name a usable tool profile. ")
-		b.WriteString(toolsRefusalSentence)
-		b.WriteString(sectionGap)
-		b.WriteString("A tool profile label looks like `Tools: Research` — an upper-case first " +
-			"letter, then letters, digits, `-` and `_`, up to 40 characters, naming one of the " +
-			"profiles in litefactory's config. The label text is not repeated here on purpose.")
-
-	case ReplyAmbiguousToolLabels:
-		b.WriteString("This issue carries more than one `Tools: ` label, so there is no single " +
-			"answer to which tools this run should have had. ")
-		b.WriteString(toolsRefusalSentence)
-		b.WriteString(sectionGap)
-		b.WriteString("Neither label was chosen and they were not combined. Leave exactly one " +
-			"`Tools: ` label on the issue and comment again.")
-
 	case ReplyLegacyToolLabel:
 		b.WriteString("This issue carries the old `lf:tools=` label, which litefactory no longer reads. ")
 		b.WriteString(toolsRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("Replace it with a `Tools: <Profile>` label — for example `Tools: Research` — " +
-			"and comment again. The label text is not repeated here on purpose.")
+		b.WriteString("Remove every `lf:tools=` label and comment again. Litefactory now selects " +
+			"`research`, `plan`, `implement`, or `validate` permissions automatically from the " +
+			"resolved run mode, so no permission label is needed. The label text is not repeated " +
+			"here on purpose.")
 
 	case ReplyAmbiguousAgentLabels:
 		b.WriteString("This issue carries more than one `Coding Agent: …` label, so there is no single " +
@@ -476,7 +379,7 @@ func (r Reply) body() string {
 	case ReplyMalformedModeLabel:
 		b.WriteString("The `Mode: …` label on this issue is malformed or unknown. Nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, or `Mode: Spike`.")
+		b.WriteString("Use exactly `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate`, or `Mode: Spike`.")
 
 	case ReplyAmbiguousModeLabels:
 		b.WriteString("This issue carries more than one `Mode: …` label, so no mode was chosen and nothing was run.")
@@ -510,24 +413,56 @@ func (r Reply) body() string {
 			"one tool's session to another. Comment again without asking for a different agent, " +
 			"or start a new task for the one you want.")
 
-	case ReplyProfileNotAvailableForAgent:
-		profile, profileNamed := profileSpan(r.Profile)
-		name, agentNamed := agentSpan(r.Agent)
-		switch {
-		case profileNamed && agentNamed:
-			fmt.Fprintf(&b, "The tool profile %s does not have a configuration for %s, which is the "+
-				"coding-agent tool this run would otherwise have used.", profile, name)
-		case profileNamed:
-			fmt.Fprintf(&b, "The tool profile %s does not have a configuration for this run's "+
-				"coding-agent tool.", profile)
-		default:
-			b.WriteString("The resolved tool profile does not have a configuration for this run's coding-agent tool.")
+	case ReplyScheduleInvalid:
+		b.WriteString("I could not schedule that request. Litefactory accepts ")
+		b.WriteString("`/schedule -by HH:MM:SS <payload>`, `/schedule -to MM/DD/YYYY HH:MM:SS [ZONE] <payload>`, ")
+		b.WriteString("or `/schedule --after <id[,id...]> -by HH:MM:SS <payload>`.")
+
+	case ReplyScheduleConfirmed:
+		if r.Schedule.ID <= 0 {
+			return ""
 		}
-		b.WriteString(" ")
-		b.WriteString(toolsRefusalSentence)
-		b.WriteString(sectionGap)
-		b.WriteString("Add a stanza for that tool to the profile, or take the `Tools: ` label off " +
-			"the issue, and comment again.")
+		fmt.Fprintf(&b, "Scheduled work `%d`", r.Schedule.ID)
+		if len(r.Schedule.After) > 0 {
+			b.WriteString(" after schedules ")
+			for i, id := range r.Schedule.After {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "`%d`", id)
+			}
+			fmt.Fprintf(&b, " succeed, then waits %s", r.Schedule.Delay)
+		} else {
+			fmt.Fprintf(&b, " for %s", r.Schedule.DueAt.UTC().Format(time.RFC3339))
+		}
+		fmt.Fprintf(&b, ". `scheduled=%d`.", r.Schedule.Outstanding)
+
+	case ReplyScheduleBlocked:
+		if r.Schedule.ID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Scheduled work `%d` will not run because one of its prerequisites failed.", r.Schedule.ID)
+
+	case ReplyScheduleProposalReady:
+		if r.Schedule.ProposalID <= 0 || r.Schedule.Count <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Schedule proposal `%d` contains %d item(s). Use `/schedule --accept %d` to arm it, or `/schedule --reject %d` to discard it.", r.Schedule.ProposalID, r.Schedule.Count, r.Schedule.ProposalID, r.Schedule.ProposalID)
+
+	case ReplyScheduleProposalAccepted:
+		if r.Schedule.ProposalID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Accepted schedule proposal `%d`; %d item(s) are now scheduled. `scheduled=%d`.", r.Schedule.ProposalID, r.Schedule.Count, r.Schedule.Outstanding)
+
+	case ReplyScheduleProposalRejected:
+		if r.Schedule.ProposalID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Rejected schedule proposal `%d`.", r.Schedule.ProposalID)
+
+	case ReplyScheduleProposalFailed:
+		b.WriteString("I could not produce a valid schedule proposal. No work was scheduled.")
 
 	case ReplyInvalid:
 		// Unreachable: RenderReply rejects an invalid kind before calling this.
@@ -547,9 +482,9 @@ func (r Reply) body() string {
 }
 
 // onlyCommandSentence is the one thing every reply has to say: what litefactory
-// will act on. It is a single constant so the three replies cannot drift into
-// three different accounts of the same vocabulary.
-const onlyCommandSentence = "The only command it acts on at the moment is `/spike <what you want tried>`."
+// will act on. It is a single constant so the replies cannot drift into
+// different accounts of the active command vocabulary.
+const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
 
 // toolsRefusalSentence is the one thing every tool-permission refusal has to
 // say, for the same reason [onlyCommandSentence] exists: three refusals must not

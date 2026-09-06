@@ -35,7 +35,7 @@ const daemonNeverTicked = "never"
 // configuration, the credential and this binary's own path are resolved before
 // a single byte is written or a single launchctl call is made. A `daemon start`
 // that refuses is one that left the previously loaded agent exactly as it was.
-func runDaemonStart(ctx context.Context, env *Env, runner launchd.Runner) error {
+func runDaemonStart(ctx context.Context, env *Env, runner launchd.Runner, opts daemonStartOptions) error {
 	paths, err := config.Locate()
 	if err != nil {
 		return err
@@ -44,7 +44,7 @@ func runDaemonStart(ctx context.Context, env *Env, runner launchd.Runner) error 
 	if err != nil {
 		return err
 	}
-	program, err := daemonProgram()
+	program, err := daemonProgram(opts.level)
 	if err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ type daemonCredential struct {
 // unsupported path, and the caller warns loudly about it.
 func resolveDaemonCredential(cfg *config.Config, paths config.Paths, environment map[string]string) (daemonCredential, error) {
 	ref, configured := secrets.ReferenceFrom(
-		cfg.GitHub.TokenKeychain.Service, cfg.GitHub.TokenKeychain.Account, cfg.GitHub.TokenEnv)
+		cfg.Providers.GitHub.TokenKeychain.Service, cfg.Providers.GitHub.TokenKeychain.Account, cfg.Providers.GitHub.TokenEnv)
 	if !configured {
 		return daemonCredential{}, nil
 	}
@@ -339,14 +339,21 @@ func loadDaemonConfig(paths config.Paths) (*config.Config, error) {
 }
 
 // daemonProgram is the command the LaunchAgent execs: this binary, followed by
-// `daemon run`.
+// `daemon run`, followed by `--level <keyword>` when level is set (US-6,
+// AC-6.3).
 //
 // The path is resolved through its symlinks because os.Executable may hand
 // back the link the process was started through. A plist pointing at a
 // Homebrew shim that is later re-pointed would silently start a different
 // binary at the next login, which is not a failure anyone would think to look
 // for.
-func daemonProgram() ([]string, error) {
+//
+// level is appended untouched: Agent.Validate's checkPlistValue already
+// scans every ProgramArguments element for non-UTF-8 and control characters
+// before it reaches the plist XML, and it was validated against
+// logging.ParseLevel by the caller, so no second sanitisation pass belongs
+// here (D-5).
+func daemonProgram(level string) ([]string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve this binary's path: %w", err)
@@ -359,5 +366,9 @@ func daemonProgram() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve %s to an absolute path: %w", resolved, err)
 	}
-	return []string{abs, "daemon", "run"}, nil
+	program := []string{abs, "daemon", "run"}
+	if level != "" {
+		program = append(program, "--level", level)
+	}
+	return program, nil
 }

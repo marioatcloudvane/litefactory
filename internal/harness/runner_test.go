@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -80,6 +81,7 @@ func newFixture(t *testing.T, script string, adjust ...func(*config.Claude)) *fi
 	runner, err := New(Options{
 		Paths:   config.NewPaths(f.home),
 		Claude:  claude,
+		Model:   config.DefaultClaudeModel,
 		Environ: fixtureEnviron(f.binDir, f.home, root),
 		Logger:  discardLogger(),
 	})
@@ -246,6 +248,41 @@ func TestRunSucceeds(t *testing.T) {
 	}
 }
 
+func TestProposeScheduleIsToolFreeAndDoesNotCreateARunLog(t *testing.T) {
+	advisorInit := `{"type":"system","subtype":"init","tools":[]}`
+	proposalLine := `{"type":"result","is_error":false,"result":"{\"items\":[{\"payload\":\"/implement T-1\",\"due_at\":\"2026-09-05T01:00:00Z\"}]}"}`
+	f := newFixture(t, dumpPrologue+emit(t, advisorInit)+emit(t, proposalLine))
+	proposal, err := f.runner.ProposeSchedule(t.Context(), agent.ScheduleProposalRequest{
+		Description: "split the implementation", ReceivedAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ProposeSchedule: %v", err)
+	}
+	if len(proposal.Items) != 1 || proposal.Items[0].Payload != "/implement T-1" {
+		t.Fatalf("proposal = %+v", proposal)
+	}
+	args, err := os.ReadFile(filepath.Join(f.home, "argv.dump"))
+	if err != nil {
+		t.Fatalf("read advisor argv: %v", err)
+	}
+	got := string(args)
+	for _, want := range []string{"--tools", "--strict-mcp-config"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("argv %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "--session-id") || strings.Contains(got, "--resume") {
+		t.Errorf("advisor argv contains normal-run capability: %q", got)
+	}
+	path, err := naming.RunLogPath(f.home, testRef, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("schedule advisor created normal run log %q: %v", path, err)
+	}
+}
+
 // SD-7's verified invocation, plus the two hardening flags. --verbose in
 // particular: without it claude hard-errors and writes nothing to stdout, which
 // is indistinguishable from a hang.
@@ -262,6 +299,7 @@ func TestRunUsesTheVerifiedInvocation(t *testing.T) {
 		{"--session-id", testSessionID},
 		{"--tools", "Read,Edit"},
 		{"--settings", filepath.Join(f.home, "claude-settings.json")},
+		{"--permission-mode", PermissionMode},
 		{"--allowedTools", "Read,Edit(./**)"},
 		{"--strict-mcp-config", ""},
 	} {
@@ -596,6 +634,8 @@ func TestRunFailsOnIsErrorDespiteSuccessSubtype(t *testing.T) {
 // that with `set -m`, which puts the background job in its own process group,
 // and then asserts the sleeper is gone.
 func TestRunTimeoutKillsTheWholeSubtree(t *testing.T) {
+	requireProcessListAccess(t)
+
 	root := t.TempDir()
 	sleeperPID := filepath.Join(root, "sleeper.pid")
 	sleeperPGID := filepath.Join(root, "sleeper.pgid")
@@ -836,6 +876,7 @@ func TestNewRejectsAnUnresolvableBinary(t *testing.T) {
 	_, err := New(Options{
 		Paths:   config.NewPaths(home),
 		Claude:  config.Claude{Binary: "claude", Tools: []string{"Read"}, TimeoutSeconds: 30},
+		Model:   config.DefaultClaudeModel,
 		Environ: []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin"},
 		Logger:  discardLogger(),
 	})
@@ -856,6 +897,7 @@ func TestNewRejectsUnusableOptions(t *testing.T) {
 		return Options{
 			Paths:   config.NewPaths(home),
 			Claude:  config.Claude{Binary: "/bin/sh", Tools: []string{"Read"}, TimeoutSeconds: 30},
+			Model:   config.DefaultClaudeModel,
 			Environ: []string{"PATH=/bin"},
 			Logger:  discardLogger(),
 		}
@@ -1213,6 +1255,7 @@ func TestRunWithNoProfileArgvIsByteIdentical(t *testing.T) {
 		"--session-id", testSessionID,
 		"--tools", "Read,Edit",
 		"--settings", filepath.Join(f.home, "claude-settings.json"),
+		"--permission-mode", PermissionMode,
 		"--model", config.DefaultClaudeModel,
 		"--autocompact", config.DefaultClaudeAutoCompact,
 		"--allowedTools", "Read,Edit(./**)",
@@ -1240,29 +1283,8 @@ func TestRunPassesConfiguredAutoCompactThreshold(t *testing.T) {
 // The runner never derives or rewrites it: whatever config validation admitted
 // is what the child is asked to run on, so the recorded command line is an
 // honest record of which model did the work.
-func TestRunPassesTheConfiguredModel(t *testing.T) {
-	f := newFixture(t, successScript(t), func(c *config.Claude) {
-		c.Model = "claude-opus-5"
-	})
-	f.run(t)
-
-	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
-	i := slices.Index(argv, "--model")
-	if i < 0 || i == len(argv)-1 {
-		t.Fatalf("argv carries no --model value: %q", argv)
-	}
-	if got := argv[i+1]; got != "claude-opus-5" {
-		t.Errorf("--model = %q, want %q", got, "claude-opus-5")
-	}
-}
-
-// TestRunDefaultsTheModelWhenUnset covers the config.Claude that was assembled
-// by hand rather than loaded — a test, or an embedder — where Model is the zero
-// value. It must not reach argv empty: "--model" followed by "" is a flag with
-// no value, which claude rejects, and the failure would land at run time on
-// every run rather than at startup on one.
-func TestRunDefaultsTheModelWhenUnset(t *testing.T) {
-	f := newFixture(t, successScript(t)) // fixture leaves Model empty
+func TestRunPassesTheStartupResolvedModel(t *testing.T) {
+	f := newFixture(t, successScript(t))
 	f.run(t)
 
 	argv := strings.Split(strings.TrimRight(f.dump(t, "argv.dump"), "\n"), "\n")
@@ -1271,7 +1293,20 @@ func TestRunDefaultsTheModelWhenUnset(t *testing.T) {
 		t.Fatalf("argv carries no --model value: %q", argv)
 	}
 	if got := argv[i+1]; got != config.DefaultClaudeModel {
-		t.Errorf("--model = %q, want the default %q", got, config.DefaultClaudeModel)
+		t.Errorf("--model = %q, want %q", got, config.DefaultClaudeModel)
+	}
+}
+
+// TestRunDefaultsTheModelWhenUnset covers the config.Claude that was assembled
+// by hand rather than loaded — a test, or an embedder — where Model is the zero
+// value. It must not reach argv empty: "--model" followed by "" is a flag with
+// no value, which claude rejects, and the failure would land at run time on
+// every run rather than at startup on one.
+func TestNewRejectsMissingStartupResolvedModel(t *testing.T) {
+	root := t.TempDir()
+	_, err := New(Options{Paths: config.NewPaths(root), Claude: config.DefaultClaude(), Environ: []string{"PATH=/usr/bin:/bin"}, Logger: discardLogger()})
+	if err == nil || !strings.Contains(err.Error(), "startup-resolved model") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

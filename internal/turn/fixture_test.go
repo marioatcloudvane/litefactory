@@ -148,6 +148,8 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 func (f *fixture) request() Request {
 	body := "/spike add a health endpoint that reports the build sha"
 	return Request{
+		Mode:      agent.ModeSpike,
+		Agent:     agent.Kind(store.AgentClaude),
 		SessionID: f.session.ID,
 		Issue: Issue{
 			Number: testIssue,
@@ -160,7 +162,10 @@ func (f *fixture) request() Request {
 			Body:      body,
 			Author:    "marioatcloudvane",
 		},
-		Command: ParseCommand(body),
+		Command:      ParseCommand(body),
+		ToolProfile:  "implement",
+		Tools:        []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"},
+		AllowedTools: config.DefaultClaude().AllowedTools,
 	}
 }
 

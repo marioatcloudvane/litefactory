@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -664,6 +666,8 @@ func (f *fixture) requestFor(session store.Session, issue int, title string, com
 
 	body := fmt.Sprintf("/spike work on issue %d", issue)
 	return Request{
+		Mode:      agent.ModeSpike,
+		Agent:     agent.Kind(store.AgentClaude),
 		SessionID: session.ID,
 		Issue: Issue{
 			Number: issue,
@@ -676,6 +680,9 @@ func (f *fixture) requestFor(session store.Session, issue int, title string, com
 			Body:      body,
 			Author:    "marioatcloudvane",
 		},
-		Command: ParseCommand(body),
+		Command:      ParseCommand(body),
+		ToolProfile:  "implement",
+		Tools:        []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"},
+		AllowedTools: config.DefaultClaude().AllowedTools,
 	}
 }

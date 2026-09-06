@@ -67,6 +67,53 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	return mode, nil
 }
 
+// ProposeSchedule performs a stateless, tool-free advisory invocation. It has
+// no session id, run ordinal, or worktree and therefore cannot become an
+// ordinary coding workflow or create its run artefacts.
+func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
+	prompt, err := agent.ScheduleProposalPrompt(req)
+	if err != nil {
+		return agent.ScheduleProposal{}, err
+	}
+	if _, err := os.Stat(r.home); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("prepare claude settings: %w", err)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv), strings.NewReader(prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = waitDelay
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return agent.ScheduleProposal{}, errors.New("schedule advisor returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return agent.ScheduleProposal{}, errors.New("schedule advisor exposed tools")
+	}
+	proposal, err := agent.ParseScheduleProposal(stream.result.Result)
+	if err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor returned invalid proposal: %w", err)
+	}
+	return proposal, nil
+}
+
 // waitDelay bounds how long cmd.Wait may block after the claude process itself
 // has exited. claude hands its stdout and stderr to children — node, git, and
 // whatever the Bash tool was asked for — and a survivor holding a pipe open
@@ -83,6 +130,29 @@ const ioGrace = 10 * time.Second
 // quotes the last 40 lines in the failure comment; 64 KB holds far more than
 // that and bounds what a run that panics in a loop can cost in memory.
 const stderrTailBytes = 64 << 10
+
+// PermissionMode is the value of claude's --permission-mode on every run
+// litefactory starts.
+//
+// It is a constant on purpose and must not become a config.yaml key. A knob
+// there is a way to widen the permission boundary from configuration, which is
+// the same reasoning that keeps config.forbiddenFlag's flag out of the tree.
+// Changing this is a code change and is reviewed like one.
+//
+// "auto" has a classifier judge each action rather than failing everything the
+// allowlist does not already name. Until now no --permission-mode was passed at
+// all, so runs reported permissionMode "default": prompt when no rule covers
+// it. A headless run has nobody to answer a prompt, so every uncovered action
+// resolved to "Permission prompts are not available in this context" and became
+// a hard denial — the asyncAgent reason behind 386 denials across 119 runs.
+// Measured on this machine with an identical probe: ten denials under dontAsk,
+// none under auto, and an rm the agent had been refused eight times went
+// through.
+//
+// The settings document's deny rules remain the boundary. "bypassPermissions"
+// is what discards them and is the moral equivalent of config.forbiddenFlag's
+// flag; it must never be set here.
+const PermissionMode = "auto"
 
 // runLogFileMode is 0600 and runArtefactDirMode is 0700, matching S-1: the run
 // log is unredacted and may contain anything claude read.
@@ -108,13 +178,8 @@ type Options struct {
 	// package re-checks only what it would otherwise crash on.
 	Claude config.Claude
 
-	// Tiers is the litefactory-owned tier→model table (US-6). It is what
-	// Claude.ModelTier, when set, is resolved through: the --model flag is
-	// resolved from tier to a concrete model name here, at the point the
-	// Claude [agent.Runner] implementation is built, because only the
-	// selected implementation knows which tool's column of the table
-	// applies to it.
-	Tiers config.Tiers
+	// Model is the concrete model resolved once by startup configuration.
+	Model string
 
 	// Environ is the daemon's own environment in os.Environ form. It is the
 	// input to the allowlist (SD-4), and its PATH is what claude.binary is
@@ -188,20 +253,9 @@ func New(opts Options) (*Runner, error) {
 	// and resolves against opts.Tiers, so a miss here means opts was
 	// assembled by hand rather than loaded — the same class of caller the
 	// settingsPath and Model defaulting below already accounts for.
-	model := opts.Claude.Model
-	if opts.Claude.ModelTier != "" {
-		resolved, ok := opts.Tiers.ResolveModel(config.KindClaude, opts.Claude.ModelTier)
-		if !ok {
-			return nil, invalidOptions("claude.model_tier %q has no entry in tiers.model_by_tier.claude", opts.Claude.ModelTier)
-		}
-		model = resolved
-	}
-	// Defaulted here as well as in config.Defaults, for the same reason
-	// settingsPath is: a config.Claude assembled by hand rather than loaded
-	// carries a zero Model, and an empty --model value is not a flag claude
-	// will accept.
+	model := strings.TrimSpace(opts.Model)
 	if model == "" {
-		model = config.DefaultClaudeModel
+		return nil, invalidOptions("a startup-resolved model is required")
 	}
 	autoCompact := opts.Claude.AutoCompact
 	if autoCompact == "" {
@@ -406,9 +460,15 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 //   - --tools is the real tool boundary (SD-2).
 //   - --settings points at the litefactory-controlled file, so a run does not
 //     inherit the operator's personal permissions.
-//   - --allowedTools is the narrower permission list. It is additive to the
-//     operator's settings and therefore defence in depth, not the boundary, but
-//     AC-3.14 requires it and a narrow list is worth having anyway.
+//   - --permission-mode decides everything the rules do not name. See
+//     PermissionMode.
+//   - --allowedTools is the narrower permission list, additive to the
+//     operator's settings. Under --permission-mode auto it is a fast path: an
+//     action it names is permitted without consulting the classifier, and one
+//     it does not name is judged rather than refused outright. That is a
+//     change from the behaviour this comment used to describe — while runs
+//     were in "default" the list was the effective boundary, because anything
+//     outside it needed a prompt that a headless run could not answer.
 //   - --strict-mcp-config makes claude ignore every MCP configuration except
 //     the ones passed with --mcp-config. None are, so no MCP server is
 //     reachable — including a .mcp.json committed on the branch being worked.
@@ -418,10 +478,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
 //
-// The two tool lists are the request's when it carries a resolved profile and
+// The two tool lists are the request's when it carries mode-selected permissions and
 // the runner's configured ones otherwise — see [Runner.surface]. Only config
-// strings are ever joined in here; the profile *name* that selected them is
-// not, and neither is anything else that came from GitHub.
+// strings are ever joined in here; nothing that came from GitHub is included.
 func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
@@ -441,6 +500,11 @@ func (r *Runner) args(req agent.Request) []string {
 		// is the exact opposite of what an empty list looks like it asks for.
 		"--tools", strings.Join(tools, ","),
 		"--settings", r.settingsPath,
+		// Unconditional, and next to --settings because the two are read
+		// together: the settings document supplies the deny rules and this
+		// says how everything they do not name is decided. See PermissionMode
+		// for why the value is a constant rather than configuration.
+		"--permission-mode", PermissionMode,
 		// Unconditional, so that the model a run used is a property of this
 		// argv and readable in the recorded command line, rather than of
 		// whatever the CLI defaults to. It sets the top-level session only:
@@ -511,11 +575,11 @@ func (r *Runner) exec(
 	//
 	// The tool lists now arrive on the request rather than only from the runner,
 	// and that is the part worth being precise about. They are copies of
-	// operator-authored strings out of config.yaml, selected by a profile name
-	// that was validated against the operator's own profile map, and validate
+	// operator-authored strings out of config.yaml, selected by the resolved
+	// run mode, and validate
 	// has just checked every one of them against r.ceiling — so nothing here can
-	// exceed a bound set outside GitHub. The name that selected them stays off
-	// argv entirely: it is a lookup key, never a value.
+	// exceed a bound set outside GitHub. The mode-profile name stays off argv
+	// entirely: it is a lookup key, never a value.
 	//
 	// So no string originating from GitHub is ever joined into this argv. The
 	// untrusted input — the prompt built from the issue — goes on stdin below,
@@ -566,9 +630,9 @@ func (r *Runner) exec(
 	defer closeAll(stdoutR, stderrR)
 
 	// The three tool attributes report the surface this run was actually
-	// invoked with, not the runner's configured defaults: with a profile in
+	// invoked with, not the runner's configured defaults: with a mode profile in
 	// play the two differ, and the log line is the only place the difference is
-	// visible after the fact. tool_profile is empty when no profile applied.
+	// visible after the fact. tool_profile is empty when no mode profile was supplied.
 	tools, allowedTools := r.surface(req)
 	logger.Info("coding agent started",
 		slog.String("agent", "claude"),

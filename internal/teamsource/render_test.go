@@ -19,11 +19,11 @@ func validAgentSource(name, description, body string) string {
 
 func TestParseAgentSource(t *testing.T) {
 	tests := []struct {
-		name       string
-		raw        string
-		wantErr    string
-		wantName   string
-		wantBody   string
+		name     string
+		raw      string
+		wantErr  string
+		wantName string
+		wantBody string
 	}{
 		{
 			name:     "valid frontmatter and body/parses name and body",

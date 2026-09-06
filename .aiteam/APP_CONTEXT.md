@@ -55,15 +55,20 @@ launchd       →  (nothing)          leaf. the macOS LaunchAgent.
 logging       →  (nothing)          leaf. slog construction + file sink.
 render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
+planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies.
+attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
+schedule      →  (nothing)          leaf. parses factory-owned /schedule controls with injected time and location.
 
+agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
 team          →  config             `team add` write engine + team index decode/validate
 github        →  naming, redact, secrets
-harness       →  config, naming
-report        →  git, harness, naming, redact
+codex         →  agent, config, naming
+harness       →  agent, config, naming
+report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  config, git, github, harness, naming, redact, report, store
-daemon        →  config, git, github, harness, naming, redact, report, repos, secrets, store, turn
+turn          →  agent, attach, codex, config, git, github, harness, naming, planbrief, redact, report, store
+daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
 cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store, team, teamsource
 cmd/litefactory → cli, config, logging
@@ -78,51 +83,44 @@ The load-bearing consequences:
   single exception, for `gopkg.in/yaml.v3`. `internal/naming` states and holds
   the same invariant.
 - **`internal/report` cannot import `internal/turn`** — `turn` depends on
-  `report`, so the arrow cannot point back. `report.ReplyKind`
-  (`internal/report/reply.go`) is its own enum rather than reusing
-  `turn.CommandKind`; the mapping is `replyKind()` in
-  `internal/turn/report.go` (~line 600). A new reply shape needs a
-  `ReplyKind` **and** a case there. `report` is *not* a leaf — it imports
-  `git`, `harness`, `naming`, `redact`.
-- **`internal/harness` is the only place that executes `claude`** — subprocess,
-  argv, child environment allowlist, kill sweep, `NNNN.jsonl` event stream.
-  Path derivation is not its job: `naming.RunLogPath`/`RunMetaPath` derive the
-  paths, `config.Paths` owns the `$LF_HOME` layout, and the `NNNN.meta.json`
-  sidecar is written by `internal/turn` (`harvest.go`, via `harness.WriteMeta`).
+  `report` to render its replies, so the arrow cannot point back. That is why
+  `report.ReplyKind` (`internal/report/reply.go`) is its own enum rather than
+  reusing `turn.CommandKind`, and why the mapping is a small switch at the call
+  site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
+  reply shape, you add a `ReplyKind` **and** a case in that switch.
+  Note `report` is *not* a leaf — it imports `agent`, `git`, `naming`, `redact`.
+- **`internal/harness` is the only place that executes `claude`.** It owns the
+  subprocess, the argv, the child environment allowlist, the kill sweep, and it
+  writes the run's `NNNN.jsonl` event stream.
+  *Path derivation is not.* `naming.RunLogPath` / `naming.RunMetaPath`
+  derive the paths and `config.Paths` owns the `$LF_HOME` layout. The sidecar
+  `NNNN.meta.json` is written by **`internal/turn`** (`harvest.go`, via
+  `harness.WriteMeta`) once the shas and touched files are known.
 - **`internal/turn` orchestrates one turn** and has no clock, no ticker, no
   signals. **`internal/daemon` is litefactory's sense of time** — tick loop,
-  singleton lock, backoff, cursor, shutdown — and owns no business logic
-  (`internal/daemon/doc.go`, `internal/turn/doc.go`). This split is what makes
-  the business path testable without waiting for anything.
-- **`internal/daemon` importing `internal/repos`** reuses the pure
-  worktree-collision decision function (`internal/repos/collision.go`,
-  AC-PAR-4.8) rather than reimplementing it; `repos` imports nothing back.
-- **`internal/render` is a leaf**, stdlib plus `gopkg.in/yaml.v3` only. It
-  defines the `Renderer` contract (one pure function per harness) and a
-  plain-map registry; a harness gains a renderer by calling `render.Register`
-  from its own package's `init`.
-- **`internal/team` may import only `internal/config`** (`doc.go`'s
-  Invariants), never `internal/render` — `internal/teamsource` renders first
-  and converts `render.RenderedFile` into `team.RenderedFile`, then calls
-  `team.Add`. It owns a bookkeeping directory at the *target* repo's root,
-  `.litefactory/` (distinct from this repo's own `.aiteam/`): `team.lock.json`
-  (provenance) and `.team.lock` (flock target).
-- **`internal/teamsource` sits above both `internal/team` and
-  `internal/render`** and is the only package that imports both. The chain is
-  `internal/cli -> internal/teamsource -> (internal/team, internal/render)`;
-  `RenderTeam` (`internal/teamsource/render.go`) is where roster reading,
-  parsing, per-harness rendering, hashing and shared-agent team collection for
-  `team add` happen — `internal/cli` calls it rather than doing any of that
-  itself. See `internal/teamsource/doc.go`.
+  singleton lock, backoff, cursor, shutdown — and owns no business logic. This
+  split is a named invariant (`internal/daemon/doc.go`,
+  `internal/turn/doc.go`); it is what makes the whole business path testable
+  without waiting for anything.
+- **`internal/daemon` importing `internal/repos` is new and deliberately
+  cycle-free** — added when the startup worktree-collision check
+  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
+  function rather than reimplementing it. `repos` still imports nothing back
+  from `daemon`.
+- **`internal/agent` is the vendor-neutral contract two Runners implement** —
+  `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
+  `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
+  implementation may inspect `Permissions.Payload`, which differs by `Kind`.
 
 ### Read the `doc.go` files
 
 Fourteen packages carry a `doc.go` whose prose is the real specification for
-that package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`,
-`naming`, `redact`, `render`, `repos`, `report`, `team`, `teamsource`, `turn`
-— and `config` and `store` carry theirs at the top of `config.go` /
+that package — `agent`, `attach`, `daemon`, `git`, `github`, `harness`,
+`identity`, `launchd`, `naming`, `planbrief`, `redact`, `render`, `repos`,
+`report`, `schedule`, `team`, `teamsource`, `turn` — and `config` and `store` carry theirs at the top of `config.go` /
 `store.go`. **Read the one for the package you are about to touch before you
-touch it.**
+touch it.** They record what was measured, what was tried and rejected, and
+what breaks if you do the obvious thing.
 
 ---
 
@@ -142,13 +140,17 @@ touch it.**
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
+| run `claude` or the OpenAI Codex CLI | `internal/harness` / `internal/codex` | Each implements `agent.Runner`; `harness` is the only place that execs `claude`, `codex` the only one that execs the Codex CLI |
+| add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
+| parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
+| parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
+| classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
 | install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
 | render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
 | resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
-| run `claude` | `internal/harness` | The only place |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |

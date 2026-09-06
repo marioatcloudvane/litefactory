@@ -1,5 +1,5 @@
 <!-- lf:reply task=github:acme/acme-api#123 -->
 
-I do not recognise `/frobnicate`. The only command it acts on at the moment is `/spike <what you want tried>`.
+I do not recognise `/frobnicate`. Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`.
 
 _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._

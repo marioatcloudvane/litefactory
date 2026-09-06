@@ -15,6 +15,8 @@ const (
 	ModePlan Mode = "plan"
 	// ModeImplement executes an approved plan.
 	ModeImplement Mode = "implement"
+	// ModeValidate performs bounded, read-only project verification.
+	ModeValidate Mode = "validate"
 	// ModeSpike is a small, time-boxed experiment or ad-hoc change.
 	ModeSpike Mode = "spike"
 )
@@ -22,7 +24,7 @@ const (
 // Valid reports whether m belongs to litefactory's closed mode vocabulary.
 func (m Mode) Valid() bool {
 	switch m {
-	case ModeResearch, ModePlan, ModeImplement, ModeSpike:
+	case ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike:
 		return true
 	default:
 		return false
@@ -46,7 +48,7 @@ func ParseMode(value string) (Mode, bool) {
 
 // ParseModeLabel accepts an exact canonical GitHub label.
 func ParseModeLabel(label string) (Mode, bool) {
-	for _, m := range []Mode{ModeResearch, ModePlan, ModeImplement, ModeSpike} {
+	for _, m := range []Mode{ModeResearch, ModePlan, ModeImplement, ModeValidate, ModeSpike} {
 		if label == m.Label() {
 			return m, true
 		}

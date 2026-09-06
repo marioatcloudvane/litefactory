@@ -208,7 +208,7 @@ func (rt *teamRuntime) staticPathOverride() string {
 	if rt.cfg == nil {
 		return ""
 	}
-	return rt.cfg.TeamConfig
+	return rt.cfg.Settings.TeamConfig
 }
 
 // registeredRepoIdentifier looks up repoPath in the store and, when it is a

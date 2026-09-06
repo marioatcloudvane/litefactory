@@ -241,7 +241,7 @@ func TestEveryBodyBeginsWithItsMarker(t *testing.T) {
 	}
 
 	replyBody, err := rep.RenderReply(t.Context(), report.Reply{
-		Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan",
+		Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate",
 	})
 	if err != nil {
 		t.Fatalf("RenderReply: %v", err)
@@ -270,7 +270,7 @@ func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
 		"run report":      render(t, rep, successRun()).String(),
 		"failure report":  render(t, rep, failureRun()).String(),
 		"run-less reply":  renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"}),
-		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel}),
+		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel}),
 		"unknown command": renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"}),
 	}
 
@@ -820,9 +820,8 @@ func TestControlCharactersAreStripped(t *testing.T) {
 	containsAll(t, "the body", body, "red text and")
 }
 
-// TestReplies covers the three run-less reply forms. The wording matters as
-// much as the marker: "not yet" and "never heard of it" send the reader to
-// different places.
+// TestReplies covers run-less reply forms. The wording matters as much as the
+// marker because it tells an owner how Litefactory interpreted their comment.
 func TestReplies(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -834,16 +833,10 @@ func TestReplies(t *testing.T) {
 		wants  []string
 	}{
 		{
-			name:   "unsupported command",
-			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan"},
-			golden: "reply_unsupported",
-			wants:  []string{"`/plan`", "does not implement it yet", "`/spike <what you want tried>`"},
-		},
-		{
 			name:   "unknown command",
 			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"},
 			golden: "reply_unknown",
-			wants:  []string{"do not recognise `/frobnicate`", "`/spike <what you want tried>`"},
+			wants:  []string{"do not recognise `/frobnicate`", "`/schedule`"},
 		},
 		{
 			name:   "empty spike",

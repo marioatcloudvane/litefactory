@@ -54,8 +54,7 @@ const (
 )
 
 var (
-	agentDisplayNameRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9_-]{0,39}$`)
-	// envVarNameRE matches a POSIX environment variable name. github.token_env
+	// envVarNameRE matches a POSIX environment variable name. providers.github.token_env
 	// holds a name, never a value.
 	envVarNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	// refComponentRE matches one path component of a git ref.
@@ -72,45 +71,58 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
-	if !agentDisplayNameRE.MatchString(c.DefaultAgent) {
-		errs = append(errs, fmt.Errorf("default_agent: %q is not a canonical coding-agent name", c.DefaultAgent))
+	s := &c.Settings
+	if s.PollIntervalSeconds < MinPollIntervalSeconds || s.PollIntervalSeconds > MaxPollIntervalSeconds {
+		errs = append(errs, fmt.Errorf("settings.poll_interval_seconds: %d is out of range; must be between %d and %d",
+			s.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds))
 	}
-
-	if c.PollIntervalSeconds < MinPollIntervalSeconds || c.PollIntervalSeconds > MaxPollIntervalSeconds {
-		errs = append(errs, fmt.Errorf("poll_interval_seconds: %d is out of range; must be between %d and %d",
-			c.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds))
+	if s.MaxConcurrentRuns < MinMaxConcurrentRuns || s.MaxConcurrentRuns > MaxMaxConcurrentRuns {
+		errs = append(errs, fmt.Errorf("settings.max_concurrent_runs: %d is out of range; must be between %d and %d",
+			s.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns))
 	}
-	if c.MaxConcurrentRuns < MinMaxConcurrentRuns || c.MaxConcurrentRuns > MaxMaxConcurrentRuns {
-		errs = append(errs, fmt.Errorf("max_concurrent_runs: %d is out of range; must be between %d and %d",
-			c.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns))
+	if s.WorktreeRetainDays < MinWorktreeRetainDays || s.WorktreeRetainDays > MaxWorktreeRetainDays {
+		errs = append(errs, fmt.Errorf("settings.worktree_retain_days: %d is out of range; must be between %d and %d",
+			s.WorktreeRetainDays, MinWorktreeRetainDays, MaxWorktreeRetainDays))
 	}
-	if c.WorktreeRetainDays < MinWorktreeRetainDays || c.WorktreeRetainDays > MaxWorktreeRetainDays {
-		errs = append(errs, fmt.Errorf("worktree_retain_days: %d is out of range; must be between %d and %d",
-			c.WorktreeRetainDays, MinWorktreeRetainDays, MaxWorktreeRetainDays))
+	if s.AttachmentMaxImageBytes < MinAttachmentBytes || s.AttachmentMaxImageBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes))
 	}
-	if c.FeaturePrefix == "" {
-		errs = append(errs, errors.New("feature_prefix: must not be empty; it is the first segment of every task branch"))
-	} else if !refComponentRE.MatchString(c.FeaturePrefix) || strings.Contains(c.FeaturePrefix, "..") {
-		errs = append(errs, fmt.Errorf("feature_prefix: %q is not a usable branch prefix; use letters, digits, dot, dash or underscore and no slash", c.FeaturePrefix))
+	if s.AttachmentMaxDocumentBytes < MinAttachmentBytes || s.AttachmentMaxDocumentBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_document_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes))
 	}
-	if c.DefaultBaseBranch != "" &&
-		(!branchNameRE.MatchString(c.DefaultBaseBranch) || strings.Contains(c.DefaultBaseBranch, "..")) {
-		errs = append(errs, fmt.Errorf("default_base_branch: %q is not a valid branch name", c.DefaultBaseBranch))
+	if s.AttachmentMaxTotalBytes < MinAttachmentBytes || s.AttachmentMaxTotalBytes > MaxAttachmentBytes {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_total_bytes: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes))
 	}
-	if c.WorktreeRoot != "" && !filepath.IsAbs(c.WorktreeRoot) {
-		errs = append(errs, fmt.Errorf("worktree_root: %q must be an absolute path; a relative one would depend on the daemon's working directory", c.WorktreeRoot))
+	if s.AttachmentMaxCount < MinAttachmentMaxCount || s.AttachmentMaxCount > MaxAttachmentMaxCount {
+		errs = append(errs, fmt.Errorf("settings.attachment_max_count: %d is out of range; must be between %d and %d",
+			s.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
 	}
-	if c.TeamConfig != "" && !filepath.IsAbs(c.TeamConfig) {
-		errs = append(errs, fmt.Errorf("team_config: %q must be an absolute path; a relative one would depend on the daemon's working directory", c.TeamConfig))
+	if s.FeaturePrefix == "" {
+		errs = append(errs, errors.New("settings.feature_prefix: must not be empty; it is the first segment of every task branch"))
+	} else if !refComponentRE.MatchString(s.FeaturePrefix) || strings.Contains(s.FeaturePrefix, "..") {
+		errs = append(errs, fmt.Errorf("settings.feature_prefix: %q is not a usable branch prefix; use letters, digits, dot, dash or underscore and no slash", s.FeaturePrefix))
 	}
-	if err := validateLogLevel(c.LogLevel); err != nil {
+	if s.DefaultBaseBranch != "" &&
+		(!branchNameRE.MatchString(s.DefaultBaseBranch) || strings.Contains(s.DefaultBaseBranch, "..")) {
+		errs = append(errs, fmt.Errorf("settings.default_base_branch: %q is not a valid branch name", s.DefaultBaseBranch))
+	}
+	if s.WorktreeRoot != "" && !filepath.IsAbs(s.WorktreeRoot) {
+		errs = append(errs, fmt.Errorf("settings.worktree_root: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.WorktreeRoot))
+	}
+	if s.TeamConfig != "" && !filepath.IsAbs(s.TeamConfig) {
+		errs = append(errs, fmt.Errorf("settings.team_config: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.TeamConfig))
+	}
+	if err := validateLogLevel(s.LogLevel); err != nil {
 		errs = append(errs, err)
 	}
 
-	errs = append(errs, validateGitHub(&c.GitHub)...)
-	errs = append(errs, validateClaude(&c.Claude)...)
+	errs = append(errs, validateGitHub(&c.Providers.GitHub)...)
 	errs = append(errs, validateTiers(c)...)
 	errs = append(errs, validateAgents(&c.Agents)...)
+	errs = append(errs, validatePermissionProfiles(c)...)
 	errs = append(errs, scanSecrets(c)...)
 
 	return errors.Join(errs...)
@@ -127,16 +139,30 @@ func (c *Config) Validate() error {
 // only been relabelled must still be a legal --model argument.
 func validateTiers(c *Config) []error {
 	var errs []error
-
-	if c.Claude.ModelTier != "" {
-		if !c.Claude.ModelTier.Valid() {
-			errs = append(errs, &UnknownTierError{Key: "claude.model_tier", Value: string(c.Claude.ModelTier)})
-		} else if _, ok := c.Tiers.ResolveModel(KindClaude, c.Claude.ModelTier); !ok {
-			errs = append(errs, fmt.Errorf("claude.model_tier: %q has no entry in tiers.model_by_tier.claude", c.Claude.ModelTier))
+	configured := map[Kind]Tier{}
+	if c.Agents.Claude != nil {
+		configured[KindClaude] = c.Agents.Claude.ModelTier
+	}
+	if c.Agents.Codex != nil {
+		configured[KindCodex] = c.Agents.Codex.ModelTier
+	}
+	for _, kind := range []Kind{KindClaude, KindCodex} {
+		tier, present := configured[kind]
+		if !present {
+			continue
+		}
+		key := fmt.Sprintf("agents.%s.model_tier", kind)
+		if !tier.Valid() {
+			errs = append(errs, &UnknownTierError{Key: key, Value: string(tier)})
+		} else if model, ok := c.Tiers.ResolveModel(kind, tier); !ok || strings.TrimSpace(model) == "" {
+			errs = append(errs, fmt.Errorf("%s: %q requires a non-empty model at tiers.model_by_tier.%s.%s", key, tier, kind, tier))
 		}
 	}
 
 	for _, kind := range sortedKinds(c.Tiers.ModelByTier) {
+		if kind != KindClaude && kind != KindCodex {
+			errs = append(errs, fmt.Errorf("tiers.model_by_tier.%s: unsupported coding agent; supported agents are claude and codex", kind))
+		}
 		byTier := c.Tiers.ModelByTier[kind]
 		for _, tier := range sortedTiers(byTier) {
 			model := byTier[tier]
@@ -159,11 +185,11 @@ func validateTiers(c *Config) []error {
 
 func validateLogLevel(level string) error {
 	if level == "" {
-		return errors.New(`log_level: must not be empty; use debug, info, warn or error`)
+		return errors.New(`settings.log_level: must not be empty; use debug, info, warn or error`)
 	}
 	var parsed slog.Level
 	if err := parsed.UnmarshalText([]byte(level)); err != nil {
-		return fmt.Errorf("log_level: %q is not a level; use debug, info, warn or error", level)
+		return fmt.Errorf("settings.log_level: %q is not a level; use debug, info, warn or error", level)
 	}
 	return nil
 }
@@ -173,15 +199,15 @@ func validateGitHub(g *GitHub) []error {
 
 	switch parsed, err := url.Parse(g.APIBase); {
 	case g.APIBase == "":
-		errs = append(errs, errors.New("github.api_base: must not be empty"))
+		errs = append(errs, errors.New("providers.github.api_base: must not be empty"))
 	case err != nil:
-		errs = append(errs, fmt.Errorf("github.api_base: %q is not a URL: %w", g.APIBase, err))
+		errs = append(errs, fmt.Errorf("providers.github.api_base: %q is not a URL: %w", g.APIBase, err))
 	case parsed.Scheme != "https" && parsed.Scheme != "http":
-		errs = append(errs, fmt.Errorf("github.api_base: %q must use http or https", g.APIBase))
+		errs = append(errs, fmt.Errorf("providers.github.api_base: %q must use http or https", g.APIBase))
 	case parsed.Host == "":
-		errs = append(errs, fmt.Errorf("github.api_base: %q has no host", g.APIBase))
+		errs = append(errs, fmt.Errorf("providers.github.api_base: %q has no host", g.APIBase))
 	case parsed.RawQuery != "" || parsed.Fragment != "":
-		errs = append(errs, fmt.Errorf("github.api_base: %q must be a bare base URL, with no query or fragment", g.APIBase))
+		errs = append(errs, fmt.Errorf("providers.github.api_base: %q must be a bare base URL, with no query or fragment", g.APIBase))
 	}
 
 	// Exactly one credential source, or none at all — `init` treats a missing
@@ -191,14 +217,14 @@ func validateGitHub(g *GitHub) []error {
 	env := g.TokenEnv != ""
 	switch {
 	case keychain && env:
-		errs = append(errs, errors.New("github.token_keychain and github.token_env are both set; configure exactly one bot token source"))
+		errs = append(errs, errors.New("providers.github.token_keychain and providers.github.token_env are both set; configure exactly one bot token source"))
 	case keychain && g.TokenKeychain.Service == "":
-		errs = append(errs, errors.New("github.token_keychain.service: required when github.token_keychain.account is set"))
+		errs = append(errs, errors.New("providers.github.token_keychain.service: required when providers.github.token_keychain.account is set"))
 	case keychain && g.TokenKeychain.Account == "":
-		errs = append(errs, errors.New("github.token_keychain.account: required when github.token_keychain.service is set"))
+		errs = append(errs, errors.New("providers.github.token_keychain.account: required when providers.github.token_keychain.service is set"))
 	}
 	if env && !envVarNameRE.MatchString(g.TokenEnv) {
-		errs = append(errs, fmt.Errorf("github.token_env: %q is not an environment variable name; this key holds the *name* of the variable that carries the token, never the token itself", g.TokenEnv))
+		errs = append(errs, fmt.Errorf("providers.github.token_env: %q is not an environment variable name; this key holds the *name* of the variable that carries the token, never the token itself", g.TokenEnv))
 	}
 	return errs
 }
@@ -219,30 +245,10 @@ func validateClaude(c *Claude) []error {
 		errs = append(errs, fmt.Errorf("claude.timeout_seconds: %d is out of range; must be between %d and %d",
 			c.TimeoutSeconds, MinClaudeTimeoutSeconds, MaxClaudeTimeoutSeconds))
 	}
-	if c.AttachmentMaxImageBytes < MinAttachmentBytes || c.AttachmentMaxImageBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_image_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxDocumentBytes < MinAttachmentBytes || c.AttachmentMaxDocumentBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_document_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxTotalBytes < MinAttachmentBytes || c.AttachmentMaxTotalBytes > MaxAttachmentBytes {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_total_bytes: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes))
-	}
-	if c.AttachmentMaxCount < MinAttachmentMaxCount || c.AttachmentMaxCount > MaxAttachmentMaxCount {
-		errs = append(errs, fmt.Errorf("claude.attachment_max_count: %d is out of range; must be between %d and %d",
-			c.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
-	}
-
-	errs = append(errs, validateModel(c)...)
 	errs = append(errs, validateAutoCompact(c)...)
 	errs = append(errs, validateTools("claude.tools", c.Tools)...)
 	errs = append(errs, validateAllowedTools("claude.allowed_tools", c.AllowedTools)...)
 	errs = append(errs, validateToolCeiling(c)...)
-	errs = append(errs, validateToolProfiles(c)...)
-	errs = append(errs, validateNoForbiddenFlag(c)...)
 	return errs
 }
 
@@ -252,10 +258,27 @@ func validateClaude(c *Claude) []error {
 // nothing beyond the presence conflict [Decode] already refuses eagerly
 // (AC-7.9) — this package does not read its contents.
 func validateAgents(a *Agents) []error {
-	if a.Codex == nil {
-		return nil
+	if a.Claude == nil && a.Codex == nil {
+		return []error{errors.New("agents: at least one supported coding agent is required (claude or codex)")}
 	}
-	return validateCodex(a.Codex)
+	var errs []error
+	if a.Claude != nil {
+		errs = append(errs, prefixAgentValidation("agents.claude", validateClaude(a.Claude))...)
+	}
+	if a.Codex != nil {
+		errs = append(errs, validateCodex(a.Codex)...)
+	}
+	return errs
+}
+
+func prefixAgentValidation(path string, input []error) []error {
+	out := make([]error, 0, len(input))
+	for _, err := range input {
+		message := err.Error()
+		message = strings.ReplaceAll(message, "claude.", path+".")
+		out = append(out, errors.New(message))
+	}
+	return out
 }
 
 // validateCodex checks agents.codex, present only when the operator
@@ -270,24 +293,6 @@ func validateCodex(c *Codex) []error {
 		errs = append(errs, errors.New("agents.codex.binary: must not be empty"))
 	case strings.ContainsRune(c.Binary, filepath.Separator) && !filepath.IsAbs(c.Binary):
 		errs = append(errs, fmt.Errorf("agents.codex.binary: %q must be an absolute path or a bare command name", c.Binary))
-	}
-
-	if c.DefaultSandbox == "" {
-		// BLOCKED-BY-US-1 (T-7.3): this checks presence only. Once the
-		// measured sandbox enum lands, this becomes a membership check
-		// against it, and the most-restrictive measured value becomes the
-		// [Defaults]/template.go constant an absent key defaults to instead
-		// of an outright refusal.
-		errs = append(errs, errors.New("agents.codex.default_sandbox: must not be empty; "+
-			"a configured agents.codex requires an explicit default sandbox mode (AC-7.8)"))
-	} else if c.DefaultSandbox != "read-only" && c.DefaultSandbox != "workspace-write" {
-		errs = append(errs, fmt.Errorf("agents.codex.default_sandbox: %q must be read-only or workspace-write", c.DefaultSandbox))
-	}
-	if c.ModelTier != "" && !c.ModelTier.Valid() {
-		errs = append(errs, &UnknownTierError{Key: "agents.codex.model_tier", Value: string(c.ModelTier)})
-	}
-	if c.Model != "" && !modelNameRE.MatchString(c.Model) {
-		errs = append(errs, fmt.Errorf("agents.codex.model: %q is not a valid model name", c.Model))
 	}
 
 	// Matches claude.timeout_seconds's own bounds (T-7.1): the wall-clock
@@ -318,36 +323,26 @@ func validateCodex(c *Codex) []error {
 // trailing slash on the API base — that would otherwise turn into confusing
 // validation failures or duplicated URLs.
 func (c *Config) normalize() {
-	c.DefaultBaseBranch = strings.TrimSpace(c.DefaultBaseBranch)
-	c.FeaturePrefix = strings.TrimSpace(c.FeaturePrefix)
-	c.WorktreeRoot = strings.TrimSpace(c.WorktreeRoot)
-	c.TeamConfig = strings.TrimSpace(c.TeamConfig)
-	c.LogLevel = strings.ToLower(strings.TrimSpace(c.LogLevel))
+	c.Settings.DefaultBaseBranch = strings.TrimSpace(c.Settings.DefaultBaseBranch)
+	c.Settings.FeaturePrefix = strings.TrimSpace(c.Settings.FeaturePrefix)
+	c.Settings.WorktreeRoot = strings.TrimSpace(c.Settings.WorktreeRoot)
+	c.Settings.TeamConfig = strings.TrimSpace(c.Settings.TeamConfig)
+	c.Settings.LogLevel = strings.ToLower(strings.TrimSpace(c.Settings.LogLevel))
 
-	c.GitHub.APIBase = strings.TrimRight(strings.TrimSpace(c.GitHub.APIBase), "/")
-	c.GitHub.TokenEnv = strings.TrimSpace(c.GitHub.TokenEnv)
-	c.GitHub.TokenKeychain.Service = strings.TrimSpace(c.GitHub.TokenKeychain.Service)
-	c.GitHub.TokenKeychain.Account = strings.TrimSpace(c.GitHub.TokenKeychain.Account)
+	c.Providers.GitHub.APIBase = strings.TrimRight(strings.TrimSpace(c.Providers.GitHub.APIBase), "/")
+	c.Providers.GitHub.TokenEnv = strings.TrimSpace(c.Providers.GitHub.TokenEnv)
+	c.Providers.GitHub.TokenKeychain.Service = strings.TrimSpace(c.Providers.GitHub.TokenKeychain.Service)
+	c.Providers.GitHub.TokenKeychain.Account = strings.TrimSpace(c.Providers.GitHub.TokenKeychain.Account)
 
-	c.Claude.Binary = strings.TrimSpace(c.Claude.Binary)
-	c.Claude.SettingsPath = strings.TrimSpace(c.Claude.SettingsPath)
-	c.Claude.ModelTier = Tier(strings.TrimSpace(string(c.Claude.ModelTier)))
-	// A ModelByTier inner map is copied by the outer range, but its value
-	// header still points at the same backing map, so trimming in place
-	// lands on the configuration validation and the harness will both read.
-	for _, byTier := range c.Tiers.ModelByTier {
-		for tier, model := range byTier {
-			byTier[tier] = strings.TrimSpace(model)
-		}
+	if c.Agents.Claude != nil {
+		c.Agents.Claude.Binary = strings.TrimSpace(c.Agents.Claude.Binary)
+		c.Agents.Claude.SettingsPath = strings.TrimSpace(c.Agents.Claude.SettingsPath)
+		c.Agents.Claude.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Claude.ModelTier)))
+		trimAll(c.Agents.Claude.Tools)
+		trimAll(c.Agents.Claude.AllowedTools)
+		trimAll(c.Agents.Claude.ToolCeiling)
 	}
-	trimAll(c.Claude.Tools)
-	trimAll(c.Claude.AllowedTools)
-	trimAll(c.Claude.ToolCeiling)
-	// A ToolProfile is copied by the range, but Claude and Codex are
-	// pointers, so trimming through them lands on the same
-	// ToolProfileClaude/ToolProfileCodex the map value points at — there is
-	// nothing left to alias away by copying the outer ToolProfile.
-	for _, profile := range c.Claude.ToolProfiles {
+	for _, profile := range c.ToolProfiles.Permissions {
 		if profile.Claude != nil {
 			trimAll(profile.Claude.Tools)
 			trimAll(profile.Claude.AllowedTools)
@@ -356,11 +351,16 @@ func (c *Config) normalize() {
 			profile.Codex.Sandbox = strings.TrimSpace(profile.Codex.Sandbox)
 		}
 	}
-
+	// A ModelByTier inner map is copied by the outer range, but its value
+	// header still points at the same backing map, so trimming in place
+	// lands on the configuration validation and the harness will both read.
+	for _, byTier := range c.Tiers.ModelByTier {
+		for tier, model := range byTier {
+			byTier[tier] = strings.TrimSpace(model)
+		}
+	}
 	if c.Agents.Codex != nil {
 		c.Agents.Codex.Binary = strings.TrimSpace(c.Agents.Codex.Binary)
-		c.Agents.Codex.DefaultSandbox = strings.TrimSpace(c.Agents.Codex.DefaultSandbox)
-		c.Agents.Codex.Model = strings.TrimSpace(c.Agents.Codex.Model)
 		c.Agents.Codex.ModelTier = Tier(strings.TrimSpace(string(c.Agents.Codex.ModelTier)))
 	}
 }

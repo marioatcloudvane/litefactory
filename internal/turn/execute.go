@@ -263,15 +263,11 @@ type Request struct {
 	// that spawns a run; a reply-only command is the caller's to handle.
 	Command Command
 
-	// Tools and AllowedTools are the tool surface a resolved tool profile
-	// grants this turn, and ToolProfile is the name of the profile they came
-	// from. All three are empty when no lf:tools= label selected one, and the
-	// run then takes the harness's configured surface exactly as it did before
-	// profiles existed (AC-2.3).
+	// Tools and AllowedTools are the tool surface the resolved mode profile
+	// grants this turn, and ToolProfile is its canonical mode-profile name.
 	//
-	// Every string here is operator-authored configuration. The label only ever
-	// chose *which* profile; nothing that originated on the forge travels in
-	// these fields, and that is what keeps C2 true all the way to argv. The
+	// Every string here is operator-authored configuration. Nothing that
+	// originated on the forge travels in these fields. The
 	// caller has already copied them out of the configuration it holds for the
 	// life of the process, because [preparation.request] is mutated in place on
 	// the cold-rerun path.
@@ -293,7 +289,7 @@ type Request struct {
 	// Agent is the coding-agent tool this turn resolved to, from the daemon's
 	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
 	// means no Coding Agent label was on the issue, which resolves to the
-	// configured default agent — [store.AgentClaude] today — the same way an
+	// configured default agent — the first agents entry — the same way an
 	// absent lf:tools= label resolves to the harness's default surface
 	// (AC-2.1). [prepare] is what applies that default; nothing here does.
 	//
@@ -304,7 +300,7 @@ type Request struct {
 	Agent agent.Kind
 
 	// AttachmentsAllowed is the US-5 permission gate: true only when a
-	// resolved "Tools: <Profile>" label is present AND that profile's
+	// selected mode profile is present AND that profile's
 	// attachments key is true. It is computed by the daemon's per-agent
 	// narrowing stage (tick.go), the same stage that resolves ToolProfile
 	// above — deliberately not by [resolveTools]'s pure label ladder, which
@@ -325,17 +321,19 @@ func (r Request) validate() error {
 		return invalidRequest("a session id is required")
 	case r.Issue.Number <= 0:
 		return invalidRequest("issue number %d must be positive", r.Issue.Number)
+	case r.Trigger.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	// Not "positive": 0 is the issue body run as the first instruction. See
 	// [Trigger.CommentID] for why the body's trigger id is 0 and not the
 	// issue's own id.
-	case r.Trigger.CommentID < 0:
-		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
+	case r.Agent == "":
+		return invalidRequest("no coding agent was selected")
 	case r.Mode != "" && !r.Mode.Valid():
-		return invalidRequest("mode %q is not research, plan, implement or spike", r.Mode)
+		return invalidRequest("mode %q is not research, plan, implement, validate or spike", r.Mode)
 	default:
 		return nil
 	}
@@ -543,8 +541,9 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 //
 // The session is marked failed and the reason is carried out for the report:
 // AC-3.5 wants a failure comment for a fetch that did not run, and AC-4.1 wants
-// one for every other way a turn can end early. No run row was allocated, so
-// there is no ordinal to burn and the next comment on this task starts clean.
+// one for every other way a turn can end early. For a failure raised before
+// allocateRun, no run row was allocated, so there is no ordinal to burn and
+// the next comment on this task starts clean.
 func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure *failure, logger *slog.Logger) Result {
 	result.Disposition = DispositionPrepareFailed
 	result.Outcome = harness.OutcomeFailed
@@ -565,13 +564,14 @@ func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure
 // agentSwitchRefused records a turn whose resolved agent does not own this
 // session's segment (US-3).
 //
-// Unlike [prepareFailed] it touches no session state and allocates nothing:
-// [prepare] returned before creating anything, and the segment and the runs
-// table are exactly as they were before this turn was attempted (AC-3.1). The
-// two agent names travel on [Result] rather than being formatted here,
-// because it is [Reporter.ReportTurn] that decides whether there is even a
-// comment to answer — the issue-body trigger has none — and formatting them
-// twice would be two places to keep in step.
+// Unlike [prepareFailed] it allocates nothing and never transitions session
+// state: no session-state transition has occurred and no runs row has been
+// allocated; the worktree already exists on disk and sessions.worktree_path
+// already records it, and both are idempotent and reused by the next turn
+// (AC-3.1). The two agent names travel on [Result] rather than being
+// formatted here, because it is [Reporter.ReportTurn] that decides whether
+// there is even a comment to answer — the issue-body trigger has none — and
+// formatting them twice would be two places to keep in step.
 func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog.Logger) Result {
 	result.Disposition = DispositionAgentSwitchRefused
 	result.AgentOwning = refusal.owning
