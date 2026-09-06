@@ -116,12 +116,12 @@ table and are treated here as settled context, not open items.
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | A non-success run commits nothing | M | — | US-1.md |
-| US-2 | The sub-issue phase skips a non-success run | S | US-1 | US-2.md |
-| US-3 | The report says plainly nothing was committed, and where the work is | S | US-1, US-2 | US-3.md |
-| US-4 | A resumed run knows its predecessor failed | M | — | US-4.md |
-| US-5 | The prompt states the predecessor failed and disowns its claims | M | US-4 | US-5.md |
-| US-6 | An unknown cost renders "unknown" | XS | — | US-6.md |
+| US-1 | A non-success run commits nothing | M | — | https://github.com/marioatcloudvane/litefactory/issues/132 |
+| US-2 | The sub-issue phase skips a non-success run | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/133 |
+| US-3 | The report says plainly nothing was committed, and where the work is | S | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/134 |
+| US-4 | A resumed run knows its predecessor failed | M | — | https://github.com/marioatcloudvane/litefactory/issues/135 |
+| US-5 | The prompt states the predecessor failed and disowns its claims | M | US-4 | https://github.com/marioatcloudvane/litefactory/issues/136 |
+| US-6 | An unknown cost renders "unknown" | XS | — | https://github.com/marioatcloudvane/litefactory/issues/137 |
 
 ## Out of Scope
 
