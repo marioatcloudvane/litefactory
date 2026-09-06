@@ -850,3 +850,703 @@ binary, so it stays mine.
   release-content decision, not just an ordering preference. Shipping the block
   without the escape hatch would put an un-overridable refusal in front of real
   work.
+
+---
+
+# Amendment Review — US-11 / US-12
+# Architect: Go Architect
+# Date: 2026-09-06
+# Scope: the two stories added to `feature-spec.md` on 2026-09-06 only.
+#        US-1..US-10 and their sub-issues (`US-1.md`..`US-10.md`) are unchanged
+#        by this section and were not re-decomposed.
+
+## Verdict
+
+**Approved with a sequencing deviation.** US-11 is buildable on precedent that
+already exists in this codebase and needs no new architecture beyond one narrow
+model call, one store table and one reply shape. US-12 is not plumbing: it
+introduces the first path in litefactory where model-produced text becomes
+committed bytes, and it needs an agentless turn shape that does not exist today.
+Neither story fits Phase 6 or Phase 7 of the approved shipping order. See
+**D-2**.
+
+## Corrections to the plan record
+
+Two statements in the 2026-09-05 artifacts are wrong or stale. Both are
+corrections of record, not design changes.
+
+**C-1 — migration numbers (resolves ODQ-20).** `plan_brief.md` Cross-Story
+Constraints says the new migration is `0005_run_sync.sql` and that "0004 is the
+current head", and the Tests bullet says "Migration 0005 applies cleanly on top
+of 0004". Verified this session by listing
+`internal/store/migrations/`: the files present are `0001_init.sql`,
+`0002_session_backlog.sql`, `0003_agent.sql`, `0004_mode_selections.sql`,
+`0005_schedules.sql`, `0006_schedule_block_replies.sql`. Head is **0006**;
+`0005` is taken by another feature that merged since.
+
+- US-9's run-sync columns become **`0007_run_sync.sql`**.
+- US-11's proposal table becomes **`0008_conflict_proposals.sql`**.
+- Both numbers MUST be re-confirmed by listing the directory at implement time,
+  not read out of this document. `main` moves; the head that mattered on
+  2026-09-05 was wrong within a day.
+
+**C-2 — `prepareClone` step order.** Verified first-hand against current
+`internal/turn/prepare.go:376-410`. The real order inside the single
+`CloneGate.Acquire` is:
+
+    CloneGate.Acquire -> fetch -> freezeSlug -> ensureWorktree
+
+`feature-spec.md`'s API/Interface Changes table says `syncBase` is gained
+"between `fetch` and `freezeSlug`". That is wrong and is the sentence to fix.
+`plan_brief.md` DEV-1 — `syncBase` runs **last, after `ensureWorktree`** — is
+correct and stands: `MergeBase` is a `*Worktree` method and no worktree exists
+until `ensureWorktree` has run with the branch name `freezeSlug` produced. Also
+note the doc comment at that site: the context is passed through untouched so
+gate-wait time is not charged against the fetch's 60s or the push's 120s
+(AC-PAR-3.6). Nothing added by this amendment may wrap that section in
+`context.WithTimeout`.
+
+## US-7 — endorsed, without reservation
+
+The documentation-only note "US-7 reconsidered and kept (2026-09-06)" records
+the right outcome. `lf:sync=on|off` stands exactly as specified in
+`plan_brief.md` Shared Decisions and `US-7.md`. Three reasons, one of which is
+new since 2026-09-05:
+
+1. **It adds a pattern instance, not a pattern.** `lf:sync=` is copied rung for
+   rung from `agentLabelPrefix` and `modeLabelPrefix` in `internal/daemon` —
+   both live. The marginal architectural cost is close to zero.
+2. **Blast-radius mismatch.** Without it, the only escape from a false-positive
+   conflict block is flipping `block_run_on_conflict` for the entire repo: a
+   per-issue problem answered with a repo-wide switch. That is the wrong shape
+   for a lever whose whole purpose is to unstick one issue.
+3. **New, and decisive:** US-7 is now the kill switch for US-11 and US-12 as
+   well. Per `feature-spec.md`'s own edge case, an issue labelled `lf:sync=off`
+   is never `blocked`, so no proposal is ever produced for it and no
+   confirmation is ever possible. Removing the label would leave an owner with
+   no per-issue way to keep repository file content out of a model prompt. The
+   amendment makes US-7 **more** load-bearing, not less.
+
+The standing constraint "US-7 must ship no later than US-2/US-4" holds and is
+now stronger: it must also ship no later than US-11.
+
+No dissent.
+
+## System Overview delta
+
+### Where the two stories sit
+
+US-11 attaches to the **end of the blocked path inside `internal/turn`**. The
+block is discovered by `syncBase`, which runs under the CloneGate as the fourth
+step of `prepareClone`. Collecting and capping the conflicting hunks is a
+filesystem read against the prepared worktree and happens there. The model call
+does **not**: see the concurrency note below. The proposal row is written
+through the store handle `turn` already holds, and the suggestion is rendered
+through a new `report.ReplyKind`, which means a new case in
+`replyKind(kind CommandKind) (report.ReplyKind, bool)` at
+`internal/turn/report.go:722` — `internal/report` cannot import `internal/turn`,
+so a new reply shape is always two edits, never one.
+
+US-12 attaches in two places at once, and that split is the whole reason it is
+an L. Confirmation **arrives as a comment**, so it is dispatched by
+`internal/daemon` on the comment path, exactly where `handleProposalControl`
+sits today. But application **needs a prepared worktree under the CloneGate**,
+which is `internal/turn`'s job and nothing else's. So the confirmation comment
+must start a turn that runs no agent.
+
+### The precedent, and what it does not cover
+
+`internal/daemon/proposals.go` is the pattern to copy and is cited in full
+below (ODQ-24). It supplies: TTL sweep before dispatch (`proposalLifetime =
+7 * 24 * time.Hour`, which matches `conflict_proposal_ttl_hours: 168` exactly),
+`ownedProposal` gating on `SessionID` **and** `c.Author.Login`, status guards on
+every transition, `validatedProposalItems` re-validating generator output
+locally, and `ReplyScheduleProposalFailed` returned as a **value** when the
+advisor is nil or the model fails (CONC-3).
+
+What it does not supply is the second half of US-12: no schedule proposal ever
+touches a worktree, an index or a commit. Accepting a schedule writes rows.
+Confirming a conflict resolution writes **files**. The precedent covers the
+lifecycle and the ownership check; it covers none of the mutation.
+
+### New components introduced
+
+| Component | Package | Responsibility |
+|---|---|---|
+| `ConflictResolutionRequest` / `ConflictResolution` / prompt builder / strict parser | `internal/agent` (new file, sibling of `proposal.go`) | The bounded, tool-free model call: prompt in, structured output out. Carries no issue handle, worktree, tool permissions or persistence capability. |
+| `turn.ConflictAdvisor` (narrowing interface) | `internal/turn` | One method, declared by the consumer, satisfied by a `Runner` type-asserted out of `turn.RunnerSet` by `agent.Kind` — the `scheduleAdvisor` shape from `internal/daemon/proposal_adapter.go:13-15`. |
+| `store.ConflictProposal` + lifecycle calls | `internal/store` | The pending/confirmed/rejected/expired/superseded row and its transitions. Own type and own status vocabulary; not shared with `store.ScheduleProposal`. |
+| Confirmation grammar | `internal/turn/command.go` (+ a sibling parser) | A litefactory-owned control command in the `KindSchedule` mould: separate grammar, canonical lowercase token, restricted charset. |
+| `confirmedProposal` (unexported value type) | `internal/turn` | Makes the confirmation gate structural — see S-12. |
+| Contained-write / stage / complete-merge mutators | `internal/git`, on `*Worktree` | The only place resolved content reaches the filesystem and the index. |
+| `ReplySuggestsResolution`, `ReplyAppliesResolution`, refusal kinds | `internal/report` | Rendering, under SEC-5 reject-don't-salvage discipline. |
+
+### Concurrency: the model call must not hold the clone gate
+
+This is the single most important structural constraint in the amendment and it
+is not stated in the spec.
+
+`syncBase` runs **inside** `prepareClone`'s CloneGate acquisition. A model call
+is seconds to tens of seconds. Making it there would serialise every other issue
+on that clone behind a network round-trip to a model, for as long as the model
+takes, on every conflicted run. The gate exists to keep concurrent issues from
+colliding in one clone, not to queue them behind inference.
+
+Required shape:
+
+1. Inside the gate: `syncBase` detects the block, `MergePreview.Conflicts` is
+   known, the hunks are read from the worktree, capped and filtered
+   (filesystem-only, fast, bounded).
+2. Gate released, `prepareClone` returns as it does today.
+3. Outside the gate: the model call, the local re-validation, the store write,
+   the comment.
+
+The capped payload is a plain value carried out of the gated section. The call
+carries the turn's `context.Context` — a daemon shutdown or a deadline cancels
+it. Never `context.Background()`; a detached model call would outlive the turn
+that reported the block.
+
+Give the model call its own deadline in the existing style, distinct from the
+git deadlines (`Divergence` 30s, `MergePreview` 60s, `MergeBase` 60s). It is a
+different kind of wait and must not inherit a git budget.
+
+## Shipping order — D-2
+
+**These two stories do not slot into Phase 6 or Phase 7. Do not force them
+there.** Stated plainly, as asked.
+
+Phase 6 is the `internal/turn` convergence for the ten-story feature: the phase
+where `syncBase` is wired for the first time and the outcome vocabulary is
+proven end to end. Phase 7 is verification. Putting US-11 in Phase 6 would put
+the first model call and a new store table into the same change that first wires
+sync, and would make the ten-story feature's ship date depend on a security
+review that has not happened. Putting US-12 anywhere before US-11 has been
+observed against a real conflict would mean building an apply path for
+suggestions nobody has read yet.
+
+Recommended extension of the approved order:
+
+| Phase | Content | Gate to enter |
+|---|---|---|
+| 0-7 | Unchanged. US-1..US-10 ship as planned. | — |
+| **7.5** | **ODQ-28 security review pass** (not a story; a blocking review). Scoped to the two new paths: repository content outbound, model text inbound. | Phase 7 green. |
+| **8** | US-11 — propose and post. Ships with `suggest_conflict_resolution` defaulting **false** (D-3). | 7.5 signed off by the owner. |
+| **9** | US-12 — confirm and apply. Opens with the `Worktree` allowlist test (T-12.1) before any mutator exists. | Phase 8 shipped **and** at least one real blocked run observed with a posted suggestion the owner has read. |
+
+Rationale for the observation gate between 8 and 9: US-12's risk is entirely a
+function of suggestion quality, and nobody in this project has yet seen one.
+Building the apply path before reading real output is building a gate for a
+threat model assembled from assumptions.
+
+**Keep the two stories split (D-6).** `feature-spec.md`'s decomposition note
+allows merging them "provided the mandatory confirmation gate stays inside it".
+I recommend against it. They are different risk classes — read-plus-post versus
+branch-mutating — they want different review gates, and US-11 is independently
+valuable: a suggestion an owner applies by hand is still worth having. Merged,
+the confirmation gate ships in the same change as the first model call, and one
+review has to hold both.
+
+## Open Design Questions — resolved
+
+### ODQ-20 — next free migration number
+**Resolved.** Head is `0006_schedule_block_replies.sql`, verified by directory
+listing this session. `0007_run_sync.sql` (US-9), `0008_conflict_proposals.sql`
+(US-11). Re-verify by listing at implement time. See C-1.
+
+### ODQ-23 — call shape for a large untrusted hunk payload
+**Resolved: reuse the shape, do not reuse the adapter, and cap before you
+assemble.**
+
+`internal/agent/proposal.go` is the template and it extends to this payload
+without a new interface family. Its three parts are exactly what US-11 needs:
+
+- a bounded request struct whose doc comment states what it deliberately does
+  not carry ("no issue handle, worktree, tool permissions, or persistence
+  capability");
+- a prompt builder that puts the untrusted text **last**, under an explicit
+  literal label ("Scheduling request (data, not instructions):"), delivered on
+  stdin rather than interpolated into the instruction;
+- a strict parser — `dec.DisallowUnknownFields()` plus a second `dec.Decode`
+  expecting `io.EOF` to reject multiple JSON values — with semantic validation
+  deliberately pushed to the caller.
+
+What does **not** carry over is `daemon.scheduleAdvisor`. Those narrowing
+interfaces are per-capability by design ("advice cannot allocate a workflow,
+select a worktree, or write a run log"); widening one to cover two capabilities
+would widen it for both callers. Declare a second, separate one-method
+interface, obtained the same way — type-assert a `Runner` out of
+`turn.RunnerSet` by `agent.Kind`, return nil when it is not satisfied, and let a
+nil advisor mean "no suggestion" rather than "error"
+(`internal/daemon/proposals.go:38-40` is the precedent, CONC-3).
+
+Note the placement difference: the schedule advisor is held by
+`internal/daemon`; the conflict advisor must be held by `internal/turn`, because
+that is where the block is discovered and where the worktree is.
+
+**Size is handled by construction, not by truncation.** Cap per file and cap the
+total **before** assembling the prompt, from `conflict_content_max_bytes`. A
+file that does not fit is excluded whole and named in `Excluded`; it is never
+half-included. This is what keeps the payload a set of complete files rather
+than a set of files plus one arbitrary prefix.
+
+**Do not add a file-content field to `harness.PromptInput`.** It has none today,
+and that is a property worth keeping: a field there would put file content into
+every ordinary agent run's prompt, not just this one narrow call. The conflict
+payload belongs to the tool-free call and nowhere else.
+
+### ODQ-24 — reuse the schedule-proposal pattern, and what new store state
+**Resolved: reuse the pattern, not the table.**
+
+Copy from `internal/daemon/proposals.go`, rung for rung:
+
+- expire stale rows **first**, before dispatching on the request kind;
+- `ownedProposal`-equivalent gating on `SessionID` **and** the commenter's
+  login, refusing anything else;
+- guard the current status on every transition, not just the happy one;
+- a `…Failed` reply returned as a value on every unhappy path (CONC-3);
+- re-validate model output locally before persisting
+  (`validatedProposalItems` is the precedent, and its discipline — never trust
+  the generator's output shape — is the one that matters most here).
+
+Do **not** reuse `store.ScheduleProposal`, its table, or its
+`ProposalPending`/`ProposalAccepted` constants. A conflict proposal has a
+different lifecycle (it gains `superseded` and `AppliedCommitSHA`, and it has no
+items), and coupling the two would make every future schedule change a conflict
+change. New table, new type, own status vocabulary.
+
+New store state required: create-or-get, get, expire-by-cutoff, supersede-pending-
+for-session, confirm, and mark-applied. **Every one of these is a read-then-write
+and therefore runs under `BEGIN IMMEDIATE` on the single-connection pool** — in
+particular supersede-on-new-proposal, which must be one transaction so two ticks
+cannot leave a session with two pending proposals. Follow the NULL-mapping
+convention already in the store: zero `time.Time` is NULL, plain `string` when
+empty carries no meaning, and use pointers only for numbers whose zero is real.
+
+**The pause does not exist and must not be invented.** There is no mid-run wait
+anywhere in this codebase, and US-12 must not add one. Propose and apply are two
+finished runs linked by a row. AC-28 asserts this and should be written early,
+not last.
+
+### ODQ-25 — net-new `internal/git` surface, and its own allowlist test
+**Resolved: yes to both. On `Worktree`, never on `Clone`, and the test comes
+first.**
+
+The surface is genuinely required — verified: there is no scoped `git add
+<path>`, no index-inspection call and no merge-completion primitive anywhere in
+`internal/git` today. The classification for unmerged paths, however, already
+exists and is dormant: `ChangeUnmerged` at `internal/git/status.go:41-44`,
+assigned by `classifyStatus` at `status.go:131-139`. Use it rather than adding a
+parallel notion.
+
+Placement is already settled by evidence.
+`TestCloneCannotMutateTheRegisteredClone` in `internal/git/surface_test.go`
+lists `Add`, `Merge`, `Reset`, `Apply` and `Restore` among the methods `Clone`
+must never have. Anything US-12 needs therefore sits on `*Worktree`, which is
+also what DEV-2 already decided for `Divergence`/`MergePreview`/`MergeBase`, and
+what SEC-7 requires (SEC-7 constrains the registered clone; it does not
+constrain the worktree, which already carries `Commit` and `Push`). **No
+`AC_AMENDMENTS.md` entry is needed for the git surface** — nothing here bends
+SEC-7 or edits an existing design-change test.
+
+Keep the surface as narrow as three calls: write the listed resolved paths,
+stage exactly those paths, complete the in-progress merge. No general `Add`, no
+`Checkout`, no `Reset`, no `Apply`, no `Restore` — and specifically never
+`Reset` as a self-heal after a failed rollback (S-5 already says this; it
+matters more now).
+
+**Yes, it needs its own allowlist test, and it is a new test rather than an edit
+to an existing one.** `Worktree` has no method-set allowlist today; it is
+guarded only by `TestWorktreeHasNoExportedConstructionPath` and
+`TestZeroValuesRefuseToRunGit`. That was defensible while only `Commit` and
+`Push` mutated. The moment `Worktree` can write file content supplied — however
+indirectly — by a model, its method set becomes a security boundary and must be
+pinned the way `Clone`'s is:
+
+- `TestWorktreeMethodSetIsTheAllowlist` — the exact method set, with the same
+  failure message discipline as the `Clone` test ("if a new git command really
+  belongs here, amend the allowlist first");
+- a forbidden-mutator counterpart covering `Reset`, `Rebase`, `CherryPick`,
+  `Clean`, `Stash`, `Checkout`, `Switch`.
+
+**Write it in Phase 9 before the mutators exist** (T-12.1), pinning today's set.
+Then adding each mutator is a deliberate, reviewed edit with a recorded reason
+(TEST-10) rather than a test that quietly grew.
+
+### ODQ-26 — trailer convention for a confirmed model-assisted commit
+**Resolved.**
+
+Use the existing trailer mechanism in `internal/git/commit.go` (`TrailerTask`,
+`TrailerMode`, `TrailerRun`) and add exactly three trailers in the same
+`Litefactory-` namespace: the proposal identifier, the confirming human's
+handle, and the model name. Three separate trailers rather than one packed
+value, because each has a different provenance and a different screening rule.
+
+Screening, which is the load-bearing part:
+
+- the proposal ID is an `int64` litefactory generated — safe by type;
+- the confirming handle is forge-supplied and passes an
+  `agentNamePattern`-style check with **reject, don't salvage** (SEC-5,
+  `internal/report/reply.go`). If it fails, the application is refused; a commit
+  is not made with a partial handle;
+- the model name comes from configuration and the agent kind, **never from the
+  model's own output**.
+
+No trailer value ever carries model-produced text. And explicitly **not**
+`Co-authored-by:` for the model: that attributes authorship to a non-account,
+the forge will try to resolve it, and it makes a tool look like a contributor.
+
+### ODQ-27 — is neutralise-and-truncate enough for structured file content
+**Resolved: necessary, but not sufficient. Do not extend `capText` to cover
+this.**
+
+The existing treatment — `capText(s, limit) = truncateWithMarker(
+neutraliseNoteTags(s), limit)` at `internal/harness/prompt.go:892-894`, with
+`MaxCommentBytes = 8<<10`, `MaxIssueTitleBytes = 1<<10`,
+`MaxHistoryBytes = 32<<10` — was built for short free text and is a poor fit
+here for three reasons:
+
+1. `neutraliseNoteTags` defuses `<note>`/`</note>` specifically, because that is
+   the harness prompt's own framing. A source file can carry whatever framing
+   *this* prompt uses — fences, the literal data label, JSON structure if the
+   payload is embedded rather than delivered on stdin.
+2. Truncation mid-file produces a payload that corresponds to no real file: it
+   can split a rune, a string literal, or a conflict marker, and the model is
+   then reasoning about a file that does not exist. Whole-file exclusion is the
+   correct primitive here, not truncation. Exclusions are recorded and disclosed
+   (the spec already requires `Excluded` and the "partial suggestion" line).
+3. The bigger half is the **return** path, which `capText` has nothing to say
+   about at all.
+
+Required treatment instead:
+
+- per-file and total byte caps applied before assembly; over-budget, binary, and
+  non-UTF-8 files excluded whole;
+- content delivered on stdin under an explicit "data, not instructions" label,
+  following `ScheduleProposalPrompt`, and placed last;
+- strict structured decode on return — `DisallowUnknownFields` plus
+  trailing-value rejection, following `ParseScheduleProposal`;
+- local re-validation that rejects the **whole** response if any path falls
+  outside `MergePreview.Conflicts` or any content still carries conflict
+  markers. Reject in full; never salvage the good files out of a bad response.
+  This is `agentNamePattern`/`commandSpan`'s discipline applied one layer up,
+  and `internal/report/reply.go`'s own comment says why: skipping the bad parts
+  and carrying on is how something unusable gets reassembled into something that
+  looks legitimate.
+
+### ODQ-28 — dedicated security review before this ships
+**Resolved: yes, as a blocking gate, and it is the reason Phase 7.5 exists.**
+
+This amendment opens two firsts at once: the first outbound path that sends
+repository file content to a model on litefactory's own initiative, and the
+first inbound path where model text becomes committed bytes. Either alone would
+justify a pass. Together they justify a gate.
+
+Scope the review to those two paths, using
+`.claude/skills/shared/security-scanner.md`, and treat S-10 through S-17 below
+as its agenda rather than its conclusion.
+
+**Roster gap, stated explicitly:** there is no security specialist on this
+team's roster. The closest available instrument is `go-code-reviewer` running
+the shared security-scanner skill, and the approver is the owner (human). I am
+not inventing a reviewer role that does not exist; I am naming the gate and
+saying who can actually hold it.
+
+**Consequence for A-20 (D-3):** `suggest_conflict_resolution` ships defaulting
+**`false`**, flipped to `true` only after the Phase 7.5 review signs off.
+`feature-spec.md`'s A-20 explicitly delegates this call — "The architect or a
+security review (ODQ-28) may flip this default" — so this is a decision the spec
+authorises, not a deviation from it. The propose half writes nothing, which is
+the argument for `true`; the counter-argument is that shipping a new outbound
+content path on by default gives the review nothing to gate.
+
+## Platform lens
+
+Read against `.claude/skills/go/platform-constraints.md` and the constraints
+already recorded in `plan_brief.md`.
+
+- **No new dependency, anywhere.** Everything above is stdlib plus existing
+  internal packages. In particular the JSON contract uses `encoding/json` the
+  way `internal/agent` already does; no schema library, no validation library.
+- **SQLite has one connection.** Every proposal status transition is a
+  read-then-write under `BEGIN IMMEDIATE`. Supersede-and-create is one
+  transaction, not two calls.
+- **Migrations** `0007`/`0008` are embedded plain-DDL files, one transaction
+  each, recorded in `schema_migrations`, `NOT NULL DEFAULT` on added columns, no
+  backfill. Migration libraries remain a rejected dependency.
+- **The live daemon runs from `dist/litefactory`.** Implementation never runs
+  `make build`, writes into `dist/`, restarts the daemon, or edits
+  `~/.litefactory/config.yaml`. Safe: `go build ./...`, `go test ./...`,
+  `go vet ./...`, `gofmt -l .`.
+- **launchd's child environment is minimal** (`childEnv()` passes only `PATH`,
+  `HOME`, `SSH_AUTH_SOCK`, `GIT_TERMINAL_PROMPT=0`, and a BatchMode
+  `GIT_SSH_COMMAND`). The US-12 application commit inherits no identity and no
+  signing configuration, so it carries the same mandatory prelude as every other
+  commit: `-c user.name= -c user.email= -c commit.gpgsign=false`. Omitting
+  `commit.gpgsign=false` risks a hang against `GIT_TERMINAL_PROMPT=0` until the
+  deadline kills it (S-4).
+- **Deadlines.** The model call gets its own, distinct from the git budgets, and
+  is made outside the CloneGate (see the concurrency note). No new
+  `context.Background()` on any request path.
+- **git ≥2.38** floor is unchanged; nothing in US-11/US-12 raises it. The
+  merge-completion primitive is ordinary `git merge` machinery, not
+  `merge-tree`.
+- **No new goroutine is warranted by either story.** Both are sequential inside
+  an existing turn. If one appears in review, ask what owns its lifetime.
+
+## Security Findings
+
+**Scope:** the two new paths only — repository file content leaving litefactory
+for a model (US-11), and model text entering a commit (US-12). S-1..S-9 from the
+2026-09-05 review are unchanged and still apply.
+
+**Rulebook:** `.claude/skills/shared/security-scanner.md`, plus SEC-1..SEC-11 in
+`.aiteam/APP_CONSTRAINTS.md`. Findings are forward-looking: none of this code
+exists yet.
+
+| # | Area | Status | Finding |
+|---|---|---|---|
+| S-10 | Outbound content | **High — superset of S-7, not a duplicate** | S-7 recorded (accepted, disclosed) that auto-sync widens the prompt-injection window into the *coding agent*, because base-branch content now reaches it every run. S-10 is a strictly larger surface: litefactory itself now reads conflicting file **content**, assembles it, and sends it to a model. Narrower in one dimension (the tool-free call has no tools, no worktree, no session to resume, so the model cannot act on an injected instruction) and wider in another (litefactory is the courier, and in US-12 the response is trusted enough to become file bytes). S-7's mitigation was disclosure; S-10's cannot be, because the return path writes. Mitigation is the ODQ-27 treatment in full. |
+| S-11 | Inbound content | **High** | First path where model-produced text becomes committed bytes. Mitigations, all required together: reject the whole response on any out-of-list path or any remaining conflict marker; write only the paths in `ConflictProposal.Files`; re-verify `BaseSHA`/`BranchSHA` inside the gate immediately before writing; exactly one merge commit; US-10's rollback guarantee covers the failure path. |
+| S-12 | Confirmation gate | **High** | The gate is the entire security model of US-12, and "mandatory and non-configurable" must be structural, not merely unconfigured. Make the applying code path reachable only from a function taking an unexported `confirmedProposal` value that only the confirmation validator can construct, so a missing check is a compile error rather than a missing `if`. AC-20 asserts the property; the type is what keeps the assertion cheaply true as the code grows. |
+| S-13 | Path containment | **High — sharpest new edge** | Model-supplied paths reach the filesystem. Containment MUST be enforced by `*git.Worktree`, the type that owns the root, rejecting absolute paths, `..` traversal, symlink components, and any path not present in `ConflictProposal.Files`. Not by the caller, and not by string prefix comparison. Related to S-2 but distinct: S-2's sink is markdown, S-13's sink is the filesystem. |
+| S-14 | Command grammar | Medium | The confirmation phrase is a new grammar any commenter can reach. Parse it like `KindSchedule` — separate parser, canonical lowercase token, restricted charset so a reply may quote it without smuggling markup (`internal/turn/command.go:85-90`) — and apply the ownership check *after* parsing. A non-owner confirmation must write nothing and must not move the status off `pending` (AC-21). Refusals never echo raw comment text. |
+| S-15 | TOCTOU / replay | Medium | Base or branch can move between propose and confirm. Stored SHAs are the guard and MUST be re-checked inside the CloneGate at apply time, not before acquiring it. Double confirmation of the same proposal is a no-op reported as already applied — never a second commit (AC-24 + the spec's edge case). Supersede-on-new-proposal is one `BEGIN IMMEDIATE` transaction. |
+| S-16 | Provenance rendering | Medium | The model name and confirming handle land in a commit trailer *and* in a comment. Both come from litefactory-controlled or pattern-screened values, never from model output; the handle is reject-don't-salvage (SEC-5). |
+| S-17 | Persistence | Low — **amends S-9** | S-9 said the conflict-path list is never persisted to the store. US-11 changes that: `ConflictProposal.Files` and `Resolution` are persisted by necessity, since application happens in a later run. Record the reversal rather than leaving two contradictory statements on file. The *input* hunks are still never persisted — only paths, the resolution to be applied, and the SHAs. Cap `Resolution` at the store boundary as well as at the parse boundary. |
+
+**Summary.** US-11 is a medium-risk story with a well-precedented mitigation set;
+its risk is almost entirely "did the caps and the rejection actually get
+written". US-12 is the high-risk story and carries four of the five High
+findings. S-12 and S-13 are the two that should be designed first and reviewed
+hardest: they are the difference between a feature that can only write what a
+human approved, and one that can be talked into writing something else.
+
+**Known and unchanged:** the Claude-mode `--allowedTools` Bash loophole is not
+closed by this amendment either, and nothing in US-11/US-12 depends on it being
+closed. The tool-free call has no tools at all, which is why it is the right
+shape for this.
+
+---
+
+## US-11 — Suggest a resolution when a run is refused for a conflict
+
+> As the issue owner, when litefactory refuses my run because the base branch
+> conflicts with my task branch, I want it to suggest how the conflict could be
+> resolved, so that I can judge the fix without reconstructing the conflict
+> myself.
+
+Produced only for a run whose sync outcome is `blocked`. Reads the conflicting
+hunks, asks a narrow tool-free model call for a resolution, validates the answer
+locally, stores it as a pending proposal, and posts it. **Writes nothing to the
+branch, the index, or a commit.**
+
+### Why This Matters
+
+A block today ends with a list of file names and no way forward except opening
+an editor. The suggestion turns a dead end into a decision. It also produces the
+artefact US-12 needs: without a stored, validated proposal there is nothing for
+a human to confirm.
+
+### Architecture Notes
+
+- **Pattern:** `internal/agent/proposal.go` end to end — bounded request struct,
+  prompt builder placing untrusted text last under an explicit "data, not
+  instructions" label and delivering it on stdin, strict parser with
+  `DisallowUnknownFields` and trailing-value rejection, semantic validation left
+  to the caller. Then `internal/daemon/proposals.go` for the lifecycle:
+  expire-first, validate-locally, failure-as-a-value.
+- **Package placement:** the model-call types in `internal/agent`; the
+  narrowing interface, hunk collection, capping and orchestration in
+  `internal/turn`; the row in `internal/store`; the rendering in
+  `internal/report`. Nothing new in `internal/daemon` for this story.
+- **Key interfaces:** a one-method `ConflictAdvisor` declared by `internal/turn`
+  and satisfied by type-asserting a `Runner` out of `turn.RunnerSet` by
+  `agent.Kind` — `internal/daemon/proposal_adapter.go:19-29` is the shape. A nil
+  advisor means "no suggestion", not "error".
+- **Concurrency/context:** collect and cap hunks **inside** `prepareClone`'s
+  gate; make the model call **outside** it. Carry the turn's `context.Context`
+  into the call; never `context.Background()`. Own deadline, not a git budget.
+- **Integration point:** `syncBase` (DEV-1: the last step of `prepareClone`,
+  after `ensureWorktree` — see C-2) produces the block and
+  `MergePreview.Conflicts`. A new `report.ReplyKind` needs a matching case in
+  `replyKind` at `internal/turn/report.go:722`; `internal/report` cannot import
+  `internal/turn`, so it is always both edits.
+- **Watch out:** (1) do not extend `harness.PromptInput` with a content field —
+  that would put file content into every ordinary run's prompt; (2) exclude
+  over-budget files whole, never truncate them; (3) reject a bad response in
+  full — no salvaging the good files out of it; (4) a failed, disabled, timed-out
+  or unusable-response model call must leave the US-4 refusal byte-identical
+  plus one line, never degrade it; (5) migration number is `0008`, re-verified at
+  implement time.
+- **Depends on:** US-4 (the `blocked` outcome), US-5 (path rendering
+  discipline), US-8 (config), US-9 (`0007` landing first). Phase 8; gated on the
+  Phase 7.5 security review.
+- **NOT in scope:** any write to the branch, index or a commit; the confirmation
+  grammar; editing a suggestion; any second model call; a "reasoning" tier —
+  this resolves to the default tier and adds no `config.Tier` value.
+
+### Tasks
+
+| ID | Title | Type | Depends On | Est |
+|----|-------|------|-----------|-----|
+| T-11.1 | Migration `0008_conflict_proposals.sql` and the `store.ConflictProposal` type with its own status vocabulary | Code | US-9 (`0007`) | M |
+| T-11.2 | Store lifecycle calls: create-or-get, get, expire-by-cutoff, supersede-pending-for-session — each one read-then-write under `BEGIN IMMEDIATE` | Code | T-11.1 | M |
+| T-11.3 | Store tests: status transitions, TTL expiry, supersede leaves exactly one pending row, migration applies cleanly on the current head | Test | T-11.2 | S |
+| T-11.4 | `internal/agent` conflict-resolution request/response types, prompt builder, strict parser | Code | — | M |
+| T-11.5 | Parser tests: unknown fields, multiple JSON values, empty response, response carrying conflict markers | Test | T-11.4 | S |
+| T-11.6 | Hunk collection and capping in `internal/turn`: per-file and total caps, whole-file exclusion for over-budget/binary/non-UTF-8, `Excluded` list | Code | US-4 | M |
+| T-11.7 | Cap and exclusion tests, including AC-27's assertion on the cap and the treatment | Test | T-11.6 | S |
+| T-11.8 | Local re-validation of model output: paths subset of `MergePreview.Conflicts`, no conflict markers, reject in full | Code | T-11.4 | S |
+| T-11.9 | `ConflictAdvisor` narrowing interface and wiring from `turn.RunnerSet`; call sited outside the CloneGate | Code | T-11.4 | M |
+| T-11.10 | `internal/report`: `report.ConflictProposal`, `ReplySuggestsResolution`, the `replyKind` case, rendering under SEC-5 discipline | Code | US-5 | M |
+| T-11.11 | Report tests: rendering, refusal lines, `ReplyKind` enum exhaustiveness | Test | T-11.10 | S |
+| T-11.12 | Config: `suggest_conflict_resolution` (default `false`, D-3), `conflict_proposal_ttl_hours`, `conflict_content_max_bytes` | Code | US-8 | S |
+| T-11.13 | End-to-end blocked-run tests with a stubbed advisor: happy path, failure, disabled, unusable response, terminal state | Test | T-11.9, T-11.10 | M |
+
+### Acceptance Criteria
+
+| ID | Criterion |
+|----|-----------|
+| AC-11.1 | A blocked run with suggestions enabled posts one comment carrying the conflicting files, a per-file suggested resolution, the model name, a proposal ID and the confirmation phrase; the branch SHA is unchanged after the run (spec AC-17). |
+| AC-11.2 | With the advisor stubbed to fail or time out, the run still produces the full US-4 refusal, writes no proposal row, and adds exactly one line saying no suggestion could be produced (spec AC-18). |
+| AC-11.3 | With `suggest_conflict_resolution: false`, the blocked run is byte-identical in behaviour and comment content to the US-4-only path and makes no model call (spec AC-19). |
+| AC-11.4 | A response naming a path outside `MergePreview.Conflicts`, and separately one containing conflict markers, each produce no proposal; both cases are covered (spec AC-26). |
+| AC-11.5 | Conflicting content in the prompt is capped per file and in total per `conflict_content_max_bytes`; over-budget, binary and non-UTF-8 files are excluded whole and named in `Excluded`; a test asserts cap and treatment (spec AC-27). |
+| AC-11.6 | The blocked run reaches a terminal state after posting; no code path sleeps, polls or waits for a reply (spec AC-28). |
+| AC-11.7 | A test asserts the model call is not made while the CloneGate is held. |
+| AC-11.8 | A new proposal for a session supersedes any earlier pending one in a single transaction; a session never has two pending proposals. |
+| AC-11.9 | No test or production path writes conflicting file *content* to the store. |
+
+---
+
+## US-12 — Apply a confirmed resolution and complete the merge
+
+> As the issue owner, after reading a suggested resolution, I want to confirm it
+> in a comment and have litefactory apply it and finish the merge, so that I do
+> not have to reproduce the fix by hand — and I want nothing applied unless I
+> said so.
+
+Two separate turns linked by a stored row. The blocked run ends after posting.
+A later, explicit confirmation comment from the owner — naming the proposal ID
+and carrying the confirmation phrase — starts a turn that runs no agent, applies
+only the listed files, completes the merge, and discloses everything.
+
+### Why This Matters
+
+This is the story that turns a suggestion into a resolved branch, and it is the
+only story in the whole feature that lets model output reach a commit. Its value
+and its risk are the same fact.
+
+### Architecture Notes
+
+- **Pattern:** `internal/daemon/proposals.go` for the lifecycle half —
+  expire-first, ownership check on session **and** commenter login, status
+  guards on every transition, refusals as values. `internal/turn/command.go`'s
+  `KindSchedule` for the grammar half: a litefactory-owned control command,
+  parsed by its own grammar, that never starts an agent run.
+- **Package placement:** grammar in `internal/turn/command.go` plus a sibling
+  parser; dispatch and validation in `internal/daemon`; the application turn in
+  `internal/turn`; the mutators in `internal/git` on `*Worktree`; replies in
+  `internal/report`.
+- **Key interfaces:** an unexported `confirmedProposal` value that only the
+  confirmation validator constructs, and that the application function requires
+  as a parameter. That is what makes the gate structural (S-12).
+- **The genuinely net-new part — say it out loud:** confirmation arrives as a
+  comment (daemon), but application needs a worktree under the CloneGate (turn).
+  So US-12 introduces a **third turn shape: an agentless apply turn**. It reuses
+  `prepareClone` unchanged (gate, fetch, `freezeSlug`, `ensureWorktree`) and the
+  existing commit-and-push path, and skips the harness entirely. What is new is
+  the run kind, not new git plumbing — plus the three mutators. **Rejected
+  alternative:** letting the *next ordinary run* apply a `confirmed` proposal
+  inside `syncBase`. Cheaper, no new turn shape, but the owner confirms and
+  nothing visible happens until they happen to trigger a run — which
+  contradicts spec AC-24's expectation that the confirmation produces the commit
+  and a comment naming it. Recorded and rejected, not overlooked.
+- **Concurrency/context:** the application runs inside the existing
+  session/clone serialisation and never concurrently with another turn on the
+  same worktree. `BaseSHA`/`BranchSHA` are re-verified **inside** the gate,
+  immediately before writing (S-15). No new locking primitive, no second gate
+  acquisition, no per-branch keyed gate — DEV-3's finding still holds.
+- **Integration point:** `internal/git` gains exactly three `*Worktree`
+  mutators (contained write of listed paths, stage those paths, complete the
+  merge) plus reuse of the dormant `ChangeUnmerged` classification at
+  `internal/git/status.go:41-44`. Trailers extend the existing
+  `TrailerTask`/`TrailerMode`/`TrailerRun` set (ODQ-26).
+- **Watch out:** (1) the allowlist test lands **before** the first mutator, not
+  after; (2) never add `Reset` to self-heal a failed rollback (S-5); (3) a
+  non-owner confirmation must not move the status off `pending`; (4) "yes" or a
+  reaction is not consent — the phrase and the ID are both required; (5) the
+  identity prelude is mandatory, not defensive — launchd's child environment has
+  no identity and no signing config; (6) if some files were excluded from the
+  proposal, applying it resolves only the listed ones and the merge is **not**
+  completed while conflicts remain.
+- **Depends on:** US-11 (there is nothing to confirm without a proposal), US-10
+  (the rollback guarantee covers the failed-application path), and the Phase 7.5
+  security review. Phase 9, after a real suggestion has been observed.
+- **NOT in scope:** any bypass of the gate, in any form — no config value,
+  label, flag, environment variable or trusted-repo exemption; applying an
+  owner's edited version of the suggestion; retrying an application inside the
+  run; touching the base branch; force-push; history rewrite.
+
+### Tasks
+
+| ID | Title | Type | Depends On | Est |
+|----|-------|------|-----------|-----|
+| T-12.1 | `internal/git/surface_test.go`: `TestWorktreeMethodSetIsTheAllowlist` plus a forbidden-mutator counterpart, pinning today's method set **before** any mutator exists | Test | — | S |
+| T-12.2 | `internal/git` `*Worktree` mutators: contained write of listed paths, stage those paths, complete the merge; unmerged-path read via `ChangeUnmerged` | Code | T-12.1 | L |
+| T-12.3 | `internal/git` tests: path containment refusals (absolute, `..`, symlink component, unlisted path), deadline behaviour, error classification | Test | T-12.2 | M |
+| T-12.4 | Confirmation grammar: new `CommandKind`, separate parser, canonical lowercase token, restricted charset; never spawns an agent run | Code | — | M |
+| T-12.5 | Daemon dispatch: TTL sweep first, ownership check on session and login, status and SHA guards, every refusal a value with a reason | Code | T-12.4, US-11 | M |
+| T-12.6 | The agentless apply turn: reuse `prepareClone`, apply, commit, push; `confirmedProposal` type making the gate structural | Code | T-12.2, T-12.5 | L |
+| T-12.7 | Trailers and the identity prelude for the application commit; handle screened reject-don't-salvage | Code | T-12.6 | S |
+| T-12.8 | `internal/report`: `ReplyAppliesResolution` and the refusal kinds, their `replyKind` cases, disclosure content (model, confirmer, files, commit link) | Code | US-11 | M |
+| T-12.9 | Gate tests: no-bypass, non-owner refusal, unknown/expired/superseded/already-decided proposal | Test | T-12.6 | M |
+| T-12.10 | Rollback test: forced mid-application failure leaves the branch at its pre-application SHA with no `MERGE_HEAD` and no modified tracked files | Test | T-12.6 | M |
+| T-12.11 | Happy-path test: exactly one merge commit, correct trailers, only the listed files written, full disclosure rendered | Test | T-12.7, T-12.8 | M |
+| T-12.12 | ODQ-28 security review sign-off recorded before the story closes | Doc | all | S |
+
+### Acceptance Criteria
+
+| ID | Criterion |
+|----|-----------|
+| AC-12.1 | A test asserts that no code path writes to the worktree, the index, or a commit for a proposal whose status is not `confirmed`; the gate has no bypass (spec AC-20). |
+| AC-12.2 | A confirmation from a non-owning author is refused, writes nothing, leaves the status at `pending`, and is reported in the thread (spec AC-21). |
+| AC-12.3 | A confirmation naming an unknown, expired, superseded or already-decided proposal writes nothing and is reported with the reason (spec AC-22). |
+| AC-12.4 | A valid confirmation whose stored `BaseSHA`/`BranchSHA` no longer match the current tips marks the proposal `superseded`, writes nothing, and asks for a fresh suggestion (spec AC-23). |
+| AC-12.5 | A valid confirmation on an unchanged branch writes only the files named in the proposal, produces exactly one merge commit carrying the run trailers plus the proposal and confirmer trailers, and the comment names the model, the confirmer, the files and the commit (spec AC-24). |
+| AC-12.6 | A forced failure part-way through application leaves the branch at its pre-application SHA with no `MERGE_HEAD` and no modified tracked files (spec AC-25). |
+| AC-12.7 | An attempt to write a path outside `ConflictProposal.Files` — absolute, traversing, symlinked, or simply unlisted — is refused by `internal/git`, aborts the application, and leaves the branch unchanged. |
+| AC-12.8 | `TestWorktreeMethodSetIsTheAllowlist` exists and passes; each mutator added to `Worktree` appears in it with a recorded reason (TEST-10). |
+| AC-12.9 | Confirming the same proposal twice produces no second commit and is reported as already applied. |
+| AC-12.10 | No run is held open waiting for a confirmation; propose and apply are two independently terminal runs. |
+
+---
+
+## Deviations and decisions raised by this section
+
+| ID | Kind | Statement | Decision needed from |
+|----|------|-----------|---------------------|
+| D-1 | Correction | `feature-spec.md`'s API table places `syncBase` "between `fetch` and `freezeSlug`". Verified wrong against `internal/turn/prepare.go:376-410`. DEV-1's "last, after `ensureWorktree`" stands; the spec sentence is what changes. Wording only. | proxy-product-owner (spec edit) |
+| D-2 | **DEVIATION — sequencing** | US-11 and US-12 do not fit Phase 6/7. Proposed: Phase 7.5 (security review gate), Phase 8 (US-11), Phase 9 (US-12), with an observation gate between 8 and 9. This changes the approved plan's shipping order. **Impact if granted:** the ten-story feature ships on its current schedule, unblocked; the two new stories ship behind a review. **Impact if refused:** the ten-story feature's ship date becomes dependent on a security review that has not happened, and US-12's apply path gets built before anyone has read a real suggestion. | the owner (human) |
+| D-3 | Decision (spec-authorised) | `suggest_conflict_resolution` defaults **`false`** until the Phase 7.5 review signs off. Authorised by A-20's own escape clause, so not a deviation. | recorded; owner may override |
+| D-4 | Correction | US-9's migration is `0007_run_sync.sql`, not `0005`; head is `0006`. US-11 adds `0008`. `plan_brief.md`'s Cross-Story Constraints and Tests bullets both need the edit. | plan-orchestrator (plan_brief edit) |
+| D-5 | Amendment to a prior finding | S-9's "the conflict-path list is never persisted to the store" is reversed by `ConflictProposal.Files` and `Resolution`, which must persist for a later run to apply them. Input hunks are still never persisted. | recorded |
+| D-6 | Recommendation | Keep US-11 and US-12 as two stories despite the spec's decomposition note permitting a merge. Different risk classes, different gates, and US-11 is independently valuable. | proxy-product-owner |
+
+**No `.aiteam/AC_AMENDMENTS.md` entry is required by this section.** Nothing
+here bends a rule in `.aiteam/APP_CONSTRAINTS.md`: SEC-7 constrains the
+registered clone and the new mutators sit on `Worktree`, which already carries
+`Commit` and `Push`; the new `Worktree` allowlist test is an addition, not an
+edit to an existing design-change test. D-2 is a deviation from the approved
+*plan*, not from a standard.
+
+## Out of scope for this architect (amendment)
+
+- Whether the suggestions are actually *good*. That is a product question
+  answerable only by reading real output, which is why Phase 9 has an
+  observation gate rather than a date.
+- Model or prompt tuning beyond the structural rules above.
+- Anything about the forge UI, notification behaviour, or how the confirmation
+  phrase reads to a human. No frontend or product-writing specialist is rostered
+  on this team; `proxy-product-owner` owns the phrasing and I have deliberately
+  not chosen it.

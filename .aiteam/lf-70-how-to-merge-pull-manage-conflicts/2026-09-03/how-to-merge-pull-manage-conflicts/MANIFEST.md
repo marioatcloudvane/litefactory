@@ -109,5 +109,99 @@ asked for; nothing here licenses starting the next one.
   build). Three new open questions (17-19) added, tracking those four points.
   Research mode remains complete; no new brief content invalidates anything
   Plan mode already delivered.
+- 2026-09-06 — Research mode re-run (fifth pass, narrow targeted top-up,
+  headless, no clarifying questions asked): after two intervening feature
+  merges (lf/50 config hierarchy, lf/69 router-trusts-daemon-mode) plus
+  further changes pulled from `main`, the issue owner asked for (1)
+  re-validation of seven specific `plan_brief.md` claims against current HEAD
+  and (2) a feasibility assessment for a new, not-yet-designed user story:
+  calling the default reasoning model for a suggested conflict resolution on
+  a genuine merge conflict, posting it for review, and applying it only after
+  explicit human confirmation (not the already-rejected auto-resolve pattern).
+  This was an explicit top-up, not a re-derivation — no existing brief content
+  was revisited or altered. Two `codebase-tour` agents ran concurrently.
+  Re-validation found 5 of 7 claims unchanged and 2 concrete drifts: the
+  proposed `0005_run_sync.sql` migration collides with two migrations that
+  landed since the plan was written (real next-free number is `0007`, to be
+  re-checked at implementation time), and `prepareClone`'s actual current step
+  order is fetch → freezeSlug → ensureWorktree, not the order some plan prose
+  states (the proposed "insert sync last" integration point is unaffected).
+  One wording-only nit: `legacyToolsLabel`'s refusal function is still called
+  live on every tick, only the label itself is obsolete. Feasibility findings
+  for the new story: a narrower "prompt-in, text/JSON-out, no tools" call
+  pattern already exists (`agent.Classifier`, `agent.ProposeSchedule` plus the
+  `daemon.scheduleAdvisor` narrowing interface) as direct precedent; no
+  mid-run pause/resume-on-confirmation mechanism exists anywhere in
+  litefactory today — the nearest analogue (schedule proposals) uses two
+  separate complete turns joined by persisted DB state and an
+  author-ownership check, not an in-flight pause; applying a confirmed
+  resolution mixes clean reuse (identity, commit, push all map onto existing
+  primitives) with genuinely new surface (no scoped index-resolution
+  primitive exists in `internal/git` today); and feeding actual
+  conflicting-content (not just file names, which the existing plan already
+  covers safely) into a model prompt is a materially larger prompt-injection
+  surface with no existing pipeline to extend, only a sibling
+  text-capping/neutralising convention to model it on. `RESEARCH_BRIEF.md`
+  gained one new dated section covering both questions in full technical
+  depth with citations; all 943 lines of prior content left untouched. Nine
+  new open questions (20-28) added. This pass makes no architectural verdict
+  on the new user story — that is explicitly left to Plan mode's architect.
+- 2026-09-06 — Plan mode amendment round (headless, no clarifying question
+  asked; a prior asking window was judged already closed and the task's own
+  mandate to update the artifacts and report back was treated as sufficient
+  authorisation to proceed and disclose rather than pause a second time). The
+  issue owner posted a new comment on issue #70 asking three things: (1)
+  confirmation of whether every run now pulls in and checks against the
+  latest `main`; (2) whether the `lf:sync=` opt-out label (US-7) still makes
+  sense, having questioned its value; (3) a new user story calling the
+  default reasoning model to suggest a conflict resolution, applying it only
+  after explicit human confirmation. The owner also reported having merged
+  new changes into the branch from `main` (confirmed by `git log`:
+  `2196855 Merge branch 'main' into lf/70-...`). `requirements-engineer` and
+  `go-architect` both re-ran against the current repository state.
+  `go-architect` verified and corrected two stale plan facts (migration head
+  is `0006`, not `0004`/`0005` as earlier drafts said, so US-9 becomes
+  `0007_run_sync.sql` and the new story's table becomes
+  `0008_conflict_proposals.sql`; `prepareClone`'s real step order is
+  fetch → freezeSlug → ensureWorktree, with `syncBase` last, confirmed against
+  `internal/turn/prepare.go:376-410`), endorsed keeping US-7 unchanged (the
+  label is now also the only per-issue kill switch that keeps repository
+  content out of a model prompt, since `lf:sync=off` issues never reach
+  `blocked` and therefore never trigger the new stories), and decomposed the
+  owner's third request into two new stories rather than one: US-11
+  ("Suggest a resolution when a run is refused for a conflict" — propose and
+  post only, no branch/index/commit writes) and US-12 ("Apply a confirmed
+  resolution and complete the merge" — the only story in this feature where
+  model-produced text can become committed bytes, gated by a structurally
+  non-bypassable confirmation type). The architect flagged a sequencing
+  deviation (D-2): neither new story fits the previously-approved Phase 6/7
+  shipping order, so a new Phase 7.5 (blocking security review, scope: content
+  outbound to a model and model text inbound, `go-code-reviewer` plus
+  `security-scanner.md` as the nearest available instrument, human owner as
+  approver), Phase 8 (US-11, shipping with `suggest_conflict_resolution`
+  defaulting `false` until the review signs off — D-3, authorised by the
+  spec's own escape clause), and Phase 9 (US-12, opening only after Phase 8
+  has shipped and at least one real blocked run has produced a suggestion the
+  owner has read — an observation gate, not a date) were inserted after the
+  original Phase 7. Eight new forward-looking security findings were recorded
+  (S-10 through S-17; S-17 explicitly amends and reverses S-9's "conflict-path
+  list is never persisted" claim, since a stored proposal's file list and
+  resolution must persist for a later run to apply them). `plan_brief.md` was
+  rewritten in full to carry the corrected migration numbers, the Phase
+  7.5/8/9 workflow addition (flagged as deviation D-2 for the owner's
+  attention), the new Security findings, two new Story Index rows (US-11,
+  US-12), an Out-of-Scope addition (no live pause-and-wait mechanism, no
+  suggestion-quality tuning, no bypass of US-12's confirmation gate in any
+  form), and a refreshed Provenance section describing the 2026-09-06 merge
+  and the re-verification this amendment required. `US-7.md` gained a
+  "Reconsidered and kept (2026-09-06)" section recording the owner's
+  challenge and the decision to keep the label unchanged, plus an update to
+  its hard-sequencing bullet noting it must now also ship no later than
+  US-11. Two new sub-issue files were written in full, `US-11.md` and
+  `US-12.md`, each with a business-register opening, Why This Matters,
+  Architecture Notes, Tasks, and Acceptance Criteria scoped to that story
+  alone, following the architect's fully-drafted content in `ARCH_REVIEW.md`'s
+  amendment section. Plan mode's checkbox remains ticked done — this is an
+  amendment to an already-completed artifact, not a fresh Plan run.
 
 ## Notes

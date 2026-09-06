@@ -33,6 +33,23 @@ sub-issues (`US-2.md`, `US-8.md`) were also read directly this run to get the
 exact merge-outcome decision tree and behind-cap semantics right rather than
 inferring them from the summary in `plan_brief.md` alone.
 
+**Third follow-up (this run, 2026-09-06):** since Plan mode synthesized
+`plan_brief.md`, the issue owner pulled additional changes from `main` into
+this branch on top of the two intervening feature merges (lf/50 "config
+hierarchy", lf/69 "router-trusts-daemon-mode") that `plan_brief.md`'s own
+Provenance section already flagged as landing between the 2026-09-03 research
+pass and the 2026-09-05 plan synthesis. The owner asked two narrow questions
+before letting Plan mode amend the plan: (1) re-validate a specific list of
+`plan_brief.md` claims about `internal/git`, `internal/daemon`,
+`internal/turn`, `internal/config`, and `internal/store` against current HEAD,
+and (2) assess the feasibility of a new user story — on a genuine merge
+conflict, call the default reasoning model for a suggested resolution, post it
+for human review, and only apply it after an explicit human confirmation
+(explicitly not the auto-resolve-and-discard-work pattern already rejected
+elsewhere in the plan). See *Follow-up Research: Plan Assumption Re-validation
+& Reasoning-Model Confirmation Feasibility* below. This pass is a targeted
+top-up, not a re-derivation — nothing else in this brief was revisited.
+
 ## Codebase Context
 
 litefactory's git surface is small, deliberate, and — this is the load-bearing
@@ -633,6 +650,263 @@ scenario matrix shows and what a first read of the issue might assume:
 Three new open questions follow from this analysis; they are added to *Open
 Questions* below as items 17-19.
 
+## Follow-up Research: Plan Assumption Re-validation & Reasoning-Model Confirmation Feasibility (2026-09-06)
+
+This section answers the two narrow questions raised in the *Third follow-up*
+paragraph of the Request section above. `codebase-tour` was invoked twice, in
+parallel, against current HEAD — once to re-check a specific list of
+`plan_brief.md` claims, once to assess the feasibility of a new
+"reasoning-model-assisted conflict resolution, gated on explicit human
+confirmation" user story. No web research was needed for either question; both
+turn entirely on current codebase state. This run received no clarifying
+answers from the issue owner (headless run).
+
+### Part A — Re-validation of plan_brief.md claims against current HEAD [V]
+
+Seven specific claims were checked. Five verified unchanged; two have drifted.
+The two drifts are concrete and citable, and both are traceable to the two
+intervening feature merges (lf/50, lf/69) plus whatever else has since landed
+from `main`, exactly as `plan_brief.md`'s own Provenance section anticipated
+might happen.
+
+**Verified, unchanged:**
+
+1. **`internal/git` merge/divergence foundation is still greenfield.** No
+   `Divergence`, `MergePreview`, or `MergeBase` method exists anywhere in the
+   package, and no `internal/git/merge.go` file exists. Full current exported
+   method set: `*Clone` — `ConfigGet, Fetch, RemoteURL, RevParse, ShowRef,
+   WorktreeAdd, WorktreeList, WorktreeRemove, Path` (9 methods); `*Worktree` —
+   `Path, Branch, ClonePath, RevParse, Status, Commit, Push` (only `Commit` and
+   `Push` mutate). [V] grep across `internal/git`; `internal/git/clone.go`,
+   `internal/git/worktree.go:80-108`, `internal/git/commit.go:133`,
+   `internal/git/push.go:53`
+2. **`TestCloneMethodSetIsTheAllowlist` is unchanged in spirit.**
+   `internal/git/surface_test.go:21-46` still asserts, via `reflect`, that
+   `*Clone`'s exported method set equals exactly the 9-method allowlist above
+   — the test's own comment calls this "the S-6 command allowlist" (see the
+   naming caveat under Part B, item 4, below: this is **not** the same S-6/S-7
+   numbering as `plan_brief.md`'s own architect-review security findings for
+   *this* issue — it is a pre-existing label from a different, unrelated
+   feature's review, and the two numbering schemes coincide by chance, not by
+   relation). A companion test,
+   `TestCloneCannotMutateTheRegisteredClone` (`surface_test.go:50-64`), pins
+   that `Clone` never grows `Commit, Checkout, Switch, Stash, Reset, Merge,
+   Pull, Add, Push, Rebase, CherryPick, Clean, Apply, Restore`. [V]
+3. **`agentLabelPrefix`/`modeLabelPrefix` ladders are unchanged.**
+   `agentLabelPrefix = "Coding Agent: "` (`internal/daemon/agent.go:21`) and
+   `modeLabelPrefix = "Mode: "` (`internal/daemon/mode.go:14`) both still
+   implement case-insensitive-match-to-detect, ambiguous-or-malformed-to-refuse:
+   `resolveAgent` (`internal/daemon/agent.go:96-144`) folds case to find
+   candidates, refuses on `len(found)>1` (ambiguous,
+   `ReplyAmbiguousAgentLabels`) or on a well-formed-but-miscased single match
+   (`ReplyMalformedAgentLabel`); `resolveModeLabel`
+   (`internal/daemon/mode.go:20-38`) has the identical shape, delegating exact
+   parsing to `agent.ParseModeLabel` (`internal/agent/mode.go:50-57`), which is
+   case-sensitive by construction. This is the exact template
+   `plan_brief.md` proposes to copy for a hypothetical `lf:sync=` label. [V]
+4. **`internal/turn/gate_test.go`'s `sections`/`gated` maps match the plan's
+   assumption exactly**, including the three-entry `sections` map
+   (`prepareClone`, `commitAndPush`, `commitStoryIndex`,
+   `internal/turn/gate_test.go:195-199`) and the `gated` map
+   (`fetch`/`freezeSlug`/`ensureWorktree` → `prepareClone`;
+   `Commit`/`Push` → `commitAndPush`+`commitStoryIndex`, lines 205-211). Notably
+   the test's own doc comment (lines 157-169) states this was originally two
+   sections and grew a third, `commitStoryIndex`, "on a merge from main" — i.e.
+   this is very likely one of the two intervening merges the plan's Provenance
+   section flagged, and the plan's assumption already reflects it correctly.
+   [V]
+5. **`internal/config` is still stdlib + `yaml.v3` only.**
+   `internal/config/purity_test.go` (`TestValidationHasNoThirdPartyImports`,
+   lines 37-73) walks every non-test file in the package and fails on any
+   third-party import outside `config.go`'s single `gopkg.in/yaml.v3` import.
+   No new dependency has been introduced into this package by an intervening
+   merge. [V]
+
+**Drifted — plan_brief.md needs correcting:**
+
+6. **Migration head has moved from `0004` to `0006`; `0005_run_sync.sql` is no
+   longer a free number.** Current migration files in `internal/store` are
+   `0001_init.sql`, `0002_session_backlog.sql`, `0003_agent.sql`,
+   `0004_mode_selections.sql`, `0005_schedules.sql`,
+   `0006_schedule_block_replies.sql`. Two migrations
+   (`0005_schedules.sql`, `0006_schedule_block_replies.sql`) landed since the
+   plan's assumption was made — consistent with the two intervening feature
+   merges the Provenance section already flagged. **`plan_brief.md`'s proposed
+   `0005_run_sync.sql` collides and must be renumbered — the next free number
+   as of this run is `0007`**, though Plan mode should re-check this again
+   immediately before implementation, since it is exactly the kind of number
+   that moves. [V] `internal/store/migrations/*.sql` (directory listing)
+7. **`prepareClone`'s actual current step order is fetch → freezeSlug →
+   ensureWorktree, not fetch → ensureWorktree → freezeSlug** as one framing of
+   the plan's prose states. `internal/turn/prepare.go:376-410`: the
+   `CloneGate` is acquired once at the top (`prepare.go:390`, one `defer
+   release()` at line 394); then `fetch` (line 396); then `freezeSlug` (line
+   400, whose returned `branch` is `ensureWorktree`'s own input); then
+   `ensureWorktree` (line 405); then return (line 409). **This does not change
+   the plan's proposed integration point** — "insert the new sync step as the
+   last step inside `prepareClone`" is still accurate, because `ensureWorktree`
+   is the last operation in the function regardless of where `freezeSlug` sits
+   relative to it — but any plan prose that describes the *current* order as
+   fetch→ensureWorktree→freezeSlug is factually wrong today and should be
+   corrected before Implement mode reads it literally. [V]
+   `internal/turn/prepare.go:376-410`
+
+**A wording-only correction, not a functional drift:**
+
+8. **`legacyToolsLabel` is not confined to dead code** — its detection-and-
+   refusal function is called live, on every tick, from
+   `internal/daemon/tick.go:1577` (`d.refuseTools(...)` with
+   `report.ReplyLegacyToolLabel`), and is exercised by
+   `internal/daemon/tools_internal_test.go:73,77`. What is actually obsolete
+   is the *label itself* — no live path ever sets `lf:tools=` on an issue any
+   more, only the refusal-of-it remains wired in. `plan_brief.md`,
+   `ARCH_REVIEW.md`, and `US-7.md` already describe it this way in places
+   ("that label is dead… kept only so `legacyToolsLabel` can [refuse it]"), so
+   this is likely a difference of emphasis rather than a claim anyone actually
+   got wrong — but taken literally, "referenced only in dead code" is not
+   accurate, and Plan mode should tighten the wording to "the label is
+   obsolete; the function that refuses it is still live" if it revises this
+   passage. [V] `internal/daemon/tools.go:52-60`, `internal/daemon/tick.go:1577`
+
+### Part B — Feasibility: reasoning-model-assisted conflict resolution with explicit human confirmation [V]
+
+Four questions were investigated: whether a narrower-than-full-agent model-call
+abstraction exists, whether any existing pattern pauses a run mid-flight for
+human confirmation, what applying a confirmed resolution would require
+mechanically, and what new security surface this opens relative to the plan's
+existing findings.
+
+**1. A narrower "prompt in, text/JSON out, no tools" call already exists as a
+pattern — this is not being built from nothing.** Every full agent invocation
+(`internal/agent`/`internal/harness`/`internal/codex`) is a write-capable
+coding session (worktree as `cmd.Dir`, `--allowedTools`/`--permission-mode
+auto` for Claude, `--sandbox workspace-write --add-dir` for Codex). But two
+narrower shapes already exist:
+   - `agent.Classifier`/`agent.Classification` — a tool-free routing call
+     (`WorkingDirectory` + `Prompt` in, classification out); Claude's
+     implementation passes `--tools ""` (empty) and omits
+     `--permission-mode`/`--session-id`/`--resume`; Codex's hard-codes
+     `--sandbox read-only`, no `--add-dir`.
+   - `agent.ProposeSchedule`/`ScheduleProposalRequest`/`ScheduleProposal` — the
+     closer analogue: stateless, tool-free, no-worktree, structured-JSON-out
+     advisory call, consumed through `daemon.scheduleAdvisor`
+     (`internal/daemon/proposal_adapter.go:13-15`), an interface the code's own
+     doc comment describes as deliberately narrower than `agent.Runner`
+     ("advice cannot allocate a workflow, select a worktree, or write a run
+     log"), obtained by type-asserting a concrete `Runner` selected from
+     `turn.RunnerSet` by `agent.Kind`
+     (`internal/daemon/proposal_adapter.go:19-29`).
+   - No "reasoning" model tier exists as a named concept; `config.Tier`
+     vocabulary is `flagship`/`balanced`/`fast`, with `TierBalanced` documented
+     as the default when nothing more specific is configured — "the reasoning
+     model (default one)" in the owner's ask most likely maps to whichever
+     concrete model/tier a `ProposeSchedule`-shaped call would resolve to by
+     default, not to a new named tier.
+   **Conclusion**: `Classify`/`ProposeSchedule` plus the `scheduleAdvisor`
+   narrowing-interface pattern is the direct, already-reviewed precedent for
+   how a "resolution advisor" call should be exposed, not something needing
+   invention from a blank page. [V]
+2. **No mid-run pause/resume-on-confirmation state machine exists anywhere in
+   litefactory today — every dispatch is a fresh, complete, non-resuming
+   cycle.** The closest existing analogue is the schedule-proposal flow
+   (`internal/daemon/proposals.go:21-115`): `proposeSchedule` persists a
+   `store.ScheduleProposal` row (status `ProposalPending`); a **separate,
+   later** comment naming the proposal ID triggers
+   `acceptScheduleProposal`/`rejectScheduleProposal`, gated by `ownedProposal`
+   (same `SessionID` AND same commenting `Author.Login`, `proposals.go:91-100`)
+   — but this is two independent, complete turns linked by a DB row, not a
+   run pausing mid-flight. `AskTag`/`MayAsk` (`internal/turn/ask.go`,
+   `internal/turn/prepare.go:225`) lets a human's comment grant a run
+   permission to stop and ask instead of guessing, but this is folded into the
+   *input* side of a single run, not a stored, resumable "awaiting
+   confirmation" state — no `OutcomeAsked` exists in the Outcome vocabulary,
+   and `previousMayAsk` (`internal/turn/prepare.go:578-612`, whose own doc
+   comment states "Permission is not stored anywhere") only shapes rendered
+   header text for a *subsequent* prompt, never gates whether an incoming
+   comment is treated as a confirming reply. `internal/store` has no general
+   "run paused awaiting human confirmation" state — only schedule/proposal
+   states (`SchedulePending/Blocked/Running`,
+   `ProposalPending/Accepted/Rejected/Expired`) and no equivalent `report`
+   reply-kind state. **Stated plainly, as this is the key finding**: a
+   confirm-then-apply resolution story cannot piggyback on any existing
+   mid-run wait; it would need to be built the same way schedule-proposals
+   are — as two separate, complete turns joined by new persisted state and an
+   ownership check — or litefactory would need a genuinely new mid-run-pause
+   mechanism it does not have today. [V]
+3. **Mechanically, applying a confirmed resolution is a mix of "reuses
+   existing primitives cleanly" and "genuinely new surface."** Existing,
+   directly reusable primitives: `Worktree.Commit`
+   (`internal/git/commit.go:133` — `check()` → `opts.validate()` →
+   `Status()` → conditional `git add --all` → `commitMessage` with
+   `TrailerTask/TrailerMode/TrailerRun` → `git -c user.name=... -c
+   user.email=... commit`) and `Worktree.Push` (`internal/git/push.go:53` —
+   `git push --set-upstream`, then `confirmUpstream` re-reads
+   `branch.<name>.remote`/`.merge`), with identity resolved by
+   `resolveAuthor` (`internal/turn/prepare.go:784-811`: configured
+   `opts.Author` per-field, else `clone.ConfigGet("user.name"/"user.email")`
+   fallback) — and the existing `commitAndPush` sequencing precedent
+   (`internal/turn/harvest.go:280-349`: one `CloneGate.Acquire`/`defer
+   release()` → `Commit` → compare `Head` before/after → conditional `Push`).
+   `internal/git/status.go:41-44` already has a dormant `ChangeUnmerged` enum
+   value ("a path with conflict markers or a conflicted index entry...
+   litefactory never merges, so it is reported rather than folded into
+   'modified'"), assigned by `classifyStatus` (`status.go:131-139`) — a
+   defensive slot, not an active flow, but evidence the type already has a
+   name for this state. **Genuinely new surface**: no scoped `git add <path>`
+   equivalent or any index-inspection call exists anywhere in `internal/git`
+   today — the existing `Commit` path only knows `git add --all`, staging
+   everything, never a per-file resolution of a subset of conflicting paths.
+   Writing final resolved content into worktree files needs no new
+   `internal/git` primitive (nothing gates writing to a checked-out worktree
+   path today) — but *marking the index resolved* for just the previously-
+   conflicting paths is new. No merge-base primitive of any kind exists in
+   `internal/git` (confirmed by grep). Steps (c)/(d) — commit-with-identity
+   and push — map directly onto the existing `Commit`/`Push`/`resolveAuthor`/
+   `commitAndPush` sequence with no extension needed beyond possibly a new,
+   merge-specific trailer convention (not present today — only
+   `TrailerTask`/`TrailerMode`/`TrailerRun` are defined). [V]
+4. **This is a materially larger prompt-injection surface than anything
+   currently in the codebase, and no existing pipeline is close to it.**
+   First, a naming clarification the architect needs: the codebase's own
+   literal "S-7" (`internal/github/surface_test.go:26`'s comment, "a comment
+   body posted... not through the S-7 redaction pass is not an expressible
+   program") refers to `internal/redact` — a generic **outbound**
+   credential/secret redactor applied to every outbound GitHub comment body
+   before the API call. That is a different, pre-existing feature's security
+   numbering, unrelated to *this* issue's own architect-review S-1..S-9
+   findings in `ARCH_REVIEW.md` (whose own S-7, per the session history, is
+   "prompt-injection surface" — i.e. conflict *path* content reaching a
+   comment/agent). **These are two different things that happen to share a
+   label** — the architect should not conflate litefactory's pre-existing,
+   unrelated `internal/redact` "S-7" comment with this issue's own S-7 finding
+   when scoping the new story. Second, the substantive finding: no
+   conflict-content-specific sanitizer exists at all. The only existing
+   "conflict" concept in the code is `git.WorktreeConflictError`
+   (`internal/git/ensure.go:255-277`) — worktree path-occupancy (wrong branch
+   checked out, non-empty unregistered directory), unrelated to merge-content
+   conflicts. No pipeline today feeds raw git file/diff content into any
+   prompt: `internal/harness/prompt.go`'s `PromptInput` struct carries only
+   GitHub-forge text fields (`Instruction` trusted; `IssueTitle`/`IssueBody`/
+   `IssueAuthor`/`CommentBody`/`CommentAuthor` explicitly marked Untrusted,
+   plus bounded `History`) — no field for file contents, diffs, or hunks; the
+   coding agent instead reads worktree files itself via its own tool access.
+   The nearest existing convention a new content-carrying field would need to
+   replicate: `capText(s, limit) = truncateWithMarker(neutraliseNoteTags(s),
+   limit)` (`internal/harness/prompt.go:892-894`), applied to every untrusted
+   field with its own byte cap (`MaxCommentBytes = 8<<10`,
+   `MaxIssueTitleBytes = 1<<10`, `MaxHistoryBytes = 32<<10`), plus
+   `neutraliseNoteTags` defusing `<note>`/`</note>` sequences specifically to
+   prevent "prompt injection by punctuation." **Conclusion, stated plainly as
+   requested**: feeding actual conflicting-hunk *content* (not just file
+   names, which US-5's existing safe-rendering already handles) from a
+   possibly-hostile base or task branch into a model prompt is new surface
+   litefactory has no existing pipeline for — there is a well-established
+   sibling pattern to extend (`capText`/`neutraliseNoteTags`/byte-budget
+   capping), but no existing "branch content → prompt" fetch/inject mechanism
+   at all to build on, and the surface is categorically larger than what
+   US-5/S-7(-the-plan's-own) already cover, because content, not just names,
+   is now reaching a prompt. [V]
+
 ## Constraints & Risks
 
 - **No existing abstraction to extend.** Merge/pull/PR/conflict handling is
@@ -734,6 +1008,39 @@ Questions* below as items 17-19.
   see *Scenario / Track Matrix* above for how they now compose into concrete,
   enumerable outcomes. [V] `plan_brief.md` (Shared Decisions, Cross-Story
   Constraints), `US-2.md`, `US-8.md`
+- **Migration numbering has drifted and must be corrected before
+  implementation.** `plan_brief.md` assumed migration head `0004` and proposed
+  `0005_run_sync.sql`; current head is `0006_schedule_block_replies.sql`, and
+  the next free number is `0007`. This is a small, mechanical fix, but it must
+  be applied before any migration file is written, and re-checked again
+  immediately before Implement mode runs, since the number is exactly the kind
+  of thing that keeps moving while other work lands. [V] (this run's Part A,
+  item 6)
+- **`prepareClone`'s described current step order needs a wording fix, not a
+  design fix.** The actual current order is fetch → freezeSlug →
+  ensureWorktree; any plan prose asserting fetch → ensureWorktree → freezeSlug
+  is wrong today, though the proposed integration point ("new sync step as the
+  last step in `prepareClone`") is unaffected, since `ensureWorktree` remains
+  the function's last operation either way. [V] (this run's Part A, item 7)
+- **A new reasoning-model-assisted, human-confirmed conflict-resolution story
+  has real precedent to build on but also real new surface to build.** A
+  narrower-than-full-agent "prompt in, text/JSON out, no tools" call shape
+  already exists (`agent.Classifier`, `agent.ProposeSchedule` plus the
+  `daemon.scheduleAdvisor` narrowing interface) and is the natural template —
+  but litefactory has **no existing mid-run pause/resume-on-confirmation
+  mechanism anywhere**; the nearest analogue (schedule-proposals) achieves
+  "propose → wait → confirm" via two separate complete turns joined by
+  persisted DB state and an author-ownership check, not by a run pausing
+  mid-flight. Applying a confirmed resolution mixes clean reuse (identity,
+  commit, push all map onto existing `Worktree`/`resolveAuthor`/
+  `commitAndPush` primitives) with genuinely new surface (no scoped
+  `git add <path>` or index-inspection primitive exists in `internal/git`
+  today). And feeding actual conflicting-hunk *content* — not just file
+  names, which the existing plan's safe-rendering already covers — into any
+  model prompt is a materially larger prompt-injection surface than anything
+  currently built or currently planned, with no existing "branch content →
+  prompt" pipeline to extend, only a sibling untrusted-text-capping pattern
+  (`capText`/`neutraliseNoteTags`) to model it on. [V] (this run's Part B)
 
 ## Open Questions
 
@@ -841,6 +1148,66 @@ From this run's scenario/track matrix and capabilities/non-goals analysis:
     causes a hard boot failure, but does not specify how loudly it surfaces
     the degraded state.
 
+From this run's plan re-validation and reasoning-model-resolution feasibility
+pass (2026-09-06):
+
+20. Migration numbering: `plan_brief.md`'s proposed `0005_run_sync.sql`
+    collides with `0005_schedules.sql`/`0006_schedule_block_replies.sql`,
+    which landed since the plan was written. Plan mode must renumber to
+    `0007_run_sync.sql` (or whatever the actual next-free number is at the
+    moment of implementation — re-check immediately before Implement mode
+    runs, since this number is likely to keep moving).
+21. `prepareClone`'s described current step order needs correcting to
+    fetch → freezeSlug → ensureWorktree wherever `plan_brief.md`'s prose
+    states otherwise; the "insert sync as the last step" integration point
+    itself is unaffected and needs no change.
+22. Should `plan_brief.md`/`US-7.md`'s description of `legacyToolsLabel` be
+    tightened from "dead code" to "the label is obsolete; the refusal
+    function that detects it is still called live on every tick
+    (`internal/daemon/tick.go:1577`)"? This is a wording precision question,
+    not a functional one.
+23. For the new reasoning-model-assisted-resolution story: should it reuse the
+    existing `agent.Classifier`/`agent.ProposeSchedule` "tool-free, prompt-in
+    text/JSON-out" pattern and the `daemon.scheduleAdvisor` narrowing-interface
+    precedent as its call shape, or does a resolution-advice call need a
+    materially different interface — e.g. because its input would be
+    untrusted, potentially large file/hunk content, not a short issue or
+    comment string?
+24. Should the new story's confirm-gate reuse the schedule-proposal pattern
+    (two separate complete turns joined by a persisted DB row plus an
+    author-ownership check), since no mid-run pause/resume mechanism exists
+    anywhere in litefactory today? What new `internal/store` state would be
+    needed — a `ProposalPending`-equivalent status for a pending conflict
+    resolution?
+25. Marking a conflict resolved in git's index has no existing primitive (no
+    scoped `git add <path>`, no index-inspection call anywhere in
+    `internal/git`) — is adding this net-new surface in scope for this story,
+    and should it get its own allowlist-style test analogous to
+    `TestCloneMethodSetIsTheAllowlist`/`TestCloneCannotMutateTheRegisteredClone`?
+26. Should a new commit-trailer convention be introduced for "this commit
+    completes a merge via a confirmed, model-assisted resolution" — today only
+    `TrailerTask`/`TrailerMode`/`TrailerRun` exist, none of which distinguish
+    an ordinary commit from a conflict-resolution commit?
+27. Should conflicting-hunk content fed into a resolution-advice prompt be
+    capped/sanitized using the same `capText`/`neutraliseNoteTags`/byte-budget
+    pattern already applied to every other untrusted field in
+    `internal/harness/prompt.go`, and is that pattern — designed for short
+    strings like comments and issue titles — actually sufficient for a
+    categorically larger and more structured payload (whole conflicting file
+    contents or hunks)?
+28. This new story's prompt-injection surface is materially larger than
+    anything currently built or currently planned (US-5's existing safe
+    rendering covers file *names* only; this would carry actual conflicting
+    *content*, from a possibly-hostile branch, into a model prompt) — should
+    the architect require a dedicated security review pass for this story
+    specifically, given there is no existing "branch content → prompt"
+    pipeline in litefactory to extend or model it on? Note also the naming
+    collision: `internal/redact`'s own code comment calls itself "the S-7
+    redaction pass" for an unrelated, pre-existing outbound-secret-scrubbing
+    feature — this is not the same S-7 as this issue's own
+    `ARCH_REVIEW.md` security-finding numbering, and the two should not be
+    conflated when this story is scoped.
+
 ## Recommended scope for Plan mode
 
 Plan mode now has both the codebase findings and the web research needed to
@@ -929,6 +1296,25 @@ to block scoping. Plan mode should decide:
   narrow-surface discipline as `Clone`/`Worktree` — this reinforces, rather
   than revises, the architectural note already given to `go-architect` in the
   original brief.
+- **Before amending the plan, apply the two concrete drift corrections found
+  this run**: renumber the proposed migration from `0005_run_sync.sql` to the
+  actual next-free number (`0007` as of this run, re-check at implementation
+  time), and correct any prose describing `prepareClone`'s current step order
+  to fetch → freezeSlug → ensureWorktree (the proposed integration point
+  itself — inserting sync as the last step — is unaffected).
+- **For the new reasoning-model-assisted-resolution story, if the architect
+  chooses to take it forward**: model the model-call itself on the existing
+  `agent.Classifier`/`agent.ProposeSchedule` + `daemon.scheduleAdvisor`
+  pattern rather than inventing a new call shape; model the confirm-gate on
+  the schedule-proposal's "two complete turns joined by persisted state plus
+  an author-ownership check" pattern, since no mid-run pause mechanism exists
+  to reuse instead; budget for genuinely new `internal/git` surface (scoped
+  index-resolution, not just a file write) rather than assuming everything
+  needed already exists; and treat the prompt-injection exposure from feeding
+  conflict *content* (not just names) into a model prompt as needing its own
+  explicit security scoping — it is categorically larger than anything this
+  plan currently covers, and there is no existing pipeline to extend, only a
+  sibling text-capping convention to model it on.
 
 **Status of the above as of this run**: Plan mode has already completed and
 delivered on almost all of the above — `plan_brief.md` and its ten sub-issues
@@ -937,6 +1323,12 @@ defaults, the `lf:sync=` label, and the rollback guarantee substantially as
 recommended. The three items in *What may have been missed* above (over-cap
 disclosure loudness, malformed-label fallback behavior, and old-git message
 prominence) are the residual, narrower decisions this brief did not
-anticipate the first time around; they are now Open Questions 17-19 for
-whoever revisits the plan or begins Implement mode to resolve, rather than
-being re-litigated here.
+anticipate the first time around; they were Open Questions 17-19 for whoever
+revisits the plan or begins Implement mode to resolve. This run (2026-09-06)
+adds two further, concrete drift corrections Plan mode must apply before
+amending the plan (migration numbering, `prepareClone` step-order prose — see
+Open Questions 20-22) and a feasibility assessment for a new,
+not-yet-designed user story (reasoning-model-assisted conflict resolution
+gated on explicit human confirmation — Open Questions 23-28) that the
+architect has not yet scoped or approved; nothing in this run constitutes that
+approval.

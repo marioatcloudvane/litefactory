@@ -21,6 +21,20 @@ label a release-blocking condition, precisely because an un-overridable
 refusal in front of real work is worse than the drift problem this whole
 feature exists to fix.
 
+## Reconsidered and kept (2026-09-06)
+
+The issue owner questioned whether a label like this is worth having at all.
+It stays, unchanged, for two reasons. First, the alternative is worse: without
+a per-issue override, the only way to escape a false-positive conflict block
+is flipping the block off for the *entire* repository, which un-blocks every
+issue's real conflicts along with the one unrelated file that triggered the
+complaint. Second, this label has since taken on a second job: it is also the
+only per-issue way to keep a repository's file content out of a model prompt,
+because an issue labelled `lf:sync=off` never reaches the blocked state that
+the new suggested-resolution feature (US-11/US-12) depends on. That makes this
+label more load-bearing than it was when it was first specified, not less. No
+design change results from this reconsideration.
+
 ## Architecture Notes
 
 - Pattern: copy the detect-loosely/accept-strictly ladder used by the two
@@ -46,13 +60,15 @@ feature exists to fix.
 - `lf:sync=off` means "do not sync **and** do not block" — its outcome is
   `skipped`, disclosed exactly like any other skip (US-3). An override that
   turns off merging but leaves the refusal path active is not a real escape
-  hatch and defeats the purpose of this story.
+  hatch and defeats the purpose of this story. It also means "do not suggest a
+  resolution" as a direct consequence: `lf:sync=off` never produces a
+  `blocked` outcome, and US-11/US-12 fire only off that outcome.
 - Integration point: the resolved decision threads into `turn.Request`, then
   into `syncBase` (US-2), alongside the config default it can override.
 - Hard sequencing constraint (see `plan_brief.md` Workflow): this story must
   ship no later than US-2/US-4 — never after. It is not an optional add-on to
   the auto-sync/block feature; it is a load-bearing part of shipping it
-  responsibly.
+  responsibly. As of 2026-09-06 this also means no later than US-11.
 - NOT in scope: any other label (`lf:base=` etc. is explicitly out of scope
   for the whole plan); reading or acting on `AutoSyncBase`/`BlockRunOnConflict`
   themselves (US-8 owns those); what `syncBase` does with the resolved
