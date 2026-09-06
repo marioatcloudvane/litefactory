@@ -217,6 +217,36 @@ func TestExecuteAllocatesTheRunRowBeforeTheSubprocess(t *testing.T) {
 	}
 }
 
+// TestExecuteMarksTheSessionRunningForTheWholeDispatchWindow is issue #120's
+// pin, seen from the other side of TestExecuteAllocatesTheRunRowBeforeTheSubprocess:
+// it is not enough for prepare to have written state='running' at some point
+// before Execute returns, the write has to be visible in the real database for
+// the entire time the subprocess is thought to be running, because that is the
+// window ReconcileOrphans relies on at daemon start.
+func TestExecuteMarksTheSessionRunningForTheWholeDispatchWindow(t *testing.T) {
+	t.Parallel()
+
+	var (
+		f             *fixture
+		observedState store.SessionState
+	)
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		observedState = f.reloadSession().State
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
+
+	result := f.execute(f.request())
+
+	if !result.Succeeded() {
+		t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
+	}
+	if observedState != store.SessionRunning {
+		t.Errorf("session state read from the database while claude was running = %q, want %q",
+			observedState, store.SessionRunning)
+	}
+}
+
 // TestExecuteReleasesTheLockOnPanic is the hard half of AC-3.3. A panic is the
 // one unwind path a hand-written release at the end of the function would miss,
 // and a lock that survives it is a task that never runs again.
@@ -268,6 +298,82 @@ func TestExecuteReleasesTheLockOnAFailedRun(t *testing.T) {
 	}
 	if session.State != store.SessionFailed {
 		t.Errorf("session state = %q, want %q", session.State, store.SessionFailed)
+	}
+}
+
+// TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState is issue #120's
+// regression pin (US-4, AC-4.1): a session whose segment already belongs to a
+// different coding-agent tool than the one on the incoming request must come
+// back out of Execute exactly as it went in. The session starts idle (the
+// fixture's default) and the assertion reads the row back from the real
+// database, not the in-memory Result, because a struct field would still read
+// "idle" even if the store write that used to fire before this refusal came
+// back.
+func TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState(t *testing.T) {
+	t.Parallel()
+
+	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
+		t.Error("claude ran despite an agent-switch refusal")
+		return nil, errors.New("must not be reached")
+	})
+	f := newFixture(t, runner)
+	// The request below resolves to store.AgentClaude; seeding the session's
+	// only segment under a different agent is what makes GetOrCreateSegment's
+	// stored-row-wins semantics return a mismatch (see prepare.go).
+	if _, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, "codex-session-id", store.AgentCodex,
+	); err != nil {
+		t.Fatalf("seed the segment under a different agent: %v", err)
+	}
+
+	result := f.execute(f.request())
+
+	if result.Disposition != DispositionAgentSwitchRefused {
+		t.Errorf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
+	}
+	if state := f.reloadSession().State; state != store.SessionIdle {
+		t.Errorf("session state after a refused switch = %q, want %q (the refusal touched no state)",
+			state, store.SessionIdle)
+	}
+	if runs := f.runs(); len(runs) != 0 {
+		t.Errorf("allocated %d runs on a refused switch, want 0", len(runs))
+	}
+}
+
+// TestExecuteRefusesAnAgentSwitchWithoutClearingAFailure is
+// TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState's other half
+// (US-4, AC-4.2): the refusal must not invent a state transition in either
+// direction, so a session already sitting at failed before the turn is still
+// failed afterwards rather than being nudged back to idle by a refusal that
+// never should have touched sessions.state at all.
+func TestExecuteRefusesAnAgentSwitchWithoutClearingAFailure(t *testing.T) {
+	t.Parallel()
+
+	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
+		t.Error("claude ran despite an agent-switch refusal")
+		return nil, errors.New("must not be reached")
+	})
+	f := newFixture(t, runner)
+	if _, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, "codex-session-id", store.AgentCodex,
+	); err != nil {
+		t.Fatalf("seed the segment under a different agent: %v", err)
+	}
+	if err := f.db.SetSessionState(t.Context(), f.session.ID, store.SessionFailed); err != nil {
+		t.Fatalf("seed a prior failure: %v", err)
+	}
+
+	result := f.execute(f.request())
+
+	if result.Disposition != DispositionAgentSwitchRefused {
+		t.Errorf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
+	}
+	if state := f.reloadSession().State; state != store.SessionFailed {
+		t.Errorf("session state after a refused switch = %q, want %q (the refusal must not clear a failure)",
+			state, store.SessionFailed)
+	}
+	if runs := f.runs(); len(runs) != 0 {
+		t.Errorf("allocated %d runs on a refused switch, want 0", len(runs))
 	}
 }
 

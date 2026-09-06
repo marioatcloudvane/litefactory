@@ -541,8 +541,9 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 //
 // The session is marked failed and the reason is carried out for the report:
 // AC-3.5 wants a failure comment for a fetch that did not run, and AC-4.1 wants
-// one for every other way a turn can end early. No run row was allocated, so
-// there is no ordinal to burn and the next comment on this task starts clean.
+// one for every other way a turn can end early. For a failure raised before
+// allocateRun, no run row was allocated, so there is no ordinal to burn and
+// the next comment on this task starts clean.
 func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure *failure, logger *slog.Logger) Result {
 	result.Disposition = DispositionPrepareFailed
 	result.Outcome = harness.OutcomeFailed
@@ -563,13 +564,14 @@ func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure
 // agentSwitchRefused records a turn whose resolved agent does not own this
 // session's segment (US-3).
 //
-// Unlike [prepareFailed] it touches no session state and allocates nothing:
-// [prepare] returned before creating anything, and the segment and the runs
-// table are exactly as they were before this turn was attempted (AC-3.1). The
-// two agent names travel on [Result] rather than being formatted here,
-// because it is [Reporter.ReportTurn] that decides whether there is even a
-// comment to answer — the issue-body trigger has none — and formatting them
-// twice would be two places to keep in step.
+// Unlike [prepareFailed] it allocates nothing and never transitions session
+// state: no session-state transition has occurred and no runs row has been
+// allocated; the worktree already exists on disk and sessions.worktree_path
+// already records it, and both are idempotent and reused by the next turn
+// (AC-3.1). The two agent names travel on [Result] rather than being
+// formatted here, because it is [Reporter.ReportTurn] that decides whether
+// there is even a comment to answer — the issue-body trigger has none — and
+// formatting them twice would be two places to keep in step.
 func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog.Logger) Result {
 	result.Disposition = DispositionAgentSwitchRefused
 	result.AgentOwning = refusal.owning
