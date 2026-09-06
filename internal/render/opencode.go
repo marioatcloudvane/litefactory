@@ -15,9 +15,18 @@ const opencodeHarness = "opencode"
 // opencodeAgentsDir is the directory opencode reads its agent definitions
 // from, relative to a project's root. See the package doc's note on
 // [RenderedFile].Path: this is the standalone-file shape of the two Path
-// meanings that type documents. The marker-tagged-section shape (US-18) is
-// out of scope for this renderer's current implementation.
+// meanings that type documents.
 const opencodeAgentsDir = ".opencode/agents"
+
+// opencodeRootFile is the second, marker-tagged-section [RenderedFile].Path
+// this renderer emits alongside its standalone file, per US-18's root-file
+// composition convention. internal/team recognizes this exact literal value
+// to mean "wrap Bytes in a <!-- litefactory:team --> marker span and
+// upsert it into the repo's AGENTS.md", rather than writing Bytes to a file
+// named literally "AGENTS.md" in the current directory. This package does
+// not itself understand markers or root-file upsert — see [RenderedFile]'s
+// doc comment — it only produces the section content.
+const opencodeRootFile = "AGENTS.md"
 
 func init() {
 	Register(opencodeHarness, RendererFunc(renderOpencode))
@@ -51,10 +60,13 @@ type opencodeFrontmatter struct {
 //
 // # Output shape
 //
-// Standalone-file only this run (US-8's scope note): one file at
-// ".opencode/agents/<agent>.md" containing a YAML frontmatter block (name,
-// description, tools as a list when set, model when set) followed by a
-// blank line and the source Body verbatim.
+// Two [RenderedFile]s: the standalone file at ".opencode/agents/<agent>.md"
+// containing a YAML frontmatter block (name, description, tools as a list
+// when set, model when set) followed by a blank line and the source Body
+// verbatim; and, per US-18, a second entry at [opencodeRootFile]
+// ("AGENTS.md") whose Bytes is the same Body, trimmed, with no frontmatter
+// and no markers — the section content internal/team's write engine wraps
+// in a marker span and upserts into the repo's shared AGENTS.md.
 //
 // # Field mapping
 //
@@ -104,5 +116,10 @@ func renderOpencode(source ResolvedSource) ([]RenderedFile, error) {
 	}
 
 	path := fmt.Sprintf("%s/%s.md", opencodeAgentsDir, fm.Name)
-	return []RenderedFile{{Path: path, Bytes: buf.Bytes()}}, nil
+	section := strings.TrimRight(source.Body, "\n") + "\n"
+
+	return []RenderedFile{
+		{Path: path, Bytes: buf.Bytes()},
+		{Path: opencodeRootFile, Bytes: []byte(section)},
+	}, nil
 }

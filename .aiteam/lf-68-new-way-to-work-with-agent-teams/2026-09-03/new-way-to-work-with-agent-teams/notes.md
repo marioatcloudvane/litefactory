@@ -139,3 +139,70 @@ files only) confirmed the fix and returned ADVISORY_ONLY. Full findings in
 None of these block correctness or the acceptance criteria for US-6/7/8 as
 scoped to this run; recorded for a future pass (e.g. when US-18 lands and
 these renderers are extended for the marker-section path).
+
+## 2026-09-06 — Run 20: US-9 (write engine) + US-18 (root-file composition), Workflow steps 6-7 as one delivery window
+
+**Scope for this run** (per sponsor's issue #68 comment): US-9 and US-18 only,
+built as a single combined delivery given their explicit two-way hard coupling
+in `plan_brief.md`'s Workflow section ("Hard couplings, stated once" —
+US-9 supplies the atomic-write primitives US-18's marker upsert reuses; US-18
+supplies the root-file write path US-9's install needs). US-4, US-10, US-11,
+US-13, US-17 explicitly untouched this run.
+
+**Deviation from standard Phase 1 fan-out**: instead of one
+`go-implementation-engineer` per story in parallel, a single engineer built
+both stories together in one pass, given the two-way coupling — avoids an
+interface mismatch that two independent parallel implementations would risk
+(e.g. one side assuming a `RenderedFile` shape the other didn't build).
+
+**Assumption (deferred CLI wiring)**: US-9's T-20 (repo-identifier resolution
+CLI integration via US-19) is explicitly excluded from this run per the task
+instruction — the engine's entry point, `team.Add(root string, renders
+[]AgentRender) (*AddResult, error)`, is delivered as the complete contract for
+a future caller (US-4's `cmd_team.go`, or `internal/teamsource` glue) to build
+against. No `internal/cli` changes were made.
+
+**Engineer's own documented assumptions** (reasonable-reading judgment calls):
+1. No-op short-circuit path tested via black-box `os.Stat` mtime-unchanged
+   check rather than mocking the filesystem.
+2. Concurrent-serialization test (`TestAddSerializesConcurrentCalls`, 8
+   concurrent `Add` calls under `-race`) asserts indirectly via final
+   lockfile-record count and error-free completion, rather than instrumenting
+   internal lock acquisition directly.
+3. `Add` takes no `context.Context` parameter — read as consistent with the
+   plan's "no concurrency beyond the specified per-repo flock" constraint,
+   since nothing else in this engine's call chain (renderers, flock) is
+   ctx-aware either.
+
+**Phase 1.5 — Code Review.** First pass: BLOCKING (CR-B-001) — `Add`'s
+validation loop failed fast on the first bad harness/key/path/secret instead
+of aggregating every validation problem in the batch via `errors.Join`, per
+`plan_brief.md`'s Cross-Story Constraints (stated under both Platform and
+Security, the latter explicitly naming `team add`). `doc.go` had documented
+the fail-fast behavior as intentional, which itself conflicted with the plan.
+Dispatched one `go-implementation-engineer` to fix: the loop now collects
+every validation error into a slice and joins them once via the package's
+existing `joinSorted` helper (already used by `decode.go`), returning nothing-
+written unless the whole batch validates cleanly; individual sentinel types
+remain reachable via `errors.Is`/`errors.As` against the joined result
+(native `errors.Join` behavior). `doc.go` corrected. New test
+`TestAddAggregatesAllValidationFailuresInOneBatch` added, proving both
+error-completeness (two distinct problems, both reported) and atomicity
+(nothing written) in the multi-failure case. Re-review (scoped to
+`write.go`/`doc.go`/`write_test.go` only) independently confirmed the fix —
+re-ran `go build`, `go vet`, `go test -race`, `gofmt -l` — and returned CLEAN.
+Full findings in `$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (Run 20, carried forward, non-blocking)
+
+- **CR-A-001**: `lock.go`'s `acquireRepoLock` has an inline symlink check that
+  duplicates a narrower version of `writefile.go`'s `refuseSymlink`; candidate
+  for reuse via the shared helper.
+- **CR-A-002**: `Add` takes no `context.Context`, though `plan_brief.md`
+  describes a `ctx.Err()` check for write paths generally; flagged for
+  awareness ahead of US-4's CLI wiring (which will presumably thread a context
+  in from the command layer) — not judged a defect in `internal/team` as
+  delivered, since nothing in this engine's own call chain is ctx-aware.
+
+Both non-blocking; not fixed this run per Phase 1.5 handling of
+ADVISORY-only findings.

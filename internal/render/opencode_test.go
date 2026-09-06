@@ -53,8 +53,8 @@ func TestOpencodeRenderBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: unexpected error: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("Render: got %d files, want 1: %+v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("Render: got %d files, want 2 (standalone + root-file section): %+v", len(got), got)
 	}
 
 	wantPath := ".opencode/agents/go-architect.md"
@@ -74,6 +74,42 @@ func TestOpencodeRenderBasic(t *testing.T) {
 		"You are a senior Go architect.\n"
 	if string(got[0].Bytes) != wantBytes {
 		t.Errorf("Bytes = %q, want %q", string(got[0].Bytes), wantBytes)
+	}
+}
+
+// TestOpencodeRenderRootFileSection checks US-18: alongside the standalone
+// file, this renderer emits a second RenderedFile at "AGENTS.md" whose Bytes
+// is the source Body, trimmed to exactly one trailing newline, with no
+// frontmatter and no marker delimiters.
+func TestOpencodeRenderRootFileSection(t *testing.T) {
+	r, err := render.Lookup("opencode")
+	if err != nil {
+		t.Fatalf("Lookup: unexpected error: %v", err)
+	}
+
+	source := render.ResolvedSource{
+		Frontmatter: render.Frontmatter{
+			Name:        "go-architect",
+			Description: "Designs the plan",
+		},
+		Body: "You are a senior Go architect.\n",
+	}
+
+	got, err := r.Render(source)
+	if err != nil {
+		t.Fatalf("Render: unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("Render: got %d files, want 2: %+v", len(got), got)
+	}
+
+	root := got[1]
+	if root.Path != "AGENTS.md" {
+		t.Errorf("Path = %q, want %q", root.Path, "AGENTS.md")
+	}
+	want := "You are a senior Go architect.\n"
+	if string(root.Bytes) != want {
+		t.Errorf("Bytes = %q, want %q", string(root.Bytes), want)
 	}
 }
 

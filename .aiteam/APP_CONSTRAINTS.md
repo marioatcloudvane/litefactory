@@ -106,6 +106,21 @@ These are not style rules. Each has a test or a type that fails if you break it.
   only `recover()` in the tree: a panic mid-redaction becomes an error so the
   post aborts and the watermark does not advance (AC-4.9). A second `recover()`
   MUST NOT be added.
+- **SEC-12 [enforced]** — `internal/team`'s write entry points MUST
+  aggregate every validation fault via `errors.Join`/`joinSorted` rather than
+  fail-fast (mirrors CFG-5); a batch `Add` call MUST write nothing if any
+  render is invalid.
+- **SEC-13 [enforced]** — `team.Add` MUST write via temp-file-then-rename,
+  MUST NOT call `Chmod` (ties SEC-10), and MUST save its lockfile last.
+- **SEC-14 [enforced]** — `team.Add` MUST `Lstat` (never `Stat`) and refuse a
+  symlinked path component before each write, so a swap cannot redirect
+  writes outside the repo.
+- **SEC-15 [enforced]** — A `RenderedFile.Path` MUST match the Owned Path
+  `team.Add` re-derives from `(harness, agentKey)`; a renderer's claimed
+  path is never trusted.
+- **SEC-16 [enforced]** — A root-file record's `RenderedHash` MUST hash only
+  the marker span (`markerSpanHash`), never the whole file, so it cannot
+  misfire on unrelated edits.
 
 ---
 
@@ -191,7 +206,7 @@ These are not style rules. Each has a test or a type that fails if you break it.
   the watermark write and the "turn complete" log line all happen strictly
   *before* the worker's deferred `inflight.leave` and `pool.done()`. A test that
   needs a freed slot MUST retry over real ticks — which is also faithful to the
-  design, since dispatch has no queue. (This rule cost a flaky test to learn.)
+  design, since dispatch has no queue.
 - **TEST-10** — Some tests exist to fail on a *design change*, not on a bug — the
   `surface_test.go` / `policy_test.go` / `purity_test.go` family, plus
   `daemon/clock_test.go` and `turn/gate_test.go`. When one fails you MUST make
@@ -224,11 +239,8 @@ These are not style rules. Each has a test or a type that fails if you break it.
   `max_concurrent_runs` refused (never clamped) outside 1..16, the hard ceiling
   on the process is twenty goroutines. A new goroutine MUST say in a comment what
   bounds its lifetime. The one named termination condition for the worker pool is
-  `Daemon.Quiesce` — not a `select` on shutdown, and not a sleep. **This bullet is
-  the canonical statement of the inventory**; older plans under `.aiteam/` state
-  it differently and carry pointers saying so. Do not go and read them — one of
-  them names a `logs -f` tailer goroutine that does not exist (`litefactory logs
-  -f` re-reads the run's JSONL synchronously on the command's own goroutine).
+  `Daemon.Quiesce` — not a `select` on shutdown, and not a sleep. **This bullet
+  is the canonical statement of the inventory.**
 - **CONC-3** — A bad outcome MUST be a value, not an error. Across `turn`,
   `harness` and `daemon`, an operation that *happened and went badly* returns a
   result whose field says how; the `error` return is reserved for "could not be
@@ -278,7 +290,7 @@ These are not style rules. Each has a test or a type that fails if you break it.
   only arity-checked positionals plus `*cli.Env`. Exit code comes from the error
   kind: `*UsageError` (bad command line) vs `*PreconditionError` (machine not
   ready) vs plain error.
-- **STYLE-7** — Eleven packages carry a `doc.go` whose prose is the real
+- **STYLE-7** — Thirteen packages carry a `doc.go` whose prose is the real
   specification for that package. You MUST read the one for the package you are
   about to touch, before you touch it.
 
@@ -295,9 +307,7 @@ These are not style rules. Each has a test or a type that fails if you break it.
   against and how to re-verify after an upgrade. Two such documents exist and a
   change to how litefactory invokes `claude` SHOULD extend one rather than
   starting a third convention: the `--session-id`/`--resume` contract, and the
-  tool-surface probe. Their paths are in the Story Index of the sessions that
-  produced them; you do not need to read them unless you are changing that
-  invocation.
+  tool-surface probe.
 
 ---
 
@@ -324,3 +334,5 @@ rather than editing the test.
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` (`TestNoStaleConcurrencyStatementSurvives`) | no `.go` file outside `.aiteam` says "locked by another daemon instance" (AC-PAR-8.4) |
 | `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's plan and spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.7) |
+| `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
+| `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |

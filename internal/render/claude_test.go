@@ -31,8 +31,8 @@ func TestClaudeRenderStandaloneFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: unexpected error: %v", err)
 	}
-	if len(files) != 1 {
-		t.Fatalf("Render: got %d files, want 1", len(files))
+	if len(files) != 2 {
+		t.Fatalf("Render: got %d files, want 2 (standalone + root-file section)", len(files))
 	}
 
 	got := files[0]
@@ -62,6 +62,46 @@ func TestClaudeRenderStandaloneFile(t *testing.T) {
 	}
 	if strings.HasSuffix(out, "\n\n") {
 		t.Errorf("output has more than one trailing newline: %q", out)
+	}
+}
+
+// TestClaudeRenderRootFileSection checks US-18: alongside the standalone
+// file, this renderer emits a second RenderedFile at "CLAUDE.md" whose Bytes
+// is the source Body, trimmed to exactly one trailing newline, with no
+// frontmatter and no marker delimiters — internal/team's write engine is
+// what adds those, not this package.
+func TestClaudeRenderRootFileSection(t *testing.T) {
+	r, err := render.Lookup("claude")
+	if err != nil {
+		t.Fatalf("Lookup(\"claude\"): unexpected error: %v", err)
+	}
+
+	source := render.ResolvedSource{
+		Frontmatter: render.Frontmatter{
+			Name:        "go-architect",
+			Description: "Plans Go implementation work",
+		},
+		Body: "You are the Go architect.\n\nDo the thing.\n",
+	}
+
+	files, err := r.Render(source)
+	if err != nil {
+		t.Fatalf("Render: unexpected error: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("Render: got %d files, want 2", len(files))
+	}
+
+	root := files[1]
+	if root.Path != "CLAUDE.md" {
+		t.Errorf("Path = %q, want %q", root.Path, "CLAUDE.md")
+	}
+	want := "You are the Go architect.\n\nDo the thing.\n"
+	if string(root.Bytes) != want {
+		t.Errorf("Bytes = %q, want %q", string(root.Bytes), want)
+	}
+	if strings.Contains(string(root.Bytes), "---") {
+		t.Errorf("root-file section should not contain a frontmatter delimiter, got:\n%s", root.Bytes)
 	}
 }
 

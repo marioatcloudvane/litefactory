@@ -14,9 +14,18 @@ const claudeHarness = "claude"
 // claudeAgentsDir is the directory Claude reads its sub-agent definitions
 // from, relative to a project's root. See the package doc's note on
 // [RenderedFile].Path: this is the standalone-file shape of the two Path
-// meanings that type documents. The marker-tagged-section shape (US-18) is
-// out of scope for this renderer's current implementation.
+// meanings that type documents.
 const claudeAgentsDir = ".claude/agents"
+
+// claudeRootFile is the second, marker-tagged-section [RenderedFile].Path
+// this renderer emits alongside its standalone file, per US-18's root-file
+// composition convention. internal/team recognizes this exact literal value
+// to mean "wrap Bytes in a <!-- litefactory:team --> marker span and
+// upsert it into the repo's CLAUDE.md", rather than writing Bytes to a file
+// named literally "CLAUDE.md" in the current directory. This package does
+// not itself understand markers or root-file upsert — see [RenderedFile]'s
+// doc comment — it only produces the section content.
+const claudeRootFile = "CLAUDE.md"
 
 func init() {
 	Register(claudeHarness, RendererFunc(renderClaude))
@@ -34,11 +43,14 @@ type claudeFrontmatter struct {
 	Model       string `yaml:"model,omitempty"`
 }
 
-// renderClaude implements [Renderer] for harness key "claude", producing the
-// standalone-file output shape: one file at
-// ".claude/agents/<agent>.md" containing a YAML frontmatter block (name,
-// description, tools as a comma-separated list, and model when set)
-// followed by the markdown body, verbatim.
+// renderClaude implements [Renderer] for harness key "claude", producing two
+// [RenderedFile]s: the standalone file at ".claude/agents/<agent>.md"
+// containing a YAML frontmatter block (name, description, tools as a
+// comma-separated list, and model when set) followed by the markdown body,
+// verbatim; and, per US-18, a second entry at [claudeRootFile] ("CLAUDE.md")
+// whose Bytes is the same markdown body, trimmed, with no frontmatter and no
+// markers — the section content internal/team's write engine wraps in a
+// marker span and upserts into the repo's shared CLAUDE.md.
 //
 // It fails loudly, per the package doc, on any frontmatter field it cannot
 // express: today that is anything landing in [Frontmatter].Extra, since
@@ -80,5 +92,10 @@ func renderClaude(source ResolvedSource) ([]RenderedFile, error) {
 	b.WriteString("\n")
 
 	path := fmt.Sprintf("%s/%s.md", claudeAgentsDir, fm.Name)
-	return []RenderedFile{{Path: path, Bytes: []byte(b.String())}}, nil
+	section := strings.TrimRight(source.Body, "\n") + "\n"
+
+	return []RenderedFile{
+		{Path: path, Bytes: []byte(b.String())},
+		{Path: claudeRootFile, Bytes: []byte(section)},
+	}, nil
 }

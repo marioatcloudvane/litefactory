@@ -57,6 +57,7 @@ render        →  (nothing)          leaf. per-harness renderer registry (claud
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
 
 redact        →  secrets
+team          →  config             `team add` write engine + team index decode/validate; no CLI wiring yet
 github        →  naming, redact, secrets
 harness       →  config, naming
 report        →  git, harness, naming, redact
@@ -71,51 +72,48 @@ The load-bearing consequences:
 
 - **`internal/config` imports nothing from litefactory and is stdlib-only apart
   from the YAML decode.** `internal/config/purity_test.go` →
-  `TestValidationHasNoThirdPartyImports` parses every non-test file in the
-  package and fails on any import whose first path segment contains a dot.
-  `config.go` is the single exception, and only for `gopkg.in/yaml.v3`.
-  `internal/naming` states the same invariant in its `doc.go` and holds it.
+  `TestValidationHasNoThirdPartyImports` parses every non-test file and fails
+  on any import whose first path segment contains a dot; `config.go` is the
+  single exception, for `gopkg.in/yaml.v3`. `internal/naming` states and holds
+  the same invariant.
 - **`internal/report` cannot import `internal/turn`** — `turn` depends on
-  `report` to render its replies, so the arrow cannot point back. That is why
-  `report.ReplyKind` (`internal/report/reply.go`) is its own enum rather than
-  reusing `turn.CommandKind`, and why the mapping is a small switch at the call
-  site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
-  reply shape, you add a `ReplyKind` **and** a case in that switch.
-  Note `report` is *not* a leaf — it imports `git`, `harness`, `naming`, `redact`.
-- **`internal/harness` is the only place that executes `claude`.** It owns the
-  subprocess, the argv, the child environment allowlist, the kill sweep, and it
-  writes the run's `NNNN.jsonl` event stream.
-  *Path derivation is not.* `naming.RunLogPath` / `naming.RunMetaPath`
-  derive the paths and `config.Paths` owns the `$LF_HOME` layout. The sidecar
-  `NNNN.meta.json` is written by **`internal/turn`** (`harvest.go`, via
-  `harness.WriteMeta`) once the shas and touched files are known.
+  `report`, so the arrow cannot point back. `report.ReplyKind`
+  (`internal/report/reply.go`) is its own enum rather than reusing
+  `turn.CommandKind`; the mapping is `replyKind()` in
+  `internal/turn/report.go` (~line 600). A new reply shape needs a
+  `ReplyKind` **and** a case there. `report` is *not* a leaf — it imports
+  `git`, `harness`, `naming`, `redact`.
+- **`internal/harness` is the only place that executes `claude`** — subprocess,
+  argv, child environment allowlist, kill sweep, `NNNN.jsonl` event stream.
+  Path derivation is not its job: `naming.RunLogPath`/`RunMetaPath` derive the
+  paths, `config.Paths` owns the `$LF_HOME` layout, and the `NNNN.meta.json`
+  sidecar is written by `internal/turn` (`harvest.go`, via `harness.WriteMeta`).
 - **`internal/turn` orchestrates one turn** and has no clock, no ticker, no
   signals. **`internal/daemon` is litefactory's sense of time** — tick loop,
-  singleton lock, backoff, cursor, shutdown — and owns no business logic. This
-  split is a named invariant (`internal/daemon/doc.go`,
-  `internal/turn/doc.go`); it is what makes the whole business path testable
-  without waiting for anything.
-
-- **`internal/daemon` importing `internal/repos` is new and deliberately
-  cycle-free** — added when the startup worktree-collision check
-  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
-  function rather than reimplementing it. `repos` still imports nothing back
-  from `daemon`.
-
+  singleton lock, backoff, cursor, shutdown — and owns no business logic
+  (`internal/daemon/doc.go`, `internal/turn/doc.go`). This split is what makes
+  the business path testable without waiting for anything.
+- **`internal/daemon` importing `internal/repos`** reuses the pure
+  worktree-collision decision function (`internal/repos/collision.go`,
+  AC-PAR-4.8) rather than reimplementing it; `repos` imports nothing back.
 - **`internal/render` is a leaf**, stdlib plus `gopkg.in/yaml.v3` only. It
   defines the `Renderer` contract (one pure function per harness) and a
   plain-map registry; a harness gains a renderer by calling `render.Register`
-  from its own package's `init`, so adding one never touches another
-  package's source.
+  from its own package's `init`.
+- **`internal/team` may import only `internal/config`** (`doc.go`'s
+  Invariants), never `internal/render` — a future `internal/teamsource`
+  renders first and converts `render.RenderedFile` into `team.RenderedFile`.
+  It owns a bookkeeping directory at the *target* repo's root, `.litefactory/`
+  (distinct from this repo's own `.aiteam/`): `team.lock.json` (provenance)
+  and `.team.lock` (flock target).
 
 ### Read the `doc.go` files
 
-Twelve packages carry a `doc.go` whose prose is the real specification for that
-package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`, `naming`,
-`redact`, `render`, `repos`, `report`, `turn` — and `config` and `store` carry
-theirs at the top of `config.go` / `store.go`. **Read the one for the package
-you are about to touch before you touch it.** They record what was measured,
-what was tried and rejected, and what breaks if you do the obvious thing.
+Thirteen packages carry a `doc.go` whose prose is the real specification for
+that package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`,
+`naming`, `redact`, `render`, `repos`, `report`, `team`, `turn` — and `config`
+and `store` carry theirs at the top of `config.go` / `store.go`. **Read the
+one for the package you are about to touch before you touch it.**
 
 ---
 
@@ -127,15 +125,18 @@ what was tried and rejected, and what breaks if you do the obvious thing.
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
 | run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
-| serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op. The dispatch shape is specified in `internal/daemon/doc.go` |
+| serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op |
 | refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
-| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Written at dispatch, cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
+| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
-| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude` → `.claude/agents/<agent>.md` (tools comma-joined); `codex` → `.codex/skills/<agent>/SKILL.md` (no `model`/`tools`, fails loudly); `opencode` → `.opencode/agents/<agent>.md` (tools as YAML list). Pure; empty `Name` → `render.ErrMissingAgentName` |
+| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
+| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match. **Not wired to any CLI command yet** |
+| decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
+| compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
 | run `claude` | `internal/harness` | The only place |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
@@ -147,31 +148,24 @@ Before you touch the store:
 
 - **SQLite via `modernc.org/sqlite`** (pure Go, cgo-free — the binary is static),
   driver name `"sqlite"`, not `"sqlite3"`. Pool capped at **one** connection.
-  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (SQLite defaults it
-  *off*, per connection — without it every `REFERENCES` is decorative),
-  `journal_mode(WAL)` so `litefactory logs` can read while the daemon writes,
-  `busy_timeout`, `synchronous(NORMAL)`.
-- **The cap stays at one, and is load-bearing now rather than incidental**: up
-  to `max_concurrent_runs` turn workers plus the daemon's tick goroutine reach
-  the store at the same instant in production, so concurrent callers queue
-  rather than contend (`store.go`'s doc comment). Raising it is out of scope
-  and is not the free throughput it looks like — `database/sql` opens a
-  transaction with a deferred `BEGIN`, so a transaction that reads and then
-  writes has to upgrade to a write lock partway through, and SQLite refuses
-  that upgrade with `SQLITE_BUSY` immediately rather than waiting
-  (`busy_timeout` does not apply to an upgrade, since waiting there could
-  deadlock). **The single-connection cap, `BEGIN IMMEDIATE` on every
-  read-then-write transaction, and per-connection verification of the DSN
-  pragmas move as one decision** — any one of the three alone leaves the other
-  two wrong.
+  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (off by default per
+  connection), `journal_mode(WAL)` so `litefactory logs` can read while the
+  daemon writes, `busy_timeout`, `synchronous(NORMAL)`.
+- **The one-connection cap is load-bearing, not incidental**: concurrent
+  turn workers plus the daemon's tick goroutine queue for the store rather than
+  contend. Raising it is not free throughput — a read-then-write transaction
+  upgrading its lock mid-transaction gets `SQLITE_BUSY` immediately rather than
+  waiting (`busy_timeout` does not cover a lock upgrade). The cap, `BEGIN
+  IMMEDIATE` on every read-then-write transaction, and the DSN pragmas move as
+  one decision.
 - **Migrations are hand-rolled and embedded** —
   `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
   filename prefix, one transaction each, recorded in `schema_migrations`. A new
-  schema change is a new `.sql` file and nothing else. Adding a migration library
-  is an explicitly rejected dependency.
+  schema change is a new `.sql` file and nothing else — a migration library is
+  an explicitly rejected dependency.
 
 NULL mapping in the store is uniform and worth copying: timestamps are
-`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text, so
-lexicographic order is chronological order); text whose empty value carries no
-meaning is a plain `string`; forge ids are `int64` with 0 meaning NULL; and
-numbers whose zero is a *real* value (an exit code, a cost) are **pointers**.
+`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text);
+text whose empty value carries no meaning is a plain `string`; forge ids are
+`int64` with 0 meaning NULL; and numbers whose zero is a *real* value (an exit
+code, a cost) are **pointers**.
