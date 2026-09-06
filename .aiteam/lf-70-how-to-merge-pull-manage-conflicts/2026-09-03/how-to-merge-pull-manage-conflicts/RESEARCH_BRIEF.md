@@ -19,6 +19,20 @@ auto-sync the base branch into a task branch when no conflict exists, and (3)
 whether git handling should be centralized in litefactory's daemon/router layer
 rather than left reachable from individual agents. See *Follow-up Research* below.
 
+**Second follow-up (this run):** Plan mode has since run to completion for this
+session — `plan_brief.md` plus ten per-story sub-issues (US-1 through US-10)
+now exist alongside this brief. The issue owner asked for two more things: (1)
+a table enumerating every distinct scenario/track this feature creates —
+trigger, conflict state, outcome, and whether it is automatic or needs a
+human — covering the full scenario space actually researched and planned, not
+just the two example rows given in the request; and (2) an explicit
+capabilities-vs-non-goals accounting, including a check for anything missed.
+See *Scenario / Track Matrix* and *Capabilities vs. Non-Goals* below. Both
+sections read across this brief's own prior findings and `plan_brief.md`; two
+sub-issues (`US-2.md`, `US-8.md`) were also read directly this run to get the
+exact merge-outcome decision tree and behind-cap semantics right rather than
+inferring them from the summary in `plan_brief.md` alone.
+
 ## Codebase Context
 
 litefactory's git surface is small, deliberate, and — this is the load-bearing
@@ -491,6 +505,134 @@ up" to an existing norm.
   which today's Claude-mode Bash surface does not fully guarantee for the
   mutating git operations that already exist (`commit`, `push`).
 
+## Scenario / Track Matrix (this run)
+
+Plan mode has since turned the *Follow-up Research* decision tree above into a
+concrete plan (`plan_brief.md`, ten sub-issues US-1 through US-10). This
+section enumerates every distinct scenario ("track") that combination of
+research and plan actually produces — not just the two example rows the issue
+owner gave — split into what this feature **enables** (in scope, being built)
+and what it explicitly does **not** (out of scope, unchanged from today).
+Outcome names (`up_to_date`, `synced`, `blocked`, `skipped`) are the plan's own
+vocabulary for `syncBase`'s decision tree. [V] `plan_brief.md` US-2.md:46-51.
+
+### Tracks this feature enables
+
+| When / Trigger | Conflict State | Outcome | Type |
+|---|---|---|---|
+| New run, task branch already even with base (`Behind == 0`) | No conflict — nothing to check | `up_to_date`: branch untouched, no merge attempted, no extra comment noise | Automatic |
+| New run, branch behind base, and the base merges into it cleanly | No conflict (verified by a side-effect-free `merge-tree` dry run before anything is touched) | `synced`: base is merged into the task branch with a real merge commit (`git merge --no-ff --no-edit`, never a rebase), pushed via the normal end-of-run push, and disclosed in the run's comment (how many commits behind, that it synced) | Automatic |
+| New run, branch behind base, and the dry-run merge preview reports a conflict | Genuine content conflict, detected before touching the branch | `blocked`: the run is refused before the coding agent starts; the comment names the conflicting file paths (rejected/counted if any path fails a local safety check, never blindly rendered) | Needs manual intervention |
+| New run, auto-sync turned off — either `auto_sync_base: false` in config, or the `lf:sync=off` label on the issue | Not evaluated — deliberately skipped | `skipped`: drift is still measured and disclosed in the comment; the branch is left exactly as-is | Automatic (an explicit, human-chosen opt-out, not a failure) |
+| New run, branch behind base by more than the configured cap (`auto_sync_max_behind`, default 100 — a documented judgment call, not a measurement; `0` means no cap) | Not evaluated — skipped on distance alone, same bucket as the opt-out above | `skipped`: drift still measured and disclosed; no merge attempted even if it might have been clean | Automatic (self-limiting; an operator can raise or remove the cap in config) |
+| `lf:sync=` label is present but malformed — an unrecognized value, or more than one matching label on the issue | N/A (a labeling/config error, not a git conflict) | refused, using the exact same "ambiguous/malformed is refused, never unioned or first-wins" discipline as the existing `agentLabelPrefix`/`modeLabelPrefix` levers | Needs manual intervention (fix the label) |
+| Host's git binary is older than 2.38 (`merge-tree --write-tree` unsupported) | Not evaluated | a one-time probe fails; the sync/refusal machinery disables itself with a clear operator-facing message; the run still proceeds — never a hard boot failure | The run itself completes automatically, but regaining the protection needs manual intervention (upgrade git) |
+| Worktree is dirty, or otherwise not in a clean state, at the moment of merge | A refusal, not a content conflict | merge refused — the same class of named, non-auto-resolved refusal litefactory already uses for occupied/dirty worktrees (`litefactory task clean [--force]`) | Needs manual intervention |
+| A merge or push fails partway through an attempted `synced` run (git error, timeout, etc.) | N/A — a mechanical failure, not a content conflict | rollback guarantee: the branch's pre-merge SHA is captured beforehand, `merge --abort` runs on any failure, and the SHA is re-verified — a mismatch is reported as failure, never silently accepted; the branch is left byte-identical to before the attempt | Automatic self-healing (the failure itself is still worth a human looking at) |
+| Two or more issues run concurrently, each syncing its own task branch | No conflict between the two runs | each issue's sync is independent — they queue on the existing per-clone lock (`CloneGate`) but never interfere with each other's branch | Automatic |
+
+### Tracks this feature explicitly does not enable
+
+| When / Trigger | Conflict State | Outcome | Type |
+|---|---|---|---|
+| Anything that would merge or push into the shared base/main branch itself | Any | Not built. This boundary is untouched by this feature and was never on the table. | Not offered — remains fully manual, outside litefactory, exactly as today |
+| A pull request needs to be opened, reviewed, or merged | Any | litefactory still never creates, approves, or merges a PR | Manual — unchanged from today |
+| A synced branch would need its history rewritten to look clean | Any | Rebase and force-push are never attempted, on the task branch or anywhere else | Not offered |
+| A genuine content conflict is detected | Conflict | litefactory does **not** auto-start a new agent turn to regenerate/resolve it Renovate-style — explicitly rejected because that would discard the coding agent's already-committed work, contradicting "litefactory commits; nobody in here does" | Needs manual intervention — a human, or a manually-triggered future run, makes the call |
+| A branch has been idle a long time but is not numerically behind its base | N/A | Not detected. Drift is measured only in commit counts, never elapsed time. | Not offered |
+| A project wants a different base branch per issue, or a live per-project base-branch hierarchy | N/A | Not built. Base branch remains one fixed, repo-level value (`store.Repo.BaseBranch`); only the one-time `--base` override at registration exists. | Manual config change, outside this feature |
+| GitHub's native merge queue | N/A | litefactory does not configure or touch it | Manual, external to litefactory |
+| The Claude-mode agent's `--allowedTools` Bash surface reaching raw git verbs | N/A | The documented, leaky loophole (~250 ambient allow-rules) is explicitly **not** closed by this plan | Tracked separately — a pre-existing, unresolved risk this feature does not fix |
+
+## Capabilities vs. Non-Goals (this run)
+
+### What this feature enables
+
+- Every run measures how far a task branch is behind its base, cheaply, at an
+  existing checkpoint (`prepareClone`), before the coding agent ever starts.
+- When it is safe — no content conflict — litefactory merges the current base
+  into the task branch itself, and says so plainly in the run's comment. This
+  is the concrete fix for the "branch drifts silently until someone tries to
+  merge it" problem this issue was raised about.
+- When it is not safe, litefactory refuses to run rather than guessing, and
+  names exactly which files collide, safely (a hostile base branch cannot use
+  a crafted file path to inject content into the comment — paths that fail a
+  local safety check are rejected and counted, never partially rendered).
+- An operator gets three tunable defaults — whether auto-sync runs at all, how
+  far behind is "too far," and whether a conflict blocks the run — all
+  config-governed, none hardcoded, and all documented as either measured
+  behavior or an explicit judgment call (the 100-commit default is named as a
+  judgment call, not a measurement).
+- A non-technical project owner gets a lever with no CLI and no git knowledge
+  required: the `lf:sync=on|off` label, modeled rung-for-rung on the existing,
+  already-trusted `agentLabelPrefix`/`modeLabelPrefix` label levers.
+- If anything goes wrong mid-merge, the branch is provably rolled back to
+  exactly its pre-merge state — a failed sync attempt can never leave the
+  branch in a worse or ambiguous state than before the run started.
+- This has been verified safe under concurrency: multiple issues syncing at
+  the same time do not interfere with one another's branch.
+
+### What this feature explicitly does not enable (non-goals)
+
+- litefactory still never merges or pushes into the shared base/main branch —
+  that boundary is completely untouched.
+- litefactory still never opens, reviews, or merges a pull request — a human
+  still does that step in GitHub, exactly as today.
+- No rebase and no force-push, ever — a task branch's own commit history is
+  never rewritten by this feature.
+- A genuine content conflict is always a stop-and-flag-a-human event. This
+  feature does **not** auto-resolve conflicts, and it does **not**
+  auto-regenerate the branch and re-run the agent to dodge one (that
+  Renovate-style approach was considered and explicitly rejected, because it
+  would discard already-committed agent work).
+- No time- or idle-based staleness detection — only commit-count drift is
+  measured, so a branch that has simply not been touched in a while, but is
+  not numerically behind, is invisible to this feature.
+- No per-issue or per-project base-branch flexibility — despite the original
+  framing of this issue implying it, base branch remains one repo-level
+  setting.
+- GitHub's merge queue is neither configured nor required by this feature.
+- The pre-existing, documented Bash-tool loophole that lets a Claude-mode
+  agent reach raw git verbs is **not** closed by this plan.
+- **"A business user will never see a conflict" is not a promise this
+  makes.** It removes the common case (plain staleness) entirely; a genuine
+  content conflict is still surfaced, in full, to whoever reads the comment.
+
+### What may have been missed
+
+Four points worth flagging explicitly, each a real gap between what the
+scenario matrix shows and what a first read of the issue might assume:
+
+1. **The over-cap "skipped" case reads identically to the deliberate opt-out
+   case.** A branch nobody has looked at in weeks, now far enough behind to
+   exceed `auto_sync_max_behind`, is disclosed the same way as a branch whose
+   owner explicitly typed `lf:sync=off`. Those are different risk profiles —
+   one is a deliberate choice, the other is neglect — and `plan_brief.md`
+   treats them identically. Worth deciding whether the over-cap case deserves
+   a louder signal.
+2. **A mistyped `lf:sync=` label is refused, not defaulted.** The plan
+   deliberately copies the "ambiguous/malformed is refused, never
+   unioned-or-first-wins" discipline from the existing label levers — which is
+   the secure choice, but it means a non-technical project owner who fat-fingers
+   the label value gets a dead-end refusal rather than a silent fall-back to
+   whatever config already says. Worth confirming that trade-off is intended
+   for this audience specifically.
+3. **An old git binary silently disables the entire safety net.** On a host
+   with git older than 2.38, the probe fails once and auto-sync/refusal simply
+   stops working — the run still completes, never a hard boot failure. That is
+   the right failure mode for availability, but it means an operator on old
+   git gets *none* of this feature's protection without necessarily noticing,
+   unless the probe's message is prominent. Worth double-checking the message
+   is loud enough to be seen, not just logged.
+4. **Base-branch flexibility was assumed by the original issue phrasing** ("
+   whatever base branch is configured per project") but was never true and
+   remains out of scope after this plan. If part of the original confusion
+   this issue is meant to solve was "different projects need different base
+   branches," that specific piece is not addressed by anything shipping here.
+
+Three new open questions follow from this analysis; they are added to *Open
+Questions* below as items 17-19.
+
 ## Constraints & Risks
 
 - **No existing abstraction to extend.** Merge/pull/PR/conflict handling is
@@ -583,6 +725,15 @@ up" to an existing norm.
   (`internal/harness/settings.go`'s own "defence in depth" framing) that
   centralizing new capabilities does not, by itself, retroactively close for
   the operations that already exist. [V]
+- **Plan mode has already ratified all of the above into a concrete shape**
+  (`plan_brief.md`, ten sub-issues) that this run cross-checked directly: the
+  `syncBase` decision tree (`up_to_date`/`synced`/`blocked`/`skipped`), the
+  merge-commit-with-identity-prelude approach, the `lf:sync=on|off` label
+  modeled on the live label levers (not the dead `lf:tools=` one), and the
+  rollback-to-byte-identical guarantee are no longer open design questions —
+  see *Scenario / Track Matrix* above for how they now compose into concrete,
+  enumerable outcomes. [V] `plan_brief.md` (Shared Decisions, Cross-Story
+  Constraints), `US-2.md`, `US-8.md`
 
 ## Open Questions
 
@@ -664,7 +815,31 @@ centralization):
     also consider a Renovate-style "regenerate the branch from the new base
     and re-run the agent" fallback? The latter is more automation but is a
     materially bigger scope change (implies triggering a new agent turn
-    automatically) than a simple sync-or-flag tree.
+    automatically) than a simple sync-or-flag tree. **Resolved by Plan mode**:
+    the architect rejected the Renovate-style fallback outright (it would
+    discard committed agent work) — kept here for history, not as an open
+    choice any more.
+
+From this run's scenario/track matrix and capabilities/non-goals analysis:
+
+17. Should the "skipped — over the behind-cap" case be disclosed more loudly
+    than the "skipped — explicit `lf:sync=off` opt-out" case? `plan_brief.md`
+    currently treats both as the same `skipped` outcome with the same
+    disclosure; they represent different risk profiles (neglect vs. a
+    deliberate choice).
+18. Should a malformed/ambiguous `lf:sync=` label fall back to the config
+    default instead of being refused outright? The plan copies the existing,
+    security-conscious "ambiguous is refused" discipline from
+    `agentLabelPrefix`/`modeLabelPrefix`, but that may be a less forgiving
+    experience for a non-technical project owner who mistypes the label value
+    than the audience this issue is meant to serve.
+19. Is the operator-facing message from the git-version-floor probe (git
+    <2.38 disables the sync/refusal safety net entirely) prominent enough
+    that an operator on an old git version would actually notice they are not
+    getting this feature's protection, rather than assuming it is silently
+    working? Not verified — `plan_brief.md` establishes the probe never
+    causes a hard boot failure, but does not specify how loudly it surfaces
+    the degraded state.
 
 ## Recommended scope for Plan mode
 
@@ -754,3 +929,14 @@ to block scoping. Plan mode should decide:
   narrow-surface discipline as `Clone`/`Worktree` — this reinforces, rather
   than revises, the architectural note already given to `go-architect` in the
   original brief.
+
+**Status of the above as of this run**: Plan mode has already completed and
+delivered on almost all of the above — `plan_brief.md` and its ten sub-issues
+implement the drift check, the merge-vs-block decision tree, the config
+defaults, the `lf:sync=` label, and the rollback guarantee substantially as
+recommended. The three items in *What may have been missed* above (over-cap
+disclosure loudness, malformed-label fallback behavior, and old-git message
+prominence) are the residual, narrower decisions this brief did not
+anticipate the first time around; they are now Open Questions 17-19 for
+whoever revisits the plan or begins Implement mode to resolve, rather than
+being re-litigated here.

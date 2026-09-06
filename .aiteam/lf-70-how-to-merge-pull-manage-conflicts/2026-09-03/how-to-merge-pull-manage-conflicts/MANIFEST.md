@@ -87,6 +87,27 @@ asked for; nothing here licenses starting the next one.
   Index rows are complete except for the sub-issue link column, which
   litefactory fills in when it creates the sub-issues from these bodies after
   this run ends.
+- 2026-09-06 — Research mode re-run (fourth pass, headless, no clarifying
+  questions asked): issue owner asked for a full enumeration of the distinct
+  scenarios/tracks this feature creates — trigger, conflict state, outcome,
+  automatic-vs-manual — plus an explicit capabilities-vs-non-goals accounting
+  and a check for anything missed, now that Plan mode's `plan_brief.md` and
+  ten sub-issues exist. No new sub-agent invocation was needed; this pass
+  synthesized the existing brief together with `plan_brief.md` and two
+  sub-issues read directly for precision (`US-2.md` for the exact `syncBase`
+  decision tree, `US-8.md` for the behind-cap and config-default semantics).
+  `RESEARCH_BRIEF.md` gained two new sections: "Scenario / Track Matrix" (a
+  9-row enables table and an 8-row does-not-enable table, covering
+  `up_to_date`/`synced`/`blocked`/`skipped` outcomes, the malformed-label
+  case, the old-git-version degrade path, the rollback-on-failure path, and
+  concurrency independence) and "Capabilities vs. Non-Goals" (an explicit
+  enable/non-goal list plus a "what may have been missed" callout on four
+  points: the over-cap-skip vs. deliberate-opt-out disclosure being
+  identical, the malformed-label-is-refused-not-defaulted trade-off, the
+  old-git-version probe's message prominence, and the base-branch-hierarchy
+  assumption the original issue phrasing implied but this plan does not
+  build). Three new open questions (17-19) added, tracking those four points.
+  Research mode remains complete; no new brief content invalidates anything
+  Plan mode already delivered.
 
 ## Notes
-
