@@ -101,10 +101,10 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Move the `running` state write so a refused turn leaves session state untouched | S | — | US-1.md |
-| US-2 | Close the sibling bug class: 8 post-write error paths in `prepare` get the same guarantee | XS | US-1 | US-2.md |
-| US-3 | Correct the inaccurate "nothing was touched" comments | S | US-1 | US-3.md |
-| US-4 | Regression coverage for session-state-after-refusal and state-during-dispatch | M | US-1 | US-4.md |
+| US-1 | Move the `running` state write so a refused turn leaves session state untouched | S | — | https://github.com/marioatcloudvane/litefactory/issues/121 |
+| US-2 | Close the sibling bug class: 8 post-write error paths in `prepare` get the same guarantee | XS | US-1 | https://github.com/marioatcloudvane/litefactory/issues/122 |
+| US-3 | Correct the inaccurate "nothing was touched" comments | S | US-1 | https://github.com/marioatcloudvane/litefactory/issues/123 |
+| US-4 | Regression coverage for session-state-after-refusal and state-during-dispatch | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/124 |
 
 ## Out of Scope
 
