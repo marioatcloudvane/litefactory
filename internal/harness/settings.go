@@ -73,14 +73,36 @@ func DefaultSettings(home string) ([]byte, error) {
 
 	settings := claudeSettings{
 		Permissions: settingsPermissions{
-			// "default" is claude's own prompt-on-unlisted behaviour. A headless
-			// run has nobody to prompt, so an unlisted tool call fails instead of
-			// hanging — which is the outcome we want, and is not
-			// bypassPermissions under another name.
-			DefaultMode: "default",
+			// The same value argv carries. The document and the flag must
+			// always agree: a run whose settings say one thing and whose
+			// command line says another is a run nobody can reason about
+			// from either artefact alone.
+			//
+			// This was "default" — prompt on anything unlisted — until the
+			// cost of it was measured. A headless run has nobody to prompt, so
+			// "default" did not degrade to a prompt, it degraded to a denial,
+			// and every tool the allowlist had not anticipated ended a run
+			// rather than slowing it. See PermissionMode.
+			DefaultMode: PermissionMode,
 			Allow:       []string{},
 			Ask:         []string{},
 			Deny: []string{
+				// litefactory owns the commit and the push (AC-3.21). No agent
+				// makes either, and work left uncommitted at the end of a run is
+				// the normal state.
+				//
+				// These rules are load-bearing under PermissionMode "auto" and
+				// were not needed before it. While runs were in "default" the
+				// ban was a side effect of the allowlist being the boundary: git
+				// writes were absent from allowed_tools and every absence was a
+				// refusal. Under "auto" an absence is a question put to a
+				// classifier, and a classifier reading an ordinary coding task
+				// has every reason to answer yes. A deny rule is the only form
+				// of this ban that does not depend on the permission mode.
+				"Bash(git add:*)",
+				"Bash(git commit:*)",
+				"Bash(git push:*)",
+				"Bash(git stash:*)",
 				// litefactory's own state: unredacted daemon.log, the database,
 				// and every run's raw event stream.
 				"Read(//" + filepath.ToSlash(filepath.Clean(home)) + "/**)",

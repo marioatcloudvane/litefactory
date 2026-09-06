@@ -140,6 +140,51 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	return mode, nil
 }
 
+// ProposeSchedule performs a stateless read-only advisory invocation. It does
+// not allocate a normal run, create run artefacts, or attach to a worktree.
+func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
+	prompt, err := agent.ScheduleProposalPrompt(req)
+	if err != nil {
+		return agent.ScheduleProposal{}, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, "-")
+	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	// A proposal has no worktree. The resolved binary directory is guaranteed
+	// to exist at construction and is not a repository the advisor can mutate.
+	cmd.Dir, cmd.Env, cmd.Stdin = filepath.Dir(r.binary.Path), codexEnv(r.environ), strings.NewReader(prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	if !stream.completed || stream.failed {
+		return agent.ScheduleProposal{}, errors.New("schedule advisor returned no successful terminal result")
+	}
+	proposal, err := agent.ParseScheduleProposal(stream.text)
+	if err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor returned invalid proposal: %w", err)
+	}
+	return proposal, nil
+}
+
 // Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
 	if err := req.Validate(); err != nil {

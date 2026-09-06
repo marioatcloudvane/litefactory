@@ -1341,3 +1341,51 @@ The doc comments on `pool.wait`, `pool.quiesce` and `Daemon.Quiesce`
 (`internal/daemon/pool.go`) make the mechanical case in full and are the
 authority on it. This entry records only what they cannot: that the export was a
 decision, and which future request it is waiting for.
+
+## Recorded: DEV-1 resolution — `--level` is read twice on `daemon run`
+
+- **Recorded:** 2026-09-05, plan
+  `.aiteam/lf-89-logging-is-only-on-issues-but-not-on-the/2026-09-05/logging-is-only-on-issues-but-not-on-the/ARCH_REVIEW.md`
+  (DEV-1; US-6, T-6.2–T-6.4, AC-6.4)
+- **Status:** recorded — Option A implemented as approved
+
+US-6 needs `litefactory daemon run --level debug` to affect which level the
+process logs at. The catch is ordering: `cmd/litefactory/main.go` builds
+`env.Logger` — and logs the first "dispatch" line — before `internal/cli`'s
+`Router` ever parses a command's flags. By the time the router's normal flag
+parsing would see `--level` on `daemon run`, the logger already exists at
+whatever level `configuredLevel()` picked from `config.yaml`. There is no
+single parse of argv that can both build the logger early and let the router's
+usual `Command.New` / `flag.FlagSet` machinery own the flag.
+
+**Resolution (Option A):** read `--level` in two places, not one.
+
+1. `internal/cli.LogLevelOverride(args []string) (slog.Level, bool, error)`
+   (`internal/cli/cmd_daemon.go`) scans raw argv by hand for `--level`/
+   `-level` (bare-with-value or `=value` forms) — not with a
+   `flag.FlagSet`, since `fs.Parse` stops at the first non-flag token, which
+   for these commands is the command name itself, before it ever reaches
+   `--level` — then parses the keyword with `logging.ParseLevel`, the
+   project's one level parser (D-4), before the router exists.
+   `cmd/litefactory/main.go`'s `run` calls
+   it before opening the log sink or constructing the logger, and uses its
+   result in place of `configuredLevel()` when present. An error here is a
+   usage error: `main` prints it and returns `cli.ExitUsage` immediately,
+   before the poll loop — or anything else — starts (AC-6.2). It never falls
+   back to `configuredLevel()`'s silent default the way every other failure
+   in `configuredLevel()` does.
+2. `newDaemonRunCommand`'s `Command.New` also binds `--level` on its
+   `flag.FlagSet`, via `daemonRunOptions.bind`, purely so `--help` and an
+   unknown flag are reported correctly by the router. The handler closure
+   ignores the bound value — main already resolved it and already built the
+   logger by the time this handler runs.
+
+Both sites carry a comment cross-referencing this entry and each other
+(STYLE-1). `daemonStartCommand` binds `--level` a third time, for a different
+reason and at a different layer: not because the logger needs it early, but
+because `daemonProgram` needs a validated keyword to bake into the plist's
+`ProgramArguments`, so `daemon start --level <garbage>` fails before an agent
+is installed rather than at that agent's first tick. All three parses call
+`logging.ParseLevel` and only that parser — D-3 still holds: `--level` here is
+a write-time threshold, unrelated to `logs --level`'s display-time filter,
+and no option type spans the two commands.

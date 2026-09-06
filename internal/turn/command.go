@@ -1,25 +1,17 @@
 package turn
 
 import (
-	"slices"
 	"strings"
 	"unicode"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 )
 
-// SpikeCommand is the only command litefactory acts on at M0.
+// SpikeCommand names the original explicit work command.
 const SpikeCommand = "/spike"
 
-// knownCommands are the commands later milestones will implement. They are
-// listed so that typing a real command early gets "not supported yet" rather
-// than "unknown command" — the difference between "wait for the next release"
-// and "you typed it wrong".
-//
-// The list is sorted; keep it that way.
-var knownCommands = []string{
-	"/approve", "/include", "/reset", "/retry", "/status",
-}
+// ScheduleCommand names the factory-only scheduling control.
+const ScheduleCommand = "/schedule"
 
 // CommandKind is what a comment body turned out to be asking for.
 //
@@ -49,13 +41,12 @@ const (
 	// asking for text and spawns nothing (AC-2.20).
 	KindSpikeEmpty
 
-	// KindUnsupported is a command from a later milestone. It draws a short
-	// "not supported" reply and spawns nothing (AC-2.18).
-	KindUnsupported
+	// KindSchedule is a Litefactory-owned control command. It never starts an
+	// agent run; its grammar is parsed separately with an injected receipt time
+	// and timezone before later factory code persists or refuses it.
+	KindSchedule
 
-	// KindUnknown is a slash command that is not in the vocabulary at all. It
-	// is handled exactly like KindUnsupported; the two are kept apart only so
-	// the reply can say something more useful.
+	// KindUnknown is any slash command outside Litefactory's active vocabulary.
 	KindUnknown
 )
 
@@ -70,8 +61,8 @@ func (k CommandKind) String() string {
 		return "free_text"
 	case KindSpikeEmpty:
 		return "spike_empty"
-	case KindUnsupported:
-		return "unsupported"
+	case KindSchedule:
+		return "schedule"
 	case KindUnknown:
 		return "unknown"
 	default:
@@ -80,7 +71,7 @@ func (k CommandKind) String() string {
 }
 
 // Command is the result of parsing one comment body: what the comment asked
-// for, and the argument if it asked for a spike.
+// for, and the text attached to the command.
 //
 // It is a value, not a tuple of booleans, because two callers consume it — the
 // daemon, deciding whether to start a turn, and the reply path, deciding what
@@ -99,9 +90,11 @@ type Command struct {
 	Name string
 
 	// Text is the instruction the comment carries, with surrounding whitespace
-	// trimmed: the argument to /spike for [KindSpike], and the whole body for
-	// [KindFreeText]. Newlines are kept, so a multi-line request keeps its
-	// shape. Non-empty exactly when the command spawns a run.
+	// trimmed: the argument to /spike for [KindSpike], the whole body for
+	// [KindFreeText], and the unparsed scheduling control for [KindSchedule].
+	// Newlines are kept, so a multi-line request keeps its shape. It is non-empty
+	// exactly when a run spawns, except that schedule controls retain their text
+	// for the factory-only grammar.
 	//
 	// Any [AskTag] line the body carried has been removed. The tag is
 	// litefactory's own control vocabulary and asked for nothing; what is left
@@ -127,9 +120,9 @@ func (c Command) Spawns() bool { return c.Kind == KindSpike || c.Kind == KindFre
 // an empty body is answered with silence.
 func (c Command) NeedsReply() bool {
 	switch c.Kind {
-	case KindSpikeEmpty, KindUnsupported, KindUnknown:
+	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText:
+	case KindNone, KindSpike, KindFreeText, KindSchedule:
 		return false
 	default:
 		return false
@@ -206,8 +199,8 @@ func ParseCommand(body string) Command {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
-	case slices.Contains(knownCommands, name):
-		return Command{Kind: KindUnsupported, Name: name, Tagged: tagged}
+	case name == ScheduleCommand:
+		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}

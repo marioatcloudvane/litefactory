@@ -913,7 +913,7 @@ func TestLogsNeverImportsRedact(t *testing.T) {
 // logsSourceFiles is every file the `logs` command is implemented in. The
 // structural guards below hold for the command, not for one file of it, so
 // splitting the renderer out must not be a way around them.
-var logsSourceFiles = []string{"cmd_logs.go", "cmd_logs_render.go"}
+var logsSourceFiles = []string{"cmd_logs.go", "cmd_logs_app.go", "cmd_logs_render.go", "cmd_logs_slog.go", "cmd_logs_tail.go"}
 
 // importsOf returns the import paths of a source file in this package.
 func importsOf(t *testing.T, name string) []string {
