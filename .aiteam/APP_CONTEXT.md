@@ -53,6 +53,7 @@ secrets       →  (nothing)          leaf. keychain / env token resolution.
 identity      →  (nothing)          leaf. the only package that execs `gh`.
 launchd       →  (nothing)          leaf. the macOS LaunchAgent.
 logging       →  (nothing)          leaf. slog construction + file sink.
+render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
 
 redact        →  secrets
@@ -101,14 +102,20 @@ The load-bearing consequences:
   function rather than reimplementing it. `repos` still imports nothing back
   from `daemon`.
 
+- **`internal/render` is a leaf**, stdlib plus `gopkg.in/yaml.v3` only. It
+  defines the `Renderer` contract (one pure function per harness) and a
+  plain-map registry; a harness gains a renderer by calling `render.Register`
+  from its own package's `init`, so adding one never touches another
+  package's source.
+
 ### Read the `doc.go` files
 
-Eleven packages carry a `doc.go` whose prose is the real specification for that
+Twelve packages carry a `doc.go` whose prose is the real specification for that
 package — `daemon`, `git`, `github`, `harness`, `identity`, `launchd`, `naming`,
-`redact`, `repos`, `report`, `turn` — and `config` and `store` carry theirs at
-the top of `config.go` / `store.go`. **Read the one for the package you are
-about to touch before you touch it.** They record what was measured, what was
-tried and rejected, and what breaks if you do the obvious thing.
+`redact`, `render`, `repos`, `report`, `turn` — and `config` and `store` carry
+theirs at the top of `config.go` / `store.go`. **Read the one for the package
+you are about to touch before you touch it.** They record what was measured,
+what was tried and rejected, and what breaks if you do the obvious thing.
 
 ---
 
@@ -128,6 +135,7 @@ tried and rejected, and what breaks if you do the obvious thing.
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
+| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude` → `.claude/agents/<agent>.md` (tools comma-joined); `codex` → `.codex/skills/<agent>/SKILL.md` (no `model`/`tools`, fails loudly); `opencode` → `.opencode/agents/<agent>.md` (tools as YAML list). Pure; empty `Name` → `render.ErrMissingAgentName` |
 | run `claude` | `internal/harness` | The only place |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |

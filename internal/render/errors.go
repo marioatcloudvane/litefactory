@@ -33,6 +33,15 @@ func (e *UnsupportedFieldError) Error() string {
 
 func (e *UnsupportedFieldError) Unwrap() error { return ErrUnsupportedField }
 
+// ErrMissingAgentName is the sentinel every renderer wraps when a
+// [ResolvedSource]'s Frontmatter.Name is empty. Every harness this package
+// supports derives its output path (or, for Codex, its skill directory)
+// from that value, so an empty name has nowhere to land — each [Renderer]
+// MUST return this (or an error wrapping it) rather than producing a path
+// with an empty segment, so a caller can branch with errors.Is uniformly
+// across harnesses instead of matching on message text.
+var ErrMissingAgentName = errors.New("frontmatter has no agent name")
+
 // ErrUnknownHarness is the sentinel [Lookup] wraps when asked for a harness
 // name that no package has registered a [Renderer] under.
 var ErrUnknownHarness = errors.New("unknown renderer harness")
