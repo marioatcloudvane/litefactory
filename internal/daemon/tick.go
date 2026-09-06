@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/schedule"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -93,6 +94,12 @@ type TickResult struct {
 	// order, by the next tick.
 	Deferred int
 
+	// Scheduled is the number of outstanding pending schedule rows after this
+	// tick's dispatch decision. It is distinct from Deferred: deferred work is
+	// ordinary session work that missed current capacity, while scheduled work
+	// is durable future work that has not reached a terminal state.
+	Scheduled int
+
 	// Cursor is the poll cursor as it stands after the tick. A failed tick
 	// leaves it as it was found, which is what makes the next one redo the work
 	// (AC-2.13).
@@ -127,6 +134,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
+	// Proposals are advice, not work. Expiring them on the tick clock keeps a
+	// stale approval from becoming actionable after a daemon restart without
+	// adding a timer or a background worker.
+	if _, err := d.db.ExpireScheduleProposals(ctx, startedAt.Add(-proposalLifetime), startedAt); err != nil {
+		return TickResult{StartedAt: startedAt}, fmt.Errorf("expire schedule proposals: %w", err)
+	}
+
 	// AC-2.9: the very first tick ever plants the cursor at now rather than at
 	// the beginning of history, so registering a busy repository does not
 	// replay years of issues. Doing it in the store, conditionally, keeps the
@@ -155,8 +169,21 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// discovery finished. The bound on a worker is not this context but the
 	// deadline on every call it makes (git, claude, the forge), and shutdown
 	// reaches it because cancelling *this* context cancels all of them at once.
+	reposByID := make(map[int64]store.Repo, len(repos))
+	for _, repo := range repos {
+		reposByID[repo.ID] = repo
+	}
+	if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, err
+	}
 	d.dispatch(ctx, queues, startedAt, &result)
 	result.InFlight = d.inflight.size()
+	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
+	if err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, fmt.Errorf("count outstanding scheduled work: %w", err)
+	}
 
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
@@ -180,6 +207,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		slog.Int("dispatched", result.Dispatched),
 		slog.Int("in_flight", result.InFlight),
 		slog.Int("deferred_sessions", result.Deferred),
+		slog.Int("scheduled", result.Scheduled),
 		slog.Time("cursor", startedAt.UTC()),
 		slog.String("duration", result.Duration.String()))
 	return result, nil
@@ -1317,11 +1345,93 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// a cosmetic loss, and refusing the turn over one would be a real one.
 	d.acknowledge(ctx, t, c.ID)
 
+	if command.Kind == turn.KindSchedule {
+		return d.handleSchedule(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login}
 	return d.run(ctx, t, trigger, command, log)
+}
+
+// handleSchedule accepts direct factory scheduling controls. A schedule is
+// saved before its acknowledgement is posted, but its source comment is not
+// consumed until that post succeeds; replay therefore reuses the stored row
+// instead of creating a second unit of work.
+func (d *Daemon) handleSchedule(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	request, err := schedule.Parse(command.Text, t.tickAt, time.Local)
+	if err != nil {
+		return d.replySchedule(ctx, t, c, report.ReplyScheduleInvalid, report.ScheduleReply{}, log)
+	}
+	if request.Kind != schedule.KindDirect {
+		return d.handleProposalControl(ctx, t, c, request, log)
+	}
+
+	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
+		SessionID:       t.session.ID,
+		SourceCommentID: c.ID,
+		OwnerHandle:     c.Author.Login,
+		Payload:         request.Payload,
+		DueAt:           request.DueAt,
+		Delay:           request.Delay,
+		PrerequisiteIDs: request.After,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not save the schedule", err)
+	}
+
+	outstanding, err := d.db.CountPendingSchedules(ctx)
+	if err != nil {
+		return d.leave(ctx, t, log, "could not count scheduled work", err)
+	}
+
+	reply := report.ScheduleReply{
+		ID:          stored.ID,
+		DueAt:       stored.DueAt,
+		Delay:       stored.Delay,
+		After:       append([]int64(nil), request.After...),
+		Outstanding: outstanding,
+	}
+	return d.replySchedule(ctx, t, c, report.ReplyScheduleConfirmed, reply, log)
+}
+
+// replySchedule posts and only then consumes a factory scheduling response.
+// It uses the ordinary Reporter path so scheduling obeys the same post-before-
+// consume guarantee as every other reply.
+func (d *Daemon) replySchedule(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	kind report.ReplyKind,
+	scheduled report.ScheduleReply,
+	log *slog.Logger,
+) error {
+	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		Ref:          t.ref,
+		SessionID:    t.session.ID,
+		CommentID:    c.ID,
+		ScheduleKind: kind,
+		Schedule:     scheduled,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not reply to /schedule", d.orphaned(ctx, log, posted, err))
+	}
+	if !posted.Skipped {
+		log.InfoContext(ctx, "handled a factory scheduling control",
+			slog.String("reply", kind.String()),
+			slog.Int64("schedule_id", scheduled.ID),
+			slog.Int("scheduled", scheduled.Outstanding),
+			slog.Int64("reply_comment_id", posted.CommentID))
+	}
+	return nil
 }
 
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on

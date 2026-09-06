@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
 )
@@ -23,12 +24,6 @@ const (
 	// sent for a reason, and a reply with no reason is a caller bug rather
 	// than a message worth inventing.
 	ReplyInvalid ReplyKind = iota
-
-	// ReplyUnsupportedCommand answers a real command from a later milestone:
-	// "/plan", "/implement". The distinction from an unknown command is the
-	// whole point — "not yet" and "never heard of it" call for different
-	// things from the person who typed it (AC-2.18).
-	ReplyUnsupportedCommand
 
 	// ReplyUnknownCommand answers a slash command that is not in the
 	// vocabulary at all, which is usually a typo.
@@ -83,13 +78,31 @@ const (
 	// syntax error regardless of what value follows it, so there is nothing
 	// about it worth quoting back.
 	ReplyLegacyToolLabel
+
+	// ReplyScheduleInvalid answers a /schedule control whose factory grammar
+	// could not be accepted. It is deliberately a factory reply: no agent sees
+	// an invalid scheduling request.
+	ReplyScheduleInvalid
+
+	// ReplyScheduleConfirmed confirms that Litefactory durably recorded a
+	// direct scheduling control before consuming its source comment.
+	ReplyScheduleConfirmed
+
+	// ReplyScheduleBlocked tells the owner that a scheduled item will not run
+	// because one of its prerequisites failed.
+	ReplyScheduleBlocked
+
+	// Proposal replies are factory-owned acknowledgements. They never expose
+	// an agent's proposed payload in a signed forge comment.
+	ReplyScheduleProposalReady
+	ReplyScheduleProposalAccepted
+	ReplyScheduleProposalRejected
+	ReplyScheduleProposalFailed
 )
 
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
-	case ReplyUnsupportedCommand:
-		return "unsupported_command"
 	case ReplyUnknownCommand:
 		return "unknown_command"
 	case ReplyEmptySpike:
@@ -110,6 +123,20 @@ func (k ReplyKind) String() string {
 		return "conflicting_mode_selection"
 	case ReplyLegacyToolLabel:
 		return "legacy_tool_label"
+	case ReplyScheduleInvalid:
+		return "schedule_invalid"
+	case ReplyScheduleConfirmed:
+		return "schedule_confirmed"
+	case ReplyScheduleBlocked:
+		return "schedule_blocked"
+	case ReplyScheduleProposalReady:
+		return "schedule_proposal_ready"
+	case ReplyScheduleProposalAccepted:
+		return "schedule_proposal_accepted"
+	case ReplyScheduleProposalRejected:
+		return "schedule_proposal_rejected"
+	case ReplyScheduleProposalFailed:
+		return "schedule_proposal_failed"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -120,7 +147,7 @@ func (k ReplyKind) String() string {
 // valid reports whether k is one of the real kinds.
 func (k ReplyKind) valid() bool {
 	switch k {
-	case ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
+	case ReplyUnknownCommand, ReplyEmptySpike:
 		return true
 	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
 		return true
@@ -129,6 +156,10 @@ func (k ReplyKind) valid() bool {
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
 		return true
 	case ReplyLegacyToolLabel:
+		return true
+	case ReplyScheduleInvalid, ReplyScheduleConfirmed, ReplyScheduleBlocked,
+		ReplyScheduleProposalReady, ReplyScheduleProposalAccepted,
+		ReplyScheduleProposalRejected, ReplyScheduleProposalFailed:
 		return true
 	case ReplyInvalid:
 		return false
@@ -158,7 +189,7 @@ func (k ReplyKind) RefusesTools() bool {
 	switch k {
 	case ReplyLegacyToolLabel:
 		return true
-	case ReplyInvalid, ReplyUnsupportedCommand, ReplyUnknownCommand, ReplyEmptySpike:
+	case ReplyInvalid, ReplyUnknownCommand, ReplyEmptySpike:
 		return false
 	default:
 		return false
@@ -223,6 +254,23 @@ type Reply struct {
 	// before they are rendered, the same as [Agent].
 	OwningAgent    string
 	RequestedAgent string
+
+	// Schedule carries the safe, structured facts of a scheduling reply. It is
+	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
+	Schedule ScheduleReply
+}
+
+// ScheduleReply is the factory-owned information rendered for a scheduling
+// control. It deliberately carries no payload: an instruction is agent input,
+// not text Litefactory should echo into a signed comment.
+type ScheduleReply struct {
+	ID          int64
+	DueAt       time.Time
+	Delay       time.Duration
+	After       []int64
+	Outstanding int
+	ProposalID  int64
+	Count       int
 }
 
 // agentNamePattern is the shape of a coding-agent-tool name — deliberately
@@ -295,15 +343,6 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("```text\n/spike see whether the flaky checkout test is a race in the fixture\n```")
 
-	case ReplyUnsupportedCommand:
-		if named {
-			fmt.Fprintf(&b, "%s is a real command, but litefactory does not implement it yet.", span)
-		} else {
-			b.WriteString("That command is a real one, but litefactory does not implement it yet.")
-		}
-		b.WriteString(" ")
-		b.WriteString(onlyCommandSentence)
-
 	case ReplyUnknownCommand:
 		if named {
 			fmt.Fprintf(&b, "I do not recognise %s.", span)
@@ -374,6 +413,57 @@ func (r Reply) body() string {
 			"one tool's session to another. Comment again without asking for a different agent, " +
 			"or start a new task for the one you want.")
 
+	case ReplyScheduleInvalid:
+		b.WriteString("I could not schedule that request. Litefactory accepts ")
+		b.WriteString("`/schedule -by HH:MM:SS <payload>`, `/schedule -to MM/DD/YYYY HH:MM:SS [ZONE] <payload>`, ")
+		b.WriteString("or `/schedule --after <id[,id...]> -by HH:MM:SS <payload>`.")
+
+	case ReplyScheduleConfirmed:
+		if r.Schedule.ID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Scheduled work `%d`", r.Schedule.ID)
+		if len(r.Schedule.After) > 0 {
+			b.WriteString(" after schedules ")
+			for i, id := range r.Schedule.After {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				fmt.Fprintf(&b, "`%d`", id)
+			}
+			fmt.Fprintf(&b, " succeed, then waits %s", r.Schedule.Delay)
+		} else {
+			fmt.Fprintf(&b, " for %s", r.Schedule.DueAt.UTC().Format(time.RFC3339))
+		}
+		fmt.Fprintf(&b, ". `scheduled=%d`.", r.Schedule.Outstanding)
+
+	case ReplyScheduleBlocked:
+		if r.Schedule.ID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Scheduled work `%d` will not run because one of its prerequisites failed.", r.Schedule.ID)
+
+	case ReplyScheduleProposalReady:
+		if r.Schedule.ProposalID <= 0 || r.Schedule.Count <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Schedule proposal `%d` contains %d item(s). Use `/schedule --accept %d` to arm it, or `/schedule --reject %d` to discard it.", r.Schedule.ProposalID, r.Schedule.Count, r.Schedule.ProposalID, r.Schedule.ProposalID)
+
+	case ReplyScheduleProposalAccepted:
+		if r.Schedule.ProposalID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Accepted schedule proposal `%d`; %d item(s) are now scheduled. `scheduled=%d`.", r.Schedule.ProposalID, r.Schedule.Count, r.Schedule.Outstanding)
+
+	case ReplyScheduleProposalRejected:
+		if r.Schedule.ProposalID <= 0 {
+			return ""
+		}
+		fmt.Fprintf(&b, "Rejected schedule proposal `%d`.", r.Schedule.ProposalID)
+
+	case ReplyScheduleProposalFailed:
+		b.WriteString("I could not produce a valid schedule proposal. No work was scheduled.")
+
 	case ReplyInvalid:
 		// Unreachable: RenderReply rejects an invalid kind before calling this.
 		return ""
@@ -392,9 +482,9 @@ func (r Reply) body() string {
 }
 
 // onlyCommandSentence is the one thing every reply has to say: what litefactory
-// will act on. It is a single constant so the three replies cannot drift into
-// three different accounts of the same vocabulary.
-const onlyCommandSentence = "The only command it acts on at the moment is `/spike <what you want tried>`."
+// will act on. It is a single constant so the replies cannot drift into
+// different accounts of the active command vocabulary.
+const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
 
 // toolsRefusalSentence is the one thing every tool-permission refusal has to
 // say, for the same reason [onlyCommandSentence] exists: three refusals must not

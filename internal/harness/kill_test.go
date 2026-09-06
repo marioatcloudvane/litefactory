@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -14,6 +17,8 @@ import (
 // directly; TestRunTimeoutKillsTheWholeSubtree exercises it end to end.
 
 func TestDescendantsWalksMoreThanOneLevel(t *testing.T) {
+	requireProcessListAccess(t)
+
 	// A shell that starts a shell that starts a sleeper: three levels, so a
 	// walk that only listed direct children would miss the bottom one.
 	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", "/bin/sh -c '/bin/sleep 30 & wait' & wait")
@@ -41,6 +46,26 @@ func TestDescendantsWalksMoreThanOneLevel(t *testing.T) {
 		if child <= 1 {
 			t.Errorf("the walk returned pid %d", child)
 		}
+	}
+}
+
+// requireProcessListAccess skips process-tree assertions only in the macOS
+// sandbox that explicitly refuses pgrep's process-list query. Normal pgrep
+// exit status 1 means the selected parent simply has no children, so it must
+// not turn an environmental failure into a skip.
+func requireProcessListAccess(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		return
+	}
+
+	cmd := exec.CommandContext(t.Context(), pgrepPath, "-P", strconv.Itoa(os.Getpid()))
+	out, err := cmd.CombinedOutput()
+	if strings.Contains(string(out), "pgrep: Cannot get process list") {
+		t.Skip("macOS sandbox denies process-list access required by process-tree test")
+	}
+	if err != nil && !isExitCode(err, 1) {
+		t.Logf("process-list preflight returned %v without an explicit sandbox denial", err)
 	}
 }
 

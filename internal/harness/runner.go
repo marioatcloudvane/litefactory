@@ -67,6 +67,53 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	return mode, nil
 }
 
+// ProposeSchedule performs a stateless, tool-free advisory invocation. It has
+// no session id, run ordinal, or worktree and therefore cannot become an
+// ordinary coding workflow or create its run artefacts.
+func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposalRequest) (agent.ScheduleProposal, error) {
+	prompt, err := agent.ScheduleProposalPrompt(req)
+	if err != nil {
+		return agent.ScheduleProposal{}, err
+	}
+	if _, err := os.Stat(r.home); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("prepare claude settings: %w", err)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv), strings.NewReader(prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = waitDelay
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return agent.ScheduleProposal{}, errors.New("schedule advisor returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return agent.ScheduleProposal{}, errors.New("schedule advisor exposed tools")
+	}
+	proposal, err := agent.ParseScheduleProposal(stream.result.Result)
+	if err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("schedule advisor returned invalid proposal: %w", err)
+	}
+	return proposal, nil
+}
+
 // waitDelay bounds how long cmd.Wait may block after the claude process itself
 // has exited. claude hands its stdout and stderr to children — node, git, and
 // whatever the Bash tool was asked for — and a survivor holding a pipe open
