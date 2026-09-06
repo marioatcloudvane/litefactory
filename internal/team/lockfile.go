@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // lockfileSchemaVersion is the schema version written into team.lock.json.
@@ -28,6 +29,15 @@ const lockfileName = "team.lock.json"
 // is instead the sha256 of just the marker-enclosed span markerSpan
 // produced — a "virtual file" hash, since the root file as a whole is
 // shared with content this package did not write.
+//
+// Teams is the sorted, comma-separated, deduplicated list of every team that
+// contributed AgentRender.Teams as of this write, encoded the same way a
+// root-file section's BEGIN line team= value is (see marker.go). It is a
+// string rather than a []string so LockRecord stays comparable with == and
+// != (lockfile_test.go relies on that), and is read back by ExistingTeams so
+// a later Add call for the same agent and harness can union the teams it
+// already knows about with whatever team it is about to add, instead of
+// overwriting them.
 type LockRecord struct {
 	AgentKey     string `json:"agentKey"`
 	Harness      string `json:"harness"`
@@ -35,6 +45,7 @@ type LockRecord struct {
 	SourcePath   string `json:"sourcePath"`
 	SourceHash   string `json:"sourceHash"`
 	RenderedHash string `json:"renderedHash"`
+	Teams        string `json:"teams,omitempty"`
 }
 
 // key identifies which slot in the lockfile this record occupies: one
@@ -83,6 +94,70 @@ func loadLockfile(root string) (*Lockfile, error) {
 		return nil, fmt.Errorf("%s: %w: %v", path, ErrLockfileCorrupt, err)
 	}
 	return &lf, nil
+}
+
+// HasLockfile reports whether root already has a provenance lockfile from a
+// previous Add call. Callers that want to refuse re-adding into an already
+// managed repo (pointing the operator at team update instead) call this
+// before Add, since Add itself always merges into an existing lockfile
+// rather than refusing when one is already present.
+func HasLockfile(root string) (bool, error) {
+	_, err := os.Stat(lockfilePath(root))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("stat lockfile: %w", err)
+}
+
+// encodeTeams renders teams the same way LockRecord.Teams and a root-file
+// section's BEGIN line encode a team list: sorted, deduplicated, comma
+// separated.
+func encodeTeams(teams []string) string {
+	return strings.Join(sortedUniqueTeams(teams), ",")
+}
+
+// decodeTeams reverses encodeTeams. An empty string decodes to a nil slice.
+func decodeTeams(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
+// ExistingTeams returns every team already recorded, across root's lockfile,
+// as contributing the (harness, agentKey) pair — the union of the Teams
+// field of every matching LockRecord, deduplicated and sorted. It returns a
+// nil slice and a nil error both when root has no lockfile yet (nothing
+// installed) and when the lockfile has no record for this agent and harness
+// (nothing previously contributed it), so a caller does not need to special
+// case ErrNoLockfile itself: either way, the current invocation's team is
+// the only contributor found so far.
+//
+// internal/teamsource calls this before building each AgentRender, so a
+// team add for an agent already shared by another team unions the new
+// team's name into the existing list instead of overwriting it.
+func ExistingTeams(root, harness, agentKey string) ([]string, error) {
+	lf, err := loadLockfile(root)
+	if err != nil {
+		if errors.Is(err, ErrNoLockfile) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var teams []string
+	for _, r := range lf.Records {
+		if r.Harness != harness || r.AgentKey != agentKey {
+			continue
+		}
+		teams = append(teams, decodeTeams(r.Teams)...)
+	}
+	if len(teams) == 0 {
+		return nil, nil
+	}
+	return sortedUniqueTeams(teams), nil
 }
 
 // findRecord returns the existing record occupying rec's slot, if any.
