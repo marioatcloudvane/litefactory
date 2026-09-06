@@ -33,11 +33,11 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Team-first index schema and strict loader | L | — | Pending litefactory creation from `US-1.md` |
-| US-2 | Shared references and direct roster sources | M | US-1 | Pending litefactory creation from `US-2.md` |
-| US-3 | Post-classification private mode bundles | XL | US-1, US-2, US-4 | Pending litefactory creation from `US-3.md` |
-| US-4 | Safe legacy-index migration | M | US-1, US-2 | Pending litefactory creation from `US-4.md` |
-| US-5 | Team inspection and explicit migration CLI | M | US-1, US-2, US-4 | Pending litefactory creation from `US-5.md` |
+| US-1 | Team-first index schema and strict loader | L | — | https://github.com/marioatcloudvane/litefactory/issues/127 |
+| US-2 | Shared references and direct roster sources | M | US-1 | https://github.com/marioatcloudvane/litefactory/issues/128 |
+| US-3 | Post-classification private mode bundles | XL | US-1, US-2, US-4 | https://github.com/marioatcloudvane/litefactory/issues/129 |
+| US-4 | Safe legacy-index migration | M | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/130 |
+| US-5 | Team inspection and explicit migration CLI | M | US-1, US-2, US-4 | https://github.com/marioatcloudvane/litefactory/issues/131 |
 
 ## Out of Scope
 
