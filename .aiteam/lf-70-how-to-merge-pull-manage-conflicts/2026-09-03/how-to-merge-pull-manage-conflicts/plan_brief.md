@@ -354,8 +354,8 @@
 | US-8 | Config-governed defaults and size cap | S | — | https://github.com/marioatcloudvane/litefactory/issues/115 |
 | US-9 | Persist sync outcomes behind the internal/git boundary | M | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/116 |
 | US-10 | Guarantee a failed or refused sync leaves the branch untouched | L | US-2 | https://github.com/marioatcloudvane/litefactory/issues/117 |
-| US-11 | Suggest a resolution when a run is refused for a conflict | L | US-4, US-5, US-8, US-9 | (created on plan confirmation) |
-| US-12 | Apply a confirmed resolution and complete the merge | L | US-11, US-10 | (created on plan confirmation) |
+| US-11 | Suggest a resolution when a run is refused for a conflict | L | US-4, US-5, US-8, US-9 | https://github.com/marioatcloudvane/litefactory/issues/139 |
+| US-12 | Apply a confirmed resolution and complete the merge | L | US-11, US-10 | https://github.com/marioatcloudvane/litefactory/issues/140 |
 
 ## Out of Scope
 
