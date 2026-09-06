@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(completed 2026-09-06)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed 2026-09-06)*
 - [ ] **Implement** — code + tests *(not started)*
 - [x] **Spike** — `SPIKE.md` *(completed 2026-09-06)*
 
@@ -18,5 +18,6 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-06 — research brief completed
 - 2026-09-06 — research update: mode-specific bundles, token measurement, and Validate split analysis completed
 - 2026-09-06 — Validate and specialist-skill composition spike completed
+- 2026-09-06 — team-first, mode-aware external-agent plan completed
 
 ## Notes
