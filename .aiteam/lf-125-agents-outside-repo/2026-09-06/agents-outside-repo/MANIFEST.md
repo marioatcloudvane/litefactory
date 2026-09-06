@@ -16,5 +16,6 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-06 — session created
 - 2026-09-06 — research brief completed
+- 2026-09-06 — research update: mode-specific bundles, token measurement, and Validate split analysis completed
 
 ## Notes

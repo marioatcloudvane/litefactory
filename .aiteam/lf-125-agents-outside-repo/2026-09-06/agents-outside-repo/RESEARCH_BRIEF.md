@@ -84,3 +84,98 @@ Sources: [Codex subagents and custom agents](https://developers.openai.com/codex
 ## Recommended scope for Plan mode
 
 Plan a runner-specific instruction-source abstraction and a minimal, versioned litefactory-owned external bundle. Cover only the 13 paired specialist definitions first; preserve repository scaffolding unless behavior tests justify moving it. For Claude, compare per-mode local plugins with inline `--agents` definitions and select one after a versioned smoke test. For Codex, use external shared skills with progressive disclosure and test per-run `agents.<name>.config_file` injection. Add command-construction/unit coverage and a documented, reproducible benchmark for classifier tokens/latency. Do not frame checkout storage as a driver: it is small. Do not enable ambient user configuration merely to obtain skills, and do not widen write permissions for the shared bundle.
+
+## Research Update — run 0002
+
+### Mode stack and instruction weight
+
+[V] The human-facing workflow defines Research, Plan, Implement and Spike (`CLAUDE.md:7-15,70-97`), whereas the runtime also defines Validate and requires a permission profile for it (`internal/agent/mode.go:11-28`, `internal/config/policy.go:344-420`). Validate currently has no orchestrator, specialist roster, artifact convention or router; it is only a read-only permission profile (`internal/config/config.go:406-436`, `internal/config/policy.go:423-450`).
+
+[V] The largest individual role instructions are architect (25,898 bytes), implementation orchestrator (23,950), implementation engineer (23,074), plan orchestrator (17,875), research orchestrator (17,117), and context updater (16,906). The 13 Claude role definitions total 185,638 bytes; their 13 Codex counterparts total 188,179 bytes. No project telemetry proves their per-run prompt-token cost.
+
+| Mode | Current stack | Assessment |
+|---|---|---|
+| Research | Research orchestrator; codebase tour; optional web researcher; optional scanners | Already relatively narrow. Load only its orchestrator, tour, web researcher and scanner skills when triggered. |
+| Plan | Plan orchestrator; requirements engineer; architect; product owner | Architect-heavy but appropriately pre-coding. Load platform constraints, task decomposition and forward-looking security guidance only here. |
+| Implement | Implementation engineers; code review; environment gate; unit/integration test engineers; bug loop; drift report; app-context update | Overloaded: it contains coding, test creation, review, environment validation, reporting and durable documentation maintenance. |
+| Validate | No workflow roles; read-only profile | Suitable for independent review and verification only if they return findings rather than write artifacts. |
+
+[V] Implement’s current sequence is development, code-review gate, conditional environment setup, unit/conditional integration testing, up to two bug cycles, drift report, then context update (`.claude/agents/implement-orchestrator.md:224-419`). The implementation engineer also has analysis-only bug-root-cause and setup-only environment roles (`.claude/agents/go-implementation-engineer.md:86-104`).
+
+### Proposed responsibility split
+
+[V] The following is a research recommendation, not an implementation plan:
+
+| Stage | Keep / move | Specialist set to make available | Required authority |
+|---|---|---|---|
+| Research | Keep | Research orchestrator, codebase tour, optional web researcher; architecture/security/testing scanners only when the question requires them | Existing research profile |
+| Plan | Keep | Plan orchestrator, requirements engineer, architect, product owner; planning/platform/task-decomposition skills | Existing plan profile |
+| Implement | Reduce to code and test creation | Implementation engineer plus unit-test engineer; integration-test engineer only when real infrastructure is touched | Existing write-capable implement profile |
+| Validate | Add as a read-only workflow | Code reviewer, test verifier, environment validator, drift checker | Existing Validate profile if all results return inline and do not write artifacts |
+| Post-validate maintenance | Separate explicit maintenance/finalization stage, or grant a tightly scoped authority | App-context updater; optional report writer | Cannot run under current strictly read-only Validate profile |
+
+[V] This split has two non-negotiable consequences. First, current code review reads without changing source but writes a review artifact and routes blocking findings back to implementation (`.claude/agents/go-code-reviewer.md:20-24,147-224`, `.claude/agents/implement-orchestrator.md:253-276`). It can become Validate only if the verdict is returned to litefactory/the issue without an on-disk report, or Validate is deliberately granted a narrowly scoped session-artifact write permission. Second, the app-context updater writes durable `.aiteam` reference/rule documents (`.claude/agents/app-context-updater.md:1-11`), so it cannot honestly be called a current read-only validation action. It needs a separate maintenance stage or a changed authority contract.
+
+[V] Current test engineers write test code, so they belong in Implement when “testing” means creating coverage. A new read-only test verifier could belong in Validate when “testing” means executing and assessing existing tests. The existing integration-test specialist also instructs use of build tags, which conflicts with this repository’s no-new-build-tags/no-integration-test-name rule (`.claude/agents/go-integration-test-engineer.md:10,183-188`, `AGENTS.md:103-108`); resolve that drift before reorganizing the stack.
+
+### External, per-mode bundle sketches
+
+#### Claude Code
+
+[V] Use one self-contained, versioned local plugin directory per mode. The runner selects exactly one via `--plugin-dir`; a plugin may include `agents/` and `skills/`. Add inline `--agents` only for small generated definitions. The following is a conceptual launch shape based on documented flags:
+
+```sh
+claude -p "$PROMPT" \
+  --setting-sources project \
+  --strict-mcp-config --mcp-config /opt/litefactory/mcp/research.json \
+  --plugin-dir /opt/litefactory/claude-bundles/research
+```
+
+```text
+/opt/litefactory/claude-bundles/
+  research/agents/{research-orchestrator,codebase-tour,web-researcher}.md
+  plan/agents/{plan-orchestrator,requirements-engineer,go-architect,proxy-product-owner}.md
+  implement/agents/{implement-orchestrator,go-implementation-engineer,go-unit-test-engineer}.md
+  validate/agents/{go-code-reviewer,test-verifier,environment-validator,drift-checker}.md
+  maintenance/agents/{app-context-updater}.md
+```
+
+[V] `--plugin-dir` is session-only and can be repeated; `--agents` definitions are session-only and outrank project/user/plugin agents. `--setting-sources project` excludes user/local settings but does not establish a documented deny-list for project-discovered agents. Therefore old project agent files must be removed from project discovery paths after a behavior test, rather than assuming plugin injection excludes them. Plugin agent frontmatter ignores `hooks`, `mcpServers`, and `permissionMode`.
+
+Sources: [Claude plugins](https://code.claude.com/docs/en/plugins), [Claude subagents](https://code.claude.com/docs/en/sub-agents), [Claude settings](https://code.claude.com/docs/en/settings), [Claude CLI](https://code.claude.com/docs/en/cli-usage) (retrieved 2026-09-06).
+
+#### Codex CLI
+
+[V] Treat specialist instructions as skills where possible and place the canonical bundles outside worktrees. Codex discovers shared skills from `$HOME/.agents/skills` and `/etc/codex/skills`, follows skill-directory symlinks, exposes initially only name/description/path metadata, and reads a full skill body only on selection. A bundled layout can be:
+
+```text
+/opt/litefactory/codex-skills/
+  research/{research-orchestration,codebase-tour,web-research}/SKILL.md
+  plan/{requirements,architecture,product-breakdown}/SKILL.md
+  implement/{implementation,unit-test-authoring,integration-test-authoring}/SKILL.md
+  validate/{code-review,test-verification,environment-validation,drift-check}/SKILL.md
+  maintenance/{app-context-update}/SKILL.md
+```
+
+[V] The public documentation does not provide an arbitrary per-run skill-root flag. A mode-selected isolated discovery layout is therefore a design to validate, not a guaranteed CLI contract. A minimal worktree pointer could be a symlink such as `.agents/skills/research -> /opt/litefactory/codex-skills/research`; a more isolated option is a litefactory-owned `CODEX_HOME` with per-mode configuration. The current runner source independently identifies a litefactory-owned `CODEX_HOME` as the intended long-term solution (`internal/config/config.go:170-181`).
+
+[V] Per-run external Codex agent roles can be declared through configuration overrides, for example:
+
+```sh
+codex exec \
+  -c 'agents.reviewer.description="Independent read-only review."' \
+  -c 'agents.reviewer.config_file="/opt/litefactory/codex-agents/reviewer.toml"' \
+  "$PROMPT"
+```
+
+This needs a version-pinned smoke test, including the interaction with `--ignore-user-config` and collision behavior. Current Codex documentation confirms progressive skill disclosure and a 2%-of-context (or 8,000-character) cap for the initial skill list; it does not prove a lower total token bill, because selected skill bodies and subagent work still cost tokens.
+
+Sources: [Codex skills](https://developers.openai.com/codex/skills/), [Codex subagents](https://developers.openai.com/codex/subagents/), [Codex configuration](https://developers.openai.com/codex/config-reference/), [Codex agent loop](https://openai.com/index/unrolling-the-codex-agent-loop/) (retrieved 2026-09-06).
+
+### Token hypothesis and measurement
+
+[O] The desired optimization is token reduction from injecting only relevant specialists per mode, not disk reduction.
+
+[V] It is reasonable to expect smaller initial instruction catalogs with mode bundles. For Codex, the documented mechanism bounds all available-skill metadata but does not make it free; for Claude, official sources examined document selection mechanisms but not a comparable prompt-token accounting. Neither source establishes how much current classifier token use comes from agent discovery.
+
+[V] The decision criterion should be a controlled, version-pinned benchmark, not file byte counts. For each vendor and each mode, run the same fixed classification and work prompt with (a) current repository discovery and (b) the external mode bundle; record CLI version, effective configuration, input/output/total token usage where available, first-response latency, subagent count, task outcome, and any unexpected discovered agent. Compare median and p95 over repeated runs. A change that reduces classifier context but increases total task tokens through extra delegation is not a clear win.
