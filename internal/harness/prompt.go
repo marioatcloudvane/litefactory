@@ -85,6 +85,13 @@ const (
 	// entries that do not fit are dropped oldest-first and counted; see
 	// [selectHistory].
 	MaxHistoryBytes = 32 << 10
+	// MaxPreviousReasonBytes caps [PromptInput.PreviousReason]. The store
+	// already bounds it far below this — runner.go's reasonExcerptLength caps
+	// it at 200 bytes before it is ever written to runs.error — but that cap
+	// documents itself as bounding length, not meaning (see
+	// [writePreviousFailedNote]), so this package keeps its own independent
+	// bound rather than trusting the store's to hold forever.
+	MaxPreviousReasonBytes = 1 << 10
 )
 
 // truncationMarker is appended to text that was cut. It is a fixed literal so
@@ -326,6 +333,24 @@ type PromptInput struct {
 	// belong to the comment that triggered *this* run, so unlike History
 	// there is nothing about them the conversation has already seen.
 	Attachments string
+
+	// PreviousFailed is whether the run before this one did not genuinely
+	// succeed, and is read only on the resume path. It comes from the store's
+	// own derived success predicate on the previous run's stored row —
+	// internal/turn negates that result and hands it here already settled, the
+	// same way [PreviousMayAsk] and [PreviousMode] arrive pre-derived —
+	// because a resumed conversation's own transcript cannot be trusted to say
+	// so: the last thing claude said before a failed run ended often reads
+	// like a finished, successful report. False means there was no previous
+	// run, or the previous run genuinely succeeded, which only a cold run or a
+	// successful resume predecessor can be true of.
+	PreviousFailed bool
+
+	// PreviousReason is why the previous run failed, and is read only on the
+	// resume path alongside [PreviousFailed]. It is the previous run's own
+	// stored error reason — an abandonment, a timeout, or claude's own
+	// non-zero exit — and is empty whenever PreviousFailed is false.
+	PreviousReason string
 }
 
 // BuildPrompt assembles the prompt sent to claude on stdin.
@@ -477,6 +502,17 @@ func writeContextIntro(b *strings.Builder, in PromptInput, hasHistory bool) {
 func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
 	fmt.Fprintf(b, "- Task: %s\n", in.Ref.String())
+	// AC-9: this exact literal — "- Mode: %s\n" — is what CLAUDE.md's
+	// ## Classify section parses to decide whether a run can trust the
+	// header and skip re-classification, rather than running its own
+	// steps 1-3. That consumer lives in a markdown file outside this
+	// package's compile boundary and has no test of its own, so if the
+	// format of this line drifts (wording, casing, spacing), the header-trust
+	// behavior in CLAUDE.md can silently stop matching with nothing here to
+	// catch it (AC-10). internal/harness/prompt_test.go and
+	// internal/harness/prompt_body_test.go pin the Go string as written
+	// today, but those tests protect only this side of the contract — they
+	// do not, and cannot, protect the CLAUDE.md prose that reads it (AC-11).
 	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
 	if in.Branch != "" {
@@ -608,6 +644,24 @@ const (
 		"If your previous message ended in a question, treat the new comment as the " +
 		"answer to it. From here on, take the most reasonable reading of anything " +
 		"ambiguous, act on it, and say what you assumed in your final message."
+
+	// previousRunFailedNote is emitted on the resume path only, when
+	// [PromptInput.PreviousFailed] is true. See [writePreviousFailedNote] for
+	// why it exists and what accompanies it.
+	//
+	// It is written in litefactory's own voice, not the model's, on purpose:
+	// the last thing a failed run said before it ended often reads like a
+	// finished, successful report (that is exactly why PreviousFailed cannot
+	// be derived from the transcript — see the field's own doc comment), so a
+	// resumed conversation that trusted its own prior turn would open its next
+	// report re-announcing work that never landed. Naming the failure here,
+	// as a fact stated by litefactory rather than by the run's own history,
+	// is what breaks that loop before the model ever gets to it.
+	previousRunFailedNote = "The run before this one did not complete successfully. Do not " +
+		"repeat anything it reported as done as an accomplishment of this run: treat every " +
+		"one of its claims as unverified until you have checked the current state of the " +
+		"worktree and the target repository yourself. Your own report should describe only " +
+		"what this run verifiably did."
 )
 
 // writeResumeHeader writes the header of a run that is continuing a
@@ -620,8 +674,26 @@ const (
 // Everything else the first prompt said is still in the transcript.
 func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	fmt.Fprintf(b, "# litefactory run %s of %s\n\n", ordinal, in.Ref.String())
+	// AC-9/AC-10: same literal as writeHeader above, restated here because the
+	// mode can change between runs. CLAUDE.md's ## Classify section parses
+	// this "- Mode: %s\n" line on the resume path exactly as it does on the
+	// first prompt, to decide whether to trust the header instead of
+	// re-classifying. See writeHeader's comment for the mechanism and what a
+	// format drift breaks; no test here protects the CLAUDE.md side either
+	// (AC-11) — only the Go string is pinned.
 	fmt.Fprintf(b, "- Mode: %s\n", strings.TrimSpace(in.Mode))
 	fmt.Fprintf(b, "- Feature slug: %s\n", in.FeatureSlug)
+
+	// AC-5.1/AC-5.2: stated right after the run's own identifying lines and
+	// before the infer-guidance and asking-permission blocks below, so it is
+	// the first thing a resumed, previously-failed run is told about its own
+	// history. This is the only insertion point that leaves both of those
+	// blocks byte-for-byte unchanged when the predecessor succeeded — nothing
+	// is written at all when PreviousFailed is false, which is the normal
+	// case and the one AC-5.3 pins.
+	if in.PreviousFailed {
+		writePreviousFailedNote(b, in.PreviousReason)
+	}
 
 	// A conversation that began under a named command has never been told what
 	// inferring a mode means, so a run that switches to it has to be told now.
@@ -660,6 +732,38 @@ func writeResumeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 		b.WriteString(askingRevokedRule)
 	}
 	b.WriteString("\n")
+}
+
+// writePreviousFailedNote emits [previousRunFailedNote] and, when the
+// previous run recorded why it failed, the reason itself — framed as
+// untrusted third-party material rather than interpolated as litefactory's
+// own words.
+//
+// runs.error reaching this prompt is the one genuinely new cross-run data
+// flow this feature adds, and on one classification path it is agent-authored
+// text: [excerpt] in runner.go, which produces it, documents itself as
+// bounding length and newlines, not meaning. Nothing here trusts it not to
+// contain "</note>", a forged "- Mode:" line or a forged "# litefactory run"
+// heading. Routing it through [note] — which neutralises note tags via
+// [neutraliseNoteTags] and caps via [capText] before framing it — is what
+// keeps a hostile reason confined to its own element instead of reaching the
+// header as structure.
+//
+// An empty reason omits the second paragraph entirely rather than rendering
+// an empty note: [PromptInput.PreviousReason]'s own doc comment says it is
+// empty whenever the underlying store row carries no error text, and a note
+// framing nothing would only invite a reader to wonder what was cut.
+func writePreviousFailedNote(b *strings.Builder, reason string) {
+	b.WriteString("\n")
+	b.WriteString(previousRunFailedNote)
+	b.WriteString("\n")
+	if reason = strings.TrimSpace(reason); reason != "" {
+		b.WriteString("\n")
+		b.WriteString(note(
+			"the previous run's own recorded reason for the failure, quoted for reference only",
+			capText(reason, MaxPreviousReasonBytes),
+		))
+	}
 }
 
 // writeInferGuidance tells a run that named no command that choosing what kind

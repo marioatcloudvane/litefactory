@@ -255,15 +255,18 @@ func TestABusySessionIsRediscoveredAfterListingOverlapWithoutAnUpdatedAtChange(t
 		t.Errorf("watermark = %d, want %d: the busy session's run finished and was reported",
 			got, busyComment)
 	}
-	if session := f.sessionOf(testIssue); session.NeedsPoll {
-		t.Error("needs_poll is still set after a clean drain; it should have been cleared")
+	if session := f.sessionOf(testIssue); !session.NeedsPoll {
+		t.Error("needs_poll is clear before the one-shot mode label has been refreshed")
 	}
 
 	// And, for completeness: once free, discovery finds nothing left to do —
 	// the session was never lost, and nothing runs it a second time.
 	final := f.settle()
-	if final.Dispatched != 0 {
-		t.Errorf("final tick dispatched %d turns, want 0: nothing is left to run", final.Dispatched)
+	if final.Dispatched != 1 {
+		t.Errorf("final tick dispatched %d turns, want 1 backlog refresh", final.Dispatched)
+	}
+	if again := f.settle(); again.Dispatched != 0 {
+		t.Errorf("post-refresh tick dispatched %d turns", again.Dispatched)
 	}
 	if got := f.turns.triggers(); !slices.Equal(got, []int64{busyComment}) {
 		t.Errorf("turns ran for %v after the final tick, want still [%d]: no double-processing",

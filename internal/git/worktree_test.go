@@ -855,6 +855,9 @@ func TestZeroWorktreeRefusesEveryMutatingMethod(t *testing.T) {
 	if err := worktree.Push(t.Context(), git.DefaultRemote); !errors.Is(err, git.ErrUninitialized) {
 		t.Errorf("zero Worktree.Push error = %v, want ErrUninitialized", err)
 	}
+	if _, err := worktree.MergeBase(t.Context(), "origin/main", git.MergeOptions{Author: testAuthor}); !errors.Is(err, git.ErrUninitialized) {
+		t.Errorf("zero Worktree.MergeBase error = %v, want ErrUninitialized", err)
+	}
 	if got := worktree.Branch(); got != "" {
 		t.Errorf("zero Worktree.Branch() = %q, want empty", got)
 	}

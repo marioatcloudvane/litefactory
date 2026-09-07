@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/schedule"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -93,6 +94,12 @@ type TickResult struct {
 	// order, by the next tick.
 	Deferred int
 
+	// Scheduled is the number of outstanding pending schedule rows after this
+	// tick's dispatch decision. It is distinct from Deferred: deferred work is
+	// ordinary session work that missed current capacity, while scheduled work
+	// is durable future work that has not reached a terminal state.
+	Scheduled int
+
 	// Cursor is the poll cursor as it stands after the tick. A failed tick
 	// leaves it as it was found, which is what makes the next one redo the work
 	// (AC-2.13).
@@ -127,6 +134,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
+	// Proposals are advice, not work. Expiring them on the tick clock keeps a
+	// stale approval from becoming actionable after a daemon restart without
+	// adding a timer or a background worker.
+	if _, err := d.db.ExpireScheduleProposals(ctx, startedAt.Add(-proposalLifetime), startedAt); err != nil {
+		return TickResult{StartedAt: startedAt}, fmt.Errorf("expire schedule proposals: %w", err)
+	}
+
 	// AC-2.9: the very first tick ever plants the cursor at now rather than at
 	// the beginning of history, so registering a busy repository does not
 	// replay years of issues. Doing it in the store, conditionally, keeps the
@@ -155,8 +169,21 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// discovery finished. The bound on a worker is not this context but the
 	// deadline on every call it makes (git, claude, the forge), and shutdown
 	// reaches it because cancelling *this* context cancels all of them at once.
+	reposByID := make(map[int64]store.Repo, len(repos))
+	for _, repo := range repos {
+		reposByID[repo.ID] = repo
+	}
+	if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, err
+	}
 	d.dispatch(ctx, queues, startedAt, &result)
 	result.InFlight = d.inflight.size()
+	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
+	if err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, fmt.Errorf("count outstanding scheduled work: %w", err)
+	}
 
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
@@ -180,6 +207,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		slog.Int("dispatched", result.Dispatched),
 		slog.Int("in_flight", result.InFlight),
 		slog.Int("deferred_sessions", result.Deferred),
+		slog.Int("scheduled", result.Scheduled),
 		slog.Time("cursor", startedAt.UTC()),
 		slog.String("duration", result.Duration.String()))
 	return result, nil
@@ -1317,11 +1345,97 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	// a cosmetic loss, and refusing the turn over one would be a real one.
 	d.acknowledge(ctx, t, c.ID)
 
+	if command.Kind == turn.KindSchedule {
+		return d.handleSchedule(ctx, t, c, command, log)
+	}
+
+	if command.Kind == turn.KindConfirm {
+		return d.handleConfirm(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
 	}
 	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login}
 	return d.run(ctx, t, trigger, command, log)
+}
+
+// handleSchedule accepts direct factory scheduling controls. A schedule is
+// saved before its acknowledgement is posted, but its source comment is not
+// consumed until that post succeeds; replay therefore reuses the stored row
+// instead of creating a second unit of work.
+func (d *Daemon) handleSchedule(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	command turn.Command,
+	log *slog.Logger,
+) error {
+	request, err := schedule.Parse(command.Text, t.tickAt, time.Local)
+	if err != nil {
+		return d.replySchedule(ctx, t, c, report.ReplyScheduleInvalid, report.ScheduleReply{}, log)
+	}
+	if request.Kind != schedule.KindDirect {
+		return d.handleProposalControl(ctx, t, c, request, log)
+	}
+
+	stored, _, err := d.db.CreateOrGetSchedule(ctx, store.CreateScheduleParams{
+		SessionID:       t.session.ID,
+		SourceCommentID: c.ID,
+		OwnerHandle:     c.Author.Login,
+		Payload:         request.Payload,
+		DueAt:           request.DueAt,
+		Delay:           request.Delay,
+		PrerequisiteIDs: request.After,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not save the schedule", err)
+	}
+
+	outstanding, err := d.db.CountPendingSchedules(ctx)
+	if err != nil {
+		return d.leave(ctx, t, log, "could not count scheduled work", err)
+	}
+
+	reply := report.ScheduleReply{
+		ID:          stored.ID,
+		DueAt:       stored.DueAt,
+		Delay:       stored.Delay,
+		After:       append([]int64(nil), request.After...),
+		Outstanding: outstanding,
+	}
+	return d.replySchedule(ctx, t, c, report.ReplyScheduleConfirmed, reply, log)
+}
+
+// replySchedule posts and only then consumes a factory scheduling response.
+// It uses the ordinary Reporter path so scheduling obeys the same post-before-
+// consume guarantee as every other reply.
+func (d *Daemon) replySchedule(
+	ctx context.Context,
+	t *task,
+	c github.Comment,
+	kind report.ReplyKind,
+	scheduled report.ScheduleReply,
+	log *slog.Logger,
+) error {
+	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		Ref:          t.ref,
+		SessionID:    t.session.ID,
+		CommentID:    c.ID,
+		ScheduleKind: kind,
+		Schedule:     scheduled,
+	})
+	if err != nil {
+		return d.leave(ctx, t, log, "could not reply to /schedule", d.orphaned(ctx, log, posted, err))
+	}
+	if !posted.Skipped {
+		log.InfoContext(ctx, "handled a factory scheduling control",
+			slog.String("reply", kind.String()),
+			slog.Int64("schedule_id", scheduled.ID),
+			slog.Int("scheduled", scheduled.Outstanding),
+			slog.Int64("reply_comment_id", posted.CommentID))
+	}
+	return nil
 }
 
 // acknowledge adds the 👀 reaction to a comment litefactory is about to act on
@@ -1448,12 +1562,8 @@ func (d *Daemon) run(
 			return err
 		}
 	}
-	// The agent-selection label is resolved first, before the tool-profile
-	// ladder and before anything is locked, fetched or written. This is stage
-	// 1 of the four-stage refusal precedence: when it refuses, the tools
-	// ladder below is never reached in this tick, because a run whose
-	// coding-agent tool cannot be determined has nothing for a tool surface
-	// to apply to.
+	// Resolve the agent-selection label before checking for an obsolete
+	// permission label and before anything is locked, fetched, or written.
 	agentChoice := d.resolveAgent(t.issue.Labels)
 	if agentChoice.refused() {
 		return d.refuseAgent(ctx, t, trigger, agentChoice, log)
@@ -1466,51 +1576,38 @@ func (d *Daemon) run(
 		selectedAgent = string(d.defaultAgent)
 	}
 
-	// The tool profile is resolved here, before anything is locked, fetched or
-	// written: a refusal has to be run-less (AC-3.7), and by the time
-	// [turn.Execute] has prepared a turn there is a worktree and a runs row to
-	// account for. The labels are this tick's snapshot, so two comments drained
-	// in one tick share it — which is exactly why the run report carries the
-	// tool surface it used.
-	tools := d.resolveTools(t.issue.Labels)
-	if tools.refused() {
-		return d.refuseTools(ctx, t, trigger, tools, log)
-	}
-	if tools.Profile != "" {
-		log = log.With(slog.String("tool_profile", tools.Profile))
-		// Logged before the turn starts and with the ceiling beside it, because
-		// this is the only record of which boundary was in force at the moment
-		// the label was read: the labels are a per-tick snapshot, and a run that
-		// then hangs for two hours would otherwise leave nothing behind saying
-		// what it was granted.
-		log.InfoContext(ctx, "a label selected a tool profile for this run",
-			slog.Any("tools", tools.Tools),
-			slog.Any("allowed_tools", tools.AllowedTools),
-			slog.Any("tool_ceiling", d.toolCeiling))
+	// Permission labels are obsolete and always refuse. Detection folds case,
+	// and no label value crosses this boundary into logs or replies.
+	if legacyToolsLabel(t.issue.Labels) {
+		return d.refuseTools(ctx, t, trigger,
+			toolDecision{Refusal: report.ReplyLegacyToolLabel}, log)
 	}
 
-	// Stage 3 of the four-stage refusal precedence (T-7.2): a resolved
-	// profile is narrowed to the agent this run actually addresses, and an
-	// agent this profile carries no stanza for refuses the run rather than
-	// falling back to another stanza or to that agent's own default surface.
-	// This runs after stage 1 (agentChoice, above) has already settled which
-	// agent that is — no label at all means the configured default agent,
-	// [store.AgentClaude] today, the same way an absent "Tools: " label
-	// means the configured default tool surface.
-	// attachmentsAllowed is the US-5 permission gate: a resolved "Tools:
-	// <Profile>" label present AND that profile's attachments key true.
-	// Computed here, in the same narrowing stage that resolves ToolProfile
-	// above, and deliberately not inside resolveTools, which stays a pure
-	// label-to-profile-key ladder with no side effects (T-5.5). No label at
-	// all (tools.Resolved == nil) is false, the same off-by-default outcome
-	// as an absent "Tools: " label means for the tool surface itself.
-	attachmentsAllowed := tools.Resolved != nil && tools.Resolved.Attachments
+	// Select permissions only after both the concrete mode and effective agent
+	// are known. A missing entry is an invariant violation, never a reason to
+	// fall back to a potentially broader agent-global surface.
+	tools, ok := d.resolveTools(mode, agent.Kind(selectedAgent))
+	if !ok {
+		return d.leave(ctx, t, log, "could not select permissions for the resolved mode and agent",
+			fmt.Errorf("no permission profile for mode %q and agent %q", mode, selectedAgent))
+	}
+	// The ingestion permission is resolved with the rest of the mode profile.
+	attachmentsAllowed := tools.Attachments
+	log = log.With(slog.String("tool_profile", tools.Profile))
+	log.InfoContext(ctx, "selected the mode permission profile for this run",
+		slog.Any("tools", tools.Tools),
+		slog.Any("allowed_tools", tools.AllowedTools),
+		slog.String("codex_sandbox", tools.Sandbox),
+		slog.Any("tool_ceiling", d.toolCeiling))
 
-	if tools.Resolved != nil {
-		effectiveAgent := selectedAgent
-		if !tools.Resolved.HasStanzaFor(effectiveAgent) {
-			return d.refuseProfileForAgent(ctx, t, trigger, tools.Profile, effectiveAgent, log)
-		}
+	// "Sync:" is a per-issue escape hatch, not a gate on this turn: a
+	// malformed, miscased, or duplicated label leaves syncOverride nil so
+	// the configured automatic-sync default applies, same as silence — it
+	// never blocks the run the way a refused agent or mode label does.
+	var syncOverride *bool
+	if syncChoice := resolveSync(t.issue.Labels); syncChoice.Resolved {
+		value := syncChoice.Value
+		syncOverride = &value
 	}
 
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
@@ -1528,20 +1625,15 @@ func (d *Daemon) run(
 		},
 		Trigger: trigger,
 		Command: command,
-		// Already copies of the operator's configuration, and the only strings
-		// in this request that reach the child's argv. The label chose which
-		// profile; it contributes nothing else (C2).
-		Tools:        tools.Tools,
-		AllowedTools: tools.AllowedTools,
-		ToolProfile:  tools.Profile,
-		Agent:        agent.Kind(selectedAgent),
-		CodexSandbox: func() string {
-			if tools.Resolved != nil && tools.Resolved.Codex != nil {
-				return tools.Resolved.Codex.Sandbox
-			}
-			return ""
-		}(),
+		// Copies of the mode-selected operator configuration. No forge label
+		// contributes permission data to this request.
+		Tools:              append([]string(nil), tools.Tools...),
+		AllowedTools:       append([]string(nil), tools.AllowedTools...),
+		ToolProfile:        tools.Profile,
+		Agent:              agent.Kind(selectedAgent),
+		CodexSandbox:       tools.Sandbox,
 		AttachmentsAllowed: attachmentsAllowed,
+		SyncOverride:       syncOverride,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
@@ -1594,11 +1686,8 @@ func (d *Daemon) run(
 	return nil
 }
 
-// refuseTools answers a "Tools: <Profile>" label that could not be resolved
-// into a profile: unknown, malformed, ambiguous, or named on a daemon that
-// has no profiles configured at all. It also answers the legacy
-// lf:tools=<profile> syntax (US-2), which [Daemon.resolveTools] refuses
-// before it ever reaches the "Tools: " ladder — see [legacyToolLabelPrefix].
+// refuseTools answers any obsolete lf:tools= label. The label's value is not
+// carried into this function, so neither logs nor replies can echo it.
 //
 // Nothing runs. That is the point: a label is a permission request, and every
 // way of failing to understand one has the same safe answer, which is to
@@ -1632,19 +1721,10 @@ func (d *Daemon) refuseTools(
 	log *slog.Logger,
 ) error {
 	log = log.With(slog.String("tools_refusal", decision.Refusal.String()))
-	if decision.MiscasedPrefix {
-		// The label was seen because detection folds case and refused because
-		// acceptance does not (D-6). Worth a line, because the reply describes
-		// the rule for profile *names* and cannot say that it was the prefix
-		// that was wrong — and because "my label did nothing" is the complaint
-		// this feature must never produce. The label text itself is not logged,
-		// for the same reason it is not echoed onto the thread (S-9).
-		log = log.With(slog.Bool("miscased_tool_label_prefix", true))
-	}
 
 	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its tool-profile label does not "+
-			"resolve to a configured tool profile. Nothing was run and no comment was posted, "+
+		log.InfoContext(ctx, "refusing to run the issue body: it carries an obsolete lf:tools= label. "+
+			"Nothing was run and no comment was posted, "+
 			"because there is no comment to answer; the next comment on this issue is refused "+
 			"on the thread")
 		return nil
@@ -1655,75 +1735,13 @@ func (d *Daemon) refuseTools(
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
 		Refusal:   decision.Refusal,
-		// Empty for every refusal but the unknown one, which is the only refusal
-		// that may name what it was asked for. internal/report re-checks it
-		// before rendering (S-8).
-		Profile: decision.Profile,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "could not refuse the tool profile this issue asks for",
 			d.orphaned(ctx, log, posted, err))
 	}
 	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the tool-profile label on this issue does not "+
-			"resolve to a configured tool profile",
-			slog.Int64("reply_comment_id", posted.CommentID))
-	}
-	return nil
-}
-
-// refuseProfileForAgent answers a resolved "Tools: <Profile>" label that
-// carries no stanza for the agent this run would otherwise use — stage 3 of the
-// four-stage refusal precedence (T-7.2). A profile with a stanza for one
-// agent and none for another is not treated as "fall back to that agent's
-// own default surface": the whole point of a profile is the operator's
-// explicit boundary, and a run this daemon cannot resolve a surface for is
-// refused rather than widened (AC-7.1).
-//
-// Its shape mirrors [Daemon.refuseTools] and [Daemon.refuseAgent] exactly,
-// including the issue-body path posting nothing, for the same reasons
-// documented on those two.
-func (d *Daemon) refuseProfileForAgent(
-	ctx context.Context,
-	t *task,
-	trigger turn.Trigger,
-	profile string,
-	agentName string,
-	log *slog.Logger,
-) error {
-	log = log.With(
-		slog.String("profile_agent_refusal", report.ReplyProfileNotAvailableForAgent.String()),
-		slog.String("profile", profile),
-		slog.String("agent", agentName))
-
-	if trigger.CommentID == 0 {
-		log.InfoContext(ctx, "refusing to run the issue body: its resolved tool profile has no "+
-			"stanza for this run's coding-agent tool. Nothing was run and no comment was posted, "+
-			"because there is no comment to answer; the next comment on this issue is refused "+
-			"on the thread")
-		return nil
-	}
-
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
-		Ref:       t.ref,
-		SessionID: t.session.ID,
-		CommentID: trigger.CommentID,
-		Refusal:   report.ReplyProfileNotAvailableForAgent,
-		// Both safe to name: Profile already passed toolProfileName before
-		// [Daemon.resolveTools] resolved it, and Agent is either the
-		// configured default (never label text) or a value that already
-		// passed agentKindName in [Daemon.resolveAgent]. internal/report
-		// re-checks both before rendering (S-8).
-		Profile: profile,
-		Agent:   agentName,
-	})
-	if err != nil {
-		return d.leave(ctx, t, log, "could not refuse the tool profile for this run's coding-agent tool",
-			d.orphaned(ctx, log, posted, err))
-	}
-	if !posted.Skipped {
-		log.InfoContext(ctx, "refused a run: the resolved tool profile has no stanza for "+
-			"this run's coding-agent tool",
+		log.InfoContext(ctx, "refused a run: the issue carries an obsolete lf:tools= label",
 			slog.Int64("reply_comment_id", posted.CommentID))
 	}
 	return nil
@@ -1733,12 +1751,10 @@ func (d *Daemon) refuseProfileForAgent(
 // coding-agent tool: unknown, malformed, ambiguous, or named on a daemon
 // with no implementation of it running at all.
 //
-// It is stage 1 of the four-stage refusal precedence, and it is checked
-// before [Daemon.refuseTools] is ever reached for the same tick, per the
-// plan brief: an lf:agent= refusal is reported and the tools ladder is never
-// evaluated. Everything else about its shape mirrors [Daemon.refuseTools]
-// exactly, including the issue-body path posting nothing, for the same
-// reasons documented there.
+// It is checked before [Daemon.refuseTools] for the same tick: an agent
+// refusal is reported without inspecting or echoing any obsolete permission
+// label payload. Everything else about its shape mirrors [Daemon.refuseTools],
+// including the issue-body path posting nothing.
 func (d *Daemon) refuseAgent(
 	ctx context.Context,
 	t *task,

@@ -198,6 +198,7 @@ func TestResumedRunReEmitsGuidanceWhenTheModeChanges(t *testing.T) {
 			req := f.request()
 			req.Trigger.Body = "have another look at the health endpoint please"
 			req.Command = ParseCommand(req.Trigger.Body)
+			req.Mode = ""
 			f.execute(req)
 
 			if got := runner.requests[0].Mode; got != harness.InferMode {

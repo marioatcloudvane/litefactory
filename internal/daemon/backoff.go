@@ -31,7 +31,8 @@ const MaxBackoff = time.Hour
 // handle on anything running, and none may be added — a rate limit met while
 // turns are in flight must not cancel their contexts or kill their claude
 // processes. What it does instead is refuse *new* dispatch, at the two points
-// [Daemon.Tick] and [Daemon.offer] check [backoff.hold] (AC-PAR-4.4). A run
+// [Daemon.Tick], [Daemon.offer], and [Daemon.offerSchedule] check
+// [backoff.hold] (AC-PAR-4.4). A run
 // that is already past the forge's refusal has work in a worktree that a
 // cancellation would throw away, and it will finish or fail on its own.
 //

@@ -32,6 +32,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -45,70 +46,128 @@ import (
 // written zero value (poll_interval_seconds: 0) is distinguishable from an
 // absent key and is rejected instead of silently replaced.
 type Config struct {
-	// DefaultAgent selects the configured coding-agent implementation used
-	// when an issue has no Coding Agent label and for mode classification.
-	DefaultAgent string `yaml:"default_agent"`
-	// PollIntervalSeconds is the daemon's tick interval. Clamped to 10..60
-	// (D-C, superseding the 10..300 in the original spec); out of range is a
-	// startup error, never a silent clamp (AC-2.7).
-	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
-	// MaxConcurrentRuns is how many claude runs the daemon may have in flight
-	// at the same instant. It is one daemon-wide number shared by every
-	// registered repository, not a per-repo budget (D2). Clamped to 1..16; out
-	// of range is a startup error, never a silent clamp, and an explicitly
-	// written zero is refused rather than read as "unlimited" (AC-PAR-6.1).
-	//
-	// The default of 3 is a conservative placeholder and NOT a measurement:
-	// the machine-sizing probe (P5, "max_concurrent_runs default on real
-	// hardware") was never run, and the spike says so. Nobody should quote 3
-	// as evidence. It is a config.yaml key rather than a Go constant precisely
-	// so that revising it once someone has measured real hardware is an
-	// operator edit instead of a code change — which is also what distinguishes
-	// it from CursorLookback (AC-FC-2.6), a constant because it is a value no
-	// operator should have to choose. This one is machine-shaped, so the
-	// operator must.
-	MaxConcurrentRuns int `yaml:"max_concurrent_runs"`
-	// DefaultBaseBranch is the fallback used by `repo add` when --base is
-	// omitted and the remote HEAD cannot be determined. Empty is valid.
-	DefaultBaseBranch string `yaml:"default_base_branch"`
-	// FeaturePrefix is the first segment of a task branch,
-	// <prefix>/<issue>-<slug>.
-	FeaturePrefix string `yaml:"feature_prefix"`
-	// WorktreeRoot globally overrides the per-repo sibling default of S-6.
-	// Empty means "use the sibling default". Must be absolute when set.
-	WorktreeRoot string `yaml:"worktree_root"`
-	// WorktreeRetainDays is recorded for the future sweep. It is read and
-	// validated at M0 and nothing acts on it (D-5, AC-3.26).
-	WorktreeRetainDays int `yaml:"worktree_retain_days"`
-	// LogLevel is the minimum level both log sinks emit: debug, info, warn or
-	// error.
-	LogLevel string `yaml:"log_level"`
+	Settings Settings `yaml:"settings"`
 
-	GitHub GitHub `yaml:"github"`
-	// Claude is the deprecated top-level home for Claude's configuration.
-	// [Agents.Claude] is its reserved successor; writing both at once is a
-	// startup error (AC-7.9) rather than either silently winning.
-	Claude Claude `yaml:"claude"`
+	Providers Providers `yaml:"providers"`
 	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
 	Tiers Tiers `yaml:"tiers"`
 	// Agents is the vendor-scoped counterpart to the deprecated top-level
 	// Claude above. See [Agents].
-	Agents Agents `yaml:"agents"`
+	Agents       Agents       `yaml:"agents"`
+	ToolProfiles ToolProfiles `yaml:"tool_profiles"`
+	agentOrder   []Kind
 }
 
-// Agents groups configuration for coding-agent-tool implementations under a
-// vendor-scoped key, alongside the deprecated top-level [Config.Claude].
+// AgentOrder returns configured coding agents in YAML declaration order. The
+// copy keeps loaded configuration immutable at package boundaries.
+func (c *Config) AgentOrder() []Kind { return append([]Kind(nil), c.agentOrder...) }
+
+// DefaultAgent returns the first configured coding agent. Validation rejects
+// the false case before daemon startup.
+func (c *Config) DefaultAgent() (Kind, bool) {
+	if len(c.agentOrder) == 0 {
+		return "", false
+	}
+	return c.agentOrder[0], true
+}
+
+// Providers groups source-control provider configuration. GitHub is the only
+// provider litefactory implements today; keeping its concrete shape here makes
+// room in the YAML hierarchy without introducing a premature provider API.
+type Providers struct {
+	GitHub GitHub `yaml:"github"`
+}
+
+// Settings groups daemon-wide scheduling, repository and logging controls.
+// Keeping these values in config, rather than introducing a settings service,
+// preserves the existing immutable configuration flow to runtime consumers.
+type Settings struct {
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch   string `yaml:"default_base_branch"`
+	FeaturePrefix       string `yaml:"feature_prefix"`
+	WorktreeRoot        string `yaml:"worktree_root"`
+	// TeamConfig is the static-path override for the team index (US-2 tier
+	// 2): when set, litefactory reads its team index and markdown tree from
+	// this path instead of the embedded default, and the embedded default is
+	// not consulted at all. Empty means "use the embedded default, unless a
+	// registered-repo override applies". Must be absolute when set. A
+	// configured-but-missing path is a hard startup error, never a silent
+	// fallback to the embedded default (US-2 AC-3).
+	TeamConfig                 string `yaml:"team_config"`
+	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
+	LogLevel                   string `yaml:"log_level"`
+	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
+	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
+	AttachmentMaxTotalBytes    int64  `yaml:"attachment_max_total_bytes"`
+	AttachmentMaxCount         int    `yaml:"attachment_max_count"`
+
+	// AutoSyncBase controls whether a later story's auto-sync step runs at
+	// all. Defaults to true: staying behind the base branch quietly, without
+	// anyone noticing, is the failure mode the sync feature exists to
+	// prevent (US-8). This field is read by that later story's syncBase
+	// function; this package only loads and validates it.
+	AutoSyncBase bool `yaml:"auto_sync_base"`
+	// AutoSyncMaxBehind bounds how many commits behind its base branch a
+	// worktree may be before litefactory refuses the run on distance alone,
+	// rather than attempting the merge (US-8).
+	//
+	// Exceeding it refuses; it does not skip. Skipping was the original
+	// behaviour and was the worst of the three answers available: it neither
+	// brought the branch up to date nor stopped, so the run went ahead
+	// against a branch known to be stale — the failure [AutoSyncBase] exists
+	// to prevent — and distance makes that more dangerous, not less.
+	// Turning auto-sync off is still a skip, because an operator who turned
+	// it off asked for the run to go ahead.
+	//
+	// 0 means no cap: auto-sync is never skipped for being far behind.
+	// A negative value is a config load error, enforced in [Config.Validate]
+	// — it is never silently clamped to 0 or to [DefaultAutoSyncMaxBehind]
+	// (CFG-6).
+	//
+	// The default of 100 is a judgment call, not a measurement: no data set
+	// determined it, and none should be assumed from it. It exists to be
+	// tuned per repository by an operator who knows their own rate of
+	// change, not to be quoted as an evidence-based threshold. 0 is a
+	// reasonable choice for a repository that would rather always merge and
+	// let a real conflict be the only thing that stops a run.
+	AutoSyncMaxBehind int `yaml:"auto_sync_max_behind"`
+	// BlockRunOnConflict controls whether a merge conflict hit during
+	// auto-sync blocks the run rather than letting it proceed against a
+	// stale base. Defaults to true: guessing wrong about a conflict is worse
+	// than stopping and asking (US-8).
+	BlockRunOnConflict bool `yaml:"block_run_on_conflict"`
+
+	// SuggestConflictResolution controls whether a blocked run (US-4) also
+	// asks a tool-free model call to suggest how the conflict could be
+	// resolved, persists the suggestion, and posts it alongside the refusal
+	// (US-11).
+	//
+	// Defaults to false. This is the first place in litefactory where
+	// repository file content leaves the process and reaches a model, and
+	// turning it on is a decision for a human reviewer after a dedicated
+	// security sign-off — not something a fresh install opts into by
+	// running `litefactory init`.
+	SuggestConflictResolution bool `yaml:"suggest_conflict_resolution"`
+	// ConflictProposalTTLHours bounds how long a conflict-resolution
+	// proposal stays pending before a later one for the same session treats
+	// it as stale and expires it (US-11), mirroring the schedule proposal
+	// lifetime internal/daemon already applies to its own proposals.
+	ConflictProposalTTLHours int `yaml:"conflict_proposal_ttl_hours"`
+	// ConflictContentMaxBytes caps the total conflicting file content sent
+	// to the model across every conflicting file in one blocked merge
+	// (US-11, S-9, S-17). Per-file and total capping is internal/turn's
+	// job; this is the total ceiling it caps against — negative or zero is
+	// a config load error, never silently treated as "no cap": unlike
+	// [Settings.AutoSyncMaxBehind], there is no meaningful "unlimited"
+	// reading for content sent to an external model call.
+	ConflictContentMaxBytes int `yaml:"conflict_content_max_bytes"`
+}
+
+// Agents groups the fully typed configuration for every supported coding
+// agent. A nil entry means that agent is not configured.
 type Agents struct {
-	// Claude is reserved for a future migration off the deprecated top-level
-	// claude: key — nothing in this package reads its contents, and it is
-	// deliberately untyped (rather than *[Claude]) so that giving it a real
-	// shape does not imply this story validates or acts on what is written
-	// there, which it does not. It exists as a field at all for two reasons:
-	// so a config file that writes agents.claude: decodes instead of
-	// failing strict decoding as an unknown key, and so its mere presence
-	// can be checked against the top-level key for the AC-7.9 conflict rule
-	// ([Decode] refuses eagerly when both are written).
-	Claude any `yaml:"claude"`
+	Claude *Claude `yaml:"claude"`
 
 	// Codex configures the Codex coding-agent tool. Absent (nil) leaves
 	// Codex entirely unconfigured: unlike [Claude], there is no built-in
@@ -126,23 +185,8 @@ type Codex struct {
 	// Binary is the codex executable, resolved the same way [Claude.Binary]
 	// is (SD-7): a launchd-started daemon needs an absolute path.
 	Binary string `yaml:"binary"`
-	// Model is passed explicitly when set, independent of personal config.
-	Model string `yaml:"model"`
-	// ModelTier optionally resolves Model through tiers.model_by_tier.codex.
+	// ModelTier selects the concrete model through tiers.model_by_tier.codex.
 	ModelTier Tier `yaml:"model_tier"`
-
-	// DefaultSandbox is the sandbox mode a run uses when no "Tools: <Profile>"
-	// label resolved a profile carrying a codex: stanza (AC-7.7). It is required
-	// whenever agents.codex is configured at all: a configured Codex with
-	// no default is a startup error (AC-7.8), because unlike
-	// claude.tool_ceiling there is nothing to default it from — a run has
-	// exactly one sandbox mode, not a surface to narrow.
-	//
-	// BLOCKED-BY-US-1 (T-7.3): a plain string rather than a typed enum,
-	// because Codex's accepted sandbox values were never measured. This
-	// package validates only that it is non-empty, never that it is one of
-	// Codex's real values — see [validateCodex].
-	DefaultSandbox string `yaml:"default_sandbox"`
 
 	// TimeoutSeconds is the hard wall-clock kill for one Codex run, bounded
 	// the same way [Claude.TimeoutSeconds] is (T-7.1). There is no
@@ -251,43 +295,15 @@ type Keychain struct {
 //     (a bare Bash or Bash(*) entry is rejected, AC-3.15) because a narrow
 //     allow-list is worth having even when it is not load-bearing.
 //
-// # The two optional keys
-//
-// ToolCeiling and ToolProfiles are both optional and both absent on a fresh
-// install, which leaves the surface above as the only one litefactory can
-// ever use. ToolProfiles names alternative surfaces an issue label may select;
-// ToolCeiling is the hard upper bound every one of them is checked against at
-// startup. The ceiling, not the label, is the boundary: anyone who can label
-// an issue can select any profile, so a profile is only ever as safe as the
-// ceiling it sits under.
+// ToolCeiling is the hard upper bound every Claude stanza in the top-level
+// permission matrix is checked against at startup.
 type Claude struct {
 	// Binary is the claude executable. A launchd-started daemon has
 	// PATH=/usr/bin:/bin:/usr/sbin:/sbin and will not find a Homebrew
 	// install, so this should be an absolute path in any real deployment
 	// (SD-7). See [Claude.ResolveBinary].
 	Binary string `yaml:"binary"`
-	// Model is the --model the run's top-level session uses. It sets the
-	// session's model and nothing else: a sub-agent whose definition carries
-	// its own `model:` frontmatter still runs on that one, so a cheap session
-	// model does not drag the orchestrators down with it.
-	//
-	// It defaults to [DefaultClaudeModel] because the top-level session is a
-	// router — it classifies the request, sets up the session and hands off —
-	// and routing does not need the strongest model. The work happens in
-	// sub-agents that name their own.
-	//
-	// Empty means the default, not "omit the flag". litefactory always passes
-	// --model, so the model a run used is a property of its argv rather than
-	// of whatever the claude CLI happened to default to that week.
-	Model string `yaml:"model"`
-	// ModelTier optionally selects --model by vendor-neutral capability tier
-	// (flagship, balanced or fast) instead of the literal Model above: when
-	// set, it is resolved through [Config.Tiers]'s ModelByTier table for
-	// "claude" and takes precedence over Model. Empty (the default) leaves
-	// Model as the literal source of truth it always was — this key exists
-	// so a run's capability requirement can be expressed without naming a
-	// vendor, which matters once the tool executing a run might not be
-	// Claude, not to replace Model for everyone on day one (US-6).
+	// ModelTier selects --model through [Config.Tiers].ModelByTier for Claude.
 	ModelTier Tier `yaml:"model_tier"`
 	// AutoCompact is the context size at which Claude Code compacts the
 	// persisted conversation. Claude accepts "auto" or 100k through 1M.
@@ -312,13 +328,6 @@ type Claude struct {
 	// anything at all. [Load] resolves the default once, before validation, so
 	// config validation and the harness read the same slice.
 	ToolCeiling []string `yaml:"tool_ceiling"`
-	// ToolProfiles are operator-authored named tool surfaces, keyed by the
-	// name an issue label selects them with. Absent means a nil map, which
-	// leaves every run on Tools.
-	//
-	// The key is a lookup key and never reaches the claude command line; only
-	// the config-authored strings inside the profile do.
-	ToolProfiles map[string]ToolProfile `yaml:"tool_profiles"`
 	// TimeoutSeconds is the hard wall-clock kill for one run. It is
 	// independent of any event-driven completion detection because a bad
 	// credential makes claude retry internally and hang indefinitely,
@@ -336,31 +345,15 @@ type Claude struct {
 	// explicit carve-out from the secret-name env strip, since ANTHROPIC_API_KEY
 	// matches the KEY pattern.
 	ForwardAnthropicEnv bool `yaml:"forward_anthropic_env"`
-	// AttachmentMaxImageBytes is the per-image size ceiling attachment
-	// ingestion (US-3) will enforce for a run whose resolved tool profile
-	// grants [ToolProfile.Attachments]. It is a policy default, not itself a
-	// permission — the permission lives on the profile.
-	AttachmentMaxImageBytes int64 `yaml:"attachment_max_image_bytes"`
-	// AttachmentMaxDocumentBytes is the per-document size ceiling, analogous
-	// to AttachmentMaxImageBytes for non-image attachments.
-	AttachmentMaxDocumentBytes int64 `yaml:"attachment_max_document_bytes"`
-	// AttachmentMaxTotalBytes is the ceiling on the combined size of every
-	// attachment ingested for one turn, regardless of how that total splits
-	// across images and documents.
-	AttachmentMaxTotalBytes int64 `yaml:"attachment_max_total_bytes"`
-	// AttachmentMaxCount is the ceiling on the number of attachments ingested
-	// for one turn.
-	AttachmentMaxCount int `yaml:"attachment_max_count"`
 }
 
-// ToolProfile is one named tool surface an operator authored in config.yaml,
-// broken into one stanza per coding-agent tool it may apply to (T-7.1): a
-// profile is looked up by name as before and then narrowed to whichever
-// agent the run is addressed to — Claude reads [ToolProfile.Claude], Codex
-// reads [ToolProfile.Codex] — and an agent this profile carries no stanza
-// for refuses the run (report.ReplyProfileNotAvailableForAgent) rather than
-// falling back to the other stanza or to that agent's own default surface.
-// A grant written for one tool is never reinterpreted as another's.
+// ToolProfile is one mode's permission surface, broken into one stanza per
+// configured coding agent. The selected mode resolves the profile, which is
+// then narrowed to whichever agent the run is addressed to — Claude reads
+// [ToolProfile.Claude] and Codex reads [ToolProfile.Codex]. A missing stanza is
+// a configuration error; it never falls back to another stanza or an
+// agent-global surface. A grant written for one tool is never reinterpreted as
+// another's.
 type ToolProfile struct {
 	// Claude is this profile's Claude stanza. nil means this profile has
 	// nothing to say about a Claude-routed run.
@@ -377,6 +370,11 @@ type ToolProfile struct {
 	// the subprocess is spawned, and that decision does not depend on which
 	// coding-agent tool the run addresses.
 	Attachments bool `yaml:"attachments"`
+}
+
+// ToolProfiles is the complete permission matrix keyed by workflow mode.
+type ToolProfiles struct {
+	Permissions map[string]ToolProfile `yaml:"permissions"`
 }
 
 // HasStanzaFor reports whether this profile carries a stanza for the named
@@ -424,39 +422,94 @@ type ToolProfileCodex struct {
 	Sandbox string `yaml:"sandbox"`
 }
 
-// Defaults returns the configuration litefactory runs with when config.yaml
-// says nothing. It is also the content [WriteDefault] writes, so the shipped
-// file and the in-memory defaults cannot drift apart.
+// Defaults returns defaults for the agent-independent sections. Agent and
+// permission defaults are explicit constructors because declaration order is
+// semantic and an absent agents mapping must not silently configure runners.
 func Defaults() Config {
 	return Config{
-		DefaultAgent:        DefaultAgent,
-		PollIntervalSeconds: DefaultPollIntervalSeconds,
-		MaxConcurrentRuns:   DefaultMaxConcurrentRuns,
-		DefaultBaseBranch:   "",
-		FeaturePrefix:       DefaultFeaturePrefix,
-		WorktreeRoot:        "",
-		WorktreeRetainDays:  DefaultWorktreeRetainDays,
-		LogLevel:            DefaultLogLevel,
-		GitHub: GitHub{
-			APIBase: DefaultAPIBase,
-		},
-		Claude: Claude{
-			Binary:                     DefaultClaudeBinary,
-			Model:                      DefaultClaudeModel,
-			AutoCompact:                DefaultClaudeAutoCompact,
-			Tools:                      defaultTools(),
-			AllowedTools:               defaultAllowedTools(),
-			TimeoutSeconds:             DefaultClaudeTimeoutSeconds,
-			ForwardAnthropicEnv:        false,
+		Settings: Settings{
+			PollIntervalSeconds:        DefaultPollIntervalSeconds,
+			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,
+			DefaultBaseBranch:          "",
+			FeaturePrefix:              DefaultFeaturePrefix,
+			WorktreeRoot:               "",
+			TeamConfig:                 "",
+			WorktreeRetainDays:         DefaultWorktreeRetainDays,
+			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
 			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
 			AttachmentMaxCount:         DefaultAttachmentMaxCount,
+			AutoSyncBase:               true,
+			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
+			BlockRunOnConflict:         true,
+			SuggestConflictResolution:  false,
+			ConflictProposalTTLHours:   DefaultConflictProposalTTLHours,
+			ConflictContentMaxBytes:    DefaultConflictContentMaxBytes,
+		},
+		Providers: Providers{
+			GitHub: GitHub{
+				APIBase: DefaultAPIBase,
+			},
 		},
 		Tiers: Tiers{
 			ModelByTier: defaultModelByTier(),
 		},
 	}
+}
+
+// DefaultClaude returns the default values used when an operator configures
+// agents.claude. It does not make Claude implicitly configured: the agents
+// mapping remains required and controls which runners exist.
+func DefaultClaude() Claude {
+	return Claude{
+		Binary: DefaultClaudeBinary, ModelTier: TierBalanced,
+		AutoCompact: DefaultClaudeAutoCompact, Tools: defaultTools(),
+		AllowedTools: defaultAllowedTools(), TimeoutSeconds: DefaultClaudeTimeoutSeconds,
+	}
+}
+
+// DefaultCodex returns the values used for a generated agents.codex stanza
+// and for omitted fields in an explicitly configured stanza.
+func DefaultCodex() Codex {
+	return Codex{
+		Binary:         DefaultCodexBinary,
+		ModelTier:      TierBalanced,
+		TimeoutSeconds: DefaultCodexTimeoutSeconds,
+	}
+}
+
+// DefaultToolProfiles returns the canonical workflow permission matrix used
+// by init. Each call owns its slices and pointers, so callers may normalize a
+// decoded configuration without mutating a later generated file.
+func DefaultToolProfiles() ToolProfiles {
+	implementTools := defaultTools()
+	implementAllowed := defaultAllowedTools()
+	artifactTools := []string{"Read", "Glob", "Grep", "Write", "Bash", "Task"}
+	artifactAllowed := []string{
+		"Read", "Glob", "Grep", "Write",
+		"Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+		"Bash(git rev-parse:*)", "Bash(git ls-tree:*)", "Bash(git merge-base:*)", "Bash(git rev-list:*)",
+		"Bash(mkdir:*)",
+	}
+	// Claude's --allowedTools is additive to ambient permissions, so Bash
+	// cannot be made read-only with command qualifiers. Codex Validate retains
+	// shell verification through its independently enforced read-only sandbox.
+	readTools := []string{"Read", "Glob", "Grep", "Task"}
+	readAllowed := []string{"Read", "Glob", "Grep"}
+	profile := func(tools, allowed []string, sandbox string, attachments bool) ToolProfile {
+		return ToolProfile{
+			Claude:      &ToolProfileClaude{Tools: slices.Clone(tools), AllowedTools: slices.Clone(allowed)},
+			Codex:       &ToolProfileCodex{Sandbox: sandbox},
+			Attachments: attachments,
+		}
+	}
+	return ToolProfiles{Permissions: map[string]ToolProfile{
+		"research":  profile(artifactTools, artifactAllowed, "workspace-write", true),
+		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
+		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
+		"validate":  profile(readTools, readAllowed, "read-only", false),
+	}}
 }
 
 // Defaults for the keys that have one. They are exported so that tests and
@@ -472,11 +525,8 @@ const (
 	DefaultClaudeTimeoutSeconds = 1800
 	DefaultClaudeAutoCompact    = "100k"
 	DefaultCodexBinary          = "codex"
-	DefaultCodexSandbox         = "workspace-write"
 	DefaultCodexTimeoutSeconds  = 1800
-	DefaultAgent                = "Claude"
-	// DefaultClaudeModel is the model the top-level session runs on when
-	// claude.model is absent. See [Claude.Model] for why it is the cheap one.
+	// DefaultClaudeModel is the balanced Claude entry in the central tier map.
 	DefaultClaudeModel = "sonnet"
 	// DefaultAttachmentMaxImageBytes is 5 MiB, the default per-image size
 	// ceiling for attachment ingestion (US-5).
@@ -490,6 +540,20 @@ const (
 	// DefaultAttachmentMaxCount is 10, the default ceiling on the number of
 	// attachments ingested for one turn (US-5).
 	DefaultAttachmentMaxCount = 10
+	// DefaultAutoSyncMaxBehind is 100 commits behind base before auto-sync is
+	// skipped on distance alone (US-8). It is a judgment call, not a
+	// measurement — see [Settings.AutoSyncMaxBehind].
+	DefaultAutoSyncMaxBehind = 100
+	// DefaultConflictProposalTTLHours is 24 hours: how long a conflict-
+	// resolution proposal stays pending before it is treated as stale
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictProposalTTLHours].
+	DefaultConflictProposalTTLHours = 24
+	// DefaultConflictContentMaxBytes is 16 KiB: the default total budget
+	// for conflicting file content sent to the model in one blocked merge
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictContentMaxBytes].
+	DefaultConflictContentMaxBytes = 16 * 1024
 )
 
 // NotInitializedError reports that $LF_HOME has no config.yaml, which means
@@ -526,7 +590,9 @@ func Load(p Paths) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.applyPathDefaults(p)
-	cfg.Claude.resolveToolCeiling()
+	if cfg.Agents.Claude != nil {
+		cfg.Agents.Claude.resolveToolCeiling()
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -547,8 +613,21 @@ func Decode(r io.Reader) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
+	if err := legacySettingsError(data); err != nil {
+		return nil, err
+	}
+	if err := legacyProvidersError(data); err != nil {
+		return nil, err
+	}
+	if err := legacyAgentsError(data); err != nil {
+		return nil, err
+	}
+	if err := literalAgentModelError(data); err != nil {
+		return nil, err
+	}
 
 	cfg := Defaults()
+	cfg.agentOrder = defaultConfiguredAgents(data, &cfg)
 
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -570,50 +649,168 @@ func Decode(r io.Reader) (*Config, error) {
 		return nil, friendlyYAMLError(err)
 	}
 
-	if cfg.Agents.Claude != nil {
-		// Only worth asking when agents.claude: decoded to something at
-		// all — the common case, agents.claude: absent, cannot conflict
-		// with anything.
-		conflict := deprecatedClaudeConflict(data)
-		if conflict {
-			return nil, errors.New("claude: and agents.claude: are both set; " +
-				"claude: is deprecated in favour of agents.claude:, so configure exactly one (AC-7.9)")
-		}
-	}
 	return &cfg, nil
 }
 
-// deprecatedClaudeKeyProbe decodes nothing but the presence of the top-level
-// claude: key, independent of [Defaults] and of the strict, KnownFields
-// decode above — both of which make an explicitly written value
-// indistinguishable from an absent one once they have run.
-type deprecatedClaudeKeyProbe struct {
-	Claude any `yaml:"claude"`
+// defaultConfiguredAgents seeds only agent stanzas the YAML actually names,
+// so decoding can apply field defaults without inventing an implicit runner.
+func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	var order []Kind
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "agents" || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(root.Content[i+1].Content); j += 2 {
+			switch root.Content[i+1].Content[j].Value {
+			case "claude":
+				defaults := DefaultClaude()
+				cfg.Agents.Claude = &defaults
+				order = append(order, KindClaude)
+			case "codex":
+				defaults := DefaultCodex()
+				cfg.Agents.Codex = &defaults
+				order = append(order, KindCodex)
+			}
+		}
+	}
+	return order
 }
 
-// deprecatedClaudeConflict reports whether the raw document writes the
-// deprecated top-level claude: key at all. The caller already knows
-// agents.claude: was written — decoding [Config] itself established that —
-// so this is the other half of the AC-7.9 check, and the only half that
-// needs a second, lenient pass over the bytes.
-//
-// The lenient decode is deliberate: the strict decode above has already
-// accepted this document, so a parse failure here would be a surprise, not a
-// real problem, and it is swallowed rather than turned into a second,
-// confusing error.
-func deprecatedClaudeConflict(data []byte) bool {
-	var probe deprecatedClaudeKeyProbe
-	if err := yaml.Unmarshal(data, &probe); err != nil {
-		return false
+// literalAgentModelError gives the removed per-agent model key an actionable
+// replacement before KnownFields can reduce it to a generic unknown-key error.
+func literalAgentModelError(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
 	}
-	return probe.Claude != nil
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	var errs []error
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "agents" || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		agents := root.Content[i+1]
+		for j := 0; j+1 < len(agents.Content); j += 2 {
+			name, body := agents.Content[j].Value, agents.Content[j+1]
+			if body.Kind != yaml.MappingNode {
+				continue
+			}
+			for k := 0; k+1 < len(body.Content); k += 2 {
+				if body.Content[k].Value == "model" {
+					errs = append(errs, fmt.Errorf("agents.%s.model: literal per-agent models are no longer supported; select agents.%s.model_tier and define the model at tiers.model_by_tier.%s", name, name, name))
+				}
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+var legacySettingsPaths = map[string]string{
+	"poll_interval_seconds": "settings.poll_interval_seconds",
+	"max_concurrent_runs":   "settings.max_concurrent_runs",
+	"default_base_branch":   "settings.default_base_branch",
+	"feature_prefix":        "settings.feature_prefix",
+	"worktree_root":         "settings.worktree_root",
+	"worktree_retain_days":  "settings.worktree_retain_days",
+	"log_level":             "settings.log_level",
+}
+
+// legacySettingsError makes the deliberate breaking schema migration useful
+// to an operator: strict decoding alone can only say that a key is unknown.
+func legacySettingsError(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil // The strict decoder below reports syntax and shape errors.
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	var errs []error
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i].Value
+		if replacement, ok := legacySettingsPaths[key]; ok {
+			errs = append(errs, fmt.Errorf("%s: legacy root key is no longer supported; move it to %s", key, replacement))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// legacyProvidersError adds the replacement path that strict decoding cannot
+// infer for the intentionally removed root-level github key.
+func legacyProvidersError(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil // The strict decoder below reports syntax and shape errors.
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "github" {
+			return errors.New("github: legacy root key is no longer supported; move it to providers.github")
+		}
+	}
+	return nil
+}
+
+// legacyAgentsError gives removed and unsupported agent keys exact migration
+// paths before KnownFields reports only their Go decoding context.
+func legacyAgentsError(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "default_agent" {
+			return errors.New("default_agent: legacy root key is no longer supported; the first entry under agents is now the default")
+		}
+		if root.Content[i].Value == "claude" {
+			return errors.New("claude: legacy root key is no longer supported; move it to agents.claude")
+		}
+		if root.Content[i].Value != "agents" || root.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		agents := root.Content[i+1]
+		for j := 0; j+1 < len(agents.Content); j += 2 {
+			name := agents.Content[j].Value
+			if name != "claude" && name != "codex" {
+				return fmt.Errorf("agents.%s: unsupported coding agent; supported agents are claude and codex", name)
+			}
+		}
+	}
+	return nil
+}
+
+func decodeYAMLDocument(data []byte) (yaml.Node, bool) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return yaml.Node{}, false
+	}
+	return doc, true
 }
 
 // applyPathDefaults fills in the defaults that can only be known once
 // $LF_HOME is resolved.
 func (c *Config) applyPathDefaults(p Paths) {
-	if c.Claude.SettingsPath == "" {
-		c.Claude.SettingsPath = p.SettingsPath()
+	if c.Agents.Claude != nil && c.Agents.Claude.SettingsPath == "" {
+		c.Agents.Claude.SettingsPath = p.SettingsPath()
 	}
 }
 

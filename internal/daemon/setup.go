@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -131,11 +130,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
-	interval := time.Duration(s.Config.PollIntervalSeconds) * time.Second
+	interval := time.Duration(s.Config.Settings.PollIntervalSeconds) * time.Second
 	if interval < MinInterval || interval > MaxInterval {
 		return nil, Startup{}, invalidOptions(
 			"poll_interval_seconds is %d, which is outside the supported range %d..%d",
-			s.Config.PollIntervalSeconds,
+			s.Config.Settings.PollIntervalSeconds,
 			int(MinInterval.Seconds()), int(MaxInterval.Seconds()))
 	}
 
@@ -143,7 +142,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// out of range, for the same reason the interval above is: Open is reached
 	// by more than one route into a *config.Config, and a slot count that has
 	// not been checked on this path is one nobody can point at.
-	maxRuns := s.Config.MaxConcurrentRuns
+	maxRuns := s.Config.Settings.MaxConcurrentRuns
 	if maxRuns < MinConcurrentRuns || maxRuns > MaxConcurrentRuns {
 		return nil, Startup{}, invalidOptions(
 			"max_concurrent_runs is %d, which is outside the supported range %d..%d",
@@ -163,6 +162,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	configuredDefault, ok := s.Config.DefaultAgent()
+	if !ok {
+		return nil, Startup{}, invalidOptions("configuration has no default agent")
+	}
+	defaultAgent := agent.Kind(configuredDefault)
 	classifiers := make(map[agent.Kind]agent.Classifier, len(runners))
 	for kind, runner := range runners {
 		classifier, ok := runner.(agent.Classifier)
@@ -170,16 +174,18 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			classifiers[kind] = classifier
 		}
 	}
+	toolProfiles := s.Config.ToolProfiles.Permissions
+	var toolCeiling []string
+	if s.Config.Agents.Claude != nil {
+		toolCeiling = s.Config.Agents.Claude.ToolCeiling
+	}
 	// Startup wants to print which claude binary was resolved and its
 	// timeout, so the concrete implementation is narrowed back out of the
 	// set built above rather than resolved a second time.
-	claude, ok := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
-	if !ok {
-		return nil, Startup{}, fmt.Errorf("the daemon needs claude: no claude runner was built")
-	}
+	claude, _ := runners[agent.Kind(store.AgentClaude)].(*harness.Runner)
 
 	client, err := github.New(github.Options{
-		APIBase:   s.Config.GitHub.APIBase,
+		APIBase:   s.Config.Providers.GitHub.APIBase,
 		Token:     s.Token,
 		Logger:    s.Logger,
 		UserAgent: s.UserAgent,
@@ -238,58 +244,88 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
+	// Built once and reused for both NewExecutor and NewConfirmApplier
+	// (US-12): the ordinary turn and the agentless apply turn share every
+	// dependency, and building turn.Options twice would be two chances for
+	// the two to drift.
+	conflictProposalTTL := time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour
+	turnOpts := turn.Options{
+		DB:      s.DB,
+		Git:     gitBinary,
+		Runners: runners,
+		// One registry for the process, built here because this is the
+		// only place a turn's dependencies are bound. turn.Options
+		// validates it as required, so this line going missing is a
+		// startup error rather than a quietly unserialised daemon
+		// (AC-PAR-3.1).
+		CloneGate:  newCloneGate(),
+		Paths:      s.Paths,
+		InstanceID: instanceID,
+		// The sub-issue phase's two dependencies (internal/turn/subissues.go,
+		// closing CR-B-001): the same forge client and the same renderer
+		// already built above for posting the run's own report, reused rather
+		// than built twice.
+		SubIssueCreator:  client,
+		SubIssueRenderer: renderer,
+		// Attachment ingestion (US-3). The same forge client again: it
+		// is the only thing holding the installation token, which is
+		// what a private-repo attachment fetch needs, and keeping the
+		// fetch there is what lets the SSRF allow-list sit in one place.
+		// The ceilings come from the same config the tool profiles above
+		// were resolved from — a run's permission to ingest and the
+		// limits it ingests under are one decision, made in one file.
+		AssetFetcher:     client,
+		AttachmentLimits: attachmentLimits(s.Config),
+		// US-2's auto-sync policy, read straight off the validated
+		// configuration the same way AttachmentLimits is above: this is
+		// the one place a turn's dependencies are bound, and
+		// config.Settings already enforces AutoSyncMaxBehind's
+		// non-negative floor (CFG-6) before this line ever runs.
+		AutoSyncBase:      s.Config.Settings.AutoSyncBase,
+		AutoSyncMaxBehind: s.Config.Settings.AutoSyncMaxBehind,
+		// US-4's hard stop for the conflicts US-2's auto-sync cannot
+		// resolve on its own, read from the same validated configuration
+		// as the two fields above and bound the same way.
+		BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
+		// US-11's suggested-resolution advisor, read and bound the same
+		// way: the flag defaults to false in config.Defaults, so a
+		// daemon that has not had it explicitly turned on collects and
+		// asks nothing.
+		SuggestConflictResolution: s.Config.Settings.SuggestConflictResolution,
+		ConflictContentMaxBytes:   s.Config.Settings.ConflictContentMaxBytes,
+		ConflictProposalTTL:       conflictProposalTTL,
+		Logger:                    s.Logger,
+	}
+
 	daemon, err := New(Options{
 		DB:     s.DB,
 		Forge:  client,
 		Filter: filter,
-		Turn: NewExecutor(turn.Options{
-			DB:      s.DB,
-			Git:     gitBinary,
-			Runners: runners,
-			// One registry for the process, built here because this is the
-			// only place a turn's dependencies are bound. turn.Options
-			// validates it as required, so this line going missing is a
-			// startup error rather than a quietly unserialised daemon
-			// (AC-PAR-3.1).
-			CloneGate:  newCloneGate(),
-			Paths:      s.Paths,
-			InstanceID: instanceID,
-			// The sub-issue phase's two dependencies (internal/turn/subissues.go,
-			// closing CR-B-001): the same forge client and the same renderer
-			// already built above for posting the run's own report, reused rather
-			// than built twice.
-			SubIssueCreator:  client,
-			SubIssueRenderer: renderer,
-			// Attachment ingestion (US-3). The same forge client again: it
-			// is the only thing holding the installation token, which is
-			// what a private-repo attachment fetch needs, and keeping the
-			// fetch there is what lets the SSRF allow-list sit in one place.
-			// The ceilings come from the same config the tool profiles above
-			// were resolved from — a run's permission to ingest and the
-			// limits it ingests under are one decision, made in one file.
-			AssetFetcher: client,
-			AttachmentLimits: attach.Limits{
-				MaxImageBytes:    s.Config.Claude.AttachmentMaxImageBytes,
-				MaxDocumentBytes: s.Config.Claude.AttachmentMaxDocumentBytes,
-				MaxTotalBytes:    s.Config.Claude.AttachmentMaxTotalBytes,
-				MaxCount:         s.Config.Claude.AttachmentMaxCount,
-			},
-			Logger: s.Logger,
-		}),
-		Reporter: reporter,
+		// Schedule proposals are a separate, tool-free advisory call. They
+		// deliberately do not travel through turn.Execute, so no run is
+		// allocated and no worktree is created before owner acceptance.
+		ProposalGenerator: newProposalGenerator(defaultAgent, runners),
+		Turn:              NewExecutor(turnOpts),
+		// US-12's agentless apply turn: the daemon's confirmation dispatch
+		// reaches turn.ExecuteApplyResolution only through this seam, never
+		// directly, so a fake in a dependency-light test can stand in for it
+		// without a git clone and a claude binary.
+		Confirmer:           NewConfirmApplier(turnOpts),
+		ConflictProposalTTL: conflictProposalTTL,
+		Reporter:            reporter,
 		// The same two keys the harness was built from above, so the profile a
 		// label selects and the ceiling that bounds it are one decision made in
 		// one place — internal/config resolved the ceiling before it validated
 		// anything against it.
-		ToolProfiles: s.Config.Claude.ToolProfiles,
+		ToolProfiles: toolProfiles,
 		// The same registry turn.Options.Runners was just built from above, so
 		// a Coding Agent label is judged against exactly the implementations
 		// this run could actually be dispatched to — never a second, looser
 		// notion of "known agent" kept in step by hand.
 		Agents:       runners,
 		Classifiers:  classifiers,
-		DefaultAgent: agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
-		ToolCeiling:  s.Config.Claude.ToolCeiling,
+		DefaultAgent: defaultAgent,
+		ToolCeiling:  toolCeiling,
 		InstanceID:   instanceID,
 		Interval:     interval,
 		// Nothing spends the slots yet; carrying the value from here means the
@@ -303,8 +339,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, errors.Join(err, lock.Close())
 	}
 
-	return daemon, Startup{
-		DefaultAgent:      agent.Kind(strings.ToLower(s.Config.DefaultAgent)),
+	startup := Startup{
+		DefaultAgent:      defaultAgent,
 		InstanceID:        instanceID,
 		Interval:          interval,
 		MaxConcurrentRuns: maxRuns,
@@ -313,11 +349,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		APIBase:           client.BaseURL(),
 		Git:               gitBinary.Path(),
 		GitVersion:        gitBinary.Version(),
-		Claude:            claude.Binary(),
-		ClaudeTimeout:     claude.Timeout(),
 		Identities:        identities,
 		Repos:             len(registered),
-	}, nil
+	}
+	if claude != nil {
+		startup.Claude = claude.Binary()
+		startup.ClaudeTimeout = claude.Timeout()
+	}
+	return daemon, startup, nil
 }
 
 func (s Setup) validate() error {
@@ -360,4 +399,23 @@ func NewInstanceID() (string, error) {
 		host = "unknown-host"
 	}
 	return fmt.Sprintf("%s-%d-%s", host, os.Getpid(), hex.EncodeToString(suffix)), nil
+}
+
+// attachmentLimits translates the canonical daemon-wide configuration into
+// the attachment package's ingestion limits.
+func attachmentLimits(cfg *config.Config) attach.Limits {
+	if cfg == nil {
+		return attach.Limits{
+			MaxImageBytes:    config.DefaultAttachmentMaxImageBytes,
+			MaxDocumentBytes: config.DefaultAttachmentMaxDocumentBytes,
+			MaxTotalBytes:    config.DefaultAttachmentMaxTotalBytes,
+			MaxCount:         config.DefaultAttachmentMaxCount,
+		}
+	}
+	return attach.Limits{
+		MaxImageBytes:    cfg.Settings.AttachmentMaxImageBytes,
+		MaxDocumentBytes: cfg.Settings.AttachmentMaxDocumentBytes,
+		MaxTotalBytes:    cfg.Settings.AttachmentMaxTotalBytes,
+		MaxCount:         cfg.Settings.AttachmentMaxCount,
+	}
 }

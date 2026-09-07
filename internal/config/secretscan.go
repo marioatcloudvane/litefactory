@@ -50,7 +50,7 @@ var ErrLiteralSecret = errors.New("literal credential in config")
 // It carries the key and the pattern class, never the value.
 type SecretError struct {
 	// Key is the dotted path of the offending value, for example
-	// "github.token_env".
+	// "providers.github.token_env".
 	Key string
 	// Class is the credential shape that matched.
 	Class SecretClass

@@ -105,12 +105,17 @@ assumption reaches Plan mode.
 Skip it entirely when the question is purely about existing code. Most research
 questions on an established codebase need `codebase-tour` and nothing else.
 
-**It only has web access when the issue is labelled `lf:tools=web`.** litefactory's
-default tool surface excludes `WebFetch` and `WebSearch` deliberately, and
-`--tools` caps sub-agents as well as the main run. If `web-researcher` reports it
-has no web access, that is not a failure to route around: write the unanswered
-questions into the brief's **Open Questions** and say in your summary that the
-issue needs the `lf:tools=web` label. Do not answer them yourself from memory.
+**Its web access comes from the run's resolved workflow mode**, not from a label,
+and `--tools` caps sub-agents as well as the main run. `web-researcher` is told to
+find out by attempting a `WebSearch` rather than by assuming, so a no-access report
+is only credible when it names the call that was refused.
+
+**A no-access report with no attempted call is a bug, not a finding.** Do not
+write it into the brief as a blocker — send `web-researcher` back once, telling it
+to attempt the search and report what the tool actually returned. If the retry
+also comes back refused, then write the unanswered questions into the brief's
+**Open Questions** and say in your summary that the run's mode profile is missing
+`WebFetch`/`WebSearch`. Do not answer them yourself from memory.
 
 ## Choreography
 
@@ -138,8 +143,8 @@ Never substitute your own guess for a child's findings.
 **Every `Task` call sets `subagent_type` explicitly, to a roster name.**
 Omitting it does not fail — it silently resolves to `general-purpose`, which
 carries none of this team's instructions and reports back as if it did. The
-names you may use here are `codebase-tour`, `web-researcher` and
-`app-context-updater`. The field takes an agent name and nothing else — never a
+names you may use here are `codebase-tour` and `web-researcher`. The field
+takes an agent name and nothing else — never a
 note or a placeholder.
 
 ## RESEARCH_BRIEF.md structure

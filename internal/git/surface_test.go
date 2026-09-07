@@ -63,6 +63,76 @@ func TestCloneCannotMutateTheRegisteredClone(t *testing.T) {
 	}
 }
 
+// TestWorktreeMethodSetIsTheAllowlist pins the exported surface of
+// git.Worktree, the same guarantee [TestCloneMethodSetIsTheAllowlist] pins
+// for git.Clone.
+//
+// This test predates every mutator this list now carries: it was added
+// against the read-only-plus-Commit/Push/MergeBase surface Worktree had
+// before US-12, specifically so US-12's three new mutators
+// (WriteResolvedFiles, StageResolvedFiles, CompleteMerge) would have to land
+// on top of a failing test rather than a passing one. Every method below
+// carries the reason it was allowed onto this list.
+func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
+	t.Parallel()
+
+	want := []string{
+		// Read-only: record what happened, touch neither the working tree
+		// nor a ref (ConflictBlob and MergePreview do write loose objects,
+		// documented on MergePreview itself, but move nothing a ref points
+		// at).
+		"Path", "Branch", "ClonePath", "RevParse", "Status", "Divergence",
+		"MergePreview", "ConflictBlob",
+		// Mutating, pre-US-12: the only three operations that write to a
+		// repository or a remote before this story.
+		"Commit", "Push", "MergeBase",
+		// US-12's three new mutators. Each is deliberately narrow rather
+		// than a general Apply/Checkout/Reset: WriteResolvedFiles starts the
+		// merge a confirmed proposal resolves and writes exactly its
+		// confirmed paths (S-13); StageResolvedFiles stages exactly those
+		// paths; CompleteMerge finishes the merge with the identity prelude
+		// and this story's trailers, reusing the same commit mechanism
+		// [Worktree.Commit] already has. All three refuse a path outside
+		// the confirmed list and roll back on any failure via
+		// abortInProgressMerge (S-5).
+		"WriteResolvedFiles", "StageResolvedFiles", "CompleteMerge",
+	}
+	slices.Sort(want)
+
+	got := exportedMethods(reflect.TypeOf((*git.Worktree)(nil)))
+	if !slices.Equal(got, want) {
+		t.Fatalf("git.Worktree method set changed.\n got: %s\nwant: %s\n\n"+
+			"The method set of Worktree is the whole mutating surface litefactory "+
+			"has. If a new git command really belongs here, add it with a recorded "+
+			"reason and amend this list deliberately.",
+			strings.Join(got, ", "), strings.Join(want, ", "))
+	}
+}
+
+// TestWorktreeCannotRunGeneralPurposeMutators states the negative directly,
+// mirroring [TestCloneCannotMutateTheRegisteredClone]: none of these ever
+// land on Worktree, however convenient a future caller might find one.
+// Reset in particular is watch-out #2 of US-12 by name — it must never
+// appear here even as a self-heal for a failed rollback; every mutator in
+// this package rolls back with "git merge --abort" and a re-verify instead
+// (S-5).
+func TestWorktreeCannotRunGeneralPurposeMutators(t *testing.T) {
+	t.Parallel()
+
+	forbidden := []string{
+		"Reset", "Rebase", "CherryPick", "Clean", "Stash", "Checkout", "Switch",
+		"Apply", "Restore", "Pull",
+	}
+	methods := exportedMethods(reflect.TypeOf((*git.Worktree)(nil)))
+	for _, name := range forbidden {
+		if slices.Contains(methods, name) {
+			t.Errorf("git.Worktree has a %s method; this package only ever rolls "+
+				"back with \"git merge --abort\" plus a re-verify, never a general-"+
+				"purpose reset or checkout", name)
+		}
+	}
+}
+
 // TestWorktreeHasNoExportedConstructionPath checks the other half of the
 // mechanism. Worktree carries the mutating operations, so it must be reachable
 // only through Clone.WorktreeAdd — which refuses any path overlapping the

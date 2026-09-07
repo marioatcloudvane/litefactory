@@ -39,7 +39,7 @@ const ( //nolint:revive // Compatibility aliases intentionally retain establishe
 	PathColdAfterResumeRefused = agent.PathColdAfterResumeRefused
 )
 
-// ToolSurface is the shape a resolved tool profile narrows
+// ToolSurface is the shape a mode-selected tool profile narrows
 // [agent.Permissions.Payload] into for a Claude run: the --tools list and
 // the --allowedTools list beside it (SD-2).
 //
@@ -49,7 +49,7 @@ const ( //nolint:revive // Compatibility aliases intentionally retain establishe
 // assembly ever narrows a Payload into this type.
 type ToolSurface struct {
 	// Tools is the --tools surface this run is granted. Empty means no
-	// profile applied and the runner falls back to its configured surface;
+	// mode profile was supplied and the runner falls back to its configured surface;
 	// it is never a request to grant no tools at all, because an omitted
 	// --tools is allow-all.
 	Tools []string
@@ -62,7 +62,7 @@ type ToolSurface struct {
 }
 
 // toolSurface narrows req's opaque permissions payload into this package's
-// own type, or the zero value when no profile applied to this request.
+// own type, or the zero value when no mode profile was supplied to this request.
 func toolSurface(req agent.Request) ToolSurface {
 	ts, _ := req.Permissions.Payload.(ToolSurface)
 	return ts

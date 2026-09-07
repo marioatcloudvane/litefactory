@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -33,6 +34,33 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":10,"output_token
 		if !strings.Contains(args, want) {
 			t.Errorf("argv %q missing %q", args, want)
 		}
+	}
+}
+
+func TestProposeScheduleIsReadOnlyAndDoesNotAllocateARun(t *testing.T) {
+	runner, argv := fakeRunner(t, `
+printf '%s\n' '{"type":"thread.started","thread_id":"proposal-thread"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"{\"items\":[{\"payload\":\"/implement T-1\",\"due_at\":\"2026-09-05T01:00:00Z\"}]}"}}'
+printf '%s\n' '{"type":"turn.completed"}'
+`)
+	proposal, err := runner.ProposeSchedule(t.Context(), agent.ScheduleProposalRequest{
+		Description: "split the implementation", ReceivedAt: time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ProposeSchedule: %v", err)
+	}
+	if len(proposal.Items) != 1 || proposal.Items[0].Payload != "/implement T-1" {
+		t.Fatalf("proposal = %+v", proposal)
+	}
+	got := strings.Join(strings.Fields(string(mustRead(t, argv))), " ")
+	for _, want := range []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox read-only"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("argv %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "--add-dir") || strings.Contains(got, "resume") {
+		t.Errorf("proposal argv contains normal-run capability: %q", got)
 	}
 }
 
@@ -167,7 +195,8 @@ func newRunner(t *testing.T, dir string, writable ...string) (*Runner, error) {
 	}
 	return New(Options{
 		Paths:   config.NewPaths(filepath.Join(dir, "lfhome")),
-		Codex:   config.Codex{Binary: binary, DefaultSandbox: "workspace-write", TimeoutSeconds: 30, WritableRoots: writable},
+		Codex:   config.Codex{Binary: binary, TimeoutSeconds: 30, WritableRoots: writable},
+		Model:   "gpt-test",
 		Environ: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "USER=test"},
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
@@ -178,7 +207,8 @@ func request(t *testing.T, path agent.RunPath) agent.Request {
 	worktree := t.TempDir()
 	return agent.Request{Ref: naming.Ref{Forge: "github", Owner: "acme", Repo: "api", Issue: 1}, RunOrdinal: 1,
 		SegmentOrdinal: 1, Session: agent.SessionRef{Ref: "local-ref"}, Mode: "infer", Path: path,
-		WorktreePath: worktree, Prompt: "do the task"}
+		WorktreePath: worktree, Prompt: "do the task",
+		Permissions: agent.Permissions{Profile: "implement", Payload: Sandbox{Mode: "workspace-write"}}}
 }
 
 func mustRead(t *testing.T, path string) []byte {

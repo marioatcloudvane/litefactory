@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/github"
@@ -259,6 +260,8 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	mux.HandleFunc("GET "+repos+"/issues/comments", f.handleListRepoComments)
 	mux.HandleFunc("GET "+repos+"/issues/{number}/comments", f.handleListComments)
 	mux.HandleFunc("POST "+repos+"/issues/{number}/comments", f.handlePostComment)
+	mux.HandleFunc("POST "+repos+"/issues/{number}/labels", f.handleAddLabels)
+	mux.HandleFunc("DELETE "+repos+"/issues/{number}/labels/{label}", f.handleRemoveLabel)
 	mux.HandleFunc("POST "+repos+"/issues/comments/{id}/reactions", f.handleReaction)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
@@ -268,6 +271,61 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+func (f *forgeServer) handleRemoveLabel(w http.ResponseWriter, r *http.Request) {
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	rs := f.state(r.PathValue("owner"), r.PathValue("repo"))
+	for i := range rs.issues {
+		if rs.issues[i].Number != number {
+			continue
+		}
+		labels := rs.issues[i].Labels[:0]
+		for _, label := range rs.issues[i].Labels {
+			if label.Name != r.PathValue("label") {
+				labels = append(labels, label)
+			}
+		}
+		rs.issues[i].Labels = labels
+	}
+	f.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (f *forgeServer) handleAddLabels(w http.ResponseWriter, r *http.Request) {
+	var labels []string
+	if err := json.NewDecoder(r.Body).Decode(&labels); err != nil {
+		http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
+		return
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	rs := f.state(r.PathValue("owner"), r.PathValue("repo"))
+	var issue *fakeIssue
+	for i := range rs.issues {
+		if rs.issues[i].Number == number {
+			rs.issues[i].Labels = append(rs.issues[i].Labels, toFakeLabels(labels...)...)
+			issueCopy := rs.issues[i]
+			issue = &issueCopy
+			break
+		}
+	}
+	f.mu.Unlock()
+	if issue == nil {
+		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(issue.Labels)
 }
 
 func (f *forgeServer) handleListIssues(w http.ResponseWriter, r *http.Request) {
@@ -521,25 +579,6 @@ func (f *forgeServer) closeIssueIn(owner, name string, number int) {
 		}
 	}
 	f.t.Fatalf("no issue %d to close in %s/%s", number, owner, name)
-}
-
-// setLabels replaces an issue's labels on the primary repository, the way a
-// maintainer relabeling it on GitHub does, and touches its update time the
-// same way [forgeServer.addComment] does for a comment: relabeling is a real
-// edit to the issue, and a tick that filtered on `since` has to see it
-// (AC-2.10).
-func (f *forgeServer) setLabels(number int, labels ...string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	rs := f.state(testOwnerName, testRepoName)
-	for i := range rs.issues {
-		if rs.issues[i].Number == number {
-			rs.issues[i].Labels = toFakeLabels(labels...)
-			rs.issues[i].UpdatedAt = f.now()
-			return
-		}
-	}
-	f.t.Fatalf("no issue %d to relabel", number)
 }
 
 // staleIssue backdates an issue's UpdatedAt on the primary repository.
@@ -844,6 +883,12 @@ type fixture struct {
 	daemon   *daemon.Daemon
 }
 
+type fakeModeClassifier struct{}
+
+func (fakeModeClassifier) Classify(context.Context, agent.Classification) (agent.Mode, error) {
+	return agent.ModeResearch, nil
+}
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 
@@ -952,6 +997,10 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	f.t.Helper()
 
 	opts := daemon.Options{
+		DefaultAgent:  agent.Kind(store.AgentClaude),
+		ToolProfiles:  config.DefaultToolProfiles().Permissions,
+		Agents:        turn.RunnerSet{agent.Kind(store.AgentClaude): nil},
+		Classifiers:   map[agent.Kind]agent.Classifier{agent.Kind(store.AgentClaude): fakeModeClassifier{}},
 		DB:            f.db,
 		Forge:         f.client,
 		Filter:        f.filter,
@@ -1001,11 +1050,29 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 	if overrides.ToolProfiles != nil {
 		opts.ToolProfiles = overrides.ToolProfiles
 	}
+	if overrides.DefaultAgent != "" {
+		opts.DefaultAgent = overrides.DefaultAgent
+	}
 	if overrides.ToolCeiling != nil {
 		opts.ToolCeiling = overrides.ToolCeiling
 	}
 	if overrides.Agents != nil {
 		opts.Agents = overrides.Agents
+		opts.Classifiers = make(map[agent.Kind]agent.Classifier, len(overrides.Agents))
+		for kind := range overrides.Agents {
+			opts.Classifiers[kind] = fakeModeClassifier{}
+		}
+	}
+	// US-12: a nil Confirmer/zero ConflictProposalTTL both mean "not
+	// overridden", the same convention every other pointer/zero field above
+	// already follows, so a test that does not care about /confirm dispatch
+	// keeps compiling and behaving exactly as it did before this feature
+	// existed.
+	if overrides.Confirmer != nil {
+		opts.Confirmer = overrides.Confirmer
+	}
+	if overrides.ConflictProposalTTL != 0 {
+		opts.ConflictProposalTTL = overrides.ConflictProposalTTL
 	}
 
 	d, err := daemon.New(opts)
@@ -1115,15 +1182,6 @@ func (f *fixture) issueWithLabels(title string, labels ...string) {
 		User:   stranger(),
 		Labels: toFakeLabels(labels...),
 	})
-}
-
-// relabel replaces the labels on the fixture's one issue (AC-2.10): a
-// maintainer changing their mind about which profile a run should have,
-// between one comment and the next.
-func (f *fixture) relabel(labels ...string) {
-	f.t.Helper()
-
-	f.forge.setLabels(testIssue, labels...)
 }
 
 // assignedIssue registers an issue with the given body, assigned to the owner:

@@ -16,5 +16,12 @@ func Commands() []*Command {
 		newDaemonStatusCommand(),
 		newLogsCommand(),
 		newTaskCleanCommand(),
+		newTeamListCommand(),
+		newTeamShowCommand(),
+		newTeamAddCommand(),
+		newTeamStatusCommand(),
+		newTeamUpdateCommand(),
+		newTeamManageCommand(),
+		newTeamValidateCommand(),
 	}
 }

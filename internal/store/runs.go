@@ -66,6 +66,23 @@ const SignalExitCode = -1
 // run (D-B). The run is never retried; it is reported as a failure.
 const ReasonAbandoned = "abandoned"
 
+// SyncOutcome is how a run's base-branch auto-sync attempt ended (US-9),
+// mirroring internal/turn's own syncOutcome one-for-one so the values that
+// leave that package match the values this one persists without translation.
+type SyncOutcome string
+
+// The five sync outcomes [DB.RecordRunSync] accepts. SyncFailed exists for
+// completeness of the persisted vocabulary; nothing in this tree writes it
+// today, because a sync that could not even be attempted fails the turn
+// before a runs row exists to record it against (internal/turn.syncBase).
+const (
+	SyncUpToDate SyncOutcome = "up_to_date"
+	SyncSynced   SyncOutcome = "synced"
+	SyncBlocked  SyncOutcome = "blocked"
+	SyncSkipped  SyncOutcome = "skipped"
+	SyncFailed   SyncOutcome = "failed"
+)
+
 // Run is one claude invocation.
 //
 // The row is inserted before the subprocess starts, which is what makes the
@@ -97,6 +114,13 @@ type Run struct {
 	ExitCode *int64
 	// Error is the reason accompanying a [SignalExitCode] exit, for example
 	// [ReasonAbandoned]. Empty on a clean exit.
+	//
+	// It has a second reader now beyond the report and the log: [Run.Succeeded]
+	// treats an empty Error on a [RunReported] row as the durable signal that a
+	// run actually succeeded, and a resumed run's prompt input is built from
+	// that signal (US-4). It is prompt input now, not only report/log text — a
+	// future write path that leaves Error empty on a genuine failure would
+	// silently tell the next run that the failed one worked.
 	Error string
 	// StartedAt is when the subprocess was launched.
 	StartedAt time.Time
@@ -117,6 +141,16 @@ type Run struct {
 	// ResultCommentID is the forge id of the report comment; 0 until it is
 	// posted.
 	ResultCommentID int64
+	// SyncOutcome, SyncBehind, SyncAhead and SyncCommitSHA are the
+	// base-branch auto-sync result [DB.RecordRunSync] recorded for this run
+	// (US-9). SyncOutcome is "" for a run written before that column existed,
+	// or one no sync attempt was ever recorded against. SyncCommitSHA is ""
+	// unless SyncOutcome is [SyncSynced] and the merge actually moved the
+	// branch.
+	SyncOutcome   SyncOutcome
+	SyncBehind    int
+	SyncAhead     int
+	SyncCommitSHA string
 }
 
 // Duration returns the run's wall-clock duration, and false while it is still
@@ -126,6 +160,35 @@ func (r Run) Duration() (time.Duration, bool) {
 		return 0, false
 	}
 	return time.Duration(*r.DurationMS) * time.Millisecond, true
+}
+
+// Succeeded reports whether this run genuinely finished as a success, which
+// takes two arms rather than one because Status alone stops meaning that the
+// moment a run is reported: [RunSucceeded] means it, and so does [RunReported]
+// — but only when [Run.Error] is empty, because a reported run started life as
+// either [RunSucceeded] or [RunFailed] and Status does not remember which.
+// Error does: it is set on the failure path and left empty on the success
+// path, and nothing clears it when a run moves on to [RunReported] — so an
+// empty Error on a reported row is the durable record that this run was a
+// success before it was ever reported, and a non-empty one is the durable
+// record that it was not.
+//
+// This is a second, distinct predicate from [agent.RunResult.Succeeded],
+// which reads a live subprocess's own exit and result event. That one has
+// nothing to read once the process is gone; this one has nothing else *to*
+// read — the stored row is all a later run, or a resumed one, ever gets. The
+// two must never be collapsed into one call or converted into each other:
+// they answer the same English question from different evidence with
+// different lifetimes.
+func (r Run) Succeeded() bool {
+	switch r.Status {
+	case RunSucceeded:
+		return true
+	case RunReported:
+		return r.Error == ""
+	default:
+		return false
+	}
 }
 
 // AllocateRunParams describes the run to allocate.
@@ -314,6 +377,63 @@ func (db *DB) SetRunCommit(ctx context.Context, runID int64, commitSHA string) e
 	return requireAffected(res, fmt.Sprintf("store: set commit on run %d", runID))
 }
 
+// RunSyncOutcome is what [DB.RecordRunSync] writes onto a run row: the
+// outcome [syncBase] (internal/turn) reached for the task branch, the
+// divergence it was measured from, and the merge commit when one was
+// produced.
+type RunSyncOutcome struct {
+	// Outcome must be one of the five [SyncOutcome] values.
+	Outcome SyncOutcome
+	// Behind and Ahead are the divergence syncBase measured before deciding.
+	Behind, Ahead int
+	// CommitSHA is the merge commit syncBase produced. Valid only when
+	// Outcome is [SyncSynced]; RecordRunSync refuses a non-empty CommitSHA
+	// paired with any other outcome.
+	CommitSHA string
+}
+
+// RecordRunSync persists the outcome of a run's base-branch auto-sync attempt
+// (US-9), so the answer to "did this run touch my branch, and why" survives
+// independently of the report comment (US-3, US-4) that first disclosed it.
+//
+// It reads the run first inside the same BEGIN IMMEDIATE transaction, the way
+// every other run-row mutation in this file does (see [DB.FinishRun],
+// [DB.CompleteRunReport]): a runID that does not exist reports [ErrNotFound]
+// rather than an UPDATE that silently affects zero rows, and the caller gets
+// back the row exactly as stored.
+func (db *DB) RecordRunSync(ctx context.Context, runID int64, outcome RunSyncOutcome) (Run, error) {
+	switch outcome.Outcome {
+	case SyncUpToDate, SyncSynced, SyncBlocked, SyncSkipped, SyncFailed:
+	default:
+		return Run{}, fmt.Errorf("store: record run sync on run %d: %q is not a recognised sync outcome",
+			runID, outcome.Outcome)
+	}
+	if outcome.CommitSHA != "" && outcome.Outcome != SyncSynced {
+		return Run{}, fmt.Errorf(
+			"store: record run sync on run %d: a commit sha is only valid when the outcome is %q, got %q",
+			runID, SyncSynced, outcome.Outcome)
+	}
+
+	var run Run
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id = ?`, runID)); err != nil {
+			return err
+		}
+		var err error
+		run, err = scanRun(tx.QueryRowContext(ctx, `
+UPDATE runs
+SET sync_outcome = ?, sync_behind = ?, sync_ahead = ?, sync_commit_sha = ?
+WHERE id = ?
+RETURNING `+runColumns,
+			string(outcome.Outcome), outcome.Behind, outcome.Ahead, nullString(outcome.CommitSHA), runID))
+		return err
+	})
+	if err != nil {
+		return Run{}, fmt.Errorf("store: record run sync on run %d: %w", runID, err)
+	}
+	return run, nil
+}
+
 // CompleteRunReport closes out a run once its report comment is on the forge:
 // it records the result comment id, advances the session's watermark past the
 // comment that triggered the run, and moves the run to [RunReported] — all in
@@ -357,8 +477,13 @@ RETURNING `+runColumns,
 		if err != nil {
 			return err
 		}
-		if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
-			return fmt.Errorf("advance watermark: %w", err)
+		// Factory-private schedule triggers had their source comments consumed
+		// when scheduling was acknowledged, so advancing a
+		// watermark with one would be both meaningless and unsafe.
+		if !IsScheduleTrigger(run.TriggerCommentID) {
+			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
+				return fmt.Errorf("advance watermark: %w", err)
+			}
 		}
 		return nil
 	})
@@ -510,6 +635,54 @@ RETURNING `+runColumns,
 			}
 		}
 
+		// A schedule reservation precedes turn allocation. After a crash, a
+		// running schedule with no run never reached an agent and is safe to
+		// retry; one with a run inherits that run's durable terminal outcome.
+		// This is intentionally in the same transaction as orphan reconciliation
+		// so a restart cannot observe a reconciled run and stale reservation.
+		rows, err := tx.QueryContext(ctx,
+			`SELECT `+scheduleColumns+` FROM schedules WHERE status = ? ORDER BY id`, string(ScheduleRunning))
+		if err != nil {
+			return fmt.Errorf("find abandoned schedule reservations: %w", err)
+		}
+		scheduled, err := collectSchedules(rows)
+		closeErr := rows.Close()
+		if err != nil {
+			return fmt.Errorf("scan abandoned schedule reservations: %w", err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close abandoned schedule reservations: %w", closeErr)
+		}
+		for _, item := range scheduled {
+			run, runErr := scanRun(tx.QueryRowContext(ctx,
+				`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND trigger_comment_id = ?`, item.SessionID, item.TriggerID()))
+			if errors.Is(runErr, ErrNotFound) {
+				if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, started_at = NULL, updated_at = ? WHERE id = ? AND status = ?`,
+					string(SchedulePending), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
+					return fmt.Errorf("requeue abandoned schedule %d: %w", item.ID, err)
+				}
+				continue
+			}
+			if runErr != nil {
+				return fmt.Errorf("read scheduled run %d: %w", item.ID, runErr)
+			}
+			status := ScheduleFailed
+			if run.ExitCode != nil && *run.ExitCode == 0 {
+				status = ScheduleSucceeded
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, run_id = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?`,
+				string(status), run.ID, FormatTime(now), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
+				return fmt.Errorf("finish abandoned schedule %d: %w", item.ID, err)
+			}
+			if status == ScheduleFailed {
+				if err := blockDescendants(ctx, tx, item.ID, now); err != nil {
+					return fmt.Errorf("block descendants of abandoned schedule %d: %w", item.ID, err)
+				}
+			} else if err := resolveDependentDueTimes(ctx, tx, item.ID, now); err != nil {
+				return fmt.Errorf("resolve descendants of abandoned schedule %d: %w", item.ID, err)
+			}
+		}
+
 		locks, err := collectReclaimedLocks(ctx, tx, instanceID)
 		if err != nil {
 			return fmt.Errorf("find stale locks: %w", err)
@@ -606,7 +779,8 @@ func isUniqueViolation(err error) bool {
 const runColumns = `
     id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
-    log_path, commit_sha, result_comment_id`
+    log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
+    sync_ahead, sync_commit_sha`
 
 func scanRun(s scanner) (Run, error) {
 	var (
@@ -620,10 +794,13 @@ func scanRun(s scanner) (Run, error) {
 		costUSD         sql.NullFloat64
 		commitSHA       sql.NullString
 		resultCommentID sql.NullInt64
+		syncOutcome     string
+		syncCommitSHA   sql.NullString
 	)
 	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
-		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID)
+		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
+		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound
@@ -637,6 +814,8 @@ func scanRun(s scanner) (Run, error) {
 	run.CostUSD = scanFloat(costUSD)
 	run.CommitSHA = commitSHA.String
 	run.ResultCommentID = scanID(resultCommentID)
+	run.SyncOutcome = SyncOutcome(syncOutcome)
+	run.SyncCommitSHA = syncCommitSHA.String
 
 	for _, field := range []struct {
 		src sql.NullString

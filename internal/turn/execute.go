@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
@@ -164,6 +165,72 @@ type Options struct {
 	AssetFetcher     attach.Fetcher
 	AttachmentLimits attach.Limits
 
+	// AutoSyncBase and AutoSyncMaxBehind are [prepareClone]'s syncBase step's
+	// (US-2) configured policy, copied in from [config.Settings.AutoSyncBase]
+	// and [config.Settings.AutoSyncMaxBehind] the same way AttachmentLimits is
+	// copied in from the attachment ceilings: this package reads a plain bool
+	// and a plain int and has no notion of a YAML default of its own.
+	//
+	// AutoSyncBase false is syncBase's own zero value and disables auto-sync,
+	// which is deliberately not [config.Settings.AutoSyncBase]'s default of
+	// true — a caller that constructs Options without setting this field (most
+	// tests in this package) gets no auto-sync rather than inheriting a
+	// default it never asked for. Production always sets both from the loaded
+	// configuration (internal/daemon/setup.go).
+	//
+	// AutoSyncMaxBehind of 0 means no cap, exactly as
+	// [config.Settings.AutoSyncMaxBehind] documents; it is never clamped here.
+	AutoSyncBase      bool
+	AutoSyncMaxBehind int
+
+	// BlockRunOnConflict is [config.Settings.BlockRunOnConflict] (US-4/US-8),
+	// copied in the same way AutoSyncBase and AutoSyncMaxBehind are: this
+	// package reads a plain bool and has no opinion of its own about whether
+	// a conflict should stop the run.
+	//
+	// True refuses a turn whose task branch would not merge cleanly with the
+	// base branch, through [DispositionSyncRefused] and
+	// [report.ReplyRefusesSync], before the agent ever starts. False lets the
+	// run go ahead against the unmerged branch — the conflict is disclosed,
+	// not blocked. A caller that constructs Options without setting this
+	// field gets false — the same tolerance AutoSyncBase gets, and for the
+	// same reason: production always sets it from the loaded configuration
+	// (internal/daemon/setup.go), whose own default is true
+	// ([config.Settings.BlockRunOnConflict]).
+	BlockRunOnConflict bool
+
+	// SuggestConflictResolution is [config.Settings.SuggestConflictResolution]
+	// (US-11), copied in the same way BlockRunOnConflict is: this package
+	// reads a plain bool and has no opinion of its own about whether a
+	// blocked merge should also collect content for, and ask, a suggested-
+	// resolution advisor.
+	//
+	// True collects and caps the conflicting content inside the same
+	// [Options.CloneGate] acquisition [syncBase] already holds for
+	// [git.Worktree.MergePreview] (S-10); the advisor call itself always
+	// happens later, in [attemptConflictSuggestion], after the gate has
+	// been released. False collects nothing and asks nothing — the same
+	// tolerance every other Options field defaults to, and this field's own
+	// zero value, which is what keeps a caller that constructs Options
+	// without setting it on the security-conservative default (AC-11.3).
+	SuggestConflictResolution bool
+
+	// ConflictContentMaxBytes is [config.Settings.ConflictContentMaxBytes]
+	// (US-11): the total budget [collectConflictContent] caps the
+	// conflicting content it collects against, across every conflicting
+	// file in one blocked merge (AC-11.5). Zero admits nothing — every file
+	// is excluded — rather than being read as "no cap"; production always
+	// sets it from the loaded configuration, whose own floor keeps it
+	// positive.
+	ConflictContentMaxBytes int
+
+	// ConflictProposalTTL bounds how long a pending conflict-resolution
+	// proposal survives before a new one for the same session treats it as
+	// stale and expires it (US-11), derived from
+	// [config.Settings.ConflictProposalTTLHours]. Zero or negative disables
+	// expiry for the call [attemptConflictSuggestion] makes.
+	ConflictProposalTTL time.Duration
+
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
 }
@@ -263,15 +330,11 @@ type Request struct {
 	// that spawns a run; a reply-only command is the caller's to handle.
 	Command Command
 
-	// Tools and AllowedTools are the tool surface a resolved tool profile
-	// grants this turn, and ToolProfile is the name of the profile they came
-	// from. All three are empty when no lf:tools= label selected one, and the
-	// run then takes the harness's configured surface exactly as it did before
-	// profiles existed (AC-2.3).
+	// Tools and AllowedTools are the tool surface the resolved mode profile
+	// grants this turn, and ToolProfile is its canonical mode-profile name.
 	//
-	// Every string here is operator-authored configuration. The label only ever
-	// chose *which* profile; nothing that originated on the forge travels in
-	// these fields, and that is what keeps C2 true all the way to argv. The
+	// Every string here is operator-authored configuration. Nothing that
+	// originated on the forge travels in these fields. The
 	// caller has already copied them out of the configuration it holds for the
 	// life of the process, because [preparation.request] is mutated in place on
 	// the cold-rerun path.
@@ -293,7 +356,7 @@ type Request struct {
 	// Agent is the coding-agent tool this turn resolved to, from the daemon's
 	// stage-1 label ladder ([Daemon.resolveAgent] in internal/daemon). Empty
 	// means no Coding Agent label was on the issue, which resolves to the
-	// configured default agent — [store.AgentClaude] today — the same way an
+	// configured default agent — the first agents entry — the same way an
 	// absent lf:tools= label resolves to the harness's default surface
 	// (AC-2.1). [prepare] is what applies that default; nothing here does.
 	//
@@ -304,7 +367,7 @@ type Request struct {
 	Agent agent.Kind
 
 	// AttachmentsAllowed is the US-5 permission gate: true only when a
-	// resolved "Tools: <Profile>" label is present AND that profile's
+	// selected mode profile is present AND that profile's
 	// attachments key is true. It is computed by the daemon's per-agent
 	// narrowing stage (tick.go), the same stage that resolves ToolProfile
 	// above — deliberately not by [resolveTools]'s pure label ladder, which
@@ -317,6 +380,15 @@ type Request struct {
 	// this turn performs zero fetch attempts and produces prompt/argv bytes
 	// identical to a build without this feature (AC-5.1, AC-5.2).
 	AttachmentsAllowed bool
+
+	// SyncOverride is the per-issue "Sync:" label's resolved decision from
+	// the daemon's stage-1 label ladder (resolveSync in internal/daemon), or
+	// nil when no such label was present or the one that was could not be
+	// resolved — either way the configured automatic-sync default stays in
+	// force. A non-nil value beats that default: true is "on", false is
+	// "off" (AC-7.1). US-2's syncBase step is what acts on this; nothing
+	// here does.
+	SyncOverride *bool
 }
 
 func (r Request) validate() error {
@@ -325,17 +397,19 @@ func (r Request) validate() error {
 		return invalidRequest("a session id is required")
 	case r.Issue.Number <= 0:
 		return invalidRequest("issue number %d must be positive", r.Issue.Number)
+	case r.Trigger.CommentID < 0:
+		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	// Not "positive": 0 is the issue body run as the first instruction. See
 	// [Trigger.CommentID] for why the body's trigger id is 0 and not the
 	// issue's own id.
-	case r.Trigger.CommentID < 0:
-		return invalidRequest("trigger id %d is neither a comment nor the issue body", r.Trigger.CommentID)
 	case !r.Command.Spawns():
 		return invalidRequest("%s does not spawn a run", r.Command.Kind)
 	case r.Command.Text == "":
 		return invalidRequest("%s has no instruction text", r.Command.Kind)
+	case r.Agent == "":
+		return invalidRequest("no coding agent was selected")
 	case r.Mode != "" && !r.Mode.Valid():
-		return invalidRequest("mode %q is not research, plan, implement or spike", r.Mode)
+		return invalidRequest("mode %q is not research, plan, implement, validate or spike", r.Mode)
 	default:
 		return nil
 	}
@@ -502,6 +576,22 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		if errors.As(err, &switchRefusal) {
 			return agentSwitchRefused(result, switchRefusal, logger), nil
 		}
+		// Checked before the generic *failure for the same reason the
+		// agent-switch refusal is: a blocked base-branch merge is a *failure
+		// in spirit — a turn that could not be carried out because of the
+		// state of the world — but it is answered with
+		// [report.ReplyRefusesSync] rather than a run-failure comment, which
+		// needs its own [Disposition] and its own branch here (US-4).
+		var sr *syncRefusal
+		if errors.As(err, &sr) {
+			result = syncRefused(result, sr, logger)
+			// US-11: the model call, if there is to be one, happens here —
+			// after [prepare]'s call into [prepareClone] has already
+			// returned and its deferred release of [Options.CloneGate] has
+			// already run (AC-11.7). Nothing here can turn this refusal
+			// into anything but a refusal; see [attemptConflictSuggestion].
+			return attemptConflictSuggestion(ctx, opts, req, result, sr, logger), nil
+		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {
 			return prepareFailed(ctx, opts, result, prepFailure, logger), nil
@@ -515,6 +605,10 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	result.Run = prep.run
 	result.MetaPath = prep.metaPath
 	result.LogPath = prep.run.LogPath
+	// US-3: what syncBase did to this branch travels to the report, which is
+	// the only place a person sees it. Without this the outcome is written to
+	// the runs row (US-9) and never spoken aloud.
+	result.Sync = reportSync(prep.sync)
 
 	return runAndHarvest(ctx, opts, prep, result, logger)
 }
@@ -543,8 +637,9 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 //
 // The session is marked failed and the reason is carried out for the report:
 // AC-3.5 wants a failure comment for a fetch that did not run, and AC-4.1 wants
-// one for every other way a turn can end early. No run row was allocated, so
-// there is no ordinal to burn and the next comment on this task starts clean.
+// one for every other way a turn can end early. For a failure raised before
+// allocateRun, no run row was allocated, so there is no ordinal to burn and
+// the next comment on this task starts clean.
 func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure *failure, logger *slog.Logger) Result {
 	result.Disposition = DispositionPrepareFailed
 	result.Outcome = harness.OutcomeFailed
@@ -565,13 +660,14 @@ func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure
 // agentSwitchRefused records a turn whose resolved agent does not own this
 // session's segment (US-3).
 //
-// Unlike [prepareFailed] it touches no session state and allocates nothing:
-// [prepare] returned before creating anything, and the segment and the runs
-// table are exactly as they were before this turn was attempted (AC-3.1). The
-// two agent names travel on [Result] rather than being formatted here,
-// because it is [Reporter.ReportTurn] that decides whether there is even a
-// comment to answer — the issue-body trigger has none — and formatting them
-// twice would be two places to keep in step.
+// Unlike [prepareFailed] it allocates nothing and never transitions session
+// state: no session-state transition has occurred and no runs row has been
+// allocated; the worktree already exists on disk and sessions.worktree_path
+// already records it, and both are idempotent and reused by the next turn
+// (AC-3.1). The two agent names travel on [Result] rather than being
+// formatted here, because it is [Reporter.ReportTurn] that decides whether
+// there is even a comment to answer — the issue-body trigger has none — and
+// formatting them twice would be two places to keep in step.
 func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog.Logger) Result {
 	result.Disposition = DispositionAgentSwitchRefused
 	result.AgentOwning = refusal.owning
@@ -580,6 +676,32 @@ func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog
 	logger.Info("refusing a run: the resolved coding-agent tool does not own this task's conversation",
 		slog.String("owning_agent", refusal.owning),
 		slog.String("requested_agent", refusal.requested))
+	return result
+}
+
+// syncRefused records a turn whose task branch could not be merged with the
+// base branch cleanly (US-4).
+//
+// Like [agentSwitchRefused] it allocates nothing and never transitions
+// session state: no session-state transition has occurred and no runs row
+// has been allocated. The branch itself was never touched either —
+// [git.Worktree.MergePreview] only ever inspects whether a merge would be
+// clean, it never performs one (US-2) — so the task branch is exactly where
+// it was before this turn started.
+func syncRefused(result Result, refusal *syncRefusal, logger *slog.Logger) Result {
+	result.Disposition = DispositionSyncRefused
+	result.SyncConflicts = append([]string(nil), refusal.conflicts...)
+
+	if refusal.tooFarBehind {
+		result.SyncTooFarBehind = true
+		result.SyncBehind, result.SyncMaxBehind = refusal.behind, refusal.maxBehind
+		result.SyncBase = refusal.base
+		logger.Info("refusing a run: this task's branch is further behind the base branch than the cap allows",
+			slog.Int("behind", refusal.behind), slog.Int("max_behind", refusal.maxBehind))
+		return result
+	}
+	logger.Info("refusing a run: the base branch could not be merged into this task's branch cleanly",
+		slog.Int("conflicts", len(refusal.conflicts)))
 	return result
 }
 

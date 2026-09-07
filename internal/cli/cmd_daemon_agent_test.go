@@ -89,11 +89,28 @@ func newDaemonHome(t *testing.T, configBody string) *daemonHome {
 
 	paths := config.NewPaths(lfHome)
 	if configBody != "" {
+		configBody = withCanonicalProfiles(t, configBody)
 		if err := os.WriteFile(paths.ConfigPath(), []byte(configBody), 0o600); err != nil {
 			t.Fatalf("write config.yaml: %v", err)
 		}
 	}
 	return &daemonHome{t: t, paths: paths, home: userHome, fake: &fakeLaunchctl{}}
+}
+
+func withCanonicalProfiles(t *testing.T, body string) string {
+	t.Helper()
+	if strings.Contains(body, "tool_profiles:") {
+		return body
+	}
+	defaults := string(config.DefaultFileContents())
+	i := strings.Index(defaults, "tool_profiles:")
+	if i < 0 {
+		t.Fatal("default config has no tool_profiles section")
+	}
+	profiles := defaults[i:]
+	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"workspace-write\"\n", "")
+	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"read-only\"\n", "")
+	return body + "\n" + profiles
 }
 
 // migrate creates the database `daemon status` reads the poll cursor from.
@@ -152,15 +169,21 @@ func (h *daemonHome) plist() string {
 	return string(body)
 }
 
-const keychainConfig = `github:
-  token_keychain:
-    service: litefactory
-    account: lf-bot
+const canonicalClaudeConfig = `agents:
+  claude: {}
 `
 
-const tokenEnvConfig = `github:
-  token_env: LF_TEST_BOT_TOKEN
-`
+const keychainConfig = `providers:
+  github:
+    token_keychain:
+      service: litefactory
+      account: lf-bot
+` + canonicalClaudeConfig
+
+const tokenEnvConfig = `providers:
+  github:
+    token_env: LF_TEST_BOT_TOKEN
+` + canonicalClaudeConfig
 
 // TestDaemonStartMaterialisesThePATH is AC-2.2. launchd would hand the daemon
 // /usr/bin:/bin:/usr/sbin:/sbin, which has no Homebrew claude in it, so the
@@ -230,6 +253,76 @@ func TestDaemonStartLoadsTheAgent(t *testing.T) {
 	}
 	if strings.Contains(stderr, "WARNING") {
 		t.Errorf("a keychain-configured start warned about a secret:\n%s", stderr)
+	}
+}
+
+// TestDaemonStartWithLevelWritesItIntoTheProgramArguments is US-6, AC-6.3:
+// `daemon start --level debug` writes a plist whose ProgramArguments end
+// with `daemon run --level debug`, and the effective level is reported back
+// in the command's own summary output (via the "program" line, which is the
+// only place the installed argv is echoed).
+func TestDaemonStartWithLevelWritesItIntoTheProgramArguments(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, stdout, stderr := h.run("daemon", "start", "--level", "debug")
+	if code != ExitOK {
+		t.Fatalf("daemon start --level debug: exit %d\nstderr:\n%s", code, stderr)
+	}
+
+	plist := h.plist()
+	for _, want := range []string{
+		"<string>daemon</string>",
+		"<string>run</string>",
+		"<string>--level</string>",
+		"<string>debug</string>",
+	} {
+		if !strings.Contains(plist, want) {
+			t.Errorf("the plist does not contain %q:\n%s", want, plist)
+		}
+	}
+
+	if !strings.Contains(stdout, "daemon run --level debug") {
+		t.Errorf("`daemon start --level debug` did not report the effective level in its summary:\nstdout:\n%s", stdout)
+	}
+}
+
+// TestDaemonStartWithNoLevelOmitsIt is the complementary case: no --level
+// means no --level in the installed argv, and log_level in config.yaml keeps
+// governing the daemon.
+func TestDaemonStartWithNoLevelOmitsIt(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, stdout, stderr := h.run("daemon", "start")
+	if code != ExitOK {
+		t.Fatalf("daemon start: exit %d\nstderr:\n%s", code, stderr)
+	}
+
+	plist := h.plist()
+	if strings.Contains(plist, "--level") {
+		t.Errorf("the plist contains --level when none was requested:\n%s", plist)
+	}
+	if !strings.Contains(stdout, "daemon run\n") && !strings.Contains(stdout, "daemon run") {
+		t.Errorf("`daemon start` did not report the program it installed:\nstdout:\n%s", stdout)
+	}
+}
+
+// TestDaemonStartRejectsAnUnrecognizedLevel is US-6, AC-6.2's `daemon start`
+// counterpart: a bad --level value must fail before any plist is written or
+// launchctl is touched, exactly like `daemon run --level loud` fails before
+// the poll loop starts.
+func TestDaemonStartRejectsAnUnrecognizedLevel(t *testing.T) {
+	h := newDaemonHome(t, keychainConfig)
+
+	code, _, stderr := h.run("daemon", "start", "--level", "loud")
+
+	if code != ExitUsage {
+		t.Fatalf("daemon start --level loud: exit %d, want %d\nstderr:\n%s", code, ExitUsage, stderr)
+	}
+	if _, err := os.Stat(h.plistPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("an invalid --level should not have written a plist, stat error = %v", err)
+	}
+	if len(h.fake.calls) != 0 {
+		t.Errorf("an invalid --level should not have touched launchctl, got calls %v", h.fake.calls)
 	}
 }
 
@@ -327,7 +420,7 @@ func TestDaemonStartRefusesATokenEnvThatIsNotSet(t *testing.T) {
 // status` from being a mystery: with no bot token the daemon exits at startup,
 // and the only place that can be explained is here.
 func TestDaemonStartWarnsWithNoCredential(t *testing.T) {
-	h := newDaemonHome(t, "poll_interval_seconds: 30\n")
+	h := newDaemonHome(t, "settings:\n  poll_interval_seconds: 30\n"+canonicalClaudeConfig)
 
 	code, stdout, stderr := h.run("daemon", "start")
 	if code != ExitOK {

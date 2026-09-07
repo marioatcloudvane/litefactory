@@ -73,7 +73,7 @@ func runTaskClean(ctx context.Context, env *Env, cmd *Command, opts taskCleanOpt
 	}
 	if session.WorktreePath == "" {
 		fmt.Fprintf(env.Stdout, "%s has no worktree recorded; nothing to remove\n", session.TaskRef)
-		writeRetentionNote(env.Stdout, rt.cfg.WorktreeRetainDays)
+		writeRetentionNote(env.Stdout, rt.cfg.Settings.WorktreeRetainDays)
 		return nil
 	}
 	repo, err := rt.db.GetRepo(ctx, session.RepoID)
@@ -87,7 +87,7 @@ func runTaskClean(ctx context.Context, env *Env, cmd *Command, opts taskCleanOpt
 	if err := rt.db.SetSessionWorktree(ctx, session.ID, ""); err != nil {
 		return err
 	}
-	writeRetentionNote(env.Stdout, rt.cfg.WorktreeRetainDays)
+	writeRetentionNote(env.Stdout, rt.cfg.Settings.WorktreeRetainDays)
 	return nil
 }
 

@@ -95,6 +95,7 @@ func successRun() report.Run {
 			Model:      "claude-sonnet-4-5",
 			ResultText: "Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.",
 			CostUSD:    0.4213,
+			HasCost:    true,
 			HasResult:  true,
 			NumTurns:   6,
 			Duration:   93 * time.Second,
@@ -241,7 +242,7 @@ func TestEveryBodyBeginsWithItsMarker(t *testing.T) {
 	}
 
 	replyBody, err := rep.RenderReply(t.Context(), report.Reply{
-		Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan",
+		Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate",
 	})
 	if err != nil {
 		t.Fatalf("RenderReply: %v", err)
@@ -270,7 +271,7 @@ func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
 		"run report":      render(t, rep, successRun()).String(),
 		"failure report":  render(t, rep, failureRun()).String(),
 		"run-less reply":  renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"}),
-		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyMalformedToolLabel}),
+		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel}),
 		"unknown command": renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"}),
 	}
 
@@ -820,9 +821,8 @@ func TestControlCharactersAreStripped(t *testing.T) {
 	containsAll(t, "the body", body, "red text and")
 }
 
-// TestReplies covers the three run-less reply forms. The wording matters as
-// much as the marker: "not yet" and "never heard of it" send the reader to
-// different places.
+// TestReplies covers run-less reply forms. The wording matters as much as the
+// marker because it tells an owner how Litefactory interpreted their comment.
 func TestReplies(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -834,16 +834,10 @@ func TestReplies(t *testing.T) {
 		wants  []string
 	}{
 		{
-			name:   "unsupported command",
-			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnsupportedCommand, Command: "/plan"},
-			golden: "reply_unsupported",
-			wants:  []string{"`/plan`", "does not implement it yet", "`/spike <what you want tried>`"},
-		},
-		{
 			name:   "unknown command",
 			reply:  report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"},
 			golden: "reply_unknown",
-			wants:  []string{"do not recognise `/frobnicate`", "`/spike <what you want tried>`"},
+			wants:  []string{"do not recognise `/frobnicate`", "`/schedule`"},
 		},
 		{
 			name:   "empty spike",
@@ -1237,6 +1231,172 @@ func TestRunCarriesNoLabelField(t *testing.T) {
 	}
 }
 
+// TestSyncDisclosure covers US-3's AC-3.1 and AC-3.2: a run report says
+// plainly whether litefactory synced the task branch, skipped syncing, or
+// found nothing to sync, for every outcome [report.SyncOutcome] can carry —
+// and never silently for a skip.
+func TestSyncDisclosure(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	t.Run("nil Sync renders no section at all", func(t *testing.T) {
+		t.Parallel()
+
+		body := render(t, rep, report.Run{Ref: testRef, Ordinal: 90}).String()
+		if strings.Contains(body, "Base branch sync") {
+			t.Errorf("a Run with a nil Sync rendered a sync section:\n%s", body)
+		}
+		checkGolden(t, "sync_up_to_date", body)
+	})
+
+	t.Run("up_to_date renders no section, not an empty one (AC-3.1)", func(t *testing.T) {
+		t.Parallel()
+
+		up := render(t, rep, report.Run{Ref: testRef, Ordinal: 90}).String()
+		withOutcome := render(t, rep, report.Run{
+			Ref: testRef, Ordinal: 90,
+			Sync: &report.Sync{Outcome: report.SyncUpToDate, Behind: 0, Ahead: 3, Base: "origin/main"},
+		}).String()
+		if strings.Contains(withOutcome, "Base branch sync") {
+			t.Errorf("an up-to-date Sync rendered a sync section:\n%s", withOutcome)
+		}
+		// A populated-but-up-to-date Sync must render byte-for-byte the same as
+		// no Sync at all — the whole point of AC-3.1 is that there is nothing
+		// distinguishable to see, not merely nothing under a heading.
+		if withOutcome != up {
+			t.Errorf("an up-to-date Sync changed the body vs. a nil Sync:\n--- nil ---\n%s\n--- up_to_date ---\n%s", up, withOutcome)
+		}
+	})
+
+	t.Run("synced names the branch, the counts and the merge commit", func(t *testing.T) {
+		t.Parallel()
+
+		run := report.Run{
+			Ref: testRef, Ordinal: 91,
+			Sync: &report.Sync{
+				Outcome:   report.SyncSynced,
+				Behind:    3,
+				Ahead:     1,
+				Base:      "origin/main",
+				CommitSHA: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+			},
+		}
+		body := render(t, rep, run).String()
+		containsAll(t, "the synced sync section", body,
+			"Base branch sync",
+			"origin/main",
+			"3 commit(s) behind",
+			"now 1 ahead",
+			run.Sync.CommitSHA,
+		)
+		checkGolden(t, "sync_synced", body)
+	})
+
+	t.Run("blocked names the conflicting paths, fenced (S-2)", func(t *testing.T) {
+		t.Parallel()
+
+		run := report.Run{
+			Ref: testRef, Ordinal: 92,
+			Sync: &report.Sync{
+				Outcome:   report.SyncBlocked,
+				Behind:    2,
+				Base:      "origin/main",
+				Conflicts: []string{"internal/cli/task.go", "docs/readme.md"},
+			},
+		}
+		body := render(t, rep, run).String()
+		containsAll(t, "the blocked sync section", body,
+			"Base branch sync",
+			"could not sync",
+			"left as it was",
+			"Conflicting path(s) (2)",
+			"internal/cli/task.go",
+			"docs/readme.md",
+		)
+		checkGolden(t, "sync_blocked", body)
+	})
+
+	t.Run("a conflicting path cannot break out of its fence", func(t *testing.T) {
+		t.Parallel()
+
+		// A path holding a run of backticks is exactly the shape S-2 warns
+		// about: conflicting paths come from the base branch's tree, which is
+		// attacker-influenced content. fenceFor must choose a fence longer
+		// than any run inside it, or this path would close the block early
+		// and run the rest of the comment on as markup.
+		evil := "internal/```not-a-fence```/file.go"
+		run := report.Run{
+			Ref: testRef, Ordinal: 93,
+			Sync: &report.Sync{
+				Outcome:   report.SyncBlocked,
+				Behind:    1,
+				Base:      "origin/main",
+				Conflicts: []string{evil},
+			},
+		}
+		body := render(t, rep, run).String()
+		if !strings.Contains(body, "````\n"+evil+"\n````") {
+			t.Errorf("conflict path is not enclosed in a fence longer than its own backtick run:\n%s", body)
+		}
+	})
+
+	t.Run("skipped names why (AC-3.2)", func(t *testing.T) {
+		t.Parallel()
+
+		run := report.Run{
+			Ref: testRef, Ordinal: 94,
+			Sync: &report.Sync{
+				Outcome: report.SyncSkipped,
+				Behind:  9,
+				Base:    "origin/main",
+				Reason:  "the branch is more commits behind than the configured cap allows",
+			},
+		}
+		body := render(t, rep, run).String()
+		containsAll(t, "the skipped sync section", body,
+			"Base branch sync",
+			"skipped syncing",
+			run.Sync.Reason,
+		)
+		checkGolden(t, "sync_skipped", body)
+	})
+
+	t.Run("skipped with no reason recorded is still not silent (AC-3.2)", func(t *testing.T) {
+		t.Parallel()
+
+		body := render(t, rep, report.Run{
+			Ref: testRef, Ordinal: 95,
+			Sync: &report.Sync{Outcome: report.SyncSkipped, Behind: 4, Base: "origin/main"},
+		}).String()
+		containsAll(t, "the reasonless skip section", body,
+			"Base branch sync",
+			"skipped syncing",
+			"no reason was recorded",
+		)
+	})
+
+	t.Run("failed names what went wrong", func(t *testing.T) {
+		t.Parallel()
+
+		run := report.Run{
+			Ref: testRef, Ordinal: 96,
+			Sync: &report.Sync{
+				Outcome: report.SyncFailed,
+				Behind:  5,
+				Base:    "origin/main",
+				Reason:  "git merge exited 128: fatal: refusing to merge unrelated histories",
+			},
+		}
+		body := render(t, rep, run).String()
+		containsAll(t, "the failed sync section", body,
+			"Base branch sync",
+			"tried to sync",
+			run.Sync.Reason,
+		)
+		checkGolden(t, "sync_failed", body)
+	})
+}
+
 // No rendered body escapes this package as a string. This is the guarantee the
 // package exists to preserve, and it is asserted at compile time where a reader
 // will look for it: both renderers hand back a redact.Body, which only
@@ -1249,3 +1409,233 @@ var (
 	_ func(*report.Reporter, context.Context, report.Run) (redact.Body, error)   = (*report.Reporter).RenderRun
 	_ func(*report.Reporter, context.Context, report.Reply) (redact.Body, error) = (*report.Reporter).RenderReply
 )
+
+// testWorktreePath is the worktree path every US-3 fixture in this file uses,
+// for a run that did not succeed but left its own worktree waiting.
+const testWorktreePath = "/Users/mario/dev/.lf-worktrees/acme-api/task-123"
+
+// TestNonSuccessReportNamesTheWorktree is US-3 (T-3.3, AC-3.1): the report for
+// a run that did not succeed names the worktree path holding the uncommitted
+// work, does not claim a commit, and must not describe "committed nothing" in
+// the words a successful, no-change run uses for the same phrase.
+func TestNonSuccessReportNamesTheWorktree(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	outcomes := []harness.Outcome{harness.OutcomeFailed, harness.OutcomeTimedOut, harness.OutcomeNoResult}
+	for _, outcome := range outcomes {
+		t.Run(outcome.String(), func(t *testing.T) {
+			t.Parallel()
+
+			run := failureRun()
+			run.Result.Outcome = outcome
+			if outcome != harness.OutcomeFailed {
+				run.Result.ExitCode = harness.SignalExitCode
+			}
+			run.WorktreePath = testWorktreePath
+
+			body := render(t, rep, run).String()
+
+			if got := strings.Count(body, testWorktreePath); got != 1 {
+				t.Errorf("the %s report names the worktree %d times, want exactly 1:\n%s", outcome, got, body)
+			}
+			if strings.Contains(body, "this run committed nothing") {
+				t.Errorf("the %s report uses the success-only wording for committing nothing:\n%s", outcome, body)
+			}
+			if strings.Contains(body, "(pushed)") {
+				t.Errorf("the %s report claims a commit was pushed:\n%s", outcome, body)
+			}
+		})
+	}
+
+	// The succeeded report is unaffected: it still uses its own, distinct
+	// wording and never names a worktree for work that was already committed.
+	success := successRun()
+	success.WorktreePath = testWorktreePath
+	successBody := render(t, rep, success).String()
+	if strings.Contains(successBody, testWorktreePath) {
+		t.Errorf("the succeeded report names the worktree, which only a non-success run should:\n%s", successBody)
+	}
+
+	noChange := successRun()
+	noChange.CommitSHA = ""
+	noChange.SHAAfter = ""
+	noChange.Pushed = false
+	noChange.Files = nil
+	noChange.WorktreePath = testWorktreePath
+	noChangeBody := render(t, rep, noChange).String()
+	if !strings.Contains(noChangeBody, "this run committed nothing") {
+		t.Errorf("a succeeded, no-change report lost its own wording:\n%s", noChangeBody)
+	}
+	if strings.Contains(noChangeBody, testWorktreePath) {
+		t.Errorf("a succeeded, no-change report names the worktree; nothing was left uncommitted:\n%s", noChangeBody)
+	}
+}
+
+// TestWorktreePathIsRenderedThroughTheSanitiserSpan is US-3 (T-3.4): the
+// worktree path reaches the comment through the package's existing
+// codeSpan/sanitiser helpers, the same as every other machine-controlled path
+// this package quotes — so a path carrying backticks or a newline cannot
+// break the comment's markdown or its own quoting.
+func TestWorktreePathIsRenderedThroughTheSanitiserSpan(t *testing.T) {
+	t.Parallel()
+
+	// Three consecutive backticks force codeSpan's delimiter to widen past the
+	// default single backtick, which is the only way to observe from outside
+	// the package that codeSpan's own collision-avoidance ran at all. The
+	// embedded newline exercises the same flattening every other quoted path
+	// in this package gets.
+	const maliciousPath = "/tmp/wt/```injected```\nrm -rf /"
+
+	run := failureRun()
+	run.WorktreePath = maliciousPath
+
+	body := render(t, newReporter(t), run)
+	text := body.String()
+
+	if !body.Valid() {
+		t.Fatalf("a hostile worktree path produced an invalid comment body:\n%s", text)
+	}
+	// The raw, multi-line path must never appear verbatim: codeSpan flattens
+	// it to one line before quoting it, exactly as it does for every other
+	// path this package renders.
+	if strings.Contains(text, maliciousPath) {
+		t.Errorf("the raw, multi-line worktree path reached the comment unflattened:\n%s", text)
+	}
+	// codeSpan widens its delimiter past the longest run of backticks in the
+	// content, so three consecutive backticks in the path force a four-tick
+	// delimiter around it.
+	if !strings.Contains(text, "````") {
+		t.Errorf("the worktree path's triple backtick did not force codeSpan's wider delimiter:\n%s", text)
+	}
+}
+
+// TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce is a regression test
+// for BT-001's other composition.
+//
+// BT-001 fixed the double mention of the worktree path on describeRunOutcome's
+// own non-success arms (OutcomeFailed/OutcomeTimedOut/OutcomeNoResult), leaving
+// worktreeNote's call from outcomeView.withFailure untouched as "the legitimate
+// single-mention case" — legitimate specifically when CommitSHA != "", per
+// run_push_failed.golden.
+//
+// But withFailure calls worktreeNote unconditionally, on every one of its three
+// branches, regardless of CommitSHA. metadataList's own Commit-line default arm
+// separately names the worktree whenever the run did not succeed
+// (view.succeed == false) and there is no commit (CommitSHA == "") but there is
+// a branch to hang the line on. Every withFailure branch ends with
+// view.succeed == false, so whenever a Run.Failure happens on top of a run that
+// produced no commit at all — the worktree was never created, the run itself
+// failed before committing, or the commit step (not just the push) is what
+// failed — both call sites fire and the path is named twice.
+func TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	tests := []struct {
+		name string
+		run  func() report.Run
+	}{
+		{
+			name: "turn never reached the agent",
+			run: func() report.Run {
+				return report.Run{
+					Ref:     testRef,
+					Ordinal: 1,
+					Failure: errors.New("git worktree add: fatal: 'lf/123-x' is already checked out somewhere"),
+					Branch:  "lf/123-add-dry-run-to-task-clean",
+				}
+			},
+		},
+		{
+			name: "run succeeded but the commit itself failed, not merely the push",
+			run: func() report.Run {
+				run := successRun()
+				run.CommitSHA = ""
+				run.SHAAfter = ""
+				run.Pushed = false
+				run.Failure = errors.New("git commit: fatal: unable to write new index file")
+				return run
+			},
+		},
+		{
+			name: "run failed and cleanup afterwards also failed",
+			run: func() report.Run {
+				run := failureRun()
+				run.Failure = errors.New("git worktree remove: fatal: could not remove worktree")
+				return run
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := tt.run()
+			run.WorktreePath = testWorktreePath
+
+			body := render(t, rep, run).String()
+
+			if got := strings.Count(body, testWorktreePath); got != 1 {
+				t.Errorf("the report names the worktree %d times, want exactly 1:\n%s", got, body)
+			}
+		})
+	}
+}
+
+// TestCostRowRendering is US-6 (T-6.2, AC-6.1): the Cost row is a
+// HasCost/HasResult-driven three-way, and is never silently omitted.
+func TestCostRowRendering(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	tests := []struct {
+		name   string
+		result *harness.RunResult
+		want   string
+	}{
+		{
+			name: "reported positive cost",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0.4213,
+			},
+			want: "- **Cost:** $0.4213",
+		},
+		{
+			name: "reported exactly zero cost",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0,
+			},
+			want: "- **Cost:** $0.0000",
+		},
+		{
+			name: "a terminal result with no cost reported at all",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: false,
+			},
+			want: "- **Cost:** unknown",
+		},
+		{
+			name:   "no terminal result at all",
+			result: nil,
+			want:   "- **Cost:** unknown",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := report.Run{Ref: testRef, Ordinal: 1, Branch: "lf/123-x", Result: tc.result}
+			body := render(t, rep, run).String()
+
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("the report is missing %q:\n%s", tc.want, body)
+			}
+			if !strings.Contains(body, "- **Cost:**") {
+				t.Errorf("the Cost row is missing entirely:\n%s", body)
+			}
+		})
+	}
+}

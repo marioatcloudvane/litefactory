@@ -1,0 +1,25 @@
+<!-- lf:status task=github:acme/acme-api#123 run=91 -->
+
+### litefactory · run 91 · outcome unknown
+
+> [!CAUTION]
+> litefactory did not record how run 91 ended — it was most likely interrupted between finishing the run and reporting on it. The local log is the authority on what happened.
+
+- **Exit status:** unknown
+- **Duration:** unknown
+- **Cost:** unknown
+- **Log:** `litefactory logs 123 --run 91` (no local log path was recorded for this run)
+
+_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+
+**Base branch sync**
+
+litefactory synced this branch with `origin/main` before the run started: it was 3 commit(s) behind and is now 1 ahead. Merge commit: `a1b2c3d4e5f60718293a4b5c6d7e8f9012345678`.
+
+**Files touched**
+
+_No files were changed._
+
+**Run output**
+
+_No output was captured for this run._

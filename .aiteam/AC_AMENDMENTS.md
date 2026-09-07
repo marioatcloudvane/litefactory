@@ -1341,3 +1341,205 @@ The doc comments on `pool.wait`, `pool.quiesce` and `Daemon.Quiesce`
 (`internal/daemon/pool.go`) make the mechanical case in full and are the
 authority on it. This entry records only what they cannot: that the export was a
 decision, and which future request it is waiting for.
+
+## Amendment: SEC-7 override for Configurable Agent Teams — Owned Paths (interim)
+
+- **Amendment:** 2026-09-06, plan
+  `.aiteam/main/go-team/plan_brief.md` (US-1, T-34; sponsor-approved override of
+  SEC-7)
+- **Status:** superseded — scope corrected by "SEC-7 override for Configurable
+  Agent Teams — Owned Paths (corrected by US-16)" at the bottom of this file
+
+SEC-7 says litefactory MUST NOT write inside a registered clone. The
+"Configurable Agent Teams" feature is a deliberate, sponsor-approved exception:
+it composes and writes each harness's agent/skill definitions into the
+registered clone itself, because that is where the harness (Claude Code, Codex,
+opencode) reads them from at run time. There is no way to honor the letter of
+SEC-7 and deliver this feature — the override is the point, not a gap.
+
+**Owned Paths, as understood at this stage of the plan:**
+
+- `.claude/agents/`
+- `.codex/skills/`
+- `.opencode/agents/`
+
+These are the three harness-specific directories this feature writes to, inside
+a registered clone, once teams are composed and materialized. This list is
+deliberately narrow and deliberately provisional: it names only the
+harness-facing output directories as they are understood at US-1 time, before
+any bookkeeping/composition-tracking directory exists.
+
+It is expected to be corrected — not merely extended — once US-16 lands its own
+bookkeeping directory design (a `.litefactory/`-rooted location, and any
+root-file composition targets that story introduces). Until then, treat this
+entry as the floor of the override's scope, not its ceiling: any story that
+needs to write somewhere else inside a registered clone must widen this list
+explicitly, by its own amendment, rather than assume the override already
+covers it.
+## Recorded: DEV-1 resolution — `--level` is read twice on `daemon run`
+
+- **Recorded:** 2026-09-05, plan
+  `.aiteam/lf-89-logging-is-only-on-issues-but-not-on-the/2026-09-05/logging-is-only-on-issues-but-not-on-the/ARCH_REVIEW.md`
+  (DEV-1; US-6, T-6.2–T-6.4, AC-6.4)
+- **Status:** recorded — Option A implemented as approved
+
+US-6 needs `litefactory daemon run --level debug` to affect which level the
+process logs at. The catch is ordering: `cmd/litefactory/main.go` builds
+`env.Logger` — and logs the first "dispatch" line — before `internal/cli`'s
+`Router` ever parses a command's flags. By the time the router's normal flag
+parsing would see `--level` on `daemon run`, the logger already exists at
+whatever level `configuredLevel()` picked from `config.yaml`. There is no
+single parse of argv that can both build the logger early and let the router's
+usual `Command.New` / `flag.FlagSet` machinery own the flag.
+
+**Resolution (Option A):** read `--level` in two places, not one.
+
+1. `internal/cli.LogLevelOverride(args []string) (slog.Level, bool, error)`
+   (`internal/cli/cmd_daemon.go`) scans raw argv by hand for `--level`/
+   `-level` (bare-with-value or `=value` forms) — not with a
+   `flag.FlagSet`, since `fs.Parse` stops at the first non-flag token, which
+   for these commands is the command name itself, before it ever reaches
+   `--level` — then parses the keyword with `logging.ParseLevel`, the
+   project's one level parser (D-4), before the router exists.
+   `cmd/litefactory/main.go`'s `run` calls
+   it before opening the log sink or constructing the logger, and uses its
+   result in place of `configuredLevel()` when present. An error here is a
+   usage error: `main` prints it and returns `cli.ExitUsage` immediately,
+   before the poll loop — or anything else — starts (AC-6.2). It never falls
+   back to `configuredLevel()`'s silent default the way every other failure
+   in `configuredLevel()` does.
+2. `newDaemonRunCommand`'s `Command.New` also binds `--level` on its
+   `flag.FlagSet`, via `daemonRunOptions.bind`, purely so `--help` and an
+   unknown flag are reported correctly by the router. The handler closure
+   ignores the bound value — main already resolved it and already built the
+   logger by the time this handler runs.
+
+Both sites carry a comment cross-referencing this entry and each other
+(STYLE-1). `daemonStartCommand` binds `--level` a third time, for a different
+reason and at a different layer: not because the logger needs it early, but
+because `daemonProgram` needs a validated keyword to bake into the plist's
+`ProgramArguments`, so `daemon start --level <garbage>` fails before an agent
+is installed rather than at that agent's first tick. All three parses call
+`logging.ParseLevel` and only that parser — D-3 still holds: `--level` here is
+a write-time threshold, unrelated to `logs --level`'s display-time filter,
+and no option type spans the two commands.
+
+---
+
+## Amendment: SD-4 — CLAUDE_CONFIG_DIR is set by litefactory, not withheld from it
+
+- **Amendment:** 2026-09-06, operational incident on issue #68 (runs 133, 135–137,
+  141–144); no plan session — diagnosed live against the running daemon
+- **Status:** reversed in part — the prohibition is lifted, the allowlist principle stands
+
+**Used to say** (`internal/harness/env.go`):
+
+> CLAUDE_CONFIG_DIR. Setting it breaks Keychain auth even when the directory is
+> seeded (SD-4). It is not in this list and must not be added.
+
+**Now says:** litefactory sets `CLAUDE_CONFIG_DIR` to `$LF_HOME/claude-home` on
+every child, and seeds that directory with a *symlink* to the operator's
+`~/.claude/.credentials.json`. The variable is still absent from
+`envAllowlist`, and that is still correct: the allowlist governs what the child
+may *inherit*, and the operator's own value is exactly the one that must not
+win. This is a variable litefactory sets, not one it forwards.
+
+**Why the reversal is safe.** The original finding — that auth breaks even when
+the directory is seeded — did not reproduce. Measured end to end on 2026-09-06
+with the daemon's byte-identical argv, an isolated config dir and a symlinked
+credential file: `exit=0`, `subtype=success`, `is_error=false`, `num_turns=1`,
+`apiKeySource="none"`, and an `init` event matching a real daemon run field for
+field (`agents=18`, `skills=17`, `tools=8`, `permissionMode=auto`). The likely
+difference is seeding method: a copied credential file is stale the moment the
+token refreshes, where a symlink is written through.
+
+**Why it had to change.** Without it the child reads the operator's
+`~/.claude.json`, whose `projects` map holds one entry per directory claude has
+ever run in. Two of those sat under `~/Documents`. Opening a path there needs
+macOS TCC consent, attributed to the *responsible process* — `dist/litefactory`,
+an unsigned Go binary TCC cannot match a stored grant against
+(`identifier=a.out`). A LaunchAgent has no window for that prompt, so `tccd`
+logged `AUTHREQ_PROMPTING` for `kTCCServiceSystemPolicyDocumentsFolder` two
+seconds after each spawn and the child's `openat` blocked in the kernel until
+the request expired. Every daemon run since 2026-09-05 17:57Z paid it: eight
+runs, 9 to 31 minutes each, releasing on a 30-minute grid at :23 and :53 past
+the hour. Fourteen manual spawns with byte-identical argv started in 0.7–5s,
+because a terminal's responsible process already holds the grant.
+
+***Applies to*** the agent child's configuration directory only. It does not
+reach `envAllowlist`, which is unchanged; nor the `--settings` boundary, which
+still cannot stop personal agents and skills under `~/.claude` from being
+discovered — that is the gap this closes.
+
+**Known consequence:** `memory_paths` moves into `$LF_HOME/claude-home`. Daemon
+runs no longer read or write the operator's personal auto-memory, which is the
+same isolation argument applied consistently, but it is a behaviour change and
+is recorded here rather than discovered later.
+
+---
+
+## SEC-7 override for Configurable Agent Teams — Owned Paths (corrected by US-16)
+
+- **Amendment:** 2026-09-07, issue #68 (Configurable Agent Teams), User Story
+  16 (T-44)
+- **Status:** amendment — corrects the interim entry above to the feature's
+  actual current form
+- **Supersedes:** "Amendment: SEC-7 override for Configurable Agent Teams —
+  Owned Paths (interim)" above
+
+### It used to say
+
+> **Owned Paths, as understood at this stage of the plan:**
+>
+> - `.claude/agents/`
+> - `.codex/skills/`
+> - `.opencode/agents/`
+>
+> These are the three harness-specific directories this feature writes to,
+> inside a registered clone, once teams are composed and materialized.
+
+### It now says
+
+**Owned Paths, corrected to the pure-index design's actual write surface:**
+
+- `.claude/agents/` — one file per Claude agent
+- `.codex/skills/` — one directory per Codex agent (`<key>/SKILL.md`)
+- `.opencode/agents/` — one file per opencode agent
+- `.litefactory/` — this feature's own bookkeeping directory (US-9/US-16):
+  `team.lock.json` (the provenance lockfile), `team.overrides.json` (US-13's
+  per-repo agent source overrides), and `.team.lock` (the flock file
+  serializing concurrent writes against one repo). Never committed — US-16
+  also makes this feature append a `.litefactory/` line to the target repo's
+  `.gitignore` the first time this directory is created there.
+- `CLAUDE.md` and `AGENTS.md`, **but only the marker-delimited section this
+  feature composes into each** (US-18) — everything else in either file is
+  content this feature did not write and must not touch outside its own
+  marker span.
+- `.gitignore`, **but only the single `.litefactory/` line this feature
+  appends** (US-16, T-45) — every other line, and the file's prior existence
+  or absence, is left exactly as it was.
+
+The interim list's three harness directories are unchanged and carry
+forward verbatim. Nothing is removed from it: the interim entry never
+actually named an `.aiteam/team.json` or `.aiteam/team.lock.json` path (an
+earlier planning draft floated writing the index itself into the target
+repo; that draft never landed and the interim entry above, as written and
+sponsor-approved at T-34, already reflects the pure-index design — the index
+is read from its resolved source (`internal/teamsource.Resolve`) and never
+written into a registered clone at all). What this amendment adds is exactly
+what the interim entry predicted it would need to: the bookkeeping directory
+and the root-file composition targets that did not exist yet at US-1 time.
+
+### Why the correction is safe
+
+Every path added here is enforced in code, not merely documented, closing
+the defense-in-depth gap the interim entry's paperwork alone could not:
+`internal/team`'s `isOwnedWriteTarget` (`paths.go`) is checked inside
+`writeFileAtomic` (`writefile.go`) — the single choke point every write this
+package performs funnels through (standalone artifact files and root-file
+sections via `Add`, the lockfile, the overrides file, and the `.gitignore`
+entry) — immediately before a write lands. A path outside this list is
+refused as `*WriteOutsideOwnedPathError` / `ErrWriteOutsideOwnedPath`, an
+internal error rather than a silently-avoided possibility, so a future
+change to this package's write path that forgets the constraint fails loudly
+instead of quietly widening what SEC-7's override actually covers.

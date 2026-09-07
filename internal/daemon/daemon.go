@@ -42,7 +42,7 @@ const (
 const (
 	// DefaultConcurrentRuns is how many runs may be in flight when none is
 	// configured. It is a conservative placeholder rather than a measurement;
-	// see [config.Config.MaxConcurrentRuns].
+	// see [config.Settings.MaxConcurrentRuns].
 	DefaultConcurrentRuns = config.DefaultMaxConcurrentRuns
 	// MinConcurrentRuns is the fewest runs allowed in flight: one, which is
 	// the serial daemon litefactory was before the ceiling existed.
@@ -114,6 +114,23 @@ type Executor interface {
 	Execute(ctx context.Context, req turn.Request) (turn.Result, error)
 }
 
+// ConfirmApplier applies a validated confirmation (US-12): the daemon's one
+// route into [turn.ExecuteApplyResolution], declared here at the point of
+// consumption the same way [Executor] is (TEST-5). It is a separate
+// interface from [Executor] rather than a third method on it, because the
+// two fakes existing daemon tests already hold for [Executor] must keep
+// compiling unchanged — a turn executor and a confirmation applier answer
+// different questions, and [NewConfirmApplier] happens to wrap the same
+// turn.Options [NewExecutor] does, not because the two are one capability.
+//
+// This interface carries no way to skip [turn.ValidateConfirmation]: the
+// only value it accepts as [turn.ApplyRequest.Proposal] is one that call
+// already produced, and that remains true however this interface is
+// implemented or faked.
+type ConfirmApplier interface {
+	ApplyConfirmedResolution(ctx context.Context, req turn.ApplyRequest) (turn.ApplyResult, error)
+}
+
 // Reporter posts what happened and consumes the comment that caused it.
 // *turn.Reporter satisfies it.
 type Reporter interface {
@@ -121,6 +138,32 @@ type Reporter interface {
 	ReportRun(ctx context.Context, rep turn.RunReport) (turn.Posted, error)
 	ReportReply(ctx context.Context, req turn.ReplyRequest) (turn.Posted, error)
 	Consume(ctx context.Context, sessionID, commentID int64) (store.Watermark, error)
+}
+
+// ProposalGenerator is the bounded, structured boundary used only for
+// /schedule --propose. It is intentionally not agent.Runner or Executor: a
+// generator can suggest data, but cannot start a workflow, write schedules,
+// or decide an owner's approval.
+type ProposalGenerator interface {
+	ProposeSchedule(ctx context.Context, request ScheduleProposalRequest) (ScheduleProposal, error)
+}
+
+// ScheduleProposalRequest is the agent-safe description of advice requested
+// by an owner. The factory, not the generator, supplies time and issue scope.
+type ScheduleProposalRequest struct {
+	Description string
+	ReceivedAt  time.Time
+}
+
+// ScheduleProposal is structured advisory output from a ProposalGenerator.
+// It has no IDs or persistence fields because those remain factory-owned.
+type ScheduleProposal struct {
+	Items []ScheduleProposalItem
+}
+
+type ScheduleProposalItem struct {
+	Payload string
+	DueAt   time.Time
 }
 
 // Options are the daemon's dependencies. [Open] builds one from the machine;
@@ -143,9 +186,31 @@ type Options struct {
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
 
-	// ToolProfiles are the operator's named tool surfaces, keyed by the name an
-	// lf:tools= label selects them with. Optional: a nil or empty map means no
-	// label can resolve, which is what a config with no tool_profiles asks for.
+	// ProposalGenerator may be nil when the configured coding tool has no
+	// bounded schedule-advice adapter. --propose then receives an immediate
+	// failure reply; it never falls through to a normal agent workflow.
+	ProposalGenerator ProposalGenerator
+
+	// Confirmer applies a validated conflict-resolution confirmation
+	// (US-12). It may be nil in a dependency-light test that predates this
+	// feature's wiring, the same accepted gap [Daemon.run] already has for a
+	// nil classifier set — production startup (setup.go) always supplies
+	// one. A nil Confirmer is never a way around the gate: it is only
+	// consulted after [turn.ValidateConfirmation] has already said
+	// [turn.ConfirmationOK], and its absence answers the thread with a
+	// failure rather than silently accepting the confirmation.
+	Confirmer ConfirmApplier
+
+	// ConflictProposalTTL bounds how long a pending conflict-resolution
+	// proposal may be confirmed (US-12). It is read here, at dispatch, as
+	// well as inside a turn (see [turn.Options.ConflictProposalTTL]),
+	// because a proposal can go stale purely by the clock passing with no
+	// further run ever starting on that task — the sweep at proposal-
+	// creation time alone would never catch it. Zero disables the sweep,
+	// the same as the turn-side field.
+	ConflictProposalTTL time.Duration
+
+	// ToolProfiles are the canonical mode permission surfaces.
 	//
 	// It is read-only for the life of the daemon and never written to. Whatever
 	// a resolution takes out of it is copied first — see [Daemon.resolveTools].
@@ -257,12 +322,17 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
-	db         *store.DB
-	forge      Forge
-	filter     Classifier
-	turn       Executor
-	reporter   Reporter
-	instanceID string
+	db        *store.DB
+	forge     Forge
+	filter    Classifier
+	turn      Executor
+	reporter  Reporter
+	proposals ProposalGenerator
+	// confirmer and conflictProposalTTL are US-12's confirmation-dispatch
+	// dependencies; see [Options.Confirmer] and [Options.ConflictProposalTTL].
+	confirmer           ConfirmApplier
+	conflictProposalTTL time.Duration
+	instanceID          string
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
 	toolProfiles map[string]config.ToolProfile
@@ -327,28 +397,29 @@ func New(opts Options) (*Daemon, error) {
 	}
 	defaultAgent := opts.DefaultAgent
 	if defaultAgent == "" {
-		defaultAgent = agent.Kind(store.AgentClaude)
+		return nil, invalidOptions("a default agent is required")
 	}
-	if opts.DefaultAgent != "" {
-		if _, ok := opts.Agents[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
-		}
-		if _, ok := opts.Classifiers[defaultAgent]; !ok {
-			return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
-		}
+	if _, ok := opts.Agents[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no registered runner", defaultAgent)
+	}
+	if _, ok := opts.Classifiers[defaultAgent]; !ok {
+		return nil, invalidOptions("default agent %q has no mode classifier", defaultAgent)
 	}
 
 	return &Daemon{
-		db:         opts.DB,
-		forge:      opts.Forge,
-		filter:     opts.Filter,
-		turn:       opts.Turn,
-		reporter:   opts.Reporter,
-		instanceID: opts.InstanceID,
+		db:                  opts.DB,
+		forge:               opts.Forge,
+		filter:              opts.Filter,
+		turn:                opts.Turn,
+		reporter:            opts.Reporter,
+		proposals:           opts.ProposalGenerator,
+		confirmer:           opts.Confirmer,
+		conflictProposalTTL: opts.ConflictProposalTTL,
+		instanceID:          opts.InstanceID,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
-		toolProfiles: maps.Clone(opts.ToolProfiles),
+		toolProfiles: cloneToolProfiles(opts.ToolProfiles),
 		toolCeiling:  append([]string(nil), opts.ToolCeiling...),
 		// Copied like every other tool/agent registry that crosses this
 		// boundary: the caller keeps its own map, and nothing here may reach

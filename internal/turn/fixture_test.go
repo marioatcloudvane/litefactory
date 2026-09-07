@@ -148,6 +148,8 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 func (f *fixture) request() Request {
 	body := "/spike add a health endpoint that reports the build sha"
 	return Request{
+		Mode:      agent.ModeSpike,
+		Agent:     agent.Kind(store.AgentClaude),
 		SessionID: f.session.ID,
 		Issue: Issue{
 			Number: testIssue,
@@ -160,7 +162,10 @@ func (f *fixture) request() Request {
 			Body:      body,
 			Author:    "marioatcloudvane",
 		},
-		Command: ParseCommand(body),
+		Command:      ParseCommand(body),
+		ToolProfile:  "implement",
+		Tools:        []string{"Read", "Glob", "Grep", "Edit", "Write", "Bash", "Task"},
+		AllowedTools: config.DefaultClaude().AllowedTools,
 	}
 }
 
@@ -281,6 +286,31 @@ func (s *stubRunner) Run(ctx context.Context, req harness.Request) (*harness.Run
 }
 
 func (s *stubRunner) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
+// stubConflictRunner is the claude double for US-11's suggested-resolution
+// advisor: it satisfies [Runner] the same way [stubRunner] does, and
+// additionally [ConflictAdvisor], so a test can register it under
+// [RunnerSet] and drive both call sites the way a real *harness.Runner
+// eventually will.
+type stubConflictRunner struct {
+	*stubRunner
+	mu      sync.Mutex
+	propose func(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error)
+	calls   int
+}
+
+func (s *stubConflictRunner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	return s.propose(ctx, req)
+}
+
+func (s *stubConflictRunner) proposeCallCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls

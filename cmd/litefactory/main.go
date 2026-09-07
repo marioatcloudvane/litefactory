@@ -39,6 +39,21 @@ func main() {
 }
 
 func run(args []string) int {
+	// --level is read here, out of raw argv, before the router or the logger
+	// exist -- and again, narrowly, by "daemon run" and "daemon start"
+	// themselves, purely so --help and an unknown flag are reported
+	// correctly by the router. See [cli.LogLevelOverride] for why the flag
+	// is bound in two places (DEV-1, US-6, recorded in
+	// .aiteam/AC_AMENDMENTS.md). An unparseable --level is a usage error and
+	// must exit before the poll loop -- or anything else -- starts, never
+	// fall back to the configured level the way configuredLevel does for
+	// every other failure.
+	override, hasOverride, err := cli.LogLevelOverride(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %s\n", programName, err)
+		return cli.ExitUsage
+	}
+
 	ctx, stop := rootContext(context.Background(), os.Stderr)
 	defer stop()
 
@@ -62,8 +77,12 @@ func run(args []string) int {
 	if sink != nil {
 		file = sink
 	}
+	level := configuredLevel()
+	if hasOverride {
+		level = override
+	}
 	logger := logging.New(logging.Options{
-		Level:   configuredLevel(),
+		Level:   level,
 		Console: console,
 		File:    file,
 	}).With(slog.String("version", version))
@@ -109,7 +128,7 @@ func configuredLevel() slog.Level {
 	if err != nil {
 		return slog.LevelInfo
 	}
-	level, err := logging.ParseLevel(cfg.LogLevel)
+	level, err := logging.ParseLevel(cfg.Settings.LogLevel)
 	if err != nil {
 		return slog.LevelInfo
 	}

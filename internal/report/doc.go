@@ -79,6 +79,7 @@
 // and does the smart cut, in this priority order (AC-4.8):
 //
 //	marker, heading, status, metadata, reply notice  never cut
+//	the base branch sync disclosure (US-3)           never cut
 //	the run's final result text                      cut second, from the end
 //	the files-touched list                           capped by entry count
 //	the run output tail in <details>                 cut first, from the middle
