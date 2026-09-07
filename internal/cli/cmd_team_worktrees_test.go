@@ -82,7 +82,8 @@ func TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling(t *testing.T) {
 	for _, wt := range out.Worktrees {
 		byPath[wt.Path] = wt
 	}
-	if _, ok := byPath[repo.Dir]; !ok {
+	primary, ok := byPath[repo.Dir]
+	if !ok {
 		t.Fatalf("no report entry for primary worktree %s: %+v", repo.Dir, out.Worktrees)
 	}
 	sibling, ok := byPath[siblingDir]
@@ -102,6 +103,20 @@ func TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling(t *testing.T) {
 	}
 	if !containsBytes(body, "Review the updated code.") {
 		t.Errorf("sibling worktree was not updated: %s", body)
+	}
+
+	// AC-1 covers both the sibling and "the current worktree" itself: with
+	// --all-worktrees, the worktree the command was invoked against must be
+	// updated too, not merely listed in the report.
+	if primary.Updated == 0 {
+		t.Errorf("primary Updated = %d, want > 0 (--all-worktrees must still update the worktree it was invoked against)", primary.Updated)
+	}
+	primaryBody, err := os.ReadFile(filepath.Join(repo.Dir, teamStatusStandalonePath))
+	if err != nil {
+		t.Fatalf("read primary standalone file: %v", err)
+	}
+	if !containsBytes(primaryBody, "Review the updated code.") {
+		t.Errorf("primary worktree was not updated: %s", primaryBody)
 	}
 }
 
@@ -178,12 +193,22 @@ func TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers(t *testing.T) {
 
 	mutateSource(t, "", fixtureDir)
 
-	router, stdout, _ := newTestRouter(t)
+	router, stdout, stderr := newTestRouter(t)
 	code = router.Run(t.Context(), []string{
 		"team", "update", "--repo", repo.Dir, "--all-worktrees", "--json",
 	})
 	if code != ExitFailure {
 		t.Fatalf("exit code = %d, want %d (the broken worktree's failure is reported)\nstdout: %s", code, ExitFailure, stdout)
+	}
+	// AC-4 requires the failure be reported against the broken worktree
+	// specifically: the router prints the aggregated error to stderr, and it
+	// must name the broken worktree's own path, not just say something failed
+	// somewhere.
+	if !containsBytes(stderr.Bytes(), brokenDir) {
+		t.Errorf("stderr does not name the broken worktree %s specifically: %s", brokenDir, stderr)
+	}
+	if containsBytes(stderr.Bytes(), healthyDir) {
+		t.Errorf("stderr names the healthy worktree %s as part of the failure, want only the broken one named: %s", healthyDir, stderr)
 	}
 
 	var out teamUpdateAllJSON
@@ -355,5 +380,51 @@ func TestTeamUpdate_AllWorktreesFlagDefaultsFalse(t *testing.T) {
 	}
 	if containsBytes(body, "Review the updated code.") {
 		t.Errorf("sibling worktree was updated despite --all-worktrees not being passed: %s", body)
+	}
+}
+
+// TestTeamUpdateAllWorktrees_TableOutputNamesEachWorktree covers the
+// human-readable (non-JSON) form of AC-1/AC-4's per-worktree report:
+// writeTeamUpdateAllTable, exercised by every other test in this file only
+// through --json, must still print one section per worktree naming that
+// worktree's own path, so a reader can tell at a glance which outcome
+// belongs to which checkout without needing --json.
+func TestTeamUpdateAllWorktrees_TableOutputNamesEachWorktree(t *testing.T) {
+	repo, fixtureDir := setupTeamUpdateWorktreeFixture(t)
+
+	siblingDir := filepath.Join(filepath.Dir(repo.Dir), "worktrees", "sibling")
+	repo.Git("worktree", "add", "-b", "sibling-branch", siblingDir)
+	seedRouter, _, seedStderr := newTestRouter(t)
+	code := seedRouter.Run(t.Context(), []string{
+		"team", "add", "reviewers",
+		"--repo", siblingDir,
+		"--harness", "claude",
+	})
+	if code != ExitOK {
+		t.Fatalf("seed sibling team add: exit code = %d\nstderr: %s", code, seedStderr)
+	}
+
+	mutateSource(t, "", fixtureDir)
+
+	router, stdout, _ := newTestRouter(t)
+	code = router.Run(t.Context(), []string{
+		"team", "update", "--repo", repo.Dir, "--all-worktrees",
+	})
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstdout: %s", code, ExitOK, stdout)
+	}
+
+	out := stdout.String()
+	if !containsBytes([]byte(out), "worktree: "+repo.Dir) {
+		t.Errorf("table output does not name the primary worktree %s: %s", repo.Dir, out)
+	}
+	if !containsBytes([]byte(out), "worktree: "+siblingDir) {
+		t.Errorf("table output does not name the sibling worktree %s: %s", siblingDir, out)
+	}
+	if !containsBytes([]byte(out), teamStatusStandalonePath) {
+		t.Errorf("table output does not name the updated record's destination path %s: %s", teamStatusStandalonePath, out)
+	}
+	if !containsBytes([]byte(out), teamUpdateActionUpdated) {
+		t.Errorf("table output does not report the %q action for the upstream-updated record: %s", teamUpdateActionUpdated, out)
 	}
 }

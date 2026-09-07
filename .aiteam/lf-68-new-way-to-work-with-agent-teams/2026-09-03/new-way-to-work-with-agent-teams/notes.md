@@ -740,3 +740,84 @@ dedicated run.
 
 No commits or pushes made this run — worktree left for litefactory to inspect
 and commit.
+
+## Implement run — 2026-09-07: finish US-15 (verify, review, close out)
+
+Scoped narrowly by explicit instruction: confirm and finish US-15 (multi-worktree `team update`),
+which run 31 left code-complete on disk but never reviewed, never build/test-confirmed, and never
+closed out (see MANIFEST.md's run 31 and seventh-pass Research entries for the full history this
+run picked up from). US-16 explicitly excluded — not started, not touched.
+
+**Starting-state re-verification.** Before touching anything US-15-specific: `git status --short`
+confirmed a clean working tree at `f7884f5`; `go build ./...`, `gofmt -l .`, and `go vet ./...` all
+returned clean with no output; `go test -race ./...` passed across all 26 packages (`internal/cli`
+131.9s, `internal/daemon` 81.4s, `internal/turn` 74.9s, everything else cached-clean or fast). The
+five pre-existing US-15 tests (`TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling`,
+`TestTeamUpdateAllWorktrees_ExcludesStalePathSilently`,
+`TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers`,
+`TestTeamUpdateAllWorktrees_DoesNotForceLocallyModifiedSibling`,
+`TestTeamUpdate_AllWorktreesFlagDefaultsFalse`) were re-run individually with `-race -v -count=1`
+(bypassing the test cache) and all passed. This confirms the Research seventh pass's moderate-
+confidence "code-complete on disk" read was correct.
+
+**Independent AC verification (`go-unit-test-engineer`).** Rather than trust existing test names,
+dispatched a fresh verification pass that read `cmd_team_worktrees.go` and
+`cmd_team_worktrees_test.go` directly, confirmed each of AC-1 through AC-4 has a real behavioral
+assertion behind it (not just "no error"), and specifically checked the no-concurrency and
+`errors.Join`-aggregation cross-story constraints by reading the propagation loop's source
+directly (both hold: sequential `for` loop, no goroutines; `errors.Join(errs...)` after the loop
+completes, never an early return on the first failure). Found no behavioral bug. Found and closed
+one real coverage gap (the non-`--json` table-output path, `writeTeamUpdateAllTable`, had zero
+test coverage despite being the CLI's advertised default) and strengthened two existing tests
+whose assertions were weaker than their names implied (see `DRIFT_REPORT.md` for the specific
+gaps). Full re-run after the changes: `go build ./...`/`gofmt -l .`/`go vet ./...` clean, `go test
+-race ./...` green across all 26 packages.
+
+**Phase 1.5 — Code Review (`go-code-reviewer`), the step run 31 never reached.** Verdict
+**ADVISORY_ONLY**, 0 BLOCKING. Checked specifically, per this issue's recurring mistake classes:
+`errors.Join` aggregation in the per-worktree outcome loop (correct — the exact pattern that was
+BLOCKING three times previously on US-9/US-10/one other story, this is at least the second story
+in a row to get it right from the start); no concurrency introduced (confirmed, plain sequential
+loop); `PreconditionError` never leaking from `internal/team` (N/A — `cmd_team_worktrees.go` never
+imports that package); genuine reuse of US-11's `teamUpdateWorktree` rather than a divergent copy;
+symlink/path canonicalization on discovered sibling paths (`filepath.Abs` + `filepath.EvalSymlinks`
+before comparison, no traversal risk since inputs come from git's own porcelain output).
+
+## Code Review Advisories (this run, non-blocking)
+
+- **CR-A-001** (new): a discovery-time failure class isn't wrapped in `Precondition(err)` the way
+  the adjacent `git.Resolve` failure is, so that one edge case (reachable only past an
+  already-tampered `.git` entry) exits 1 instead of the contractually-specified 3. Left unfixed by
+  judgment — narrow, low-likelihood, not a correctness or safety issue.
+- **CR-A-002** (new): `writeTeamUpdateAllTable` duplicates `writeTeamUpdateTable`'s row-rendering
+  loop instead of sharing a helper, and its per-worktree section omits the
+  updated/skipped/refused summary lines the single-worktree table prints (the data is present in
+  the JSON report, just not surfaced in the table). Cosmetic/UX polish, not a correctness gap —
+  candidate for a future small cleanup story, not urgent.
+- **CR-A-003** (new): the primary worktree's reported path isn't symlink-canonicalized the same
+  way sibling paths are; cosmetic only, dedup logic itself is unaffected and correct.
+
+None of the three findings block correctness or this run's acceptance criteria.
+
+**Phase 2 — Environment setup.** Skipped. US-15's implementation
+(`internal/cli/cmd_team_worktrees.go`, `cmd_team.go`, plus the test file) is filesystem/git-only —
+`git worktree list` is the one git verb this feature invokes, read-only, consistent with
+plan_brief.md's Tests cross-story constraint — no database, external HTTP call, or message queue.
+Matches the same judgment already recorded for runs 20/22/25/26/27/30. No
+`TEST_BASE_URL`/`TEST_DATABASE_URL` lookup was needed.
+
+**Final gate check.** `go build ./...`, `gofmt -l .`, `go vet ./...` all clean; `go test -race
+./...` green across all 26 packages. No bug loop needed — zero test failures throughout this run,
+in either the starting-state re-verification or the post-verification-pass re-run.
+
+**Assumption recorded**: `DRIFT_REPORT.md` and this file's own prior content (run 27's US-13
+narrative) were the actual end-of-file state found — `MANIFEST.md`'s run 30 History entry claims
+`notes.md` was updated with run 30's (US-14) narrative, but no such section is present in this
+file; run 30's actual narrative appears only in `MANIFEST.md`'s own retroactive History entry and
+in `DRIFT_REPORT.md`/`CODE_REVIEW.md` (both since overwritten by this run per the one-report-
+per-run convention). This is a pre-existing bookkeeping gap from run 30, not something this run
+introduced or was asked to fix — noted here rather than silently corrected or silently ignored.
+
+No commits or pushes made this run — worktree left for litefactory to inspect and commit. US-16
+and US-17 remain open for a future Implement run, each needing its own dedicated run per this
+issue's established one-story-per-run discipline.
