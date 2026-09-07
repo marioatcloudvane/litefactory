@@ -51,6 +51,13 @@ const (
 	// attachments ingested for one turn (US-5).
 	MinAttachmentMaxCount = 1
 	MaxAttachmentMaxCount = 100
+	// MinAutoSyncMaxBehind is the only floor on
+	// [Settings.AutoSyncMaxBehind]: 0, meaning no cap. There is deliberately
+	// no ceiling — unlike the other bounds in this block, a distance-behind
+	// cap has no upper value a typed extra digit could sensibly guard
+	// against. A negative value is rejected outright rather than clamped to
+	// this floor (US-8, CFG-6).
+	MinAutoSyncMaxBehind = 0
 )
 
 var (
@@ -99,6 +106,10 @@ func (c *Config) Validate() error {
 	if s.AttachmentMaxCount < MinAttachmentMaxCount || s.AttachmentMaxCount > MaxAttachmentMaxCount {
 		errs = append(errs, fmt.Errorf("settings.attachment_max_count: %d is out of range; must be between %d and %d",
 			s.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount))
+	}
+	if s.AutoSyncMaxBehind < MinAutoSyncMaxBehind {
+		errs = append(errs, fmt.Errorf("settings.auto_sync_max_behind: %d must not be negative; 0 means no cap and is never applied automatically for a negative value",
+			s.AutoSyncMaxBehind))
 	}
 	if s.FeaturePrefix == "" {
 		errs = append(errs, errors.New("settings.feature_prefix: must not be empty; it is the first segment of every task branch"))

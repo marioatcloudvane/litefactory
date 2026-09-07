@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — code + tests *(in progress — US-8 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -203,5 +203,29 @@ asked for; nothing here licenses starting the next one.
   alone, following the architect's fully-drafted content in `ARCH_REVIEW.md`'s
   amendment section. Plan mode's checkbox remains ticked done — this is an
   amendment to an already-completed artifact, not a fresh Plan run.
+
+- 2026-09-07 — Implement mode run (scoped to US-8 only, by explicit
+  instruction, deliberately excluding US-1 through US-7 and US-9 through
+  US-12; the uncommitted partial US-1/US-2 work already in the worktree from
+  the run-9 stop at 49 minutes was left untouched throughout). US-8
+  ("Config-governed defaults and size cap") implemented in full:
+  `AutoSyncBase`/`AutoSyncMaxBehind`/`BlockRunOnConflict` added to
+  `internal/config`'s `Settings` with load-time defaults
+  (`true`/`100`/`true`); `Config.Validate()` rejects a negative
+  `AutoSyncMaxBehind` as a hard config-load error, never clamped (CFG-6); the
+  three keys documented (including the "100 is a judgment call, not a
+  measurement" note) in `internal/config/template.go`'s generated
+  `config.yaml`. `go-code-reviewer` returned CLEAN with one non-blocking
+  advisory (error-message wording nit, CR-A-001). Phase 2 environment setup
+  skipped — US-8 touches no real dependency. `go-unit-test-engineer` reviewed
+  the implementer's five tests, added two more closing real gaps (explicit
+  zero surviving the YAML-decode-onto-defaults merge path; sibling-field
+  independence), for seven total. `go test -race ./...` green across all 22
+  packages (56 subtests/tests passing in `internal/config` alone, 86.3%
+  coverage), `go vet ./...` and `gofmt -l .` clean. No bug loop needed — zero
+  test failures. `DRIFT_REPORT.md` verdict: CLEAN. No APP_CONTEXT/
+  APP_CONSTRAINTS update was made, per the retirement of that step. US-7 (the
+  other US-2 prerequisite), then US-2, then US-3/4/5, remain for future runs,
+  each needing its own comment.
 
 ## Notes
