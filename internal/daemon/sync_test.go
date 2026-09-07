@@ -23,31 +23,31 @@ func TestSyncLabelReachesTurnRequest(t *testing.T) {
 		wantOverride    bool
 	}{
 		{
-			name: "no lf:sync= label/SyncOverride stays nil, the config default applies",
+			name: "no Sync: label/SyncOverride stays nil, the config default applies",
 		},
 		{
-			name:            "lf:sync=on/SyncOverride is a pointer to true",
-			labels:          []string{"lf:sync=on"},
+			name:            "Sync: On/SyncOverride is a pointer to true",
+			labels:          []string{"Sync: On"},
 			wantOverrideSet: true,
 			wantOverride:    true,
 		},
 		{
-			name:            "lf:sync=off/SyncOverride is a pointer to false",
-			labels:          []string{"lf:sync=off"},
+			name:            "Sync: Off/SyncOverride is a pointer to false",
+			labels:          []string{"Sync: Off"},
 			wantOverrideSet: true,
 			wantOverride:    false,
 		},
 		{
 			name:   "mis-cased prefix/refused, SyncOverride stays nil",
-			labels: []string{"LF:SYNC=on"},
+			labels: []string{"SYNC: On"},
 		},
 		{
 			name:   "invalid value/refused, SyncOverride stays nil",
-			labels: []string{"lf:sync=maybe"},
+			labels: []string{"Sync: maybe"},
 		},
 		{
 			name:   "duplicated label/ambiguous, SyncOverride stays nil",
-			labels: []string{"lf:sync=on", "lf:sync=off"},
+			labels: []string{"Sync: On", "Sync: Off"},
 		},
 	}
 

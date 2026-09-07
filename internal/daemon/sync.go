@@ -6,26 +6,31 @@ import "strings"
 // automatic base-branch sync runs before it starts (US-7). It is built on
 // the same detect-loosely, accept-strictly ladder [agentLabelPrefix] and
 // [modeLabelPrefix] use, and deliberately not on [toolLabelPrefix]'s: unlike
-// that dead label, lf:sync='s resolved value is read and threaded onward,
+// that dead label, this one's resolved value is read and threaded onward,
 // never merely detected so it can be refused.
-const syncLabelPrefix = "lf:sync="
+//
+// It also follows their naming, which [toolLabelPrefix] no longer does. The
+// "lf:key=value" shape is retired — "lf:tools=" survives only as a label to
+// be refused — and the live convention is a readable "Key: Value" a person
+// can pick out of a forge's label list without knowing what "lf:" meant.
+const syncLabelPrefix = "Sync: "
 
-// syncRefusal is why a lf:sync= label failed to resolve. It carries no label
+// syncRefusal is why a "Sync:" label failed to resolve. It carries no label
 // text of its own (SEC-5/S-9) — it only names which rung of the ladder
 // rejected the label, so a later disclosure story (US-3) can render a reason
 // without this package growing an opinion on how that reason is worded.
 type syncRefusal int
 
 const (
-	// syncRefusalNone is the zero value: either no lf:sync= label was
+	// syncRefusalNone is the zero value: either no "Sync:" label was
 	// present, or the single label present resolved cleanly.
 	// [syncDecision.Resolved] is what distinguishes those two.
 	syncRefusalNone syncRefusal = iota
-	// syncRefusalAmbiguous means more than one lf:sync= label matched the
+	// syncRefusalAmbiguous means more than one "Sync:" label matched the
 	// prefix case-insensitively. Never unioned, never first-wins.
 	syncRefusalAmbiguous
 	// syncRefusalMalformed means the single matching label's prefix was not
-	// byte-exact, or its value was not exactly "on" or "off".
+	// byte-exact, or its value was not "On" or "Off".
 	// [syncDecision.MiscasedPrefix] distinguishes those two causes.
 	syncRefusalMalformed
 )
@@ -33,21 +38,21 @@ const (
 // syncDecision is what an issue's labels say about whether this turn's
 // automatic base-branch sync should run, overriding the configured default.
 //
-// The zero value means nothing resolved — no lf:sync= label was present, or
+// The zero value means nothing resolved — no "Sync:" label was present, or
 // the one that was present could not be resolved — and the config default
 // applies unchanged (AC-7.1). Resolved is set only on a clean resolution,
-// and Value then carries the label's outcome: true for "on", false for
-// "off". lf:sync=off's outcome is a skip, not merely "do not merge" — see
+// and Value then carries the label's outcome: true for "On", false for
+// "Off". "Sync: Off"'s outcome is a skip, not merely "do not merge" — see
 // US-7's architecture notes; this type only carries the resolved answer,
 // not what a caller does with it.
 type syncDecision struct {
-	// Resolved is true only when a single, byte-exact-prefixed lf:sync=
-	// label carried exactly "on" or "off". False covers both silence (no
+	// Resolved is true only when a single, byte-exact-prefixed "Sync:"
+	// label carried "On" or "Off". False covers both silence (no
 	// matching label) and every refusal below — the config default applies
 	// on this path either way, never a guessed value.
 	Resolved bool
-	// Value is the label's outcome when Resolved is true: true for "on",
-	// false for "off". Meaningless when Resolved is false.
+	// Value is the label's outcome when Resolved is true: true for "On",
+	// false for "Off". Meaningless when Resolved is false.
 	Value bool
 	// Refusal is why a label failed to resolve, or [syncRefusalNone] when
 	// nothing was refused.
@@ -60,7 +65,7 @@ type syncDecision struct {
 	MiscasedPrefix bool
 }
 
-// refused reports whether a lf:sync= label was present but could not be
+// refused reports whether a "Sync:" label was present but could not be
 // resolved — distinct from silence (no label at all) and from a clean
 // resolution.
 func (d syncDecision) refused() bool { return d.Refusal != syncRefusalNone }
@@ -69,17 +74,17 @@ func (d syncDecision) refused() bool { return d.Refusal != syncRefusalNone }
 // automatic-sync default for this turn.
 //
 // This copies [Daemon.resolveAgent]'s ladder rung for rung, not
-// [legacyToolsLabel]'s: unlike that dead label, lf:sync='s value is read and
+// [legacyToolsLabel]'s: unlike that dead label, this one's value is read and
 // used, never merely detected in order to be refused. The rules, in order:
 //
-//   - No label whose prefix equals lf:sync=, ignoring case: nothing is
+//   - No label whose prefix equals "Sync: ", ignoring case: nothing is
 //     resolved. This is silence, not a refusal — the config default
 //     applies.
 //   - More than one such label: ambiguous, and refused.
-//   - The single label's prefix, byte for byte: it must be the lowercase
-//     lf:sync=. Anything else is malformed, refused, and flagged
+//   - The single label's prefix, byte for byte: it must be "Sync: ",
+//     capitalised exactly. Anything else is malformed, refused, and flagged
 //     MiscasedPrefix.
-//   - A value other than exactly "on" or "off", including the empty
+//   - A value other than exactly "On" or "Off", including the empty
 //     string: malformed, and refused.
 //   - Otherwise: resolved, and Value carries the label's outcome.
 //
@@ -125,9 +130,9 @@ func resolveSync(labels []string) syncDecision {
 		return syncDecision{Refusal: syncRefusalMalformed, MiscasedPrefix: true}
 	}
 	switch label.value {
-	case "on":
+	case "On":
 		return syncDecision{Resolved: true, Value: true}
-	case "off":
+	case "Off":
 		return syncDecision{Resolved: true, Value: false}
 	default:
 		return syncDecision{Refusal: syncRefusalMalformed}

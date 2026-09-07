@@ -31,73 +31,73 @@ func TestResolveSync_DecisionTable(t *testing.T) {
 			labels: []string{"bug", "Mode: Plan", "Coding Agent: Claude", "priority:high"},
 		},
 		{
-			name:         "lf:sync=on/resolves true",
-			labels:       []string{"lf:sync=on"},
+			name:         "Sync: On/resolves true",
+			labels:       []string{"Sync: On"},
 			wantResolved: true,
 			wantValue:    true,
 		},
 		{
-			name:         "lf:sync=off/resolves false",
-			labels:       []string{"lf:sync=off"},
+			name:         "Sync: Off/resolves false",
+			labels:       []string{"Sync: Off"},
 			wantResolved: true,
 			wantValue:    false,
 		},
 		{
 			name:         "an unrelated label beside a valid one/resolves, ignoring the unrelated label",
-			labels:       []string{"bug", "lf:sync=off"},
+			labels:       []string{"bug", "Sync: Off"},
 			wantResolved: true,
 			wantValue:    false,
 		},
 		{
 			name:         "mis-cased prefix, lowercase value/malformed, prefix flagged",
-			labels:       []string{"LF:sync=on"},
+			labels:       []string{"SYNC: on"},
 			wantRefusal:  syncRefusalMalformed,
 			wantMiscased: true,
 		},
 		{
 			name:         "fully uppercase prefix/malformed, prefix flagged",
-			labels:       []string{"LF:SYNC=ON"},
+			labels:       []string{"SYNC: ON"},
 			wantRefusal:  syncRefusalMalformed,
 			wantMiscased: true,
 		},
 		{
 			name:         "mis-cased prefix over an otherwise well-formed value/still the prefix failure",
-			labels:       []string{"Lf:Sync=off"},
+			labels:       []string{"sync: Off"},
 			wantRefusal:  syncRefusalMalformed,
 			wantMiscased: true,
 		},
 		{
 			name:        "byte-exact prefix, invalid value/malformed on the value shape, prefix not flagged",
-			labels:      []string{"lf:sync=maybe"},
+			labels:      []string{"Sync: maybe"},
 			wantRefusal: syncRefusalMalformed,
 		},
 		{
 			name:        "empty value/malformed, prefix not flagged",
-			labels:      []string{"lf:sync="},
+			labels:      []string{"Sync: "},
 			wantRefusal: syncRefusalMalformed,
 		},
 		{
 			name:        "value with the wrong casing/malformed, prefix not flagged",
-			labels:      []string{"lf:sync=On"},
+			labels:      []string{"Sync: on"},
 			wantRefusal: syncRefusalMalformed,
 		},
 		{
 			name:   "too short to carry the prefix/ignored entirely",
-			labels: []string{"lf:sync"},
+			labels: []string{"Sync"},
 		},
 		{
 			name:        "two valid labels, same value/ambiguous, neither is chosen",
-			labels:      []string{"lf:sync=on", "lf:sync=on"},
+			labels:      []string{"Sync: On", "Sync: On"},
 			wantRefusal: syncRefusalAmbiguous,
 		},
 		{
 			name:        "two valid labels, conflicting values/ambiguous, neither is chosen",
-			labels:      []string{"lf:sync=on", "lf:sync=off"},
+			labels:      []string{"Sync: On", "Sync: Off"},
 			wantRefusal: syncRefusalAmbiguous,
 		},
 		{
 			name:        "two labels, mixed casing and reversed order/ambiguous regardless of order or casing",
-			labels:      []string{"LF:SYNC=off", "lf:sync=on"},
+			labels:      []string{"SYNC: Off", "Sync: On"},
 			wantRefusal: syncRefusalAmbiguous,
 		},
 	}
@@ -139,13 +139,13 @@ func TestResolveSync_DecisionTable(t *testing.T) {
 }
 
 // TestResolveSync_SiblingLabelsDoNotInterfere confirms that resolving one
-// lf:sync= label is unaffected by unrelated labels sharing the same slice,
+// Sync: label is unaffected by unrelated labels sharing the same slice,
 // in either direction: an unrelated label never contributes to ambiguity,
 // and its presence or absence never changes the outcome for the sync label
 // itself.
 func TestResolveSync_SiblingLabelsDoNotInterfere(t *testing.T) {
-	alone := resolveSync([]string{"lf:sync=on"})
-	withSiblings := resolveSync([]string{"bug", "Mode: Plan", "lf:sync=on", "Coding Agent: Claude"})
+	alone := resolveSync([]string{"Sync: On"})
+	withSiblings := resolveSync([]string{"bug", "Mode: Plan", "Sync: On", "Coding Agent: Claude"})
 
 	if alone != withSiblings {
 		t.Errorf("decision changed depending on unrelated sibling labels: alone=%+v, withSiblings=%+v",
@@ -184,9 +184,9 @@ func TestSyncDecision_MalformedAndAmbiguousLeakNoLabelText(t *testing.T) {
 		name   string
 		labels []string
 	}{
-		{"miscased prefix", []string{"LF:SYNC=super-secret-value"}},
-		{"invalid value", []string{"lf:sync=super-secret-value"}},
-		{"ambiguous", []string{"lf:sync=on", "lf:sync=super-secret-value"}},
+		{"miscased prefix", []string{"SYNC: super-secret-value"}},
+		{"invalid value", []string{"Sync: super-secret-value"}},
+		{"ambiguous", []string{"Sync: On", "Sync: super-secret-value"}},
 	}
 
 	for _, tc := range tests {

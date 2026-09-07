@@ -610,7 +610,7 @@ type syncResult struct {
 }
 
 // syncEnabled resolves whether auto-sync runs for this turn: a non-nil
-// [Request.SyncOverride] — the per-issue "lf:sync=" label's resolved decision
+// [Request.SyncOverride] — the per-issue "Sync:" label's resolved decision
 // (US-7) — always wins; a nil override leaves the configured
 // [Options.AutoSyncBase] default in force (AC-7.1).
 func syncEnabled(opts Options, req Request) bool {

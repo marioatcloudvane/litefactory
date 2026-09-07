@@ -381,7 +381,7 @@ type Request struct {
 	// identical to a build without this feature (AC-5.1, AC-5.2).
 	AttachmentsAllowed bool
 
-	// SyncOverride is the per-issue lf:sync= label's resolved decision from
+	// SyncOverride is the per-issue "Sync:" label's resolved decision from
 	// the daemon's stage-1 label ladder (resolveSync in internal/daemon), or
 	// nil when no such label was present or the one that was could not be
 	// resolved — either way the configured automatic-sync default stays in

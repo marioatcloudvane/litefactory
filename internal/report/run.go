@@ -742,7 +742,7 @@ const (
 
 	// SyncSkipped means litefactory chose not to attempt a sync it could
 	// have attempted — the configured cap on how far behind a branch may be,
-	// auto-sync turned off for the repo, or an `lf:sync=off` label on the
+	// auto-sync turned off for the repo, or an `Sync: Off` label on the
 	// issue. [Sync.Reason] is what says which; a skip is never rendered
 	// silently (AC-3.2).
 	SyncSkipped SyncOutcome = "skipped"
@@ -785,7 +785,7 @@ type Sync struct {
 
 	// Reason is why sync did not complete, in a sentence fit to render
 	// directly after "because ": why it was skipped (the configured cap,
-	// auto-sync being off, or an `lf:sync=off` label) when Outcome is
+	// auto-sync being off, or an `Sync: Off` label) when Outcome is
 	// [SyncSkipped], or what went wrong when Outcome is [SyncFailed]. Empty
 	// still renders a sentence rather than nothing — a skip is never silent
 	// (AC-3.2) even when the caller did not record why.

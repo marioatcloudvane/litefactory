@@ -1600,7 +1600,7 @@ func (d *Daemon) run(
 		slog.String("codex_sandbox", tools.Sandbox),
 		slog.Any("tool_ceiling", d.toolCeiling))
 
-	// lf:sync= is a per-issue escape hatch, not a gate on this turn: a
+	// "Sync:" is a per-issue escape hatch, not a gate on this turn: a
 	// malformed, miscased, or duplicated label leaves syncOverride nil so
 	// the configured automatic-sync default applies, same as silence — it
 	// never blocks the run the way a refused agent or mode label does.
