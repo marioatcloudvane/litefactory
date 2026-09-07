@@ -279,7 +279,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// limits it ingests under are one decision, made in one file.
 			AssetFetcher:     client,
 			AttachmentLimits: attachmentLimits(s.Config),
-			Logger:           s.Logger,
+			// US-2's auto-sync policy, read straight off the validated
+			// configuration the same way AttachmentLimits is above: this is
+			// the one place a turn's dependencies are bound, and
+			// config.Settings already enforces AutoSyncMaxBehind's
+			// non-negative floor (CFG-6) before this line ever runs.
+			AutoSyncBase:      s.Config.Settings.AutoSyncBase,
+			AutoSyncMaxBehind: s.Config.Settings.AutoSyncMaxBehind,
+			Logger:            s.Logger,
 		}),
 		Reporter: reporter,
 		// The same two keys the harness was built from above, so the profile a

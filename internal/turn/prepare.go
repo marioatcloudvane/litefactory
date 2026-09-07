@@ -45,6 +45,13 @@ type preparation struct {
 	prompt   string
 	metaPath string
 
+	// sync is what [syncBase] reached for this task branch (US-2), read after
+	// [prepareClone] returns rather than recomputed. Rendering it into the
+	// issue comment is US-3's job and persisting SyncCommitSHA is US-9's; this
+	// is the one place both later stories can read the outcome off without a
+	// second call to git.
+	sync syncResult
+
 	// promptInput is what the prompt was built from, kept so that the resume
 	// fallback in [runAndHarvest] can rebuild it cold without reassembling any
 	// of it here. Flipping Resume is the whole difference between the two.
@@ -107,7 +114,7 @@ func prepare(
 		return nil, err
 	}
 
-	session, branch, worktree, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger)
+	session, branch, worktree, sync, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +328,7 @@ func prepare(
 		prompt:      prompt,
 		metaPath:    metaPath,
 		promptInput: promptInput,
+		sync:        sync,
 		request: agent.Request{
 			Ref:            ref,
 			RunOrdinal:     run.Ordinal,
@@ -382,7 +390,7 @@ func prepareClone(
 	repo store.Repo,
 	author git.Author,
 	logger *slog.Logger,
-) (store.Session, string, *git.Worktree, error) {
+) (store.Session, string, *git.Worktree, syncResult, error) {
 	// A cancelled context here is the daemon shutting down while this turn
 	// queued behind a sibling's fetch. It is reported the same way a failed
 	// fetch is — as a *failure the issue hears about — because from the
@@ -390,45 +398,35 @@ func prepareClone(
 	// answer either way (AC-4.1).
 	release, err := opts.CloneGate.Acquire(ctx, repo.Path)
 	if err != nil {
-		return session, "", nil, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
+		return session, "", nil, syncResult{}, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
 	}
 	defer release()
 
 	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, err
 	}
 
 	session, branch, err := freezeSlug(ctx, opts, req, session, repo)
 	if err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, err
 	}
 
 	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
 	if err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, err
 	}
 
-	if err := syncBase(ctx, opts, worktree, repo, author, logger); err != nil {
-		return session, "", nil, err
+	sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+	if err != nil {
+		return session, "", nil, syncResult{}, err
 	}
-	return session, branch, worktree, nil
+	return session, branch, worktree, sync, nil
 }
 
-// autoSyncBaseEnabled and autoSyncMaxBehind gate whether syncBase attempts a
-// merge at all.
-//
-// TODO(US-8): replace with config.AutoSyncBase/AutoSyncMaxBehind once the
-// config story ships. There is also no per-issue "lf:sync=" label opt-out
-// yet (US-7); until that lands, auto-sync is unconditional for every task
-// subject only to this cap.
-const (
-	autoSyncBaseEnabled = true
-	autoSyncMaxBehind   = 100
-)
-
-// syncOutcome names the result syncBase reached, for logging. Rendering it to
-// the issue or persisting it to the store is future-story work (US-8+); today
-// it is observable only in daemon.log.
+// syncOutcome names the result syncBase reached (US-2). It is logged on every
+// path and carried on [preparation.sync] for the later stories that render it
+// (US-3) or persist it (US-9); today it is otherwise only observable in
+// daemon.log.
 type syncOutcome string
 
 const (
@@ -437,6 +435,47 @@ const (
 	syncOutcomeBlocked  syncOutcome = "blocked"
 	syncOutcomeSkipped  syncOutcome = "skipped"
 )
+
+// syncResult is what [syncBase] reached for one task branch: the outcome, the
+// divergence it was measured from, the merge commit's sha when one was made,
+// and the conflicting paths when the preview was unclean.
+//
+// It is deliberately a plain data value with no behaviour: US-3 reads Outcome
+// and Conflicts to render the comment, US-9 reads SyncCommitSHA to persist it,
+// and neither has to call back into internal/git to get there.
+type syncResult struct {
+	// Outcome is which of the four branches syncBase reached.
+	Outcome syncOutcome
+	// Behind and Ahead are the [git.Divergence] syncBase measured before
+	// deciding. Behind is 0 exactly when Outcome is [syncOutcomeUpToDate];
+	// Ahead is independent of Outcome and may be nonzero on any of the four.
+	Behind, Ahead int
+	// SyncCommitSHA is the merge commit [git.Worktree.MergeBase] produced,
+	// non-empty only when Outcome is [syncOutcomeSynced] and the merge
+	// actually moved the branch ([git.MergeResult.Merged]).
+	SyncCommitSHA string
+	// Conflicts lists the paths [git.Worktree.MergePreview] reported, non-nil
+	// only when Outcome is [syncOutcomeBlocked].
+	Conflicts []string
+}
+
+// syncEnabled resolves whether auto-sync runs for this turn: a non-nil
+// [Request.SyncOverride] — the per-issue "lf:sync=" label's resolved decision
+// (US-7) — always wins; a nil override leaves the configured
+// [Options.AutoSyncBase] default in force (AC-7.1).
+func syncEnabled(opts Options, req Request) bool {
+	if req.SyncOverride != nil {
+		return *req.SyncOverride
+	}
+	return opts.AutoSyncBase
+}
+
+// withinSyncCap reports whether behind commits is close enough to attempt
+// auto-sync. [Options.AutoSyncMaxBehind] of 0 means no cap, exactly as
+// [config.Settings.AutoSyncMaxBehind] documents.
+func withinSyncCap(opts Options, behind int) bool {
+	return opts.AutoSyncMaxBehind == 0 || behind <= opts.AutoSyncMaxBehind
+}
 
 // syncBase merges the latest base branch into the task branch when that merge
 // is clean (US-2), as the fourth and last step of [prepareClone] — after
@@ -456,16 +495,17 @@ const (
 func syncBase(
 	ctx context.Context,
 	opts Options,
+	req Request,
 	worktree *git.Worktree,
 	repo store.Repo,
 	author git.Author,
 	logger *slog.Logger,
-) error {
+) (syncResult, error) {
 	baseRef := opts.remote() + "/" + repo.BaseBranch
 
 	divergence, err := worktree.Divergence(ctx, baseRef)
 	if err != nil {
-		return failuref(err, "how far %s has diverged from %s could not be measured", worktree.Branch(), baseRef)
+		return syncResult{}, failuref(err, "how far %s has diverged from %s could not be measured", worktree.Branch(), baseRef)
 	}
 
 	logFields := []any{
@@ -477,31 +517,36 @@ func syncBase(
 
 	if divergence.Behind == 0 {
 		logger.Debug("base sync: up to date", append(logFields, slog.String("outcome", string(syncOutcomeUpToDate)))...)
-		return nil
+		return syncResult{Outcome: syncOutcomeUpToDate, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
 	}
 
-	if !autoSyncBaseEnabled || divergence.Behind > autoSyncMaxBehind {
+	if !syncEnabled(opts, req) || !withinSyncCap(opts, divergence.Behind) {
 		logger.Info("base sync: skipped", append(logFields, slog.String("outcome", string(syncOutcomeSkipped)))...)
-		return nil
+		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
 	}
 
 	preview, err := worktree.MergePreview(ctx, baseRef)
 	if err != nil {
-		return failuref(err, "whether %s could be merged into %s could not be previewed", baseRef, worktree.Branch())
+		return syncResult{}, failuref(err, "whether %s could be merged into %s could not be previewed", baseRef, worktree.Branch())
 	}
 	if !preview.Clean {
 		logger.Info("base sync: blocked",
 			append(logFields, slog.String("outcome", string(syncOutcomeBlocked)), slog.Any("conflicts", preview.Conflicts))...)
-		return nil
+		return syncResult{Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts}, nil
 	}
 
 	result, err := worktree.MergeBase(ctx, baseRef, git.MergeOptions{Author: author})
 	if err != nil {
-		return failuref(err, "%s could not be merged into %s", baseRef, worktree.Branch())
+		return syncResult{}, failuref(err, "%s could not be merged into %s", baseRef, worktree.Branch())
 	}
 	logger.Info("base sync: synced",
 		append(logFields, slog.String("outcome", string(syncOutcomeSynced)), slog.String("head", result.Head), slog.Bool("merged", result.Merged))...)
-	return nil
+
+	sync := syncResult{Outcome: syncOutcomeSynced, Behind: divergence.Behind, Ahead: divergence.Ahead}
+	if result.Merged {
+		sync.SyncCommitSHA = result.Head
+	}
+	return sync, nil
 }
 
 // previousRun finds the last run of this segment that claude was actually

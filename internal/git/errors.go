@@ -89,6 +89,14 @@ var (
 	// whether a merge would hit this should call [Worktree.MergePreview]
 	// first, which reports the same condition without touching the branch.
 	ErrMergeConflict = errors.New("merge conflict")
+
+	// ErrUnsupportedGitVersion reports a resolved git older than the 2.38
+	// floor "git merge-tree --write-tree" needs. [Worktree.MergePreview]
+	// returns it without ever invoking git, so the failure is this named
+	// condition and a clear operator sentence rather than a raw
+	// [*CommandError] carrying whatever "unknown option" text that git
+	// version happens to print.
+	ErrUnsupportedGitVersion = errors.New("git version does not support merge-tree --write-tree (requires git 2.38 or newer)")
 )
 
 // CommandError reports a git invocation that failed.

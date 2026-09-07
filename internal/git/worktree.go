@@ -59,7 +59,7 @@ func (c *Clone) newWorktree(target, branch string) (*Worktree, error) {
 		return nil, fmt.Errorf("worktree path %s %w %s", target, ErrWorktreeOverlapsClone, c.path)
 	}
 	return &Worktree{
-		runner: runner{binary: c.runner.binary, dir: target},
+		runner: runner{binary: c.runner.binary, dir: target, mergeTreeSupported: c.runner.mergeTreeSupported},
 		path:   target,
 		branch: branch,
 		clone:  c.path,

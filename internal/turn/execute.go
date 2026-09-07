@@ -164,6 +164,24 @@ type Options struct {
 	AssetFetcher     attach.Fetcher
 	AttachmentLimits attach.Limits
 
+	// AutoSyncBase and AutoSyncMaxBehind are [prepareClone]'s syncBase step's
+	// (US-2) configured policy, copied in from [config.Settings.AutoSyncBase]
+	// and [config.Settings.AutoSyncMaxBehind] the same way AttachmentLimits is
+	// copied in from the attachment ceilings: this package reads a plain bool
+	// and a plain int and has no notion of a YAML default of its own.
+	//
+	// AutoSyncBase false is syncBase's own zero value and disables auto-sync,
+	// which is deliberately not [config.Settings.AutoSyncBase]'s default of
+	// true — a caller that constructs Options without setting this field (most
+	// tests in this package) gets no auto-sync rather than inheriting a
+	// default it never asked for. Production always sets both from the loaded
+	// configuration (internal/daemon/setup.go).
+	//
+	// AutoSyncMaxBehind of 0 means no cap, exactly as
+	// [config.Settings.AutoSyncMaxBehind] documents; it is never clamped here.
+	AutoSyncBase      bool
+	AutoSyncMaxBehind int
+
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
 }

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -84,8 +85,49 @@ const fallbackPATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 // missing git is a loud error at boot instead of a mysterious failure three
 // hours into a run.
 type Binary struct {
-	path    string
-	version string
+	path               string
+	version            string
+	mergeTreeSupported bool
+}
+
+// minMergeTreeVersion is the git ≥2.38 floor "git merge-tree --write-tree"
+// needs — the flag does not exist on anything older, and running it there
+// fails with an "unknown option" usage error rather than a merge result.
+var minMergeTreeVersion = gitVersion{major: 2, minor: 38}
+
+// gitVersion is the major.minor a resolved git binary reports, which is all
+// this package ever needs to compare against a feature floor.
+type gitVersion struct {
+	major, minor int
+}
+
+// atLeast reports whether v is the same as or newer than min.
+func (v gitVersion) atLeast(min gitVersion) bool {
+	if v.major != min.major {
+		return v.major > min.major
+	}
+	return v.minor >= min.minor
+}
+
+// parseGitVersion extracts the major.minor out of "git version X.Y[.Z] ..." —
+// the first field looking like a dotted version number wins, so "(Apple
+// Git-155)" and similar vendor suffixes are never mistaken for one. A string
+// this cannot parse is reported as unparsed rather than guessed at, so a
+// future git that changes its banner format fails the 2.38 check safe rather
+// than being assumed current.
+func parseGitVersion(raw string) (gitVersion, bool) {
+	for _, field := range strings.Fields(raw) {
+		parts := strings.SplitN(field, ".", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		major, majErr := strconv.Atoi(parts[0])
+		minor, minErr := strconv.Atoi(parts[1])
+		if majErr == nil && minErr == nil {
+			return gitVersion{major: major, minor: minor}, true
+		}
+	}
+	return gitVersion{}, false
 }
 
 // Resolve finds git on PATH, checks that it actually runs, and records its
@@ -113,7 +155,12 @@ func Resolve(ctx context.Context) (*Binary, error) {
 	if err != nil {
 		return nil, &BinaryNotFoundError{Name: abs, PATH: searched, Err: err}
 	}
-	return &Binary{path: abs, version: version}, nil
+	// An unparseable version string is treated as unsupported (see
+	// [parseGitVersion]), not as a resolution failure: git still works for
+	// everything except merge-tree --write-tree, and that narrower refusal is
+	// [Worktree.MergePreview]'s to report, not boot's.
+	parsed, ok := parseGitVersion(version)
+	return &Binary{path: abs, version: version, mergeTreeSupported: ok && parsed.atLeast(minMergeTreeVersion)}, nil
 }
 
 // workingDirForProbe returns a directory that is guaranteed to exist and to be
@@ -147,6 +194,11 @@ func (b *Binary) Version() string {
 type runner struct {
 	binary string
 	dir    string
+	// mergeTreeSupported carries [Binary]'s own version check down to every
+	// [Clone] and [Worktree] built from it, so [Worktree.MergePreview] can
+	// refuse before it ever execs rather than after git rejects an option
+	// that version does not have.
+	mergeTreeSupported bool
 }
 
 // run executes git with args, waits up to timeout, and returns stdout with the

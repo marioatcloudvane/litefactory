@@ -103,7 +103,8 @@ type MergePreview struct {
 	// Clean reports whether the merge would complete without conflicts.
 	Clean bool
 	// Conflicts lists the paths that would conflict. It is empty when Clean
-	// is true.
+	// is true, and capped at [MaxMergeConflictPaths] regardless of how many
+	// git actually reported.
 	Conflicts []string
 	// TreeSHA is the object id of the tree merge-tree computed — the result
 	// of the merge whether or not it is clean. It is not attached to any ref.
@@ -127,6 +128,12 @@ type MergePreview struct {
 //
 // base and the worktree's branch are screened by [checkName] before being
 // used to build the command, exactly as [Worktree.Divergence] does.
+//
+// "git merge-tree --write-tree" is a git ≥2.38 feature. A resolved git older
+// than that is refused here, before any command runs, as
+// [ErrUnsupportedGitVersion] — never a raw [*CommandError] carrying whatever
+// "unknown option" text that git version happens to print, and never a boot
+// failure: the caller decides how to report it turn by turn.
 func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview, error) {
 	if err := w.check(); err != nil {
 		return MergePreview{}, err
@@ -136,6 +143,13 @@ func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview,
 	}
 	if err := checkName("branch", w.branch); err != nil {
 		return MergePreview{}, err
+	}
+	if !w.runner.mergeTreeSupported {
+		// Refused before exec rather than after: an older git rejects
+		// --write-tree with a plain "unknown option" usage error, which would
+		// otherwise surface as an unclassified *CommandError instead of this
+		// named, operator-readable condition.
+		return MergePreview{}, fmt.Errorf("%w", ErrUnsupportedGitVersion)
 	}
 
 	// merge-tree exits 0 for a clean merge and 1 for a conflicted one, and
@@ -154,6 +168,13 @@ func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview,
 	return preview, nil
 }
 
+// MaxMergeConflictPaths caps how many conflicted paths [Worktree.MergePreview]
+// reports. The cap is applied here, at parse time, rather than only where a
+// caller later renders the list (S-9): a merge with thousands of conflicting
+// paths must not be free to grow an unbounded slice this deep in the call
+// stack just because some future renderer happens to truncate its own output.
+const MaxMergeConflictPaths = 500
+
 // parseMergePreview decodes "git merge-tree --write-tree --name-only" output.
 // A clean merge is a single line: the tree id. A conflicted merge is three
 // sections separated by a blank line: the tree id, one conflicted path per
@@ -171,9 +192,13 @@ func parseMergePreview(out string, clean bool) (MergePreview, error) {
 		return MergePreview{}, fmt.Errorf("%q: %w: missing conflicted file list", out, ErrInvalidArgument)
 	}
 	for _, path := range strings.Split(parts[1], "\n") {
-		if path != "" {
-			preview.Conflicts = append(preview.Conflicts, path)
+		if path == "" {
+			continue
 		}
+		if len(preview.Conflicts) >= MaxMergeConflictPaths {
+			continue
+		}
+		preview.Conflicts = append(preview.Conflicts, path)
 	}
 	if len(preview.Conflicts) == 0 {
 		return MergePreview{}, fmt.Errorf("%q: %w: conflicted but no paths listed", out, ErrInvalidArgument)
