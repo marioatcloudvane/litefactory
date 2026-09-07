@@ -109,8 +109,16 @@ type Settings struct {
 	// function; this package only loads and validates it.
 	AutoSyncBase bool `yaml:"auto_sync_base"`
 	// AutoSyncMaxBehind bounds how many commits behind its base branch a
-	// worktree may be before auto-sync is skipped on distance alone, rather
-	// than attempted (US-8).
+	// worktree may be before litefactory refuses the run on distance alone,
+	// rather than attempting the merge (US-8).
+	//
+	// Exceeding it refuses; it does not skip. Skipping was the original
+	// behaviour and was the worst of the three answers available: it neither
+	// brought the branch up to date nor stopped, so the run went ahead
+	// against a branch known to be stale — the failure [AutoSyncBase] exists
+	// to prevent — and distance makes that more dangerous, not less.
+	// Turning auto-sync off is still a skip, because an operator who turned
+	// it off asked for the run to go ahead.
 	//
 	// 0 means no cap: auto-sync is never skipped for being far behind.
 	// A negative value is a config load error, enforced in [Config.Validate]
@@ -120,7 +128,9 @@ type Settings struct {
 	// The default of 100 is a judgment call, not a measurement: no data set
 	// determined it, and none should be assumed from it. It exists to be
 	// tuned per repository by an operator who knows their own rate of
-	// change, not to be quoted as an evidence-based threshold.
+	// change, not to be quoted as an evidence-based threshold. 0 is a
+	// reasonable choice for a repository that would rather always merge and
+	// let a real conflict be the only thing that stops a run.
 	AutoSyncMaxBehind int `yaml:"auto_sync_max_behind"`
 	// BlockRunOnConflict controls whether a merge conflict hit during
 	// auto-sync blocks the run rather than letting it proceed against a

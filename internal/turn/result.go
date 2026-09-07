@@ -219,6 +219,17 @@ type Result struct {
 	// with [report.ReplyRefusesSync] instead and no run is started.
 	Sync *report.Sync
 
+	// SyncTooFarBehind, SyncBehind and SyncMaxBehind are set only on a
+	// [DispositionSyncRefused] the cap produced rather than a conflict: no
+	// merge was previewed, SyncConflicts is empty, and the reply names the
+	// distance instead of a list of paths.
+	SyncTooFarBehind bool
+	SyncBehind       int
+	SyncMaxBehind    int
+	// SyncBase is the base ref the distance was measured against, carried
+	// so the reply can name it.
+	SyncBase string
+
 	// SyncConflicts is set only on [DispositionSyncRefused]: the paths
 	// [git.Worktree.MergePreview] reported as conflicting, exactly as
 	// syncBase recorded them. internal/report renders them inside a fenced

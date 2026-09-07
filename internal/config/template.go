@@ -43,10 +43,13 @@ settings:
   # this feature exists to fix, and blocking on conflict is on by default
   # because guessing wrong about a conflict is worse than stopping to ask.
   auto_sync_base: %t
-  # 0 means no cap: distance behind base never skips auto-sync on its own. A
-  # negative value is a config load error, never silently clamped to 0 or to
-  # this default. The default of %d is a judgment call, not a measurement —
-  # no data set determined it; tune it for your repository's pace.
+  # A branch further behind than this refuses the run rather than skipping
+  # the sync: a run against a branch known to be stale is the failure this
+  # feature exists to prevent, and distance makes it worse, not safer.
+  # 0 means no cap — always merge, and let a real conflict be the only thing
+  # that stops a run. A negative value is a config load error, never silently
+  # clamped to 0 or to this default. The default of %d is a judgment call,
+  # not a measurement — no data set determined it; tune it for your pace.
   auto_sync_max_behind: %d
   block_run_on_conflict: %t
   # Suggesting a resolution is off by default: this is the first place

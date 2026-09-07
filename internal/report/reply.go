@@ -82,6 +82,19 @@ const (
 	ReplySuggestsResolution
 
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
+	// ReplyRefusesSyncTooFarBehind answers a turn whose task branch is
+	// further behind its base than [config.Settings.AutoSyncMaxBehind]
+	// allows. No merge was previewed and no conflict is known: distance
+	// alone is the refusal.
+	//
+	// It is deliberately a refusal and not a skip. A skip would let the run
+	// proceed against a branch known to be stale, which is the failure
+	// [config.Settings.AutoSyncBase] exists to prevent; the cap says this
+	// branch is too far gone to merge unattended, and the honest answer to
+	// that is to stop and say so. Being switched off is still a skip —
+	// an operator who turned sync off asked for the run to go ahead.
+	ReplyRefusesSyncTooFarBehind
+
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
 	ReplyAmbiguousModeLabels
@@ -186,6 +199,8 @@ func (k ReplyKind) String() string {
 		return "sync_refused"
 	case ReplySuggestsResolution:
 		return "sync_refused_with_suggestion"
+	case ReplyRefusesSyncTooFarBehind:
+		return "sync_refused_too_far_behind"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -240,7 +255,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyAgentSwitchRefused:
 		return true
-	case ReplyRefusesSync, ReplySuggestsResolution:
+	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
 		return true
@@ -341,7 +356,7 @@ func (k ReplyKind) RefusesSwitch() bool {
 // [Reply.ConflictProposal] — the same reason [RefusesSwitch] does, and for
 // the same reason [RefusesAgent]'s own doc excludes [ReplyAgentSwitchRefused].
 func (k ReplyKind) RefusesSync() bool {
-	return k == ReplyRefusesSync || k == ReplySuggestsResolution
+	return k == ReplyRefusesSync || k == ReplySuggestsResolution || k == ReplyRefusesSyncTooFarBehind
 }
 
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
@@ -373,6 +388,14 @@ type Reply struct {
 	// before they are rendered, the same as [Agent].
 	OwningAgent    string
 	RequestedAgent string
+
+	// SyncBehind, SyncBase and SyncMaxBehind are read by
+	// [ReplyRefusesSyncTooFarBehind] alone: how far the branch had fallen
+	// behind, the ref it was measured against, and the cap it exceeded.
+	// Zero and empty for every other kind.
+	SyncBehind    int
+	SyncBase      string
+	SyncMaxBehind int
 
 	// ConflictPaths is read by [ReplyRefusesSync] alone (US-4): the paths
 	// [git.Worktree.MergePreview] reported as conflicting, carried through
@@ -745,6 +768,12 @@ func (r Reply) body() string {
 			"one tool's session to another. Comment again without asking for a different agent, " +
 			"or start a new task for the one you want.")
 
+	case ReplyRefusesSyncTooFarBehind:
+		fmt.Fprintf(&b, "This task's branch is %d commit(s) behind %s, more than the configured cap of %d, "+
+			"so litefactory stopped before starting the agent. ",
+			r.SyncBehind, codeSpan(r.SyncBase), r.SyncMaxBehind)
+		b.WriteString(syncTooFarBehindSentence)
+
 	case ReplyRefusesSync:
 		b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
 			"stopped before starting the agent. ")
@@ -946,6 +975,15 @@ const agentRefusalSentence = "Nothing was run: litefactory refuses a run it cann
 // to run an agent against a task branch it could not merge the base branch
 // into cleanly, rather than guessing at a resolution or running against a
 // stale branch.
+// syncTooFarBehindSentence is [ReplyRefusesSyncTooFarBehind]'s standing
+// explanation, the sibling of [syncRefusalSentence]. It names the two ways
+// out, because unlike a conflict this one has no file to fix: the operator
+// either merges the base themselves or tells litefactory the distance is
+// acceptable.
+const syncTooFarBehindSentence = "Nothing was run: a branch this far behind is merged deliberately, not " +
+	"automatically before a run. Merge the base branch into this task's branch yourself, or raise " +
+	"`auto_sync_max_behind` (0 removes the cap entirely), then comment again."
+
 const syncRefusalSentence = "Nothing was run: litefactory refuses a run it cannot merge the base branch " +
 	"into cleanly rather than guessing at a resolution or running against a stale branch."
 

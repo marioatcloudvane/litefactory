@@ -236,6 +236,13 @@ type ReplyRequest struct {
 	OwningAgent    string
 	RequestedAgent string
 
+	// SyncBehind, SyncBase and SyncMaxBehind belong to
+	// [report.ReplyRefusesSyncTooFarBehind] alone: the distance that
+	// exceeded the cap, the ref it was measured against, and the cap.
+	SyncBehind    int
+	SyncBase      string
+	SyncMaxBehind int
+
 	// ConflictPaths belongs to [report.ReplyRefusesSync] alone (US-4): the
 	// paths [git.Worktree.MergePreview] reported as conflicting, carried
 	// through exactly as syncBase recorded them on [Result.SyncConflicts].
@@ -435,6 +442,24 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 		slog.Int64("trigger_comment_id", result.TriggerCommentID),
 		slog.Int("conflicts", len(result.SyncConflicts)))
 
+	if result.SyncTooFarBehind {
+		if result.TriggerCommentID == 0 {
+			log.InfoContext(ctx, "refusing to run the issue body: this task's branch is further behind the "+
+				"base branch than the cap allows. Nothing was run and no comment was posted, because there "+
+				"is no comment to answer")
+			return Posted{Skipped: true}, nil
+		}
+		return r.ReportReply(ctx, ReplyRequest{
+			Ref:           result.Ref,
+			SessionID:     result.SessionID,
+			CommentID:     result.TriggerCommentID,
+			Refusal:       report.ReplyRefusesSyncTooFarBehind,
+			SyncBehind:    result.SyncBehind,
+			SyncBase:      result.SyncBase,
+			SyncMaxBehind: result.SyncMaxBehind,
+		})
+	}
+
 	if result.TriggerCommentID == 0 {
 		log.InfoContext(ctx, "refusing to run the issue body: the base branch could not be merged into "+
 			"this task's branch cleanly. Nothing was run and no comment was posted, because there is no "+
@@ -605,6 +630,9 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Agent:                    req.Agent,
 		OwningAgent:              req.OwningAgent,
 		RequestedAgent:           req.RequestedAgent,
+		SyncBehind:               req.SyncBehind,
+		SyncBase:                 req.SyncBase,
+		SyncMaxBehind:            req.SyncMaxBehind,
 		ConflictPaths:            req.ConflictPaths,
 		ConflictProposal:         req.ConflictProposal,
 		ConflictSuggestionFailed: req.ConflictSuggestionFailed,

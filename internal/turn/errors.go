@@ -98,6 +98,19 @@ func (e *agentSwitchRefusal) Error() string {
 type syncRefusal struct {
 	conflicts []string
 
+	// tooFarBehind marks the second reason a sync refuses, added after
+	// US-4: the branch is further behind than [Options.AutoSyncMaxBehind]
+	// allows, so no merge was previewed at all and conflicts is nil.
+	// behind and maxBehind carry the two numbers the reply names.
+	//
+	// This case is a refusal rather than a skip on purpose. Skipping let
+	// the run proceed against a branch known to be stale — the exact
+	// failure [Options.AutoSyncBase] exists to prevent — while saying so
+	// only in a report nobody had to read. A cap means "too far to merge
+	// unattended", and the honest answer is to stop.
+	tooFarBehind      bool
+	behind, maxBehind int
+
 	// branch, base, files and excluded are US-11's addition: the conflicting
 	// content [syncBase] collected and capped inside the same
 	// [Options.CloneGate] acquisition [git.Worktree.MergePreview] ran under,
@@ -120,6 +133,10 @@ type syncRefusal struct {
 }
 
 func (e *syncRefusal) Error() string {
+	if e.tooFarBehind {
+		return fmt.Sprintf("this task's branch is %d commit(s) behind the base branch, more than the cap of %d",
+			e.behind, e.maxBehind)
+	}
 	return fmt.Sprintf("the base branch could not be merged into this task's branch cleanly: %d conflicting file(s)",
 		len(e.conflicts))
 }

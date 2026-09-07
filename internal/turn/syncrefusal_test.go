@@ -236,10 +236,11 @@ func TestReporterPostsTheSyncSkipReason(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
-	f.opts.AutoSyncBase = true
-	// Two commits behind against a cap of one: over the cap by construction,
-	// without building a hundred commits to get there.
-	f.opts.AutoSyncMaxBehind = 1
+	// Auto-sync off is the one remaining skip: the branch falls behind and the
+	// run goes ahead anyway, which is exactly the case a person has to be told
+	// about. Over the cap is no longer a skip — it refuses, see
+	// TestReporterRefusesARunTooFarBehindTheBase.
+	f.opts.AutoSyncBase = false
 
 	seedTaskWorktree(t, f)
 	advanceSyncBase(t, f.repo, 2)
@@ -275,7 +276,68 @@ func TestReporterPostsTheSyncSkipReason(t *testing.T) {
 		t.Errorf("the posted report carries no sync section though sync was skipped (AC-3.2):\n%s", body)
 	case !strings.Contains(body, "skipped syncing this branch"):
 		t.Errorf("the sync section does not name the skip:\n%s", body)
-	case !strings.Contains(body, "more than the configured cap"):
+	case !strings.Contains(body, "auto-sync is turned off"):
 		t.Errorf("the sync section does not say why it skipped (AC-3.2):\n%s", body)
+	}
+}
+
+// TestReporterRefusesARunTooFarBehindTheBase covers the cap's behaviour after
+// it changed from skipping to refusing. Skipping was the worst of the three
+// answers: it neither brought the branch up to date nor stopped, so the run
+// went ahead against a branch known to be stale — the failure auto-sync exists
+// to prevent — while distance made that more dangerous, not less.
+//
+// The refusal names both numbers and both ways out, because unlike a conflict
+// there is no file to fix: raise the cap, or merge the base yourself.
+func TestReporterRefusesARunTooFarBehindTheBase(t *testing.T) {
+	t.Parallel()
+
+	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
+		t.Error("the agent ran though the branch was further behind than the cap allows")
+		return nil, errors.New("must not be reached")
+	})
+	f := newFixture(t, runner)
+	f.opts.AutoSyncBase = true
+	f.opts.AutoSyncMaxBehind = 1
+
+	seedTaskWorktree(t, f)
+	advanceSyncBase(t, f.repo, 2)
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+
+	result := f.execute(f.request())
+	if result.Disposition != DispositionSyncRefused {
+		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionSyncRefused, f.logs)
+	}
+	if !result.SyncTooFarBehind {
+		t.Error("SyncTooFarBehind = false: the refusal is distance, not a conflict")
+	}
+	if len(result.SyncConflicts) != 0 {
+		t.Errorf("SyncConflicts = %v, want none: no merge was previewed at all", result.SyncConflicts)
+	}
+	if runs := f.runs(); len(runs) != 0 {
+		t.Errorf("allocated %d runs, want 0: the refusal precedes the runs row", len(runs))
+	}
+
+	posted, err := reporter.ReportTurn(t.Context(), result)
+	if err != nil {
+		t.Fatalf("ReportTurn: %v\nlogs:\n%s", err, f.logs)
+	}
+	if posted.Skipped {
+		t.Fatal("Skipped = true, want the refusal posted")
+	}
+
+	body := forge.only(t).body
+	switch {
+	case !strings.Contains(body, "2 commit(s) behind"):
+		t.Errorf("the refusal does not name the distance:\n%s", body)
+	case !strings.Contains(body, "configured cap of 1"):
+		t.Errorf("the refusal does not name the cap it exceeded:\n%s", body)
+	case !strings.Contains(body, "Nothing was run"):
+		t.Errorf("the refusal does not say that nothing ran:\n%s", body)
+	case !strings.Contains(body, "auto_sync_max_behind"):
+		t.Errorf("the refusal does not name the way out:\n%s", body)
+	case strings.Contains(body, "could not be merged with the base branch cleanly"):
+		t.Errorf("the refusal claims a conflict, but none was previewed:\n%s", body)
 	}
 }

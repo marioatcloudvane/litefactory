@@ -692,6 +692,14 @@ func syncRefused(result Result, refusal *syncRefusal, logger *slog.Logger) Resul
 	result.Disposition = DispositionSyncRefused
 	result.SyncConflicts = append([]string(nil), refusal.conflicts...)
 
+	if refusal.tooFarBehind {
+		result.SyncTooFarBehind = true
+		result.SyncBehind, result.SyncMaxBehind = refusal.behind, refusal.maxBehind
+		result.SyncBase = refusal.base
+		logger.Info("refusing a run: this task's branch is further behind the base branch than the cap allows",
+			slog.Int("behind", refusal.behind), slog.Int("max_behind", refusal.maxBehind))
+		return result
+	}
 	logger.Info("refusing a run: the base branch could not be merged into this task's branch cleanly",
 		slog.Int("conflicts", len(refusal.conflicts)))
 	return result

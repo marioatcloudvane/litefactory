@@ -129,6 +129,17 @@ func prepare(
 	// produces the blocked outcome regardless of this flag (US-2's own scope
 	// boundary); [Options.BlockRunOnConflict] is what turns it into a refusal
 	// rather than a run that merely discloses the conflict and goes ahead.
+	// Distance refuses unconditionally: unlike a conflict, there is no
+	// BlockRunOnConflict-style "disclose and carry on" reading of a cap. An
+	// operator who wants the run to go ahead raises the cap or sets it to 0.
+	if sync.Outcome == syncOutcomeTooFarBehind {
+		return nil, &syncRefusal{
+			tooFarBehind: true,
+			behind:       sync.Behind,
+			maxBehind:    opts.AutoSyncMaxBehind,
+			branch:       sync.Branch, base: sync.Base,
+		}
+	}
 	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
 		return nil, &syncRefusal{
 			conflicts: append([]string(nil), sync.Conflicts...),
@@ -584,6 +595,10 @@ const (
 	syncOutcomeSynced   syncOutcome = "synced"
 	syncOutcomeBlocked  syncOutcome = "blocked"
 	syncOutcomeSkipped  syncOutcome = "skipped"
+	// syncOutcomeTooFarBehind is distance alone: further behind than
+	// [Options.AutoSyncMaxBehind] allows, so no merge was ever previewed.
+	// It refuses the run; see [syncRefusal.tooFarBehind].
+	syncOutcomeTooFarBehind syncOutcome = "too_far_behind"
 )
 
 // syncResult is what [syncBase] reached for one task branch: the outcome, the
@@ -680,24 +695,6 @@ func reportSync(sync syncResult) *report.Sync {
 // its spelling; this is the rendered name, not a second parser.
 const syncOffLabel = "`Sync: Off`"
 
-// syncSkipReason reports whether auto-sync is skipped before it is attempted,
-// and why, in a sentence fit to render after "because " (AC-3.2). The order
-// matches [syncBase]'s own: being switched off is answered before distance,
-// because a turn that was told not to sync is not also "too far behind".
-func syncSkipReason(opts Options, req Request, behind int) (string, bool) {
-	if !syncEnabled(opts, req) {
-		if req.SyncOverride != nil {
-			return "this issue carries a " + syncOffLabel + " label", true
-		}
-		return "auto-sync is turned off for this repository", true
-	}
-	if !withinSyncCap(opts, behind) {
-		return fmt.Sprintf("the branch is %d commit(s) behind, more than the configured cap of %d",
-			behind, opts.AutoSyncMaxBehind), true
-	}
-	return "", false
-}
-
 // syncBase merges the latest base branch into the task branch when that merge
 // is clean (US-2), as the fourth and last step of [prepareClone] — after
 // [ensureWorktree], still inside the one [Options.CloneGate] acquisition that
@@ -741,10 +738,29 @@ func syncBase(
 		return syncResult{Outcome: syncOutcomeUpToDate, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
 	}
 
-	if reason, skipped := syncSkipReason(opts, req, divergence.Behind); skipped {
+	if !syncEnabled(opts, req) {
+		reason := "auto-sync is turned off for this repository"
+		if req.SyncOverride != nil {
+			reason = "this issue carries a " + syncOffLabel + " label"
+		}
 		logger.Info("base sync: skipped",
 			append(logFields, slog.String("outcome", string(syncOutcomeSkipped)), slog.String("reason", reason))...)
 		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead, Reason: reason}, nil
+	}
+	// Over the cap refuses the run rather than skipping past it. A skip would
+	// let the run proceed against a branch known to be stale, disclosed only
+	// in a report nobody has to read; the cap says this branch is too far
+	// gone to merge unattended, and stopping is the honest answer to that.
+	// Being switched off, just above, stays a skip: an operator who turned
+	// sync off asked for the run to go ahead.
+	if !withinSyncCap(opts, divergence.Behind) {
+		logger.Info("base sync: too far behind",
+			append(logFields, slog.String("outcome", string(syncOutcomeTooFarBehind)),
+				slog.Int("max_behind", opts.AutoSyncMaxBehind))...)
+		return syncResult{
+			Outcome: syncOutcomeTooFarBehind, Behind: divergence.Behind, Ahead: divergence.Ahead,
+			Branch: worktree.Branch(), Base: repo.BaseBranch,
+		}, nil
 	}
 
 	preview, err := worktree.MergePreview(ctx, baseRef)
