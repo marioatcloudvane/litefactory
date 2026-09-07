@@ -1,0 +1,54 @@
+# Plan Brief — treat-github-subissues-as-single-source
+# Branch: lf/141-treat-github-subissues-as-single-source
+# Date: 2026-09-07
+# Parent issue: https://github.com/marioatcloudvane/litefactory/issues/141
+# Citation base: ae5a20c104db9775facbb4c1ca648ac94709a3c6
+# Research brief: [RESEARCH_BRIEF.md](RESEARCH_BRIEF.md)
+
+## Shared Decisions
+- GitHub title/body are the sole editable story authority. The parent remains task/session/worktree identity; its Story Index contains metadata and verified issue links only. SQLite holds immutable execution revisions and recovery state, never an alternate editable specification.
+- Managed scope is same-repository indexed direct children verified by numeric repository/parent/child identity and stable story key. Reject unsupported or ambiguous relationships; leave unindexed issues untouched. Complete contracts include acceptance criteria, architecture, tasks, dependencies and task ownership. All task entries are owned by go-implementation-engineer; Implement assigns test deliverables to rostered test specialists where appropriate.
+- Feature lifecycle is Planning → freezing → implementing → completed, grouped by planning generation. Story lifecycle is planning → frozen → running or blocked → verified → completed. Verified means accepted evidence; completed additionally requires delivered reporting and GitHub closure. Lifecycle does not derive from labels or human closing/reopening issues.
+- Parent promotion selects all unfinished revisions together. Record exact fetched title/body with an unambiguous content digest, source identity, generation and fetch time; updated_at is diagnostic only. Required freeze notices precede launch. Every initial, retry, resumed and fallback attempt receives the same approved revision set until explicit quiescent parent Plan opens a new generation for unfinished scope.
+- Headless assumptions: application refusal and visible notices implement the lock; immutable runtime snapshots are acceptable; completed means acceptance and review/test gates plus saved/pushed code, without merge; completed scope uses successor stories. Active implementation cannot be unfrozen by a child comment or parent Plan request.
+- Versioned bounded strict contracts connect Plan proposals, execution context and per-story outcomes. Proposal fields bind parent/generation/story key, create/update intent, expected base revision, full desired title/body and dependencies. Execution/outcome fields bind parent run, generation, story, revision, acceptance evidence and named gates. No arbitrary output-selected paths, network targets or permissions.
+- Use a trusted ignored per-run handoff path for proposal/result transport and consume/exclude it before every harvest. Persist accepted data in SQLite for recovery; new LF_HOME paths belong to config.Paths. Agents receive bounded context through the shared prompt/stdin contract and need no GitHub credentials.
+- Persist external-effect intent before delivery, then atomically record successful delivery and associated source-comment consumption. Never advance a reporting watermark before successful posting, and never hold a SQL transaction across network/git I/O. Stable operation IDs and verified bot-authored recovery markers handle uncertain responses; ambiguous results block instead of blindly duplicating effects. Recovery never reruns agents just to deliver status.
+- Canonical parent admission serializes comments, publication, promotion and reconciliation using existing locks/workers. An admitted refinement finishes or visibly fails before promotion; comments discovered after freeze are refused regardless of timestamp. Daemon owns scheduling/retry time; turn owns one attempt.
+- Claude and Codex follow identical publication, revision, specialist-input and outcome contracts through shared application components. Existing internal packages suffice; no new module, service, worker pool or widened tool permissions.
+
+## Workflow
+- Shipping order: US-1 establishes complete publication and durable identities; US-2 adds parent-routed discovery/admission; US-3 uses both for atomic freeze; US-4 delivers the selected execution scope; US-5 uses revision-bound outcomes for progress and closure; US-6 finishes migration and workflow alignment.
+- Dependency graph: US-1 → US-2 → US-3 → US-4 → US-5 → US-6. Additional direct dependencies are listed below. Estimates use task S/M/L with each task at most one day; aggregate story sizes are L, not single-day promises.
+- Hard coupling: release all six stories as one behavior change. Publication authority, comment admission, frozen context, verification and instruction migration must agree before enabling the workflow; do not ship a partially converted file/issue authority model. Implementation may parallelize independent tasks only after their explicit prerequisites exist.
+- Plan run 0002 prepares six full publication bodies under this session using the current daemon handoff. Actual sub-issue creation and Story Index link insertion occur after this agent returns. Pending links below are not executable story references: downstream implementation must verify that litefactory filled every row with a working GitHub child URL. This current handoff is not the future tracked-story design.
+
+## Cross-Story Constraints
+- Platform: reuse internal/planbrief for pure parsing, internal/agent for vendor-neutral contracts, internal/report for rendering, internal/turn for orchestration, internal/daemon for time/dispatch, internal/store for all SQL and internal/github for forge transport. Interfaces belong to consumers; report cannot import turn; config remains pure. Store uses one SQLite connection, context-first accessors and new embedded numbered migration files.
+- Security: numeric owner authorization plus verified managed relationships precede execution. Treat GitHub/agent text as untrusted delimited data, never argv/path/target authority. Render and redact every outward body/comment through existing boundaries. Validate evidence references within the supplied worktree without symlink escape. Do not expose source bodies in routine logs or expand agent permissions.
+- Recovery/concurrency: maintain bounded dispatch, short clone git gate, copied request/result collections, post-before-watermark and prepare's final session-running write. Persist attempt/operation provenance; network failures remain actionable and retryable. Poll managed closed children as well as open children.
+- Tests: retain stdlib fixtures, httptest, real SQLite, gittest and fake runners. Race tests use channels/Daemon.Quiesce, never sleeps. Implement must pass make check and go build ./...; there are no integration tags or live agent/API requirements. API implementers verify endpoint/SDK compatibility from official documentation before claiming live support.
+- Ring-fenced: no dist writes, make build, daemon restart, hand edits under LF_HOME, direct agent commits/pushes, new permission-bypass flags or historical session rewriting. Litefactory remains responsible for saved commits, pushes and forge publication.
+- Architecture verdict: APPROVED FOR PLANNING; no normative deviation requested. Preserve existing security boundaries while correcting stale documentation inventory; any actual policy relaxation is outside this approval.
+
+## Story Index
+| ID | Title | Size | Depends On | Sub-issue |
+|----|-------|------|-----------|-----------|
+| US-1 | Publish complete stories in GitHub | L | — | Pending litefactory publication |
+| US-2 | Route story discussion through the parent plan | L | US-1 | Pending litefactory publication |
+| US-3 | Freeze approved scope before implementation | L | US-1, US-2 | Pending litefactory publication |
+| US-4 | Supply approved story revisions on every execution | L | US-3 | Pending litefactory publication |
+| US-5 | Report story progress and close verified work | L | US-1, US-3, US-4 | Pending litefactory publication |
+| US-6 | Migrate existing plans without losing details | L | US-1, US-4, US-5 | Pending litefactory publication |
+
+## Out of Scope
+- Native GitHub conversation locking or preventing owner/admin edits; an atomic remote edit lock cannot be promised.
+- Cross-repository/nested execution, automatic adoption of arbitrary children, independent child implementation tasks, generalized project management, token streaming, cancellation controls and automatic merge.
+- Bulk conversion of unrelated archived sessions, historical commit rewriting or silent resolution of ambiguous legacy edits.
+- Code implementation or live GitHub mutations during this Plan run. Future behavior is planned here, not installed by these artifacts.
+
+## Provenance
+- Citation base: ae5a20c104db9775facbb4c1ca648ac94709a3c6. Research, feature-spec.md and ARCH_REVIEW.md in this session are planning evidence; published per-story contracts own story tasks and acceptance criteria, and this brief owns shared decisions.
+- Known-stale areas: APP_CONSTRAINTS SEC-6/API inventory wording predates some existing issue publication paths. Documentation correction must preserve redaction and permitted extraction boundaries, not silently weaken them. The current publisher may abbreviate technical story bodies; verify resulting published issues against these full handoff bodies before any implementation handoff.
+- Re-pinning: before implementation, verify the checkout and citation base, all real Story Index links and full published contracts, current GitHub relationships/SDK/API semantics and applicable constraints. Before merge, review intentional changes to file-mirroring/truncation/closed-discovery tests and exported GitHub method-surface tests.
+- Publication state at agent exit: six complete US-1.md through US-6.md bodies are ready for litefactory; real issue numbers and URLs are not yet available and have not been fabricated. Planning authorship is complete; downstream story discovery remains pending publication and link validation.
