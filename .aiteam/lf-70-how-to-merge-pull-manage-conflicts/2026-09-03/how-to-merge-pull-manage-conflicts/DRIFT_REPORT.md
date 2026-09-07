@@ -145,3 +145,95 @@ CLEAN — delivered matches plan within acceptable micro-decisions (the test
 engineer's additional edge-case variants, consistent with T-7.3's stated
 intent and the codebase's own existing test conventions for
 `agentLabelPrefix`/`modeLabelPrefix`).
+
+---
+
+# Drift Report — Measure behind/ahead before every run (US-1)
+# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
+
+## Scope note
+
+This run implemented/verified **US-1 only**, by explicit instruction. Its
+premise was unusual: a prior run (stopped by the operator at 49 minutes,
+before code review, tests, or close-out) had already written `Divergence`,
+`parseDivergenceCounts`, and `divergenceTimeout` in `internal/git/merge.go`
+and `internal/git/exec.go`, and wired the call site into
+`internal/turn/prepare.go`'s `syncBase`. This run's job was to verify that
+code against US-1's acceptance criteria (not trust it because it existed),
+correct it if wrong, and deliver the one task it was genuinely missing —
+T-1.4, unit tests, of which zero existed anywhere in the repo. US-2's partial
+work in the same file (`MergePreview`, `MergeBase`, `recoverFromFailedMerge`)
+was left completely untouched throughout — not reviewed, not tested, not
+reformatted.
+
+## Delivered as planned
+
+- T-1.1 (Phase 0 probe): already complete from an earlier phase of this plan,
+  not re-litigated here.
+- T-1.2 (`Divergence` type and `(*Worktree).Divergence` method): found
+  already present and, on independent empirical verification (a real
+  throwaway git repo, diverged by known asymmetric counts, `git rev-list
+  --left-right --count` run directly), **correct as written** — no fix
+  needed. `checkName` screens both `base` and `w.branch` before the range is
+  assembled inside the method; `--end-of-options` matches `revParse`'s usage;
+  a missing base ref classifies via `classify(err, ErrRevisionNotFound, 128)`
+  through the existing `failuref`-equivalent path, not a panic or raw exit
+  code.
+- T-1.3 (`divergenceTimeout` const, 30s): found already present in
+  `internal/git/exec.go` and correctly wired into the `runner.run` call.
+- T-1.4 (unit tests): delivered in full, newly written this run —
+  `internal/git/merge_test.go` (new file), 4 test functions covering all four
+  ahead/behind combinations against real git repos (0/0, ahead-only,
+  behind-only, both), a side-order regression test using deliberately
+  asymmetric counts (base +3, branch +1) that would fail if `base...branch`
+  were flipped to `branch...base` or if the parsed `behind`/`ahead` fields
+  were swapped, the missing-base-ref error path asserting
+  `errors.Is(err, git.ErrRevisionNotFound)` on a classified `*git.CommandError`,
+  and a `checkName`-screening test confirming malformed ref names are
+  rejected before git is ever shelled out. All tests reuse the existing
+  `internal/git` real-git-in-temp-directory test harness
+  (`internal/gittest`, `openFixture`, `newTaskWorktree`) rather than
+  inventing a parallel one.
+- AC-1.1 verified directly by the side-order regression test plus the four
+  combination subtests — this is the exact trap the story's Architecture
+  Notes called out ("the single easiest place to get this story backwards
+  without any test catching it"), and it is now pinned.
+- `go-code-reviewer` independently re-traced the ahead/behind ordering from
+  source (not from the implementer's report) and returned **CLEAN**, zero
+  BLOCKING or ADVISORY findings, scoped strictly to the `Divergence`-related
+  code.
+- `go test -race ./...` green across all 21 module packages, `go vet ./...`
+  and `gofmt -l .` clean (re-verified directly by the orchestrator, not just
+  by the sub-agents).
+- Package placement (`*git.Worktree`, `internal/git/merge.go`), ref-name
+  screening via `checkName` before `runner.run` (S-1), range assembly
+  entirely inside `internal/git` from separately-screened components, and no
+  new dependency — all match the plan's Shared Decisions and this story's
+  Architecture Notes exactly.
+
+## Added scope
+
+None. This run's only code addition was the missing test file (T-1.4 itself,
+not an addition beyond it); the production code required zero changes.
+
+## Dropped or deferred
+
+None within US-1's own scope. Every task in the story's table (T-1.1 through
+T-1.4) and its one acceptance criterion (AC-1.1) are now satisfied.
+
+(Not a drop, but worth naming, per the story's own explicit boundaries: this
+story does not decide what to *do* with the divergence count — that's US-2,
+whose partial, unreviewed `MergePreview`/`MergeBase` work sits in the same
+file and was correctly left untouched throughout this run.)
+
+## Architectural deviations
+
+None. The pre-existing implementation already matched the plan's placement,
+screening, timeout-naming, and error-classification requirements; nothing
+needed to move or be restructured to bring it into compliance.
+
+## Verdict
+
+CLEAN — the story's only real gap (T-1.4, missing tests) is now closed, the
+pre-existing implementation was verified rather than assumed correct, and no
+drift from the plan was found or introduced.

@@ -132,3 +132,104 @@ package reports `ok`, no race detector findings, no vet or fmt issues.
 ## Bug loop
 
 Not entered — zero test failures reported by any phase.
+
+---
+
+# Implementation Notes — US-1 (Measure behind/ahead before every run)
+
+## Scope of this run
+
+This run implemented/verified **US-1 only**, per explicit instruction. It
+began from an unusual state: a prior run had already written `Divergence`,
+`parseDivergenceCounts`, `divergenceTimeout`, and the `prepare.go` call site,
+but the run was stopped by the operator at 49 minutes before any review or
+testing, and its commit (`797181a`) had never been checked against US-1's
+acceptance criteria. This run's mandate was therefore verification-first:
+confirm or correct the existing code, then deliver T-1.4 (unit tests), which
+was the only task genuinely missing. US-2's partial work in the same file
+(`MergePreview`, `MergeBase`, `recoverFromFailedMerge`) was read only for
+pattern comparison and left byte-for-byte untouched.
+
+## What was verified (and found correct, not corrected)
+
+- The single named trap — `git rev-list --left-right --count base...branch`
+  emitting `<left> <right>` where "ahead" vs "behind" depends on which ref
+  sits on which side of `...` — was checked empirically against real git
+  output in a throwaway repo, not by reading the code and assuming. Base on
+  the left of `...` yields the count of commits only reachable from base
+  (Behind); branch on the right yields commits only reachable from branch
+  (Ahead). The existing code's `rangeSpec := base + "..." + w.branch` and
+  `Divergence{Ahead: ahead, Behind: behind, ...}` construction were both
+  confirmed correct, independently, by two separate agents (the
+  implementation engineer and, again, the code reviewer tracing from source
+  rather than trusting the first agent's report).
+- `checkName` screening on both `base` and `w.branch`, range assembly inside
+  `internal/git`, `--end-of-options` usage, the `divergenceTimeout` (30s)
+  const and its wiring, and the missing-base-ref classification via
+  `classify(err, ErrRevisionNotFound, 128)` were all verified present and
+  correct.
+- The `prepare.go` call site (`syncBase`, ~line 464-469) was confirmed to
+  build `baseRef := origin/<Repo.BaseBranch>` and call `Divergence` after the
+  existing fetch, inside the same `CloneGate` acquisition, matching the
+  story's required integration point with no TOCTOU gap.
+
+**No production code changes were made.** `internal/git/merge.go` and
+`internal/turn/prepare.go` are unmodified by this run — `git status` after
+implementation confirmed this. The prior (killed) run got T-1.2 and T-1.3
+right on the first attempt.
+
+## What was built
+
+- `internal/git/merge_test.go` (new file) — T-1.4 in full: 4 test functions,
+  9 executed subtests. All four ahead/behind combinations (0/0, ahead-only,
+  behind-only, both) against real git repos; a side-order regression test
+  using deliberately asymmetric, distinguishable counts (base +3, branch +1)
+  that pins AC-1.1's exact trap; a missing-base-ref error-path test asserting
+  the classified sentinel, not a raw exit code or panic; and a
+  `checkName`-screening test confirming malformed ref names never reach the
+  git binary. Reuses the existing `internal/git`/`internal/gittest` real-repo
+  test harness already used by `clone_test.go`/`worktree_test.go` rather than
+  inventing a new one.
+
+## Assumptions
+
+- None required beyond the story's own architecture notes and AC-1.1 — both
+  were unambiguous, and the empirical-verification instruction (check real
+  git behavior, don't just read the code) was followed literally by both the
+  implementation engineer and the code reviewer, independently.
+
+## Code Review Advisories
+
+- None. `go-code-reviewer` returned **CLEAN**, zero BLOCKING or ADVISORY
+  findings, scoped strictly to the `Divergence`-related code in `merge.go`
+  and `exec.go` plus the `prepare.go` call site. It explicitly re-traced the
+  ahead/behind ordering from source itself rather than relying on the
+  implementation engineer's report. See `CODE_REVIEW.md`'s US-1 section for
+  the full record; the file's earlier US-8/US-7 sections were left unchanged.
+
+## Phase 2 — Environment setup
+
+US-1 touches only `internal/git` (shelling out to a local git binary against
+worktree-local refs) and a call-site read in `internal/turn` — no database,
+no external HTTP call, no message queue. Consistent with this codebase's
+existing convention (`internal/git`'s tests already run real git in temp
+directories as unit tests, not integration tests against a provisioned
+service), this was treated as pure unit-testable surface. Phase 2 environment
+setup and the integration test suite were both skipped.
+
+## Testing
+
+`go-unit-test-engineer` wrote and ran `internal/git/merge_test.go` covering
+T-1.4's full list (4 combinations, side-order regression, missing-ref error
+path, ref-screening error path). 4 test functions, 9 subtests, 0 failures.
+
+## Final gate (orchestrator-run, not delegated)
+
+`gofmt -l .`, `go vet ./...`, and `go build ./...` were all run directly by
+this orchestrator across the whole module and are clean/green. The unit test
+engineer separately reported `go test -race ./...` green across all 21
+module packages, including `internal/git` with no race detector findings.
+
+## Bug loop
+
+Not entered — zero test failures reported by any phase.

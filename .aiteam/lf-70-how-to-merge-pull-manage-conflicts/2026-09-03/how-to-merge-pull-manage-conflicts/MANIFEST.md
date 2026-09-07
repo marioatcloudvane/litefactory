@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-7, US-8 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-1, US-7, US-8 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -275,5 +275,49 @@ asked for; nothing here licenses starting the next one.
   retirement of that step. US-1 through US-6 and US-9 through US-12 remain
   for future runs, each needing its own comment; `syncBase` (US-2, not yet
   built) is the next consumer of `turn.Request.SyncOverride`.
+- 2026-09-07 — Implement mode run (scoped to US-1 only, by explicit
+  instruction, deliberately excluding US-2 through US-12; US-7 and US-8 —
+  already implemented and committed — were left untouched). This run's
+  premise was unusual: US-1's production code (`Divergence`,
+  `parseDivergenceCounts`, `divergenceTimeout` in `internal/git/merge.go` and
+  `internal/git/exec.go`, wired into `internal/turn/prepare.go`'s
+  `syncBase`) already existed, written by an earlier run stopped by the
+  operator at 49 minutes before reaching review or tests — so this run's job
+  was verification, not construction. The one named trap — `git rev-list
+  --left-right --count base...branch`'s `<left> <right>` output order, and
+  which side means "ahead" vs "behind" — was checked empirically against
+  real git behavior in a throwaway repo, independently, by both the
+  implementation engineer and the code reviewer (tracing from source rather
+  than trusting the first report): both confirmed the existing code has this
+  correct, not swapped. `checkName` ref-name screening (S-1), range assembly
+  inside `internal/git`, `--end-of-options` usage, the 30s
+  `divergenceTimeout`, the missing-base-ref `ErrRevisionNotFound`
+  classification, and the `prepare.go` call site (comparing against
+  `origin/<Repo.BaseBranch>` after fetch, inside the existing `CloneGate`)
+  were all verified correct; no production code was changed.
+  `internal/git/merge.go`'s US-2 partial work (`MergePreview`, `MergeBase`,
+  `recoverFromFailedMerge`) was read only for pattern comparison and left
+  completely untouched throughout. `go-code-reviewer` returned CLEAN with
+  zero BLOCKING or ADVISORY findings, scoped strictly to the
+  `Divergence`-related code. T-1.4 — the story's only real gap, with zero
+  existing tests anywhere in the repo — was delivered in full: new file
+  `internal/git/merge_test.go`, 4 test functions / 9 subtests covering all
+  four ahead/behind combinations, a side-order regression test with
+  deliberately asymmetric counts pinning AC-1.1's exact trap, the
+  missing-base-ref error path, and the `checkName`-screening error path, all
+  built on the existing `internal/gittest` real-git-in-temp-directory harness.
+  Phase 2 environment setup was skipped — US-1 touches no database, HTTP
+  call, or message queue, and this codebase's own convention already tests
+  `internal/git` with real git in temp directories as unit tests. `go test
+  -race ./...` green across all 21 module packages (no race findings);
+  `go vet ./...` and `gofmt -l .` clean, re-verified directly by the
+  orchestrator. No bug loop needed — zero test failures. `DRIFT_REPORT.md`
+  gained a third dated section (US-1), verdict CLEAN. No APP_CONTEXT/
+  APP_CONSTRAINTS update was made, per the retirement of that step. US-2 is
+  now unblocked — its dependencies (US-1, US-7, US-8) are all complete;
+  US-2's own partial, unreviewed code already sits in `internal/git/merge.go`
+  from the earlier stopped run and awaits its own comment before anyone acts
+  on it. US-3 through US-6 and US-9 through US-12 remain for future runs,
+  each needing its own comment.
 
 ## Notes
