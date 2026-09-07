@@ -34,12 +34,12 @@
 ## Story Index
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|-----------|-----------|
-| US-1 | Publish complete stories in GitHub | L | — | Pending litefactory publication |
-| US-2 | Route story discussion through the parent plan | L | US-1 | Pending litefactory publication |
-| US-3 | Freeze approved scope before implementation | L | US-1, US-2 | Pending litefactory publication |
-| US-4 | Supply approved story revisions on every execution | L | US-3 | Pending litefactory publication |
-| US-5 | Report story progress and close verified work | L | US-1, US-3, US-4 | Pending litefactory publication |
-| US-6 | Migrate existing plans without losing details | L | US-1, US-4, US-5 | Pending litefactory publication |
+| US-1 | Publish complete stories in GitHub | L | — | https://github.com/marioatcloudvane/litefactory/issues/143 |
+| US-2 | Route story discussion through the parent plan | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/144 |
+| US-3 | Freeze approved scope before implementation | L | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/145 |
+| US-4 | Supply approved story revisions on every execution | L | US-3 | https://github.com/marioatcloudvane/litefactory/issues/146 |
+| US-5 | Report story progress and close verified work | L | US-1, US-3, US-4 | https://github.com/marioatcloudvane/litefactory/issues/147 |
+| US-6 | Migrate existing plans without losing details | L | US-1, US-4, US-5 | https://github.com/marioatcloudvane/litefactory/issues/148 |
 
 ## Out of Scope
 - Native GitHub conversation locking or preventing owner/admin edits; an atomic remote edit lock cannot be promised.
