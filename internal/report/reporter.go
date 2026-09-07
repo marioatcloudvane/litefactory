@@ -128,6 +128,9 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if reply.Kind == ReplyScheduleBlocked && reply.Schedule.ID <= 0 {
 		return redact.Body{}, fmt.Errorf("report: %w: incomplete schedule blocked reply", ErrInvalidArgument)
 	}
+	if reply.Kind == ReplyRefusesSync && len(reply.ConflictPaths) == 0 {
+		return redact.Body{}, fmt.Errorf("report: %w: sync refusal with no conflicting paths", ErrInvalidArgument)
+	}
 	return r.apply(ctx, reply.body())
 }
 

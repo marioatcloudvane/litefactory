@@ -286,7 +286,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// non-negative floor (CFG-6) before this line ever runs.
 			AutoSyncBase:      s.Config.Settings.AutoSyncBase,
 			AutoSyncMaxBehind: s.Config.Settings.AutoSyncMaxBehind,
-			Logger:            s.Logger,
+			// US-4's hard stop for the conflicts US-2's auto-sync cannot
+			// resolve on its own, read from the same validated configuration
+			// as the two fields above and bound the same way.
+			BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
+			Logger:             s.Logger,
 		}),
 		Reporter: reporter,
 		// The same two keys the harness was built from above, so the profile a

@@ -57,6 +57,16 @@ const (
 	// number — so the request is refused rather than guessed at.
 	ReplyAgentSwitchRefused
 
+	// ReplyRefusesSync answers a turn whose task branch could not be merged
+	// with the base branch cleanly (US-4): [git.Worktree.MergePreview] found
+	// conflicting paths and the configured policy says a conflict of this
+	// kind stops the run rather than merely disclosing it. Like
+	// [ReplyAgentSwitchRefused] it is drawn from the state of the world
+	// rather than from the comment's command, and it has its own request
+	// shape: [Reply.ConflictPaths] carries the paths that collided, exactly
+	// as the merge preview reported them.
+	ReplyRefusesSync
+
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
@@ -115,6 +125,8 @@ func (k ReplyKind) String() string {
 		return "unknown_agent"
 	case ReplyAgentSwitchRefused:
 		return "agent_switch_refused"
+	case ReplyRefusesSync:
+		return "sync_refused"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -152,6 +164,8 @@ func (k ReplyKind) valid() bool {
 	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
 		return true
 	case ReplyAgentSwitchRefused:
+		return true
+	case ReplyRefusesSync:
 		return true
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
 		return true
@@ -225,6 +239,15 @@ func (k ReplyKind) RefusesSwitch() bool {
 	return k == ReplyAgentSwitchRefused
 }
 
+// RefusesSync reports whether k is [ReplyRefusesSync]: a reply drawn when a
+// task branch could not be merged with the base branch cleanly (US-4). It has
+// its own request shape — [Reply.ConflictPaths] — the same reason
+// [RefusesSwitch] does, and for the same reason [RefusesAgent]'s own doc
+// excludes [ReplyAgentSwitchRefused].
+func (k ReplyKind) RefusesSync() bool {
+	return k == ReplyRefusesSync
+}
+
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
@@ -254,6 +277,15 @@ type Reply struct {
 	// before they are rendered, the same as [Agent].
 	OwningAgent    string
 	RequestedAgent string
+
+	// ConflictPaths is read by [ReplyRefusesSync] alone (US-4): the paths
+	// [git.Worktree.MergePreview] reported as conflicting, carried through
+	// exactly as syncBase recorded them. It is rendered inside a fenced block
+	// the same way [Run.Sync]'s Conflicts list is (S-2), so a path cannot
+	// become markup in the comment no matter what it contains — this package
+	// does not sanitise or decide which paths are safe to show at all, which
+	// is US-5's job; it shows whatever list it is handed.
+	ConflictPaths []string
 
 	// Schedule carries the safe, structured facts of a scheduling reply. It is
 	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
@@ -413,6 +445,18 @@ func (r Reply) body() string {
 			"one tool's session to another. Comment again without asking for a different agent, " +
 			"or start a new task for the one you want.")
 
+	case ReplyRefusesSync:
+		b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
+			"stopped before starting the agent. ")
+		b.WriteString(syncRefusalSentence)
+		if len(r.ConflictPaths) > 0 {
+			b.WriteString(sectionGap)
+			fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(r.ConflictPaths))
+			b.WriteString(conflictsBlock(r.ConflictPaths))
+		}
+		b.WriteString(sectionGap)
+		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
+
 	case ReplyScheduleInvalid:
 		b.WriteString("I could not schedule that request. Litefactory accepts ")
 		b.WriteString("`/schedule -by HH:MM:SS <payload>`, `/schedule -to MM/DD/YYYY HH:MM:SS [ZONE] <payload>`, ")
@@ -503,3 +547,11 @@ const toolsRefusalSentence = "Nothing was run: litefactory refuses a run it cann
 // silently falling back to a different one than was asked for.
 const agentRefusalSentence = "Nothing was run: litefactory refuses a run it cannot " +
 	"resolve the coding-agent tool for rather than falling back to a different one."
+
+// syncRefusalSentence is the one thing every base-branch-sync refusal has to
+// say, for the same reason [agentRefusalSentence] exists: litefactory refuses
+// to run an agent against a task branch it could not merge the base branch
+// into cleanly, rather than guessing at a resolution or running against a
+// stale branch.
+const syncRefusalSentence = "Nothing was run: litefactory refuses a run it cannot merge the base branch " +
+	"into cleanly rather than guessing at a resolution or running against a stale branch."

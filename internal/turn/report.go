@@ -236,6 +236,14 @@ type ReplyRequest struct {
 	OwningAgent    string
 	RequestedAgent string
 
+	// ConflictPaths belongs to [report.ReplyRefusesSync] alone (US-4): the
+	// paths [git.Worktree.MergePreview] reported as conflicting, carried
+	// through exactly as syncBase recorded them on [Result.SyncConflicts].
+	// internal/report renders them inside a fenced block (S-2) and does not
+	// sanitise or decide which paths are safe to show at all — that is
+	// US-5's job.
+	ConflictPaths []string
+
 	// ScheduleKind and Schedule describe a factory-owned scheduling response.
 	// They never carry the scheduled payload, so agent input is not echoed into
 	// Litefactory's signed comment.
@@ -263,7 +271,7 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 	}
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
-			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
+			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode() || req.Refusal.RefusesSync()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -278,9 +286,9 @@ func (req ReplyRequest) validate() error {
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
-		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
+		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
-			"mode-selection or agent-switch refusal", req.Refusal)
+			"mode-selection, agent-switch or sync refusal", req.Refusal)
 	case req.ScheduleKind != report.ReplyInvalid && req.ScheduleKind != report.ReplyScheduleInvalid &&
 		req.ScheduleKind != report.ReplyScheduleConfirmed && req.ScheduleKind != report.ReplyScheduleBlocked &&
 		req.ScheduleKind != report.ReplyScheduleProposalReady && req.ScheduleKind != report.ReplyScheduleProposalAccepted &&
@@ -320,6 +328,9 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 
 	if result.Disposition == DispositionAgentSwitchRefused {
 		return r.reportAgentSwitchRefusal(ctx, result)
+	}
+	if result.Disposition == DispositionSyncRefused {
+		return r.reportSyncRefusal(ctx, result)
 	}
 
 	body, err := r.runInput(ctx, result)
@@ -371,6 +382,44 @@ func (r *Reporter) reportAgentSwitchRefusal(ctx context.Context, result Result) 
 		Refusal:        report.ReplyAgentSwitchRefused,
 		OwningAgent:    result.AgentOwning,
 		RequestedAgent: result.AgentRequested,
+	})
+}
+
+// reportSyncRefusal answers a [DispositionSyncRefused] turn (US-4): a task
+// branch that could not be merged with the base branch cleanly. No
+// session-state transition has occurred and no runs row has been allocated,
+// and the branch itself was never touched — [git.Worktree.MergePreview] only
+// ever inspects whether a merge would be clean. Because no run was
+// allocated, this takes the reply shape every other refusal uses
+// ([ReplyRequest]/[ReportReply]) rather than the run-report one, the same as
+// [Reporter.reportAgentSwitchRefusal].
+//
+// The issue-body trigger is the one path that posts nothing, for the same
+// reason [Reporter.reportAgentSwitchRefusal] does: a run started from the
+// issue body has no comment id to answer with, and [ReplyRequest] requires a
+// real one. The refusal still stands — nothing was run — and the next
+// comment on this issue is what reaches the thread with it (AC-2.16c's
+// issue-body convention).
+func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted, error) {
+	log := r.log.With(
+		slog.String("task", result.Ref.String()),
+		slog.Int64("session_id", result.SessionID),
+		slog.Int64("trigger_comment_id", result.TriggerCommentID),
+		slog.Int("conflicts", len(result.SyncConflicts)))
+
+	if result.TriggerCommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: the base branch could not be merged into "+
+			"this task's branch cleanly. Nothing was run and no comment was posted, because there is no "+
+			"comment to answer; the next comment on this issue is refused on the thread")
+		return Posted{Skipped: true}, nil
+	}
+
+	return r.ReportReply(ctx, ReplyRequest{
+		Ref:           result.Ref,
+		SessionID:     result.SessionID,
+		CommentID:     result.TriggerCommentID,
+		Refusal:       report.ReplyRefusesSync,
+		ConflictPaths: result.SyncConflicts,
 	})
 }
 
@@ -503,6 +552,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		Agent:          req.Agent,
 		OwningAgent:    req.OwningAgent,
 		RequestedAgent: req.RequestedAgent,
+		ConflictPaths:  req.ConflictPaths,
 		Schedule:       req.Schedule,
 	})
 	if err != nil {

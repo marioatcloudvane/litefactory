@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-1, US-7, US-8 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-7, US-8 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -347,5 +347,55 @@ asked for; nothing here licenses starting the next one.
   its own partial, unreviewed code already sitting in the worktree),
   US-3, and US-4 remain ready for Implement mode, each pending its own
   comment.
+- 2026-09-07 — Implement mode run (scoped to US-2, US-3, and US-4, per
+  explicit instruction to continue where a prior rate-limited run had been
+  cut off before writing anything to disk — confirmed via `git status` clean
+  at this run's start, so this was a fresh start on that scope, not a resume).
+  US-1, US-7, and US-8 (already implemented, reviewed, and committed) were
+  left untouched; US-5, US-6, and US-9 through US-12 remain out of scope.
+  Sequenced per `plan_brief.md`'s explicit dependency chain: US-2 alone
+  first, gated to DONE, then US-3 and US-4 in parallel (disjoint files).
+  US-2's pre-existing, unreviewed partial code in `internal/git/merge.go`
+  (`MergePreview`, `MergeBase`, `recoverFromFailedMerge`, plus
+  `internal/turn/prepare.go`'s `syncBase` wiring and
+  `internal/turn/gate_test.go`'s registry edit, all left over from an
+  earlier, separate interrupted run) was verified against US-2's actual
+  acceptance criteria rather than assumed correct: most of it matched spec
+  and was kept; one real bug (`parseMergePreview`'s wrong section-boundary
+  parsing, corrupting `TreeSHA`/`Conflicts` on every real conflict) was found
+  and fixed before code review via a new real-git test. `go-code-reviewer`
+  found one BLOCKING finding (CR-B-001: `MergePreview`'s `merge-tree`
+  invocation omitted `-z`, so non-ASCII/special-character conflict paths came
+  back C-quoted rather than literal, breaking AC-2.2 for real-world repos)
+  and two advisories (CR-A-001: `report.Sync.Reason`, a judgment-call field
+  addition for AC-3.2; CR-A-002: a coverage gap around `ReplyRefusesSync`
+  end-to-end). CR-B-001 was fixed (added `-z`, rewrote the parser for
+  NUL-terminated output, verified the new wire format empirically via git
+  plumbing commands in a throwaway repo, added a `café.md` regression test)
+  and re-reviewed to ADVISORY_ONLY. Phase 2 environment setup was skipped —
+  none of the three stories touches a real dependency. `go-unit-test-engineer`
+  cross-checked every AC in US-2/3/4 against existing tests, closed two real
+  gaps (AC-2.3's "in every outcome" origin-untouched proof, previously only
+  checked for the successful-merge path; CR-A-002's end-to-end
+  `ReplyRefusesSync` flow, including a posted-comment-body assertion) with
+  five new/extended test files, found zero production bugs. `go build ./...`,
+  `go vet ./...`, `gofmt -l .` clean; `go test -race ./...` green across all
+  22 packages, re-verified directly by the orchestrator both before code
+  review and as the final gate. No bug loop needed — zero test failures at
+  any phase. `DRIFT_REPORT.md` gained a fourth dated section (US-2/US-3/US-4),
+  verdict CLEAN, noting two accepted micro-decisions (the `Reason` field, the
+  `turn.Options.BlockRunOnConflict` field) and one correctly-recognized
+  deferral (US-3's live wiring from `internal/turn` into a rendered comment,
+  blocked on US-9's not-yet-built persistence, exactly as the task table's
+  own dependency column implies). US-4's architecture notes were found to
+  describe `replyKind()` incorrectly (claimed a new branch there was needed;
+  actual code correctly follows the existing `ReplyAgentSwitchRefused`
+  precedent instead, verified independently by the code reviewer) — a stale
+  sub-issue detail, not a functional deviation. No APP_CONTEXT/APP_CONSTRAINTS
+  update was made, per the retirement of that step. US-5, US-6, and US-9
+  through US-12 remain for future runs, each needing its own comment; US-5
+  (conflict-path sanitization) is now unblocked since US-4 exists, and US-9's
+  persistence work is the natural next story to complete US-3's deferred live
+  wiring.
 
 ## Notes

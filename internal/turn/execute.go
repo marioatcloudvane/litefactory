@@ -182,6 +182,22 @@ type Options struct {
 	AutoSyncBase      bool
 	AutoSyncMaxBehind int
 
+	// BlockRunOnConflict is [config.Settings.BlockRunOnConflict] (US-4/US-8),
+	// copied in the same way AutoSyncBase and AutoSyncMaxBehind are: this
+	// package reads a plain bool and has no opinion of its own about whether
+	// a conflict should stop the run.
+	//
+	// True refuses a turn whose task branch would not merge cleanly with the
+	// base branch, through [DispositionSyncRefused] and
+	// [report.ReplyRefusesSync], before the agent ever starts. False lets the
+	// run go ahead against the unmerged branch — the conflict is disclosed,
+	// not blocked. A caller that constructs Options without setting this
+	// field gets false — the same tolerance AutoSyncBase gets, and for the
+	// same reason: production always sets it from the loaded configuration
+	// (internal/daemon/setup.go), whose own default is true
+	// ([config.Settings.BlockRunOnConflict]).
+	BlockRunOnConflict bool
+
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
 }
@@ -527,6 +543,16 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		if errors.As(err, &switchRefusal) {
 			return agentSwitchRefused(result, switchRefusal, logger), nil
 		}
+		// Checked before the generic *failure for the same reason the
+		// agent-switch refusal is: a blocked base-branch merge is a *failure
+		// in spirit — a turn that could not be carried out because of the
+		// state of the world — but it is answered with
+		// [report.ReplyRefusesSync] rather than a run-failure comment, which
+		// needs its own [Disposition] and its own branch here (US-4).
+		var sr *syncRefusal
+		if errors.As(err, &sr) {
+			return syncRefused(result, sr, logger), nil
+		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {
 			return prepareFailed(ctx, opts, result, prepFailure, logger), nil
@@ -607,6 +633,24 @@ func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog
 	logger.Info("refusing a run: the resolved coding-agent tool does not own this task's conversation",
 		slog.String("owning_agent", refusal.owning),
 		slog.String("requested_agent", refusal.requested))
+	return result
+}
+
+// syncRefused records a turn whose task branch could not be merged with the
+// base branch cleanly (US-4).
+//
+// Like [agentSwitchRefused] it allocates nothing and never transitions
+// session state: no session-state transition has occurred and no runs row
+// has been allocated. The branch itself was never touched either —
+// [git.Worktree.MergePreview] only ever inspects whether a merge would be
+// clean, it never performs one (US-2) — so the task branch is exactly where
+// it was before this turn started.
+func syncRefused(result Result, refusal *syncRefusal, logger *slog.Logger) Result {
+	result.Disposition = DispositionSyncRefused
+	result.SyncConflicts = append([]string(nil), refusal.conflicts...)
+
+	logger.Info("refusing a run: the base branch could not be merged into this task's branch cleanly",
+		slog.Int("conflicts", len(refusal.conflicts)))
 	return result
 }
 

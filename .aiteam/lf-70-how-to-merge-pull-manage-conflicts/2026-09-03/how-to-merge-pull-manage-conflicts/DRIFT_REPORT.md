@@ -1,239 +1,162 @@
-# Drift Report — Config-governed defaults and size cap (US-8)
+# Drift Report — how-to-merge-pull-manage-conflicts
 # Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
 
-## Scope note
-
-This run implemented **US-8 only**, by explicit instruction. US-1 through
-US-7 and US-9 through US-12 remain unimplemented and are out of scope for
-this drift comparison. The uncommitted, never-reviewed partial US-1/US-2 work
-already present in the worktree from a previously stopped run was left
-untouched throughout.
+This section covers the run scoped to **US-2, US-3, and US-4** only, appended
+after the earlier US-8, US-7, and US-1 sections (see this file's prior dated
+sections for those, each still valid and unchanged).
 
 ## Delivered as planned
 
-- T-8.1: `AutoSyncBase bool` (default `true`), `AutoSyncMaxBehind int`
-  (default `100`), `BlockRunOnConflict bool` (default `true`) added to
-  `internal/config`'s `Settings`, with defaults applied via `Defaults()`.
-- T-8.2: `Config.Validate()` rejects `AutoSyncMaxBehind < 0` as a hard config
-  load error (CFG-6) — never clamped to `0` or to the default.
-- T-8.3: The three keys, plus the "100 is a judgment call, not a measurement"
-  note, documented in `internal/config/template.go`'s generated
-  `config.yaml` template (the config package's existing convention for
-  operator-facing key documentation, per its CFG-3 anti-drift check — this
-  repo has no separate `docs/` file enumerating individual keys).
-- T-8.4: Seven unit tests across defaults-when-omitted, explicit zero
-  (both via direct struct assignment and via full YAML decode), negative
-  rejection (both direct and via `Decode`+`Validate`), and per-field boolean
-  override with sibling-independence.
-- AC-8.1 and AC-8.2 both verified directly by tests; `go test -race ./...`
-  green across all 22 packages, `go vet ./...` and `gofmt -l .` clean.
-- Package placement (`internal/config`), no new dependency (`purity_test.go`
-  still passes), no new package created — all match the plan's Architecture
-  Notes and Shared Decisions exactly.
+- **US-2 — Auto-merge the base branch when the merge is clean**
+  - T-2.1 `MergePreview` type + `(*Worktree).MergePreview` — delivered, plus a
+    real bug fix (`parseMergePreview`'s section-boundary parsing) found and
+    corrected before code review, and a second bug (missing `-z` on the
+    `merge-tree` invocation, causing non-ASCII conflict paths to come back
+    C-quoted) found by code review as BLOCKING (CR-B-001) and resolved with a
+    verified fix plus a regression test.
+  - T-2.2 `MergeResult` type + `(*Worktree).MergeBase` — delivered, following
+    `CommitResult.Committed`'s precedent for `Merged` exactly.
+  - T-2.3 `ErrMergeConflict` sentinel — present, verified.
+  - T-2.4 `Worktree` doc comment naming `MergeBase` as the third mutator —
+    present, verified.
+  - T-2.5 `syncBase` wired as the fourth/last step of `prepareClone` — present
+    and verified against the architecture notes' exact ordering
+    (`fetch → freezeSlug → ensureWorktree → syncBase`), inside the single
+    existing `CloneGate` acquisition, with `shaBefore` read after `syncBase`
+    completes.
+  - T-2.6 `gate_test.go`'s `gated` map gained `"syncBase": {"prepareClone"}`;
+    `sections` map confirmed still at exactly three entries.
+  - T-2.7 unit tests for clean merge, unclean-preview-leaves-branch-untouched,
+    and the `Behind==0` short-circuit — delivered via `internal/git/merge_test.go`,
+    `internal/git/merge_internal_test.go`, and `internal/turn/sync_test.go`.
+  - AC-2.1, AC-2.2 — delivered and tested, including a dedicated
+    `SyncCommitSHA`-non-empty assertion and a non-ASCII conflict-path
+    regression test added during the CR-B-001 fix.
+  - AC-2.3 ("never pushes to or commits on `Repo.BaseBranch`, in every
+    outcome") — delivered; the unit-test pass closed a real gap here, adding
+    `TestSyncBaseNeverTouchesOriginAcrossEveryOutcome` to prove this across
+    all four outcomes (`up_to_date`/`skipped`/`synced`/`blocked`), not just
+    the successful-merge path the implementer had originally covered.
+  - S-1, S-4, S-5, S-6, S-8, S-9 (ref-name screening, identity/signing
+    prelude, rollback guarantee, single-`CloneGate` scope, `TimedOut`
+    classification, conflict-path parse-time cap at 500) — all verified
+    directly against source by the code reviewer, not merely accepted from
+    the implementer's claims.
+
+- **US-3 — Disclose every automatic change**
+  - T-3.1 `report.Sync` struct + `Run.Sync` field — delivered.
+  - T-3.2 renderer covering all five outcomes including `skipped` — delivered.
+  - T-3.3 golden-file tests, one per outcome — delivered (5 fixtures).
+  - AC-3.1 (nil-vs-`up_to_date` byte-identical, no section rendered) —
+    delivered and tested precisely.
+  - AC-3.2 (every `skipped` outcome discloses why, never silent) — delivered
+    via the `Reason` field (see Added Scope below) and tested with and
+    without a reason present.
+  - S-2 (untrusted conflict-path content) — the renderer reuses the existing
+    `conflictsBlock`/`sanitize`/`fenceFor` primitives already used for file
+    paths elsewhere in `internal/report`, and a test proves a path containing
+    a backtick run cannot break the fence.
+
+- **US-4 — Refuse the run and name the conflicting files**
+  - T-4.1 `ReplyRefusesSync` const, `String()`, validity, `body()` case —
+    delivered.
+  - T-4.2 refusal sentence as a package-level constant — delivered, alongside
+    the three existing sibling refusal sentences.
+  - T-4.3 dispatch case — delivered, but see Architectural Deviations below:
+    the story's own architecture notes described this as "a new branch in
+    `replyKind()`," which was checked against source and found incorrect;
+    the actual implementation correctly follows the real, already-established
+    `ReplyAgentSwitchRefused` precedent instead (delivered via
+    `ReplyRequest.Refusal`/`req.kind()`, never through `replyKind()`, which
+    only maps `CommandKind` values). Verified independently by the code
+    reviewer, tracing from source.
+  - T-4.4 wiring the `blocked` outcome to the `*failure` path — delivered:
+    `prepare()` returns a `*syncRefusal` immediately after `prepareClone`
+    succeeds with a blocked outcome and `BlockRunOnConflict` true, before any
+    run-row, segment, or run-artifact-directory creation.
+  - T-4.5 tests (agent never starts, no run-artifact directory, refusal
+    comment posted) — delivered, and strengthened during Phase 3 into one
+    coherent end-to-end scenario (`TestExecuteRefusesASyncOnAConflictingBase`)
+    plus a dedicated posted-comment-body test
+    (`TestReporterPostsReplyRefusesSyncWithConflictingPaths`), closing a gap
+    the code reviewer had flagged as advisory (CR-A-002).
+  - AC-4.1, AC-4.2 — delivered and tested as one coherent scenario per AC-4.1,
+    plus dedicated enum-exhaustiveness/`String()`/predicate/dispatch tests for
+    AC-4.2.
+  - S-2 (untrusted conflict-path content in the refusal body) — reuses US-3's
+    `conflictsBlock` helper from the same package; no duplicate sanitizer was
+    built.
 
 ## Added scope
 
-- Two extra unit tests beyond the implementer's initial five, added during
-  Phase 3 to close two coverage gaps: explicit-zero surviving the real
-  YAML-decode-onto-defaults merge path (not just direct struct assignment),
-  and sibling-field independence when only one auto-sync key is overridden.
-  Both are within T-8.4's intent ("tests: default values, 0=no-cap,
-  negative=error, explicit true/false override") — not new scope, just more
-  thorough coverage of the same task.
+- **`report.Sync.Reason string` field** (US-3): not in the architecture
+  notes' originally-listed field set (`Outcome, Behind, Ahead, Base,
+  CommitSHA, Conflicts`). Added because AC-3.2 requires every `skipped`
+  outcome to disclose *why* it was skipped, and the listed field set had no
+  place to carry that. The story's own task description explicitly flagged
+  this as a judgment call left to the implementing engineer. Reviewed by
+  `go-code-reviewer` as advisory (CR-A-001), accepted as reasonable — a plain
+  string rather than a typed enum, since `internal/turn`'s `syncResult`
+  doesn't yet distinguish skip causes (cap vs. config vs. label all collapse
+  into one outcome value today).
+- **`turn.Options.BlockRunOnConflict bool`** (US-4): not explicitly named as
+  a new field anywhere in US-2's or US-4's task tables, though clearly
+  implied by AC-4.1/T-4.4's dependency on the already-existing
+  `BlockRunOnConflict` config key (US-8). Added because `turn.Options` had no
+  field to carry the resolved config value into a turn before this point —
+  only `AutoSyncBase`/`AutoSyncMaxBehind` existed. Wired from the one
+  production call site (`internal/daemon/setup.go`) that constructs
+  `turn.Options`.
+- **Extra test coverage beyond the task tables' literal line items**: a
+  non-ASCII conflict-path regression test (closing CR-B-001), an
+  across-every-outcome origin-untouched test (closing an AC-2.3 gap), and
+  three new test files covering `ReplyRefusesSync`'s dispatch, enum
+  properties, and full end-to-end flow (closing CR-A-002). All are test-only
+  additions with no production-code scope change.
 
 ## Dropped or deferred
 
-None within US-8's own scope. Everything in the story's task table and
-acceptance criteria was delivered.
-
-(Not a drop, but worth naming: US-2's and US-7's later consumption of these
-three fields — reading them inside `syncBase` and overriding
-`AutoSyncBase` via the `lf:sync=` label — is explicitly NOT this story's job
-per its own Architecture Notes, and was correctly left undone.)
-
-## Architectural deviations
-
-None. The implementer followed the plan's stated package placement,
-dependency constraints, and field semantics exactly, including the
-CFG-6 negative-value hard-error rule and the "judgment call, not measurement"
-documentation requirement for the `100` default.
-
-## Verdict
-
-CLEAN — delivered matches plan within acceptable micro-decisions (test
-coverage additions and the choice of `template.go` as the documentation
-surface, both consistent with the story's stated intent and the codebase's
-own conventions).
-
----
-
-# Drift Report — `lf:sync=` label opt-out (US-7)
-# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
-
-## Scope note
-
-This run implemented **US-7 only**, by explicit instruction. US-1 through
-US-6 and US-9 through US-12 remain unimplemented and are out of scope for
-this drift comparison; US-8 was already implemented and committed in a prior
-run and was not touched. The uncommitted, never-reviewed partial US-1/US-2
-work already present in the worktree from an earlier interrupted run was left
-untouched throughout.
-
-## Delivered as planned
-
-- T-7.1: `syncLabelPrefix`, `syncRefusal` enum, `syncDecision` struct, and
-  `resolveSync(labels []string) syncDecision` added in new file
-  `internal/daemon/sync.go`, copied rung-for-rung from the live
-  `agentLabelPrefix`/`modeLabelPrefix` ladder in `internal/daemon/agent.go`
-  and `internal/daemon/mode.go` — explicitly not modeled on the dead
-  `lf:tools=`/`legacyToolsLabel` pattern, per the story's Architecture Notes.
-- T-7.2: `turn.Request` gained `SyncOverride *bool`
-  (`internal/turn/execute.go`); `internal/daemon/tick.go` computes the
-  decision via `resolveSync(t.issue.Labels)` and threads it into the existing
-  `turn.Request{...}` literal without disturbing any other field in it.
-- T-7.3: Seven test functions (~21 subtests) covering every ladder rung —
-  absent, `on`, `off`, miscased prefix (three shapes), duplicated/ambiguous
-  label (three shapes), invalid/empty value — plus sibling-label
-  independence, a structural `reflect`-based check that no field on
-  `syncDecision` can carry raw label text (SEC-5/S-9), and an end-to-end
-  check that `turn.Request.SyncOverride` is populated (or left `nil`)
-  correctly at the `Daemon.run`/tick dispatch point.
-- AC-7.1 verified directly by tests: `lf:sync=off`/`lf:sync=on` resolve to a
-  non-nil override; malformed, miscased, and duplicated labels all leave
-  `SyncOverride` nil (never a guessed value), which is the point at which the
-  config default would apply once US-2's `syncBase` reads this field.
-- `go-code-reviewer` returned CLEAN — no BLOCKING or ADVISORY findings.
-- `go build ./...`, `go vet ./...`, `gofmt -l .` clean; `go test -race ./...`
-  green across every package in the module (verified directly by the
-  orchestrator, not just the touched packages).
-- Package placement (`internal/daemon`, next to `agent.go`/`mode.go`, plus
-  the `turn.Request` field addition), no new Go package, no new dependency —
-  all match the plan's Shared Decisions and this story's Architecture Notes
-  exactly.
-
-## Added scope
-
-None beyond the story's own task table. The unit test engineer's extra edge
-shapes (multiple miscasing variants, multiple duplicate-label variants
-beyond the single example of each in T-7.3's list) are within T-7.3's stated
-intent ("tests: absent, on, off, miscased prefix, duplicated label, invalid
-value") — more thorough coverage of the same six cases, not new scope.
-
-## Dropped or deferred
-
-None within US-7's own scope. Everything in the story's task table and its
-one acceptance criterion (AC-7.1) was delivered.
-
-(Not a drop, but worth naming, per the story's own explicit boundaries: this
-story does not implement `syncBase`'s consumption of `SyncOverride` (US-2,
-not yet built), does not read or act on `AutoSyncBase`/`BlockRunOnConflict`
-themselves (US-8, already done separately), and does not implement
-disclosure of *why* a label was refused (US-3, not yet built) — `syncDecision`
-carries `Refusal`/`MiscasedPrefix` fields structured so that later story can
-build on them without any redesign.)
+- **Live wiring of `report.Run.Sync` from `internal/turn`'s `syncResult`
+  into a real run's rendered comment**: US-3's architecture notes describe
+  this as populated "from the `SyncOutcome`/.../`SyncCommitSHA` fields US-9
+  persists on the run row" — US-9 is out of scope for this run and was not
+  built, so `turn.Result` still has no field carrying `syncResult` forward to
+  the reporting layer, and the actual end-to-end disclosure a real run would
+  show is not yet connected. The struct, renderer, and golden tests
+  (T-3.1–T-3.3, everything the task table itself lists) are fully delivered
+  and independently correct; only the cross-package plumbing that US-9's own
+  persistence work is meant to introduce is deferred, exactly as the task
+  table's own dependency column implies (T-3.1 depends on US-2 T-2.2, not on
+  any US-9 task). `SyncOutcome`'s string values were deliberately chosen to
+  match `internal/turn`'s private enum exactly, so this wiring will be a
+  one-line conversion once US-9 lands.
+- US-5, US-6, US-9 through US-12 remain entirely unbuilt, as instructed —
+  out of scope for this run.
 
 ## Architectural deviations
 
-None. The implementer copied the live `agentLabelPrefix`/`modeLabelPrefix`
-ladder exactly as instructed, kept the raw label text out of every field
-(SEC-5/S-9), and left `turn.Request`'s other fields and `tick.go`'s
-surrounding logic untouched.
+- US-4's architecture notes state the `replyKind()` mapping "is a new branch
+  in that function, not a reuse of an existing one." This was checked
+  directly against `internal/turn/report.go` and found to describe the wrong
+  mechanism: `replyKind()` only maps `CommandKind` values, and — exactly like
+  the existing `ReplyAgentSwitchRefused` — a sync refusal is delivered via
+  `ReplyRequest.Refusal`/`req.kind()`, never through `replyKind()`. The
+  engineer followed the real, already-established precedent instead of the
+  sub-issue's literal (and incorrect) instruction; the code reviewer
+  independently re-traced this from source and confirmed the actual approach
+  is correct and AC-4.2 is satisfied by it. This is a correction of a stale
+  architecture-notes detail, not a design change — no functional deviation
+  from what US-4 needed to accomplish.
 
 ## Verdict
 
-CLEAN — delivered matches plan within acceptable micro-decisions (the test
-engineer's additional edge-case variants, consistent with T-7.3's stated
-intent and the codebase's own existing test conventions for
-`agentLabelPrefix`/`modeLabelPrefix`).
-
----
-
-# Drift Report — Measure behind/ahead before every run (US-1)
-# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
-
-## Scope note
-
-This run implemented/verified **US-1 only**, by explicit instruction. Its
-premise was unusual: a prior run (stopped by the operator at 49 minutes,
-before code review, tests, or close-out) had already written `Divergence`,
-`parseDivergenceCounts`, and `divergenceTimeout` in `internal/git/merge.go`
-and `internal/git/exec.go`, and wired the call site into
-`internal/turn/prepare.go`'s `syncBase`. This run's job was to verify that
-code against US-1's acceptance criteria (not trust it because it existed),
-correct it if wrong, and deliver the one task it was genuinely missing —
-T-1.4, unit tests, of which zero existed anywhere in the repo. US-2's partial
-work in the same file (`MergePreview`, `MergeBase`, `recoverFromFailedMerge`)
-was left completely untouched throughout — not reviewed, not tested, not
-reformatted.
-
-## Delivered as planned
-
-- T-1.1 (Phase 0 probe): already complete from an earlier phase of this plan,
-  not re-litigated here.
-- T-1.2 (`Divergence` type and `(*Worktree).Divergence` method): found
-  already present and, on independent empirical verification (a real
-  throwaway git repo, diverged by known asymmetric counts, `git rev-list
-  --left-right --count` run directly), **correct as written** — no fix
-  needed. `checkName` screens both `base` and `w.branch` before the range is
-  assembled inside the method; `--end-of-options` matches `revParse`'s usage;
-  a missing base ref classifies via `classify(err, ErrRevisionNotFound, 128)`
-  through the existing `failuref`-equivalent path, not a panic or raw exit
-  code.
-- T-1.3 (`divergenceTimeout` const, 30s): found already present in
-  `internal/git/exec.go` and correctly wired into the `runner.run` call.
-- T-1.4 (unit tests): delivered in full, newly written this run —
-  `internal/git/merge_test.go` (new file), 4 test functions covering all four
-  ahead/behind combinations against real git repos (0/0, ahead-only,
-  behind-only, both), a side-order regression test using deliberately
-  asymmetric counts (base +3, branch +1) that would fail if `base...branch`
-  were flipped to `branch...base` or if the parsed `behind`/`ahead` fields
-  were swapped, the missing-base-ref error path asserting
-  `errors.Is(err, git.ErrRevisionNotFound)` on a classified `*git.CommandError`,
-  and a `checkName`-screening test confirming malformed ref names are
-  rejected before git is ever shelled out. All tests reuse the existing
-  `internal/git` real-git-in-temp-directory test harness
-  (`internal/gittest`, `openFixture`, `newTaskWorktree`) rather than
-  inventing a parallel one.
-- AC-1.1 verified directly by the side-order regression test plus the four
-  combination subtests — this is the exact trap the story's Architecture
-  Notes called out ("the single easiest place to get this story backwards
-  without any test catching it"), and it is now pinned.
-- `go-code-reviewer` independently re-traced the ahead/behind ordering from
-  source (not from the implementer's report) and returned **CLEAN**, zero
-  BLOCKING or ADVISORY findings, scoped strictly to the `Divergence`-related
-  code.
-- `go test -race ./...` green across all 21 module packages, `go vet ./...`
-  and `gofmt -l .` clean (re-verified directly by the orchestrator, not just
-  by the sub-agents).
-- Package placement (`*git.Worktree`, `internal/git/merge.go`), ref-name
-  screening via `checkName` before `runner.run` (S-1), range assembly
-  entirely inside `internal/git` from separately-screened components, and no
-  new dependency — all match the plan's Shared Decisions and this story's
-  Architecture Notes exactly.
-
-## Added scope
-
-None. This run's only code addition was the missing test file (T-1.4 itself,
-not an addition beyond it); the production code required zero changes.
-
-## Dropped or deferred
-
-None within US-1's own scope. Every task in the story's table (T-1.1 through
-T-1.4) and its one acceptance criterion (AC-1.1) are now satisfied.
-
-(Not a drop, but worth naming, per the story's own explicit boundaries: this
-story does not decide what to *do* with the divergence count — that's US-2,
-whose partial, unreviewed `MergePreview`/`MergeBase` work sits in the same
-file and was correctly left untouched throughout this run.)
-
-## Architectural deviations
-
-None. The pre-existing implementation already matched the plan's placement,
-screening, timeout-naming, and error-classification requirements; nothing
-needed to move or be restructured to bring it into compliance.
-
-## Verdict
-
-CLEAN — the story's only real gap (T-1.4, missing tests) is now closed, the
-pre-existing implementation was verified rather than assumed correct, and no
-drift from the plan was found or introduced.
+CLEAN — delivered matches the plan within acceptable micro-decisions (the
+`Sync.Reason` field and `BlockRunOnConflict` option were both foreseeable,
+narrowly-scoped additions the task tables' own dependency structure implied
+were needed but didn't spell out as a named field). One real production bug
+(CR-B-001, `merge-tree -z` quoting) was found and fixed inside the same
+story's scope during code review, not deferred. The one genuine deferral
+(US-3's live wiring) is a direct, correctly-recognized consequence of US-9
+being out of scope for this run, not a scope miss — no follow-up planning
+cycle is needed for it; it will resolve naturally when a future run
+implements US-9 and threads `syncResult` through `turn.Result`.

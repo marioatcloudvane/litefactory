@@ -118,6 +118,16 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	// AC-4.1: a blocked merge preview stops the turn here, before anything
+	// else below is created or mutated — no segment, no runs row, no
+	// run-artifact directory — and the branch itself is untouched, because
+	// [git.Worktree.MergePreview] never performed one (US-2). syncBase
+	// produces the blocked outcome regardless of this flag (US-2's own scope
+	// boundary); [Options.BlockRunOnConflict] is what turns it into a refusal
+	// rather than a run that merely discloses the conflict and goes ahead.
+	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
+		return nil, &syncRefusal{conflicts: append([]string(nil), sync.Conflicts...)}
+	}
 	if session.WorktreePath != worktree.Path() {
 		if err = opts.DB.SetSessionWorktree(ctx, session.ID, worktree.Path()); err != nil {
 			return nil, fmt.Errorf("record the worktree of task %s: %w", ref, err)

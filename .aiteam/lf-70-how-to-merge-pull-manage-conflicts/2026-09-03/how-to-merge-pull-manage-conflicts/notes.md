@@ -233,3 +233,137 @@ module packages, including `internal/git` with no race detector findings.
 ## Bug loop
 
 Not entered — zero test failures reported by any phase.
+
+---
+
+# Implementation Notes — US-2, US-3, US-4 (Auto-merge, disclosure, refusal)
+
+## Scope of this run
+
+This run implemented **US-2, US-3, and US-4**, per explicit instruction, as a
+fresh start on scope a prior rate-limited run had announced but never written
+to disk (confirmed via `git status` clean at the start of this run). US-1,
+US-7, and US-8 (already implemented, reviewed, and committed) were left
+untouched. US-5, US-6, and US-9 through US-12 remain out of scope.
+
+Sequenced per `plan_brief.md`'s explicit dependency chain: US-2 first (alone),
+gated to DONE, then US-3 and US-4 in parallel (different files: US-3 stayed in
+`internal/report/run.go`/`doc.go`/`report_test.go`; US-4 touched
+`internal/report/reply.go`/`reporter.go` plus `internal/turn/{errors,result,
+execute,prepare,report}.go` and one line in `internal/daemon/setup.go`).
+
+## Pre-existing partial code (US-2)
+
+`internal/git/merge.go` already contained unreviewed `MergePreview`,
+`MergeBase`, and `recoverFromFailedMerge` from an earlier, separate
+interrupted run. Verified against US-2's actual acceptance criteria rather
+than assumed correct, per instruction. Most of it was correct and kept
+as-is — including, surprisingly, `internal/turn/prepare.go`'s `syncBase`
+wiring and `internal/turn/gate_test.go`'s registry edit, which the story
+description said were still to be built but turned out to already be present
+from the same earlier interrupted run and were verified, not rewritten. One
+real bug was found and fixed: `parseMergePreview` split `merge-tree`'s output
+on the wrong section boundary (`"\n\n"` instead of tracking the tree-id/path
+list/messages boundary correctly), corrupting `TreeSHA` and `Conflicts` on
+every real conflict. Caught immediately by a new real-git test
+(`TestWorktreeMergePreviewConflict`) before code review ever ran.
+
+## Code Review Advisories
+
+- **CR-A-001** (advisory, non-blocking, US-3): `report.Sync` gained a
+  `Reason string` field beyond the architecture notes' originally-listed
+  field set (`Outcome, Behind, Ahead, Base, CommitSHA, Conflicts`). The task
+  itself flagged this as a judgment call for the engineer to resolve
+  (AC-3.2 requires every `skipped` outcome to disclose *why*, and the
+  listed field set had no field to carry that). Reviewed and accepted: a
+  plain string was chosen over a typed reason enum because `internal/turn`'s
+  `syncResult` doesn't yet distinguish skip causes (cap vs. config vs. label
+  all collapse into one outcome value) — a string lets a future caller (US-9)
+  supply whatever sentence fits without this package needing the caller's
+  reason taxonomy. See `CODE_REVIEW.md` for full detail.
+- **CR-A-002** (advisory, non-blocking, US-4): no direct end-to-end test
+  exercises `ReplyRefusesSync` through the full `Execute` → `PostComment`
+  path with a real comment body assertion (T-4.5's three behaviors — agent
+  never starts, no run-artifact directory, refusal comment posted — are each
+  covered, but not in one single end-to-end test). Left as a coverage gap,
+  not a correctness defect; flagged for `go-unit-test-engineer` to consider
+  closing in Phase 3.
+
+## BLOCKING finding found and resolved during Phase 1.5
+
+- **CR-B-001** (was BLOCKING, now resolved, US-2): `MergePreview`'s
+  `git merge-tree --write-tree --name-only` invocation omitted `-z`, so any
+  conflicting path with a non-ASCII byte or a special character (tab,
+  backslash, double-quote) came back C-quoted/octal-escaped rather than as
+  the literal path — the same hazard `internal/git/status.go` already solves
+  correctly for `git status`, but not applied here. This would have broken
+  AC-2.2's "the exact conflicting paths are returned" for any real-world repo
+  with non-ASCII filenames, and flowed unmodified into both US-3's
+  `report.Sync.Conflicts` and US-4's `Reply.ConflictPaths`.
+  Fixed by adding `-z` and rewriting `parseMergePreview` to decode
+  NUL-terminated, unquoted output; the new output shape (tree-id field,
+  then NUL-terminated conflicting paths, then an empty field marking the
+  start of the free-form messages section) was verified empirically in a
+  throwaway repo via git plumbing commands (`hash-object`/`mktree`/
+  `commit-tree`/`update-ref`, since the sandbox blocks `git commit`/`git add`
+  even in scratch directories) rather than trusted from documentation alone,
+  per the plan's own re-pinning discipline. A regression test
+  (`TestWorktreeMergePreviewConflictNonASCIIPath`, using a `café.md`
+  conflicting filename) was added and confirmed to fail against the
+  pre-fix code and pass against the fix. Re-review verdict: ADVISORY_ONLY,
+  confirmed the fix is structurally correct (genuine NUL-split parser, not
+  relabeled newline logic), the trailing-NUL-survives-`TrimRight("\n")` edge
+  case is handled correctly for the clean case, and no regression to
+  S-1/S-4/S-5/S-6/S-8/S-9.
+
+## Phase 2 — Environment setup
+
+None of US-2, US-3, or US-4 touches a real dependency (database, external
+HTTP call, message queue) — `internal/git` shells out to a local git binary
+against worktree-local refs (this codebase's existing convention already
+tests this as real-git-in-temp-directory unit tests, not integration tests),
+and `internal/report`/`internal/turn` are pure in-memory logic. Environment
+setup and the integration test suite were both skipped per the orchestrator's
+Phase 2 rule.
+
+## Assumptions
+
+- US-3's live wiring of `report.Run.Sync` from `internal/turn`'s in-memory
+  `syncResult` was deliberately left unbuilt: `turn.Result` has no field to
+  carry `syncResult` forward to the reporting layer yet, and building that
+  plumbing would require inventing ad hoc carriage ahead of US-9 (which
+  persists the fields this wiring properly depends on and is out of scope
+  this run). The struct, renderer, and golden tests were built to the task
+  table's actual scope (`internal/report` only); `SyncOutcome`'s string
+  values were deliberately chosen to match `internal/turn`'s private enum's
+  string values exactly, so US-9's eventual wiring is a one-line conversion.
+- US-4's `replyKind()` claim in its own architecture notes ("this is a new
+  branch in that function") was checked against real code and found
+  *incorrect* as written — the engineer instead followed the actual
+  established precedent (`ReplyAgentSwitchRefused`'s shape: delivered via
+  `ReplyRequest.Refusal`/`req.kind()`, never through `replyKind()`, which
+  only maps `CommandKind` values) and did not add a `replyKind()` case. The
+  code reviewer independently re-traced this against source and confirmed
+  the engineer's actual approach — not the sub-issue's literal wording — is
+  correct.
+- `turn.Options` had no `BlockRunOnConflict` field before this run (only
+  `AutoSyncBase`/`AutoSyncMaxBehind` existed from US-2/US-8's earlier work);
+  the US-4 engineer added it and wired it from `internal/daemon/setup.go`
+  (the only place `turn.Options` is constructed in production), flagging the
+  one file touched outside `internal/report`/`internal/turn` explicitly.
+
+## Testing
+
+Both `go-unit-test-engineer` coverage (via the implementation engineers'
+own real-git and whitebox tests, since this codebase's convention tests
+`internal/git` as unit tests) and a full-module race run were executed
+directly by the orchestrator after Phase 1, before code review, and again
+implicitly via the code reviewer's own `go test` runs during and after the
+CR-B-001 fix: `go build ./...`, `go vet ./...`, `gofmt -l .` all clean;
+`go test -race ./...` green across every package with no race detector
+findings, both before and after the CR-B-001 fix.
+
+## Bug loop
+
+Not yet entered as of writing this note — pending Phase 3's dedicated
+`go-unit-test-engineer` pass.

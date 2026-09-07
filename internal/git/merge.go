@@ -156,8 +156,16 @@ func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview,
 	// either way the payload we need — the tree id, and on conflict the
 	// paths — is on stdout rather than stderr. runAllowingExit is what lets
 	// both of those be read as a reported outcome instead of an error.
+	//
+	// -z is not optional: without it a conflicting path carrying a
+	// non-ASCII byte, a tab, a backslash or a double quote comes back
+	// C-quoted and escaped (core.quotePath) rather than as the literal path
+	// — exactly the hazard [statusArgs] already carries a -z for on "git
+	// status". parseMergePreview is written against -z's NUL-terminated,
+	// unquoted shape; it does not know how to read the quoted, newline
+	// form, so this flag and that parser move together.
 	out, exitCode, err := w.runner.runAllowingExit(ctx, mergePreviewTimeout, []int{0, 1},
-		"merge-tree", "--write-tree", "--name-only", "--end-of-options", w.branch, base)
+		"merge-tree", "--write-tree", "--name-only", "-z", "--end-of-options", w.branch, base)
 	if err != nil {
 		return MergePreview{}, classify(err, ErrRevisionNotFound, 128)
 	}
@@ -175,25 +183,44 @@ func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview,
 // stack just because some future renderer happens to truncate its own output.
 const MaxMergeConflictPaths = 500
 
-// parseMergePreview decodes "git merge-tree --write-tree --name-only" output.
-// A clean merge is a single line: the tree id. A conflicted merge is three
-// sections separated by a blank line: the tree id, one conflicted path per
-// line, and informational messages this package has no use for.
+// parseMergePreview decodes "git merge-tree --write-tree --name-only -z"
+// output.
+//
+// Per "git help merge-tree"'s OUTPUT section, -z NUL-terminates every field
+// instead of newline-separating them, and unquotes every path instead of
+// C-quoting it (empirically confirmed against a real conflicted merge with a
+// non-ASCII filename, rather than assumed from the docs alone — see
+// TestWorktreeMergePreviewConflictNonASCIIPath). A clean merge is just the
+// tree id, NUL-terminated. A conflicted merge is the tree id, NUL-terminated,
+// followed by one NUL-terminated conflicted path per file --name-only is
+// reporting on; the doc for -z says the free-form "informational messages"
+// section that follows (things like "Auto-merging <path>" and
+// "CONFLICT (...): ...", which this package has no use for) begins with a NUL
+// character rather than a blank line. Splitting the whole output on NUL turns
+// that into an empty field sitting right after the last conflicted path —
+// the parser stops there rather than needing to know anything about the
+// messages section's own internal shape.
 func parseMergePreview(out string, clean bool) (MergePreview, error) {
 	if out == "" {
 		return MergePreview{}, fmt.Errorf("%w: missing tree id", ErrInvalidArgument)
 	}
-	parts := strings.SplitN(out, "\n\n", 3)
-	preview := MergePreview{Clean: clean, TreeSHA: parts[0]}
+	fields := strings.Split(out, "\x00")
+
 	if clean {
-		return preview, nil
+		return MergePreview{Clean: true, TreeSHA: fields[0]}, nil
 	}
-	if len(parts) < 2 {
+
+	if len(fields) < 2 {
 		return MergePreview{}, fmt.Errorf("%q: %w: missing conflicted file list", out, ErrInvalidArgument)
 	}
-	for _, path := range strings.Split(parts[1], "\n") {
+	preview := MergePreview{TreeSHA: fields[0]}
+
+	for _, path := range fields[1:] {
 		if path == "" {
-			continue
+			// The NUL that begins the informational messages section: the
+			// conflicted file list is done, and nothing past here is ours to
+			// read.
+			break
 		}
 		if len(preview.Conflicts) >= MaxMergeConflictPaths {
 			continue
