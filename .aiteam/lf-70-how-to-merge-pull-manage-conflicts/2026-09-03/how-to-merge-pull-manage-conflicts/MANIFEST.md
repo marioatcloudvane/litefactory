@@ -319,5 +319,33 @@ asked for; nothing here licenses starting the next one.
   from the earlier stopped run and awaits its own comment before anyone acts
   on it. US-3 through US-6 and US-9 through US-12 remain for future runs,
   each needing its own comment.
+- 2026-09-07 — Research mode re-run (seventh pass, targeted check, no
+  sub-agent invocation): request was "Continue where it was stopped when the
+  rate limit happened," worded as an implement-continuation request but
+  carrying an explicit `Mode: research` header, so this ran as a Research
+  check rather than an Implement continuation of the rate-limited US-2
+  attempt. Checked `RESEARCH_BRIEF.md`'s Open Questions plus `US-2.md`,
+  `US-3.md`, and `US-4.md` directly for any genuine unresolved research
+  question blocking those three stories specifically. Found none requiring
+  new research: Open Question 17 (over-cap-skip vs. deliberate-opt-out
+  disclosure loudness) is already answered by `US-3.md`'s own Architecture
+  Notes and AC-3.2 — every `skipped` outcome discloses its specific reason
+  (cap, config, or label), so the two cases are not in fact rendered
+  identically. Open Question 21 (`prepareClone` step-order wording) is a
+  already-resolved wording fix with no effect on US-2's integration point,
+  confirmed unaffected by `US-2.md`'s own Architecture Notes. Open Question
+  19 (old-git-version probe message prominence) names no task in US-2, US-3,
+  or US-4's own task tables — the git-version floor check is not currently
+  assigned to any of these three sub-issues, so it is an unresolved plan
+  *scoping* gap, not a blocked research question these three stories are
+  waiting on; it is left as-is in Open Questions for whoever scopes it.
+  `RESEARCH_BRIEF.md` was not modified — nothing new to add. Neither
+  `plan_brief.md` nor any `US-*.md` file was modified. No implementation work
+  was performed, and the interrupted run's uncommitted partial code in
+  `internal/git/merge.go` (`MergePreview`, `MergeBase`,
+  `recoverFromFailedMerge`) was not read, evaluated, or acted on. US-2 (with
+  its own partial, unreviewed code already sitting in the worktree),
+  US-3, and US-4 remain ready for Implement mode, each pending its own
+  comment.
 
 ## Notes
