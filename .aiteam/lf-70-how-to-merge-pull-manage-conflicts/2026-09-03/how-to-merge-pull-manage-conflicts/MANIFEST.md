@@ -227,5 +227,25 @@ asked for; nothing here licenses starting the next one.
   APP_CONSTRAINTS update was made, per the retirement of that step. US-7 (the
   other US-2 prerequisite), then US-2, then US-3/4/5, remain for future runs,
   each needing its own comment.
+- 2026-09-07 — Research mode re-run (sixth pass, targeted check, no sub-agent
+  invocation): request was "continue with US-7," worded as an implement
+  request but carrying an explicit `Mode: research` header, so this ran as a
+  Research check rather than an Implement continuation. Checked
+  `RESEARCH_BRIEF.md`'s Open Questions and `US-7.md` directly for any
+  genuine unresolved research question blocking US-7 specifically. Found
+  none: Open Question 18 (whether a malformed/ambiguous `lf:sync=` label
+  should fall back to the config default instead of being refused outright)
+  is the only open question that names US-7, and it is already answered by
+  `US-7.md`'s own concrete Architecture Notes and AC-7.1 — a malformed,
+  miscased, or duplicated label is refused (rejected) and the config default
+  applies, which is a softer outcome than the "refused" wording in this
+  brief's earlier Scenario/Track Matrix section implied. No codebase or web
+  research question remains open for US-7; its sub-issue is fully specified,
+  including the exact existing code pattern to copy
+  (`internal/daemon/agent.go`'s `agentLabelPrefix`, `internal/daemon/mode.go`'s
+  `modeLabelPrefix`). `RESEARCH_BRIEF.md` was not modified — nothing new to
+  add. Neither `plan_brief.md` nor any `US-*.md` file was modified. No
+  implementation work was performed. US-7 remains ready for Implement mode,
+  pending its own comment.
 
 ## Notes
