@@ -10,7 +10,6 @@ Generated for the `go-backend` lightweight team. Read by `proxy-product-owner` b
 | `codebase-tour` | codebase-tour | `agents/codebase-tour.md` | Two-pass codebase exploration for Research mode |
 | `requirements-engineer` | requirements | `agents/requirements-engineer.md` | Runs the Plan-mode requirements conversation, writes `feature-spec.md` |
 | `proxy-product-owner` | product-owner | `agents/proxy-product-owner.md` | Breaks `feature-spec.md` into user stories + tasks |
-| `app-context-updater` | app-context-updater | `agents/app-context-updater.md` | Creates/updates `.aiteam/APP_CONTEXT.md` |
 | `go-architect` | architect | `agents/go-architect.md` | Structural/architectural guidance for Go backend tasks — no code |
 | `go-implementation-engineer` | developer | `agents/go-implementation-engineer.md` | Implements Go backend code per plan + architect hints |
 | `go-unit-test-engineer` | unit-tester | `agents/go-unit-test-engineer.md` | Writes and runs Go unit tests |
