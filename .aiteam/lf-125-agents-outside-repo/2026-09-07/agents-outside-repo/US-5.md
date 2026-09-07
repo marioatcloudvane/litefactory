@@ -33,3 +33,4 @@ A smaller catalog should reduce instruction exposure, but extra delegation or re
 | AC-5.3 | Measured tokens, byte counts and unavailable telemetry are distinct; full task/delegation totals are not presented as root-only savings, and no fixed reduction is claimed without evidence. |
 | AC-5.4 | Deterministic metadata/CLI fixtures pass; implementation documentation includes external installation/assignment/cutover and capability limitations. |
 | AC-5.5 | `make check` and safe `go build ./...` pass without live runtime edits, dist writes or paid subprocesses in ordinary tests. |
+| AC-5.6 | Operator documentation gives the central directory layout, empty-home install/custom-import commands, two-repository selection example, source-to-CLI delivery sequence, active-versus-future update behavior, and bundle retention/resume limitations. |

@@ -1,4 +1,4 @@
-# US-3 — Per-run bundle isolation and conversation boundaries
+# US-3 — CLI bundle delivery, lifecycle and conversation isolation
 
 > As an operator, I want each run to see only its selected mode's specialists so that unrelated instructions do not consume tokens or remain in resumed conversations.
 
@@ -17,6 +17,7 @@ Moving files alone does not reduce the instructions a coding agent sees. Both su
 - Publish run-specific bundles through the existing write owner; cancellation cannot publish partial output. Capture locks are bounded and released before subprocess execution; deep-copy request data.
 - Extend existing store segment allocation/read paths, removing assumptions that the first ordinal is always enough. Compare bundle identity before resume and preserve the agent-switch guard and existing final state ordering.
 - Platform: existing contexts own subprocess/snapshot lifetime; no new clock or worker pool. Risk: ambient discovery and old conversation context can reintroduce excluded specialists despite correct file contents.
+- T-3.2–T-3.5 own delivery and lifetime end to end: installed source resolution, selected snapshot, native rendering, atomic publication, adapter handoff, subprocess completion and failure cleanup. Test cleanup after children stop, metadata failure retaining content, and resume with retained/restored resources; a matching hash alone is insufficient when vendor references point at a deleted path. Reuse existing recovery/liveness checks for validated inactive factory-owned paths.
 
 ## Tasks
 
@@ -38,3 +39,6 @@ Moving files alone does not reduce the instructions a coding agent sees. Both su
 | AC-3.4 | Stable identity resumes an eligible conversation; changed team/mode/content/model mapping or absent old identity allocates a fresh segment while preserving history and vendor-switch protection. |
 | AC-3.5 | Failed validation, cancellation or unsupported transport prevents work execution or partial bundle publication, with an actionable reported outcome. |
 | AC-3.6 | Deterministic fake-process/store tests cover cold/resumed launches, classifier isolation, segment metadata and concurrency without real paid subprocesses in ordinary tests. |
+| AC-3.7 | Two repositories selecting one central team receive separate run bundles from the same installed definitions. Updating a shared definition during one active run leaves its bytes unchanged and makes the next run in either repository use the new bytes and identity. |
+| AC-3.8 | Fake CLI launches prove installed central source → selected closure → published native bundle → adapter delivery while CWD remains the supplied worktree; no lazy read from an import origin or repository-local specialist installation is required. |
+| AC-3.9 | Failed staging cleanup never touches active/sibling/source paths; finalized bundles are retained until safe cleanup/resume is proven. Durable identity survives permitted deletion; metadata failure retains the bundle, and unavailable vendor resume resources cause a fresh segment rather than a broken resume. |

@@ -19,13 +19,15 @@
 | Accepted user decisions | Teams belong outside any project; team-first mode rosters; shared definitions or Markdown paths; token reduction is primary; no backward compatibility or configuration migration. |
 | Headless assumptions | One operator-owned registry at `$LF_HOME/teams/index.json`; external source tree under `$LF_HOME/teams/`, metadata under its `.litefactory/` directory, immutable snapshots under `$LF_HOME/bundles/`; explicit repository association; five current modes; no maintenance/updater restoration. |
 | Scope interpretation | Replace repository-owned specialist discovery in managed runs; retain repository-specific instructions, application context, constraints and session artifacts. |
+| Run 0010 clarification | Central ownership was already in US-1–US-3; make source installation, storage layout, CLI delivery and snapshot cleanup explicit acceptance requirements without adding a duplicate registry story. Current-session run 0009 research confirms linked remote stories are stale; local revision alone does not synchronize them. |
+| Lifecycle assumption | Explicit `team add` installs shipped defaults or imports an operator-selected package into the managed central tree; work runs never load directly from the original package. Persist identity/provenance with existing run records; retain finalized bundles by default until safe vendor restoration/resume is proven. |
 
 ## User Stories
 | ID | Story |
 |---|---|
 | US-1 | As an operator, I can define teams and shared specialists in one external registry with explicit mode rosters, so multiple repositories reuse the same instructions. |
-| US-2 | As an operator, I can validate, inspect and assign external teams through litefactory, so registration no longer requires a repository-installed team. |
-| US-3 | As an operator, I get isolated per-run team/mode bundles after classification, so unrelated specialists and personal configuration do not enter a managed run. |
+| US-2 | As an operator, I can install, import, update, inspect and assign centrally stored agents and teams through litefactory, so repositories share one managed source tree. |
+| US-3 | As an operator, I get isolated per-run team/mode bundles delivered from central storage to the selected CLI after classification with safe retention and cleanup, so unrelated specialists and personal configuration do not enter a managed run. |
 | US-4 | As an operator, I get Implement focused on code and test authoring, and Validate focused on read-only review and evidence, without restoring the retired context updater. |
 | US-5 | As an operator, I can inspect bundle provenance and compare instruction/token evidence across modes, so performance claims are measurable and reproducible. |
 
@@ -49,6 +51,21 @@
 - Skill frontmatter `requires` and `resources` → explicit relative transitive skill/resource closure; reject cycles, missing resources and path escapes, preserve relative trees and hash every included byte.
 - Registered repository → operator-selected external team ID; association does not require writing a marker into the clone.
 - Resolved mode and team → immutable run bundle → existing vendor runner; classifier receives no bundle.
+
+### Central Storage and Lifecycle
+| Location | Owner and purpose | Lifecycle |
+|---|---|---|
+| `$LF_HOME/teams/index.json` | Operator-owned version-2 team/mode registry, shared across all registered repositories | Created through explicit installation; validated and updated through team commands. |
+| `$LF_HOME/teams/agents/shared/<id>.md` | Canonical installed shared agent source referenced explicitly by rosters | Installed/imported once; shared updates affect future runs of all referring repositories. |
+| `$LF_HOME/teams/agents/<team-id>/<id>.md` | Canonical installed direct agent source | Team-scoped identity; direct paths resolve from the registry, never a repository CWD. |
+| `$LF_HOME/teams/skills/<skill-id>/` | Installed `SKILL.md` and its declared dependencies/resources | Copy the complete validated closure; preserve relative resource paths. |
+| `$LF_HOME/teams/.litefactory/` | Source origin, content hashes, override records and management locks | External management state; no duplicate registry in the database. |
+| `$LF_HOME/bundles/<forge>/<owner>/<repo>/<issue>/<run-ordinal>/` | Litefactory-owned immutable selected-mode sources and vendor renderings | Publish before work launch; retain finalized bundles until vendor resume/restoration is safe; permitted removal requires stopped children and durable identity/provenance. |
+| Existing repository/run records | Explicit team association and bundle identity/evidence | Associations store keys rather than source bodies; run identity survives bundle cleanup. |
+- Agent and skill subdirectories above are the documented installed layout; imported references are rewritten/normalized to contained managed paths while preserving dependency-relative trees.
+- Empty central registry → actionable explicit installation guidance before work launch; no silent embedded or repository fallback.
+- Bootstrap example → `litefactory team add go-team`, `litefactory team validate`, then `litefactory repo add /path/to/repo --team go-team`.
+- Custom-package example → `litefactory team add go-team --source /path/to/external-package`; read `index.json`, validate the selected closure, copy it centrally and record its origin for later status/update.
 
 ## API / Interface Changes
 | Method | Endpoint / Action | Auth | Notes |
@@ -86,6 +103,10 @@
 - Unknown team, malformed registry, duplicate effective agent ID, invalid mode key, unresolved reference, unreadable/oversized/nonregular source, or ambiguous inline/reference entry → actionable refusal before spawning work.
 - Relative paths → resolve against registry location; symlink escape from permitted external source roots → refuse; URL downloads are unsupported.
 - Registry changes during a run → current immutable snapshot remains stable; next run observes a newly validated snapshot.
+- Original import package moved or unavailable → installed central definitions remain usable for runs; status/update reports unavailable upstream rather than treating it as synchronized or deleting installed content.
+- Work exit, launch failure or cancellation → clean failed unpublished staging after child processes stop; retain finalized bundles until safe vendor resume/restoration is proven. Permitted finalized cleanup requires durable metadata; metadata failure retains the bounded bundle. Never remove source definitions or another active run's bundle.
+- Interrupted cleanup → report the bounded leftover path; later recovery removes only validated factory-owned inactive run paths, without broad deletion or a new clock/worker service.
+- Eligible conversation resume after cleanup → reconstruct a bundle from current central sources and compare persisted identity. Changed/missing identity or unrestorable vendor path references require a fresh segment; matching hashes alone do not prove resume safety.
 - Same team used concurrently in five worktrees → independent runtime snapshots, shared read-only source, no roster contamination or external writes by agents.
 - Existing registration has only a marker-derived team → require explicit operator reassignment; do not silently reinterpret it as an external-registry association.
 - Vendor cannot enforce selected catalog with supported CLI surface → fail capability validation with a precise limitation; never fall back to loading all agents.
@@ -110,3 +131,7 @@
 - [ ] A reproducible benchmark compares current full catalogs with selected mode catalogs for classification and representative work runs, separately accounting for Claude root-body duplication and catalog descriptions, recording bytes, available input/cached/total tokens, latency, vendor/version and task outcome without promising an unmeasured savings percentage.
 - [ ] Embedded team definitions are canonical shipped content; generated Claude/Codex copies, workflow scaffolding and tests are updated together, remove all Implement updater invocations and preserve equivalent user-visible behavior.
 - [ ] Implementation reuses the merged team schema/resolver/renderer/write owners and Claude isolation infrastructure directly; no branch-integration prerequisite or parallel registry implementation remains.
+- [ ] From an empty isolated `$LF_HOME`, explicit default installation or custom-package import creates a complete usable registry, agent sources, skill resources and provenance outside project roots; rejected imports leave no advertised partial team.
+- [ ] Two repositories use one installed shared agent source; changing it through external management affects their next validated bundles while an active run retains its original bytes. Moving the original import package does not break installed runs.
+- [ ] Both vendor adapters receive only the selected immutable central snapshot while executing in the supplied task worktree; no installation step copies managed specialists into project instruction directories.
+- [ ] Success, spawn failure, cancellation and recovery tests prove bundle cleanup preserves durable run identity, active/sibling bundles and all central definitions; a later resume reconstructs and compares identity before reusing conversation context.

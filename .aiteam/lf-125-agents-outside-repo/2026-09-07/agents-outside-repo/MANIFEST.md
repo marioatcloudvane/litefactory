@@ -5,12 +5,15 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(run 0009 retry diagnosis complete; remote story synchronization confirmed missing)*
-- [x] **Plan** — `plan_brief.md` + five complete per-story bodies *(run 0008 merged-baseline refresh complete; existing index links #127–#131 retained)*
+- [x] **Plan** — `plan_brief.md` + five complete per-story bodies *(run 0010 central storage/install/delivery clarification complete; existing index links #127–#131 retained; remote synchronization pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
 
+- 2026-09-07 — run 0010 publication attempt: read all five existing GitHub stories, then attempted the first title/body update (#127). Connector rejected it with `MCP tool call requires approval, but approval policy is never`. No remote issues changed. Local replacement bodies are complete; an authorized publisher must synchronize them and verify read-back. This replaces the earlier pending-verification status with a confirmed permissions blocker.
+
+- 2026-09-07 — run 0010: refreshed feature spec, architecture review, shared plan and US-1–US-3/US-5 at 0b2aa7ba437585515593e65f47ba0b86c6e563cf. Central durable agent/skill layout, explicit bootstrap/import, source independence, two-repository reuse, CLI snapshot handoff and safe retention/resume are now explicit. US-4 unchanged. Five existing issue links retained; no duplicate sixth story, compatibility work, implementation or paid probes. Local artifacts complete; remote title/body synchronization pending dispatcher verification.
 - 2026-09-07 — run 0009: verified the run 0008 plan persisted at 0f9354e and already specifies central external team ownership, management and per-mode bundles. Live GitHub reads confirm all five linked stories still carry the September 6 decomposition and old pinned detail links, including rejected migration work. Source review verifies the publisher renders linked stories but the GitHub creation layer preserves existing marker matches without updating bodies. Updated Research brief and manifest only; no production/story/remote edits, implementation tests or paid probes. End-to-end handoff remains incomplete until existing issue titles/bodies/detail links are synchronized and read back.
 - 2026-09-07 — run 0006: re-plan requested against current team management at f218db4218708c6e01403cb11406912052bceba8.
 - 2026-09-07 — run 0006: wrote feature spec, architectural review, revised plan and US-1 through US-5 against inspected #68/main lineages. External ownership and no-compatibility cutover retained; existing management machinery reused. No implementation or branch integration performed.

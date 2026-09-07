@@ -2,19 +2,22 @@
 # Branch: lf/125-agents-outside-repo
 # Date: 2026-09-07
 # Parent issue: https://github.com/marioatcloudvane/litefactory/issues/125
-# Citation base: 69f701c3ed45819d39b0a9fa05df64f29f08fbe6
+# Citation base: 0b2aa7ba437585515593e65f47ba0b86c6e563cf
 # Research brief: [merged-source recheck](RESEARCH_BRIEF.md)
 
 ## Shared Decisions
 
 - Use one operator-owned registry, `$LF_HOME/teams/index.json`, with `schema_version: 2`, a `shared` definition map and a `teams` map. Each team has `desc` and required ordered arrays `research`, `plan`, `implement`, `validate`, `spike`; an empty array means root-only operation. Entries are either `{ "ref": "shared-id" }` or inline `{ "id", "desc", "path", "tier", "skills" }` definitions. Shared entries are never implicitly included. Registry metadata and repeated source metadata must agree.
 - Sources, focused skills and declared resources live beneath `$LF_HOME/teams/`. Runtime resolves paths from this root, never task CWD; canonical containment applies to absolute paths and symlinks. Embedded defaults are explicitly installed distribution material, with no runtime fallback. Operator imports copy complete validated dependency closures from external roots. There is no repository source tier or static-path precedence.
+- Central layout: `teams/index.json` holds membership; `teams/agents/shared/<id>.md` and `teams/agents/<team-id>/<id>.md` hold shared and team-local definitions; `teams/skills/<skill-id>/` holds skills/resources; `teams/.litefactory/` holds management metadata. These are durable installed sources. Two repositories can select the same team and share those exact definitions; their rendered run bundles remain distinct.
+- Ownership and delivery: operator commands install embedded defaults or import external packages → central validated sources → repository team selection plus classified mode → locked source snapshot → pure vendor rendering → immutable per-run bundle → vendor-neutral request → CLI adapter. CLI processes still work in the supplied task worktree. Imported origins are provenance/update inputs, never a dependency for executing installed content. A shared update affects future snapshots; active snapshots retain their original bytes.
 - Reuse the merged `team`, `teamsource`, `render` and team command owners, strict validation, hashes, locks, five drift states, overrides and safe writes. Adapt their targets and roster resolution instead of adding a competing registry. External metadata lives under `$LF_HOME/teams/.litefactory/`. Shared overrides use shared IDs; inline override keys are team-qualified.
 - Repository registration explicitly selects an external team; persist that selection separately from marker-derived `AiteamTeam`. No backfill, legacy team schema reader, converter, compatibility fallback or migration command. Additive SQLite migrations for new association and conversation metadata remain normal persistence work.
 - Skills declare optional relative `requires` and `resources` dependencies. Resolve transitive closure, reject cycles/missing/escaping resources, retain relative trees, bound bytes and hash every included resource. Root bootstrap stays small; discovering a skill description does not imply loading its full body.
 - Embedded team definitions are canonical shipped content; generated and checked-in vendor copies must agree with them. Remove eager specialist-body duplication and global roster listings from bootstrap while retaining ordinary project guidance. Separate this root exposure from catalog descriptions, selective body loading and delegation in token evidence.
 - After mode selection, capture one stable source snapshot under the management lock, release that lock, render and atomically publish `$LF_HOME/bundles/<forge>/<owner>/<repo>/<issue>/<run-ordinal>/`. Classifiers receive no team catalog. Work runs receive only their mode closure, with ordinary project instructions and session conventions retained. Published bundles are immutable and cannot be shared writable vendor catalogs.
 - Bundle identity includes team/mode, ordered membership, effective source/dependency/render bytes, bootstrap revision and tier/model mapping. A changed identity opens a fresh existing conversation segment; preserve current vendor-switch protection. No-identity old segments cannot resume into a guessed catalog.
+- Persist bundle identity/provenance independently of rendered files. Clean failed unpublished staging only after its processes stop; retain finalized bundles by default until safe vendor resume/restoration is proven. Finalized cleanup requires stopped children and durable metadata; metadata failure retains the bounded bundle. Resume requires matching identity and valid/restorable vendor paths, otherwise open a fresh segment. No TTL janitor or new clock service is included.
 - Exact vendor versions must prove catalog isolation, authentication, project instruction retention, permission ceilings and tier semantics before transport is enabled. Unsupported capabilities cause an actionable refusal, never silent full-catalog fallback. Reuse the merged Claude configuration isolation and existing vendor-neutral request/adapters.
 - Implement owns production/test authoring and relevant verification. Validate owns acceptance, code-review, existing-evidence and context-drift assessment with inline findings under existing read-only profiles; this scope assigns no shell/test execution to Validate. Claude Validate has no Bash; missing executable evidence is reported truthfully. No automatic fix loop, new Maintenance mode or retired updater restoration. Use small roles with selected language skills; ship the Go team only.
 
@@ -36,9 +39,9 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|------------|-----------|
-| US-1 | External registry and mode resolution | L | — | https://github.com/marioatcloudvane/litefactory/issues/127 |
-| US-2 | External management and repository association | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/128 |
-| US-3 | Per-run bundle isolation and conversation boundaries | L | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/129 |
+| US-1 | Central agent storage and mode registry | L | — | https://github.com/marioatcloudvane/litefactory/issues/127 |
+| US-2 | Central installation, management and repository selection | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/128 |
+| US-3 | CLI bundle delivery, lifecycle and conversation isolation | L | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/129 |
 | US-4 | Focused modes and language skills | L | US-1, US-3 | https://github.com/marioatcloudvane/litefactory/issues/130 |
 | US-5 | Provenance, token evidence and handoff | M | US-3, US-4 | https://github.com/marioatcloudvane/litefactory/issues/131 |
 
@@ -50,8 +53,9 @@
 
 ## Provenance
 
+- Run 0010 clarification is pinned to `0b2aa7ba437585515593e65f47ba0b86c6e563cf`. Existing US-1–US-3 already owned central storage, management and delivery; this refresh makes their operational contracts explicit without adding duplicate stories. The architecture refresh approves proceeding with the cleanup/resume guard above.
 - Run 0008 checkout: `69f701c3ed45819d39b0a9fa05df64f29f08fbe6`. Run 0007 reviewed merged sources at `a465e55e0f9ae6c61267f8fdbb4802526ac2867d`; `RESEARCH_BRIEF.md` supplies that evidence, not a claim that tests were rerun in this Plan run.
 - Team management and Claude configuration isolation are present in the task checkout. Embedded/Claude definitions retire the context updater, but checked-in Codex Implement instructions still invoke it; US-4 must resolve that parity drift.
 - Detailed source reuse/delta evidence and task guidance: `ARCH_REVIEW.md`; requirements: `feature-spec.md`. Prior sessions remain historical and were not rewritten or used as current source truth.
 - Recheck affected APIs if implementation starts from a different commit. Runner transport and measured token improvement remain explicit proof gates; this planning run did not execute paid probes or implementation tests.
-- The Story Index retains existing issues #127–#131. Updated local `US-1.md` through `US-5.md` are the complete handoff bodies; remote body synchronization was not performed or verified by this run.
+- The Story Index retains existing issues #127–#131. Run 0010 fetched all five and confirmed stale titles/bodies. Updating #127 through the GitHub connector was rejected: `MCP tool call requires approval, but approval policy is never`. No remote mutation succeeded; remaining updates were not attempted. Updated local `US-1.md` through `US-5.md` are the complete replacement bodies. Synchronization through an authorized publisher and read-back verification remain required before consuming the remote stories.

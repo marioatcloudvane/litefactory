@@ -1,4 +1,4 @@
-# US-2 — External management and repository association
+# US-2 — Central installation, management and repository selection
 
 > As an operator, I want to manage teams centrally and assign them to repositories so that updates apply across projects without installing team files in each project.
 
@@ -16,6 +16,7 @@ The recent management feature already handles inspection, overrides and safe upd
 - Retain `team.Add`/lock/hash/writefile owner and all five drift states. `status` compares installed files against recorded origins, `update` preserves existing explicit force/conflict semantics, and lockfile publication is last. Snapshot readers cooperate with this root lock.
 - `manage <agent-key> set source=<path>`, `unset`, `show` use operator-wide overrides; use `shared:<id>` and `team:<team-id>:<agent-id>` key forms. Import override bytes into the managed root, retaining accurate origin/hash provenance. Shared overrides affect explicit references only.
 - Platform: additive store migration, single SQLite connection and ctx-first accessors; existing CLI handler patterns. Risk: retaining old clone-owned-path checks or reporting original source with override hashes would break the new ownership/provenance contract.
+- T-2.3 covers bootstrap from an empty scratch home with `litefactory team add go-team`, and custom installation with `litefactory team add go-team --source /path/to/external-package`; these are proposed command examples, not claims of current behavior. Compare existing shared IDs/content before installing another team and reject conflicting definitions rather than silently overwriting shared bytes. An unavailable import origin is an actionable status/update result, not loss of the installed team.
 
 ## Tasks
 
@@ -37,3 +38,5 @@ The recent management feature already handles inspection, overrides and safe upd
 | AC-2.4 | Installation/import and updates validate the complete closure before mutation; interrupted or rejected updates do not claim successful provenance. |
 | AC-2.5 | In-sync, locally-modified, upstream-updated, conflict and missing states retain tested meanings; force behavior is explicit and overrides report the bytes actually used. |
 | AC-2.6 | Tests cover real persisted association, untouched clone snapshots, deterministic JSON output, unambiguous override keys and removal of obsolete flags/marker detection. |
+| AC-2.7 | From an empty scratch home outside git, explicit embedded installation creates a complete central registry and closure; two repository registrations select it without duplicate source installations. |
+| AC-2.8 | A custom package imports its complete closure; moving/removing its original directory leaves installed sources runnable, while status/update truthfully reports unavailable origin. Missing resources or conflicting existing shared definitions fail preflight without claiming successful installation. |

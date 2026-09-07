@@ -1,4 +1,4 @@
-# US-1 — External registry and mode resolution
+# US-1 — Central agent storage and mode registry
 
 > As an operator, I want to define reusable teams outside projects so that each mode loads only the specialists it needs.
 
@@ -15,6 +15,7 @@ Every unnecessary specialist description consumes attention before useful work s
 - `config.Paths` owns root derivation; `teamsource` replaces its embedded/static/repository precedence with external active-registry snapshots. Embedded default distribution retains its existing owner.
 - Platform: preserve aggregated typed errors, deterministic order and bounded context-aware source reads. Risk: a top-level Markdown copy misses today's relative mode files/templates/hooks; explicit complete dependency closure is required.
 - The example registry must demonstrate shared and inline entries, all five modes and focused skills; workflow body changes belong to US-4.
+- T-1.3/T-1.4 must materialize the shared central layout in the plan: registry paths refer to installed agent/skill bytes, never their import origin or repository CWD. Examples distinguish durable operator input from generated vendor output.
 
 ## Tasks
 
@@ -35,3 +36,4 @@ Every unnecessary specialist description consumes attention before useful work s
 | AC-1.4 | Relative and absolute runtime paths remain under the canonical external root; symlink escapes, missing/nonregular/oversized sources and invalid dependency graphs fail before rendering. |
 | AC-1.5 | Transitive resource trees remain usable after external installation; dependency-only changes alter the snapshot digest and shared dependencies deduplicate deterministically. |
 | AC-1.6 | Registry/frontmatter conflicts fail explicitly; mutation during snapshot capture cannot publish a mixed catalog. |
+| AC-1.7 | Example package resolves shared and inline Markdown plus skill resources from the central layout, and documents the separate source, management-metadata and rendered-bundle roots through config.Paths. |
