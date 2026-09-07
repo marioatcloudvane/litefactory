@@ -55,6 +55,16 @@ const (
 	// two closed-set names the reply names, and [Reporter.ReportTurn]
 	// answers with [report.ReplyAgentSwitchRefused] rather than a run report.
 	DispositionAgentSwitchRefused
+
+	// DispositionSyncRefused means the turn's task branch could not be merged
+	// with the base branch cleanly (US-4): [git.Worktree.MergePreview] found
+	// conflicting paths and the configured policy
+	// ([Options.BlockRunOnConflict]) says a conflict of this kind stops the
+	// run rather than merely disclosing it. Nothing was created and nothing
+	// was mutated — [Result.SyncConflicts] carries the paths that collided —
+	// and [Reporter.ReportTurn] answers with [report.ReplyRefusesSync] rather
+	// than a run report.
+	DispositionSyncRefused
 )
 
 // String renders the disposition for logs and test failures. The values are
@@ -73,6 +83,8 @@ func (d Disposition) String() string {
 		return "prepare_failed"
 	case DispositionAgentSwitchRefused:
 		return "agent_switch_refused"
+	case DispositionSyncRefused:
+		return "sync_refused"
 	default:
 		return "invalid"
 	}
@@ -193,6 +205,28 @@ type Result struct {
 	// checks them against its own pattern again before it does (S-8).
 	AgentOwning    string
 	AgentRequested string
+
+	// SyncConflicts is set only on [DispositionSyncRefused]: the paths
+	// [git.Worktree.MergePreview] reported as conflicting, exactly as
+	// syncBase recorded them. internal/report renders them inside a fenced
+	// block (S-2) and does not sanitise or decide which paths are safe to
+	// show at all — that is US-5's job.
+	SyncConflicts []string
+
+	// ConflictProposal is set only on [DispositionSyncRefused], and only
+	// when [attemptConflictSuggestion] produced and persisted a suggested
+	// resolution for this blocked merge (US-11). [Reporter.ReportTurn]
+	// answers with [report.ReplySuggestsResolution] instead of
+	// [report.ReplyRefusesSync] when it is non-nil.
+	ConflictProposal *store.ConflictProposal
+
+	// ConflictSuggestionFailed is set only on [DispositionSyncRefused], and
+	// only when [Options.SuggestConflictResolution] was true for this turn
+	// but no usable proposal resulted (US-11, AC-11.2): the advisor was
+	// unavailable, failed, timed out, or its answer was rejected by local
+	// revalidation. [Reporter.ReportTurn] renders exactly one added line for
+	// it. It is always false when suggestions were disabled (AC-11.3).
+	ConflictSuggestionFailed bool
 }
 
 // Reportable reports whether this turn owes the issue a comment. Every
@@ -200,7 +234,8 @@ type Result struct {
 // (AC-4.1).
 func (r Result) Reportable() bool {
 	switch r.Disposition {
-	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused:
+	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused,
+		DispositionSyncRefused:
 		return true
 	case DispositionLocked, DispositionAlreadyReported:
 		return false
@@ -218,7 +253,8 @@ func (r Result) Reportable() bool {
 // moved past it in the same transaction that reported it.
 func (r Result) ConsumesComment() bool {
 	switch r.Disposition {
-	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused:
+	case DispositionRan, DispositionAlreadyRan, DispositionPrepareFailed, DispositionAgentSwitchRefused,
+		DispositionSyncRefused:
 		return true
 	case DispositionLocked, DispositionAlreadyReported:
 		return false

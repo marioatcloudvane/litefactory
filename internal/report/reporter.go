@@ -128,6 +128,13 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if reply.Kind == ReplyScheduleBlocked && reply.Schedule.ID <= 0 {
 		return redact.Body{}, fmt.Errorf("report: %w: incomplete schedule blocked reply", ErrInvalidArgument)
 	}
+	if (reply.Kind == ReplyRefusesSync || reply.Kind == ReplySuggestsResolution) && len(reply.ConflictPaths) == 0 {
+		return redact.Body{}, fmt.Errorf("report: %w: sync refusal with no conflicting paths", ErrInvalidArgument)
+	}
+	if reply.Kind == ReplySuggestsResolution && (reply.ConflictProposal == nil || len(reply.ConflictProposal.Files) == 0 ||
+		reply.ConflictProposal.ID <= 0 || reply.ConflictProposal.Model == "") {
+		return redact.Body{}, fmt.Errorf("report: %w: incomplete conflict resolution suggestion", ErrInvalidArgument)
+	}
 	return r.apply(ctx, reply.body())
 }
 

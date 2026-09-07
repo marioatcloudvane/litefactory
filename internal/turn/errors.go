@@ -3,6 +3,8 @@ package turn
 import (
 	"errors"
 	"fmt"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // The two conditions [Execute] reports through its error return.
@@ -79,4 +81,45 @@ type agentSwitchRefusal struct {
 func (e *agentSwitchRefusal) Error() string {
 	return fmt.Sprintf("this task's conversation belongs to the %q coding-agent tool, not %q",
 		e.owning, e.requested)
+}
+
+// syncRefusal is a turn whose task branch could not be merged with the base
+// branch cleanly (US-4): [git.Worktree.MergePreview] found conflicting paths,
+// and [Options.BlockRunOnConflict] says a conflict of this kind stops the run
+// rather than merely disclosing it.
+//
+// It is unexported and distinct from [failure] on purpose, the same reason
+// [agentSwitchRefusal] is: a [failure] becomes a run-failure comment through
+// [prepareFailed]; this becomes [DispositionSyncRefused] through
+// [syncRefused] and is answered with [report.ReplyRefusesSync] — a named
+// refusal that lists the conflicting paths, not a stack trace. [Execute]
+// tells the two apart with [errors.As] before it ever reaches the generic
+// *failure branch.
+type syncRefusal struct {
+	conflicts []string
+
+	// branch, base, files and excluded are US-11's addition: the conflicting
+	// content [syncBase] collected and capped inside the same
+	// [Options.CloneGate] acquisition [git.Worktree.MergePreview] ran under,
+	// carried through so [attemptConflictSuggestion] can ask a
+	// suggested-resolution advisor for it after the gate has been released.
+	// files and excluded are both nil unless [Options.SuggestConflictResolution]
+	// was true for this turn (S-10).
+	branch, base string
+	files        []agent.ConflictFileContent
+	excluded     []string
+
+	// baseSHA and branchSHA are US-12's addition: the base and branch tips
+	// [git.Worktree.MergePreview] was evaluated against, read while still
+	// inside the same [Options.CloneGate] acquisition (S-15). They are what
+	// a later confirmation's re-verification compares its own fresh reads
+	// against — always populated when Outcome is blocked, independently of
+	// [Options.SuggestConflictResolution], the same way branch and base
+	// themselves are.
+	baseSHA, branchSHA string
+}
+
+func (e *syncRefusal) Error() string {
+	return fmt.Sprintf("the base branch could not be merged into this task's branch cleanly: %d conflicting file(s)",
+		len(e.conflicts))
 }

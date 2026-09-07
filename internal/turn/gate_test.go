@@ -206,8 +206,28 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"fetch":          {"prepareClone"},
 		"freezeSlug":     {"prepareClone"},
 		"ensureWorktree": {"prepareClone"},
-		"Commit":         {"commitAndPush", "commitStoryIndex"},
-		"Push":           {"commitAndPush", "commitStoryIndex"},
+		// syncBase runs inside the existing prepareClone gate, not a new
+		// section — TEST-10. It is the fourth step of that critical section,
+		// after ensureWorktree, and takes no acquisition of its own — but
+		// only for an ordinary turn. It does not run at all when a confirmed
+		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
+		"syncBase": {"prepareClone"},
+		"Commit":   {"commitAndPush", "commitStoryIndex"},
+		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
+		// three new git.Worktree mutators. They run as prepareClone's fourth
+		// step, in place of syncBase (which this turn shape never calls),
+		// only when a confirmed proposal is being applied — the same TEST-10
+		// shape syncBase already has, and for the same reason: there is no
+		// claude run between ensureWorktree and this step for the agentless
+		// apply turn, so nothing needs the gate released and retaken.
+		"WriteResolvedFiles": {"prepareClone"},
+		"StageResolvedFiles": {"prepareClone"},
+		"CompleteMerge":      {"prepareClone"},
+		// Push keeps its two ordinary homes and gains prepareClone as a
+		// third, for the same US-12 reason as the three mutators above: the
+		// apply turn's push is the last part of prepareClone's own single
+		// gate acquisition, not a second, separately-acquired publication.
+		"Push": {"commitAndPush", "commitStoryIndex", "prepareClone"},
 	}
 
 	funcs := packageFuncs(t)

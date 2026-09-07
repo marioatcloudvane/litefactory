@@ -80,6 +80,34 @@ var (
 	// ErrMalformedRemoteURL reports a remote URL that is not in any form this
 	// package recognises.
 	ErrMalformedRemoteURL = errors.New("unrecognised remote URL")
+
+	// ErrMergeConflict reports a merge that git could not complete on its own.
+	// [Worktree.MergeBase] returns it after aborting the in-progress merge and
+	// re-verifying the branch tip is back where it started, so a caller never
+	// has to distinguish "conflicted" from "conflicted and left half-merged" —
+	// only the former is reachable. A caller that wants to know in advance
+	// whether a merge would hit this should call [Worktree.MergePreview]
+	// first, which reports the same condition without touching the branch.
+	ErrMergeConflict = errors.New("merge conflict")
+
+	// ErrUnsupportedGitVersion reports a resolved git older than the 2.38
+	// floor "git merge-tree --write-tree" needs. [Worktree.MergePreview]
+	// returns it without ever invoking git, so the failure is this named
+	// condition and a clear operator sentence rather than a raw
+	// [*CommandError] carrying whatever "unknown option" text that git
+	// version happens to print.
+	ErrUnsupportedGitVersion = errors.New("git version does not support merge-tree --write-tree (requires git 2.38 or newer)")
+
+	// ErrMergeTimedOut reports a merge whose per-command deadline fired
+	// before git finished. [Worktree.MergeBase] returns it after the same
+	// recovery [ErrMergeConflict] gets — "git merge --abort" against the
+	// branch, then a re-verify that HEAD landed back on the SHA captured
+	// before the merge started (US-10, S-5, S-8) — so a caller never has to
+	// wonder whether a timed-out merge left MERGE_HEAD or index.lock behind.
+	// It stays distinguishable from ErrMergeConflict on purpose: a disclosure
+	// can say "the merge timed out" rather than folding it into the same
+	// generic conflict message (AC-10.2).
+	ErrMergeTimedOut = errors.New("merge timed out")
 )
 
 // CommandError reports a git invocation that failed.

@@ -244,6 +244,59 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 
+	// Built once and reused for both NewExecutor and NewConfirmApplier
+	// (US-12): the ordinary turn and the agentless apply turn share every
+	// dependency, and building turn.Options twice would be two chances for
+	// the two to drift.
+	conflictProposalTTL := time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour
+	turnOpts := turn.Options{
+		DB:      s.DB,
+		Git:     gitBinary,
+		Runners: runners,
+		// One registry for the process, built here because this is the
+		// only place a turn's dependencies are bound. turn.Options
+		// validates it as required, so this line going missing is a
+		// startup error rather than a quietly unserialised daemon
+		// (AC-PAR-3.1).
+		CloneGate:  newCloneGate(),
+		Paths:      s.Paths,
+		InstanceID: instanceID,
+		// The sub-issue phase's two dependencies (internal/turn/subissues.go,
+		// closing CR-B-001): the same forge client and the same renderer
+		// already built above for posting the run's own report, reused rather
+		// than built twice.
+		SubIssueCreator:  client,
+		SubIssueRenderer: renderer,
+		// Attachment ingestion (US-3). The same forge client again: it
+		// is the only thing holding the installation token, which is
+		// what a private-repo attachment fetch needs, and keeping the
+		// fetch there is what lets the SSRF allow-list sit in one place.
+		// The ceilings come from the same config the tool profiles above
+		// were resolved from — a run's permission to ingest and the
+		// limits it ingests under are one decision, made in one file.
+		AssetFetcher:     client,
+		AttachmentLimits: attachmentLimits(s.Config),
+		// US-2's auto-sync policy, read straight off the validated
+		// configuration the same way AttachmentLimits is above: this is
+		// the one place a turn's dependencies are bound, and
+		// config.Settings already enforces AutoSyncMaxBehind's
+		// non-negative floor (CFG-6) before this line ever runs.
+		AutoSyncBase:      s.Config.Settings.AutoSyncBase,
+		AutoSyncMaxBehind: s.Config.Settings.AutoSyncMaxBehind,
+		// US-4's hard stop for the conflicts US-2's auto-sync cannot
+		// resolve on its own, read from the same validated configuration
+		// as the two fields above and bound the same way.
+		BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
+		// US-11's suggested-resolution advisor, read and bound the same
+		// way: the flag defaults to false in config.Defaults, so a
+		// daemon that has not had it explicitly turned on collects and
+		// asks nothing.
+		SuggestConflictResolution: s.Config.Settings.SuggestConflictResolution,
+		ConflictContentMaxBytes:   s.Config.Settings.ConflictContentMaxBytes,
+		ConflictProposalTTL:       conflictProposalTTL,
+		Logger:                    s.Logger,
+	}
+
 	daemon, err := New(Options{
 		DB:     s.DB,
 		Forge:  client,
@@ -252,36 +305,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.
 		ProposalGenerator: newProposalGenerator(defaultAgent, runners),
-		Turn: NewExecutor(turn.Options{
-			DB:      s.DB,
-			Git:     gitBinary,
-			Runners: runners,
-			// One registry for the process, built here because this is the
-			// only place a turn's dependencies are bound. turn.Options
-			// validates it as required, so this line going missing is a
-			// startup error rather than a quietly unserialised daemon
-			// (AC-PAR-3.1).
-			CloneGate:  newCloneGate(),
-			Paths:      s.Paths,
-			InstanceID: instanceID,
-			// The sub-issue phase's two dependencies (internal/turn/subissues.go,
-			// closing CR-B-001): the same forge client and the same renderer
-			// already built above for posting the run's own report, reused rather
-			// than built twice.
-			SubIssueCreator:  client,
-			SubIssueRenderer: renderer,
-			// Attachment ingestion (US-3). The same forge client again: it
-			// is the only thing holding the installation token, which is
-			// what a private-repo attachment fetch needs, and keeping the
-			// fetch there is what lets the SSRF allow-list sit in one place.
-			// The ceilings come from the same config the tool profiles above
-			// were resolved from — a run's permission to ingest and the
-			// limits it ingests under are one decision, made in one file.
-			AssetFetcher:     client,
-			AttachmentLimits: attachmentLimits(s.Config),
-			Logger:           s.Logger,
-		}),
-		Reporter: reporter,
+		Turn:              NewExecutor(turnOpts),
+		// US-12's agentless apply turn: the daemon's confirmation dispatch
+		// reaches turn.ExecuteApplyResolution only through this seam, never
+		// directly, so a fake in a dependency-light test can stand in for it
+		// without a git clone and a claude binary.
+		Confirmer:           NewConfirmApplier(turnOpts),
+		ConflictProposalTTL: conflictProposalTTL,
+		Reporter:            reporter,
 		// The same two keys the harness was built from above, so the profile a
 		// label selects and the ceiling that bounds it are one decision made in
 		// one place — internal/config resolved the ceiling before it validated

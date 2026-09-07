@@ -190,6 +190,187 @@ func TestAttachmentAndSandboxLegacyLocationsAreRejected(t *testing.T) {
 	}
 }
 
+// TestAutoSyncSettingsDefaultWhenOmitted is AC-8.1: an unconfigured
+// repository gets AutoSyncBase=true, AutoSyncMaxBehind=100 and
+// BlockRunOnConflict=true with no config file changes required.
+func TestAutoSyncSettingsDefaultWhenOmitted(t *testing.T) {
+	body := string(DefaultFileContents())
+	for _, line := range []string{
+		"  auto_sync_base: true\n",
+		"  auto_sync_max_behind: " + strconv.Itoa(DefaultAutoSyncMaxBehind) + "\n",
+		"  block_run_on_conflict: true\n",
+	} {
+		if !strings.Contains(body, line) {
+			t.Fatalf("default file does not contain %q", line)
+		}
+		body = strings.Replace(body, line, "", 1)
+	}
+
+	cfg, err := Decode(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Decode with auto-sync settings omitted: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with auto-sync settings omitted: %v", err)
+	}
+	if !cfg.Settings.AutoSyncBase {
+		t.Error("AutoSyncBase default = false, want true")
+	}
+	if cfg.Settings.AutoSyncMaxBehind != DefaultAutoSyncMaxBehind {
+		t.Errorf("AutoSyncMaxBehind default = %d, want %d", cfg.Settings.AutoSyncMaxBehind, DefaultAutoSyncMaxBehind)
+	}
+	if !cfg.Settings.BlockRunOnConflict {
+		t.Error("BlockRunOnConflict default = false, want true")
+	}
+}
+
+// TestAutoSyncMaxBehindZeroMeansNoCap is half of AC-8.2: zero loads
+// successfully and is a real, distinct value from the default rather than a
+// disguised "use the default" signal.
+func TestAutoSyncMaxBehindZeroMeansNoCap(t *testing.T) {
+	cfg := canonicalConfig(t)
+	cfg.Settings.AutoSyncMaxBehind = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with auto_sync_max_behind=0: %v", err)
+	}
+}
+
+// TestAutoSyncMaxBehindNegativeIsConfigError is the other half of AC-8.2: a
+// negative value fails validation and is never clamped to 0 or to the
+// default (CFG-6).
+func TestAutoSyncMaxBehindNegativeIsConfigError(t *testing.T) {
+	cfg := canonicalConfig(t)
+	cfg.Settings.AutoSyncMaxBehind = -1
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate accepted a negative auto_sync_max_behind")
+	}
+	if !strings.Contains(err.Error(), "settings.auto_sync_max_behind") {
+		t.Errorf("error = %v, want it to name settings.auto_sync_max_behind", err)
+	}
+	if cfg.Settings.AutoSyncMaxBehind != -1 {
+		t.Errorf("AutoSyncMaxBehind was mutated to %d; a rejected value must never be clamped", cfg.Settings.AutoSyncMaxBehind)
+	}
+}
+
+// TestAutoSyncMaxBehindNegativeFailsConfigLoad exercises the same rule
+// end-to-end through Decode+Validate, the path a real config.yaml takes.
+func TestAutoSyncMaxBehindNegativeFailsConfigLoad(t *testing.T) {
+	err := parse(t, "settings:\n  auto_sync_max_behind: -5\n")
+	if err == nil || !strings.Contains(err.Error(), "settings.auto_sync_max_behind") {
+		t.Fatalf("error = %v, want it to name settings.auto_sync_max_behind", err)
+	}
+}
+
+// TestAutoSyncBooleansOverrideExplicitly checks that an explicit true or
+// false in YAML lands on the field rather than being swallowed by the
+// default decoding merges onto (CFG-2).
+func TestAutoSyncBooleansOverrideExplicitly(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+		get  func(Settings) bool
+		want bool
+	}{
+		{"auto_sync_base explicit false", "auto_sync_base: false\n", func(s Settings) bool { return s.AutoSyncBase }, false},
+		{"auto_sync_base explicit true", "auto_sync_base: true\n", func(s Settings) bool { return s.AutoSyncBase }, true},
+		{"block_run_on_conflict explicit false", "block_run_on_conflict: false\n", func(s Settings) bool { return s.BlockRunOnConflict }, false},
+		{"block_run_on_conflict explicit true", "block_run_on_conflict: true\n", func(s Settings) bool { return s.BlockRunOnConflict }, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Decode(strings.NewReader("settings:\n  " + tt.yaml))
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if got := tt.get(cfg.Settings); got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAutoSyncMaxBehindExplicitZeroDecodesDistinctFromDefault closes a gap in
+// AC-8.2 the existing zero-means-no-cap test does not reach: it goes through
+// [Decode] itself, rather than assigning the struct field directly, to check
+// that an explicitly written auto_sync_max_behind: 0 lands on the field as a
+// real zero instead of being merged back onto the 100 default the decoder
+// pre-populates the struct with (CFG-2, the same distinguishing behavior
+// poll_interval_seconds relies on elsewhere in this package).
+func TestAutoSyncMaxBehindExplicitZeroDecodesDistinctFromDefault(t *testing.T) {
+	body := strings.Replace(string(DefaultFileContents()),
+		"  auto_sync_max_behind: "+strconv.Itoa(DefaultAutoSyncMaxBehind)+"\n",
+		"  auto_sync_max_behind: 0\n", 1)
+
+	cfg, err := Decode(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("Decode with explicit auto_sync_max_behind=0: %v", err)
+	}
+	if cfg.Settings.AutoSyncMaxBehind != 0 {
+		t.Fatalf("AutoSyncMaxBehind = %d, want 0 (an explicit zero must not be merged back onto the %d default)",
+			cfg.Settings.AutoSyncMaxBehind, DefaultAutoSyncMaxBehind)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate with explicit auto_sync_max_behind=0: %v", err)
+	}
+}
+
+// TestAutoSyncSettingsOverrideIsPerField checks that writing an explicit
+// value for one of the three auto-sync keys does not disturb its two
+// siblings within the same decode: each of AutoSyncBase, AutoSyncMaxBehind
+// and BlockRunOnConflict must be independently overridable rather than the
+// three being decoded, or defaulted, as a group.
+func TestAutoSyncSettingsOverrideIsPerField(t *testing.T) {
+	tests := []struct {
+		name          string
+		yaml          string
+		wantBase      bool
+		wantMaxBehind int
+		wantBlock     bool
+	}{
+		{
+			name:          "only auto_sync_base overridden/siblings keep defaults",
+			yaml:          "settings:\n  auto_sync_base: false\n",
+			wantBase:      false,
+			wantMaxBehind: DefaultAutoSyncMaxBehind,
+			wantBlock:     true,
+		},
+		{
+			name:          "only auto_sync_max_behind overridden/siblings keep defaults",
+			yaml:          "settings:\n  auto_sync_max_behind: 5\n",
+			wantBase:      true,
+			wantMaxBehind: 5,
+			wantBlock:     true,
+		},
+		{
+			name:          "only block_run_on_conflict overridden/siblings keep defaults",
+			yaml:          "settings:\n  block_run_on_conflict: false\n",
+			wantBase:      true,
+			wantMaxBehind: DefaultAutoSyncMaxBehind,
+			wantBlock:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg, err := Decode(strings.NewReader(tt.yaml))
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if cfg.Settings.AutoSyncBase != tt.wantBase {
+				t.Errorf("AutoSyncBase = %v, want %v", cfg.Settings.AutoSyncBase, tt.wantBase)
+			}
+			if cfg.Settings.AutoSyncMaxBehind != tt.wantMaxBehind {
+				t.Errorf("AutoSyncMaxBehind = %d, want %d", cfg.Settings.AutoSyncMaxBehind, tt.wantMaxBehind)
+			}
+			if cfg.Settings.BlockRunOnConflict != tt.wantBlock {
+				t.Errorf("BlockRunOnConflict = %v, want %v", cfg.Settings.BlockRunOnConflict, tt.wantBlock)
+			}
+		})
+	}
+}
+
 func defaultSettingValue(key string) int {
 	switch key {
 	case "poll_interval_seconds":

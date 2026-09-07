@@ -84,7 +84,7 @@ func (b *Binary) Open(ctx context.Context, dir string) (*Clone, error) {
 		return nil, err
 	}
 
-	probe := runner{binary: b.path, dir: start}
+	probe := runner{binary: b.path, dir: start, mergeTreeSupported: b.mergeTreeSupported}
 	// --is-bare-repository is asked first because it answers in a bare
 	// repository, where --show-toplevel fails with a message about work trees
 	// that would send the user looking in the wrong direction.
@@ -104,7 +104,7 @@ func (b *Binary) Open(ctx context.Context, dir string) (*Clone, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve repository root %s: %w", top, err)
 	}
-	return &Clone{runner: runner{binary: b.path, dir: root}, path: root}, nil
+	return &Clone{runner: runner{binary: b.path, dir: root, mergeTreeSupported: b.mergeTreeSupported}, path: root}, nil
 }
 
 // Path returns the repository's top level: absolute, symlink-resolved and

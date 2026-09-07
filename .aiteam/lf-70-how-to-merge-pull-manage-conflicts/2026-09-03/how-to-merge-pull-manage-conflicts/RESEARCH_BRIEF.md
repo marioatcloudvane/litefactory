@@ -1,0 +1,1334 @@
+# Research Brief — lf-70-how-to-merge-pull-manage-conflicts
+
+## Request
+
+Evaluate strategies for how to work with different branches in litefactory — who
+should do the merging, how to pull, and how to manage conflicts. Experienced
+developers are fine working with litefactory's current git model, but project
+managers and business people who want to use litefactory get confused by the
+same branch/merge/conflict mechanics. Check what strategies litefactory can
+offer to make this workable for non-technical users, without breaking what
+already works for engineers.
+
+(github:marioatcloudvane/litefactory#70)
+
+**Follow-up (this run):** the issue owner added three further questions after
+reading the brief below: (1) whether litefactory can detect branch staleness/drift
+before starting a run and surface it, (2) whether litefactory can safely
+auto-sync the base branch into a task branch when no conflict exists, and (3)
+whether git handling should be centralized in litefactory's daemon/router layer
+rather than left reachable from individual agents. See *Follow-up Research* below.
+
+**Second follow-up (this run):** Plan mode has since run to completion for this
+session — `plan_brief.md` plus ten per-story sub-issues (US-1 through US-10)
+now exist alongside this brief. The issue owner asked for two more things: (1)
+a table enumerating every distinct scenario/track this feature creates —
+trigger, conflict state, outcome, and whether it is automatic or needs a
+human — covering the full scenario space actually researched and planned, not
+just the two example rows given in the request; and (2) an explicit
+capabilities-vs-non-goals accounting, including a check for anything missed.
+See *Scenario / Track Matrix* and *Capabilities vs. Non-Goals* below. Both
+sections read across this brief's own prior findings and `plan_brief.md`; two
+sub-issues (`US-2.md`, `US-8.md`) were also read directly this run to get the
+exact merge-outcome decision tree and behind-cap semantics right rather than
+inferring them from the summary in `plan_brief.md` alone.
+
+**Third follow-up (this run, 2026-09-06):** since Plan mode synthesized
+`plan_brief.md`, the issue owner pulled additional changes from `main` into
+this branch on top of the two intervening feature merges (lf/50 "config
+hierarchy", lf/69 "router-trusts-daemon-mode") that `plan_brief.md`'s own
+Provenance section already flagged as landing between the 2026-09-03 research
+pass and the 2026-09-05 plan synthesis. The owner asked two narrow questions
+before letting Plan mode amend the plan: (1) re-validate a specific list of
+`plan_brief.md` claims about `internal/git`, `internal/daemon`,
+`internal/turn`, `internal/config`, and `internal/store` against current HEAD,
+and (2) assess the feasibility of a new user story — on a genuine merge
+conflict, call the default reasoning model for a suggested resolution, post it
+for human review, and only apply it after an explicit human confirmation
+(explicitly not the auto-resolve-and-discard-work pattern already rejected
+elsewhere in the plan). See *Follow-up Research: Plan Assumption Re-validation
+& Reasoning-Model Confirmation Feasibility* below. This pass is a targeted
+top-up, not a re-derivation — nothing else in this brief was revisited.
+
+## Codebase Context
+
+litefactory's git surface is small, deliberate, and — this is the load-bearing
+finding for this brief — **has no merge, pull-into-branch, rebase, or
+conflict-resolution capability at all today.** That is not an oversight; it is
+architecturally enforced.
+
+- `internal/git` is the sole gateway to the git binary, split into two types:
+  - `Clone` — a fixed, read-mostly allowlist: `Fetch`, `WorktreeAdd`,
+    `WorktreeList`, `WorktreeRemove`, `RevParse`, `RemoteURL`, `ConfigGet`,
+    `ShowRef`. No `Merge`, `Pull`, `Rebase`, `Checkout`, `Switch`, `Stash`, or
+    `Reset` method exists on it. [V] `internal/git/doc.go:10-15`
+  - `Worktree` — the only mutating type, and its method set is just `Commit`
+    and `Push`. [V] `internal/git/worktree.go:29-32`
+  - This is a compile-time property, not a runtime permission check — there is
+    no code path anywhere in the module that could merge or pull into an
+    existing branch even if it wanted to. [V] `internal/git/doc.go:10-15`
+- The full sentinel-error inventory for `internal/git` has no
+  `ErrMergeConflict` or any conflict-specific error at all. [V]
+  `internal/git/errors.go:13-83`
+- `EnsureWorktree` never fetches or reconciles against the base branch itself;
+  the caller (`internal/turn`) fetches once per turn, and branch reuse order is
+  local branch → remote-tracking branch → `<remote>/<base>`. Once a task branch
+  exists, **nothing in litefactory ever merges or rebases the moving base
+  branch into it.** [V] `internal/git/ensure.go:61-87,151-176`
+- One branch/worktree per GitHub issue: `naming.Branch(prefix, issue, slug)` →
+  `<prefix>/<issue>-<slug>`; `naming.WorktreePath` → `<root>/task-<issue>`. [V]
+  `internal/naming/slug.go:87-101`, `internal/naming/paths.go:62-71`
+- End of a turn: `commitAndPush` (`Worktree.Commit` then `Worktree.Push`, both
+  gated per-clone) — commit trailers `Litefactory-Task/Mode/Run`, untrusted
+  Claude-produced summaries are sanitized to strip forged trailer lines, commit
+  author is the human who registered the repo (never a bot identity). Push is
+  SSH-only; a bot token never reaches the git child process, so an HTTPS-origin
+  repo simply cannot be pushed to by the daemon — described in the code as
+  intended behaviour, not a gap. [V] `internal/git/push.go:9-80`,
+  `internal/git/commit.go` (prior read this session)
+- **litefactory never opens a pull request.** `internal/github` has no
+  PR-creation method anywhere; the only PR-shaped code is test fixtures that
+  simulate GitHub's issues endpoint returning a PR payload, used purely to
+  filter PRs *out* of issue polling. [V] `internal/github/issues_test.go:20,23`,
+  confirmed by directory listing/grep across the package.
+- The only human-facing artifact per turn is a **GitHub issue comment**
+  (`Poster.PostComment`) describing branch, outcome, and sub-issue links — not
+  a PR review UI. [V] `internal/turn/report.go:17-40`
+- Base-branch resolution (`--base` flag → config → error, never a guess) has a
+  telling design comment: "a guessed base branch is discovered as a wrong pull
+  request rather than as an error" — i.e. the *only* place PRs are mentioned in
+  the flow assumes a human opens the PR manually, and a wrong base surfaces
+  only once that human-opened PR shows the wrong diff/target. [V]
+  `internal/repos/registration.go:219-224`
+- Worktree-identity conflicts (occupied path, dirty worktree) are named
+  refusals, never auto-resolved — the documented remedy is a human running
+  `litefactory task clean [--force]`. This is the closest thing today to
+  "conflict handling," and it is about local worktree state, not git merge
+  conflicts. [V] `internal/git/ensure.go:255-277`, `internal/git/clone.go`
+  (`WorktreeRemove`)
+- No retry/backoff logic around git operations specifically was found in
+  `internal/turn/execute.go`; a failed fetch/push becomes a reported failure
+  comment. **Resolved this run** (see *Follow-up Research* below):
+  `internal/daemon/backoff.go` retries nothing about git at all — it only
+  gates new dispatch on GitHub rate-limit errors.
+- `lf:tools=<name>` is the one existing example of label-gated, non-CLI
+  configuration exposed to non-engineers (selects a tool profile; values
+  validated against a fixed charset). No equivalent label exists today for
+  merge, base-branch, or pull behaviour — this is useful prior art for a
+  strategy that wants to give a PM a lever without a CLI. [V]
+  `internal/config/policy.go:64,351`
+- No README/CONTRIBUTING/docs content addresses branching, merging, or
+  conflict handling for *any* audience today — `README.md` is a 2-line stub,
+  and `Glob docs/**` returns nothing. Whatever explanation surface this issue
+  produces will be new authorship, not an edit. [V] `README.md`, confirmed
+  absent `docs/`
+
+## Domain / Problem Space
+
+Because litefactory itself never merges, pulls into a branch, or opens a PR,
+**all merge/conflict activity a human currently experiences happens entirely
+outside litefactory**, in plain GitHub — either the web UI or a local git
+client. litefactory's role stops at "branch exists, is pushed, here is a
+comment telling you so." Everything downstream (opening the PR, reviewing the
+diff, merging it, resolving any conflict) is vanilla GitHub/git work today.
+
+That reframes the problem #70 is naming. The confusion PM/business users hit is
+not something litefactory is doing wrong procedurally — it is the gap between
+"a task branch got pushed" and "someone with git literacy has to open a PR,
+read a diff, possibly resolve a conflict, and click merge." An engineer already
+has the muscle memory to close that gap without thinking about it; a PM does
+not, and today there is nothing in litefactory to help them.
+
+Two structurally different kinds of solution follow from that gap, and they are
+not mutually exclusive:
+
+1. **Reduce how often a human has to touch git mechanics at all** — e.g. keep
+   task branches from ever diverging enough to conflict (rebase/merge base into
+   the branch automatically before it's presented for review), or have
+   litefactory open the PR itself so "review and click merge" is the only step
+   left, or auto-merge once a designated reviewer approves via a comment
+   (`lgtm`-style) rather than the GitHub merge button.
+2. **Make the git mechanics that remain safe for a non-technical user** — e.g.
+   restrict merges to GitHub's web UI only (never require local git), route all
+   merges through a serialized merge queue so one branch's conflict never
+   blocks or confuses another, and pick a merge strategy (squash vs merge
+   commit vs rebase merge) that keeps the base branch's history simple enough
+   for a PM to skim without git knowledge.
+
+Both directions are compatible with "One Run, One Mode" — the comment-driven
+control surface litefactory already uses is itself evidence that the team's
+existing design intent is "the human's whole interaction is comments," which
+if anything supports pushing further in this direction (e.g., "approve" or
+"merge" as a comment action) rather than asking a PM to learn git.
+
+**A structural risk worth naming explicitly:** with one branch created per
+GitHub issue and no reconciliation against the base branch ever happening, the
+number of concurrently open, silently-diverging task branches grows with the
+number of issues in flight. The likelihood that two branches touch overlapping
+code — and therefore that *someone* hits a conflict at merge time — rises with
+scale, not usage duration. This is a systemic property of the current design,
+not a per-branch edge case, and any strategy proposed here should account for
+it rather than only handling the single-branch case.
+
+## Prior Art & External Findings (web research)
+
+This section is new in this run. The issue was labelled `lf:tools=web` and
+`web-researcher` was invoked with the six questions the previous run logged as
+blocked. Findings below are tagged **[W]** — reported by a sub-agent citing
+external sources, not independently verified by this team — with source and
+confidence carried through as given.
+
+**Branching strategy.** [W] GitHub Flow and trunk-based development (short-lived,
+single-purpose branches merged frequently via PR) are the simplest models for a
+non-technical reviewer — neither exposes them to git internals if they only ever
+click "Merge." GitFlow (develop/release/hotfix long-lived branches) is more
+complex, requiring a reviewer to understand *where* a change is going before
+merging. Trunk-based development's own definition of a "short-lived feature
+branch" (single author, ~1–2 days, merged via PR after review/CI, never
+diverges enough to make merge-back problematic) already describes litefactory's
+one-branch-per-issue model — the two are compatible by design, not by
+adaptation. Confidence: high that GitHub Flow/short-lived trunk-based branches
+beat GitFlow for this audience; medium on treating GitHub Flow and trunk-based
+development as sharply distinct, since sources use them near-interchangeably.
+Sources: trunkbaseddevelopment.com, Mergify blog, Assembla blog.
+
+**Merge strategy — squash vs merge-commit vs rebase-merge.** [W] Per GitHub's own
+docs: squash-merge collapses a PR into a single commit on the base branch —
+GitHub's own words, "a more streamlined git history" — i.e. the option that
+minimizes what a non-technical reader has to parse (one entry per
+issue/PR, matching litefactory's one-branch-per-issue model). Merge-commit
+(GitHub's default) preserves every commit plus an explicit merge point — most
+detailed, least skimmable. Rebase-merge replays every original commit with no
+merge commit — linear, but a skim still sees every intermediate/messy commit,
+and is the more git-literate of the three. GitHub's own caveat: squash is best
+for short-lived branches, and reusing a head branch after a squash merge raises
+later conflict risk — not a concern for litefactory, since branches map 1:1 to
+issues and are not reused. Confidence: high (read directly from GitHub Docs).
+Source: GitHub Docs, "About pull request merges."
+
+**Can conflicts always be resolved in GitHub's web UI?** [W] No. GitHub's web
+conflict editor only handles text files line-by-line — it cannot merge binary
+files (images, PDFs, compiled artifacts, archives) or certain conflict shapes
+(e.g. a file deleted on one side, edited on the other); GitHub's own guidance
+for these cases is to fall back to local git/CLI. This is a genuine structural
+limit on "a business user never needs git," not just a UX inconvenience.
+Confidence: high (documented GitHub behavior). Source: GitHub Community
+Discussion #46549.
+
+**Can a non-technical approver be structurally shielded from ever seeing a raw
+conflict?** [W] Yes, but by pre-emption, not elimination: keep every feature
+branch continuously reconciled against its base — via GitHub's own "Update
+branch" button/API, a GitHub Action, or a merge-queue/bot — so that by the time
+a human looks at the PR it has already been reconciled against the latest base,
+and either shows clean or the conflict has already been surfaced to a bot/agent/
+engineer rather than the approver. This does not prevent conflicts occurring; it
+only prevents a non-technical approver specifically from being the one asked to
+resolve one. No single canonical name for this pattern emerged from sources — it
+appears as "update branch," "rebase bot," "staging-branch merge," or is folded
+into "merge queue" terminology. Confidence: medium (the pattern and its named
+implementations are well attested; the "guarantee" is a documented pre-emption/
+ejection strategy, not an absolute promise — see merge queue below). Sources:
+GitHub Marketplace "Update Branch" Action, GitHub Docs on auto-merge.
+
+**GitHub's merge queue for concurrent AI-generated branches.** [W] Mechanically:
+queuing a PR causes GitHub to build a temporary "merge group" combining the
+latest base with the queued PR(s) ahead of it, run required checks against that
+combined state, and only land it if checks pass — each PR is tested against the
+state it will actually land into, not a stale snapshot. This eliminates the
+concurrency-driven class of conflict (two independently-green branches breaking
+main only once combined) with zero git/CLI skill required to click "Merge when
+ready." It does **not** resolve genuine content conflicts (two branches editing
+the same lines) — GitHub's own docs state such a PR is ejected from the queue
+for someone (an agent or a git-literate human) to fix and resubmit. Directly
+relevant to the scale risk already named below (many concurrently open,
+non-reconciled task branches): merge queue removes the *race* component of that
+risk but not the underlying content-overlap component. Confidence: high
+(GitHub's own docs describe both the mechanism and the ejection condition
+explicitly). Sources: GitHub Docs "Merging a pull request with a merge queue,"
+Mergify "What Is a Merge Queue?"
+
+**How comparable AI coding-agent platforms handle this.** [W]
+- *GitHub Copilot coding agent*: creates its own branch/PR; per a 2026-03-26
+  changelog, a reviewer can comment `@copilot Merge in main and resolve the
+  conflicts` and the agent rebases/merges base into its branch in a cloud
+  sandbox, re-runs checks, and re-requests review — but per a community
+  discussion this is opt-in per comment, not an automatic default behind every
+  PR. Confidence: medium-high.
+- *Devin*: "Devin Review" shows per-PR mergeability status (CI, required
+  reviews, conflicts) and supports stacked PRs where merging the top auto-merges
+  the stack. No public documentation found describing Devin autonomously
+  pre-rebasing to avoid conflicts before human review — flagged as **not
+  found**, not confirmed absent. Confidence: medium on what is documented.
+- *Cursor background agents ("Origin")*: each agent works in an isolated
+  branch/worktree, which Cursor frames as reducing conflict likelihood by
+  construction (isolation, not automated resolution); "Origin surfaces merge
+  conflicts so you can resolve them before merging" — conflicts are shown, not
+  silently resolved on the approver's behalf. No auto-rebase-before-review
+  documented. Confidence: medium.
+- *Sweep AI*: explicitly does **not** auto-resolve conflicts across its own
+  concurrently-generated PRs — secondary sources describe a human needing to
+  "manually merge them in order and close the conflicting ones" when multiple
+  Sweep PRs collide. This is a directly relevant negative example — a platform
+  with the same "N issues → N branches" shape as litefactory that pushes
+  exactly the problem #70 describes back onto the human. Confidence: medium
+  (secondary write-ups, not Sweep's own primary docs).
+- *Aider*: a local CLI tool, not a hosted branch/PR platform — does not create
+  branches/PRs itself in a comparable way. An open, unresolved 2023 GitHub issue
+  requests "automate git merge conflict resolution," suggesting this remains a
+  gap for that tool. Confidence: medium that this is a genuine gap rather than a
+  search miss.
+
+**Named prior art for "always reconcile branch against base before review."**
+[W] **Bors** merges the candidate branch into a copy of the target branch to
+test the actual post-merge state before landing, explicitly to prevent "merge
+skew." **Mergify** is a GitHub App that queues PRs, auto-rebases/updates them
+against base, and re-runs CI before merging — automating the "update branch"
+step GitHub itself leaves manual by default. **GitHub's own primitives** — the
+"Update branch" button/API and native merge queue — are the built-in version of
+the same idea. None of these guarantee a human never sees a raw conflict when
+two branches genuinely touch the same lines; they guarantee only that a
+non-technical *approver* specifically is not the one asked to resolve it.
+Confidence: high that Bors/Mergify are real, established implementations;
+medium on there being one canonical name for the underlying pattern itself.
+
+## Follow-up Research: Staleness Detection, Auto-Sync & Git Centralization (this run)
+
+This section answers three follow-up questions the issue owner raised after
+reading the brief above: (1) can litefactory detect branch staleness/drift
+before a run starts and surface it, (2) can litefactory safely auto-sync the
+base branch into a task branch when no conflict exists, and (3) should git
+handling move out of agents entirely and into litefactory's own daemon/router
+layer. `codebase-tour` and `web-researcher` ran concurrently against these
+questions; `lf:tools=web` was still present on the issue so web access was
+available throughout. This run received no clarifying answers from the issue
+owner (headless run) — where a codebase or web finding leaves a judgment call,
+this section states the assumption made and carries the residual choice
+forward into Open Questions rather than guessing silently.
+
+### Run lifecycle and existing signals [V]
+
+- A turn's actual sequence is: `Daemon.Tick` → `discover` → `dispatch`/`offer`
+  (backoff-gated) → `work` → `handleComment`/`run` → `turn.Execute` →
+  `prepare`/`prepareClone` → agent subprocess → `runAndHarvest`/`commitAndPush`
+  → `finish`. Only two points touch git: `prepareClone` (fetch → freezeSlug →
+  `EnsureWorktree`, one `CloneGate` acquisition) before the agent runs, and
+  `commitAndPush` (commit → push, a second acquisition) after it. [V]
+  `internal/turn/prepare.go`, `internal/git/ensure.go:85-143`
+- `prepareClone` is the natural checkpoint for a pre-run drift check: it
+  already runs a fresh `Fetch` and already holds the `CloneGate`, so the
+  remote-tracking ref is guaranteed current at exactly the point a cheap
+  ahead/behind comparison would need it — no restructuring of the lifecycle is
+  required, only a new call inserted at an existing seam. [V]
+  `internal/git/ensure.go:85-87`
+- `internal/daemon/backoff.go` retries nothing about git. It exists solely to
+  gate new *dispatch* when GitHub's own rate limit is hit (`Daemon.rateLimited`,
+  the sole caller of `backoff.fail`, firing only on `*github.RateLimitError`).
+  A failed fetch or push today is an ordinary error surfaced by
+  `internal/turn`, with no retry/backoff wrapped around it at all. This
+  directly resolves Open Question 5 from the prior run: turn-level retry does
+  **not** cover git operations specifically. [V] `internal/daemon/tick.go:1704,
+  1738-1774`
+- No dedicated "how long has this branch been idle" field exists anywhere, but
+  the raw ingredients do: `store.Session.UpdatedAt` (bumped on every session
+  lifecycle write — state change, branch/slug freeze, worktree-path set, lock
+  churn) is a coarse per-issue/branch "last touched" proxy; `store.Run.StartedAt`
+  /`FinishedAt` gives the exact last-turn time; `store.Repo.LastFetchAt` gives
+  the last fetch time but is per-clone, not per-issue; GitHub's own
+  `Issue.UpdatedAt`/`Comment.UpdatedAt` are also directly available. None of
+  these is a "commits behind base" or "last commit on this specific branch"
+  figure — that would need a new read via `internal/git` (`RevParse`/`ShowRef`
+  against the branch tip), which nothing computes today. [V]
+  `internal/store/sessions.go:58`, `internal/store/runs.go:101-104`,
+  `internal/store/repos.go:37-40`, `internal/github/issues.go:83-84`
+- Base-branch resolution is a single **global** default, not a per-project
+  hierarchy, despite the recent config.yaml reshuffle: `resolveBaseBranch`'s
+  order is `--base` flag → `settings.default_base_branch` (config) →
+  `origin/HEAD` (offline, cached) → `ErrBaseBranchUnknown`, resolved once at
+  `repo add` time and cached into `store.Repo.BaseBranch` — it is never
+  re-resolved at run time. The lf/50 change moved config keys under a
+  `settings:` block (a schema migration) and did not add a
+  `projects: <name>: default_base_branch:`-style map. Today, "a different base
+  branch per registered repo" is possible only via the one-time `--base`
+  override at registration, not via a live per-project config hierarchy. [V]
+  `internal/repos/registration.go:219-252`, `internal/config/config.go:629-637`
+- No git primitive for "commits behind base" or "would this merge conflict"
+  exists in `internal/git` today — only `Fetch`, `RevParse`, `ShowRef`,
+  `ConfigGet`, `RemoteURL`. Any drift check or conflict-free-merge check needs
+  a new primitive added deliberately to that narrow surface (e.g. wrapping
+  `rev-list --left-right --count` or `merge-tree`), not a repurposing of an
+  existing method. [V] `internal/git/doc.go:10-15`
+
+### Cheap drift detection — feasibility [V]/[W]
+
+- `git rev-list --left-right --count base...branch` is the standard, cheap
+  local primitive for ahead/behind counts: it walks only the diverged portion
+  of each side's history from the merge-base, not the whole repository, so
+  cost scales with how far apart the branches are, not with total repo size —
+  but its answer is only as fresh as the last `fetch`, which `prepareClone`
+  already guarantees. [W] Source: git-scm `git-rev-list(1)` docs.
+- GitHub's REST "compare two commits" endpoint
+  (`GET /repos/{owner}/{repo}/compare/{base}...{head}`) gives the same
+  `ahead_by`/`behind_by`/`status` figures without a local clone, at the cost of
+  one ordinary REST call per comparison (standard rate limits apply; GitHub
+  does not document a special cost weight for this endpoint) — a viable
+  alternative or cross-check to the local command, particularly useful for a
+  status check that could run *before* a worktree/clone even exists. [W]
+  Source: GitHub REST "Commits" docs.
+- There is no single canonical "meaningful time has passed" threshold in the
+  industry. `probot/stale` (now archived; GitHub itself now points users to
+  `actions/stale` as the maintained equivalent) shipped `daysUntilStale: 60` /
+  `daysUntilClose: 7` as a default meant to be tuned per repo, not a norm other
+  tools converge on. [W] Source: `probot/stale` README. litefactory should
+  treat any threshold it picks as a starting default exposed to
+  configuration, not a fact discovered by research — and should note that
+  "far behind" and "long idle" are two different, independently-true axes: a
+  branch can be heavily behind a fast-moving base within hours (no idle time
+  at all), or barely behind after weeks of inactivity on a slow-moving base. A
+  staleness check that reports only one of the two will miss the other's
+  warning case.
+
+### Conditional auto-sync — a decision tree and its prior art [V]/[W]
+
+The issue owner asked for an "if A then B" tree for syncing base into a task
+branch. Prior art from Dependabot and Renovate — both of which manage large
+numbers of bot-authored, short-lived branches, structurally the closest
+published analogue to litefactory's one-branch-per-issue model — converges on
+the same two-tier shape, differing only in what happens on conflict:
+
+- **Dependabot** [W]: `rebase-strategy: auto` (default) rebases its own PR
+  branches whenever the base branch moves and a conflict would result, for up
+  to 30 days after the PR opened; past that window, or with rebasing disabled,
+  it stops and leaves the conflict for a human. No auto-abandon, no
+  close/reopen — the fallback is simply "stop touching it." Source: GitHub
+  Docs, Dependabot options reference.
+- **Renovate** [W]: `rebaseWhen: auto` (default) goes a step further on
+  conflict — rather than attempting an in-place merge/rebase that might itself
+  need resolving, it **regenerates the branch from scratch** off the new
+  base-branch tip and reapplies its own change as a fresh commit, explicitly
+  documented as "you should not ever need to resolve such conflicts manually."
+  This works because Renovate's own change is small and mechanically
+  regeneratable; it is a materially different strategy from "merge and hope,"
+  and is only realistically available to a tool that can cheaply redo its own
+  diff. Source: Renovate docs, "Updating and Rebasing branches."
+- **A conflict-free-merge check without touching the branch**: `git merge-tree`
+  (modern write-tree mode) performs a full three-way merge computation and
+  reports conflicts without writing a commit or touching the index/working
+  tree at all — synchronous, local, side-effect-free, and does not require a
+  PR to exist. This is a materially better primitive for litefactory than
+  GitHub's PR-level `mergeable`/`mergeable_state` field, which is documented
+  (via community reports, not a formal GitHub SLA) to be computed
+  **asynchronously** and can sit at `unknown` until polled repeatedly — a bad
+  fit for a check litefactory wants to run synchronously at the top of a turn,
+  and one that would require a PR to already exist, which litefactory does not
+  open today. [W] Sources: git-scm `git-merge-tree` docs; GitHub Community
+  Discussions on `mergeable_state`.
+
+Combining the codebase findings with this prior art, a decision tree that fits
+litefactory's existing `prepareClone` checkpoint:
+
+1. **Fetch** (already happens). Compute ahead/behind counts for
+   `base...task-branch` (`rev-list --left-right --count`, a new `internal/git`
+   primitive).
+2. **Behind count is 0** → branch is already current. Nothing to do, no
+   comment needed.
+3. **Behind count > 0, and a `merge-tree` dry run reports no conflicts** →
+   merge base into the task branch, commit, push, and note it plainly in the
+   run's comment ("branch was N commits behind main; synced automatically, no
+   conflicts"). This is the "if A then B" case the issue owner asked for:
+   proven-safe, so done silently-but-disclosed rather than escalated.
+4. **`merge-tree` reports a conflict** → do **not** touch the branch. Stop
+   before the agent's own work even starts, and flag it in a comment naming
+   the conflicting files, so a human (or a differently-scoped future agent
+   turn) makes the call — this is exactly the class of case none of
+   Dependabot, Renovate, GitHub's merge queue, or any of the five previously
+   researched AI coding platforms fully automates away; every one of them
+   stops at "surface it" for a genuine content conflict.
+5. A **merge commit**, not a rebase, is the safer default for step 3:
+   rebasing would rewrite the task branch's existing commit SHAs and require a
+   force-push — a capability `internal/git/push.go` does not have today — and
+   could disturb the `Litefactory-Task/Mode/Run` trailer history the existing
+   commit path relies on. A merge commit is a normal forward push using the
+   existing `Worktree.Push` semantics. Plan mode should treat "merge, not
+   rebase, for base-into-branch sync" as the default and require an explicit
+   reason to deviate.
+
+**Risk asymmetry, stated explicitly per the issue owner's request**: everything
+in this tree operates on the throwaway per-issue task branch, which is low
+risk by construction — it is never reused, and litefactory already treats
+"worktree in a bad state" as a named, recoverable refusal
+(`litefactory task clean`). **Merging into the shared base/working branch
+(main) is categorically different** and out of scope for this tree entirely:
+main is not something litefactory writes to at all today (see *Prior Art*
+above — no PR-creation, no merge capability), and nothing found in this run's
+research suggests that should change as a side-effect of solving
+base-into-branch sync. Any future step where litefactory itself merges *into*
+main would need its own separate research/plan/risk treatment, not an
+extension of this decision tree.
+
+**Cross-platform check**: none of the five AI coding platforms researched
+previously — Copilot coding agent, Devin, Cursor background agents, Sweep AI,
+Aider — is documented to run this kind of check *automatically, on a
+schedule, before a human asks*. GitHub Copilot coding agent's own docs are
+explicit that it works from a fixed snapshot at session start and only
+rebases/merges on an explicit human comment (`@copilot Merge in main and
+resolve the conflicts`), never proactively. [W] Devin, Cursor and Aider have
+no documented behavior either way (silence, not a documented absence). Sweep
+AI's one relevant claim (a "drip queue" staleness check) came from an
+unverified secondary source, and this run's web research separately found
+Sweep's public product direction may have shifted since — it should not be
+relied on. This means a scheduled/pre-run drift check of the kind the issue
+owner is describing would be, as far as this research could establish, **ahead
+of documented practice** among comparable platforms rather than a known
+pattern to copy — worth stating plainly rather than implying it is "catching
+up" to an existing norm.
+
+### Git centralization — current state and the one named gap [V]
+
+- Structurally, litefactory already does what the issue owner is asking for
+  at the package level: `internal/git/exec.go` is, by its own doc comment and
+  an unexported `runner` type, the sole place in the entire codebase that
+  execs the git binary. A full grep of every `exec.Command`/`exec.CommandContext`
+  call site in the module confirms this — every non-git exec found
+  (`internal/harness`, `internal/codex` launching the agent binaries;
+  `internal/identity/gh.go` execing `gh`; `internal/secrets/keychain.go`
+  execing macOS `security`; `internal/launchd/exec.go`) execs something other
+  than git. [V] `internal/git/exec.go:1-15,130-150`
+- **The one concrete, self-documented exception**: Claude-mode agent profiles
+  (research, plan, implement) carry `Bash` itself inside their `--tools`
+  surface. The intended restriction — `defaultAllowedTools()` limiting Bash to
+  read-only git verbs (`status`, `diff`, `log`, `show`, `rev-parse`, `ls-tree`,
+  `merge-base`, `rev-list`) — is described in `internal/harness/settings.go`'s
+  own doc comment as "defence in depth," not a hard boundary, because
+  `--allowedTools` is *additive* to the operator's own ambient
+  `~/.claude/settings.json`. A prior spike (T-LF3.0) found this lets Bash
+  execute commands absent from the explicit allowlist, leaking roughly 250
+  ambient allow-rules through. In practice, this means an agent's shell access
+  to raw, mutating git (`commit`, `push`, `merge`, `pull`) is gated by a leaky
+  allowlist today, not by the same hard `--tools`-surface boundary that keeps
+  every other package out of `internal/git`. [V] `internal/config/policy.go:63-65,
+  423-451`, `internal/harness/settings.go:12-34`
+- Codex-mode agents use a filesystem sandbox (`read-only`/`workspace-write`)
+  instead of a Bash allowlist; whether that sandbox also blocks outbound git
+  network operations (a `push` or `fetch` to a remote, as opposed to a local
+  filesystem write) was not confirmed this run and is carried forward as an
+  open question. [V]/[unconfirmed] `internal/config/policy.go:495-504`
+- This gives the "move git out of agents into litefactory itself" ask a
+  concrete justification beyond convention-following: it is not only an
+  architectural preference but a way to close a documented, already-flagged
+  loophole. Any new mutating capability this issue produces (a drift check
+  that writes nothing is unaffected, but a merge/sync step is not) should be
+  placed so that **no agent's Bash tool can reach it or trigger it directly**
+  — which centralizing in the daemon/turn layer achieves by construction, and
+  which today's Claude-mode Bash surface does not fully guarantee for the
+  mutating git operations that already exist (`commit`, `push`).
+
+## Scenario / Track Matrix (this run)
+
+Plan mode has since turned the *Follow-up Research* decision tree above into a
+concrete plan (`plan_brief.md`, ten sub-issues US-1 through US-10). This
+section enumerates every distinct scenario ("track") that combination of
+research and plan actually produces — not just the two example rows the issue
+owner gave — split into what this feature **enables** (in scope, being built)
+and what it explicitly does **not** (out of scope, unchanged from today).
+Outcome names (`up_to_date`, `synced`, `blocked`, `skipped`) are the plan's own
+vocabulary for `syncBase`'s decision tree. [V] `plan_brief.md` US-2.md:46-51.
+
+### Tracks this feature enables
+
+| When / Trigger | Conflict State | Outcome | Type |
+|---|---|---|---|
+| New run, task branch already even with base (`Behind == 0`) | No conflict — nothing to check | `up_to_date`: branch untouched, no merge attempted, no extra comment noise | Automatic |
+| New run, branch behind base, and the base merges into it cleanly | No conflict (verified by a side-effect-free `merge-tree` dry run before anything is touched) | `synced`: base is merged into the task branch with a real merge commit (`git merge --no-ff --no-edit`, never a rebase), pushed via the normal end-of-run push, and disclosed in the run's comment (how many commits behind, that it synced) | Automatic |
+| New run, branch behind base, and the dry-run merge preview reports a conflict | Genuine content conflict, detected before touching the branch | `blocked`: the run is refused before the coding agent starts; the comment names the conflicting file paths (rejected/counted if any path fails a local safety check, never blindly rendered) | Needs manual intervention |
+| New run, auto-sync turned off — either `auto_sync_base: false` in config, or the `lf:sync=off` label on the issue | Not evaluated — deliberately skipped | `skipped`: drift is still measured and disclosed in the comment; the branch is left exactly as-is | Automatic (an explicit, human-chosen opt-out, not a failure) |
+| New run, branch behind base by more than the configured cap (`auto_sync_max_behind`, default 100 — a documented judgment call, not a measurement; `0` means no cap) | Not evaluated — skipped on distance alone, same bucket as the opt-out above | `skipped`: drift still measured and disclosed; no merge attempted even if it might have been clean | Automatic (self-limiting; an operator can raise or remove the cap in config) |
+| `lf:sync=` label is present but malformed — an unrecognized value, or more than one matching label on the issue | N/A (a labeling/config error, not a git conflict) | refused, using the exact same "ambiguous/malformed is refused, never unioned or first-wins" discipline as the existing `agentLabelPrefix`/`modeLabelPrefix` levers | Needs manual intervention (fix the label) |
+| Host's git binary is older than 2.38 (`merge-tree --write-tree` unsupported) | Not evaluated | a one-time probe fails; the sync/refusal machinery disables itself with a clear operator-facing message; the run still proceeds — never a hard boot failure | The run itself completes automatically, but regaining the protection needs manual intervention (upgrade git) |
+| Worktree is dirty, or otherwise not in a clean state, at the moment of merge | A refusal, not a content conflict | merge refused — the same class of named, non-auto-resolved refusal litefactory already uses for occupied/dirty worktrees (`litefactory task clean [--force]`) | Needs manual intervention |
+| A merge or push fails partway through an attempted `synced` run (git error, timeout, etc.) | N/A — a mechanical failure, not a content conflict | rollback guarantee: the branch's pre-merge SHA is captured beforehand, `merge --abort` runs on any failure, and the SHA is re-verified — a mismatch is reported as failure, never silently accepted; the branch is left byte-identical to before the attempt | Automatic self-healing (the failure itself is still worth a human looking at) |
+| Two or more issues run concurrently, each syncing its own task branch | No conflict between the two runs | each issue's sync is independent — they queue on the existing per-clone lock (`CloneGate`) but never interfere with each other's branch | Automatic |
+
+### Tracks this feature explicitly does not enable
+
+| When / Trigger | Conflict State | Outcome | Type |
+|---|---|---|---|
+| Anything that would merge or push into the shared base/main branch itself | Any | Not built. This boundary is untouched by this feature and was never on the table. | Not offered — remains fully manual, outside litefactory, exactly as today |
+| A pull request needs to be opened, reviewed, or merged | Any | litefactory still never creates, approves, or merges a PR | Manual — unchanged from today |
+| A synced branch would need its history rewritten to look clean | Any | Rebase and force-push are never attempted, on the task branch or anywhere else | Not offered |
+| A genuine content conflict is detected | Conflict | litefactory does **not** auto-start a new agent turn to regenerate/resolve it Renovate-style — explicitly rejected because that would discard the coding agent's already-committed work, contradicting "litefactory commits; nobody in here does" | Needs manual intervention — a human, or a manually-triggered future run, makes the call |
+| A branch has been idle a long time but is not numerically behind its base | N/A | Not detected. Drift is measured only in commit counts, never elapsed time. | Not offered |
+| A project wants a different base branch per issue, or a live per-project base-branch hierarchy | N/A | Not built. Base branch remains one fixed, repo-level value (`store.Repo.BaseBranch`); only the one-time `--base` override at registration exists. | Manual config change, outside this feature |
+| GitHub's native merge queue | N/A | litefactory does not configure or touch it | Manual, external to litefactory |
+| The Claude-mode agent's `--allowedTools` Bash surface reaching raw git verbs | N/A | The documented, leaky loophole (~250 ambient allow-rules) is explicitly **not** closed by this plan | Tracked separately — a pre-existing, unresolved risk this feature does not fix |
+
+## Capabilities vs. Non-Goals (this run)
+
+### What this feature enables
+
+- Every run measures how far a task branch is behind its base, cheaply, at an
+  existing checkpoint (`prepareClone`), before the coding agent ever starts.
+- When it is safe — no content conflict — litefactory merges the current base
+  into the task branch itself, and says so plainly in the run's comment. This
+  is the concrete fix for the "branch drifts silently until someone tries to
+  merge it" problem this issue was raised about.
+- When it is not safe, litefactory refuses to run rather than guessing, and
+  names exactly which files collide, safely (a hostile base branch cannot use
+  a crafted file path to inject content into the comment — paths that fail a
+  local safety check are rejected and counted, never partially rendered).
+- An operator gets three tunable defaults — whether auto-sync runs at all, how
+  far behind is "too far," and whether a conflict blocks the run — all
+  config-governed, none hardcoded, and all documented as either measured
+  behavior or an explicit judgment call (the 100-commit default is named as a
+  judgment call, not a measurement).
+- A non-technical project owner gets a lever with no CLI and no git knowledge
+  required: the `lf:sync=on|off` label, modeled rung-for-rung on the existing,
+  already-trusted `agentLabelPrefix`/`modeLabelPrefix` label levers.
+- If anything goes wrong mid-merge, the branch is provably rolled back to
+  exactly its pre-merge state — a failed sync attempt can never leave the
+  branch in a worse or ambiguous state than before the run started.
+- This has been verified safe under concurrency: multiple issues syncing at
+  the same time do not interfere with one another's branch.
+
+### What this feature explicitly does not enable (non-goals)
+
+- litefactory still never merges or pushes into the shared base/main branch —
+  that boundary is completely untouched.
+- litefactory still never opens, reviews, or merges a pull request — a human
+  still does that step in GitHub, exactly as today.
+- No rebase and no force-push, ever — a task branch's own commit history is
+  never rewritten by this feature.
+- A genuine content conflict is always a stop-and-flag-a-human event. This
+  feature does **not** auto-resolve conflicts, and it does **not**
+  auto-regenerate the branch and re-run the agent to dodge one (that
+  Renovate-style approach was considered and explicitly rejected, because it
+  would discard already-committed agent work).
+- No time- or idle-based staleness detection — only commit-count drift is
+  measured, so a branch that has simply not been touched in a while, but is
+  not numerically behind, is invisible to this feature.
+- No per-issue or per-project base-branch flexibility — despite the original
+  framing of this issue implying it, base branch remains one repo-level
+  setting.
+- GitHub's merge queue is neither configured nor required by this feature.
+- The pre-existing, documented Bash-tool loophole that lets a Claude-mode
+  agent reach raw git verbs is **not** closed by this plan.
+- **"A business user will never see a conflict" is not a promise this
+  makes.** It removes the common case (plain staleness) entirely; a genuine
+  content conflict is still surfaced, in full, to whoever reads the comment.
+
+### What may have been missed
+
+Four points worth flagging explicitly, each a real gap between what the
+scenario matrix shows and what a first read of the issue might assume:
+
+1. **The over-cap "skipped" case reads identically to the deliberate opt-out
+   case.** A branch nobody has looked at in weeks, now far enough behind to
+   exceed `auto_sync_max_behind`, is disclosed the same way as a branch whose
+   owner explicitly typed `lf:sync=off`. Those are different risk profiles —
+   one is a deliberate choice, the other is neglect — and `plan_brief.md`
+   treats them identically. Worth deciding whether the over-cap case deserves
+   a louder signal.
+2. **A mistyped `lf:sync=` label is refused, not defaulted.** The plan
+   deliberately copies the "ambiguous/malformed is refused, never
+   unioned-or-first-wins" discipline from the existing label levers — which is
+   the secure choice, but it means a non-technical project owner who fat-fingers
+   the label value gets a dead-end refusal rather than a silent fall-back to
+   whatever config already says. Worth confirming that trade-off is intended
+   for this audience specifically.
+3. **An old git binary silently disables the entire safety net.** On a host
+   with git older than 2.38, the probe fails once and auto-sync/refusal simply
+   stops working — the run still completes, never a hard boot failure. That is
+   the right failure mode for availability, but it means an operator on old
+   git gets *none* of this feature's protection without necessarily noticing,
+   unless the probe's message is prominent. Worth double-checking the message
+   is loud enough to be seen, not just logged.
+4. **Base-branch flexibility was assumed by the original issue phrasing** ("
+   whatever base branch is configured per project") but was never true and
+   remains out of scope after this plan. If part of the original confusion
+   this issue is meant to solve was "different projects need different base
+   branches," that specific piece is not addressed by anything shipping here.
+
+Three new open questions follow from this analysis; they are added to *Open
+Questions* below as items 17-19.
+
+## Follow-up Research: Plan Assumption Re-validation & Reasoning-Model Confirmation Feasibility (2026-09-06)
+
+This section answers the two narrow questions raised in the *Third follow-up*
+paragraph of the Request section above. `codebase-tour` was invoked twice, in
+parallel, against current HEAD — once to re-check a specific list of
+`plan_brief.md` claims, once to assess the feasibility of a new
+"reasoning-model-assisted conflict resolution, gated on explicit human
+confirmation" user story. No web research was needed for either question; both
+turn entirely on current codebase state. This run received no clarifying
+answers from the issue owner (headless run).
+
+### Part A — Re-validation of plan_brief.md claims against current HEAD [V]
+
+Seven specific claims were checked. Five verified unchanged; two have drifted.
+The two drifts are concrete and citable, and both are traceable to the two
+intervening feature merges (lf/50, lf/69) plus whatever else has since landed
+from `main`, exactly as `plan_brief.md`'s own Provenance section anticipated
+might happen.
+
+**Verified, unchanged:**
+
+1. **`internal/git` merge/divergence foundation is still greenfield.** No
+   `Divergence`, `MergePreview`, or `MergeBase` method exists anywhere in the
+   package, and no `internal/git/merge.go` file exists. Full current exported
+   method set: `*Clone` — `ConfigGet, Fetch, RemoteURL, RevParse, ShowRef,
+   WorktreeAdd, WorktreeList, WorktreeRemove, Path` (9 methods); `*Worktree` —
+   `Path, Branch, ClonePath, RevParse, Status, Commit, Push` (only `Commit` and
+   `Push` mutate). [V] grep across `internal/git`; `internal/git/clone.go`,
+   `internal/git/worktree.go:80-108`, `internal/git/commit.go:133`,
+   `internal/git/push.go:53`
+2. **`TestCloneMethodSetIsTheAllowlist` is unchanged in spirit.**
+   `internal/git/surface_test.go:21-46` still asserts, via `reflect`, that
+   `*Clone`'s exported method set equals exactly the 9-method allowlist above
+   — the test's own comment calls this "the S-6 command allowlist" (see the
+   naming caveat under Part B, item 4, below: this is **not** the same S-6/S-7
+   numbering as `plan_brief.md`'s own architect-review security findings for
+   *this* issue — it is a pre-existing label from a different, unrelated
+   feature's review, and the two numbering schemes coincide by chance, not by
+   relation). A companion test,
+   `TestCloneCannotMutateTheRegisteredClone` (`surface_test.go:50-64`), pins
+   that `Clone` never grows `Commit, Checkout, Switch, Stash, Reset, Merge,
+   Pull, Add, Push, Rebase, CherryPick, Clean, Apply, Restore`. [V]
+3. **`agentLabelPrefix`/`modeLabelPrefix` ladders are unchanged.**
+   `agentLabelPrefix = "Coding Agent: "` (`internal/daemon/agent.go:21`) and
+   `modeLabelPrefix = "Mode: "` (`internal/daemon/mode.go:14`) both still
+   implement case-insensitive-match-to-detect, ambiguous-or-malformed-to-refuse:
+   `resolveAgent` (`internal/daemon/agent.go:96-144`) folds case to find
+   candidates, refuses on `len(found)>1` (ambiguous,
+   `ReplyAmbiguousAgentLabels`) or on a well-formed-but-miscased single match
+   (`ReplyMalformedAgentLabel`); `resolveModeLabel`
+   (`internal/daemon/mode.go:20-38`) has the identical shape, delegating exact
+   parsing to `agent.ParseModeLabel` (`internal/agent/mode.go:50-57`), which is
+   case-sensitive by construction. This is the exact template
+   `plan_brief.md` proposes to copy for a hypothetical `lf:sync=` label. [V]
+4. **`internal/turn/gate_test.go`'s `sections`/`gated` maps match the plan's
+   assumption exactly**, including the three-entry `sections` map
+   (`prepareClone`, `commitAndPush`, `commitStoryIndex`,
+   `internal/turn/gate_test.go:195-199`) and the `gated` map
+   (`fetch`/`freezeSlug`/`ensureWorktree` → `prepareClone`;
+   `Commit`/`Push` → `commitAndPush`+`commitStoryIndex`, lines 205-211). Notably
+   the test's own doc comment (lines 157-169) states this was originally two
+   sections and grew a third, `commitStoryIndex`, "on a merge from main" — i.e.
+   this is very likely one of the two intervening merges the plan's Provenance
+   section flagged, and the plan's assumption already reflects it correctly.
+   [V]
+5. **`internal/config` is still stdlib + `yaml.v3` only.**
+   `internal/config/purity_test.go` (`TestValidationHasNoThirdPartyImports`,
+   lines 37-73) walks every non-test file in the package and fails on any
+   third-party import outside `config.go`'s single `gopkg.in/yaml.v3` import.
+   No new dependency has been introduced into this package by an intervening
+   merge. [V]
+
+**Drifted — plan_brief.md needs correcting:**
+
+6. **Migration head has moved from `0004` to `0006`; `0005_run_sync.sql` is no
+   longer a free number.** Current migration files in `internal/store` are
+   `0001_init.sql`, `0002_session_backlog.sql`, `0003_agent.sql`,
+   `0004_mode_selections.sql`, `0005_schedules.sql`,
+   `0006_schedule_block_replies.sql`. Two migrations
+   (`0005_schedules.sql`, `0006_schedule_block_replies.sql`) landed since the
+   plan's assumption was made — consistent with the two intervening feature
+   merges the Provenance section already flagged. **`plan_brief.md`'s proposed
+   `0005_run_sync.sql` collides and must be renumbered — the next free number
+   as of this run is `0007`**, though Plan mode should re-check this again
+   immediately before implementation, since it is exactly the kind of number
+   that moves. [V] `internal/store/migrations/*.sql` (directory listing)
+7. **`prepareClone`'s actual current step order is fetch → freezeSlug →
+   ensureWorktree, not fetch → ensureWorktree → freezeSlug** as one framing of
+   the plan's prose states. `internal/turn/prepare.go:376-410`: the
+   `CloneGate` is acquired once at the top (`prepare.go:390`, one `defer
+   release()` at line 394); then `fetch` (line 396); then `freezeSlug` (line
+   400, whose returned `branch` is `ensureWorktree`'s own input); then
+   `ensureWorktree` (line 405); then return (line 409). **This does not change
+   the plan's proposed integration point** — "insert the new sync step as the
+   last step inside `prepareClone`" is still accurate, because `ensureWorktree`
+   is the last operation in the function regardless of where `freezeSlug` sits
+   relative to it — but any plan prose that describes the *current* order as
+   fetch→ensureWorktree→freezeSlug is factually wrong today and should be
+   corrected before Implement mode reads it literally. [V]
+   `internal/turn/prepare.go:376-410`
+
+**A wording-only correction, not a functional drift:**
+
+8. **`legacyToolsLabel` is not confined to dead code** — its detection-and-
+   refusal function is called live, on every tick, from
+   `internal/daemon/tick.go:1577` (`d.refuseTools(...)` with
+   `report.ReplyLegacyToolLabel`), and is exercised by
+   `internal/daemon/tools_internal_test.go:73,77`. What is actually obsolete
+   is the *label itself* — no live path ever sets `lf:tools=` on an issue any
+   more, only the refusal-of-it remains wired in. `plan_brief.md`,
+   `ARCH_REVIEW.md`, and `US-7.md` already describe it this way in places
+   ("that label is dead… kept only so `legacyToolsLabel` can [refuse it]"), so
+   this is likely a difference of emphasis rather than a claim anyone actually
+   got wrong — but taken literally, "referenced only in dead code" is not
+   accurate, and Plan mode should tighten the wording to "the label is
+   obsolete; the function that refuses it is still live" if it revises this
+   passage. [V] `internal/daemon/tools.go:52-60`, `internal/daemon/tick.go:1577`
+
+### Part B — Feasibility: reasoning-model-assisted conflict resolution with explicit human confirmation [V]
+
+Four questions were investigated: whether a narrower-than-full-agent model-call
+abstraction exists, whether any existing pattern pauses a run mid-flight for
+human confirmation, what applying a confirmed resolution would require
+mechanically, and what new security surface this opens relative to the plan's
+existing findings.
+
+**1. A narrower "prompt in, text/JSON out, no tools" call already exists as a
+pattern — this is not being built from nothing.** Every full agent invocation
+(`internal/agent`/`internal/harness`/`internal/codex`) is a write-capable
+coding session (worktree as `cmd.Dir`, `--allowedTools`/`--permission-mode
+auto` for Claude, `--sandbox workspace-write --add-dir` for Codex). But two
+narrower shapes already exist:
+   - `agent.Classifier`/`agent.Classification` — a tool-free routing call
+     (`WorkingDirectory` + `Prompt` in, classification out); Claude's
+     implementation passes `--tools ""` (empty) and omits
+     `--permission-mode`/`--session-id`/`--resume`; Codex's hard-codes
+     `--sandbox read-only`, no `--add-dir`.
+   - `agent.ProposeSchedule`/`ScheduleProposalRequest`/`ScheduleProposal` — the
+     closer analogue: stateless, tool-free, no-worktree, structured-JSON-out
+     advisory call, consumed through `daemon.scheduleAdvisor`
+     (`internal/daemon/proposal_adapter.go:13-15`), an interface the code's own
+     doc comment describes as deliberately narrower than `agent.Runner`
+     ("advice cannot allocate a workflow, select a worktree, or write a run
+     log"), obtained by type-asserting a concrete `Runner` selected from
+     `turn.RunnerSet` by `agent.Kind`
+     (`internal/daemon/proposal_adapter.go:19-29`).
+   - No "reasoning" model tier exists as a named concept; `config.Tier`
+     vocabulary is `flagship`/`balanced`/`fast`, with `TierBalanced` documented
+     as the default when nothing more specific is configured — "the reasoning
+     model (default one)" in the owner's ask most likely maps to whichever
+     concrete model/tier a `ProposeSchedule`-shaped call would resolve to by
+     default, not to a new named tier.
+   **Conclusion**: `Classify`/`ProposeSchedule` plus the `scheduleAdvisor`
+   narrowing-interface pattern is the direct, already-reviewed precedent for
+   how a "resolution advisor" call should be exposed, not something needing
+   invention from a blank page. [V]
+2. **No mid-run pause/resume-on-confirmation state machine exists anywhere in
+   litefactory today — every dispatch is a fresh, complete, non-resuming
+   cycle.** The closest existing analogue is the schedule-proposal flow
+   (`internal/daemon/proposals.go:21-115`): `proposeSchedule` persists a
+   `store.ScheduleProposal` row (status `ProposalPending`); a **separate,
+   later** comment naming the proposal ID triggers
+   `acceptScheduleProposal`/`rejectScheduleProposal`, gated by `ownedProposal`
+   (same `SessionID` AND same commenting `Author.Login`, `proposals.go:91-100`)
+   — but this is two independent, complete turns linked by a DB row, not a
+   run pausing mid-flight. `AskTag`/`MayAsk` (`internal/turn/ask.go`,
+   `internal/turn/prepare.go:225`) lets a human's comment grant a run
+   permission to stop and ask instead of guessing, but this is folded into the
+   *input* side of a single run, not a stored, resumable "awaiting
+   confirmation" state — no `OutcomeAsked` exists in the Outcome vocabulary,
+   and `previousMayAsk` (`internal/turn/prepare.go:578-612`, whose own doc
+   comment states "Permission is not stored anywhere") only shapes rendered
+   header text for a *subsequent* prompt, never gates whether an incoming
+   comment is treated as a confirming reply. `internal/store` has no general
+   "run paused awaiting human confirmation" state — only schedule/proposal
+   states (`SchedulePending/Blocked/Running`,
+   `ProposalPending/Accepted/Rejected/Expired`) and no equivalent `report`
+   reply-kind state. **Stated plainly, as this is the key finding**: a
+   confirm-then-apply resolution story cannot piggyback on any existing
+   mid-run wait; it would need to be built the same way schedule-proposals
+   are — as two separate, complete turns joined by new persisted state and an
+   ownership check — or litefactory would need a genuinely new mid-run-pause
+   mechanism it does not have today. [V]
+3. **Mechanically, applying a confirmed resolution is a mix of "reuses
+   existing primitives cleanly" and "genuinely new surface."** Existing,
+   directly reusable primitives: `Worktree.Commit`
+   (`internal/git/commit.go:133` — `check()` → `opts.validate()` →
+   `Status()` → conditional `git add --all` → `commitMessage` with
+   `TrailerTask/TrailerMode/TrailerRun` → `git -c user.name=... -c
+   user.email=... commit`) and `Worktree.Push` (`internal/git/push.go:53` —
+   `git push --set-upstream`, then `confirmUpstream` re-reads
+   `branch.<name>.remote`/`.merge`), with identity resolved by
+   `resolveAuthor` (`internal/turn/prepare.go:784-811`: configured
+   `opts.Author` per-field, else `clone.ConfigGet("user.name"/"user.email")`
+   fallback) — and the existing `commitAndPush` sequencing precedent
+   (`internal/turn/harvest.go:280-349`: one `CloneGate.Acquire`/`defer
+   release()` → `Commit` → compare `Head` before/after → conditional `Push`).
+   `internal/git/status.go:41-44` already has a dormant `ChangeUnmerged` enum
+   value ("a path with conflict markers or a conflicted index entry...
+   litefactory never merges, so it is reported rather than folded into
+   'modified'"), assigned by `classifyStatus` (`status.go:131-139`) — a
+   defensive slot, not an active flow, but evidence the type already has a
+   name for this state. **Genuinely new surface**: no scoped `git add <path>`
+   equivalent or any index-inspection call exists anywhere in `internal/git`
+   today — the existing `Commit` path only knows `git add --all`, staging
+   everything, never a per-file resolution of a subset of conflicting paths.
+   Writing final resolved content into worktree files needs no new
+   `internal/git` primitive (nothing gates writing to a checked-out worktree
+   path today) — but *marking the index resolved* for just the previously-
+   conflicting paths is new. No merge-base primitive of any kind exists in
+   `internal/git` (confirmed by grep). Steps (c)/(d) — commit-with-identity
+   and push — map directly onto the existing `Commit`/`Push`/`resolveAuthor`/
+   `commitAndPush` sequence with no extension needed beyond possibly a new,
+   merge-specific trailer convention (not present today — only
+   `TrailerTask`/`TrailerMode`/`TrailerRun` are defined). [V]
+4. **This is a materially larger prompt-injection surface than anything
+   currently in the codebase, and no existing pipeline is close to it.**
+   First, a naming clarification the architect needs: the codebase's own
+   literal "S-7" (`internal/github/surface_test.go:26`'s comment, "a comment
+   body posted... not through the S-7 redaction pass is not an expressible
+   program") refers to `internal/redact` — a generic **outbound**
+   credential/secret redactor applied to every outbound GitHub comment body
+   before the API call. That is a different, pre-existing feature's security
+   numbering, unrelated to *this* issue's own architect-review S-1..S-9
+   findings in `ARCH_REVIEW.md` (whose own S-7, per the session history, is
+   "prompt-injection surface" — i.e. conflict *path* content reaching a
+   comment/agent). **These are two different things that happen to share a
+   label** — the architect should not conflate litefactory's pre-existing,
+   unrelated `internal/redact` "S-7" comment with this issue's own S-7 finding
+   when scoping the new story. Second, the substantive finding: no
+   conflict-content-specific sanitizer exists at all. The only existing
+   "conflict" concept in the code is `git.WorktreeConflictError`
+   (`internal/git/ensure.go:255-277`) — worktree path-occupancy (wrong branch
+   checked out, non-empty unregistered directory), unrelated to merge-content
+   conflicts. No pipeline today feeds raw git file/diff content into any
+   prompt: `internal/harness/prompt.go`'s `PromptInput` struct carries only
+   GitHub-forge text fields (`Instruction` trusted; `IssueTitle`/`IssueBody`/
+   `IssueAuthor`/`CommentBody`/`CommentAuthor` explicitly marked Untrusted,
+   plus bounded `History`) — no field for file contents, diffs, or hunks; the
+   coding agent instead reads worktree files itself via its own tool access.
+   The nearest existing convention a new content-carrying field would need to
+   replicate: `capText(s, limit) = truncateWithMarker(neutraliseNoteTags(s),
+   limit)` (`internal/harness/prompt.go:892-894`), applied to every untrusted
+   field with its own byte cap (`MaxCommentBytes = 8<<10`,
+   `MaxIssueTitleBytes = 1<<10`, `MaxHistoryBytes = 32<<10`), plus
+   `neutraliseNoteTags` defusing `<note>`/`</note>` sequences specifically to
+   prevent "prompt injection by punctuation." **Conclusion, stated plainly as
+   requested**: feeding actual conflicting-hunk *content* (not just file
+   names, which US-5's existing safe-rendering already handles) from a
+   possibly-hostile base or task branch into a model prompt is new surface
+   litefactory has no existing pipeline for — there is a well-established
+   sibling pattern to extend (`capText`/`neutraliseNoteTags`/byte-budget
+   capping), but no existing "branch content → prompt" fetch/inject mechanism
+   at all to build on, and the surface is categorically larger than what
+   US-5/S-7(-the-plan's-own) already cover, because content, not just names,
+   is now reaching a prompt. [V]
+
+## Constraints & Risks
+
+- **No existing abstraction to extend.** Merge/pull/PR/conflict handling is
+  entirely absent from the codebase, by design. Any solution here is new
+  surface area, not a refactor of something broken. This is a genuine
+  architectural decision Plan mode (and likely `go-architect`) needs to make
+  deliberately, not infer from existing patterns. [V]
+- **The `Clone`/`Worktree` split is deliberate discipline**, not an
+  accident — read-only vs the two specific mutations (`Commit`, `Push`).
+  Introducing a `Merge` or `Pull`-into-branch capability means consciously
+  deciding whether it belongs on `Worktree` (widening its narrow, reviewed
+  method set) or as a new type/package, and either choice needs to preserve
+  the existing "no other package touches git directly" boundary. [V]
+  `internal/git/worktree.go:13-32`
+- **No PR-creation code exists.** If a strategy calls for litefactory to open
+  PRs itself (a plausible way to close the human-facing gap), that is new
+  `internal/github` API surface, not a config flag. [V]
+- **Push is SSH-only and credential-scoped away from any bot token.** Any
+  strategy involving litefactory performing a merge or auto-merge server-side
+  needs its own explicit decision about what credential/permission does that
+  merge — this cannot silently ride on the existing push path's assumptions.
+  [V] `internal/git/push.go:9-80`
+- **Base-branch mis-resolution is currently discovered late** — via a human
+  opening a PR against the wrong target — rather than being surfaced by
+  litefactory directly. Any new PR-related capability should probably close
+  this gap rather than preserve it. [V] `internal/repos/registration.go:219-224`
+- **Any new label-gated config (e.g. `lf:merge=`, `lf:base=`) needs the same
+  validation discipline `lf:tools=` already has** — fixed charset, values kept
+  off any code/prompt path unsanitised. [V] `internal/config/policy.go:351`
+- **Scale risk**: one branch per issue with no base-branch reconciliation means
+  conflict likelihood is a function of how many issues are in flight
+  concurrently, not of any single feature's complexity. A strategy that only
+  handles "the one branch I'm looking at" will not hold up as issue volume
+  grows.
+- **GitHub's web conflict editor cannot handle every conflict.** [W] Binary
+  files and certain conflict shapes (delete-vs-edit) are not resolvable in the
+  web UI at all; GitHub's own guidance falls back to local git/CLI in those
+  cases. Any strategy that promises "a business user never needs git" has a
+  real edge here, even if it is a rare one for a Go backend repo with few
+  binary assets.
+- **Merge queue and "always reconcile before review" bots reduce but do not
+  eliminate the chance a human meets a raw conflict.** [W] Both classes of
+  tooling (GitHub's native merge queue, and named bots like Bors/Mergify) are
+  pre-emption strategies — they resolve or surface conflicts to CI/an
+  engineer/an agent *before* a non-technical approver sees the PR, and they
+  eliminate the specific *concurrency-race* conflict class cleanly, but a
+  content conflict where two branches edit the same lines still has to be
+  fixed by something git-literate. A strategy that promises "an approver never
+  sees a conflict" is achievable; a strategy that promises "conflicts never
+  happen" is not, and Plan mode should not conflate the two.
+- **A pre-run drift check has a natural, cost-free home.** `prepareClone`
+  already fetches and already holds `CloneGate` before every turn, so
+  inserting an ahead/behind check there adds no new git round-trip beyond one
+  new local computation. Any implementation should use this existing seam
+  rather than invent a second fetch point. [V]
+- **No git primitive for ahead/behind or dry-run-conflict exists yet.**
+  `internal/git`'s method set (`Fetch`, `RevParse`, `ShowRef`, `ConfigGet`,
+  `RemoteURL`) has no `rev-list --count` or `merge-tree` wrapper today; both
+  are new, deliberate additions to a surface this brief already flagged as
+  narrow by design, not incidental gaps. [V]
+- **Base-branch configuration is global, not per-project, today.** The issue
+  owner's phrasing ("whatever base branch is configured per project") assumes
+  a live per-project lookup that does not exist — only a one-time `--base`
+  override captured at registration. If Plan mode wants true multi-project
+  base-branch flexibility to co-exist with a drift/sync feature, that is
+  itself new config surface, not something to assume is already wired up. [V]
+- **GitHub's own PR-level "is this mergeable" signal is unreliable for a
+  synchronous check.** `mergeable_state` is documented (via consistent
+  community reports, not a formal SLA) to be computed asynchronously and can
+  return `unknown` on first read — a bad primitive for a check litefactory
+  wants to run inline at the start of a turn. Prefer the local, synchronous
+  `git merge-tree` computation, which also does not require a PR to exist yet
+  (litefactory opens none today). [W]
+- **A merge-based sync (not rebase) avoids a new force-push capability.**
+  Rebasing the task branch during an automatic sync would rewrite existing
+  commit SHAs and require force-push, which `Worktree.Push` does not support
+  today; it would also complicate the `Litefactory-Task/Mode/Run` trailer
+  history the existing commit/push path relies on. A merge commit uses the
+  existing push semantics unchanged. [V]
+- **Auto-sync must not blur into "litefactory merges into main."** Everything
+  the auto-sync decision tree covers is base-into-task-branch, a throwaway,
+  never-reused branch; merging *into* the shared base branch is a different,
+  higher-risk class of write this brief has already established litefactory
+  does not do at all today, and this run found no reason to change that
+  boundary as a side effect of solving staleness/sync.
+- **Claude-mode agents' Bash access to git is a documented, leaky boundary,
+  not a hard one.** Any decision to centralize git handling in litefactory
+  should be paired with awareness that the existing "agents never
+  commit/push" convention already has one open exception
+  (`internal/harness/settings.go`'s own "defence in depth" framing) that
+  centralizing new capabilities does not, by itself, retroactively close for
+  the operations that already exist. [V]
+- **Plan mode has already ratified all of the above into a concrete shape**
+  (`plan_brief.md`, ten sub-issues) that this run cross-checked directly: the
+  `syncBase` decision tree (`up_to_date`/`synced`/`blocked`/`skipped`), the
+  merge-commit-with-identity-prelude approach, the `lf:sync=on|off` label
+  modeled on the live label levers (not the dead `lf:tools=` one), and the
+  rollback-to-byte-identical guarantee are no longer open design questions —
+  see *Scenario / Track Matrix* above for how they now compose into concrete,
+  enumerable outcomes. [V] `plan_brief.md` (Shared Decisions, Cross-Story
+  Constraints), `US-2.md`, `US-8.md`
+- **Migration numbering has drifted and must be corrected before
+  implementation.** `plan_brief.md` assumed migration head `0004` and proposed
+  `0005_run_sync.sql`; current head is `0006_schedule_block_replies.sql`, and
+  the next free number is `0007`. This is a small, mechanical fix, but it must
+  be applied before any migration file is written, and re-checked again
+  immediately before Implement mode runs, since the number is exactly the kind
+  of thing that keeps moving while other work lands. [V] (this run's Part A,
+  item 6)
+- **`prepareClone`'s described current step order needs a wording fix, not a
+  design fix.** The actual current order is fetch → freezeSlug →
+  ensureWorktree; any plan prose asserting fetch → ensureWorktree → freezeSlug
+  is wrong today, though the proposed integration point ("new sync step as the
+  last step in `prepareClone`") is unaffected, since `ensureWorktree` remains
+  the function's last operation either way. [V] (this run's Part A, item 7)
+- **A new reasoning-model-assisted, human-confirmed conflict-resolution story
+  has real precedent to build on but also real new surface to build.** A
+  narrower-than-full-agent "prompt in, text/JSON out, no tools" call shape
+  already exists (`agent.Classifier`, `agent.ProposeSchedule` plus the
+  `daemon.scheduleAdvisor` narrowing interface) and is the natural template —
+  but litefactory has **no existing mid-run pause/resume-on-confirmation
+  mechanism anywhere**; the nearest analogue (schedule-proposals) achieves
+  "propose → wait → confirm" via two separate complete turns joined by
+  persisted DB state and an author-ownership check, not by a run pausing
+  mid-flight. Applying a confirmed resolution mixes clean reuse (identity,
+  commit, push all map onto existing `Worktree`/`resolveAuthor`/
+  `commitAndPush` primitives) with genuinely new surface (no scoped
+  `git add <path>` or index-inspection primitive exists in `internal/git`
+  today). And feeding actual conflicting-hunk *content* — not just file
+  names, which the existing plan's safe-rendering already covers — into any
+  model prompt is a materially larger prompt-injection surface than anything
+  currently built or currently planned, with no existing "branch content →
+  prompt" pipeline to extend, only a sibling untrusted-text-capping pattern
+  (`capText`/`neutraliseNoteTags`) to model it on. [V] (this run's Part B)
+
+## Open Questions
+
+From the codebase tour (original run):
+
+1. Branch staleness: is reconciling a task branch against its moving base in
+   scope for #70, or is it explicitly deferred? This run's *Follow-up
+   Research* section above answers "what a mechanism could look like," but
+   Plan mode still needs to decide whether to build it now or later.
+2. Should litefactory gain the ability to open pull requests itself (new
+   `internal/github` capability), or is the fix purely better guidance in the
+   end-of-turn issue comment for a human to open one manually?
+3. Should base-branch mis-resolution be reported directly by litefactory
+   instead of being discovered only via a wrong PR a human already opened?
+4. There is no existing branching/merging documentation for *any* audience —
+   confirm whether this issue wants developer-facing docs, PM-facing docs, or
+   both, since the effort and audience differ.
+5. ~~`internal/daemon/backoff.go`'s retry semantics~~ — **resolved this run**:
+   backoff only gates new dispatch on GitHub rate-limit errors; it does not
+   retry git operations at all. A failed fetch/push/merge surfaces as an
+   ordinary turn failure today, with no automatic retry. Any new auto-sync
+   capability needs its own explicit decision about whether a failed sync
+   attempt gets retried or is simply reported and dropped.
+6. Would a new label lever (e.g. `lf:merge=squash`, `lf:base=main`) be a
+   desirable way to let a non-technical project owner express merge policy
+   preference, mirroring the existing `lf:tools=` pattern? No such lever
+   exists today.
+
+From web research (prior run):
+
+7. Does Devin autonomously rebase/update a branch against base before
+   presenting it for human review, or does it only visualize mergeability
+   after the fact? Not found in public docs — treat as unknown, not as "no."
+8. Does Cursor's Origin/background agents ever perform an automatic
+   base-into-feature update before a human sees the PR, or does it only
+   surface conflicts once they already exist? Not found in public docs.
+9. Sweep AI's conflict-handling behaviour is sourced from secondary
+   write-ups, not Sweep's own primary docs — and this run's web research
+   separately found Sweep's public product direction may have shifted since
+   those write-ups were made. Worth a direct check before citing it as prior
+   art in the plan.
+10. There is no single canonical industry name for "always reconcile a feature
+    branch against base before review" (seen variously as "update branch,"
+    "rebase bot," "staging-branch merge," or folded into "merge queue").
+    Plan mode should pick and define its own term rather than assume the
+    industry has settled one.
+
+From this run's follow-up research (staleness detection, auto-sync,
+centralization):
+
+11. What specific ahead/behind and idle-time thresholds should trigger a
+    staleness flag? This run found no industry-standard number (only
+    `probot/stale`'s tunable 60-day default as one example) — Plan mode/the
+    issue owner needs to pick concrete defaults, ideally exposed as config
+    rather than hardcoded.
+12. Should the drift/staleness signal be posted as its own comment at the
+    start of a run, or folded into the existing end-of-turn report comment?
+    The former surfaces it before the human reads anything else; the latter
+    is one fewer comment but delays the signal until after the run's own work
+    is already visible.
+13. Does the Codex-mode filesystem sandbox (`read-only`/`workspace-write`)
+    block outbound git network operations (push/fetch), or only local
+    filesystem writes? Not confirmed this run — relevant to how complete
+    "agents cannot touch git" actually is outside the Claude-mode path.
+14. Should Plan mode treat hardening the Claude-mode Bash/`--allowedTools`
+    git-access loophole (leaking ~250 ambient allow-rules per the T-LF3.0
+    spike) as in-scope alongside a new daemon-side sync capability, or as a
+    separate, pre-existing security item this issue should merely flag rather
+    than fix? Building new centralized git capability while leaving the
+    existing loophole open is an inconsistent posture worth naming
+    explicitly, but closing it may be a larger, separately-scoped change.
+15. Should per-project base-branch resolution move from a one-time `--base`
+    registration-time override to a live, re-resolvable per-project config
+    value (a genuine hierarchy), given the issue owner's phrasing assumes the
+    latter already exists and it does not?
+16. On a genuine merge conflict during auto-sync, should litefactory's
+    fallback be "flag a human" only (this run's default recommendation,
+    matching Dependabot/GitHub merge-queue precedent), or should Plan mode
+    also consider a Renovate-style "regenerate the branch from the new base
+    and re-run the agent" fallback? The latter is more automation but is a
+    materially bigger scope change (implies triggering a new agent turn
+    automatically) than a simple sync-or-flag tree. **Resolved by Plan mode**:
+    the architect rejected the Renovate-style fallback outright (it would
+    discard committed agent work) — kept here for history, not as an open
+    choice any more.
+
+From this run's scenario/track matrix and capabilities/non-goals analysis:
+
+17. Should the "skipped — over the behind-cap" case be disclosed more loudly
+    than the "skipped — explicit `lf:sync=off` opt-out" case? `plan_brief.md`
+    currently treats both as the same `skipped` outcome with the same
+    disclosure; they represent different risk profiles (neglect vs. a
+    deliberate choice).
+18. Should a malformed/ambiguous `lf:sync=` label fall back to the config
+    default instead of being refused outright? The plan copies the existing,
+    security-conscious "ambiguous is refused" discipline from
+    `agentLabelPrefix`/`modeLabelPrefix`, but that may be a less forgiving
+    experience for a non-technical project owner who mistypes the label value
+    than the audience this issue is meant to serve.
+19. Is the operator-facing message from the git-version-floor probe (git
+    <2.38 disables the sync/refusal safety net entirely) prominent enough
+    that an operator on an old git version would actually notice they are not
+    getting this feature's protection, rather than assuming it is silently
+    working? Not verified — `plan_brief.md` establishes the probe never
+    causes a hard boot failure, but does not specify how loudly it surfaces
+    the degraded state.
+
+From this run's plan re-validation and reasoning-model-resolution feasibility
+pass (2026-09-06):
+
+20. Migration numbering: `plan_brief.md`'s proposed `0005_run_sync.sql`
+    collides with `0005_schedules.sql`/`0006_schedule_block_replies.sql`,
+    which landed since the plan was written. Plan mode must renumber to
+    `0007_run_sync.sql` (or whatever the actual next-free number is at the
+    moment of implementation — re-check immediately before Implement mode
+    runs, since this number is likely to keep moving).
+21. `prepareClone`'s described current step order needs correcting to
+    fetch → freezeSlug → ensureWorktree wherever `plan_brief.md`'s prose
+    states otherwise; the "insert sync as the last step" integration point
+    itself is unaffected and needs no change.
+22. Should `plan_brief.md`/`US-7.md`'s description of `legacyToolsLabel` be
+    tightened from "dead code" to "the label is obsolete; the refusal
+    function that detects it is still called live on every tick
+    (`internal/daemon/tick.go:1577`)"? This is a wording precision question,
+    not a functional one.
+23. For the new reasoning-model-assisted-resolution story: should it reuse the
+    existing `agent.Classifier`/`agent.ProposeSchedule` "tool-free, prompt-in
+    text/JSON-out" pattern and the `daemon.scheduleAdvisor` narrowing-interface
+    precedent as its call shape, or does a resolution-advice call need a
+    materially different interface — e.g. because its input would be
+    untrusted, potentially large file/hunk content, not a short issue or
+    comment string?
+24. Should the new story's confirm-gate reuse the schedule-proposal pattern
+    (two separate complete turns joined by a persisted DB row plus an
+    author-ownership check), since no mid-run pause/resume mechanism exists
+    anywhere in litefactory today? What new `internal/store` state would be
+    needed — a `ProposalPending`-equivalent status for a pending conflict
+    resolution?
+25. Marking a conflict resolved in git's index has no existing primitive (no
+    scoped `git add <path>`, no index-inspection call anywhere in
+    `internal/git`) — is adding this net-new surface in scope for this story,
+    and should it get its own allowlist-style test analogous to
+    `TestCloneMethodSetIsTheAllowlist`/`TestCloneCannotMutateTheRegisteredClone`?
+26. Should a new commit-trailer convention be introduced for "this commit
+    completes a merge via a confirmed, model-assisted resolution" — today only
+    `TrailerTask`/`TrailerMode`/`TrailerRun` exist, none of which distinguish
+    an ordinary commit from a conflict-resolution commit?
+27. Should conflicting-hunk content fed into a resolution-advice prompt be
+    capped/sanitized using the same `capText`/`neutraliseNoteTags`/byte-budget
+    pattern already applied to every other untrusted field in
+    `internal/harness/prompt.go`, and is that pattern — designed for short
+    strings like comments and issue titles — actually sufficient for a
+    categorically larger and more structured payload (whole conflicting file
+    contents or hunks)?
+28. This new story's prompt-injection surface is materially larger than
+    anything currently built or currently planned (US-5's existing safe
+    rendering covers file *names* only; this would carry actual conflicting
+    *content*, from a possibly-hostile branch, into a model prompt) — should
+    the architect require a dedicated security review pass for this story
+    specifically, given there is no existing "branch content → prompt"
+    pipeline in litefactory to extend or model it on? Note also the naming
+    collision: `internal/redact`'s own code comment calls itself "the S-7
+    redaction pass" for an unrelated, pre-existing outbound-secret-scrubbing
+    feature — this is not the same S-7 as this issue's own
+    `ARCH_REVIEW.md` security-finding numbering, and the two should not be
+    conflated when this story is scoped.
+
+## Recommended scope for Plan mode
+
+Plan mode now has both the codebase findings and the web research needed to
+choose a strategy; the residual points in Open Questions are narrow enough not
+to block scoping. Plan mode should decide:
+
+- Whether litefactory gains a genuinely new capability — opening PRs itself,
+  auto-rebasing/merging the base branch into task branches before review,
+  and/or auto-merging on a comment-based approval — versus a narrower,
+  documentation-only fix (clearer end-of-turn comment guidance, a new
+  human-facing doc explaining the current manual PR/merge steps). Web research
+  suggests litefactory's existing one-branch-per-issue, short-lived-branch
+  model is *already* the branching strategy the industry treats as simplest
+  for non-technical reviewers (trunk-based/GitHub-Flow-shaped) — the gap is
+  entirely in what happens after the branch is pushed, not in the branching
+  model itself.
+- **Squash-merge as the default/only merge strategy** is directly supported by
+  GitHub's own documentation as the option that keeps base-branch history
+  simplest for a non-technical reader (one entry per issue), and fits
+  litefactory's model cleanly since branches are never reused after merging.
+  Plan mode should treat this as a strong candidate rather than an open
+  question.
+- Whether to introduce a label-gated merge/base-branch policy surface
+  (`lf:merge=`, `lf:base=`, or similar), consistent with the existing
+  `lf:tools=` pattern, so a non-engineer project owner can express a
+  preference without touching git or a CLI.
+- Whether to build custom "reconcile branch against base before review"
+  automation, or lean on GitHub's own primitives first (native merge queue,
+  "Update branch" button/API, branch-protection's "require branches up to
+  date") before reaching for a bespoke solution or a third-party bot
+  (Bors/Mergify-style). The web research found GitHub's own tooling already
+  covers most of the "approver never resolves a conflict" goal for the
+  concurrency-race case; only genuine content conflicts (two branches editing
+  the same lines) fall outside what any of these can fully absorb, and that
+  residual case is architecture-independent — something git-literate (human or
+  agent) will always be needed for it.
+- How any new mutating git capability (merge, rebase, auto-merge) is placed
+  architecturally relative to the existing, deliberately narrow
+  `Clone`/`Worktree` split — this needs `go-architect` involvement, not an
+  assumption carried over from this brief.
+- How the systemic, scale-driven conflict risk (many concurrently open task
+  branches, none reconciled against a moving base) is addressed, not just the
+  single-branch case. Merge queue addresses the race component of this risk
+  directly; the content-overlap component does not have a purely mechanical
+  fix and should be scoped explicitly (e.g. does litefactory route a genuine
+  conflict back to a new agent turn, or always to a human?).
+- Plan mode should **not** treat "add a Merge or Pull method to `internal/git`"
+  as a foregone conclusion — this brief found that boundary to be a deliberate
+  design choice, and any widening of it is itself a decision to make
+  explicitly, weighing it against a separate-package or GitHub-side (merge
+  queue / auto-merge) alternative.
+- Plan mode should **not** promise "a business user will never see a
+  conflict" as an absolute — web research found this achievable only as "an
+  approver is never the one asked to resolve it," which is a materially
+  different, and honestly weaker, guarantee that should be stated as such in
+  any user-facing documentation this issue produces.
+- **Staleness/drift detection** is cheap to add at the existing `prepareClone`
+  checkpoint (fetch already happens there) using a new `internal/git`
+  primitive wrapping `rev-list --left-right --count`. Plan mode should scope
+  this as a small, mostly-additive change: one new git primitive, one new
+  comment path, and one or two new config thresholds — not a lifecycle
+  restructuring.
+- **Conditional auto-sync of base into a task branch is safe to automate up to
+  the point of a genuine content conflict**, using the decision tree above:
+  check ahead/behind → if behind, dry-run via `git merge-tree` → if clean,
+  merge (not rebase) and push with a disclosing comment → if conflicting, stop
+  before the agent's own work and flag a human. This mirrors Dependabot's own
+  published pattern for its own bot-branches and is the recommended default
+  shape; Plan mode should decide only the specific thresholds/config surface,
+  not re-derive the tree.
+- **Do not extend this into litefactory merging into the shared base/main
+  branch.** That remains explicitly out of scope — a categorically
+  higher-risk operation this brief has already established litefactory does
+  not perform today, and nothing in this run's research changes that
+  recommendation.
+- **Centralizing git handling in litefactory (rather than in agents) is
+  already substantially true structurally** (`internal/git` is the sole exec
+  point) but has one documented, real gap: Claude-mode agents' Bash tool has
+  leaky, additive-only restrictions on git verbs. Plan mode should decide
+  whether closing that gap is part of this issue's scope or a named,
+  separately tracked follow-up — but should not build new centralized git
+  capability while implying the existing boundary is airtight when this run
+  found it is not.
+- Any new mutating git primitive (the `merge-tree` dry-run wrapper, the actual
+  merge-and-push step) belongs in `internal/git`, behind the same deliberate,
+  narrow-surface discipline as `Clone`/`Worktree` — this reinforces, rather
+  than revises, the architectural note already given to `go-architect` in the
+  original brief.
+- **Before amending the plan, apply the two concrete drift corrections found
+  this run**: renumber the proposed migration from `0005_run_sync.sql` to the
+  actual next-free number (`0007` as of this run, re-check at implementation
+  time), and correct any prose describing `prepareClone`'s current step order
+  to fetch → freezeSlug → ensureWorktree (the proposed integration point
+  itself — inserting sync as the last step — is unaffected).
+- **For the new reasoning-model-assisted-resolution story, if the architect
+  chooses to take it forward**: model the model-call itself on the existing
+  `agent.Classifier`/`agent.ProposeSchedule` + `daemon.scheduleAdvisor`
+  pattern rather than inventing a new call shape; model the confirm-gate on
+  the schedule-proposal's "two complete turns joined by persisted state plus
+  an author-ownership check" pattern, since no mid-run pause mechanism exists
+  to reuse instead; budget for genuinely new `internal/git` surface (scoped
+  index-resolution, not just a file write) rather than assuming everything
+  needed already exists; and treat the prompt-injection exposure from feeding
+  conflict *content* (not just names) into a model prompt as needing its own
+  explicit security scoping — it is categorically larger than anything this
+  plan currently covers, and there is no existing pipeline to extend, only a
+  sibling text-capping convention to model it on.
+
+**Status of the above as of this run**: Plan mode has already completed and
+delivered on almost all of the above — `plan_brief.md` and its ten sub-issues
+implement the drift check, the merge-vs-block decision tree, the config
+defaults, the `lf:sync=` label, and the rollback guarantee substantially as
+recommended. The three items in *What may have been missed* above (over-cap
+disclosure loudness, malformed-label fallback behavior, and old-git message
+prominence) are the residual, narrower decisions this brief did not
+anticipate the first time around; they were Open Questions 17-19 for whoever
+revisits the plan or begins Implement mode to resolve. This run (2026-09-06)
+adds two further, concrete drift corrections Plan mode must apply before
+amending the plan (migration numbering, `prepareClone` step-order prose — see
+Open Questions 20-22) and a feasibility assessment for a new,
+not-yet-designed user story (reasoning-model-assisted conflict resolution
+gated on explicit human confirmation — Open Questions 23-28) that the
+architect has not yet scoped or approved; nothing in this run constitutes that
+approval.

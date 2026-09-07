@@ -1349,6 +1349,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handleSchedule(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindConfirm {
+		return d.handleConfirm(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
 	}
@@ -1596,6 +1600,16 @@ func (d *Daemon) run(
 		slog.String("codex_sandbox", tools.Sandbox),
 		slog.Any("tool_ceiling", d.toolCeiling))
 
+	// "Sync:" is a per-issue escape hatch, not a gate on this turn: a
+	// malformed, miscased, or duplicated label leaves syncOverride nil so
+	// the configured automatic-sync default applies, same as silence — it
+	// never blocks the run the way a refused agent or mode label does.
+	var syncOverride *bool
+	if syncChoice := resolveSync(t.issue.Labels); syncChoice.Resolved {
+		value := syncChoice.Value
+		syncOverride = &value
+	}
+
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Mode:      mode,
 		SessionID: t.session.ID,
@@ -1619,6 +1633,7 @@ func (d *Daemon) run(
 		Agent:              agent.Kind(selectedAgent),
 		CodexSandbox:       tools.Sandbox,
 		AttachmentsAllowed: attachmentsAllowed,
+		SyncOverride:       syncOverride,
 	})
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)

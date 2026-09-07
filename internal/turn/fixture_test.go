@@ -291,6 +291,31 @@ func (s *stubRunner) callCount() int {
 	return s.calls
 }
 
+// stubConflictRunner is the claude double for US-11's suggested-resolution
+// advisor: it satisfies [Runner] the same way [stubRunner] does, and
+// additionally [ConflictAdvisor], so a test can register it under
+// [RunnerSet] and drive both call sites the way a real *harness.Runner
+// eventually will.
+type stubConflictRunner struct {
+	*stubRunner
+	mu      sync.Mutex
+	propose func(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error)
+	calls   int
+}
+
+func (s *stubConflictRunner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	return s.propose(ctx, req)
+}
+
+func (s *stubConflictRunner) proposeCallCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
 // succeeded builds the RunResult a clean run produces. The timestamps are real
 // because FinishRun computes the stored duration from them; nothing in
 // internal/turn reads a clock of its own.

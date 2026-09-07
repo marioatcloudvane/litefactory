@@ -1063,6 +1063,17 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 			opts.Classifiers[kind] = fakeModeClassifier{}
 		}
 	}
+	// US-12: a nil Confirmer/zero ConflictProposalTTL both mean "not
+	// overridden", the same convention every other pointer/zero field above
+	// already follows, so a test that does not care about /confirm dispatch
+	// keeps compiling and behaving exactly as it did before this feature
+	// existed.
+	if overrides.Confirmer != nil {
+		opts.Confirmer = overrides.Confirmer
+	}
+	if overrides.ConflictProposalTTL != 0 {
+		opts.ConflictProposalTTL = overrides.ConflictProposalTTL
+	}
 
 	d, err := daemon.New(opts)
 	if err != nil {
