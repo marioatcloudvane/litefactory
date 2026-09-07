@@ -1,5 +1,16 @@
 # Research Brief — agents-outside-repo
 
+## Run 0012 — why CLI delivery is incomplete
+
+[V] Checked the committed run 0011 evidence in `RUNNER_CAPABILITIES.md` and `DRIFT_REPORT.md` at `a0f7b7563b18cbae7a9c19af72713b434fb795d3`. This explanation does not rerun probes or claim a more precise operating-system cause than the recorded error supports.
+
+- [R0] The authenticated Codex 0.153.4 scratch probe exited before inference with `failed to initialize in-process app-server client: Operation not permitted (os error 1)`. The failing startup prevented testing external-agent discovery, authentication and delegation. It does not establish that Codex cannot accept external definitions, nor identify which syscall or environmental restriction caused the denial.
+- [R0] Three bounded Claude probes found a candidate that exposed the selected agent/skill while excluding the tested ambient sentinel and retaining explicitly appended project instructions. They did not execute delegated agents or verify delegated tiers/permissions, concurrent catalogs, all ancestor discovery cases, or credential refresh. Therefore removing the Codex startup barrier alone would not finish the remaining proof matrix.
+- [V] The approved US-3 task ordering makes real capability evidence a prerequisite to production transport choices and runtime enablement. Implementation stopped at that gate rather than delivering the adapter and lifecycle work without its required evidence. This was a conservative implementation decision under the approved plan, not a claim that every remaining coding task was physically impossible.
+- [R0] US-1/US-2 central storage and management were delivered. Native CLI rendering/delivery, run bundle publication and conversation identity handling in US-3 remain unfinished; US-4 workflow conversion and US-5 runtime evidence depend on them. The implementation explicitly refuses assigned external-team runs rather than silently running without the selected team.
+
+The next step is a bounded diagnosis/reproduction of the Codex startup failure in an environment permitted to run it, followed by the remaining Claude/Codex capability checks and actual US-3 wiring. Completing storage does not complete delivery, and a successful startup probe alone will not supply the missing code. No new authority is needed to explain this state; no subprocess, source change, live configuration edit or permission bypass was attempted in run 0012.
+
 ## Request
 
 [O] Run 0009: “re-try please!” [V] This Research retry checks whether run 0008's local plan refresh persisted and whether its linked GitHub stories reflect that refresh. [O/R0] Retain the owner's decisions: teams are managed outside individual repositories, mode-specific specialist availability should reduce instruction tokens, and no backward compatibility is required. The reasonable interpretation is to diagnose and verify the incomplete handoff, not to implement the feature or rerun the entire planning pipeline.

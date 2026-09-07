@@ -11,6 +11,8 @@
 
 ## History
 
+- 2026-09-07 — run 0012: explained incomplete CLI delivery from committed capability/drift reports. Codex startup denial is evidence of an environment barrier, not unsupported external agents; Claude checks and US-3 implementation also remain incomplete. Research brief updated; no probes, implementation or permission changes performed.
+
 - 2026-09-07 — run 0011 acceptance verification: independent test specialist added four passing ordering/isolation/containment cases; focused race coverage team 76.5%, teamsource 77.7%. `TEST_REPORT.md` and final drift accounting completed. Implement remains partial because runtime CLI capability and downstream delivery/workflow/token criteria are unresolved.
 
 - 2026-09-07 — run 0011: implemented the central schema/source/management foundation and explicit repository team association from the approved local stories. Added fail-closed classifier/work guards for assigned external teams while delivery is unavailable. Independent code review cleared all three blockers in one fix cycle. Full race suite, safe build and vet passed; `make check` stops at 28 inherited lint findings versus 33 on starting HEAD. Three bounded authenticated Claude probes cost $0.037020; Codex 0.153.4 failed before inference with app-server initialization permission error. No bypass, live runtime change, dist write, commit or push. US-3–US-5 remain incomplete; see `RUNNER_CAPABILITIES.md`, `CODE_REVIEW.md`, `DRIFT_REPORT.md` and `notes.md`.
