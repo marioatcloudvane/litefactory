@@ -764,6 +764,10 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		ToolsRequested: append([]string(nil), result.ToolsRequested...),
 		ToolProfile:    result.ToolProfile,
 		WorktreePath:   result.WorktreePath,
+		// US-3. Nil for a branch that was already current (AC-3.1) and for a
+		// turn that never reached syncBase; every other outcome renders,
+		// including a skip, which has to say why (AC-3.2).
+		Sync: result.Sync,
 		// Found by looking, not by deriving. internal/report does no I/O, and
 		// the session directory's date is knowable only from the filesystem —
 		// see report.Run.BriefPath for what deriving it used to get wrong.

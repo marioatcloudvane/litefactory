@@ -605,6 +605,10 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	result.Run = prep.run
 	result.MetaPath = prep.metaPath
 	result.LogPath = prep.run.LogPath
+	// US-3: what syncBase did to this branch travels to the report, which is
+	// the only place a person sees it. Without this the outcome is written to
+	// the runs row (US-9) and never spoken aloud.
+	result.Sync = reportSync(prep.sync)
 
 	return runAndHarvest(ctx, opts, prep, result, logger)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -606,6 +607,12 @@ type syncResult struct {
 	// Conflicts lists the paths [git.Worktree.MergePreview] reported, non-nil
 	// only when Outcome is [syncOutcomeBlocked].
 	Conflicts []string
+	// Reason is why sync did not complete, phrased to read directly after
+	// "because ", and set only on [syncOutcomeSkipped] and
+	// [syncOutcomeFailed]. US-3 renders it; AC-3.2 is why a skip records one
+	// at all, since a skip that cannot say why is the silent staleness this
+	// whole feature exists to prevent.
+	Reason string
 
 	// Branch and Base are the exact ref names Outcome was decided against,
 	// carried alongside Conflicts so a suggested-resolution advisor (US-11)
@@ -643,6 +650,52 @@ func syncEnabled(opts Options, req Request) bool {
 // [config.Settings.AutoSyncMaxBehind] documents.
 func withinSyncCap(opts Options, behind int) bool {
 	return opts.AutoSyncMaxBehind == 0 || behind <= opts.AutoSyncMaxBehind
+}
+
+// reportSync renders one [syncResult] as the value [report.Run.Sync] takes,
+// or nil when there is nothing a run report should say. Up-to-date is the
+// nil case by design: AC-3.1 requires a report for a branch that was already
+// current to be byte-identical to one from before this feature existed.
+//
+// Blocked never reaches here either, for a different reason — a blocked run
+// is refused before it starts and answered by [report.ReplyRefusesSync], so
+// there is no run report to carry it.
+func reportSync(sync syncResult) *report.Sync {
+	switch sync.Outcome {
+	case syncOutcomeUpToDate, syncOutcomeBlocked:
+		return nil
+	}
+	return &report.Sync{
+		Outcome:   report.SyncOutcome(sync.Outcome),
+		Behind:    sync.Behind,
+		Ahead:     sync.Ahead,
+		Base:      sync.Base,
+		CommitSHA: sync.SyncCommitSHA,
+		Reason:    sync.Reason,
+	}
+}
+
+// syncOffLabel is the label a per-issue opt-out carries, named here only so a
+// skip can say what caused it. internal/daemon owns the label's resolution and
+// its spelling; this is the rendered name, not a second parser.
+const syncOffLabel = "`Sync: Off`"
+
+// syncSkipReason reports whether auto-sync is skipped before it is attempted,
+// and why, in a sentence fit to render after "because " (AC-3.2). The order
+// matches [syncBase]'s own: being switched off is answered before distance,
+// because a turn that was told not to sync is not also "too far behind".
+func syncSkipReason(opts Options, req Request, behind int) (string, bool) {
+	if !syncEnabled(opts, req) {
+		if req.SyncOverride != nil {
+			return "this issue carries a " + syncOffLabel + " label", true
+		}
+		return "auto-sync is turned off for this repository", true
+	}
+	if !withinSyncCap(opts, behind) {
+		return fmt.Sprintf("the branch is %d commit(s) behind, more than the configured cap of %d",
+			behind, opts.AutoSyncMaxBehind), true
+	}
+	return "", false
 }
 
 // syncBase merges the latest base branch into the task branch when that merge
@@ -688,9 +741,10 @@ func syncBase(
 		return syncResult{Outcome: syncOutcomeUpToDate, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
 	}
 
-	if !syncEnabled(opts, req) || !withinSyncCap(opts, divergence.Behind) {
-		logger.Info("base sync: skipped", append(logFields, slog.String("outcome", string(syncOutcomeSkipped)))...)
-		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
+	if reason, skipped := syncSkipReason(opts, req, divergence.Behind); skipped {
+		logger.Info("base sync: skipped",
+			append(logFields, slog.String("outcome", string(syncOutcomeSkipped)), slog.String("reason", reason))...)
+		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead, Reason: reason}, nil
 	}
 
 	preview, err := worktree.MergePreview(ctx, baseRef)

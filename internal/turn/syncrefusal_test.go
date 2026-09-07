@@ -215,3 +215,67 @@ func TestReporterPostsReplyRefusesSyncWithConflictingPaths(t *testing.T) {
 			wm, exists, testComment)
 	}
 }
+
+// TestReporterPostsTheSyncSkipReason is the disclosure half of US-3 exercised
+// end to end, at the level a person actually reads: Execute through
+// ReportTurn through the real internal/report renderer to the posted comment
+// body. It is deliberately not a renderer test — internal/report's own golden
+// files already prove a report.Sync renders correctly. What it proves is the
+// seam between them, which is where AC-3.2 was lost: syncBase recorded the
+// skip and prepareClone persisted it, but Result carried no sync outcome and
+// the report.Run literal never set Sync, so every skip rendered as silence.
+//
+// Skipping is the case worth pinning: a skipped run goes ahead against a
+// branch that was left behind, and a skip nobody is told about is exactly the
+// quiet staleness the whole feature exists to prevent.
+func TestReporterPostsTheSyncSkipReason(t *testing.T) {
+	t.Parallel()
+
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
+	f.opts.AutoSyncBase = true
+	// Two commits behind against a cap of one: over the cap by construction,
+	// without building a hundred commits to get there.
+	f.opts.AutoSyncMaxBehind = 1
+
+	seedTaskWorktree(t, f)
+	advanceSyncBase(t, f.repo, 2)
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+
+	result := f.execute(f.request())
+	if result.Disposition != DispositionRan {
+		t.Fatalf("disposition = %s, want %s: a skip lets the run proceed\nlogs:\n%s",
+			result.Disposition, DispositionRan, f.logs)
+	}
+	if result.Sync == nil {
+		t.Fatalf("Result.Sync is nil though sync was skipped: the outcome never left prepare\nlogs:\n%s", f.logs)
+	}
+	if result.Sync.Outcome != report.SyncSkipped {
+		t.Errorf("Result.Sync.Outcome = %q, want %q", result.Sync.Outcome, report.SyncSkipped)
+	}
+	if result.Sync.Reason == "" {
+		t.Error("Result.Sync.Reason is empty: a skip has to say why (AC-3.2)")
+	}
+
+	posted, err := reporter.ReportTurn(t.Context(), result)
+	if err != nil {
+		t.Fatalf("ReportTurn: %v\nlogs:\n%s", err, f.logs)
+	}
+	if posted.Skipped {
+		t.Fatal("Skipped = true, want the run report posted")
+	}
+
+	body := forge.only(t).body
+	switch {
+	case !strings.Contains(body, "Base branch sync"):
+		t.Errorf("the posted report carries no sync section though sync was skipped (AC-3.2):\n%s", body)
+	case !strings.Contains(body, "skipped syncing this branch"):
+		t.Errorf("the sync section does not name the skip:\n%s", body)
+	case !strings.Contains(body, "more than the configured cap"):
+		t.Errorf("the sync section does not say why it skipped (AC-3.2):\n%s", body)
+	}
+}

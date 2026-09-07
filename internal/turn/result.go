@@ -4,6 +4,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -205,6 +206,18 @@ type Result struct {
 	// checks them against its own pattern again before it does (S-8).
 	AgentOwning    string
 	AgentRequested string
+
+	// Sync is what [syncBase] reached for this task branch before the run
+	// started, or nil when prepare did not get far enough to attempt one.
+	// [Reporter.renderInput] hands it to [report.Run.Sync], which is what
+	// puts the outcome in front of a person (US-3): a merge that happened,
+	// or a skip that has to say why (AC-3.2). Persisting the same outcome is
+	// US-9's separate job, done in [prepareClone] against the runs row.
+	//
+	// The blocked outcome does not travel here — it never reaches a run
+	// report at all, because [DispositionSyncRefused] answers the thread
+	// with [report.ReplyRefusesSync] instead and no run is started.
+	Sync *report.Sync
 
 	// SyncConflicts is set only on [DispositionSyncRefused]: the paths
 	// [git.Worktree.MergePreview] reported as conflicting, exactly as
