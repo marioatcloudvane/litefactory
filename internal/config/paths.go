@@ -22,6 +22,7 @@ const (
 	daemonLogFileName  = "daemon.log"
 	daemonLockFileName = "daemon.lock"
 	settingsFileName   = "claude-settings.json"
+	claudeHomeDirName  = "claude-home"
 )
 
 // Paths resolves every location litefactory owns from a single root,
@@ -91,6 +92,12 @@ func (p Paths) LockPath() string { return filepath.Join(p.home, daemonLockFileNa
 // litefactory-controlled settings file passed to claude as --settings. See
 // [Claude] for why that file exists.
 func (p Paths) SettingsPath() string { return filepath.Join(p.home, settingsFileName) }
+
+// ClaudeConfigDir is $LF_HOME/claude-home, the CLAUDE_CONFIG_DIR the agent
+// child runs under. It exists so that the daemon's claude reads litefactory's
+// own configuration rather than the operator's ~/.claude — see
+// [harness.EnsureClaudeConfigDir] for why that matters.
+func (p Paths) ClaudeConfigDir() string { return filepath.Join(p.home, claudeHomeDirName) }
 
 // EnsureHome creates $LF_HOME if it is missing.
 //

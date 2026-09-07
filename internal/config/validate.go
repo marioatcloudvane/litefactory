@@ -112,6 +112,9 @@ func (c *Config) Validate() error {
 	if s.WorktreeRoot != "" && !filepath.IsAbs(s.WorktreeRoot) {
 		errs = append(errs, fmt.Errorf("settings.worktree_root: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.WorktreeRoot))
 	}
+	if s.TeamConfig != "" && !filepath.IsAbs(s.TeamConfig) {
+		errs = append(errs, fmt.Errorf("settings.team_config: %q must be an absolute path; a relative one would depend on the daemon's working directory", s.TeamConfig))
+	}
 	if err := validateLogLevel(s.LogLevel); err != nil {
 		errs = append(errs, err)
 	}
@@ -323,6 +326,7 @@ func (c *Config) normalize() {
 	c.Settings.DefaultBaseBranch = strings.TrimSpace(c.Settings.DefaultBaseBranch)
 	c.Settings.FeaturePrefix = strings.TrimSpace(c.Settings.FeaturePrefix)
 	c.Settings.WorktreeRoot = strings.TrimSpace(c.Settings.WorktreeRoot)
+	c.Settings.TeamConfig = strings.TrimSpace(c.Settings.TeamConfig)
 	c.Settings.LogLevel = strings.ToLower(strings.TrimSpace(c.Settings.LogLevel))
 
 	c.Providers.GitHub.APIBase = strings.TrimRight(strings.TrimSpace(c.Providers.GitHub.APIBase), "/")

@@ -82,11 +82,19 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
-	PollIntervalSeconds        int    `yaml:"poll_interval_seconds"`
-	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
-	DefaultBaseBranch          string `yaml:"default_base_branch"`
-	FeaturePrefix              string `yaml:"feature_prefix"`
-	WorktreeRoot               string `yaml:"worktree_root"`
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch   string `yaml:"default_base_branch"`
+	FeaturePrefix       string `yaml:"feature_prefix"`
+	WorktreeRoot        string `yaml:"worktree_root"`
+	// TeamConfig is the static-path override for the team index (US-2 tier
+	// 2): when set, litefactory reads its team index and markdown tree from
+	// this path instead of the embedded default, and the embedded default is
+	// not consulted at all. Empty means "use the embedded default, unless a
+	// registered-repo override applies". Must be absolute when set. A
+	// configured-but-missing path is a hard startup error, never a silent
+	// fallback to the embedded default (US-2 AC-3).
+	TeamConfig                 string `yaml:"team_config"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
@@ -364,6 +372,7 @@ func Defaults() Config {
 			DefaultBaseBranch:          "",
 			FeaturePrefix:              DefaultFeaturePrefix,
 			WorktreeRoot:               "",
+			TeamConfig:                 "",
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,

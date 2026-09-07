@@ -110,7 +110,7 @@ information was simply nowhere in these instructions.
 
 **Do not read `.aiteam/APP_CONTEXT.md` or `.aiteam/APP_CONSTRAINTS.md`, and do not pass their contents to anyone.** Every agent that needs them reads them itself: the implementation engineer reads `APP_CONTEXT.md` (the lookup file) at the start of its story and consults `APP_CONSTRAINTS.md` by section when a rule is in play. Passing the content down puts it in your context *and* theirs, for no decision of yours.
 
-Note whether `.aiteam/APP_CONTEXT.md` exists — a bare `ls` is enough, do not open it. If it does not, you will create it after implementation using `app-context-updater` (see Exit section).
+`.aiteam/APP_CONTEXT.md` and `.aiteam/APP_CONSTRAINTS.md` are **not maintained by this workflow**. No agent updates them during Implement mode; they are edited deliberately, outside a run, when someone decides a durable fact or rule has changed. Do not check whether they exist, do not create them, and do not schedule work to refresh them.
 
 ## Progress tracking
 
@@ -124,7 +124,6 @@ Immediately after reading `plan_brief.md` and each story's `$session/US-<n>.md`,
 - `"Integration tests"` — pending (only if the plan has stories touching real dependencies — see Phase 2)
 - `"Bug loop"` — pending
 - `"Drift check"` — pending
-- `"Update APP_CONTEXT.md + APP_CONSTRAINTS.md"` — pending
 
 **Update rules:**
 - Mark a task `in_progress` **before** invoking its agent — not after.
@@ -166,7 +165,7 @@ with no team instructions, the full tool surface, and no idea that
 `go-implementation-engineer` at all; the reports read `DONE`, so nothing looked
 wrong. The roster is: `go-implementation-engineer`, `go-unit-test-engineer`,
 `go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
-`proxy-product-owner`, `app-context-updater`, `codebase-tour`,
+`proxy-product-owner`, `codebase-tour`,
 `requirements-engineer`, `web-researcher`.
 
 `subagent_type` carries an agent name and nothing else — never a note, a
@@ -416,11 +415,9 @@ answered on the issue, once that answer has been applied:
 
    Carry the report into your final result. If `DRIFTED`, surface the key divergences as a short list and recommend whether any need a follow-up planning cycle — recommending what should come next is part of the job, opening it is not. Mark `completed` once the report is written; there is no acknowledgement to wait for.
 
-2. **Update app context.** Mark `"Update APP_CONTEXT.md + APP_CONSTRAINTS.md"` as `in_progress` in TodoWrite. Invoke `app-context-updater` passing the session path. Use **update** mode if `.aiteam/APP_CONTEXT.md` already exists, **init** mode if this is the first implementation run. For monorepos, let the updater detect structure automatically. Wait for confirmation, then mark `completed`.
+2. Stamp `$session/MANIFEST.md` — mark Implement done, add a history entry with test result summary (X passed, Y failed, escalated/resolved).
 
-3. Stamp `$session/MANIFEST.md` — mark Implement done, add a history entry with test result summary (X passed, Y failed, escalated/resolved).
-
-4. Route back to the top-level dispatcher.
+3. Route back to the top-level dispatcher.
 
 ---
 

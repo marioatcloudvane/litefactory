@@ -145,10 +145,14 @@ func (t Tiers) ResolveModel(kind Kind, tier Tier) (string, bool) {
 // DefaultClaudeModel ("sonnet") is TierBalanced, and "opus"/"haiku" are the
 // same two aliases claude.model's own documentation in template.go already
 // names as valid --model values — no specialist's actual model assignment
-// changes (AC-6.8). The Codex column is intentionally absent: T-6.5 is
-// blocked on a live measurement of Codex's own tier/model names (AC-6.6);
-// fabricating one from documentation or web knowledge is exactly the
-// failure mode this whole feature exists to avoid.
+// changes (AC-6.8). The Codex column is a live measurement of Codex's own
+// model catalogue (AC-6.6), never a guess from documentation or web
+// knowledge — that is the failure mode this whole feature exists to avoid.
+// Measured against codex-cli 0.153.4 on 2026-09-07: the GPT-6 family lists
+// exactly one slug, gpt-6-astra ("our most capable model"), so it takes both
+// flagship and balanced; fast stays on gpt-5.6-luna because GPT-6 has no
+// cheap tier yet. gpt-6-astra separates effort with reasoning levels rather
+// than slugs, which litefactory does not yet pass through.
 func defaultModelByTier() map[Kind]map[Tier]string {
 	return map[Kind]map[Tier]string{
 		KindClaude: {
@@ -157,8 +161,8 @@ func defaultModelByTier() map[Kind]map[Tier]string {
 			TierFast:     "haiku",
 		},
 		KindCodex: {
-			TierFlagship: "gpt-5.6-sol",
-			TierBalanced: "gpt-5.6-terra",
+			TierFlagship: "gpt-6-astra",
+			TierBalanced: "gpt-6-astra",
 			TierFast:     "gpt-5.6-luna",
 		},
 	}

@@ -3,6 +3,9 @@ package repos
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/cloudvane/litefactory/internal/store"
 )
 
 // The named checks `repo add` runs, in the order it runs them. They are
@@ -54,6 +57,40 @@ var (
 	// an absolute path (AC-1.6).
 	ErrInvalidWorktreeRoot = errors.New("invalid worktree root")
 )
+
+// RepoNotFoundError reports that a `team add` <repo-identifier> ([ResolveIdentifier])
+// matched no registered repository. It names the identifier exactly as typed
+// (US-19 AC-4), never the resolution path it took to get there.
+type RepoNotFoundError struct {
+	// Identifier is the raw <repo-identifier> the operator typed.
+	Identifier string
+}
+
+func (e *RepoNotFoundError) Error() string {
+	return fmt.Sprintf("no registered repository matches %q", e.Identifier)
+}
+
+// AmbiguousRepoError reports that a `team add` <repo-identifier>
+// ([ResolveIdentifier]) matched more than one registered repository. It is a
+// typed error rather than a sentinel so the caller can list every candidate's
+// full owner/name (US-19 AC-3) — the same shape [store.AmbiguousIssueError]
+// uses for the same reason.
+type AmbiguousRepoError struct {
+	// Identifier is the raw <repo-identifier> the operator typed.
+	Identifier string
+	// Candidates are every repository the identifier matched, in the order
+	// [store.DB.ListRepos] returned them (owner, then name).
+	Candidates []store.Repo
+}
+
+func (e *AmbiguousRepoError) Error() string {
+	names := make([]string, 0, len(e.Candidates))
+	for _, c := range e.Candidates {
+		names = append(names, c.Slug())
+	}
+	return fmt.Sprintf("%q matches more than one registered repository (%s)",
+		e.Identifier, strings.Join(names, ", "))
+}
 
 // CheckError reports which registration check rejected a path, and why.
 //

@@ -34,12 +34,15 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
 		return "", fmt.Errorf("prepare claude settings: %w", err)
 	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return "", fmt.Errorf("prepare claude config dir: %w", err)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	//nolint:gosec // binary/args are configuration/constants; untrusted text is stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, buildEnv(r.environ, r.forwardEnv), strings.NewReader(req.Prompt)
+	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(req.Prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = waitDelay
 	cmd.Cancel = func() error {
@@ -81,12 +84,15 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
 		return agent.ScheduleProposal{}, fmt.Errorf("prepare claude settings: %w", err)
 	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return agent.ScheduleProposal{}, fmt.Errorf("prepare claude config dir: %w", err)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv), strings.NewReader(prompt)
+	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = waitDelay
 	cmd.Cancel = func() error {
@@ -209,6 +215,14 @@ type Runner struct {
 	// ceiling contains it.
 	ceiling      []string
 	settingsPath string
+	// claudeConfigDir is the CLAUDE_CONFIG_DIR the child runs under, so that it
+	// reads litefactory's configuration and not the operator's ~/.claude.
+	// See [EnsureClaudeConfigDir].
+	claudeConfigDir string
+	// osHome is the operator's OS home directory, kept only so that the
+	// credential symlink under claudeConfigDir can be pointed at their file.
+	// It is not $LF_HOME, which is Runner.home.
+	osHome string
 	// model is the --model the top-level session runs on. Sub-agents that name
 	// their own model in their definition are unaffected by it.
 	model       string
@@ -245,6 +259,12 @@ func New(opts Options) (*Runner, error) {
 	if !filepath.IsAbs(settingsPath) {
 		return nil, invalidOptions("claude.settings_path %q must be an absolute path", settingsPath)
 	}
+
+	// The child's configuration directory is litefactory's, always under
+	// $LF_HOME — it is not operator-configurable, because the whole point is
+	// that it is not the operator's directory.
+	claudeConfigDir := opts.Paths.ClaudeConfigDir()
+	osHome := envMap(opts.Environ)["HOME"]
 
 	// The --model value is resolved from tier when a tier is configured
 	// (US-6): ModelTier takes precedence over the literal Model, because it
@@ -297,12 +317,16 @@ func New(opts Options) (*Runner, error) {
 		allowedTools: append([]string(nil), opts.Claude.AllowedTools...),
 		ceiling:      append([]string(nil), ceiling...),
 		settingsPath: settingsPath,
-		model:        model,
-		autoCompact:  autoCompact,
-		timeout:      time.Duration(opts.Claude.TimeoutSeconds) * time.Second,
-		forwardEnv:   opts.Claude.ForwardAnthropicEnv,
-		environ:      environ,
-		logger:       opts.Logger,
+
+		claudeConfigDir: claudeConfigDir,
+		osHome:          osHome,
+
+		model:       model,
+		autoCompact: autoCompact,
+		timeout:     time.Duration(opts.Claude.TimeoutSeconds) * time.Second,
+		forwardEnv:  opts.Claude.ForwardAnthropicEnv,
+		environ:     environ,
+		logger:      opts.Logger,
 	}, nil
 }
 
@@ -396,6 +420,12 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 	}
 	if err := os.MkdirAll(filepath.Dir(logPath), runArtefactDirMode); err != nil {
 		return nil, fmt.Errorf("create run log directory: %w", err)
+	}
+	if created, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return nil, fmt.Errorf("prepare claude config dir: %w", err)
+	} else if created {
+		r.logger.Info("created the agent's claude config dir",
+			slog.String("path", r.claudeConfigDir))
 	}
 	if written, err := EnsureSettings(r.settingsPath, r.home); err != nil {
 		return nil, fmt.Errorf("prepare claude settings: %w", err)
@@ -588,7 +618,7 @@ func (r *Runner) exec(
 	// environment.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir = req.WorktreePath
-	cmd.Env = buildEnv(r.environ, r.forwardEnv)
+	cmd.Env = buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir)
 	// The prompt goes on stdin (AC-3.12): out of ps, and past the ~1 MB macOS
 	// ARG_MAX ceiling that a large issue body would otherwise hit as E2BIG.
 	cmd.Stdin = strings.NewReader(req.Prompt)
