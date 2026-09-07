@@ -232,6 +232,19 @@ func prepare(
 	attachments := ingestAttachments(ctx, opts, req, ref, run.Ordinal, logger)
 	writeAttachmentManifest(ctx, worktree.Path(), ref, run.Ordinal, attachments, logger)
 
+	// Both fields are populated only when resume is true: a cold run has no
+	// predecessor whose transcript needs correcting, and a zero store.Run's
+	// own Succeeded() would read as success anyway, which is not the fact a
+	// cold prompt could ever need. resumeDecision's own three conditions
+	// already guarantee found is true whenever resume is true, so previous is
+	// always the real predecessor row here, never the zero value.
+	var previousFailed bool
+	var previousReason string
+	if resume {
+		previousFailed = !previous.Succeeded()
+		previousReason = previous.Error
+	}
+
 	promptInput := harness.PromptInput{
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
@@ -251,6 +264,8 @@ func prepare(
 		PreviousMode:      previous.Mode,
 		History:           history,
 		Attachments:       attach.PromptSection(attachments.Accepted),
+		PreviousFailed:    previousFailed,
+		PreviousReason:    previousReason,
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {

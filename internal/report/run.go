@@ -404,10 +404,33 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v.lead += "\n\nlitefactory then could not complete the turn either: " + failure
 	}
 
-	if run.WorktreePath != "" {
-		v.lead += "\n\nWhatever the run produced is still in the worktree at " + codeSpan(run.WorktreePath) + "."
-	}
+	v.lead += worktreeNote(run.WorktreePath)
 	return v
+}
+
+// worktreeNote is the paragraph naming where a run's unfinished work still
+// sits, appended to a callout describing a run that did not succeed. Empty
+// when the worktree path was never recorded, because a report should never
+// claim a location it does not have.
+//
+// [outcomeView.withFailure] always said this about a failure that happened
+// around the run; [describeRunOutcome]'s own non-success arms say the same
+// thing, in the same words, about a run that failed on its own.
+func worktreeNote(path string) string {
+	if path == "" {
+		return ""
+	}
+	return "\n\nWhatever the run produced is still in the worktree" + inWorktreeAt(path) + "."
+}
+
+// inWorktreeAt renders where a run's worktree sits, as a clause to append
+// after "the worktree" — the path, quoted through [codeSpan] so it cannot
+// break the comment's markdown, or nothing when the path was never recorded.
+func inWorktreeAt(path string) string {
+	if path == "" {
+		return ""
+	}
+	return " at " + codeSpan(path)
 }
 
 // describeRunOutcome renders the heading word and the callout for how the run
@@ -442,6 +465,7 @@ func describeRunOutcome(run Run) outcomeView {
 		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
 		}
+		lead += worktreeNote(run.WorktreePath)
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeTimedOut:
@@ -449,8 +473,8 @@ func describeRunOutcome(run Run) outcomeView {
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
-		lead += ". The work it had done up to that point is still in the worktree. " +
-			"Raise the timeout or narrow the task, then comment again."
+		lead += ". The work it had done up to that point is still in the worktree" + inWorktreeAt(run.WorktreePath) +
+			". Raise the timeout or narrow the task, then comment again."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
@@ -463,6 +487,7 @@ func describeRunOutcome(run Run) outcomeView {
 		lead := fmt.Sprintf("Run %d exited cleanly without ever reporting a result. "+
 			"In practice this is usually a stale `%s` credential: the tool retries internally about ten times "+
 			"and then goes quiet. Run `%s` once by hand to check it is still logged in, then comment again.", n, tool, tool)
+		lead += worktreeNote(run.WorktreePath)
 		return outcomeView{word: "no result", alert: "WARNING", lead: lead}
 
 	default:
@@ -494,7 +519,7 @@ func fixedSection(run Run, view outcomeView) string {
 		b.WriteString(alertBlock(view.alert, view.lead))
 	}
 	b.WriteString(sectionGap)
-	b.WriteString(metadataList(run))
+	b.WriteString(metadataList(run, view))
 	b.WriteString(sectionGap)
 	b.WriteString(ReplyPlainlyNotice)
 	return b.String()
@@ -526,7 +551,11 @@ func alertBlock(kind, text string) string {
 
 // metadataList renders the facts of the run as a bullet list. Every entry is
 // omitted rather than guessed when it is not known.
-func metadataList(run Run) string {
+//
+// view is the outcome already computed for the callout above — passed in
+// rather than recomputed, so the Commit line's wording and the callout's
+// never disagree about whether this run succeeded.
+func metadataList(run Run, view outcomeView) string {
 	var lines []string
 	add := func(label, value string) {
 		lines = append(lines, "- **"+label+":** "+value)
@@ -540,8 +569,17 @@ func metadataList(run Run) string {
 		add("Commit", codeSpan(run.CommitSHA)+" (pushed)")
 	case run.CommitSHA != "":
 		add("Commit", codeSpan(run.CommitSHA)+" (in the local worktree only — not pushed)")
-	case run.Branch != "":
+	case run.Branch == "":
+		// Nothing to report: with no branch there is no worktree to name either.
+	case view.succeed:
 		add("Commit", "none — this run committed nothing")
+	default:
+		// A non-success run that committed nothing is not the same fact as a
+		// successful run that had nothing to change (AC-3.1): the words must
+		// differ, and this is where the reader is told where the work — if
+		// there is any — still is.
+		add("Commit", "none — this run did not succeed; if it produced anything, it is still in the worktree"+
+			inWorktreeAt(run.WorktreePath))
 	}
 
 	// The brief sits with the branch and the commit because it is the same kind
@@ -580,12 +618,17 @@ func metadataList(run Run) string {
 	}
 
 	if res := run.Result; res != nil {
-		if res.CostUSD > 0 {
+		switch {
+		case res.HasCost:
 			add("Cost", fmt.Sprintf("$%.4f", res.CostUSD))
+		default:
+			add("Cost", "unknown")
 		}
 		if res.Model != "" {
 			add("Model", codeSpan(res.Model))
 		}
+	} else {
+		add("Cost", "unknown")
 	}
 
 	if tools, ok := toolsEntry(run); ok {

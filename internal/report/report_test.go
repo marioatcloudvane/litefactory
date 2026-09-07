@@ -95,6 +95,7 @@ func successRun() report.Run {
 			Model:      "claude-sonnet-4-5",
 			ResultText: "Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.",
 			CostUSD:    0.4213,
+			HasCost:    true,
 			HasResult:  true,
 			NumTurns:   6,
 			Duration:   93 * time.Second,

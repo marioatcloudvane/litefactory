@@ -114,10 +114,12 @@ func fileStoryIssues(
 	if opts.SubIssueCreator == nil || opts.SubIssueRenderer == nil {
 		return result
 	}
-	if runResult == nil || runResult.Outcome == harness.OutcomeAbandoned {
-		// Mirrors save's own guard (harvest.go): the daemon may not have had
-		// time to commit the worktree at all, and there is nothing here to
-		// build on top of.
+	if runResult == nil || !runResult.Succeeded() {
+		// Mirrors save's own guard (harvest.go): git add --all below would
+		// otherwise sweep the failed run's uncommitted work into a commit no
+		// runs row names. The runResult == nil check is logically redundant
+		// under Succeeded()'s own nil-safety, but it is clearer to read and
+		// there is nothing worth trimming here.
 		return result
 	}
 	if result.Err != nil {

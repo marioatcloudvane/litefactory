@@ -97,6 +97,13 @@ type Run struct {
 	ExitCode *int64
 	// Error is the reason accompanying a [SignalExitCode] exit, for example
 	// [ReasonAbandoned]. Empty on a clean exit.
+	//
+	// It has a second reader now beyond the report and the log: [Run.Succeeded]
+	// treats an empty Error on a [RunReported] row as the durable signal that a
+	// run actually succeeded, and a resumed run's prompt input is built from
+	// that signal (US-4). It is prompt input now, not only report/log text — a
+	// future write path that leaves Error empty on a genuine failure would
+	// silently tell the next run that the failed one worked.
 	Error string
 	// StartedAt is when the subprocess was launched.
 	StartedAt time.Time
@@ -126,6 +133,35 @@ func (r Run) Duration() (time.Duration, bool) {
 		return 0, false
 	}
 	return time.Duration(*r.DurationMS) * time.Millisecond, true
+}
+
+// Succeeded reports whether this run genuinely finished as a success, which
+// takes two arms rather than one because Status alone stops meaning that the
+// moment a run is reported: [RunSucceeded] means it, and so does [RunReported]
+// — but only when [Run.Error] is empty, because a reported run started life as
+// either [RunSucceeded] or [RunFailed] and Status does not remember which.
+// Error does: it is set on the failure path and left empty on the success
+// path, and nothing clears it when a run moves on to [RunReported] — so an
+// empty Error on a reported row is the durable record that this run was a
+// success before it was ever reported, and a non-empty one is the durable
+// record that it was not.
+//
+// This is a second, distinct predicate from [agent.RunResult.Succeeded],
+// which reads a live subprocess's own exit and result event. That one has
+// nothing to read once the process is gone; this one has nothing else *to*
+// read — the stored row is all a later run, or a resumed one, ever gets. The
+// two must never be collapsed into one call or converted into each other:
+// they answer the same English question from different evidence with
+// different lifetimes.
+func (r Run) Succeeded() bool {
+	switch r.Status {
+	case RunSucceeded:
+		return true
+	case RunReported:
+		return r.Error == ""
+	default:
+		return false
+	}
 }
 
 // AllocateRunParams describes the run to allocate.
