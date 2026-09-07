@@ -49,6 +49,9 @@
       "desc": "A team for standard Go development",
       "research": [
         {
+          "ref": "research-orchestrator"
+        },
+        {
           "ref": "codebase-tour"
         },
         {
@@ -56,6 +59,9 @@
         }
       ],
       "plan": [
+        {
+          "ref": "plan-orchestrator"
+        },
         {
           "ref": "requirements-engineer"
         },
@@ -73,6 +79,9 @@
         }
       ],
       "implement": [
+        {
+          "ref": "implement-orchestrator"
+        },
         {
           "id": "go-implementation-engineer",
           "desc": "Implement one approved Go user story.",
