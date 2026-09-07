@@ -1389,3 +1389,53 @@ is installed rather than at that agent's first tick. All three parses call
 `logging.ParseLevel` and only that parser — D-3 still holds: `--level` here is
 a write-time threshold, unrelated to `logs --level`'s display-time filter,
 and no option type spans the two commands.
+
+## Amendment: SD-4 — CLAUDE_CONFIG_DIR is set by litefactory, not withheld from it
+
+- **Amendment:** 2026-09-06, operational incident on issue #68 (runs 133, 135–137,
+  141–144); no plan session — diagnosed live against the running daemon
+- **Status:** reversed in part — the prohibition is lifted, the allowlist principle stands
+
+**Used to say** (`internal/harness/env.go`):
+
+> CLAUDE_CONFIG_DIR. Setting it breaks Keychain auth even when the directory is
+> seeded (SD-4). It is not in this list and must not be added.
+
+**Now says:** litefactory sets `CLAUDE_CONFIG_DIR` to `$LF_HOME/claude-home` on
+every child, and seeds that directory with a *symlink* to the operator's
+`~/.claude/.credentials.json`. The variable is still absent from
+`envAllowlist`, and that is still correct: the allowlist governs what the child
+may *inherit*, and the operator's own value is exactly the one that must not
+win. This is a variable litefactory sets, not one it forwards.
+
+**Why the reversal is safe.** The original finding — that auth breaks even when
+the directory is seeded — did not reproduce. Measured end to end on 2026-09-06
+with the daemon's byte-identical argv, an isolated config dir and a symlinked
+credential file: `exit=0`, `subtype=success`, `is_error=false`, `num_turns=1`,
+`apiKeySource="none"`, and an `init` event matching a real daemon run field for
+field (`agents=18`, `skills=17`, `tools=8`, `permissionMode=auto`). The likely
+difference is seeding method: a copied credential file is stale the moment the
+token refreshes, where a symlink is written through.
+
+**Why it had to change.** Without it the child reads the operator's
+`~/.claude.json`, whose `projects` map holds one entry per directory claude has
+ever run in. Two of those sat under `~/Documents`. Opening a path there needs
+macOS TCC consent, attributed to the *responsible process* — `dist/litefactory`,
+an unsigned Go binary TCC cannot match a stored grant against
+(`identifier=a.out`). A LaunchAgent has no window for that prompt, so `tccd`
+logged `AUTHREQ_PROMPTING` for `kTCCServiceSystemPolicyDocumentsFolder` two
+seconds after each spawn and the child's `openat` blocked in the kernel until
+the request expired. Every daemon run since 2026-09-05 17:57Z paid it: eight
+runs, 9 to 31 minutes each, releasing on a 30-minute grid at :23 and :53 past
+the hour. Fourteen manual spawns with byte-identical argv started in 0.7–5s,
+because a terminal's responsible process already holds the grant.
+
+***Applies to*** the agent child's configuration directory only. It does not
+reach `envAllowlist`, which is unchanged; nor the `--settings` boundary, which
+still cannot stop personal agents and skills under `~/.claude` from being
+discovered — that is the gap this closes.
+
+**Known consequence:** `memory_paths` moves into `$LF_HOME/claude-home`. Daemon
+runs no longer read or write the operator's personal auto-memory, which is the
+same isolation argument applied consistently, but it is a behaviour change and
+is recorded here rather than discovered later.
