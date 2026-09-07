@@ -24,6 +24,7 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyUnknownAgent,
 	report.ReplyAgentSwitchRefused,
 	report.ReplyRefusesSync,
+	report.ReplySuggestsResolution,
 	report.ReplyMalformedModeLabel,
 	report.ReplyAmbiguousModeLabels,
 	report.ReplyConflictingModeSelection,

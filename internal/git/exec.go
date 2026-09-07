@@ -61,6 +61,13 @@ const (
 	// index and a ref, and may run hooks — the same budget as commitTimeout
 	// for the same reasons.
 	mergeTimeout = 120 * time.Second
+	// showBlobTimeout covers "git show <tree>:<path>", which reads one blob
+	// out of the local object store — no different in kind from the other
+	// local, read-only plumbing readTimeout already covers, but kept as its
+	// own named budget because [Worktree.ConflictBlob] is called once per
+	// conflicting file and a large file is still a single local read, not a
+	// history walk.
+	showBlobTimeout = 15 * time.Second
 )
 
 // waitDelay bounds how long Wait may block after the git process itself has

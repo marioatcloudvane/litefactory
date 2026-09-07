@@ -3,6 +3,8 @@ package turn
 import (
 	"errors"
 	"fmt"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // The two conditions [Execute] reports through its error return.
@@ -95,6 +97,17 @@ func (e *agentSwitchRefusal) Error() string {
 // *failure branch.
 type syncRefusal struct {
 	conflicts []string
+
+	// branch, base, files and excluded are US-11's addition: the conflicting
+	// content [syncBase] collected and capped inside the same
+	// [Options.CloneGate] acquisition [git.Worktree.MergePreview] ran under,
+	// carried through so [attemptConflictSuggestion] can ask a
+	// suggested-resolution advisor for it after the gate has been released.
+	// files and excluded are both nil unless [Options.SuggestConflictResolution]
+	// was true for this turn (S-10).
+	branch, base string
+	files        []agent.ConflictFileContent
+	excluded     []string
 }
 
 func (e *syncRefusal) Error() string {

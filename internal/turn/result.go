@@ -212,6 +212,21 @@ type Result struct {
 	// block (S-2) and does not sanitise or decide which paths are safe to
 	// show at all — that is US-5's job.
 	SyncConflicts []string
+
+	// ConflictProposal is set only on [DispositionSyncRefused], and only
+	// when [attemptConflictSuggestion] produced and persisted a suggested
+	// resolution for this blocked merge (US-11). [Reporter.ReportTurn]
+	// answers with [report.ReplySuggestsResolution] instead of
+	// [report.ReplyRefusesSync] when it is non-nil.
+	ConflictProposal *store.ConflictProposal
+
+	// ConflictSuggestionFailed is set only on [DispositionSyncRefused], and
+	// only when [Options.SuggestConflictResolution] was true for this turn
+	// but no usable proposal resulted (US-11, AC-11.2): the advisor was
+	// unavailable, failed, timed out, or its answer was rejected by local
+	// revalidation. [Reporter.ReportTurn] renders exactly one added line for
+	// it. It is always false when suggestions were disabled (AC-11.3).
+	ConflictSuggestionFailed bool
 }
 
 // Reportable reports whether this turn owes the issue a comment. Every

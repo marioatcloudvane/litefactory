@@ -290,7 +290,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 			// resolve on its own, read from the same validated configuration
 			// as the two fields above and bound the same way.
 			BlockRunOnConflict: s.Config.Settings.BlockRunOnConflict,
-			Logger:             s.Logger,
+			// US-11's suggested-resolution advisor, read and bound the same
+			// way: the flag defaults to false in config.Defaults, so a
+			// daemon that has not had it explicitly turned on collects and
+			// asks nothing.
+			SuggestConflictResolution: s.Config.Settings.SuggestConflictResolution,
+			ConflictContentMaxBytes:   s.Config.Settings.ConflictContentMaxBytes,
+			ConflictProposalTTL:       time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour,
+			Logger:                    s.Logger,
 		}),
 		Reporter: reporter,
 		// The same two keys the harness was built from above, so the profile a

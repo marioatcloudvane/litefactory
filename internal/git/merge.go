@@ -176,6 +176,38 @@ func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview,
 	return preview, nil
 }
 
+// ConflictBlob reads the content merge-tree wrote for path within treeSHA —
+// the tree object [Worktree.MergePreview] returned for a conflicted merge.
+// For a textual conflict that content is the same shape a real working-tree
+// merge would have left: the non-conflicting parts resolved, and each
+// conflicting region wrapped in the ordinary "<<<<<<<"/"======="/">>>>>>>"
+// markers. It is read-only: "git show" touches neither the working tree,
+// the index nor any ref, so this is safe to call for every conflicting path
+// [git.MergePreview.Conflicts] reported, in any order, without disturbing
+// the branch [Worktree.MergePreview] promised to leave untouched.
+//
+// Content is returned exactly as git wrote it, with no interpretation:
+// binary detection, non-UTF-8 handling, capping and hunk extraction are the
+// caller's policy (internal/turn), not this package's. treeSHA and path are
+// screened by [checkName] before either reaches git, the same way every
+// other caller-supplied value in this package is.
+func (w *Worktree) ConflictBlob(ctx context.Context, treeSHA, path string) (string, error) {
+	if err := w.check(); err != nil {
+		return "", err
+	}
+	if err := checkName("tree", treeSHA); err != nil {
+		return "", err
+	}
+	if err := checkName("path", path); err != nil {
+		return "", err
+	}
+	out, err := w.runner.run(ctx, showBlobTimeout, "show", "--end-of-options", treeSHA+":"+path)
+	if err != nil {
+		return "", classify(err, ErrRevisionNotFound, 128)
+	}
+	return out, nil
+}
+
 // MaxMergeConflictPaths caps how many conflicted paths [Worktree.MergePreview]
 // reports. The cap is applied here, at parse time, rather than only where a
 // caller later renders the list (S-9): a merge with thousands of conflicting

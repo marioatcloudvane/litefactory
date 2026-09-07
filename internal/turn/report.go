@@ -244,6 +244,17 @@ type ReplyRequest struct {
 	// US-5's job.
 	ConflictPaths []string
 
+	// ConflictProposal and ConflictSuggestionFailed belong to
+	// [report.ReplyRefusesSync]/[report.ReplySuggestsResolution] alone
+	// (US-11): the persisted suggestion, when one was produced, and the
+	// added one-line "no suggestion could be produced" note, when
+	// suggestions were attempted but none resulted. internal/report decides
+	// which of the two to render — this package only carries the facts
+	// through from [Result.ConflictProposal] and
+	// [Result.ConflictSuggestionFailed].
+	ConflictProposal         *report.ConflictProposal
+	ConflictSuggestionFailed bool
+
 	// ScheduleKind and Schedule describe a factory-owned scheduling response.
 	// They never carry the scheduled payload, so agent input is not echoed into
 	// Litefactory's signed comment.
@@ -414,13 +425,38 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 		return Posted{Skipped: true}, nil
 	}
 
-	return r.ReportReply(ctx, ReplyRequest{
+	req := ReplyRequest{
 		Ref:           result.Ref,
 		SessionID:     result.SessionID,
 		CommentID:     result.TriggerCommentID,
 		Refusal:       report.ReplyRefusesSync,
 		ConflictPaths: result.SyncConflicts,
-	})
+	}
+	// US-11: a persisted suggestion draws its own reply kind; a suggestion
+	// that was attempted and failed still draws the plain refusal, plus its
+	// one added line. Neither is ever set unless
+	// [Options.SuggestConflictResolution] was true for this turn (AC-11.3).
+	switch {
+	case result.ConflictProposal != nil:
+		req.Refusal = report.ReplySuggestsResolution
+		req.ConflictProposal = conflictProposalReply(*result.ConflictProposal)
+	case result.ConflictSuggestionFailed:
+		req.ConflictSuggestionFailed = true
+	}
+	return r.ReportReply(ctx, req)
+}
+
+// conflictProposalReply converts a persisted [store.ConflictProposal] into
+// the plain data [report.ConflictProposal] renders (US-11). It carries
+// forward only the paths and the model's own resolution text; the raw
+// conflicting content shown to the model was never on the store row to
+// begin with (S-9, S-10).
+func conflictProposalReply(proposal store.ConflictProposal) *report.ConflictProposal {
+	files := make([]report.ConflictProposalFile, 0, len(proposal.Files))
+	for _, f := range proposal.Files {
+		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: f.Resolution})
+	}
+	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files}
 }
 
 // ReportRun posts one run's report, records the result comment id, advances the
@@ -546,14 +582,16 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	}
 
 	body, err := r.renderer.RenderReply(ctx, report.Reply{
-		Ref:            req.Ref,
-		Kind:           kind,
-		Command:        req.Command.Name,
-		Agent:          req.Agent,
-		OwningAgent:    req.OwningAgent,
-		RequestedAgent: req.RequestedAgent,
-		ConflictPaths:  req.ConflictPaths,
-		Schedule:       req.Schedule,
+		Ref:                      req.Ref,
+		Kind:                     kind,
+		Command:                  req.Command.Name,
+		Agent:                    req.Agent,
+		OwningAgent:              req.OwningAgent,
+		RequestedAgent:           req.RequestedAgent,
+		ConflictPaths:            req.ConflictPaths,
+		ConflictProposal:         req.ConflictProposal,
+		ConflictSuggestionFailed: req.ConflictSuggestionFailed,
+		Schedule:                 req.Schedule,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+

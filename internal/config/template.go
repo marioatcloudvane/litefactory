@@ -48,6 +48,12 @@ settings:
   # no data set determined it; tune it for your repository's pace.
   auto_sync_max_behind: %d
   block_run_on_conflict: %t
+  # Suggesting a resolution is off by default: this is the first place
+  # litefactory sends repository file content to a model, and turning it on
+  # is a decision for a human reviewer after a dedicated security sign-off.
+  suggest_conflict_resolution: %t
+  conflict_proposal_ttl_hours: %d # valid range: %d..%d
+  conflict_content_max_bytes: %d # valid range: %d..%d
 
 providers:
   github:
@@ -104,6 +110,9 @@ tool_profiles:
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount,
 		d.Settings.AutoSyncBase, d.Settings.AutoSyncMaxBehind, d.Settings.AutoSyncMaxBehind, d.Settings.BlockRunOnConflict,
+		d.Settings.SuggestConflictResolution,
+		d.Settings.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours,
+		d.Settings.ConflictContentMaxBytes, MinConflictContentMaxBytes, MaxConflictContentMaxBytes,
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
 		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools),

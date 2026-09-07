@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/attach"
@@ -197,6 +198,38 @@ type Options struct {
 	// (internal/daemon/setup.go), whose own default is true
 	// ([config.Settings.BlockRunOnConflict]).
 	BlockRunOnConflict bool
+
+	// SuggestConflictResolution is [config.Settings.SuggestConflictResolution]
+	// (US-11), copied in the same way BlockRunOnConflict is: this package
+	// reads a plain bool and has no opinion of its own about whether a
+	// blocked merge should also collect content for, and ask, a suggested-
+	// resolution advisor.
+	//
+	// True collects and caps the conflicting content inside the same
+	// [Options.CloneGate] acquisition [syncBase] already holds for
+	// [git.Worktree.MergePreview] (S-10); the advisor call itself always
+	// happens later, in [attemptConflictSuggestion], after the gate has
+	// been released. False collects nothing and asks nothing — the same
+	// tolerance every other Options field defaults to, and this field's own
+	// zero value, which is what keeps a caller that constructs Options
+	// without setting it on the security-conservative default (AC-11.3).
+	SuggestConflictResolution bool
+
+	// ConflictContentMaxBytes is [config.Settings.ConflictContentMaxBytes]
+	// (US-11): the total budget [collectConflictContent] caps the
+	// conflicting content it collects against, across every conflicting
+	// file in one blocked merge (AC-11.5). Zero admits nothing — every file
+	// is excluded — rather than being read as "no cap"; production always
+	// sets it from the loaded configuration, whose own floor keeps it
+	// positive.
+	ConflictContentMaxBytes int
+
+	// ConflictProposalTTL bounds how long a pending conflict-resolution
+	// proposal survives before a new one for the same session treats it as
+	// stale and expires it (US-11), derived from
+	// [config.Settings.ConflictProposalTTLHours]. Zero or negative disables
+	// expiry for the call [attemptConflictSuggestion] makes.
+	ConflictProposalTTL time.Duration
 
 	// Logger receives the turn's structured log lines. Required.
 	Logger *slog.Logger
@@ -551,7 +584,13 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		// needs its own [Disposition] and its own branch here (US-4).
 		var sr *syncRefusal
 		if errors.As(err, &sr) {
-			return syncRefused(result, sr, logger), nil
+			result = syncRefused(result, sr, logger)
+			// US-11: the model call, if there is to be one, happens here —
+			// after [prepare]'s call into [prepareClone] has already
+			// returned and its deferred release of [Options.CloneGate] has
+			// already run (AC-11.7). Nothing here can turn this refusal
+			// into anything but a refusal; see [attemptConflictSuggestion].
+			return attemptConflictSuggestion(ctx, opts, req, result, sr, logger), nil
 		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {

@@ -58,6 +58,23 @@ const (
 	// against. A negative value is rejected outright rather than clamped to
 	// this floor (US-8, CFG-6).
 	MinAutoSyncMaxBehind = 0
+	// MinConflictProposalTTLHours and MaxConflictProposalTTLHours bound how
+	// long a conflict-resolution proposal stays pending before it expires
+	// (US-11). The floor rules out a zero or negative TTL that would expire
+	// a proposal before it could ever be read; the ceiling of 720 hours
+	// (30 days) is a guard against a typed extra digit, not a measured
+	// limit.
+	MinConflictProposalTTLHours = 1
+	MaxConflictProposalTTLHours = 720
+	// MinConflictContentMaxBytes and MaxConflictContentMaxBytes bound the
+	// total conflicting content sent to the model in one blocked merge
+	// (US-11). The floor is small but non-zero, so a low value still
+	// admits at least a trivial conflict rather than excluding everything;
+	// the 1 MiB ceiling is a guard against a typed extra digit, not a
+	// measured limit — conflicting source files are small compared to the
+	// attachment ceilings above.
+	MinConflictContentMaxBytes = 256
+	MaxConflictContentMaxBytes = 1024 * 1024
 )
 
 var (
@@ -110,6 +127,14 @@ func (c *Config) Validate() error {
 	if s.AutoSyncMaxBehind < MinAutoSyncMaxBehind {
 		errs = append(errs, fmt.Errorf("settings.auto_sync_max_behind: %d must not be negative; 0 means no cap and is never applied automatically for a negative value",
 			s.AutoSyncMaxBehind))
+	}
+	if s.ConflictProposalTTLHours < MinConflictProposalTTLHours || s.ConflictProposalTTLHours > MaxConflictProposalTTLHours {
+		errs = append(errs, fmt.Errorf("settings.conflict_proposal_ttl_hours: %d is out of range; must be between %d and %d",
+			s.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours))
+	}
+	if s.ConflictContentMaxBytes < MinConflictContentMaxBytes || s.ConflictContentMaxBytes > MaxConflictContentMaxBytes {
+		errs = append(errs, fmt.Errorf("settings.conflict_content_max_bytes: %d is out of range; must be between %d and %d",
+			s.ConflictContentMaxBytes, MinConflictContentMaxBytes, MaxConflictContentMaxBytes))
 	}
 	if s.FeaturePrefix == "" {
 		errs = append(errs, errors.New("settings.feature_prefix: must not be empty; it is the first segment of every task branch"))

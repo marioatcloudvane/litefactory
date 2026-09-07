@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/git"
@@ -99,6 +100,35 @@ func conflictBaseAndBranch(t *testing.T, repo *gittest.Repo, dir string) {
 	}
 	repo.GitIn(dir, "add", "--all")
 	repo.GitIn(dir, "commit", "--quiet", "--message", "branch edits README.md")
+}
+
+// conflictBaseAndBranchWithOversizedFile is [conflictBaseAndBranch] plus a
+// second conflicting file, huge.txt, whose base and branch versions are
+// wholly different (not just one differing line) so the extracted conflict
+// hunk [collectConflictContent] would compute for it exceeds
+// conflictFilePerFileMaxBytes on its own and is excluded whole (AC-11.5):
+// huge.txt conflicts (its path is in [git.MergePreview.Conflicts], i.e. in a
+// syncRefusal's own conflicts list) but is never one of the files actually
+// collected and sent to a suggestion advisor.
+func conflictBaseAndBranchWithOversizedFile(t *testing.T, repo *gittest.Repo, dir string) {
+	t.Helper()
+	conflictBaseAndBranch(t, repo, dir)
+
+	hugeBase := strings.Repeat("x", conflictFilePerFileMaxBytes+1)
+	hugeBranch := strings.Repeat("y", conflictFilePerFileMaxBytes+1)
+
+	if err := os.WriteFile(filepath.Join(repo.Dir, "huge.txt"), []byte(hugeBase), 0o600); err != nil {
+		t.Fatalf("write base huge.txt: %v", err)
+	}
+	repo.Git("add", "--all")
+	repo.Git("commit", "--quiet", "--message", "base edits huge.txt")
+	repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+
+	if err := os.WriteFile(filepath.Join(dir, "huge.txt"), []byte(hugeBranch), 0o600); err != nil {
+		t.Fatalf("write branch huge.txt: %v", err)
+	}
+	repo.GitIn(dir, "add", "--all")
+	repo.GitIn(dir, "commit", "--quiet", "--message", "branch edits huge.txt")
 }
 
 // TestSyncBaseUpToDateShortCircuitsOnZeroBehind is the architecture's first

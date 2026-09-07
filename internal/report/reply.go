@@ -67,6 +67,20 @@ const (
 	// as the merge preview reported them.
 	ReplyRefusesSync
 
+	// ReplySuggestsResolution answers the same blocked-merge state of the
+	// world [ReplyRefusesSync] does, with one addition: a suggested
+	// resolution litefactory asked a tool-free model call for, validated
+	// locally, and persisted before this reply was rendered (US-11). It is
+	// drawn instead of [ReplyRefusesSync] only when a proposal was actually
+	// produced; every other blocked-merge turn — the feature disabled, the
+	// advisor unavailable or failed, its answer rejected by local
+	// revalidation — still answers with [ReplyRefusesSync], optionally
+	// carrying [Reply.ConflictSuggestionFailed]. [Reply.ConflictProposal]
+	// carries the suggestion itself: only the paths and the model's own
+	// resolution text, never the raw conflicting content that was shown to
+	// the model (S-9, S-10).
+	ReplySuggestsResolution
+
 	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
@@ -127,6 +141,8 @@ func (k ReplyKind) String() string {
 		return "agent_switch_refused"
 	case ReplyRefusesSync:
 		return "sync_refused"
+	case ReplySuggestsResolution:
+		return "sync_refused_with_suggestion"
 	case ReplyMalformedModeLabel:
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
@@ -165,7 +181,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyAgentSwitchRefused:
 		return true
-	case ReplyRefusesSync:
+	case ReplyRefusesSync, ReplySuggestsResolution:
 		return true
 	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
 		return true
@@ -239,13 +255,15 @@ func (k ReplyKind) RefusesSwitch() bool {
 	return k == ReplyAgentSwitchRefused
 }
 
-// RefusesSync reports whether k is [ReplyRefusesSync]: a reply drawn when a
-// task branch could not be merged with the base branch cleanly (US-4). It has
-// its own request shape — [Reply.ConflictPaths] — the same reason
-// [RefusesSwitch] does, and for the same reason [RefusesAgent]'s own doc
-// excludes [ReplyAgentSwitchRefused].
+// RefusesSync reports whether k is [ReplyRefusesSync] or
+// [ReplySuggestsResolution]: a reply drawn when a task branch could not be
+// merged with the base branch cleanly (US-4), the second being the same
+// refusal with a suggested resolution attached (US-11). Both share one
+// request shape — [Reply.ConflictPaths], and for the second,
+// [Reply.ConflictProposal] — the same reason [RefusesSwitch] does, and for
+// the same reason [RefusesAgent]'s own doc excludes [ReplyAgentSwitchRefused].
 func (k ReplyKind) RefusesSync() bool {
-	return k == ReplyRefusesSync
+	return k == ReplyRefusesSync || k == ReplySuggestsResolution
 }
 
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
@@ -287,9 +305,43 @@ type Reply struct {
 	// is US-5's job; it shows whatever list it is handed.
 	ConflictPaths []string
 
+	// ConflictProposal is read by [ReplySuggestsResolution] alone (US-11):
+	// the suggested resolution litefactory persisted for this blocked
+	// merge. Nil for every other kind, including [ReplyRefusesSync] when no
+	// suggestion was produced.
+	ConflictProposal *ConflictProposal
+
+	// ConflictSuggestionFailed is read by [ReplyRefusesSync] alone (US-11,
+	// AC-11.2): true when suggestions were enabled for this turn but no
+	// usable proposal resulted — the advisor was unavailable, failed, timed
+	// out, or its answer was rejected by local revalidation. It renders
+	// exactly one added line; the feature-disabled path leaves this false,
+	// which is what keeps that path's rendering byte-identical to the
+	// no-suggestion behaviour (AC-11.3).
+	ConflictSuggestionFailed bool
+
 	// Schedule carries the safe, structured facts of a scheduling reply. It is
 	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
 	Schedule ScheduleReply
+}
+
+// ConflictProposal is a suggested resolution for a blocked merge, read by
+// [ReplySuggestsResolution] alone (US-11). It carries only what the advisor
+// suggested — a proposal id, the model name, and per-file resolution text —
+// never the raw conflicting content that was shown to the model: that
+// content does not reach this package, the same boundary [store.ConflictProposal]
+// draws at the persistence layer (S-9, S-10).
+type ConflictProposal struct {
+	ID    int64
+	Model string
+	Files []ConflictProposalFile
+}
+
+// ConflictProposalFile is one conflicting path and the model's suggested,
+// fully resolved replacement content for it.
+type ConflictProposalFile struct {
+	Path       string
+	Resolution string
 }
 
 // ScheduleReply is the factory-owned information rendered for a scheduling
@@ -438,6 +490,44 @@ func classifyConflictPaths(paths []string) (accepted []string, rejected int) {
 	return accepted, rejected
 }
 
+// conflictProposalBlock renders a proposal's per-file suggested resolutions,
+// reusing exactly the denylist and fencing discipline [conflictsBlock]
+// already applies to conflicting paths (US-5), rather than a second copy of
+// it: [conflictPathSpan] screens the path, [sanitize] and [fenceFor] make
+// the resolution text safe to quote verbatim (S-2).
+//
+// A file whose path fails the denylist renders nothing for that file and is
+// silently dropped, the same per-item behaviour [classifyConflictPaths]
+// already gives every other conflicting-path list in this package — it is
+// not the reject-the-whole-response discipline internal/turn's local
+// revalidation applies before a proposal is ever persisted (T-11.8); by the
+// time a proposal reaches this renderer it has already passed that gate; a
+// dropped file here is defence in depth, not the expected case.
+func conflictProposalBlock(files []ConflictProposalFile) string {
+	var b strings.Builder
+	first := true
+	for _, f := range files {
+		span, ok := conflictPathSpan(f.Path)
+		if !ok {
+			continue
+		}
+		if !first {
+			b.WriteString("\n")
+		}
+		first = false
+		fmt.Fprintf(&b, "For `%s`:\n", span)
+		content := sanitize(f.Resolution)
+		fence := fenceFor(content)
+		b.WriteString(fence)
+		b.WriteString("\n")
+		b.WriteString(content)
+		b.WriteString("\n")
+		b.WriteString(fence)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // body renders the reply. It is small on purpose: a reply is an answer to
 // something litefactory will not do, and the useful part is the sentence that
 // says what it will do instead.
@@ -532,6 +622,30 @@ func (r Reply) body() string {
 			fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(r.ConflictPaths))
 			b.WriteString(conflictsBlock(r.ConflictPaths))
 		}
+		if r.ConflictSuggestionFailed {
+			b.WriteString(sectionGap)
+			b.WriteString(conflictSuggestionFailedSentence)
+		}
+		b.WriteString(sectionGap)
+		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
+
+	case ReplySuggestsResolution:
+		b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
+			"stopped before starting the agent. ")
+		b.WriteString(syncRefusalSentence)
+		if len(r.ConflictPaths) > 0 {
+			b.WriteString(sectionGap)
+			fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(r.ConflictPaths))
+			b.WriteString(conflictsBlock(r.ConflictPaths))
+		}
+		if r.ConflictProposal != nil {
+			b.WriteString(sectionGap)
+			fmt.Fprintf(&b, "Suggested resolution from `%s` (proposal `%d`):\n",
+				oneLine(r.ConflictProposal.Model), r.ConflictProposal.ID)
+			b.WriteString(conflictProposalBlock(r.ConflictProposal.Files))
+		}
+		b.WriteString(sectionGap)
+		b.WriteString(conflictProposalConfirmationSentence)
 		b.WriteString(sectionGap)
 		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
 
@@ -633,6 +747,22 @@ const agentRefusalSentence = "Nothing was run: litefactory refuses a run it cann
 // stale branch.
 const syncRefusalSentence = "Nothing was run: litefactory refuses a run it cannot merge the base branch " +
 	"into cleanly rather than guessing at a resolution or running against a stale branch."
+
+// conflictSuggestionFailedSentence is [ReplyRefusesSync]'s one added line
+// when suggestions were enabled but no usable proposal resulted (US-11,
+// AC-11.2). It is a single sentence on purpose: this reply must add exactly
+// one line over the plain refusal, never more.
+const conflictSuggestionFailedSentence = "No suggested resolution could be produced for this conflict."
+
+// conflictProposalConfirmationSentence is the confirmation phrase
+// [ReplySuggestsResolution] carries on every render (AC-11.1): a suggestion
+// is advisory only, and this is the one sentence that says so, the same way
+// [syncRefusalSentence] is the one account every sync refusal gives of why
+// nothing ran. There is no confirmation grammar yet — accepting a
+// suggestion is a later story — so this sentence is unconditional rather
+// than a command hint.
+const conflictProposalConfirmationSentence = "This is a suggestion only: litefactory has not applied it, " +
+	"and this task's branch, index, and commits are unchanged."
 
 // conflictPathRejectionSentence is the one thing every hidden-conflict-path
 // count has to say, for the same reason [syncRefusalSentence] exists: a path

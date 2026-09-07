@@ -410,3 +410,142 @@ notes. `go build ./...`, `go vet ./...`, `gofmt -l .` clean; `go test -race
 -count=1 ./...` green across all 22 packages, re-verified directly by the
 orchestrator as the final gate. No follow-up planning cycle is needed for
 either story.
+
+---
+
+# Drift Report — how-to-merge-pull-manage-conflicts (US-11)
+# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
+
+This section covers **US-11 only** ("Suggest a resolution when a run is
+refused for a conflict"), appended after the eight prior sections above
+(each still valid and unchanged). US-12 remains unbuilt and out of scope —
+it depends on this story and on US-10 (already done).
+
+## Delivered as planned
+
+- **T-11.1** — migration and `store.ConflictProposal` type: delivered. The
+  cited `0008_conflict_proposals.sql` number was re-confirmed by directly
+  listing `internal/store/migrations/` before writing the file (head was
+  `0007_run_sync.sql` from the completed US-9); no collision found.
+- **T-11.2/T-11.3** — store lifecycle calls and their tests: delivered.
+  `CreateOrGetConflictProposal` folds the supersede-pending-for-session step
+  inline under one `BEGIN IMMEDIATE` transaction, mirroring
+  `CreateOrGetScheduleProposal`'s existing precedent rather than exposing a
+  separate exported supersede call (a reasonable implementation choice, not
+  a deviation — AC-11.8 does not name a specific call shape, only the
+  transactional guarantee, which is delivered and tested).
+- **T-11.4/T-11.5** — `internal/agent` request/response types, prompt
+  builder, strict parser, and their tests: delivered, following
+  `proposal.go`'s shape exactly (untrusted content last, "data, not
+  instructions" label, `DisallowUnknownFields`, trailing-JSON-value
+  rejection, conflict-marker rejection).
+- **T-11.6/T-11.7** — hunk collection/capping and their tests: delivered.
+  Per-file and total budget caps, whole-file exclusion for
+  unreadable/binary/non-UTF-8/no-markers/over-budget files, `Excluded` list
+  populated and asserted by tests.
+- **T-11.8** — local revalidation of model output: delivered (paths-subset
+  check, no-remaining-markers check, reject-in-full on any violation). See
+  Added Scope/Architectural Deviations below for CR-A-006, a narrowing gap
+  in this check that does not violate AC-11.4 as written but was
+  deliberately not fixed (production-code change, outside this run's
+  test-phase role) and is recorded as a regression-guarded, documented gap.
+- **T-11.9** — `ConflictAdvisor` narrowing interface and wiring: delivered,
+  including the concrete `Runner` implementations (`harness.Runner`,
+  `codex.Runner`) added during the BLOCKING fix cycle — see Architectural
+  Deviations below. A dedicated test proves the model call is never made
+  while `CloneGate` is held (AC-11.7).
+- **T-11.10/T-11.11** — `internal/report` rendering and its tests:
+  delivered. `ReplySuggestsResolution` reuses US-5's existing
+  `conflictsBlock`/`conflictPathSpan`/`sanitize`/`fenceFor` machinery rather
+  than duplicating it (independently verified true by the code reviewer
+  reading the diff).
+- **T-11.12** — config keys: delivered. `suggest_conflict_resolution`
+  defaults `false` in both the Go zero-value path and the generated
+  `config.yaml` template (independently verified by the code reviewer, not
+  just asserted).
+- **T-11.13** — end-to-end blocked-run tests with a stubbed advisor:
+  delivered, covering happy path, failure, disabled, unusable response, and
+  terminal state.
+- **AC-11.1 through AC-11.9** — all nine delivered and tested. AC-11.6 and
+  CR-A-006 were closed as genuine gaps during Phase 3 (see Testing notes in
+  `notes.md`); the remaining seven were already fully proven by tests
+  written during implementation and the BLOCKING fix cycle.
+- **S-9/S-17, S-10** — the AC-11.9 no-raw-content-persisted guarantee was
+  verified structurally (schema introspection, not just absence of an
+  obvious bug); the model call's tool-free/bounded-call discipline and the
+  gate-boundary rule (collect inside, call outside, own deadline, never
+  `context.Background()`) were independently re-traced from source by the
+  code reviewer in both the initial review and the CR-B-002 re-review.
+
+## Added scope
+
+- **`Worktree.ConflictBlob`** (`internal/git/merge.go`) — not named in
+  US-11.md's own file list, but a necessary supporting addition: this
+  codebase's `internal/git` package is documented as the sole gateway to the
+  git binary ("no other package may exec git at all"), so reading conflict-
+  marker content for the advisor had to live there rather than in
+  `internal/turn`. A narrow, read-only method (`git show <tree>:<path>`),
+  screened the same way existing `internal/git` calls are, with its own
+  named timeout budget (`showBlobTimeout`, 15s) registered in the package's
+  existing timeout-policy invariant test.
+- **`ProposeConflictResolution` on `harness.Runner` and `codex.Runner`** —
+  see Architectural Deviations below; added during the BLOCKING fix cycle,
+  not present in the original architecture notes' four-package list, but
+  required for AC-11.1 to be satisfiable in production at all.
+
+## Dropped or deferred
+
+- **The human-approval half of Phase 7.5** (the plan's blocking security
+  review gate) was not performed by this run and is not performable by a
+  headless run — see `notes.md`'s "Phase 7.5" section for the full
+  reasoning. The automated half (a `go-code-reviewer` pass explicitly
+  running `.claude/skills/shared/security-scanner.md` against every
+  new/changed file) was performed as part of this run's ordinary Phase 1.5
+  gate. `suggest_conflict_resolution` remains `false` by default, exactly as
+  the plan's D-3 specifies pending that sign-off; nothing in this delivery
+  bypasses that default.
+- US-12 remains entirely unbuilt, as instructed — out of scope for this
+  run. It depends on this story (now done) and US-10 (already done), and per
+  the plan's own Phase 9 gate is intended to open only once "at least one
+  real blocked run has produced a suggestion an owner has actually read" —
+  an observation gate this run cannot satisfy on its own, since
+  `suggest_conflict_resolution` ships disabled by default.
+
+## Architectural deviations
+
+- **Concrete `ConflictAdvisor` implementations were required, not optional
+  follow-up.** US-11.md's "Package placement" architecture note named
+  exactly four packages (`agent`, `turn`, `store`, `report`) as where this
+  story's work lands, and the first implementation pass read that literally
+  — building the narrowing interface and its wiring, but leaving
+  `internal/harness`/`internal/codex` untouched, on the reasoning that the
+  feature ships disabled by default anyway. Code review rejected that
+  reading: AC-11.1 describes real posted-comment production behavior, not a
+  stub-satisfied guarantee, and the established codebase precedent
+  (`ProposeSchedule`) has always shipped narrowing-interface and
+  concrete-implementation as one unit. This was fixed within the same run
+  (CR-B-002, BLOCKING, resolved and re-reviewed CLEAR) by adding
+  `ProposeConflictResolution` to both `harness.Runner` and `codex.Runner`,
+  mirroring `ProposeSchedule`'s existing shape exactly in each file. This is
+  recorded as a deviation from the sub-issue's literal architecture-notes
+  wording, not from its intent — the story's own acceptance criteria always
+  required this; the architecture notes' file-list omission was the stale
+  detail, corrected the same way prior stories in this feature have
+  corrected other stale citations (line numbers, migration numbers) when
+  found.
+
+## Verdict
+
+CLEAN — delivered against all nine acceptance criteria, including the one
+genuine functional gap (CR-B-002) code review caught and this run's own
+Phase 1.5 fix cycle closed before Phase 3 began, so no bug-loop cycle was
+needed and the story left this run in a fully working state, not a
+"structurally complete but inert" one. Two non-blocking advisories remain
+open (CR-A-006, a narrowing gap in local revalidation that does not violate
+any stated AC; CR-A-007, a performance note). The one deliberate,
+correctly-recognized deferral is the human-approval half of Phase 7.5,
+which no run — headless or otherwise — can supply on its own; it is not a
+scope miss, and no follow-up planning cycle is needed to resolve it, only a
+human decision on the issue thread. US-12 is now unblocked (both of its
+dependencies, US-11 and US-10, are done) but remains gated by the plan's own
+observation gate (Phase 9), not by anything this run left undone.

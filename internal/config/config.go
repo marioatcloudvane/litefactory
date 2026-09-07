@@ -119,6 +119,31 @@ type Settings struct {
 	// stale base. Defaults to true: guessing wrong about a conflict is worse
 	// than stopping and asking (US-8).
 	BlockRunOnConflict bool `yaml:"block_run_on_conflict"`
+
+	// SuggestConflictResolution controls whether a blocked run (US-4) also
+	// asks a tool-free model call to suggest how the conflict could be
+	// resolved, persists the suggestion, and posts it alongside the refusal
+	// (US-11).
+	//
+	// Defaults to false. This is the first place in litefactory where
+	// repository file content leaves the process and reaches a model, and
+	// turning it on is a decision for a human reviewer after a dedicated
+	// security sign-off — not something a fresh install opts into by
+	// running `litefactory init`.
+	SuggestConflictResolution bool `yaml:"suggest_conflict_resolution"`
+	// ConflictProposalTTLHours bounds how long a conflict-resolution
+	// proposal stays pending before a later one for the same session treats
+	// it as stale and expires it (US-11), mirroring the schedule proposal
+	// lifetime internal/daemon already applies to its own proposals.
+	ConflictProposalTTLHours int `yaml:"conflict_proposal_ttl_hours"`
+	// ConflictContentMaxBytes caps the total conflicting file content sent
+	// to the model across every conflicting file in one blocked merge
+	// (US-11, S-9, S-17). Per-file and total capping is internal/turn's
+	// job; this is the total ceiling it caps against — negative or zero is
+	// a config load error, never silently treated as "no cap": unlike
+	// [Settings.AutoSyncMaxBehind], there is no meaningful "unlimited"
+	// reading for content sent to an external model call.
+	ConflictContentMaxBytes int `yaml:"conflict_content_max_bytes"`
 }
 
 // Agents groups the fully typed configuration for every supported coding
@@ -399,6 +424,9 @@ func Defaults() Config {
 			AutoSyncBase:               true,
 			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
 			BlockRunOnConflict:         true,
+			SuggestConflictResolution:  false,
+			ConflictProposalTTLHours:   DefaultConflictProposalTTLHours,
+			ConflictContentMaxBytes:    DefaultConflictContentMaxBytes,
 		},
 		Providers: Providers{
 			GitHub: GitHub{
@@ -497,6 +525,16 @@ const (
 	// skipped on distance alone (US-8). It is a judgment call, not a
 	// measurement — see [Settings.AutoSyncMaxBehind].
 	DefaultAutoSyncMaxBehind = 100
+	// DefaultConflictProposalTTLHours is 24 hours: how long a conflict-
+	// resolution proposal stays pending before it is treated as stale
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictProposalTTLHours].
+	DefaultConflictProposalTTLHours = 24
+	// DefaultConflictContentMaxBytes is 16 KiB: the default total budget
+	// for conflicting file content sent to the model in one blocked merge
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictContentMaxBytes].
+	DefaultConflictContentMaxBytes = 16 * 1024
 )
 
 // NotInitializedError reports that $LF_HOME has no config.yaml, which means

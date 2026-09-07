@@ -27,8 +27,8 @@ import (
 // # What it can do
 //
 // The read-only half records what happened: [Worktree.Path], [Worktree.Branch],
-// [Worktree.ClonePath], [Worktree.RevParse], [Worktree.Status], [Worktree.Divergence]
-// and [Worktree.MergePreview]. The mutating half is [Worktree.Commit],
+// [Worktree.ClonePath], [Worktree.RevParse], [Worktree.Status], [Worktree.Divergence],
+// [Worktree.MergePreview] and [Worktree.ConflictBlob]. The mutating half is [Worktree.Commit],
 // [Worktree.Push] and [Worktree.MergeBase] — the only three operations in
 // litefactory that write to a repository or to a remote.
 type Worktree struct {

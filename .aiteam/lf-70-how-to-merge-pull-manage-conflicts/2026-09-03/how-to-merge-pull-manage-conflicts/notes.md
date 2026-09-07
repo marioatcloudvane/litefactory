@@ -658,3 +658,209 @@ reflect US-6 and US-10 as delivered (10 of 12 stories now done). No
 that step from this team's workflow. Remaining for future runs, each needing
 its own comment: US-11 (needs US-5 + US-9, both already done — unblocked)
 and US-12 (needs US-11 + US-10 — US-10 now done, but still blocked on US-11).
+
+---
+
+# Implementation Notes — US-11 (Suggest a resolution when a run is refused for a conflict)
+
+## Scope of this run
+
+This run implemented **US-11 only**, per explicit instruction ("implement
+US-11 now"). US-1 through US-10 (already implemented, reviewed, and
+committed) were left untouched. US-12 remains out of scope — it depends on
+US-11 (this run) and US-10 (already done), and cannot start until this run
+finishes and its own comment is posted.
+
+## Phase 7.5 (security review gate) — how it was resolved
+
+`plan_brief.md`'s Workflow section describes Phase 7.5 as a blocking,
+non-story security review scoped to this exact story (repository content
+outbound to a model, model text inbound), naming `go-code-reviewer` running
+`.claude/skills/shared/security-scanner.md` as "the nearest available
+instrument," and the human owner as the final approver. It also states
+`suggest_conflict_resolution` ships defaulting to **false** until that human
+sign-off happens (D-3), which the spec's own A-20 explicitly authorises as a
+configuration the review may later flip, not a deviation from it.
+
+Read literally, "Phase 8 [US-11] entered once Phase 7.5 is signed off" could
+be read as blocking this run from touching US-11 at all until a human has
+signed off elsewhere. That reading was rejected as the wrong one for a
+headless run: the plan's own design already makes the code's shipped state
+safe without that sign-off (default `false`, AC-11.3 requires the disabled
+path to be byte-identical to today's plain refusal and make no model call),
+and the security review's own defined instrument (`go-code-reviewer` +
+`security-scanner.md`) is something this run can actually execute. The
+decision taken: implement US-11 in full against its own acceptance criteria,
+explicitly invoke `go-code-reviewer` with an instruction to run
+`.claude/skills/shared/security-scanner.md` against every new/changed file as
+part of Phase 1.5's ordinary code-review gate (satisfying the "nearest
+available instrument" half of Phase 7.5), and leave `suggest_conflict_resolution`
+defaulting to `false` exactly as specified. The human-approval half of Phase
+7.5 — actually flipping the default to `true` — was not performed and is not
+performable by this run; it remains open, tracked here rather than silently
+skipped. This is recorded as an assumption under this run's own authority
+(ordinary uncertainty, resolved on the most reasonable reading of the plan,
+per the Escalating section's guidance — not a severe blocker, since the code
+ships inert and every AC is satisfiable and was in fact satisfied without
+that sign-off).
+
+## Migration number
+
+`US-11.md`'s own prose flagged `0008_conflict_proposals.sql` as a best guess
+to be re-confirmed by directly listing `internal/store/migrations/` at
+implement time, since the number had already been wrong once this week. The
+implementing engineer did so: `0007_run_sync.sql` (from the completed US-9)
+is the current head, so `0008` was confirmed correct with no collision.
+
+## What was built
+
+- `internal/store/migrations/0008_conflict_proposals.sql` — new `conflict_proposals`
+  and `conflict_proposal_files` tables. Deliberately no content/hunk column
+  anywhere in the schema (AC-11.9).
+- `internal/store/conflict_proposals.go` — `ConflictProposalStatus`
+  (pending/superseded/expired), `ConflictProposal`/`ConflictProposalFile`,
+  `CreateOrGetConflictProposal` (read-then-write under `BEGIN IMMEDIATE`,
+  supersede-pending-for-session folded inline, mirroring
+  `CreateOrGetScheduleProposal`'s existing precedent), `GetConflictProposal`,
+  `ExpireConflictProposals`, and a store-boundary file-count cap.
+- `internal/agent/conflict.go` — request/response types, `ParseConflictResolution`
+  (strict decoder: `DisallowUnknownFields`, rejects a second JSON value,
+  rejects any response still carrying a conflict marker), and
+  `ConflictResolutionPrompt` (untrusted content delivered last, under a
+  "data, not instructions" label — the same shape `proposal.go` already
+  uses).
+- `internal/turn/conflict.go` — hunk collection/capping (per-file and total
+  budget, whole-file exclusion for unreadable/binary/non-UTF-8/no-markers/
+  over-budget files, an `Excluded` list), the `ConflictAdvisor` narrowing
+  interface + `conflictAdvisorFor` (type-asserts a `Runner` out of
+  `turn.RunnerSet`), `validateConflictResolution` (reject-in-full local
+  revalidation), and `attemptConflictSuggestion` (the orchestration, called
+  from `Execute` strictly after `prepareClone`'s gate has already been
+  released — proven, not just claimed, by a dedicated gate-timing test).
+- `internal/report/reply.go` — `ReplySuggestsResolution` kind, reusing US-5's
+  existing `conflictsBlock`/`conflictPathSpan`/`sanitize`/`fenceFor`
+  machinery rather than duplicating it (verified true by the code reviewer
+  reading the diff, not just asserted).
+- `internal/config` — `SuggestConflictResolution` (default `false`),
+  `ConflictProposalTTLHours`, `ConflictContentMaxBytes`, following US-8's
+  existing default/validate/template pattern.
+- `internal/git/merge.go` — `Worktree.ConflictBlob` (read-only `git show
+  <tree>:<path>`), a necessary supporting addition: `internal/git` is this
+  codebase's sole git-exec boundary, so reading conflict-marker content for
+  the advisor had to live there.
+
+## BLOCKING finding found and resolved during Phase 1.5
+
+- **CR-B-002** (was BLOCKING, now resolved): the first implementation pass
+  built the `ConflictAdvisor` narrowing interface and its wiring, fully
+  covered by tests using a stub advisor, but **no concrete `Runner`**
+  (`internal/harness.Runner`, `internal/codex.Runner`) actually implemented
+  the interface method — `conflictAdvisorFor` would return `ok == false` for
+  every real coding-agent tool in every production configuration, regardless
+  of the config flag. The code reviewer judged this a material failure of
+  AC-11.1 (which describes real posted-comment behavior, not a stub-only
+  guarantee), not a legitimate deferral, since the established codebase
+  precedent (`ProposeSchedule`) has always shipped narrowing-interface and
+  concrete-implementation together as one unit, and US-11.md's own carefully
+  enumerated "NOT in scope" list does not name this gap. Fixed by adding
+  `ProposeConflictResolution` to both `internal/harness/runner.go` and
+  `internal/codex/runner.go`, mirroring `ProposeSchedule`'s exact shape in
+  each file (tool-free invocation, own `context.WithTimeout` off the passed
+  `ctx`, same cancellation discipline, same response-parsing call into
+  `agent.ParseConflictResolution`). Re-review verdict: CLEAR — confirmed via
+  a temporary compile-time interface-satisfaction probe (removed after
+  confirming), independent re-tracing of the tool-free/deadline discipline,
+  and 14 combined full-suite/isolated `-race` re-runs to confirm one
+  observed `internal/harness` test failure was a genuine pre-existing flake
+  (`TestRunTimeoutKillsTheWholeSubtree`, unrelated to this diff, exercising
+  the pre-existing `Run` method under CPU contention) and not something the
+  fix introduced.
+
+## Code Review Advisories
+
+- **CR-A-006** (advisory, security-tagged, non-blocking): `validateConflictResolution`
+  checks a model-returned path against the full `MergePreview.Conflicts` list
+  rather than the narrower set of files actually collected and shown to the
+  model (`sr.files`) — a response naming a file that was excluded whole
+  (binary/oversized/non-UTF-8) still passes validation and could be
+  persisted/posted as a suggestion for content the model never saw. Does not
+  violate AC-11.4 as literally written (which only requires rejecting a path
+  outside `MergePreview.Conflicts` entirely, and rejecting any response with
+  a remaining conflict marker — both of which are correctly enforced).
+  Narrows the defence-in-depth story rather than breaking a stated
+  guarantee. Confirmed real and given a regression test proving current
+  behavior (`TestExecuteAcceptsASuggestionNamingAnExcludedFile`) rather than
+  fixed — production-code changes are outside the unit-test engineer's role,
+  and this was not classified BLOCKING. Left open as a note for a future
+  tightening if `validateConflictResolution` is ever narrowed to check
+  against `sr.files` instead.
+- **CR-A-007** (advisory, performance, non-blocking): `collectConflictContent`
+  does not short-circuit once the total byte budget is exhausted, so
+  subprocess (`git show`) calls scale with conflict-file count (capped at
+  500 upstream by S-9's existing parse-time cap) rather than with useful
+  collected content. Not a correctness bug; skipped for testing per the
+  orchestrator's own instruction that it was not trivially testable without
+  crossing into implementation-reading territory.
+
+No other BLOCKING findings for this story. `go-code-reviewer`'s security-scanner
+pass (explicitly run against every new/changed file, standing in for Phase
+7.5's "nearest available instrument") found nothing beyond the two advisories
+above; the AC-11.9 no-raw-content-persisted guarantee was verified
+structurally (schema introspection via `pragma_table_info`), not just by
+absence of an obvious bug. See `CODE_REVIEW.md`'s newest dated section
+(including its follow-up re-review section) for the full record; all eight
+prior sections are unchanged.
+
+## Known, deliberately-flagged gap (not a defect, not fixed this run)
+
+The implementing engineer initially left `internal/harness`/`internal/codex`
+untouched, reasoning the architecture notes' package-placement list named
+only four packages. Code review correctly identified this as a functional
+gap against AC-11.1 (see CR-B-002 above) and it was fixed within this same
+run's Phase 1.5 cycle — there is no remaining gap of this kind. The one
+genuinely deferred, out-of-scope item is the human-approval half of Phase
+7.5 (see above): `suggest_conflict_resolution` remains `false` by default,
+and no config, label, flag, or environment variable in this delivery
+bypasses that. Flipping it is a decision for a human reviewer outside this
+run, exactly as the plan specifies.
+
+## Phase 2 — Environment setup
+
+US-11 touches `internal/store` (SQLite via the existing embedded-migration
+convention, tested as unit tests per this codebase's established pattern,
+not a provisioned external database) and makes a bounded model call —
+covered entirely by a stubbed `ConflictAdvisor` in every test, per T-11.13's
+own instruction, never a real network call. No story in this run's scope
+touches a real external dependency (database requiring `TEST_DATABASE_URL`,
+external HTTP call, message queue). Environment setup and the integration
+test suite were both skipped per the orchestrator's Phase 2 rule, consistent
+with every prior story in this feature.
+
+## Testing
+
+`go-unit-test-engineer` cross-checked all nine acceptance criteria
+(AC-11.1–AC-11.9) against tests already on disk from the implementation and
+fix-cycle passes. Seven were already fully proven; two genuine gaps were
+closed: AC-11.6 (no existing test directly asserted the blocked-run path
+reaches a terminal state and never sleeps/polls — closed with a
+`Result.Reportable()`/`ConsumesComment()` assertion plus a new AST-based
+structural test forbidding `time.Sleep`/`After`/`Tick`/`NewTicker`/`NewTimer`
+in `internal/turn/conflict.go`, following this codebase's own established
+AST-test pattern from `internal/github/assets_policy_test.go`), and CR-A-006
+(closed with a regression test documenting, not fixing, the current
+behavior). No production code was changed during this phase.
+
+## Final gate (orchestrator-run, not delegated)
+
+`go build ./...`, `go vet ./...`, `gofmt -l .` (no output), and
+`go test -race -count=1 ./...` were all run directly by this orchestrator
+across the whole module (all 22 packages) and are green — no build errors,
+no vet findings, no formatting issues, no race-detector findings, no test
+failures.
+
+## Bug loop
+
+Not entered — zero test failures reported by any phase (one BLOCKING code
+review finding was found and resolved within Phase 1.5's own re-review
+cycle, which is a distinct mechanism from the bug loop and does not count
+against its 2-cycle budget).

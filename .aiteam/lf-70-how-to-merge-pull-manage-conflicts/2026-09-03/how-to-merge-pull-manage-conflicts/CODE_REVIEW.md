@@ -60,6 +60,8 @@
 **Finding:** No test anywhere in the tree references `report.ReplyRefusesSync` (searched the whole repository). `internal/report/reply_test.go` and `report_test.go` cover `ReplyLegacyToolLabel`, `ReplyUnknownCommand`, and `ReplyEmptySpike`, but nothing exercises `RenderReply` with `Kind: ReplyRefusesSync`, and nothing in `internal/turn` exercises `reportSyncRefusal`/`syncRefused` dispatch. This is a test-suite gap, not a production-code defect — production code was verified directly and is correct (see below) — and per this review's scope test files are the test engineers' responsibility, not something to block on here.
 **Suggestion:** Flag for the test-writing phase: T-4.5's stated test list ("agent never starts on blocked, no run artifact directory created, refusal comment posted") does not appear to have landed yet for the reply-rendering half specifically.
 
+**Update (2026-09-07, US-11 review):** This gap is now closed. `internal/report/run_test.go`/`replykind_test.go` and `internal/turn`'s test suite (`TestReporterPostsReplyRefusesSyncWithConflictingPaths` and the wider `ReplyRefusesSync` coverage added alongside US-11's own `ReplySuggestsResolution` tests) exercise `RenderReply(Kind: ReplyRefusesSync)` and `reportSyncRefusal` directly. No further action needed.
+
 ---
 
 ## Verified correct (spot-checks requested by the orchestrator, first review pass)
@@ -266,3 +268,301 @@ US-6 and US-10 touch adjacent code — both sit inside `internal/git`'s merge pa
 ## Verdict
 
 ADVISORY_ONLY — 2 advisory findings (CR-A-004, CR-A-005) noted for the drift report, plus two notes for the orchestrator to carry into test-planning (T-10.3 still open; `errors.Join` pattern confirmed not applicable here). No BLOCKING findings for US-6 or US-10. Proceeding to environment setup / next phase.
+
+---
+---
+
+# Code Review — US-11
+# Feature: Suggest a resolution when a run is refused for a conflict
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: BLOCKING
+
+---
+
+## Scope
+
+This section reviews only US-11 ("Suggest a resolution when a run is refused
+for a conflict"), the first story in this feature where repository file
+content leaves litefactory for a model. Per the architect's flag and the
+orchestrator's explicit instruction, `.claude/skills/shared/security-scanner.md`
+was run against the new/changed files in addition to the ordinary review
+checklist; its findings are reported both inline (marked **[SECURITY]**) and
+in a dedicated table below, as the skill's own output format requires.
+
+Files created (read in full):
+- `internal/store/migrations/0008_conflict_proposals.sql`
+- `internal/store/conflict_proposals.go`
+- `internal/store/conflict_proposals_test.go`
+- `internal/agent/conflict.go`
+- `internal/agent/conflict_test.go`
+- `internal/turn/conflict.go`
+- `internal/turn/conflict_test.go`
+- `internal/turn/conflict_e2e_test.go`
+- `internal/git/conflict_test.go`
+- `internal/report/conflict_proposal_test.go`
+
+Files modified (read as diffs against the pre-US-11 tree, plus enough of the
+surrounding unchanged code to verify the diff's own claims):
+- `internal/git/merge.go` (`Worktree.ConflictBlob`)
+- `internal/git/exec.go` (`showBlobTimeout`)
+- `internal/git/exec_internal_test.go`, `internal/git/worktree.go` (doc comment)
+- `internal/config/config.go`, `internal/config/validate.go`, `internal/config/template.go`
+- `internal/daemon/setup.go`
+- `internal/turn/errors.go`, `internal/turn/prepare.go`, `internal/turn/execute.go`, `internal/turn/result.go`, `internal/turn/report.go`, `internal/turn/fixture_test.go`
+- `internal/report/reply.go`, `internal/report/reporter.go`, `internal/report/replykind_test.go`, `internal/report/testdata/reply_suggests_resolution.golden`
+
+Also read, to verify specific claims rather than trust them: `internal/agent/proposal.go` (the pattern this story is meant to follow end to end), `internal/daemon/proposal_adapter.go` and `internal/harness/runner.go`'s `ProposeSchedule` (the established "narrowing interface + concrete Runner implementation" precedent), `internal/codex/runner.go` (confirmed it also implements `ProposeSchedule`), `internal/harness/prompt.go`'s `PromptInput` (confirmed no content field was added), `internal/git/exec.go`'s `checkName` (confirmed the screening `ConflictBlob` relies on), `internal/report/run.go`'s `conflictsBlock`/`text.go`'s `sanitize`/`fenceFor` (confirmed US-11 reuses them rather than duplicating).
+
+Verification run directly:
+- `go build ./...` — clean
+- `go vet ./...` — clean
+- `gofmt -l` over every US-11 `.go` file (created and modified) — no files listed
+- `go test -count=1 ./internal/agent/... ./internal/store/... ./internal/git/... ./internal/turn/... ./internal/report/... ./internal/config/... ./internal/daemon/...` — all `ok`
+- `go test -race -count=1 ./internal/turn/... -run Conflict -v` — every US-11 test PASS, no race
+
+---
+
+## Security Findings
+
+**Scope:** `internal/agent/conflict.go`, `internal/turn/conflict.go`,
+`internal/turn/prepare.go` (the `syncBase` collection call site),
+`internal/turn/execute.go`/`report.go` (the post-gate dispatch and reply
+assembly), `internal/store/conflict_proposals.go` and its migration,
+`internal/report/reply.go`'s `conflictProposalBlock`, and
+`internal/config/config.go`'s three new settings — i.e. every file this story
+touches, since this is the first place repository content leaves the process
+for a model.
+**Rulebook:** not found (searched for a `security:` section in any rulebook
+file passed by the caller and for a repository-level rulebook file; none
+exists) — applied the OWASP-based generic principles this skill falls back to.
+
+| # | Area | Status | Finding |
+|---|---|---|---|
+| 1 | Input validation | ✅ | `treeSHA`/`path` reaching `git show` in `Worktree.ConflictBlob` are screened by the existing `checkName` (empty/dash-prefix/control-byte rejection) before either reaches argv, matching every other `internal/git` caller; `--end-of-options` additionally forecloses flag injection. The model's JSON response is parsed with `DisallowUnknownFields` and a second-JSON-value rejection (`agent.ParseConflictResolution`), then independently re-validated in `internal/turn` (`validateConflictResolution`) against the caller's own known-good path set before anything is persisted — a defence-in-depth pair, not a single point of trust. |
+| 2 | Auth & authz | ✅ | No new externally reachable endpoint or command is added. The feature's entire access control is the `suggest_conflict_resolution` config flag, which defaults to `false` in both the Go zero-value path (`config.Settings{}`'s zero value *and* an explicit `SuggestConflictResolution: false` in `config.Defaults()`) and the generated `config.yaml` template (`%t` interpolation of that same default) — confirmed by reading `internal/config/config.go`, `internal/config/template.go`, and `internal/daemon/setup.go` directly, not asserted from a comment. |
+| 3 | Secrets & configuration | ✅ | No secret, token, or credential is introduced. The three new config keys (`suggest_conflict_resolution`, `conflict_proposal_ttl_hours`, `conflict_content_max_bytes`) are all plain operator-facing settings with range-validated numeric bounds (`internal/config/validate.go`). |
+| 4 | Data handling | ⚠️ | Two distinct findings, detailed below as CR-A-006 and CR-A-007/S-10 note. Summary: (a) the raw conflicting content shown to the model is **never persisted** — verified structurally, not just by absence of an obvious bug, via `TestConflictProposalsSchemaHasNoContentColumn`'s `pragma_table_info` introspection of both `conflict_proposals` and `conflict_proposal_files`, which would fail if a future edit ever added a content column (AC-11.9, S-9, S-17: **compliant**); but (b) local revalidation (`validateConflictResolution`) checks a model-returned path against the *full* `MergePreview.Conflicts` list rather than against the narrower set of paths actually shown to the model, so a response naming an excluded (binary/oversized/non-UTF-8) file's path still passes and could be persisted and posted as a "suggested resolution" for content the model never received — see CR-A-006. |
+| 5 | Dependencies & supply chain | ✅ | No new dependency. `internal/agent/conflict.go` imports only `bytes`, `encoding/json`, `errors`, `fmt`, `io`, `strings` — the same stdlib set `proposal.go` already uses. |
+| 6 | Error handling | ✅ | Every advisor/validation/persistence failure collapses to a single generic log line (`logger.Warn("conflict-resolution advisor failed", ...)` etc.) and one fixed reply sentence ("No suggested resolution could be produced for this conflict.") — no internal error text, model output, or stack detail is ever echoed into the posted GitHub comment. |
+
+**Summary:** The mitigations this story's own architecture notes call out — cap-and-exclude-whole-files, deliver untrusted content last on stdin under a "data, not instructions" label, reject-don't-salvage on the model's answer, never persist raw content, collect inside the gate but call the model outside it — are all present, all correctly targeted at the threats they name, and (unusually for this kind of review) verified structurally rather than by trusting a doc comment: the schema-introspection test for AC-11.9, the non-ASCII/marker-shaped rejection tests reused from US-5, and the direct read of `checkName`/`ConflictBlob` all hold up. The one genuine security-relevant gap (CR-A-006, local revalidation's allowed-path set is wider than what was actually sent to the model) is real but narrow — it cannot leak anything that was never collected, only mislabel an excluded file's fabricated "resolution" as legitimate — and is rated ADVISORY below. The highest-priority item for this codebase overall is not a defect the scanner can flag on this axis at all: **because no concrete `Runner` implements the `ConflictAdvisor` interface (see CR-B-002), the entire outbound-content pathway this review was convened to examine has never been exercised against a real model integration and cannot leak anything in production today, by construction — which is safe, but also means the security sign-off this story exists to gate cannot yet certify the actual end-to-end pathway, only the orchestration around a pathway that does not exist yet.**
+
+---
+
+## BLOCKING findings
+
+### CR-B-002: No concrete `Runner` implements `ConflictAdvisor`, so AC-11.1 cannot be satisfied by any production code path — only by a test stub
+**File:** `internal/turn/conflict.go:119-143` (`ConflictAdvisor`, `conflictAdvisorFor`); absence confirmed in `internal/harness/runner.go` and `internal/codex/runner.go`
+**Story:** US-11 / T-11.9
+**Category:** Cross-story / Standards (Definition of Done)
+
+**Finding:** `conflictAdvisorFor` narrows a `turn.RunnerSet` entry into a `ConflictAdvisor` by type-asserting for a `ProposeConflictResolution(ctx, agent.ConflictResolutionRequest) (agent.ConflictResolution, error)` method. Grepped both production `Runner` implementations directly: `internal/harness/runner.go` and `internal/codex/runner.go` each implement `ProposeSchedule` (the schedule-advisor's equivalent narrowing method) but **neither implements `ProposeConflictResolution`**. This is not a theoretical gap — it was independently confirmed by reading both files end to end, not inferred from the engineer's own report.
+
+The practical consequence: `conflictAdvisorFor(req.Agent, opts.Runners)` returns `ok == false` for *every* `agent.Kind` this daemon can ever be configured with in production, every time, unconditionally — regardless of whether `suggest_conflict_resolution` is `true` or `false`. `attemptConflictSuggestion`'s `if ok { ... }` branch (`internal/turn/conflict.go:229-235`) is therefore permanently dead code in the shipped binary: every blocked run with suggestions enabled will always take the "no advisor is registered for this coding-agent tool" path, set `Result.ConflictSuggestionFailed = true`, and post the one-line "No suggested resolution could be produced for this conflict" sentence — never the suggestion AC-11.1 describes. The only place `ConflictAdvisor` is ever satisfied anywhere in this tree is `internal/turn/fixture_test.go`'s `stubConflictRunner`, a test-only type whose own doc comment says so explicitly: "so a test can register it under `RunnerSet` and drive both call sites the way a real `*harness.Runner` eventually will" (emphasis on *eventually* — an admission, in the shipped code's own comments, that the real implementation does not exist).
+
+AC-11.1 reads: *"A blocked run with suggestions enabled posts one comment carrying the conflicting files, a per-file suggested resolution, the model name, a proposal ID and the confirmation phrase; the branch SHA is unchanged after the run."* This is a claim about what the *system* does, not what a stubbed test proves it is capable of doing given a component that does not exist. As shipped, no sequence of user actions, config changes, or the architect's own described "flip the flag after sign-off" escape hatch can ever make AC-11.1 true, because the component the whole feature depends on — a concrete advisor implementation — was never built.
+
+Three considerations pushed against calling this BLOCKING, and none of them survive scrutiny:
+
+1. *"The package-placement list in the architecture notes only names four packages (`agent`, `turn`, `store`, `report`)."* True, but that list is describing where the **new types and orchestration logic** live, not enumerating every file the story touches — `internal/git` is also touched (for `ConflictBlob`) despite not being on that list, and the notes explicitly justify that as expected, not a violation. The same architecture notes separately state the `ConflictAdvisor` interface is "satisfied by type-asserting a `Runner` out of `turn.RunnerSet`" — a sentence that only makes sense as a description of working behavior if some `Runner` actually satisfies it.
+2. *"The feature defaults to off, so this is consistent with waiting for sign-off before it matters."* The default-off flag is a real and correctly-implemented mitigation for the *security* exposure (nothing can leak, because nothing can be called) — see the Security Findings summary above. It does nothing to redeem the *functional* promise AC-11.1 makes. A reviewer who signs off on enabling this feature, believing AC-11.1 was met (as the story's own "Ships in the phase opened after a blocking security review... signs off, and `suggest_conflict_resolution` defaults to false until that sign-off, flippable by the architect or that review" note implies), would flip a flag that produces no different behavior than leaving it off — silently, since the failure mode is indistinguishable from "the advisor tried and failed" in the posted comment.
+3. *"This is legitimate deferred follow-up, the same way other watch-outs were deferred."* Every other deferred concern in US-11.md is named explicitly in its own "NOT in scope" list (branch/index/commit writes, the confirmation grammar, editing a suggestion, a second model call, a reasoning tier). Wiring a concrete `ConflictAdvisor` implementation is not on that list. Its absence from an otherwise carefully enumerated list of exclusions is itself evidence that this was not a reviewed, approved scope decision — it was an implementer's own judgment call, made and documented candidly (the "when it exists" comment), but not one the story's own text authorizes.
+
+The established precedent in this exact codebase — `internal/daemon/proposal_adapter.go`'s `scheduleAdvisor`/`newProposalGenerator`, paired with `harness.Runner.ProposeSchedule` **and** `codex.Runner.ProposeSchedule`, both concretely implemented — shows that "narrowing interface + concrete Runner implementation" has always shipped as one unit of work in this codebase before now. US-11 breaks that precedent without the story's own text authorizing the break.
+
+**Verdict on the orchestrator's specific question:** This materially fails AC-11.1. It is **BLOCKING**, not a legitimate deferred follow-up. The rollout gate (`suggest_conflict_resolution` defaulting to `false`) is the correct and sufficient reason this is *not* a security incident today, and it is also not a reason to treat AC-11.1 as satisfied — those are two separate questions, and the story's Definition of Done binds to the second one. A story cannot be marked done against an acceptance criterion its shipped code structurally cannot make true.
+
+**Required fix:** One of two paths, and this is an architect/orchestrator decision rather than mine to make unilaterally:
+- (a) Wire a concrete `ProposeConflictResolution` method on `harness.Runner` (and, if Codex is meant to support suggestions too, on `codex.Runner`), following the exact tool-free, `--tools ""`, no-worktree pattern `harness.Runner.ProposeSchedule` already establishes (`internal/harness/runner.go:70-115`) — within this story, before it is marked done; or
+- (b) Have the architect explicitly amend `US-11.md`'s Tasks/Acceptance-Criteria/NOT-in-scope sections to defer the concrete-Runner wiring to a named follow-up story, and narrow AC-11.1's wording to describe only the stub-verified orchestration behavior this diff actually delivers — so the story's own acceptance criteria stop claiming behavior the shipped system cannot produce.
+
+Either is acceptable engineering; leaving AC-11.1 stated as-is while the code cannot satisfy it, with no record of a scope decision authorizing that gap, is not.
+
+**Update (2026-09-07, re-review): RESOLVED.** The engineer added `ProposeConflictResolution` to both `internal/harness/runner.go` (immediately after `ProposeSchedule`) and `internal/codex/runner.go` (immediately before `Run`), each mirroring its respective package's `ProposeSchedule` shape exactly. Verified independently rather than taken on the report's word — see the dedicated re-review section at the end of this document for the full verification trail. Both concrete `Runner` types now satisfy `turn.ConflictAdvisor`, confirmed by a temporary static-assertion probe (`var _ ConflictAdvisor = (*harness.Runner)(nil)`, `var _ ConflictAdvisor = (*codex.Runner)(nil)`) added to `internal/turn`, compiled successfully, and removed. `conflictAdvisorFor` is no longer permanently dead code in the shipped binary for either registered agent kind.
+
+---
+
+## ADVISORY findings
+
+### CR-A-006: [SECURITY] Local revalidation checks a model-returned path against the full conflicting-path set, not the narrower set of paths actually shown to the model
+**File:** `internal/turn/conflict.go:156-177` (`validateConflictResolution`); call site `internal/turn/conflict.go:245` (`validateConflictResolution(resolution, sr.conflicts)`)
+**Story:** US-11 / T-11.8
+**Category:** Security / Data handling
+**Finding:** `attemptConflictSuggestion` sends the advisor only `sr.files` — the subset of conflicting paths that survived `collectConflictContent`'s binary/non-UTF-8/oversized exclusion (`syncBase`, `internal/turn/prepare.go:587-590`). But it revalidates the advisor's response against `sr.conflicts` — the *full* `MergePreview.Conflicts` list, excluded files included. `validateConflictResolution`'s own doc comment says it checks "every path... one of the paths that actually conflicted", which is technically true of `sr.conflicts` (every one of those paths did conflict), but reads naturally as "the paths this call actually collected and sent" — which is `sr.files`, a strict subset when any file was excluded.
+
+The practical effect: a model response naming an excluded file's path — one whose content was binary, non-UTF-8, or too large to have ever been shown to the model — currently passes local revalidation, gets persisted as a `store.ConflictProposal` row, and gets posted to the issue as a "suggested resolution" for a file the model never examined. This does not violate AC-11.4 as literally written ("a response naming a path outside `MergePreview.Conflicts`... produce no proposal" — an excluded file's path is *inside* that list, just not inside what was sent), so it is not a correctness bug against the letter of the acceptance criterion. But it weakens the defence-in-depth story this exact check exists to provide: an issue owner reading a posted "suggestion" for a large binary asset (say) that was correctly excluded from the model's context would have no way to know the resolution shown for it is fabricated rather than derived from anything real.
+**Suggestion:** Narrow the `allowed` argument at the call site from `sr.conflicts` to the paths in `sr.files` (i.e. `agent.ConflictFileContent.Path` for each element actually sent), so a path the model was never shown is rejected the same way an out-of-scope path already is. This is a one-line change at the call site plus, ideally, deriving the allowed set directly from what was sent rather than threading a second list through `syncResult`.
+
+### CR-A-007: `collectConflictContent` does not stop once the total content budget is exhausted, so `CloneGate`-held time scales with the number of conflicting files rather than with useful collected content
+**File:** `internal/turn/conflict.go:49-90` (`collectConflictContent`, `capturedConflictContent`)
+**Story:** US-11 / T-11.6
+**Category:** Performance / Concurrency (S-6/S-10 gate-holding)
+**Finding:** The loop in `collectConflictContent` iterates every path in `conflicts` (up to `git.MaxMergeConflictPaths = 500`) and calls `reader.ConflictBlob` — a `git show` subprocess — for each one *before* checking whether the running `*total` has already reached `totalMaxBytes`. At the production defaults (`conflict_content_max_bytes` = 16 KiB, `conflictFilePerFileMaxBytes` = 4 KiB), at most about four files can ever be admitted under the total budget — but a blocked merge with, say, 200 conflicting files still spawns 200 sequential `git show` invocations, each doing real I/O and process-exec overhead, all while `prepareClone`'s single `Options.CloneGate` acquisition is held (this collection call happens *inside* `syncBase`, which is deliberately still under the same gate as `MergePreview`, per S-10). Every other turn queued behind the same registered clone waits for all of it — precisely the serialization-minimization property `AC-PAR-3.2` and the codebase's own repeated "one acquisition, minimal blocking" design language (see `CloneGate`'s doc comment) exist to protect.
+
+This does not violate AC-11.5 (the cap and exclusion behavior themselves are correct and tested — `TestCollectConflictContentExcludesWholeOverTotalBudget` proves files past the budget are excluded, just not that they're skipped cheaply) or AC-11.7 (the model call itself is still correctly outside the gate). It is a resource/latency concern specific to how expensive it is to *decide* what to exclude, not a correctness gap.
+**Suggestion:** Once `*total` has already reached `totalMaxBytes`, skip the remaining paths without calling `ConflictBlob` for them at all (they can be appended to `excluded` directly) — bounding gate-held time by the configured content budget rather than by how many files happened to conflict in the base branch.
+
+---
+
+## Verified correct
+
+- **S-10's "collect inside the gate, call the model outside it" split is genuinely enforced, not merely documented.** `syncBase` calls `collectConflictContent` at `internal/turn/prepare.go:588`, strictly inside `prepareClone`'s one `Options.CloneGate.Acquire`/`defer release()` pair (`prepare.go:429-433`). `attemptConflictSuggestion` — the only call site of `advisor.ProposeConflictResolution` in the tree — is invoked from `Execute` (`execute.go:593`) only after `prepare(...)` has already returned, i.e. after `prepareClone`'s deferred release has already run. `TestConflictAdvisorNeverCalledWhileCloneGateIsHeld` (AC-11.7) proves this dynamically with a `recordingGate` wrapper that tracks live hold state and fails if the advisor is invoked while held; re-ran it directly under `-race`, passes.
+- **The turn's own `ctx` reaches the advisor call unwrapped, never `context.Background()`.** `attemptConflictSuggestion(ctx context.Context, ...)` receives the same `ctx` `Execute` was called with and passes it straight through to `advisor.ProposeConflictResolution(ctx, ...)` with no `context.WithTimeout`/`WithDeadline` wrapping — matching the same "no ambient deadline imposed here" discipline `prepareClone`'s own doc comment states for git operations, and matching the architecture notes' explicit instruction.
+- **AC-11.1's non-Runner-dependent half is genuinely correct.** Read `internal/turn/report.go`'s `reportSyncRefusal` and `internal/report/reply.go`'s `ReplySuggestsResolution` case directly: the posted comment (when a proposal exists) carries the conflicting files (`conflictsBlock(r.ConflictPaths)`), a per-file resolution (`conflictProposalBlock(r.ConflictProposal.Files)`), the model name and proposal id (`"Suggested resolution from `%s` (proposal `%d`)"`), and the confirmation phrase (`conflictProposalConfirmationSentence`, unconditional on this reply kind). `TestExecuteSuggestsAResolutionOnABlockedRun` proves the branch SHA is unchanged (`git rev-parse HEAD` before/after, via a stubbed advisor) and that all five elements land in the posted body. Everything *except* "a real coding-agent tool actually produces a resolution in production" is correct — see CR-B-002 for the one piece that is not.
+- **AC-11.2 (advisor failure/timeout).** `TestExecuteSkipsSuggestionWhenAdvisorFails` proves a failing advisor still produces the full ordinary conflict refusal (conflicting paths present), writes no `ConflictProposal` (`result.ConflictProposal == nil`), and adds exactly the one "No suggested resolution could be produced for this conflict" line — verified both at the `Result` level and by rendering through `ReportTurn` to the actual posted body. A timeout is not separately tested at the `internal/turn` level, but is handled identically: `advisor.ProposeConflictResolution`'s own error return (of any cause, including a context deadline) takes the same `err != nil` branch in `attemptConflictSuggestion` — confirmed by reading the code, since there is exactly one error-handling branch for "the call failed," not one for "failed" and a separate one for "timed out."
+- **AC-11.3 (disabled path byte-identical) is proven at both layers, not just asserted.** At the `internal/turn` level, `TestExecuteMakesNoAdvisorCallWhenDisabled` proves zero advisor calls and that `Result.ConflictProposal`/`ConflictSuggestionFailed` are both left at their zero values when `SuggestConflictResolution` is `false`. At the `internal/report` rendering level, `TestReplyDisabledSuggestionIsByteIdenticalToThePlainRefusal` renders a plain `ReplyRefusesSync` with both US-11 fields left at zero and asserts none of the three US-11-specific strings ("No suggested resolution", "This is a suggestion only", "Suggested resolution from") appear — i.e. the rendering path is structurally guaranteed identical, not merely observed to look the same in one example, because `reportSyncRefusal`'s `switch` (`internal/turn/report.go:439-445`) only sets either field when `SuggestConflictResolution` was true for the turn (verified by reading the call graph: `attemptConflictSuggestion` returns immediately at its very first line when `!opts.SuggestConflictResolution`, before any log line or field mutation).
+- **AC-11.4 (out-of-scope path, conflict markers) is tested at three independent layers.** `agent.ParseConflictResolution` rejects a marker-carrying response at parse time (`TestParseConflictResolutionRejectsConflictMarkers`); `internal/turn`'s `validateConflictResolution` independently re-checks both conditions as defence in depth (`TestValidateConflictResolutionRejectsAnOutOfScopePath`, `TestValidateConflictResolutionRejectsAConflictMarker`, `TestValidateConflictResolutionRejectsADuplicatePath` — the duplicate-path check is not named by the AC but is a reasonable extension of the same "one path, one answer" discipline); and both are proven end-to-end through `Execute` (`TestExecuteRejectsAnOutOfScopeSuggestion`, `TestExecuteRejectsASuggestionCarryingConflictMarkers`), confirming no proposal is created or persisted on either violation.
+- **AC-11.5 (cap and exclusion) is tested with real boundary values, not just "some cap exists."** `TestCollectConflictContentExcludesWholeOverPerFileBudget` constructs a hunk exactly one byte over `conflictFilePerFileMaxBytes` and confirms whole-file exclusion (never truncation — the function has no truncation code path at all, only inclusion or exclusion). `TestCollectConflictContentExcludesWholeOverTotalBudget` sizes a total budget to admit exactly one of two files and confirms the second is excluded whole with the first kept exactly as collected. Binary (NUL byte) and non-UTF-8 detection are both exercised in `TestCollectConflictContentCapsAndExcludes`, alongside a no-markers-at-all case (a delete/rename conflict merge-tree cannot represent with markers) and an unreadable-blob case — all five exclusion reasons AC-11.5 and the story's own watch-out #2 name are covered, and none of them truncates.
+- **AC-11.6 (terminal state, no sleep/poll).** Read `attemptConflictSuggestion` and its full call chain top to bottom: no `time.Sleep`, no polling loop, no channel wait for an external reply — every path is a single synchronous call (advisor call, then optional expiry call, then optional persistence call) that returns immediately. `Execute` returns the `Result` from `attemptConflictSuggestion` directly to its own caller with no further waiting.
+- **AC-11.8 (single-transaction supersede) is verified both by reading `db.withTx`'s scope and by direct row-count assertion.** `CreateOrGetConflictProposal`'s entire body — the source-comment replay check, `supersedePendingConflictProposals`, the `INSERT` for the new proposal, and the per-file inserts — all run inside one `db.withTx(ctx, func(tx *sql.Tx) error { ... })` closure, so a crash or error partway through rolls back atomically; there is no window where two proposals for one session are both `pending`. `TestConflictProposalSupersedesEarlierPending` proves this concretely with a direct `SELECT COUNT(*) ... WHERE status = 'pending'` query after creating a second proposal, asserting exactly 1.
+- **AC-11.9 (never persist raw content) is verified structurally, exactly as the orchestrator's brief asked.** `TestConflictProposalsSchemaHasNoContentColumn` queries `pragma_table_info` for both `conflict_proposals` and `conflict_proposal_files` and asserts the exact column list — `{id, session_id, trigger_comment_id, model, status, created_at, resolved_at}` and `{id, proposal_id, ordinal, path, resolution}` respectively — with no content/hunk/blob column present in either. A future migration that reintroduced such a column would fail this test rather than shipping silently, which is the structural guarantee the brief asked for rather than an absence-of-bug argument. Independently confirmed by reading `0008_conflict_proposals.sql` directly: no column beyond `path`/`resolution` exists on the files table.
+- **Rollout gate (`suggest_conflict_resolution` defaults to `false`) verified in both places named.** Go zero-value path: `config.Settings{}`'s zero value for a `bool` field is already `false`, and `config.Defaults()` additionally states it explicitly (`SuggestConflictResolution: false`) rather than relying on the implicit zero value — belt and suspenders. Generated template: `internal/config/template.go`'s `%t` verb is fed `d.Settings.SuggestConflictResolution`, which is `false` from `Defaults()` unless a caller explicitly overrides it before rendering — confirmed by reading the `fmt.Sprintf` call's argument list directly, not assumed from the presence of the key.
+- **`internal/git`'s existing screening discipline is correctly extended, not bypassed, for the one new git call.** `ConflictBlob`'s `treeSHA` and `path` arguments both go through the same `checkName` every other `internal/git` caller-supplied value does (empty/dash-prefix/control-character rejection) before being concatenated into the single `<tree>:<path>` argv element, and `--end-of-options` precedes it — the same option-injection defence `MergePreview` and `MergeBase` already apply. `TestWorktreeConflictBlobRefusesUnscreenedNames` proves both parameters are independently screened. `git.Worktree`'s doc comment was correctly updated to list `ConflictBlob` under the read-only half, not the three-mutator list (`Commit`, `Push`, `MergeBase`) — confirmed correct, since `git show` touches neither the working tree, the index, nor a ref.
+- **Cross-story reuse of US-5's rendering machinery is real, not merely claimed.** `conflictProposalBlock` (new, `internal/report/reply.go`) calls the *same* `conflictPathSpan`, `sanitize`, and `fenceFor` functions `conflictsBlock` already uses — read the function bodies directly to confirm no second denylist regex, no second fence-width calculation, and no second sanitizer was introduced. The one difference (`conflictProposalBlock` drops a file silently on a rejected path rather than counting it, versus `conflictsBlock`'s reject-and-count) is explicitly and correctly documented as intentional defence-in-depth rather than the primary reject-don't-salvage gate, which already ran in `internal/turn`'s `validateConflictResolution` before a proposal was ever persisted.
+- **`harness.PromptInput` carries no conflict-content field.** Read the full struct definition in `internal/harness/prompt.go`; confirmed no field of any kind related to conflicting file content, hunks, or resolutions was added — watch-out #1 of the architecture notes is honored.
+- **No new dependency, no new package.** `internal/agent/conflict.go` imports only the stdlib set `proposal.go` already uses. Every new file lands in one of the four packages the architecture notes name (plus the one `internal/git` addition the notes themselves say is expected). No new `internal/daemon` file was added, matching "Nothing new in internal/daemon for this story" — confirmed by `git status`, which shows only `internal/daemon/setup.go` modified (the three-field `Options` wiring), no new file.
+- **Migration number.** `0008_conflict_proposals.sql` is confirmed the correct next head by directly listing `internal/store/migrations/`: `0001` through `0007` already exist, `0008` is next and unclaimed by any other in-flight story's migration.
+- **Build/vet/format/tests, re-run directly rather than trusted from the task report.** `go build ./...`, `go vet ./...` — both clean. `gofmt -l` over every `.go` file this story created or modified — no output. `go test -count=1` across `internal/agent`, `internal/store`, `internal/git`, `internal/turn`, `internal/report`, `internal/config`, `internal/daemon` — all `ok`. `go test -race -count=1 ./internal/turn/... -run Conflict -v` — every US-11 test (16 of them) individually PASS, no race detected.
+
+---
+
+## Cross-story summary
+
+US-11 integrates correctly at every boundary its architecture notes name: US-4's `blocked` outcome is the sole trigger (`syncOutcomeBlocked` gates both the ordinary refusal and the new collection step); US-5's path-rendering discipline is reused rather than duplicated for both the conflicting-path list and the new per-file resolution block; US-8's config plumbing follows the exact `AutoSyncBase`/`BlockRunOnConflict` copy-in pattern already established in `Options`; and US-9's `0007` migration is correctly the prior head with `0008` next. The `internal/report` cannot-import-`internal/turn` boundary is respected exactly as the notes require: `ReplySuggestsResolution` is a `report`-owned kind dispatched through `ReplyRequest.Refusal`/`kind()`, not through the `CommandKind`-keyed `replyKind` mapping (which needed no new case, since this is a state-of-the-world refusal like `ReplyRefusesSync` and `ReplyAgentSwitchRefused` before it, not a command answer).
+
+Where this story falls short is not at a story-to-story boundary but at the boundary between this story and the two packages (`internal/harness`, `internal/codex`) that would have to change for its central promise to ever be true in a running system. Everything upstream of that boundary — collection, capping, exclusion, the narrow bounded request/response shape, strict parsing, local revalidation, persistence, superseding, expiry, rendering, and the gate-timing discipline the security review cares most about — is built correctly and is more thoroughly verified, both by the implementer's own tests and by this review's independent re-derivation, than most stories this reviewer has seen. That work is not wasted by CR-B-002; it is exactly the work a concrete `Runner` implementation would plug into. But until that plug exists, the story cannot honestly be marked done against its own AC-11.1.
+
+---
+
+## Verdict
+
+**BLOCKING** — 1 blocking finding (CR-B-002) and 2 advisory findings (CR-A-006, CR-A-007) for US-11. Route CR-B-002 to the engineer(s) owning `internal/harness`/`internal/codex` (or to the architect, if the resolution is to re-scope AC-11.1 instead — see "Required fix" above) before Phase 2 testing proceeds on this story. CR-A-006 and CR-A-007 are noted for the drift report and do not block. This does not reopen or affect the ADVISORY_ONLY verdicts already recorded above for US-2/US-3/US-4, US-5/US-9, or US-6/US-10.
+
+
+---
+---
+
+# Re-review — US-11 / CR-B-002
+# Feature: Suggest a resolution when a run is refused for a conflict
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: CLEAR
+
+---
+
+## Scope
+
+Re-review of the single prior BLOCKING finding, CR-B-002 ("No concrete
+`Runner` implements `ConflictAdvisor`"). Per the orchestrator's instruction,
+only the two files tied to the fix were reviewed in full, plus
+`internal/turn/conflict.go` (the `ConflictAdvisor` interface and
+`conflictAdvisorFor`) and `internal/agent/conflict.go` (the request/response
+types and `ConflictResolutionPrompt`) for context only — neither was
+re-reviewed for its own correctness, both having already passed in the prior
+US-11 pass.
+
+Files reviewed:
+- `internal/harness/runner.go` (new method `ProposeConflictResolution`)
+- `internal/codex/runner.go` (new method `ProposeConflictResolution`)
+
+Read for context only, not re-graded:
+- `internal/turn/conflict.go` (`ConflictAdvisor`, `conflictAdvisorFor`)
+- `internal/agent/conflict.go` (`ConflictResolutionRequest`,
+  `ConflictResolution`, `ConflictResolutionPrompt`)
+
+---
+
+## CR-B-002: RESOLVED
+
+**Original finding:** neither `harness.Runner` nor `codex.Runner` implemented
+`ProposeConflictResolution`, so `conflictAdvisorFor` could never find a real
+advisor in production and AC-11.1 could not be satisfied by any shipped code
+path.
+
+**Fix verified against all four of the orchestrator's specific questions:**
+
+1. **The new methods actually satisfy `ConflictAdvisor`; `conflictAdvisorFor`
+   will find them.** `turn.ConflictAdvisor` requires exactly
+   `ProposeConflictResolution(ctx context.Context, req
+   agent.ConflictResolutionRequest) (agent.ConflictResolution, error)`.
+   `harness.Runner.ProposeConflictResolution` (`internal/harness/runner.go:124`)
+   and `codex.Runner.ProposeConflictResolution`
+   (`internal/codex/runner.go:195`) both match that signature exactly. Rather
+   than trust the signature match by inspection alone, a temporary
+   compile-time probe was added to `internal/turn` —
+   `var _ ConflictAdvisor = (*harness.Runner)(nil)` and
+   `var _ ConflictAdvisor = (*codex.Runner)(nil)` — built and vetted clean,
+   then removed (working tree confirmed unchanged by `git status` afterward).
+   `conflictAdvisorFor`'s `runner.(ConflictAdvisor)` type assertion will
+   therefore succeed for both registered agent kinds in production, and
+   `go build ./...` / `go vet ./...` are both clean across the whole repo.
+
+2. **Tool-free/bounded-call discipline is real, not just claimed.**
+   `harness.Runner.ProposeConflictResolution` passes `--tools ""` (empty tool
+   surface, `internal/harness/runner.go:137`) and no `--allowedTools`,
+   `cmd.Dir = r.home` (never `req.WorktreePath` — there is no worktree in this
+   request type at all), and no session id or `--resume` flag, matching
+   `ProposeSchedule`'s shape token for token.
+   `codex.Runner.ProposeConflictResolution` passes `--sandbox read-only`,
+   `--ignore-user-config`, `--ignore-rules`, and `cmd.Dir =
+   filepath.Dir(r.binary.Path)` — also never a worktree — again matching
+   `ProposeSchedule` exactly. Both methods derive their deadline with
+   `runCtx, cancel := context.WithTimeout(ctx, r.timeout)` off the `ctx`
+   parameter actually passed in by the caller, never `context.Background()`;
+   `defer cancel()` follows immediately. `r.timeout` is the same
+   package-configured wall-clock budget `Run`/`ProposeSchedule` already use in
+   each file — read directly rather than assumed — so it is a fresh,
+   independent `WithTimeout` call each invocation, not a shared or leaked
+   deadline from any other in-flight call in the same turn; this is the same
+   "own deadline, distinct from the turn's ambient context" property
+   `ProposeSchedule` already has, and the new methods' own doc comments state
+   this correctly.
+
+3. **Untrusted-content-last / "data, not instructions" prompt discipline is
+   what's actually used, not rolled separately.** Both new methods' first
+   line of substantive work is `prompt, err :=
+   agent.ConflictResolutionPrompt(req)` — grepped both files for any other
+   prompt-construction (`fmt.Sprintf` building a Claude/Codex prompt string,
+   any second call site) and found none; the only `Sprintf`-built prompt in
+   the two-file diff is inside `agent.ConflictResolutionPrompt` itself, which
+   was already verified clean in the prior US-11 pass (delivers conflicting
+   file content last, under an explicit "data, not instructions" label, after
+   the branch/base orientation strings). Neither runner method appends,
+   prepends, or otherwise reconstructs any part of the prompt itself.
+
+4. **Build/vet/format/race verification, re-run directly:**
+   - `go build ./...` — clean
+   - `go vet ./...` — clean
+   - `gofmt -l .` — no files listed
+   - `go test -count=1 ./internal/turn/... ./internal/harness/... ./internal/codex/... ./internal/agent/...` — all `ok`
+   - `go test -race -count=1 ./...` — all 22 packages `ok`, run four times total (once as the primary verification pass, three additional full-suite `-race` re-runs specifically hunting for the reported flake) — zero `FAIL`, zero `panic`, across all four runs
+   - `go test -race -count=10 ./internal/harness/... -run TestRunTimeoutKillsTheWholeSubtree -v` — 10/10 `PASS` in isolation
+
+   **On the reported transient flake:** read `TestRunTimeoutKillsTheWholeSubtree`
+   directly (`internal/harness/runner_test.go:636`). It drives a real shell
+   script that backgrounds a `sleep 120`, records its PID/PGID to disk, and
+   asserts the whole process subtree is dead after a 1-second
+   `config.Claude.TimeoutSeconds`, through `f.run(t)` — which calls
+   `Runner.Run`, the pre-existing method, never `ProposeConflictResolution`
+   (which this test does not exercise at all; it has no code path to
+   `ProposeConflictResolution`). The test is timing-sensitive against real OS
+   process scheduling under a 1-second wall-clock budget, which is exactly
+   the shape of test that flakes under full-suite CPU contention and not
+   under isolation or a quiet machine. It passed on every run performed here,
+   both as part of the full `-race` suite (4/4 runs) and in 10/10 repeated
+   isolated runs. The engineer's characterization — a genuine pre-existing
+   flake in `Run`'s subprocess-timeout/kill-subtree behavior, unrelated to
+   this diff — is confirmed, not merely taken on their word.
+
+**Disposition:** Resolved. No new BLOCKING or ADVISORY issue found in either
+of the two files. No regression to the security posture verified in the
+prior pass: neither new method grants a tool surface, attaches a worktree, or
+constructs a prompt outside `agent.ConflictResolutionPrompt`.
+
+---
+
+## Verdict
+
+CLEAR — CR-B-002 is resolved. No new findings in the two files reviewed.
+Proceeding to environment setup / next phase for US-11.

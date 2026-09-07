@@ -126,7 +126,12 @@ func prepare(
 	// boundary); [Options.BlockRunOnConflict] is what turns it into a refusal
 	// rather than a run that merely discloses the conflict and goes ahead.
 	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
-		return nil, &syncRefusal{conflicts: append([]string(nil), sync.Conflicts...)}
+		return nil, &syncRefusal{
+			conflicts: append([]string(nil), sync.Conflicts...),
+			branch:    sync.Branch, base: sync.Base,
+			files:    sync.ConflictFiles,
+			excluded: sync.ConflictExcluded,
+		}
 	}
 	if session.WorktreePath != worktree.Path() {
 		if err = opts.DB.SetSessionWorktree(ctx, session.ID, worktree.Path()); err != nil {
@@ -482,6 +487,18 @@ type syncResult struct {
 	// Conflicts lists the paths [git.Worktree.MergePreview] reported, non-nil
 	// only when Outcome is [syncOutcomeBlocked].
 	Conflicts []string
+
+	// Branch and Base are the exact ref names Outcome was decided against,
+	// carried alongside Conflicts so a suggested-resolution advisor (US-11)
+	// can be given proper names without reaching back into git for them.
+	Branch, Base string
+	// ConflictFiles and ConflictExcluded are the conflicting content
+	// [collectConflictContent] gathered inside this same [Options.CloneGate]
+	// acquisition (US-11, S-10), non-nil only when
+	// [Options.SuggestConflictResolution] was true and Outcome reached
+	// [syncOutcomeBlocked].
+	ConflictFiles    []agent.ConflictFileContent
+	ConflictExcluded []string
 }
 
 // syncEnabled resolves whether auto-sync runs for this turn: a non-nil
@@ -557,7 +574,21 @@ func syncBase(
 	if !preview.Clean {
 		logger.Info("base sync: blocked",
 			append(logFields, slog.String("outcome", string(syncOutcomeBlocked)), slog.Any("conflicts", preview.Conflicts))...)
-		return syncResult{Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts}, nil
+		blocked := syncResult{
+			Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts,
+			Branch: worktree.Branch(), Base: repo.BaseBranch,
+		}
+		// US-11: the conflicting content is collected here, still inside
+		// prepareClone's one [Options.CloneGate] acquisition, and only when
+		// the feature is configured on and there is a comment to eventually
+		// attach a suggestion to — a disabled turn, or one triggered by the
+		// issue body (which draws no reply at all, AC-2.16c), must not
+		// spend the extra git reads this loop costs (AC-11.3).
+		if opts.SuggestConflictResolution && req.Trigger.CommentID != 0 {
+			blocked.ConflictFiles, blocked.ConflictExcluded = collectConflictContent(
+				ctx, worktree, preview.TreeSHA, preview.Conflicts, opts.ConflictContentMaxBytes)
+		}
+		return blocked, nil
 	}
 
 	result, err := worktree.MergeBase(ctx, baseRef, git.MergeOptions{Author: author})

@@ -28,6 +28,7 @@ var timeoutPolicy = map[string]time.Duration{
 	"commitTimeout":     120 * time.Second,
 	"divergenceTimeout": 30 * time.Second,
 	"mergeTimeout":      120 * time.Second,
+	"showBlobTimeout":   15 * time.Second,
 }
 
 // TestTimeoutPolicyIsWhatTheDeadlinesSay pins the durations themselves.
@@ -42,6 +43,7 @@ func TestTimeoutPolicyIsWhatTheDeadlinesSay(t *testing.T) {
 		"commitTimeout":     commitTimeout,
 		"divergenceTimeout": divergenceTimeout,
 		"mergeTimeout":      mergeTimeout,
+		"showBlobTimeout":   showBlobTimeout,
 	}
 	for name, want := range timeoutPolicy {
 		if got[name] != want {

@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-6, US-7, US-8, US-9, US-10 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-6, US-7, US-8, US-9, US-10, US-11 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -473,5 +473,72 @@ asked for; nothing here licenses starting the next one.
   APP_CONSTRAINTS update was made, per the retirement of that step. US-11
   (needs US-5 + US-9, both done) and US-12 (needs US-11 + US-10, US-10 now
   done) remain for future runs, each needing its own comment.
+- 2026-09-07 — Implement mode run (scoped to US-11 only, per explicit
+  instruction "implement US-11 now"; US-1 through US-10 — already
+  implemented, reviewed, and committed — were left untouched; US-12 remains
+  out of scope, still blocked on this story's own comment landing before it
+  can start). Read `US-11.md` and `plan_brief.md` directly rather than
+  trusting the request's own summary, per its own instruction, including the
+  question of whether `plan_brief.md`'s Phase 7.5 (a blocking, non-story
+  security review, scoped to this story's repository-content-to-model
+  exposure, naming `go-code-reviewer` + `.claude/skills/shared/security-scanner.md`
+  as "the nearest available instrument" and the human owner as final
+  approver) is a formal prerequisite this run must complete separately.
+  Resolved as ordinary uncertainty rather than a severe blocker: implemented
+  US-11 in full against its own acceptance criteria with
+  `suggest_conflict_resolution` defaulting `false` exactly as D-3 specifies,
+  and folded the review's automated instrument into this run's own Phase 1.5
+  code-review gate by explicitly instructing `go-code-reviewer` to run
+  `security-scanner.md` against every new/changed file. The human-approval
+  half of Phase 7.5 (flipping the default to `true`) was not performed and
+  is not performable by a headless run — recorded as an open item, not
+  silently skipped. Migration number `0008_conflict_proposals.sql` was
+  re-confirmed by directly listing `internal/store/migrations/` before
+  implementation (head was `0007_run_sync.sql` from the completed US-9); no
+  collision. `go-code-reviewer` found one BLOCKING finding (CR-B-002: the
+  first implementation pass built the `ConflictAdvisor` narrowing interface
+  and its wiring, fully covered by stub-based tests, but left no concrete
+  `Runner` — `harness.Runner`/`codex.Runner` — actually implementing it, so
+  `conflictAdvisorFor` could never find a real advisor in production
+  regardless of the config flag, materially failing AC-11.1's real
+  posted-comment requirement) and two advisories (CR-A-006: local
+  revalidation checks a model-returned path against the full
+  `MergePreview.Conflicts` list rather than the narrower set of files
+  actually shown to the model, a defence-in-depth gap that doesn't violate
+  AC-11.4 as written; CR-A-007: `collectConflictContent` doesn't
+  short-circuit once the byte budget is exhausted, a performance note). CR-B-002
+  was fixed by adding `ProposeConflictResolution` to both
+  `internal/harness/runner.go` and `internal/codex/runner.go`, mirroring the
+  existing `ProposeSchedule` precedent's tool-free/bounded-call shape
+  exactly in each file, and re-reviewed to CLEAR (interface satisfaction
+  verified via a temporary compile-time probe, tool-free/deadline discipline
+  independently re-traced, one observed `internal/harness` test failure
+  confirmed via 14 combined full-suite/isolated `-race` re-runs to be a
+  genuine pre-existing flake unrelated to the diff). Phase 2 environment
+  setup was skipped — the story touches only SQLite via this codebase's
+  existing embedded-migration unit-test convention, and every model call in
+  every test uses a stubbed advisor per T-11.13's own instruction, never a
+  real network call. `go-unit-test-engineer` cross-checked all nine
+  acceptance criteria against tests already on disk and closed two genuine
+  gaps: AC-11.6 (no existing test directly asserted the terminal-state/
+  no-sleep-or-poll guarantee — closed with a `Result` state assertion plus a
+  new AST-based structural test forbidding `time.Sleep`/`After`/`Tick`/
+  `NewTicker`/`NewTimer` in the new file, following this codebase's own
+  established AST-test pattern) and CR-A-006 (closed with a regression test
+  documenting, not fixing, current behavior). `go build ./...`,
+  `go vet ./...`, `gofmt -l .` clean; `go test -race -count=1 ./...` green
+  across all 22 packages, re-verified directly by the orchestrator as the
+  final gate. No bug loop needed — the one BLOCKING finding was resolved
+  within Phase 1.5's own re-review cycle, a distinct mechanism from the bug
+  loop. `DRIFT_REPORT.md` gained a ninth dated section (US-11), verdict
+  CLEAN — the one genuine deferral (Phase 7.5's human-approval half) is a
+  decision only a human can make on the issue thread, not a scope miss this
+  run left undone. No `APP_CONTEXT.md`/`APP_CONSTRAINTS.md` update was made,
+  per the retirement of that step. US-12 is now unblocked (both dependencies,
+  US-11 and US-10, are done) but remains gated by the plan's own Phase 9
+  observation gate — "at least one real blocked run has produced a
+  suggestion an owner has actually read" — which cannot be satisfied while
+  `suggest_conflict_resolution` ships disabled by default; needs its own
+  comment once that gate has genuinely opened.
 
 ## Notes
