@@ -133,8 +133,8 @@
 //
 // The only litefactory package this package may ever import is
 // internal/config, and only for two specific exports: config.ClassifySecret
-// (present today) and config.ContainsForbiddenFlag (added by a later story,
-// for validating that a Source/Dest does not smuggle in a forbidden CLI
-// flag). Nothing in this story's own validation rules needs either one yet,
-// so neither is imported here — see the TODO next to Validate.
+// and config.ContainsForbiddenFlag. Validate uses ContainsForbiddenFlag
+// against each agent entry's Source and Dest; Add uses both ClassifySecret
+// and ContainsForbiddenFlag against every rendered file's bytes,
+// post-render, before any write lands (US-14).
 package team

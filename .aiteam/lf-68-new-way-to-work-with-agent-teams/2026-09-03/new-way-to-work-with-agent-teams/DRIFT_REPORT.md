@@ -1,83 +1,82 @@
-# Drift Report — US-13 (`team manage` per-repo agent source override)
+# Drift Report — new-way-to-work-with-agent-teams (US-14)
 # Branch: lf/68-new-way-to-work-with-agent-teams | Date: 2026-09-07
+
+Scope of this report: this run's own delivery only — US-14 (Allowlist + forbidden-flag +
+secret-scan validation). US-1 through US-13 were already complete and out of scope for this run
+(verified clean on `ae7a303` before starting; not touched here).
 
 ## Delivered as planned
 
-- T-35 — Overrides file schema `.litefactory/team.overrides.json` (`{agentKey:
-  source}`) with strict two-phase decode (`decodeOverrides` in
-  `internal/team/overrides.go`), reusing `internal/team/decode.go`'s
-  generic-walk + `errors.Join` pattern exactly as scoped.
-- T-36 — `team manage <agent-key> set/unset/show` commands
-  (`internal/cli/cmd_team.go`: `newTeamManageCommand`, `runTeamManage`,
-  `teamManageError`), replacing the pre-existing stub, advertised alongside
-  the other five `team` subcommands.
-- T-37 — Render-time override substitution in `internal/teamsource/render.go`
-  (`readAgentSource`), sitting upstream of hashing so both `RenderTeam` and
-  `RenderCurrent` pick it up, and so US-10's `team.Classify` needed zero
-  modification — exactly the outcome the architecture notes predicted.
-- T-38 — Tests proving: an override supersedes the index source
-  (`internal/team/overrides_test.go`,
-  `internal/teamsource/render_test.go`); `unset` reverts to the
-  index-resolved source; and drift classification reacts to the override's
-  file rather than the index's, with no special case in `Classify`
-  (`TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile`).
-- AC-1 — verified end to end through `team add` and `team update`, not just
-  at the render-function level (`TestTeamAddSuccess_ActiveOverride_...`,
-  `TestTeamUpdate_ActiveOverride_...`).
-- AC-2 — verified at both the `internal/team` package level and the CLI level
-  (`TestTeamManage_SetThenUnset`).
-- AC-3 — verified end to end through `team status` (`TestTeamStatus_...`),
-  including the negative case (override present but byte-identical to source
-  still classifies in-sync).
-- AC-4 — verified at both levels: nonexistent path and non-markdown path each
-  fail with a precondition error and record no override
-  (`TestSetOverride_PathFailures_RecordsNoOverride`,
-  `TestTeamManage_SetNonexistentPath_FailsWithPrecondition`,
-  `TestTeamManage_SetNonMarkdownPath_FailsWithPrecondition`).
-- The recurring `errors.Join`/fail-fast finding — raised BLOCKING three times
-  previously on this issue — was checked specifically by code review this
-  run and confirmed correct in `decodeOverrides`. Zero BLOCKING findings this
-  run, the first clean pass on that historical pattern for this issue.
+- T-39 — `config.ClassifySecret` + a newly-exported `config.ContainsForbiddenFlag` wired into the
+  render→write pipeline, run against rendered output bytes in `internal/team/write.go`'s `Add()`,
+  the single post-render validation gate both `team add` and `team update` route through.
+- The `TODO(US-14)` at `internal/team/validate.go:14` resolved and removed: `internal/config`
+  gained the exported, string-taking `ContainsForbiddenFlag(value string) bool` the TODO
+  anticipated by name, wrapping the pre-existing `strings.Contains(value, forbiddenFlag())` check
+  with no duplication (DEV-2, as recorded in `plan_brief.md`'s Deviations).
+- `internal/config`'s own `validateNoForbiddenFlag` refactored to call the new export internally
+  instead of the raw `strings.Contains`, so there is exactly one definition of the check —
+  satisfies AC-3 and keeps SEC-1's single-grep-site guarantee for `--dangerously-skip-permissions`
+  intact.
+- AC-1: covered symmetrically for both content origins. Index-sourced offending content and
+  US-13-override-sourced offending content both flow through the same `team.Add` rendered-bytes
+  check (`team manage` itself never renders/writes directly — it only records an override pointer
+  that a later `team add`/`team update` renders), so neither path is exempt.
+- AC-2: `Add`'s per-file validation loop aggregates every problem across the whole batch via
+  `errors.Join`/`joinSorted` (append-then-`continue`, not fail-fast) before refusing the write —
+  proven by a new mixed clean/offending-batch test showing none of the clean files get written
+  either. New/extended error types (`ForbiddenFlagError`, `ForbiddenFlagInIndexError`, extended
+  `SecretDetectedError`) name the agent key, harness, and which check failed, and never include the
+  matched flag substring or secret value.
+- AC-3: no forbidden-flag or secret-pattern logic duplicated inside `internal/team` — both checks
+  are pure calls into `internal/config`; confirmed by direct source read (no `strings.Contains`
+  reimplementation of the flag literal in `internal/team`) and preserved by `internal/config`'s
+  existing `TestValidationHasNoThirdPartyImports`/`TestForbiddenFlagIsAbsentFromTheTree` tests.
+- T-40 — 12 new test functions across four files (`internal/config/policy_test.go`,
+  `internal/team/validate_test.go`, `internal/team/write_forbidden_flag_test.go`,
+  `internal/teamsource/render_forbidden_flag_test.go`), covering index-sourced and
+  override-sourced refusal, all-or-nothing batch abort, error-naming, and leakage checks. All
+  forbidden-flag test fixtures assembled from string fragments, matching the project's own
+  existing convention for evading the whole-tree literal scan.
 
 ## Added scope
 
-- Three additional unit tests beyond what US-13's own task table named
-  explicitly (`TestTeamAddSuccess_ActiveOverride_SubstitutesLocalFile`,
-  `TestTeamUpdate_ActiveOverride_SubstitutesLocalFile`,
-  `TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile`). These are
-  test-only additions closing real end-to-end coverage gaps for AC-1 and AC-3
-  that T-38's package-level tests alone did not reach (they proved the
-  render/classify functions honor an override in isolation, not that the
-  full `team add`/`team update`/`team status` CLI commands do). No
-  production code or new capability was added — this is coverage depth, not
-  scope growth.
-- One non-behavioral fix: the `team manage` usage string was corrected by the
-  implementation engineer mid-task to satisfy
-  `internal/cli/router_test.go`'s `TestCommandsAreWellFormed` (from
-  `"team manage <agent-key> set source=<path> | unset | show [--repo path]"`
-  to `"team manage <agent-key> <action> [<source>] [--repo path]  (set
-  source=<path> | unset | show)"`). Cosmetic, in-scope, no capability change.
+None beyond what T-39/T-40 called for. The engineer touched exactly the files the story's
+Architecture Notes named (`internal/config/policy.go`, `internal/team/{validate,errors,write,
+doc}.go`) plus the four new test files; `internal/team/doc.go`'s Invariants section was updated to
+stop describing `config.ContainsForbiddenFlag` as "added by a later story," which is documentation
+upkeep intrinsic to closing this story, not scope creep.
 
 ## Dropped or deferred
 
-- None. All four tasks (T-35–T-38) and all four acceptance criteria
-  (AC-1–AC-4) were delivered and verified this run.
-- US-14, US-15, US-16, US-17 were explicitly out of scope for this run per
-  the task instruction and were not started, extended, or touched. `team
-  manage` was implemented exactly to US-13's scope and not extended further.
+None. Both tasks (T-39, T-40) and all three acceptance criteria (AC-1, AC-2, AC-3) were delivered
+in full within this run.
 
 ## Architectural deviations
 
-- None. The override mechanism was implemented exactly as Open Question 6's
-  resolution specifies: a per-repo, per-agent-key `{source}` substitution
-  file in `.litefactory/`, consumed at render time upstream of hashing, with
-  `Dest` unaffected and `internal/team`'s three-tier index-level source
-  resolution left untouched. The `cli -> teamsource -> (team, render)`
-  dependency direction was preserved — `cmd_team.go`'s `team manage` wrapper
-  contains no rendering/hashing/source-resolution logic of its own, confirmed
-  by code review.
+None. The implementation follows the plan's explicit resolution of the TODO gap exactly as
+prescribed by this run's own instructions: export a small string-level function from
+`internal/config` under the name the TODO already anticipated, have both the existing
+`validateNoForbiddenFlag` and `internal/team` call it, and never copy the flag string or the
+`strings.Contains` check into `internal/team`.
 
 ## Verdict
 
-CLEAN — delivered matches plan within acceptable micro-decisions (added test
-depth for AC-1/AC-3 end-to-end coverage; one cosmetic usage-string fix).
+CLEAN — delivered matches plan within acceptable micro-decisions (e.g. splitting the post-render
+and index-level forbidden-flag checks into two distinct error types, `ForbiddenFlagError` vs.
+`ForbiddenFlagInIndexError`, since the two call sites have different available context — no
+`Harness` at index-decode time, since decoding is harness-agnostic prior to rendering).
+
+## Code review
+
+CLEAN (one non-blocking advisory, CR-A-001: `Add`'s per-file loop converts `f.Bytes` to `string`
+twice — once for `ClassifySecret`, once for `ContainsForbiddenFlag` — a minor duplicate allocation,
+not hot-path-critical given rendered files are small markdown documents; left unfixed by judgment).
+No BLOCKING findings, no fix cycle needed — the first validation-focused story on this issue to
+clear code review on the first pass with zero `errors.Join`-aggregation mistakes, a class of
+mistake that was BLOCKING three times previously on this same issue.
+
+## Tests
+
+12 new tests, 12 passing, 0 failing. `go test -race ./...` clean across all 26 packages. `gofmt -l`
+and `go vet ./...` clean. No bug loop triggered.

@@ -3,18 +3,16 @@ package team
 import (
 	"fmt"
 	"sort"
+
+	"github.com/cloudvane/litefactory/internal/config"
 )
 
 // Validate checks semantic rules against an already type-decoded Index:
 // filename-safety on every team name and agent key, non-empty Source/Dest
-// on every agent entry, and that no agent key appears in more than one
+// on every agent entry, that neither Source nor Dest smuggles in claude's
+// permission-skipping flag, and that no agent key appears in more than one
 // location (AC-5). It never re-checks JSON shape — [Decode]'s pass one
 // already guarantees the shape is clean before Validate ever runs.
-//
-// TODO(US-14): once config.ContainsForbiddenFlag exists, call it here
-// against each entry's Source and Dest and fold any hit into the returned
-// errors the same way the checks below do. Nothing in this story's own
-// acceptance criteria requires it yet.
 func Validate(idx *Index) []error {
 	var errs []error
 	locations := make(map[string][]string)
@@ -58,9 +56,13 @@ func validateAgentEntry(key string, entry AgentEntry, path string) []error {
 	}
 	if entry.Source == "" {
 		errs = append(errs, &EmptyFieldError{Path: path, Field: "source"})
+	} else if config.ContainsForbiddenFlag(entry.Source) {
+		errs = append(errs, &ForbiddenFlagInIndexError{Path: path, Field: "source"})
 	}
 	if entry.Dest == "" {
 		errs = append(errs, &EmptyFieldError{Path: path, Field: "dest"})
+	} else if config.ContainsForbiddenFlag(entry.Dest) {
+		errs = append(errs, &ForbiddenFlagInIndexError{Path: path, Field: "dest"})
 	}
 	return errs
 }

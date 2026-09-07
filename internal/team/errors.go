@@ -73,6 +73,12 @@ var (
 	// credential. Add refuses to write any artifact from the run.
 	ErrSecretDetected = errors.New("literal secret detected in rendered output")
 
+	// ErrForbiddenFlag reports that a value config.ContainsForbiddenFlag
+	// recognizes as smuggling in claude's permission-skipping flag was found
+	// either in an index entry's Source/Dest (Validate) or in rendered bytes
+	// about to be written (Add). Either caller refuses to proceed.
+	ErrForbiddenFlag = errors.New("forbidden CLI flag detected")
+
 	// ErrMarkerNotFound reports that RemoveMarkerSection was asked to
 	// remove a marker span that is not present in the root file.
 	ErrMarkerNotFound = errors.New("marker section not found")
@@ -191,17 +197,50 @@ func (e *SymlinkRefusedError) Error() string {
 func (e *SymlinkRefusedError) Unwrap() error { return ErrRefusedSymlink }
 
 // SecretDetectedError reports a literal credential found in rendered bytes
-// about to be written to Path.
+// about to be written to Path, for AgentKey rendered under Harness.
 type SecretDetectedError struct {
-	Path  string
-	Class string
+	AgentKey string
+	Harness  string
+	Path     string
+	Class    string
 }
 
 func (e *SecretDetectedError) Error() string {
-	return fmt.Sprintf("%s: literal %s credential detected in rendered output", e.Path, e.Class)
+	return fmt.Sprintf("agent %q (%s): %s: literal %s credential detected in rendered output", e.AgentKey, e.Harness, e.Path, e.Class)
 }
 
 func (e *SecretDetectedError) Unwrap() error { return ErrSecretDetected }
+
+// ForbiddenFlagError reports that rendered bytes about to be written for
+// AgentKey/Harness/Path smuggle in claude's permission-skipping flag. The
+// matched text is never included here — only that the check failed, not what
+// it matched.
+type ForbiddenFlagError struct {
+	AgentKey string
+	Harness  string
+	Path     string
+}
+
+func (e *ForbiddenFlagError) Error() string {
+	return fmt.Sprintf("agent %q (%s): %s: rendered output contains a forbidden CLI flag", e.AgentKey, e.Harness, e.Path)
+}
+
+func (e *ForbiddenFlagError) Unwrap() error { return ErrForbiddenFlag }
+
+// ForbiddenFlagInIndexError reports that an agent entry's Source or Dest
+// field, at Path in the index, smuggles in claude's permission-skipping
+// flag. Field names which one ("source" or "dest"). The matched text is
+// never included here.
+type ForbiddenFlagInIndexError struct {
+	Path  string
+	Field string
+}
+
+func (e *ForbiddenFlagInIndexError) Error() string {
+	return fmt.Sprintf("%s.%s: must not contain a forbidden CLI flag", e.Path, e.Field)
+}
+
+func (e *ForbiddenFlagInIndexError) Unwrap() error { return ErrForbiddenFlag }
 
 // InexpressibleArtifactError reports a RenderedFile this package has no
 // safe way to place: its Path names neither an Owned standalone path nor a

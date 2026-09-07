@@ -1,5 +1,51 @@
 # Implement-mode notes
 
+## 2026-09-07 — Implement run 30: US-14 (allowlist + forbidden-flag + secret-scan validation)
+
+Sponsor scoped this run to exactly US-14, continuing the one-story-per-run discipline. US-13 was
+independently verified already complete on `ae7a303` (26 packages, `go test -race ./...` green,
+`gofmt`/`go vet` clean, zero `not implemented yet` stubs) before this run started — not re-verified
+or redone here.
+
+**The gap closed:** `internal/team/validate.go:14`'s `TODO(US-14)` assumed a
+`config.ContainsForbiddenFlag` that did not exist. Exported it from `internal/config/policy.go` as
+`ContainsForbiddenFlag(value string) bool`, wrapping the pre-existing
+`strings.Contains(value, forbiddenFlag())` check; refactored the package's own
+`validateNoForbiddenFlag` to call the new exported function internally instead of duplicating the
+`strings.Contains` call, so there is exactly one definition of the check (DEV-2, satisfying SEC-1's
+single-grep-site guarantee). `internal/team` now calls this new export at two points: `validate.go`
+(index-level `Source`/`Dest` string check, resolving the TODO) and `write.go`'s `Add()` (post-render
+byte check, alongside the pre-existing `config.ClassifySecret` call) — the second is the one AC-1/
+AC-2 actually depend on, since both `team add` and `team update` route through `Add()` as the single
+post-render validation gate. `team manage` itself never renders/writes; it only records an override
+pointer that a later `team add`/`team update` renders, so override content is covered by the same
+gate, not a separate check.
+
+New/extended error types (`internal/team/errors.go`): `ErrForbiddenFlag` sentinel,
+`ForbiddenFlagError{AgentKey, Harness, Path}` (post-render), `ForbiddenFlagInIndexError{Path,
+Field}` (index-level), and `SecretDetectedError` extended with `AgentKey`/`Harness`. None of their
+`Error()` methods include the matched flag substring or secret value — only category/location
+labels — satisfying the leakage constraint (CFG-4) while still naming agent key + harness + which
+check failed (AC-2).
+
+**Files touched:** `internal/config/policy.go`, `internal/team/validate.go`,
+`internal/team/errors.go`, `internal/team/write.go`, `internal/team/doc.go` (Invariants section
+updated — it previously described `config.ContainsForbiddenFlag` as "added by a later story").
+
+**Code review (Phase 1.5):** CLEAN, one advisory recorded in `CODE_REVIEW.md`:
+- **CR-A-001** (performance, non-blocking): `Add`'s per-file loop converts `f.Bytes` to `string`
+  twice (once for `ClassifySecret`, once for `ContainsForbiddenFlag`) — a minor duplicate
+  allocation, not hot-path-critical since rendered files are small markdown documents. Left
+  unfixed by judgment; not worth a fix cycle for a CLEAN-gated advisory.
+
+The reviewer traced actual call graphs (`runTeamAdd`/`runTeamUpdate` in `cmd_team.go`, both routing
+through `team.Add`; `runTeamManage`'s override-pointer-only behavior) rather than trusting the
+engineer's self-report, and independently re-verified `errors.Join`/`joinSorted` aggregation is
+real (genuine `continue` statements in both touched loops, not fail-fast) — this exact mistake class
+has been BLOCKING three times before on this issue (US-9's `Add`, US-10's `runTeamStatus`), so this
+is the first validation-focused story to get it right without a fix cycle needed at all, on top of
+run 26's first-clean-pass precedent.
+
 ## 2026-09-05 — Run halted before Phase 1: schema drift judged a severe blocker
 
 Read in full before starting: `plan_brief.md`, `MANIFEST.md`, `US-1.md`, `US-2.md`,

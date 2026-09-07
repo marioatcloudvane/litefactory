@@ -34,11 +34,12 @@ type rootSection struct {
 // sections upserted into the shared root file they name.
 //
 // The whole call is atomic in the sense the story requires: every render is
-// validated (harness known, path owned, no literal secret) before anything
-// is written, and the provenance lockfile is saved last, so a failure at any
-// point — a bad path, a detected secret, an I/O error partway through
-// writing — leaves either nothing changed or a partial set of artifacts on
-// disk with a lockfile that still describes the previous true state (it is
+// validated (harness known, path owned, no literal secret, no forbidden CLI
+// flag) before anything is written, and the provenance lockfile is saved
+// last, so a failure at any point — a bad path, a detected secret or
+// forbidden flag, an I/O error partway through writing — leaves either
+// nothing changed or a partial set of artifacts on disk with a lockfile that
+// still describes the previous true state (it is
 // only rewritten after every write in the run has already landed).
 //
 // A fresh render that matches an existing lockfile record's SourceHash and
@@ -86,7 +87,11 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 				continue
 			}
 			if class, ok := config.ClassifySecret(string(f.Bytes)); ok {
-				errs = append(errs, &SecretDetectedError{Path: f.Path, Class: string(class)})
+				errs = append(errs, &SecretDetectedError{AgentKey: ar.AgentKey, Harness: ar.Harness, Path: f.Path, Class: string(class)})
+				continue
+			}
+			if config.ContainsForbiddenFlag(string(f.Bytes)) {
+				errs = append(errs, &ForbiddenFlagError{AgentKey: ar.AgentKey, Harness: ar.Harness, Path: f.Path})
 				continue
 			}
 
