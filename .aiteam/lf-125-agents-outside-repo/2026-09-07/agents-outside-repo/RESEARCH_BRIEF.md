@@ -2,7 +2,57 @@
 
 ## Request
 
-[O] Run 0007: “ok, i have now merged down the changes, re-check them!” Recheck the merged implementation against the current session's five-story plan. Retain the owner's decisions: teams are managed outside individual repositories, mode-specific specialist availability should reduce instruction tokens, and no backward compatibility is required. This Research run assesses the plan; it does not implement or rewrite the plan/stories.
+[O] Run 0009: “re-try please!” [V] This Research retry checks whether run 0008's local plan refresh persisted and whether its linked GitHub stories reflect that refresh. [O/R0] Retain the owner's decisions: teams are managed outside individual repositories, mode-specific specialist availability should reduce instruction tokens, and no backward compatibility is required. The reasonable interpretation is to diagnose and verify the incomplete handoff, not to implement the feature or rerun the entire planning pipeline.
+
+## Run 0009 — Retry diagnosis
+
+### Local planning succeeded; remote synchronization did not
+
+[V] The task checkout contains the refreshed September 7 plan, approved feature spec, architecture review and all five complete story bodies. Root-agent commit inspection identifies run 0008's saved result as `0f9354e`; its live issue status reports success and a push. Intermediate patch failures in the run transcript do not establish a failed final plan: the final artifacts persist and the successful result includes nine changed files. This run does not claim every transient tool invocation succeeded.
+
+[V] Root-agent live GitHub connector reads of all five linked issues verify that their titles and bodies still describe the September 6 decomposition. All point to commit `9571fc2b6344331853d9f89096d03ba4f977496c` and September 6 story documents. Their update timestamps remain September 6. Remote synchronization is therefore **confirmed missing**, superseding run 0008's “not performed or verified” status. No old-session artifact was opened to establish this; evidence is the current live issue bodies compared with the current-session files.
+
+| Linked issue | Live remote title | Current local story title |
+|---|---|---|
+| [#127](https://github.com/marioatcloudvane/litefactory/issues/127) | Team-first index schema strict loader | External registry and mode resolution |
+| [#128](https://github.com/marioatcloudvane/litefactory/issues/128) | Shared references/direct roster sources | External management and repository association |
+| [#129](https://github.com/marioatcloudvane/litefactory/issues/129) | Post-classification private mode bundles | Per-run bundle isolation and conversation boundaries |
+| [#130](https://github.com/marioatcloudvane/litefactory/issues/130) | Safe legacy-index migration | Focused modes and language skills |
+| [#131](https://github.com/marioatcloudvane/litefactory/issues/131) | Team inspection and explicit migration CLI | Provenance, token evidence and handoff |
+
+[V] Local mapping: `plan_brief.md:35` (Story Index). The clearest harmful conflict is remote #130: it still requests legacy migration, while the owner's approved plan explicitly excludes it (`plan_brief.md:13`, `:47`). This is substantive scope drift, not merely stale wording. Implementing from the linked issue bodies could build rejected migration work and omit current external-management/workflow/evidence acceptance criteria. The local design is reviewable; the end-to-end implementation handoff is not yet consistent.
+
+### Central external management is already explicit in the refreshed design
+
+[V] This requirement is present in the saved plan, not an inferred future addition:
+
+- One operator-owned registry: `$LF_HOME/teams/index.json`; source Markdown, skills and resources reside beneath `$LF_HOME/teams/`, with external provenance/override metadata under its `.litefactory/` directory (`plan_brief.md:10`, `:11`, `:12`).
+- Repositories persist only an explicit external-team association; they do not own the team source and there is no repository source tier (`plan_brief.md:11`, `:13`; `US-2.md`, Architecture Notes and AC-2.1–AC-2.3).
+- Existing team-management validation, rendering, hashes, locks, drift handling and guarded writes are adapted rather than duplicated (`plan_brief.md:12`; `US-1.md`, Architecture Notes; `US-2.md`, Tasks).
+- After classification, immutable selected-mode bundles are published outside worktrees at `$LF_HOME/bundles/<forge>/<owner>/<repo>/<issue>/<run-ordinal>/`; classifiers receive no team catalog (`plan_brief.md:16`; `US-3.md`, AC-3.2–AC-3.3).
+- The repository may retain ordinary project instructions and session artifacts. Embedded defaults remain distribution content that an operator explicitly installs; they are not an implicit runtime source (`plan_brief.md:11`, `:15`, `:16`).
+
+[V] Thus “outside a repository” means central source ownership and central management shared by multiple repositories. Per-run snapshots still duplicate selected rendering bytes for isolation, but no per-repository source catalog is managed. Whether that reduces actual instruction tokens remains US-5's measurement gate, not a claim proved by relocating files.
+
+### Why an ordinary retry cannot repair existing issue contents
+
+[V] The codebase-tour specialist inspected the current publication path and its tests. `runAndHarvest` saves the coding result and then invokes story publication (`internal/turn/harvest.go:92`). The turn layer renders Story Index rows even when they already contain issue links (`internal/turn/subissues.go:337`). It is therefore inaccurate to describe this as simply skipping linked local rows.
+
+[V] The GitHub creation layer finds an existing child by stable story marker, returns `SubIssueExisted`, and continues without comparing or updating title, body or commit-pinned detail link (`internal/github/subissues.go:300`). This idempotency avoids duplicate issues but does not synchronize revisions. A retry can finish missing issue creation or link writeback; it cannot update already filed story contents through this path. Publication failures are logged without changing the coding run result, and missing publication dependencies disable the hook (`internal/turn/subissues.go:112`). A successful coding run is therefore not proof of successful story synchronization.
+
+[V] Outcome tests explicitly cover this behavior: `TestFileStoryIssuesRerunIsANoOp` (`internal/turn/subissues_test.go:387`) invokes the creator twice while producing only the initial issue writes; `TestCreateSubIssuesSkipsAStoryThatIsAlreadyFiled` (`internal/github/subissues_test.go:412`) preserves an existing body and creates only missing stories. The later-mode recovery test (`internal/turn/subissues_test.go:334`) covers missing creation, not updating old descriptions. Tests were inspected, not executed in run 0009.
+
+### Immediate consequence and remaining questions
+
+[V] Repeating Research or Plan without a distinct synchronization action cannot repair these five already-filed descriptions through the current automatic publisher. Before implementation consumes #127–#131, an authorized publishing step must update their titles and complete bodies from current-session US-1–US-5, refresh pinned detail links, preserve issue identities, and verify all five remotely against the local plan. This is the concrete remaining handoff operation; central ownership does not require another design rewrite.
+
+[V] No production code, plan/story body, remote issue, runtime configuration or branch was changed in this Research run. Only this brief and the manifest were updated. Source capability probes, token measurement and full implementation checks were not rerun. No new vendor CLI support claim is made.
+
+[R0] Implementation still needs exact-version transport/isolation proof and measured input/total workflow-token evidence. Those existing gates remain valid. [V] Separately, whether future replans should automatically synchronize existing issues is a product decision about publication behavior; the current hook supports creation/idempotency only. A general publisher change is not necessary to establish the current diagnosis and was not added to this feature's implementation scope.
+
+## Prior merged-source findings — run 0007, retained evidence
+
+The following sections preserve the earlier merged-source research that the run 0008 plan cites. Their `[V]` tags mean verified **in run 0007**, not reverified in run 0009. In particular, the prior final recommendation to refresh the plan was completed in run 0008, and its open question about remote synchronization is answered by the live mismatch above. Historical test results do not claim fresh execution.
 
 ## Codebase Context
 
