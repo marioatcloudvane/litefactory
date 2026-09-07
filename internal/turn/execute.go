@@ -313,6 +313,15 @@ type Request struct {
 	// this turn performs zero fetch attempts and produces prompt/argv bytes
 	// identical to a build without this feature (AC-5.1, AC-5.2).
 	AttachmentsAllowed bool
+
+	// SyncOverride is the per-issue lf:sync= label's resolved decision from
+	// the daemon's stage-1 label ladder (resolveSync in internal/daemon), or
+	// nil when no such label was present or the one that was could not be
+	// resolved — either way the configured automatic-sync default stays in
+	// force. A non-nil value beats that default: true is "on", false is
+	// "off" (AC-7.1). US-2's syncBase step is what acts on this; nothing
+	// here does.
+	SyncOverride *bool
 }
 
 func (r Request) validate() error {

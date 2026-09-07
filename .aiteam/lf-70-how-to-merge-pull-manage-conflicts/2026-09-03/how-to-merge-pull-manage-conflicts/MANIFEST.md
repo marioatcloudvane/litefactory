@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-8 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-7, US-8 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -247,5 +247,33 @@ asked for; nothing here licenses starting the next one.
   add. Neither `plan_brief.md` nor any `US-*.md` file was modified. No
   implementation work was performed. US-7 remains ready for Implement mode,
   pending its own comment.
+- 2026-09-07 — Implement mode run (scoped to US-7 only, by explicit
+  instruction "Implement US-7," deliberately excluding US-1 through US-6 and
+  US-9 through US-12; US-8 — already implemented and committed — was left
+  untouched, and the uncommitted partial US-1/US-2 work already in the
+  worktree from the earlier stopped run was left untouched throughout). US-7
+  (`lf:sync=` label opt-out) implemented in full: `internal/daemon/sync.go`
+  (new) adds `syncLabelPrefix`, `syncRefusal`, `syncDecision`, and
+  `resolveSync(labels []string) syncDecision`, copied rung-for-rung from the
+  live `agentLabelPrefix`/`modeLabelPrefix` ladder (not the dead
+  `lf:tools=`/`legacyToolsLabel` pattern); `internal/turn/execute.go` gained
+  `Request.SyncOverride *bool`; `internal/daemon/tick.go` resolves the label
+  per-tick and threads the decision into the existing `turn.Request{...}`
+  literal. No raw label text is carried by any field, satisfying SEC-5/S-9.
+  `go-code-reviewer` returned CLEAN with zero findings. Phase 2 environment
+  setup skipped — US-7 touches no real dependency (pure label-string parsing
+  plus a struct field addition). `go-unit-test-engineer` added two test files
+  (7 test functions, ~21 subtests) covering every ladder rung from T-7.3
+  (absent, on, off, miscased prefix, duplicated label, invalid value), plus
+  sibling-label independence and a structural `reflect`-based SEC-5/S-9 check.
+  All tests passed; no bug loop needed. `go build ./...`, `go vet ./...`,
+  `gofmt -l .`, and `go test -race ./...` were all re-run directly by the
+  orchestrator across the whole module and are green (every package `ok`, no
+  race findings). `DRIFT_REPORT.md` gained a second dated section for US-7,
+  verdict CLEAN, appended after the existing US-8 section rather than
+  overwriting it. No APP_CONTEXT/APP_CONSTRAINTS update was made, per the
+  retirement of that step. US-1 through US-6 and US-9 through US-12 remain
+  for future runs, each needing its own comment; `syncBase` (US-2, not yet
+  built) is the next consumer of `turn.Request.SyncOverride`.
 
 ## Notes
