@@ -23,6 +23,24 @@ const (
 	TrailerMode = TrailerPrefix + "Mode"
 	// TrailerRun carries the per-task run ordinal.
 	TrailerRun = TrailerPrefix + "Run"
+	// TrailerConflictProposal carries the id of the confirmed conflict-
+	// resolution proposal a merge commit applied (US-12). It is what lets a
+	// reader connect a commit back to the suggestion an owner actually
+	// confirmed, without trusting anything the commit message's own prose
+	// says about it.
+	TrailerConflictProposal = TrailerPrefix + "Conflict-Proposal"
+	// TrailerConfirmedBy carries the forge handle of the human who confirmed
+	// the application (US-12, S-16). It is never a "Co-authored-by:"
+	// trailer: that would attribute authorship to whoever confirmed, when
+	// the confirming act was approval, not authorship, and the commit's
+	// actual Author is already the identity [Worktree.CompleteMerge] commits
+	// as.
+	TrailerConfirmedBy = TrailerPrefix + "Confirmed-By"
+	// TrailerModel carries the coding-agent-tool name whose suggestion was
+	// confirmed and applied (US-12, S-16). It is litefactory-controlled data
+	// — an [agent.Kind] rendered as a string — never a value the model's own
+	// output could have influenced.
+	TrailerModel = TrailerPrefix + "Model"
 )
 
 const (

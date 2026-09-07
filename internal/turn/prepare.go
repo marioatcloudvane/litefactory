@@ -114,7 +114,7 @@ func prepare(
 		return nil, err
 	}
 
-	session, branch, worktree, sync, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger)
+	session, branch, worktree, sync, _, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +131,7 @@ func prepare(
 			branch:    sync.Branch, base: sync.Base,
 			files:    sync.ConflictFiles,
 			excluded: sync.ConflictExcluded,
+			baseSHA:  sync.BaseSHA, branchSHA: sync.BranchSHA,
 		}
 	}
 	if session.WorktreePath != worktree.Path() {
@@ -403,6 +404,27 @@ func prepare(
 // RETURNING against a local SQLite file — microseconds against the seconds a
 // fetch takes — so what it costs the turns queued behind it is not measurable.
 //
+// # confirmed (US-12)
+//
+// confirmed is nil for every ordinary turn and non-nil only for
+// [ExecuteApplyResolution]'s agentless apply turn. When it is set, applying
+// the confirmed proposal is this section's fifth step, after [syncBase]: the
+// stored base/branch shas are re-verified against values read no earlier
+// than this same gate acquisition (S-15), and — only when they still match —
+// [git.Worktree.WriteResolvedFiles], [git.Worktree.StageResolvedFiles],
+// [git.Worktree.CompleteMerge] and [git.Worktree.Push] run right here,
+// inline, rather than through a separately named helper. That is
+// deliberate, not merely convenient: internal/turn/gate_test.go's static
+// analysis attributes a gated call to the literal function it is written
+// in, and the whole point of doing this here is that none of those four
+// calls exists anywhere else in the package — see gate_test.go's own
+// "gated" map, which now names this function as their one allowed home
+// alongside [syncBase] (already recorded there under TEST-10). There is no
+// claude run between this step and [ensureWorktree] — the confirmation
+// grammar never starts one — so, unlike an ordinary turn's separate
+// [commitAndPush] critical section, nothing here needs to give the gate back
+// and take it a second time.
+//
 // # No deadline is imposed here
 //
 // The context is passed through untouched. Every git command starts its own
@@ -420,7 +442,8 @@ func prepareClone(
 	repo store.Repo,
 	author git.Author,
 	logger *slog.Logger,
-) (store.Session, string, *git.Worktree, syncResult, error) {
+	confirmed *confirmedProposal,
+) (store.Session, string, *git.Worktree, syncResult, *confirmedApplyResult, error) {
 	// A cancelled context here is the daemon shutting down while this turn
 	// queued behind a sibling's fetch. It is reported the same way a failed
 	// fetch is — as a *failure the issue hears about — because from the
@@ -428,29 +451,100 @@ func prepareClone(
 	// answer either way (AC-4.1).
 	release, err := opts.CloneGate.Acquire(ctx, repo.Path)
 	if err != nil {
-		return session, "", nil, syncResult{}, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
+		return session, "", nil, syncResult{}, nil, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
 	}
 	defer release()
 
 	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
-		return session, "", nil, syncResult{}, err
+		return session, "", nil, syncResult{}, nil, err
 	}
 
 	session, branch, err := freezeSlug(ctx, opts, req, session, repo)
 	if err != nil {
-		return session, "", nil, syncResult{}, err
+		return session, "", nil, syncResult{}, nil, err
 	}
 
 	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
 	if err != nil {
-		return session, "", nil, syncResult{}, err
+		return session, "", nil, syncResult{}, nil, err
 	}
 
 	sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
 	if err != nil {
-		return session, "", nil, syncResult{}, err
+		return session, "", nil, syncResult{}, nil, err
 	}
-	return session, branch, worktree, sync, nil
+
+	if confirmed == nil {
+		return session, branch, worktree, sync, nil, nil
+	}
+
+	// US-12: see the "confirmed" section of this function's own doc comment
+	// above for why this runs inline rather than through a helper.
+	stored := confirmed.proposal
+	currentBranchSHA, revErr := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if revErr != nil {
+		return session, branch, worktree, sync, nil, failuref(revErr, "the head of %s could not be read", worktree.Branch())
+	}
+	baseRef := opts.remote() + "/" + repo.BaseBranch
+	currentBaseSHA, revErr := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+	if revErr != nil {
+		return session, branch, worktree, sync, nil, failuref(revErr, "%s could not be resolved", baseRef)
+	}
+	if currentBranchSHA != stored.BranchSHA || currentBaseSHA != stored.BaseSHA {
+		logger.Info("confirmed proposal is stale; will be superseded rather than applied",
+			slog.Int64("proposal_id", stored.ID),
+			slog.String("stored_branch_sha", stored.BranchSHA), slog.String("current_branch_sha", currentBranchSHA),
+			slog.String("stored_base_sha", stored.BaseSHA), slog.String("current_base_sha", currentBaseSHA))
+		return session, branch, worktree, sync, &confirmedApplyResult{Superseded: true, Proposal: stored}, nil
+	}
+
+	ref, refErr := naming.ParseRef(session.TaskRef)
+	if refErr != nil {
+		return session, branch, worktree, sync, nil, fmt.Errorf("task ref %q on session %d: %w", session.TaskRef, session.ID, refErr)
+	}
+
+	files := make([]git.ResolvedFile, 0, len(stored.Files))
+	for _, f := range stored.Files {
+		files = append(files, git.ResolvedFile{Path: f.Path, Resolution: f.Resolution})
+	}
+	if err := worktree.WriteResolvedFiles(ctx, baseRef, files); err != nil {
+		return session, branch, worktree, sync, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
+	}
+	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
+		return session, branch, worktree, sync, nil, failuref(err, "the confirmed resolution for proposal %d could not be staged", stored.ID)
+	}
+	mergeResult, err := worktree.CompleteMerge(ctx, git.CompleteMergeOptions{
+		Task: ref.String(), Mode: "confirm", Author: author,
+		ProposalID: stored.ID, ConfirmedBy: confirmed.confirmedBy, Model: stored.Model,
+	})
+	if err != nil {
+		return session, branch, worktree, sync, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
+	}
+	if err := worktree.Push(ctx, opts.remote()); err != nil {
+		return session, branch, worktree, sync, nil, failuref(err, "the commit applying proposal %d could not be pushed", stored.ID)
+	}
+
+	return session, branch, worktree, sync, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, nil
+}
+
+// confirmedApplyResult is what [prepareClone] reached when confirmed was
+// non-nil (US-12): either the proposal turned out to be stale and was left
+// for the caller to mark superseded, or it was applied and CommitSHA is the
+// merge commit [git.Worktree.CompleteMerge] produced. It is nil whenever
+// confirmed was nil, and whenever an error is also returned — a git mutator
+// that failed reports through the ordinary error return, the same as every
+// other step of this function.
+type confirmedApplyResult struct {
+	// Superseded is true when the stored base/branch shas no longer matched
+	// what a fresh read found (AC-12.4). Proposal is set; CommitSHA is not.
+	Superseded bool
+	// Proposal is the proposal as [prepareClone] read it before deciding —
+	// carried back so the caller does not have to re-fetch it to know which
+	// proposal this result is about.
+	Proposal store.ConflictProposal
+	// CommitSHA is the merge commit produced, set only when Superseded is
+	// false.
+	CommitSHA string
 }
 
 // syncOutcome names the result syncBase reached (US-2). It is logged on every
@@ -492,6 +586,13 @@ type syncResult struct {
 	// carried alongside Conflicts so a suggested-resolution advisor (US-11)
 	// can be given proper names without reaching back into git for them.
 	Branch, Base string
+	// BranchSHA and BaseSHA are Branch and Base resolved to object ids at
+	// the moment [git.Worktree.MergePreview] evaluated them, still inside
+	// the same [Options.CloneGate] acquisition (US-12, S-15). Non-empty
+	// only when Outcome is [syncOutcomeBlocked] — they are what a later
+	// confirmation's own fresh reads are compared against before anything
+	// is applied.
+	BranchSHA, BaseSHA string
 	// ConflictFiles and ConflictExcluded are the conflicting content
 	// [collectConflictContent] gathered inside this same [Options.CloneGate]
 	// acquisition (US-11, S-10), non-nil only when
@@ -578,6 +679,22 @@ func syncBase(
 			Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts,
 			Branch: worktree.Branch(), Base: repo.BaseBranch,
 		}
+		// US-12: the branch and base tips this preview was evaluated against
+		// are captured here, still inside the same gate acquisition, so a
+		// later confirmation has something to re-verify its own fresh reads
+		// against (S-15) — unconditional, the same way Branch and Base
+		// themselves are, since a proposal may or may not end up being
+		// generated from this refusal but the starting point it would need
+		// is cheapest to read right here, right now.
+		branchSHA, err := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+		if err != nil {
+			return syncResult{}, failuref(err, "the head of %s could not be read", worktree.Branch())
+		}
+		baseSHA, err := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+		if err != nil {
+			return syncResult{}, failuref(err, "%s could not be resolved", baseRef)
+		}
+		blocked.BranchSHA, blocked.BaseSHA = branchSHA, baseSHA
 		// US-11: the conflicting content is collected here, still inside
 		// prepareClone's one [Options.CloneGate] acquisition, and only when
 		// the feature is configured on and there is a comment to eventually

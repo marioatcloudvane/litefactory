@@ -264,6 +264,7 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	proposal, _, err := opts.DB.CreateOrGetConflictProposal(ctx, store.CreateConflictProposalParams{
 		SessionID: result.SessionID, TriggerCommentID: result.TriggerCommentID,
 		Model: string(req.Agent), Files: storeFiles,
+		BaseSHA: sr.baseSHA, BranchSHA: sr.branchSHA,
 	})
 	if err != nil {
 		logger.Warn("could not persist the conflict-resolution proposal", slog.Any("error", err))

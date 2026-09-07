@@ -108,6 +108,15 @@ type syncRefusal struct {
 	branch, base string
 	files        []agent.ConflictFileContent
 	excluded     []string
+
+	// baseSHA and branchSHA are US-12's addition: the base and branch tips
+	// [git.Worktree.MergePreview] was evaluated against, read while still
+	// inside the same [Options.CloneGate] acquisition (S-15). They are what
+	// a later confirmation's re-verification compares its own fresh reads
+	// against — always populated when Outcome is blocked, independently of
+	// [Options.SuggestConflictResolution], the same way branch and base
+	// themselves are.
+	baseSHA, branchSHA string
 }
 
 func (e *syncRefusal) Error() string {

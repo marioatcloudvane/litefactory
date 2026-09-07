@@ -122,6 +122,49 @@ const (
 	ReplyScheduleProposalAccepted
 	ReplyScheduleProposalRejected
 	ReplyScheduleProposalFailed
+
+	// ReplyConfirmInvalid answers a /confirm control whose factory grammar
+	// could not be accepted: a missing or non-positive proposal id, or
+	// anything other than the exact confirmation phrase (US-12, S-14). It
+	// never echoes the comment's own text (SEC-5).
+	ReplyConfirmInvalid
+
+	// ReplyConfirmNotOwner answers a confirmation from someone other than
+	// this task's issue owner (watch-out #4 of US-12). Nothing is applied
+	// and the proposal's status does not move.
+	ReplyConfirmNotOwner
+
+	// ReplyConfirmUnknownProposal answers a confirmation naming a proposal
+	// id this task has no record of — including a real id that belongs to a
+	// different task, reported identically so a confirmation can never be
+	// used to learn what exists elsewhere.
+	ReplyConfirmUnknownProposal
+
+	// ReplyConfirmExpiredProposal answers a confirmation naming a proposal
+	// whose TTL already passed.
+	ReplyConfirmExpiredProposal
+
+	// ReplyConfirmSupersededProposal answers a confirmation naming a
+	// proposal that a later proposal already superseded, or one this
+	// package found to no longer match the current base/branch tips at
+	// apply time (AC-12.4).
+	ReplyConfirmSupersededProposal
+
+	// ReplyConfirmAlreadyApplied answers a second confirmation of a
+	// proposal that was already applied (AC-12.9): a no-op, never a second
+	// commit.
+	ReplyConfirmAlreadyApplied
+
+	// ReplyConfirmFailed answers a confirmation that passed every gate but
+	// whose application could not be completed (AC-12.6): the branch was
+	// rolled back to exactly where it was, and the proposal is still
+	// pending.
+	ReplyConfirmFailed
+
+	// ReplyAppliesResolution answers a successful application (AC-12.5): it
+	// discloses the model, the confirming handle, the files that were
+	// written, and the commit that completed the merge.
+	ReplyAppliesResolution
 )
 
 // String renders the kind for logs and test failures.
@@ -165,6 +208,22 @@ func (k ReplyKind) String() string {
 		return "schedule_proposal_rejected"
 	case ReplyScheduleProposalFailed:
 		return "schedule_proposal_failed"
+	case ReplyConfirmInvalid:
+		return "confirm_invalid"
+	case ReplyConfirmNotOwner:
+		return "confirm_not_owner"
+	case ReplyConfirmUnknownProposal:
+		return "confirm_unknown_proposal"
+	case ReplyConfirmExpiredProposal:
+		return "confirm_expired_proposal"
+	case ReplyConfirmSupersededProposal:
+		return "confirm_superseded_proposal"
+	case ReplyConfirmAlreadyApplied:
+		return "confirm_already_applied"
+	case ReplyConfirmFailed:
+		return "confirm_failed"
+	case ReplyAppliesResolution:
+		return "applies_resolution"
 	case ReplyInvalid:
 		return "invalid"
 	default:
@@ -191,8 +250,27 @@ func (k ReplyKind) valid() bool {
 		ReplyScheduleProposalReady, ReplyScheduleProposalAccepted,
 		ReplyScheduleProposalRejected, ReplyScheduleProposalFailed:
 		return true
+	case ReplyConfirmInvalid, ReplyConfirmNotOwner, ReplyConfirmUnknownProposal,
+		ReplyConfirmExpiredProposal, ReplyConfirmSupersededProposal,
+		ReplyConfirmAlreadyApplied, ReplyConfirmFailed, ReplyAppliesResolution:
+		return true
 	case ReplyInvalid:
 		return false
+	default:
+		return false
+	}
+}
+
+// IsConfirmationReply reports whether k is one of the eight replies a
+// /confirm control draws (US-12): the same closed set
+// [ReplyRequest.kind]/[ReplyRequest.validate] check membership in, the way
+// they already do for ScheduleKind's own eight replies.
+func (k ReplyKind) IsConfirmationReply() bool {
+	switch k {
+	case ReplyConfirmInvalid, ReplyConfirmNotOwner, ReplyConfirmUnknownProposal,
+		ReplyConfirmExpiredProposal, ReplyConfirmSupersededProposal,
+		ReplyConfirmAlreadyApplied, ReplyConfirmFailed, ReplyAppliesResolution:
+		return true
 	default:
 		return false
 	}
@@ -323,6 +401,38 @@ type Reply struct {
 	// Schedule carries the safe, structured facts of a scheduling reply. It is
 	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
 	Schedule ScheduleReply
+
+	// Confirm carries the safe, structured facts of a /confirm reply
+	// (US-12). It is set only for [ReplyKind.IsConfirmationReply] kinds.
+	Confirm ConfirmReply
+}
+
+// ConfirmReply is the factory-owned disclosure for a /confirm control
+// (US-12). ProposalID is set on every confirmation reply; the rest are set
+// only where the specific kind needs them — see each field's own comment.
+type ConfirmReply struct {
+	// ProposalID is the proposal the confirmation named. Set whenever it is
+	// known, which is every kind except [ReplyConfirmInvalid] (a grammar
+	// failure may have no id to name at all).
+	ProposalID int64
+	// Model names the coding-agent tool whose suggestion was applied.
+	// Read by [ReplyAppliesResolution] alone.
+	Model string
+	// ConfirmedBy is the forge handle that confirmed the proposal. Read by
+	// [ReplyAppliesResolution] alone, and checked against
+	// [confirmedByPattern] before it is rendered (S-16): a malformed handle
+	// is rejected whole, never truncated or sanitised into something
+	// printable (reject-don't-salvage).
+	ConfirmedBy string
+	// Files carries only the confirmed paths and the resolution text that
+	// was written for each — the same shape [ConflictProposalFile] already
+	// gives [ReplySuggestsResolution]. Read by [ReplyAppliesResolution]
+	// alone.
+	Files []ConflictProposalFile
+	// CommitSHA is the merge commit that completed the application. Read by
+	// [ReplyAppliesResolution] alone. Combined with the enclosing [Reply]'s
+	// own Ref, it is what builds the commit permalink.
+	CommitSHA string
 }
 
 // ConflictProposal is a suggested resolution for a blocked merge, read by
@@ -372,6 +482,28 @@ func agentSpan(name string) (string, bool) {
 		return "", false
 	}
 	return "`" + name + "`", true
+}
+
+// confirmedByPattern is the shape of a GitHub handle: alphanumeric segments
+// joined by single hyphens, 1 to 39 characters, matching what the forge
+// itself allows a login to be.
+//
+// It is checked here, at the one place a confirming human's handle is
+// echoed into a comment litefactory signs its own name to (S-16), the same
+// discipline [agentNamePattern] and [conflictPathPattern] already apply to
+// their own untrusted strings. A handle failing it is rejected whole —
+// reject-don't-salvage — never truncated or stripped down to whatever
+// prefix looks safe.
+var confirmedByPattern = regexp.MustCompile(`^[a-zA-Z0-9](?:[a-zA-Z0-9]|-[a-zA-Z0-9]){0,38}$`)
+
+// confirmedBySpan renders a confirming handle for quoting back, the same
+// discipline [agentSpan] and [commandSpan] apply to their own untrusted
+// strings: nothing is rendered at all for anything that fails the pattern.
+func confirmedBySpan(handle string) (string, bool) {
+	if !confirmedByPattern.MatchString(handle) {
+		return "", false
+	}
+	return "`" + handle + "`", true
 }
 
 // maxCommandLen bounds how much of a command token is quoted back.
@@ -646,6 +778,9 @@ func (r Reply) body() string {
 		}
 		b.WriteString(sectionGap)
 		b.WriteString(conflictProposalConfirmationSentence)
+		if r.ConflictProposal != nil {
+			fmt.Fprintf(&b, " To apply it exactly as shown, comment `/confirm %d apply this resolution`.", r.ConflictProposal.ID)
+		}
 		b.WriteString(sectionGap)
 		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
 
@@ -700,6 +835,65 @@ func (r Reply) body() string {
 	case ReplyScheduleProposalFailed:
 		b.WriteString("I could not produce a valid schedule proposal. No work was scheduled.")
 
+	case ReplyConfirmInvalid:
+		b.WriteString("I could not accept that confirmation. Litefactory accepts exactly " +
+			"`/confirm <id> " + confirmationPhraseText + "`, naming the proposal id and the confirmation " +
+			"phrase verbatim. Nothing was applied.")
+
+	case ReplyConfirmNotOwner:
+		b.WriteString("Only this task's issue owner may confirm a proposal. Nothing was applied and the " +
+			"proposal's status is unchanged.")
+
+	case ReplyConfirmUnknownProposal:
+		if r.Confirm.ProposalID > 0 {
+			fmt.Fprintf(&b, "I have no pending proposal `%d` for this task. ", r.Confirm.ProposalID)
+		} else {
+			b.WriteString("I have no pending proposal with that id for this task. ")
+		}
+		b.WriteString("Nothing was applied.")
+
+	case ReplyConfirmExpiredProposal:
+		fmt.Fprintf(&b, "Proposal `%d` has expired and can no longer be confirmed. Nothing was applied.", r.Confirm.ProposalID)
+		b.WriteString(sectionGap)
+		b.WriteString("Comment again to ask for a fresh suggestion.")
+
+	case ReplyConfirmSupersededProposal:
+		fmt.Fprintf(&b, "Proposal `%d` no longer matches this task's current branch or base and cannot be applied. "+
+			"Nothing was applied.", r.Confirm.ProposalID)
+		b.WriteString(sectionGap)
+		b.WriteString("Comment again to ask for a fresh suggestion.")
+
+	case ReplyConfirmAlreadyApplied:
+		fmt.Fprintf(&b, "Proposal `%d` was already applied. Nothing more was done.", r.Confirm.ProposalID)
+
+	case ReplyConfirmFailed:
+		fmt.Fprintf(&b, "I could not apply proposal `%d`. Nothing was written: this task's branch, index and "+
+			"commits are unchanged.", r.Confirm.ProposalID)
+		b.WriteString(sectionGap)
+		b.WriteString("Comment again once the underlying issue is resolved.")
+
+	case ReplyAppliesResolution:
+		fmt.Fprintf(&b, "Applied proposal `%d`.", r.Confirm.ProposalID)
+		if model, ok := agentSpan(r.Confirm.Model); ok {
+			fmt.Fprintf(&b, " Resolution from %s,", model)
+		}
+		if handle, ok := confirmedBySpan(r.Confirm.ConfirmedBy); ok {
+			fmt.Fprintf(&b, " confirmed by %s.", handle)
+		} else {
+			b.WriteString(" confirmed.")
+		}
+		if len(r.Confirm.Files) > 0 {
+			b.WriteString(sectionGap)
+			b.WriteString("Files applied:")
+			b.WriteString(sectionGap)
+			b.WriteString(conflictProposalBlock(r.Confirm.Files))
+		}
+		if url, ok := commitURL(r.Ref, r.Confirm.CommitSHA); ok {
+			fmt.Fprintf(&b, "%sCommit: [`%s`](%s)", sectionGap, r.Confirm.CommitSHA, url)
+		} else if validSHA(r.Confirm.CommitSHA) {
+			fmt.Fprintf(&b, "%sCommit: `%s`", sectionGap, r.Confirm.CommitSHA)
+		}
+
 	case ReplyInvalid:
 		// Unreachable: RenderReply rejects an invalid kind before calling this.
 		return ""
@@ -721,6 +915,13 @@ func (r Reply) body() string {
 // will act on. It is a single constant so the replies cannot drift into
 // different accounts of the active command vocabulary.
 const onlyCommandSentence = "Litefactory accepts `/research`, `/plan`, `/implement`, `/validate`, `/spike`, and `/schedule`."
+
+// confirmationPhraseText mirrors internal/confirm.Phrase verbatim. It is a
+// literal here rather than an import of that package, the same way
+// [ScheduleCommand]'s literal "/schedule" already is: this package renders
+// and does no parsing at all, and importing a parser for one string would
+// put a grammar dependency in the one package whose job is prose.
+const confirmationPhraseText = "apply this resolution"
 
 // toolsRefusalSentence is the one thing every tool-permission refusal has to
 // say, for the same reason [onlyCommandSentence] exists: three refusals must not
@@ -758,9 +959,10 @@ const conflictSuggestionFailedSentence = "No suggested resolution could be produ
 // [ReplySuggestsResolution] carries on every render (AC-11.1): a suggestion
 // is advisory only, and this is the one sentence that says so, the same way
 // [syncRefusalSentence] is the one account every sync refusal gives of why
-// nothing ran. There is no confirmation grammar yet — accepting a
-// suggestion is a later story — so this sentence is unconditional rather
-// than a command hint.
+// nothing ran. [ReplySuggestsResolution]'s own rendering appends the
+// /confirm hint naming this proposal's id right after it (US-12); this
+// sentence stays unconditional so it reads the same whether or not a
+// proposal id follows.
 const conflictProposalConfirmationSentence = "This is a suggestion only: litefactory has not applied it, " +
 	"and this task's branch, index, and commits are unchanged."
 

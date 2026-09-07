@@ -12,7 +12,8 @@ func TestConflictProposalReplayAndFiles(t *testing.T) {
 
 	first, created, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 10, Model: "claude",
-		Files: []ConflictProposalFile{{Path: "a.go", Resolution: "resolved a"}, {Path: "b.go", Resolution: "resolved b"}},
+		Files:   []ConflictProposalFile{{Path: "a.go", Resolution: "resolved a"}, {Path: "b.go", Resolution: "resolved b"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil || !created || first.Status != ConflictProposalPending || len(first.Files) != 2 {
 		t.Fatalf("create first = (%+v, %t, %v), want a pending proposal with two files", first, created, err)
@@ -20,7 +21,8 @@ func TestConflictProposalReplayAndFiles(t *testing.T) {
 
 	replayed, created, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 10, Model: "codex",
-		Files: []ConflictProposalFile{{Path: "changed.go", Resolution: "should not apply"}},
+		Files:   []ConflictProposalFile{{Path: "changed.go", Resolution: "should not apply"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil || created || replayed.ID != first.ID || replayed.Model != "claude" || len(replayed.Files) != 2 {
 		t.Fatalf("replay = (%+v, %t, %v), want original unchanged proposal", replayed, created, err)
@@ -39,7 +41,8 @@ func TestConflictProposalSupersedesEarlierPending(t *testing.T) {
 
 	first, _, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 10, Model: "claude",
-		Files: []ConflictProposalFile{{Path: "a.go", Resolution: "first"}},
+		Files:   []ConflictProposalFile{{Path: "a.go", Resolution: "first"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil {
 		t.Fatalf("create first: %v", err)
@@ -47,7 +50,8 @@ func TestConflictProposalSupersedesEarlierPending(t *testing.T) {
 
 	second, created, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 11, Model: "claude",
-		Files: []ConflictProposalFile{{Path: "b.go", Resolution: "second"}},
+		Files:   []ConflictProposalFile{{Path: "b.go", Resolution: "second"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil || !created {
 		t.Fatalf("create second = (%+v, %t, %v)", second, created, err)
@@ -80,7 +84,8 @@ func TestConflictProposalTTLExpiry(t *testing.T) {
 	session := testSession(t, db, 202)
 	old, _, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 10, Model: "claude",
-		Files: []ConflictProposalFile{{Path: "a.go", Resolution: "resolved"}},
+		Files:   []ConflictProposalFile{{Path: "a.go", Resolution: "resolved"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -101,7 +106,8 @@ func TestConflictProposalTTLExpiry(t *testing.T) {
 	// Expiry never touches a proposal created at or after cutoff.
 	fresh, _, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 11, Model: "claude",
-		Files: []ConflictProposalFile{{Path: "b.go", Resolution: "resolved"}},
+		Files:   []ConflictProposalFile{{Path: "b.go", Resolution: "resolved"}},
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	})
 	if err != nil {
 		t.Fatalf("create fresh: %v", err)
@@ -121,6 +127,7 @@ func TestConflictProposalRejectsTooManyFiles(t *testing.T) {
 	}
 	if _, _, err := db.CreateOrGetConflictProposal(t.Context(), CreateConflictProposalParams{
 		SessionID: session.ID, TriggerCommentID: 10, Model: "claude", Files: files,
+		BaseSHA: "base-sha", BranchSHA: "branch-sha",
 	}); err == nil {
 		t.Fatal("created a conflict proposal over the file cap")
 	}
@@ -163,6 +170,7 @@ func TestConflictProposalsSchemaHasNoContentColumn(t *testing.T) {
 		}
 	}
 
-	assertColumns("conflict_proposals", []string{"id", "session_id", "trigger_comment_id", "model", "status", "created_at", "resolved_at"})
+	assertColumns("conflict_proposals", []string{"id", "session_id", "trigger_comment_id", "model", "status", "created_at", "resolved_at",
+		"base_sha", "branch_sha", "confirmed_by", "confirmed_comment_id", "applied_commit_sha", "applied_at"})
 	assertColumns("conflict_proposal_files", []string{"id", "proposal_id", "ordinal", "path", "resolution"})
 }

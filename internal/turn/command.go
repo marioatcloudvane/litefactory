@@ -13,6 +13,11 @@ const SpikeCommand = "/spike"
 // ScheduleCommand names the factory-only scheduling control.
 const ScheduleCommand = "/schedule"
 
+// ConfirmCommand names the factory-only confirmation control (US-12): the
+// only comment grammar that can apply a stored conflict-resolution
+// proposal. Like [ScheduleCommand] it never spawns an agent run.
+const ConfirmCommand = "/confirm"
+
 // CommandKind is what a comment body turned out to be asking for.
 //
 // Every kind advances the watermark once it has been handled. Consuming the
@@ -46,6 +51,14 @@ const (
 	// and timezone before later factory code persists or refuses it.
 	KindSchedule
 
+	// KindConfirm is a Litefactory-owned control command (US-12): the
+	// confirmation grammar that applies a stored conflict-resolution
+	// proposal. Its grammar is parsed separately, by internal/confirm, and
+	// it never starts an agent run — the same discipline [KindSchedule]
+	// already holds. Ownership is checked after parsing, not by this
+	// package.
+	KindConfirm
+
 	// KindUnknown is any slash command outside Litefactory's active vocabulary.
 	KindUnknown
 )
@@ -63,6 +76,8 @@ func (k CommandKind) String() string {
 		return "spike_empty"
 	case KindSchedule:
 		return "schedule"
+	case KindConfirm:
+		return "confirm"
 	case KindUnknown:
 		return "unknown"
 	default:
@@ -122,7 +137,7 @@ func (c Command) NeedsReply() bool {
 	switch c.Kind {
 	case KindSpikeEmpty, KindUnknown:
 		return true
-	case KindNone, KindSpike, KindFreeText, KindSchedule:
+	case KindNone, KindSpike, KindFreeText, KindSchedule, KindConfirm:
 		return false
 	default:
 		return false
@@ -201,6 +216,8 @@ func ParseCommand(body string) Command {
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
 	case name == ScheduleCommand:
 		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
+	case name == ConfirmCommand:
+		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}
 	}

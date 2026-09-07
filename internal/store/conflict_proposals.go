@@ -22,6 +22,12 @@ const (
 	ConflictProposalPending    ConflictProposalStatus = "pending"
 	ConflictProposalSuperseded ConflictProposalStatus = "superseded"
 	ConflictProposalExpired    ConflictProposalStatus = "expired"
+	// ConflictProposalApplied is US-12's addition: a confirmed proposal
+	// whose files were written, staged, and whose merge was completed. It
+	// is terminal — nothing moves a proposal off "applied" — and is what
+	// makes a second confirmation of the same proposal a no-op reported as
+	// already applied (AC-12.9) rather than a second commit.
+	ConflictProposalApplied ConflictProposalStatus = "applied"
 )
 
 // MaxConflictProposalFiles caps how many files one [ConflictProposal] may
@@ -48,6 +54,24 @@ type ConflictProposal struct {
 	Status                ConflictProposalStatus
 	CreatedAt, ResolvedAt time.Time
 	Files                 []ConflictProposalFile
+
+	// BaseSHA and BranchSHA are the base and branch tips this proposal's
+	// suggestion was computed against (US-12, S-15): captured once, at
+	// proposal time, and re-verified fresh inside the CloneGate immediately
+	// before a confirmation is applied. A mismatch means the branch or base
+	// moved since the suggestion was computed, and marks the proposal
+	// superseded rather than applying content confirmed against code that
+	// no longer exists.
+	BaseSHA, BranchSHA string
+
+	// ConfirmedBy and ConfirmedCommentID record who confirmed this proposal
+	// and which comment did it, set only once a confirmation has passed
+	// every gate (S-12). AppliedCommitSHA and AppliedAt are set only once a
+	// merge commit has actually been made; all four are zero until then.
+	ConfirmedBy        string
+	ConfirmedCommentID int64
+	AppliedCommitSHA   string
+	AppliedAt          time.Time
 }
 
 // ConflictProposalFile is one conflicting path and its suggested
@@ -65,6 +89,11 @@ type CreateConflictProposalParams struct {
 	SessionID, TriggerCommentID int64
 	Model                       string
 	Files                       []ConflictProposalFile
+	// BaseSHA and BranchSHA are the base and branch tips the suggestion was
+	// computed against (US-12, S-15). Both are required: a proposal with no
+	// stored starting point can never be confirmed, since nothing could
+	// ever compare equal to an empty sha.
+	BaseSHA, BranchSHA string
 }
 
 // CreateOrGetConflictProposal records a conflict-resolution proposal once.
@@ -94,9 +123,10 @@ func (db *DB) CreateOrGetConflictProposal(ctx context.Context, params CreateConf
 			return getErr
 		}
 		proposal, getErr = scanConflictProposal(tx.QueryRowContext(ctx, `
-INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at)
-VALUES (?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
-			params.SessionID, params.TriggerCommentID, params.Model, string(ConflictProposalPending), FormatTime(now)))
+INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at, base_sha, branch_sha)
+VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
+			params.SessionID, params.TriggerCommentID, params.Model, string(ConflictProposalPending), FormatTime(now),
+			params.BaseSHA, params.BranchSHA))
 		if getErr != nil {
 			return getErr
 		}
@@ -149,6 +179,59 @@ WHERE status = ? AND created_at < ?`, string(ConflictProposalExpired), FormatTim
 	return int(count), nil
 }
 
+// SupersedeConflictProposal marks one pending proposal superseded (US-12,
+// S-15): the confirmation-time counterpart of
+// [DB.CreateOrGetConflictProposal]'s own supersede-on-new-proposal step,
+// reached when the base or branch tip re-verified inside the CloneGate at
+// apply time no longer matches the sha this proposal's suggestion was
+// computed against. The update is conditional on the row still being
+// pending, so a proposal already decided by something else is left exactly
+// as it was rather than clobbered by a stale confirmation that lost a race.
+func (db *DB) SupersedeConflictProposal(ctx context.Context, id int64, at time.Time) (ConflictProposal, error) {
+	if id <= 0 || at.IsZero() {
+		return ConflictProposal{}, errors.New("store: supersede conflict proposal: id and time are required")
+	}
+	proposal, err := scanConflictProposal(db.sql.QueryRowContext(ctx, `
+UPDATE conflict_proposals SET status = ?, resolved_at = ?
+WHERE id = ? AND status = ? RETURNING `+conflictProposalColumns,
+		string(ConflictProposalSuperseded), FormatTime(at), id, string(ConflictProposalPending)))
+	if err != nil {
+		return ConflictProposal{}, fmt.Errorf("store: supersede conflict proposal %d: %w", id, err)
+	}
+	if err := loadConflictProposalFiles(ctx, db.sql, &proposal); err != nil {
+		return ConflictProposal{}, fmt.Errorf("store: supersede conflict proposal %d files: %w", id, err)
+	}
+	return proposal, nil
+}
+
+// MarkConflictProposalApplied records that a confirmed proposal's resolution
+// was written, staged, and its merge completed (US-12, AC-12.5). The update
+// is conditional on the row still being pending — the same guard
+// [DB.SupersedeConflictProposal] applies — so a proposal already applied by
+// a concurrent confirmation is reported back as [ErrNotFound] rather than
+// silently overwritten with a second commit's sha (AC-12.9).
+func (db *DB) MarkConflictProposalApplied(ctx context.Context, id int64, confirmedBy string, confirmedCommentID int64, commitSHA string, appliedAt time.Time) (ConflictProposal, error) {
+	if id <= 0 || confirmedBy == "" || commitSHA == "" || appliedAt.IsZero() {
+		return ConflictProposal{}, errors.New("store: mark conflict proposal applied: id, confirmer, commit sha and time are required")
+	}
+	if confirmedCommentID < 0 {
+		return ConflictProposal{}, errors.New("store: mark conflict proposal applied: confirmed comment id must not be negative")
+	}
+	proposal, err := scanConflictProposal(db.sql.QueryRowContext(ctx, `
+UPDATE conflict_proposals
+SET status = ?, resolved_at = ?, confirmed_by = ?, confirmed_comment_id = ?, applied_commit_sha = ?, applied_at = ?
+WHERE id = ? AND status = ? RETURNING `+conflictProposalColumns,
+		string(ConflictProposalApplied), FormatTime(appliedAt), confirmedBy, confirmedCommentID, commitSHA, FormatTime(appliedAt),
+		id, string(ConflictProposalPending)))
+	if err != nil {
+		return ConflictProposal{}, fmt.Errorf("store: mark conflict proposal %d applied: %w", id, err)
+	}
+	if err := loadConflictProposalFiles(ctx, db.sql, &proposal); err != nil {
+		return ConflictProposal{}, fmt.Errorf("store: mark conflict proposal %d applied files: %w", id, err)
+	}
+	return proposal, nil
+}
+
 // supersedePendingConflictProposals marks every pending proposal for
 // sessionID superseded, as the write half of the read-then-write
 // [DB.CreateOrGetConflictProposal] performs under one BEGIN IMMEDIATE
@@ -167,6 +250,9 @@ WHERE session_id = ? AND status = ?`,
 func validateConflictProposalParams(p CreateConflictProposalParams) error {
 	if p.SessionID == 0 || p.Model == "" {
 		return errors.New("store: create conflict proposal: session and model are required")
+	}
+	if p.BaseSHA == "" || p.BranchSHA == "" {
+		return errors.New("store: create conflict proposal: base and branch shas are required")
 	}
 	if p.TriggerCommentID < 0 {
 		return errors.New("store: create conflict proposal: trigger comment id must not be negative")
@@ -190,14 +276,18 @@ func getConflictProposalBySource(ctx context.Context, q querier, sessionID, trig
 	return scanConflictProposal(q.QueryRowContext(ctx, `SELECT `+conflictProposalColumns+` FROM conflict_proposals WHERE session_id = ? AND trigger_comment_id = ?`, sessionID, triggerCommentID))
 }
 
-const conflictProposalColumns = `id, session_id, trigger_comment_id, model, status, created_at, resolved_at`
+const conflictProposalColumns = `id, session_id, trigger_comment_id, model, status, created_at, resolved_at,
+	base_sha, branch_sha, confirmed_by, confirmed_comment_id, applied_commit_sha, applied_at`
 const conflictProposalFileColumns = `id, proposal_id, ordinal, path, resolution`
 
 func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	var p ConflictProposal
 	var status string
-	var created, resolved sql.NullString
-	if err := s.Scan(&p.ID, &p.SessionID, &p.TriggerCommentID, &p.Model, &status, &created, &resolved); err != nil {
+	var created, resolved, appliedAt sql.NullString
+	var confirmedBy, appliedCommitSHA sql.NullString
+	var confirmedCommentID sql.NullInt64
+	if err := s.Scan(&p.ID, &p.SessionID, &p.TriggerCommentID, &p.Model, &status, &created, &resolved,
+		&p.BaseSHA, &p.BranchSHA, &confirmedBy, &confirmedCommentID, &appliedCommitSHA, &appliedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConflictProposal{}, ErrNotFound
 		}
@@ -210,7 +300,13 @@ func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	if p.ResolvedAt, err = scanTime(resolved); err != nil {
 		return ConflictProposal{}, err
 	}
+	if p.AppliedAt, err = scanTime(appliedAt); err != nil {
+		return ConflictProposal{}, err
+	}
 	p.Status = ConflictProposalStatus(status)
+	p.ConfirmedBy = confirmedBy.String
+	p.ConfirmedCommentID = confirmedCommentID.Int64
+	p.AppliedCommitSHA = appliedCommitSHA.String
 	return p, nil
 }
 
