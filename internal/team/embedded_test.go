@@ -65,13 +65,13 @@ func TestEmbeddedGoTeamHasExactlyTheGoSpecialistAgents(t *testing.T) {
 	if len(idx.Teams) != 1 {
 		t.Fatalf("len(Teams) = %d, want 1 (go-team)", len(idx.Teams))
 	}
-	goTeam := idx.Teams[0]
-	if goTeam.Name != "go-team" {
-		t.Fatalf("Teams[0].Name = %q, want %q", goTeam.Name, "go-team")
+	goTeam, ok := idx.Teams["go-team"]
+	if !ok {
+		t.Fatal("missing go-team")
 	}
 	wantKeys := append([]string(nil), goTeamSpecialistKeys...)
-	gotKeys := make([]string, 0, len(goTeam.Agents))
-	for k := range goTeam.Agents {
+	gotKeys := make([]string, 0, len(inlineAgents(goTeam)))
+	for k := range inlineAgents(goTeam) {
 		gotKeys = append(gotKeys, k)
 	}
 	sort.Strings(wantKeys)
@@ -108,9 +108,9 @@ func TestEmbeddedSharedHasExactlyTheSurvivingGenericAgents(t *testing.T) {
 		if _, ok := idx.Shared[tool]; ok {
 			t.Errorf("shared map names host-level tooling entry %q (AC-2)", tool)
 		}
-		for _, team := range idx.Teams {
-			if _, ok := team.Agents[tool]; ok {
-				t.Errorf("team %q names host-level tooling entry %q (AC-2)", team.Name, tool)
+		for name, team := range idx.Teams {
+			if _, ok := inlineAgents(team)[tool]; ok {
+				t.Errorf("team %q names host-level tooling entry %q (AC-2)", name, tool)
 			}
 		}
 	}
@@ -130,9 +130,9 @@ func TestEmbeddedSourcesAllResolve(t *testing.T) {
 	}
 
 	checked := 0
-	for _, team := range idx.Teams {
-		for key, entry := range team.Agents {
-			assertSourceReadable(t, fsys, team.Name+"."+key, entry)
+	for name, team := range idx.Teams {
+		for key, entry := range inlineAgents(team) {
+			assertSourceReadable(t, fsys, name+"."+key, entry)
 			checked++
 		}
 	}
@@ -145,17 +145,17 @@ func TestEmbeddedSourcesAllResolve(t *testing.T) {
 	}
 }
 
-// assertSourceReadable fails t if entry.Source cannot be read from fsys, or
+// assertSourceReadable fails t if entry.Path cannot be read from fsys, or
 // reads as empty.
 func assertSourceReadable(t *testing.T, fsys fs.FS, label string, entry AgentEntry) {
 	t.Helper()
-	data, err := fs.ReadFile(fsys, entry.Source)
+	data, err := fs.ReadFile(fsys, entry.Path)
 	if err != nil {
-		t.Errorf("%s: read Source %q: %v", label, entry.Source, err)
+		t.Errorf("%s: read Source %q: %v", label, entry.Path, err)
 		return
 	}
 	if len(data) == 0 {
-		t.Errorf("%s: Source %q read as empty", label, entry.Source)
+		t.Errorf("%s: Source %q read as empty", label, entry.Path)
 	}
 }
 
@@ -171,4 +171,17 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func inlineAgents(t TeamEntry) map[string]AgentEntry {
+	agents := map[string]AgentEntry{}
+	for _, mode := range Modes() {
+		entries, _ := t.Mode(mode)
+		for _, a := range entries {
+			if a.Ref == "" {
+				agents[a.ID] = a
+			}
+		}
+	}
+	return agents
 }

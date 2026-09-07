@@ -58,7 +58,7 @@ func parseAgentSource(raw []byte) (render.ResolvedSource, error) {
 //
 // This is the one call site override substitution happens at. It changes
 // which raw bytes get hashed and rendered for agentKey; it never changes
-// AgentEntry.Dest, the lockfile schema, or entry.Agent.Source itself — both
+// AgentEntry.Path, the lockfile schema, or entry.Agent.Path itself — both
 // RenderTeam and RenderCurrent still record the index's own SourcePath in
 // the team.AgentRender/status they return, exactly as before, so an
 // overridden agent's provenance in team.lock.json is unaffected by whether
@@ -113,14 +113,14 @@ func RenderTeam(root string, fsys fs.FS, teamName string, roster []RosterEntry, 
 			continue
 		}
 		for _, entry := range roster {
-			raw, readErr := readAgentSource(root, fsys, entry.Key, entry.Agent.Source)
+			raw, readErr := readAgentSource(root, fsys, entry.Key, entry.Agent.Path)
 			if readErr != nil {
 				errs = append(errs, readErr)
 				continue
 			}
 			source, parseErr := parseAgentSource(raw)
 			if parseErr != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", entry.Agent.Source, parseErr))
+				errs = append(errs, fmt.Errorf("%s: %w", entry.Agent.Path, parseErr))
 				continue
 			}
 			// A renderer error means every RenderedFile it produced (if any)
@@ -149,7 +149,7 @@ func RenderTeam(root string, fsys fs.FS, teamName string, roster []RosterEntry, 
 				AgentKey:   entry.Key,
 				Harness:    harnessName,
 				Teams:      teams,
-				SourcePath: entry.Agent.Source,
+				SourcePath: entry.Agent.Path,
 				SourceHash: team.HashBytes(raw),
 				Files:      teamFiles,
 			})

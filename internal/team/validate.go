@@ -2,77 +2,129 @@ package team
 
 import (
 	"fmt"
-	"sort"
+	"slices"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/config"
 )
 
-// Validate checks semantic rules against an already type-decoded Index:
-// filename-safety on every team name and agent key, non-empty Source/Dest
-// on every agent entry, that neither Source nor Dest smuggles in claude's
-// permission-skipping flag, and that no agent key appears in more than one
-// location (AC-5). It never re-checks JSON shape — [Decode]'s pass one
-// already guarantees the shape is clean before Validate ever runs.
+// Validate aggregates semantic faults in a typed version 2 catalog.
 func Validate(idx *Index) []error {
+	if idx == nil {
+		return []error{fmt.Errorf("team index is nil")}
+	}
 	var errs []error
-	locations := make(map[string][]string)
-
-	for i, t := range idx.Teams {
-		path := teamPath(t, i)
-		if !KeyPattern.MatchString(t.Name) {
-			errs = append(errs, &KeyError{Path: path + ".name", Key: t.Name})
+	if idx.SchemaVersion != 2 {
+		errs = append(errs, fmt.Errorf("schema_version: unsupported version %d; require 2", idx.SchemaVersion))
+	}
+	if idx.Teams == nil {
+		errs = append(errs, &EmptyFieldError{Path: "index", Field: "teams"})
+	}
+	if idx.Shared == nil {
+		errs = append(errs, &EmptyFieldError{Path: "index", Field: "shared"})
+	}
+	for id, a := range idx.Shared {
+		errs = append(errs, validateAgentEntry(id, a, "shared."+id)...)
+		if a.Ref != "" {
+			errs = append(errs, fmt.Errorf("shared.%s: shared definitions cannot reference another agent", id))
 		}
-		for key, entry := range t.Agents {
-			entryPath := path + ".agents." + key
-			errs = append(errs, validateAgentEntry(key, entry, entryPath)...)
-			locations[key] = append(locations[key], entryPath)
+		if a.ID != "" && a.ID != id {
+			errs = append(errs, fmt.Errorf("shared.%s: id must match map key", id))
 		}
 	}
-
-	for key, entry := range idx.Shared {
-		entryPath := "shared." + key
-		errs = append(errs, validateAgentEntry(key, entry, entryPath)...)
-		locations[key] = append(locations[key], entryPath)
-	}
-
-	for key, locs := range locations {
-		if len(locs) < 2 {
-			continue
+	for name, t := range idx.Teams {
+		p := "teams." + name
+		// A scoped override identifies one (team, id), so every appearance of
+		// that inline identity must describe the same agent across modes.
+		definitions := make(map[string]AgentEntry)
+		locations := make(map[string]string)
+		if !KeyPattern.MatchString(name) {
+			errs = append(errs, &KeyError{Path: p, Key: name})
 		}
-		sorted := append([]string(nil), locs...)
-		sort.Strings(sorted)
-		errs = append(errs, &DuplicateKeyError{Key: key, Locations: sorted})
+		if strings.TrimSpace(t.Desc) == "" {
+			errs = append(errs, &EmptyFieldError{Path: p, Field: "desc"})
+		}
+		for _, mode := range Modes() {
+			entries, _ := t.Mode(mode)
+			if entries == nil {
+				errs = append(errs, fmt.Errorf("%s.%s: required array (use [] for root-only)", p, mode))
+			}
+			seen := map[string]bool{}
+			for i, a := range entries {
+				loc := fmt.Sprintf("%s.%s[%d]", p, mode, i)
+				id := a.ID
+				if a.Ref != "" {
+					id = a.Ref
+					if _, ok := idx.Shared[id]; !ok {
+						errs = append(errs, fmt.Errorf("%s: unknown shared ref %q", loc, id))
+					}
+				} else {
+					errs = append(errs, validateAgentEntry(id, a, loc)...)
+					if previous, exists := definitions[id]; exists {
+						if previous.Desc != a.Desc || previous.Path != a.Path || previous.Tier != a.Tier || !slices.Equal(previous.Skills, a.Skills) {
+							errs = append(errs, fmt.Errorf("%s: inline agent %q conflicts with %s", loc, id, locations[id]))
+						}
+					} else {
+						definitions[id] = a
+						locations[id] = loc
+					}
+				}
+				if seen[id] {
+					errs = append(errs, &DuplicateKeyError{Key: id, Locations: []string{p + "." + mode}})
+				}
+				seen[id] = true
+			}
+		}
 	}
-
+	return errs
+}
+func validateAgentEntry(id string, a AgentEntry, p string) []error {
+	var errs []error
+	if !KeyPattern.MatchString(id) {
+		errs = append(errs, &KeyError{Path: p, Key: id})
+	}
+	for field, value := range map[string]string{"desc": a.Desc, "path": a.Path, "tier": a.Tier} {
+		if strings.TrimSpace(value) == "" {
+			errs = append(errs, &EmptyFieldError{Path: p, Field: field})
+		}
+		if config.ContainsForbiddenFlag(value) {
+			errs = append(errs, &ForbiddenFlagInIndexError{Path: p, Field: field})
+		}
+	}
+	if a.Tier != "" && !config.Tier(a.Tier).Valid() {
+		errs = append(errs, fmt.Errorf("%s.tier: unknown capability tier", p))
+	}
+	for _, id := range a.Skills {
+		if !KeyPattern.MatchString(id) {
+			errs = append(errs, &KeyError{Path: p + ".skills", Key: id})
+		}
+	}
 	return errs
 }
 
-// validateAgentEntry checks one agent entry's key and fields, regardless of
-// whether it came from a team's inline map or from shared.
-func validateAgentEntry(key string, entry AgentEntry, path string) []error {
-	var errs []error
-	if !KeyPattern.MatchString(key) {
-		errs = append(errs, &KeyError{Path: path, Key: key})
+// Roster resolves exactly the ordered mode array; unused shared entries stay out.
+func (idx *Index) Roster(name, mode string) ([]AgentEntry, error) {
+	t, ok := idx.Teams[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnknownTeam, name)
 	}
-	if entry.Source == "" {
-		errs = append(errs, &EmptyFieldError{Path: path, Field: "source"})
-	} else if config.ContainsForbiddenFlag(entry.Source) {
-		errs = append(errs, &ForbiddenFlagInIndexError{Path: path, Field: "source"})
+	entries, ok := t.Mode(mode)
+	if !ok {
+		return nil, fmt.Errorf("unknown mode %q", mode)
 	}
-	if entry.Dest == "" {
-		errs = append(errs, &EmptyFieldError{Path: path, Field: "dest"})
-	} else if config.ContainsForbiddenFlag(entry.Dest) {
-		errs = append(errs, &ForbiddenFlagInIndexError{Path: path, Field: "dest"})
+	out := make([]AgentEntry, 0, len(entries))
+	for _, a := range entries {
+		if a.Ref != "" {
+			id := a.Ref
+			var ok bool
+			a, ok = idx.Shared[id]
+			if !ok {
+				return nil, fmt.Errorf("%w: %s", ErrUnknownAgentKey, id)
+			}
+			a.ID = id
+		}
+		a.Skills = append([]string(nil), a.Skills...)
+		out = append(out, a)
 	}
-	return errs
-}
-
-// teamPath is the dotted-path prefix for a team: its name when non-empty,
-// its array index otherwise. This mirrors the fallback [checkTeamEntry]
-// uses during pass one, before the name itself has been validated.
-func teamPath(t TeamEntry, index int) string {
-	if t.Name == "" {
-		return fmt.Sprintf("teams[%d]", index)
-	}
-	return "teams." + t.Name
+	return out, nil
 }

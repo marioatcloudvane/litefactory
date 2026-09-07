@@ -16,6 +16,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/repos"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // repoUnset is printed in place of a column a repository has no value for.
@@ -34,9 +35,11 @@ type repoAddOptions struct {
 	base      string
 	worktrees string
 	prefix    string
+	team      string
 }
 
 func (o *repoAddOptions) bind(fs *flag.FlagSet) {
+	fs.StringVar(&o.team, "team", "", "installed external team to associate with this repository")
 	fs.StringVar(&o.base, "base", "",
 		"branch to cut task branches from; overrides default_base_branch and the remote's HEAD")
 	fs.StringVar(&o.worktrees, "worktrees", "",
@@ -49,15 +52,13 @@ func (o *repoAddOptions) bind(fs *flag.FlagSet) {
 func newRepoAddCommand() *Command {
 	cmd := &Command{
 		Name:  "repo add",
-		Usage: "repo add <path> [--base branch] [--worktrees dir] [--prefix name]",
+		Usage: "repo add <path> [--team id] [--base branch] [--worktrees dir] [--prefix name]",
 		Short: "Register a local clone with litefactory",
 		Long: "Register the git clone at <path>. The owner, name and default branch are\n" +
 			"read from the clone itself; nothing is fetched over the network. Running it\n" +
 			"again on the same path updates the registration instead of duplicating it.\n\n" +
-			"aiteam must already be installed in the repository — run `npx aiteam` there\n" +
-			"first. litefactory never installs it, and otherwise never writes inside the\n" +
-			"clone except to compose and materialize agent team definitions under each\n" +
-			"harness's own directory (.claude/agents/, .codex/skills/, .opencode/agents/).",
+			"Use --team to select an installed central team. Existing repository markers\n" +
+			"remain diagnostic only. No files are written into the clone.",
 		Args: ArgSpec{Names: []string{"path"}, Min: 1},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
@@ -107,8 +108,42 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 	if err != nil {
 		return Precondition(err)
 	}
+	clone, err := binary.Open(ctx, path)
+	if err != nil {
+		check := repos.CheckGitRepository
+		if errors.Is(err, fs.ErrNotExist) {
+			check = repos.CheckPath
+		}
+		return repoRegistrationError(cmd, &repos.CheckError{Check: check, Path: path, Err: err})
+	}
+	previous, previousErr := rt.db.GetRepoByPath(ctx, clone.Path())
+	if previousErr != nil && !errors.Is(previousErr, store.ErrNotFound) {
+		return previousErr
+	}
+	if previousErr == nil {
+		if opts.team == "" {
+			opts.team = previous.ExternalTeam
+		}
+		if opts.base == "" {
+			opts.base = previous.BaseBranch
+		}
+		if opts.worktrees == "" {
+			opts.worktrees = previous.WorktreeRoot
+		}
+		if opts.prefix == "" {
+			opts.prefix = previous.FeaturePrefix
+		}
+	}
+	if opts.team != "" {
+		for _, mode := range []string{"research", "plan", "implement", "validate", "spike"} {
+			if _, err := teamsource.Capture(ctx, rt.paths, opts.team, mode); err != nil {
+				return Preconditionf("external team %q is not ready: %v; install it with team add first", opts.team, err)
+			}
+		}
+	}
 
 	registration, err := repos.Resolve(ctx, binary, path, repos.Options{
+		ExternalTeam:  opts.team,
 		BaseBranch:    opts.base,
 		WorktreeRoot:  opts.worktrees,
 		FeaturePrefix: opts.prefix,
@@ -149,7 +184,7 @@ func runRepoAdd(ctx context.Context, env *Env, cmd *Command, opts repoAddOptions
 		return err
 	}
 
-	if registration.Aiteam.Team == "" {
+	if registration.Aiteam.Team == "" && registration.ExternalTeam == "" {
 		// AC-1.5: an undetectable team is a warning, never a failure. The
 		// repository is registered either way, and nothing at M0 reads the
 		// team, so refusing here would block real work over a null column.
@@ -180,6 +215,7 @@ func writeRegistration(out io.Writer, r *repos.Registration, existed bool) {
 	fmt.Fprintf(tw, "  branch prefix\t%s\n", r.FeaturePrefix)
 	fmt.Fprintf(tw, "  worktrees\t%s (%s)\n", r.WorktreeRoot, r.WorktreeRootSource)
 	fmt.Fprintf(tw, "  aiteam team\t%s\n", repoOrUnset(r.Aiteam.Team))
+	fmt.Fprintf(tw, "  external team\t%s\n", repoOrUnset(r.ExternalTeam))
 	// A failed write of already-reported output is not actionable.
 	_ = tw.Flush()
 }
@@ -202,11 +238,11 @@ func runRepoList(ctx context.Context, env *Env) (err error) {
 	}
 
 	tw := tabwriter.NewWriter(env.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(tw, "PATH\tREMOTE\tBASE\tTEAM\tWORKTREES\tLAST FETCH\n")
+	fmt.Fprintf(tw, "PATH\tREMOTE\tBASE\tTEAM\tEXTERNAL TEAM\tWORKTREES\tLAST FETCH\n")
 	for _, repo := range list {
-		fmt.Fprintf(tw, "%s\t%s:%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(tw, "%s\t%s:%s\t%s\t%s\t%s\t%s\t%s\n",
 			repo.Path, repo.Forge, repo.Slug(), repo.BaseBranch,
-			repoOrUnset(repo.AiteamTeam), repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
+			repoOrUnset(repo.AiteamTeam), repoOrUnset(repo.ExternalTeam), repo.WorktreeRoot, repoFetchTime(repo.LastFetchAt))
 	}
 	return tw.Flush()
 }
@@ -232,8 +268,9 @@ func repoOrUnset(value string) string {
 // repoRuntime is the configuration and database handle the repo commands
 // share.
 type repoRuntime struct {
-	cfg *config.Config
-	db  *store.DB
+	paths config.Paths
+	cfg   *config.Config
+	db    *store.DB
 }
 
 // openRepoRuntime loads config.yaml and opens the database.
@@ -270,7 +307,7 @@ func openRepoRuntime(ctx context.Context) (*repoRuntime, error) {
 	if err := db.Migrate(ctx); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	return &repoRuntime{cfg: cfg, db: db}, nil
+	return &repoRuntime{paths: paths, cfg: cfg, db: db}, nil
 }
 
 func (r *repoRuntime) close() error { return r.db.Close() }

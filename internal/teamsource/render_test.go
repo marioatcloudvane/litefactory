@@ -102,7 +102,7 @@ func TestRenderTeam_SingleHarnessSingleAgent(t *testing.T) {
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -144,7 +144,7 @@ func TestRenderTeam_MultipleHarnesses(t *testing.T) {
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude", "codex"})
@@ -184,7 +184,7 @@ func TestRenderTeam_FirstEverAdd_TeamsIsJustCurrentTeam(t *testing.T) {
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "shared", Agent: team.AgentEntry{Source: "agents/shared.md", Dest: ".claude/agents/shared.md"}},
+		{Key: "shared", Agent: team.AgentEntry{Path: "agents/shared.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -209,7 +209,7 @@ func TestRenderTeam_SharedAgentWithExistingContributingTeam_UnionsTeams(t *testi
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "shared", Agent: team.AgentEntry{Source: "agents/shared.md", Dest: ".claude/agents/shared.md"}},
+		{Key: "shared", Agent: team.AgentEntry{Path: "agents/shared.md"}},
 	}
 
 	// Arrange: team-a adds the shared agent first, producing a real lockfile
@@ -255,7 +255,7 @@ func TestRenderTeam_MalformedFrontmatterSource_ReturnsWrappedError(t *testing.T)
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "broken", Agent: team.AgentEntry{Source: "agents/broken.md", Dest: ".claude/agents/broken.md"}},
+		{Key: "broken", Agent: team.AgentEntry{Path: "agents/broken.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -283,7 +283,7 @@ func TestRenderTeam_UnknownHarness_ReturnsError(t *testing.T) {
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"bogus-harness"})
@@ -332,8 +332,8 @@ func TestRenderTeam_ActiveOverride_SubstitutesLocalFile(t *testing.T) {
 	}
 
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
-		{Key: "writer", Agent: team.AgentEntry{Source: "agents/writer.md", Dest: ".claude/agents/writer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
+		{Key: "writer", Agent: team.AgentEntry{Path: "agents/writer.md"}},
 	}
 
 	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})

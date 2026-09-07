@@ -217,7 +217,13 @@ func TestMigration0003BackfillsAgentAndLeavesResumeTokenNull(t *testing.T) {
 
 	applyMigrationsThrough(t, db, 2)
 
-	repo := testRepo(t, db, "acme", "api")
+	// Seed the historical schema directly; current UpsertRepo legitimately
+	// requires columns introduced after this migration under test.
+	repo := Repo{ID: 1, Path: filepath.Join(t.TempDir(), "api"), Forge: "github", Owner: "acme", Name: "api"}
+	_, err = db.sql.ExecContext(t.Context(), `INSERT INTO repos (id,path,forge,owner,name,remote_url,base_branch,feature_prefix,worktree_root,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, repo.ID, repo.Path, repo.Forge, repo.Owner, repo.Name, "https://github.com/acme/api.git", "main", "lf", repo.Path+"-worktrees", FormatTime(nowUTC()), FormatTime(nowUTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	session, err := db.GetOrCreateSession(t.Context(), repo, 123)
 	if err != nil {
 		t.Fatalf("create session: %v", err)

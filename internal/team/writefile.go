@@ -71,6 +71,15 @@ func writeFileAtomic(root, relPath string, data []byte, mode os.FileMode) error 
 	if !isOwnedWriteTarget(relPath) {
 		return &WriteOutsideOwnedPathError{Path: relPath}
 	}
+	return writeFileAtomicChecked(root, relPath, data, mode)
+}
+
+// writeFileAtomicChecked is shared by the harness and central-catalog writers
+// after their separate ownership and batch validation boundaries.
+func writeFileAtomicChecked(root, relPath string, data []byte, mode os.FileMode) error {
+	if err := refuseSymlink(root, relPath); err != nil {
+		return err
+	}
 	path := filepath.Join(root, relPath)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o777); err != nil {

@@ -2,33 +2,53 @@ package team
 
 import "regexp"
 
-// KeyPattern is the filename-safety rule every agent key and team name must
-// satisfy: lowercase alphanumerics and interior hyphens, 1-64 characters,
-// never leading or trailing punctuation. Keys and names decoded from the
-// index end up as path segments once a team is composed and materialized,
-// so this is checked at load time rather than left to fail later as a bad
-// path.
-var KeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+// KeyPattern restricts registry identifiers to safe, bounded path segments.
+var KeyPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`)
 
-// AgentEntry is one agent definition: where it is read from, and where it
-// is materialized to for a harness to consume. It appears both inline under
-// a team's Agents map and top-level under Index.Shared.
+// AgentEntry is either a shared reference or a complete inline definition.
 type AgentEntry struct {
-	Source string `json:"source"`
-	Dest   string `json:"dest"`
+	Ref    string   `json:"ref,omitempty"`
+	ID     string   `json:"id,omitempty"`
+	Desc   string   `json:"desc,omitempty"`
+	Path   string   `json:"path,omitempty"`
+	Tier   string   `json:"tier,omitempty"`
+	Skills []string `json:"skills,omitempty"`
 }
 
-// TeamEntry is one team: its name, used as its slug in paths and in error
-// messages, and the agents owned by that team alone (as opposed to
-// Index.Shared, which every team can draw on).
+// TeamEntry declares a team's description and explicit ordered mode rosters.
 type TeamEntry struct {
-	Name   string                `json:"name"`
-	Agents map[string]AgentEntry `json:"agents"`
+	Desc      string       `json:"desc"`
+	Research  []AgentEntry `json:"research"`
+	Plan      []AgentEntry `json:"plan"`
+	Implement []AgentEntry `json:"implement"`
+	Validate  []AgentEntry `json:"validate"`
+	Spike     []AgentEntry `json:"spike"`
 }
 
-// Index is the decoded and validated agent team index: every team, plus the
-// agents shared across all of them.
+// Index is the versioned central catalog of teams and shared definitions.
 type Index struct {
-	Teams  []TeamEntry           `json:"teams"`
-	Shared map[string]AgentEntry `json:"shared"`
+	SchemaVersion int                   `json:"schema_version"`
+	Teams         map[string]TeamEntry  `json:"teams"`
+	Shared        map[string]AgentEntry `json:"shared"`
+}
+
+// Modes returns a fresh slice of supported roster names in workflow order.
+func Modes() []string { return []string{"research", "plan", "implement", "validate", "spike"} }
+
+// Mode returns the declared roster and whether the requested mode is known.
+func (t TeamEntry) Mode(m string) ([]AgentEntry, bool) {
+	switch m {
+	case "research":
+		return t.Research, true
+	case "plan":
+		return t.Plan, true
+	case "implement":
+		return t.Implement, true
+	case "validate":
+		return t.Validate, true
+	case "spike":
+		return t.Spike, true
+	default:
+		return nil, false
+	}
 }

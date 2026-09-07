@@ -7,7 +7,7 @@ import (
 )
 
 // TestValidateAgentEntry_ForbiddenFlag covers AC-1's index-level half: an
-// agent entry whose Source or Dest smuggles in claude's permission-skipping
+// agent entry whose Path or Desc smuggles in claude's permission-skipping
 // flag is refused by the same check config.ContainsForbiddenFlag backs,
 // wrapping ErrForbiddenFlag, before anything is ever rendered from it.
 //
@@ -24,13 +24,13 @@ func TestValidateAgentEntry_ForbiddenFlag(t *testing.T) {
 	}{
 		{
 			name:      "forbidden flag in source/reports source field",
-			entry:     AgentEntry{Source: "agents/reviewer.md " + flag, Dest: "clean/dest.md"},
-			wantField: "source",
+			entry:     AgentEntry{Path: "agents/reviewer.md " + flag, Desc: "clean/dest.md"},
+			wantField: "path",
 		},
 		{
 			name:      "forbidden flag in dest/reports dest field",
-			entry:     AgentEntry{Source: "clean/source.md", Dest: "agents/dest.md " + flag},
-			wantField: "dest",
+			entry:     AgentEntry{Path: "clean/source.md", Desc: "agents/dest.md " + flag},
+			wantField: "desc",
 		},
 	}
 
@@ -71,10 +71,10 @@ func TestValidateAgentEntry_ForbiddenFlag(t *testing.T) {
 }
 
 // TestValidateAgentEntry_CleanEntry_ReturnsNoForbiddenFlagError is the
-// negative case: an entry with an ordinary Source/Dest produces no
+// negative case: an entry with an ordinary Path/Desc produces no
 // forbidden-flag error at all, so the check is not simply always firing.
 func TestValidateAgentEntry_CleanEntry_ReturnsNoForbiddenFlagError(t *testing.T) {
-	entry := AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}
+	entry := AgentEntry{Path: "agents/reviewer.md", Desc: ".claude/agents/reviewer.md"}
 
 	errs := validateAgentEntry("reviewer", entry, "shared.reviewer")
 
@@ -92,11 +92,10 @@ func TestValidateAgentEntry_CleanEntry_ReturnsNoForbiddenFlagError(t *testing.T)
 func TestValidate_ForbiddenFlagInTeamOwnedAgent_ReportsDottedTeamPath(t *testing.T) {
 	flag := "--dangerously-" + "skip-permissions"
 	idx := &Index{
-		Teams: []TeamEntry{
-			{
-				Name: "go-team",
-				Agents: map[string]AgentEntry{
-					"go-architect": {Source: "agents/go-architect.md " + flag, Dest: ".claude/agents/go-architect.md"},
+		Teams: map[string]TeamEntry{
+			"go-team": {
+				Plan: []AgentEntry{
+					{ID: "go-architect", Path: "agents/go-architect.md " + flag, Desc: ".claude/agents/go-architect.md"},
 				},
 			},
 		},
@@ -115,10 +114,10 @@ func TestValidate_ForbiddenFlagInTeamOwnedAgent_ReportsDottedTeamPath(t *testing
 	if found == nil {
 		t.Fatalf("Validate(idx) = %v, want one *ForbiddenFlagInIndexError", errs)
 	}
-	if found.Path != "teams.go-team.agents.go-architect" {
-		t.Errorf("ForbiddenFlagInIndexError.Path = %q, want %q", found.Path, "teams.go-team.agents.go-architect")
+	if found.Path != "teams.go-team.plan[0]" {
+		t.Errorf("ForbiddenFlagInIndexError.Path = %q, want %q", found.Path, "teams.go-team.plan[0]")
 	}
-	if found.Field != "source" {
-		t.Errorf("ForbiddenFlagInIndexError.Field = %q, want %q", found.Field, "source")
+	if found.Field != "path" {
+		t.Errorf("ForbiddenFlagInIndexError.Field = %q, want %q", found.Field, "path")
 	}
 }

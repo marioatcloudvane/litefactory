@@ -97,6 +97,9 @@ func prepare(
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
+	if repo.ExternalTeam != "" {
+		return nil, failuref(fmt.Errorf("external team transport is not verified"), "external team %q is selected, but per-run CLI delivery is not available in this build; install a build with verified team transport before running this repository", repo.ExternalTeam)
+	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {

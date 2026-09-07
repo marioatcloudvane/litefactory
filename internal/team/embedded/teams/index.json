@@ -1,60 +1,118 @@
 {
-  "schemaVersion": 1,
-  "teams": [
-    {
-      "name": "go-team",
-      "agents": {
-        "go-architect": {
-          "source": "go-team/go-architect.md",
-          "dest": "go-architect.md"
-        },
-        "go-implementation-engineer": {
-          "source": "go-team/go-implementation-engineer.md",
-          "dest": "go-implementation-engineer.md"
-        },
-        "go-code-reviewer": {
-          "source": "go-team/go-code-reviewer.md",
-          "dest": "go-code-reviewer.md"
-        },
-        "go-unit-test-engineer": {
-          "source": "go-team/go-unit-test-engineer.md",
-          "dest": "go-unit-test-engineer.md"
-        },
-        "go-integration-test-engineer": {
-          "source": "go-team/go-integration-test-engineer.md",
-          "dest": "go-integration-test-engineer.md"
-        }
-      }
-    }
-  ],
+  "schema_version": 2,
   "shared": {
     "codebase-tour": {
-      "source": "shared/codebase-tour.md",
-      "dest": "codebase-tour.md"
+      "desc": "Inspect the repository and report code evidence.",
+      "path": "agents/shared/codebase-tour.md",
+      "tier": "balanced",
+      "skills": []
     },
     "web-researcher": {
-      "source": "shared/web-researcher.md",
-      "dest": "web-researcher.md"
+      "desc": "Research external technical facts using authoritative sources.",
+      "path": "agents/shared/web-researcher.md",
+      "tier": "balanced",
+      "skills": []
     },
     "requirements-engineer": {
-      "source": "shared/requirements-engineer.md",
-      "dest": "requirements-engineer.md"
+      "desc": "Turn the feature request into a concise specification.",
+      "path": "agents/shared/requirements-engineer.md",
+      "tier": "flagship",
+      "skills": []
     },
     "proxy-product-owner": {
-      "source": "shared/proxy-product-owner.md",
-      "dest": "proxy-product-owner.md"
+      "desc": "Break the specification into actionable user stories.",
+      "path": "agents/shared/proxy-product-owner.md",
+      "tier": "balanced",
+      "skills": []
     },
     "research-orchestrator": {
-      "source": "shared/research-orchestrator.md",
-      "dest": "research-orchestrator.md"
+      "desc": "Coordinate research and produce a research brief.",
+      "path": "agents/shared/research-orchestrator.md",
+      "tier": "balanced",
+      "skills": []
     },
     "plan-orchestrator": {
-      "source": "shared/plan-orchestrator.md",
-      "dest": "plan-orchestrator.md"
+      "desc": "Coordinate planning and produce a plan brief.",
+      "path": "agents/shared/plan-orchestrator.md",
+      "tier": "balanced",
+      "skills": []
     },
     "implement-orchestrator": {
-      "source": "shared/implement-orchestrator.md",
-      "dest": "implement-orchestrator.md"
+      "desc": "Coordinate implementation and testing.",
+      "path": "agents/shared/implement-orchestrator.md",
+      "tier": "balanced",
+      "skills": []
+    }
+  },
+  "teams": {
+    "go-team": {
+      "desc": "A team for standard Go development",
+      "research": [
+        {
+          "ref": "codebase-tour"
+        },
+        {
+          "ref": "web-researcher"
+        }
+      ],
+      "plan": [
+        {
+          "ref": "requirements-engineer"
+        },
+        {
+          "id": "go-architect",
+          "desc": "Review Go architecture and provide task guidance.",
+          "path": "agents/go-team/go-architect.md",
+          "tier": "flagship",
+          "skills": [
+            "go-constraints"
+          ]
+        },
+        {
+          "ref": "proxy-product-owner"
+        }
+      ],
+      "implement": [
+        {
+          "id": "go-implementation-engineer",
+          "desc": "Implement one approved Go user story.",
+          "path": "agents/go-team/go-implementation-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "go-constraints"
+          ]
+        },
+        {
+          "id": "go-unit-test-engineer",
+          "desc": "Write and run focused Go unit tests.",
+          "path": "agents/go-team/go-unit-test-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "go-constraints"
+          ]
+        },
+        {
+          "id": "go-integration-test-engineer",
+          "desc": "Test Go behavior at real infrastructure boundaries.",
+          "path": "agents/go-team/go-integration-test-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "go-constraints"
+          ]
+        }
+      ],
+      "validate": [
+        {
+          "id": "go-code-reviewer",
+          "desc": "Review Go changes and return findings.",
+          "path": "agents/go-team/go-code-reviewer.md",
+          "tier": "balanced",
+          "skills": [
+            "go-constraints"
+          ]
+        }
+      ],
+      "spike": []
     }
   }
 }
