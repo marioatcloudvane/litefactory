@@ -106,6 +106,12 @@ These are not style rules. Each has a test or a type that fails if you break it.
   only `recover()` in the tree: a panic mid-redaction becomes an error so the
   post aborts and the watermark does not advance (AC-4.9). A second `recover()`
   MUST NOT be added.
+- **SEC-12** — `PromptInput.PreviousReason` (`internal/harness/prompt.go`), the
+  previous run's stored failure reason, MUST NOT reach a resumed run's prompt
+  raw — it can be agent-authored text. `writePreviousFailedNote` MUST route it
+  through `capText`/`neutraliseNoteTags` and frame it in a `<note>` element
+  like any other third-party text, so a forged `</note>` or `- Mode:` line
+  cannot reach the header as structure.
 
 ---
 
@@ -203,18 +209,15 @@ These are not style rules. Each has a test or a type that fails if you break it.
 
 ## 4. Concurrency and resource discipline (`CONC`)
 
-- **CONC-1** — Slices MUST be copied at struct boundaries, with
-  `append([]string(nil), …)` (11 existing sites across `harness/runner.go`,
-  `harness/meta.go`, `turn/execute.go`, `turn/report.go`, `daemon/daemon.go`,
-  `daemon/tools.go`, `daemon/tick.go`) or `slices.Clone` / `maps.Clone`.
-  Originally this defended a sequential bug: a request struct is mutated in place
-  on the cold-rerun path, and one `append` into spare capacity would rewrite the
-  operator's configuration for every later run in the process. **Under concurrent
-  turns it is load-bearing for isolation between live sibling turns** — two turn
+- **CONC-1** — Slices MUST be copied at struct boundaries — `append([]string(nil),
+  …)` or `slices.Clone`/`maps.Clone` (11 existing sites across `harness`, `turn`
+  and `daemon`). Originally defended a sequential bug: an in-place `append` on
+  the cold-rerun path could rewrite the operator's configuration for a later
+  run. **Under concurrent turns it is load-bearing for isolation** — two turn
   workers legitimately hold requests built from the same configuration at the
-  same instant, so a missed copy is a data race, not a stale value. One of these
-  MUST NOT be removed on the grounds that nothing looked like it was reading the
-  slice again.
+  same instant, so a missed copy is a data race, not a stale value. None of
+  these MUST be removed on the grounds that nothing looked like it was reading
+  the slice again.
 - **CONC-2** — Goroutine budgets MUST be documented and MUST stay tiny. The
   inventory is four fixed goroutines — `harness/runner.go` (exactly two, one per
   pipe, neither able to outlive `Run`), `daemon/daemon.go` (the loop), and
@@ -246,6 +249,12 @@ These are not style rules. Each has a test or a type that fails if you break it.
   `runs` row can briefly read `running` before its session does — accepted,
   not a bug: `ReconcileOrphans` self-heals it at daemon start, and no
   compensating logic MUST be added for it.
+- **CONC-8 [enforced]** — A run MUST be committed and pushed only when it
+  genuinely succeeded. `save` (`internal/turn/harvest.go`) and `fileStoryIssues`
+  (`internal/turn/subissues.go`) both gate on `runResult.Succeeded()` before
+  touching git; any other outcome (failed, timed out, abandoned, no result) MUST
+  be left uncommitted in its worktree for the next run on the task to pick up
+  and commit once it does succeed.
 
 ---
 
@@ -291,6 +300,14 @@ These are not style rules. Each has a test or a type that fails if you break it.
   `## Classify` section's trust of that exact literal MUST change together, in
   the same commit. No test catches the `CLAUDE.md` side drifting — `prompt_test.go`
   and `prompt_body_test.go` pin only the Go string, not the prose that depends on it.
+- **STYLE-9** — `agent.RunResult.Succeeded()` (live subprocess) and
+  `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) MUST NOT be
+  collapsed into one call or converted into each other — different evidence,
+  different lifetimes, same English question.
+- **STYLE-10** — A non-success run report MUST name the uncommitted worktree in
+  exactly one place: `metadataList`'s Commit-line default arm
+  (`internal/report/run.go`, when `CommitSHA==""`) or `outcomeView.withFailure`
+  (when `CommitSHA!=""`) — never both.
 
 ---
 
@@ -326,10 +343,13 @@ rather than editing the test.
 | `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
 | `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` (CFG-3) |
 | `store/store_test.go` | FK enforcement, migrate idempotency, `AdvanceWatermark` never rewinds, `AllocateRun` refuses a replay, `CompleteRunReport` is one transaction |
+| `store/runs_test.go` | `Run.Succeeded()`'s two-arm predicate: true for `RunSucceeded`, true for `RunReported` only when `Error==""` (STYLE-9) |
 | `daemon/clock_test.go` | only `Daemon.Tick` (never a helper, never a function literal) reads the daemon's clock |
 | `turn/gate_test.go` | `prepareClone`, `commitAndPush` and `commitStoryIndex` are the only three call sites of `CloneGate.Acquire`, one acquisition each (a registered-set check, not three hardcoded names); the claude run itself is never inside a critical section |
 | `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs`, `enter`/`leave` are a true check-and-insert (CONC-2) |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
-| `daemon/record_test.go` (`TestNoStaleConcurrencyStatementSurvives`) | no `.go` file outside `.aiteam` says "locked by another daemon instance" (AC-PAR-8.4) |
-| `daemon/record_test.go` (`TestIntroducedCriteriaCarryTheParPrefix`) | every acceptance criterion this feature's plan and spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.7) |
+| `daemon/record_test.go` | no `.go` file outside `.aiteam` says "locked by another daemon instance"; every AC this feature's plan/spec introduce carries the `AC-PAR-` prefix (AC-PAR-8.4, AC-PAR-8.7) |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
+| `turn/harvest_test.go`, `turn/subissues_test.go` (`TestSaveOnlyCommitsASucceededRun` and siblings) | `save` and `fileStoryIssues` commit/push only a genuinely succeeded run (CONC-8) |
+| `harness/prompt_previous_failed_test.go` | `PreviousReason` is neutralised and framed inside a `<note>`, never interpolated raw; a cold prompt or a resume whose predecessor succeeded stays byte-unchanged (SEC-12) |
+| `report/report_test.go` (`TestNonSuccessReportNamesTheWorktree`, `TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce`) | the worktree is named in exactly one place per non-success report (STYLE-10) |

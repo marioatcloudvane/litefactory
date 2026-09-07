@@ -404,7 +404,15 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v.lead += "\n\nlitefactory then could not complete the turn either: " + failure
 	}
 
-	v.lead += worktreeNote(run.WorktreePath)
+	// Only mention the worktree here when there is a commit to distinguish
+	// this callout from: with CommitSHA != "", metadataList's Commit line
+	// takes its own case (line 567/569) and never names the path itself, so
+	// this is the single place that does. With CommitSHA == "", metadataList's
+	// Commit-line default arm (below) already names the path for a non-success
+	// run with nothing committed — naming it here too would say it twice.
+	if run.CommitSHA != "" {
+		v.lead += worktreeNote(run.WorktreePath)
+	}
 	return v
 }
 
@@ -413,9 +421,12 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 // when the worktree path was never recorded, because a report should never
 // claim a location it does not have.
 //
-// [outcomeView.withFailure] always said this about a failure that happened
-// around the run; [describeRunOutcome]'s own non-success arms say the same
-// thing, in the same words, about a run that failed on its own.
+// Called only from [outcomeView.withFailure], for a failure that happened
+// around the run itself (Run.Failure != nil) and left a commit behind
+// (Run.CommitSHA != ""), not from [describeRunOutcome]'s own non-success arms
+// and not for a CommitSHA == "" failure — those defer to metadataList's
+// Commit line, the single place a non-success report with nothing committed
+// names the worktree path (AC-3.1).
 func worktreeNote(path string) string {
 	if path == "" {
 		return ""
@@ -465,7 +476,6 @@ func describeRunOutcome(run Run) outcomeView {
 		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
 		}
-		lead += worktreeNote(run.WorktreePath)
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeTimedOut:
@@ -473,8 +483,8 @@ func describeRunOutcome(run Run) outcomeView {
 		if d, ok := run.duration(); ok {
 			lead += " after " + formatDuration(d)
 		}
-		lead += ". The work it had done up to that point is still in the worktree" + inWorktreeAt(run.WorktreePath) +
-			". Raise the timeout or narrow the task, then comment again."
+		lead += ". The work it had done up to that point is still in the worktree. " +
+			"Raise the timeout or narrow the task, then comment again."
 		return outcomeView{word: "timed out", alert: "CAUTION", lead: lead}
 
 	case agent.OutcomeAbandoned:
@@ -487,7 +497,6 @@ func describeRunOutcome(run Run) outcomeView {
 		lead := fmt.Sprintf("Run %d exited cleanly without ever reporting a result. "+
 			"In practice this is usually a stale `%s` credential: the tool retries internally about ten times "+
 			"and then goes quiet. Run `%s` once by hand to check it is still logged in, then comment again.", n, tool, tool)
-		lead += worktreeNote(run.WorktreePath)
 		return outcomeView{word: "no result", alert: "WARNING", lead: lead}
 
 	default:

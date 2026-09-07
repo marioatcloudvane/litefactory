@@ -99,11 +99,10 @@ The load-bearing consequences:
   split is a named invariant (`internal/daemon/doc.go`,
   `internal/turn/doc.go`); it is what makes the whole business path testable
   without waiting for anything.
-- **`internal/daemon` importing `internal/repos` is new and deliberately
-  cycle-free** — added when the startup worktree-collision check
-  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
-  function rather than reimplementing it. `repos` still imports nothing back
-  from `daemon`.
+- **`internal/daemon` imports `internal/repos`, deliberately cycle-free** — the
+  startup worktree-collision check (`internal/repos/collision.go`) reuses the
+  pure decision function rather than reimplementing it. `repos` imports nothing
+  back from `daemon`.
 - **`internal/agent` is the vendor-neutral contract two Runners implement** —
   `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
   `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
@@ -142,6 +141,7 @@ what breaks if you do the obvious thing.
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
+| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` — see below |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
@@ -180,3 +180,21 @@ NULL mapping in the store is uniform and worth copying: timestamps are
 lexicographic order is chronological order); text whose empty value carries no
 meaning is a plain `string`; forge ids are `int64` with 0 meaning NULL; and
 numbers whose zero is a *real* value (an exit code, a cost) are **pointers**.
+
+Before you touch a run's outcome, its commit gate, or its report:
+
+- `agent.RunResult.Succeeded()` (live subprocess exit + result event) and
+  `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) are two
+  distinct predicates from different sources of truth — never collapse one
+  into the other. `turn.save` (`internal/turn/harvest.go`) and
+  `turn.fileStoryIssues` (`internal/turn/subissues.go`) both gate their
+  commit/push on the *live* one (`runResult.Succeeded()`); any other outcome
+  leaves the worktree uncommitted for the next run on the same task to pick up.
+- A non-success report names the worktree in exactly one place:
+  `metadataList`'s Commit-line default arm (`internal/report/run.go`) when
+  `CommitSHA==""`; `outcomeView.withFailure` only adds it when
+  `CommitSHA!=""` — the two arms are mutually exclusive by construction.
+- A resumed run whose predecessor failed gets a corrective note:
+  `harness.PromptInput.PreviousFailed`/`PreviousReason`
+  (`internal/harness/prompt.go`), populated only by `turn.prepare` on the
+  resume path, rendered into the prompt by `writeResumeHeader`.
