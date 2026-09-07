@@ -21,16 +21,17 @@ instead of being the only record of it.
 Tiers are the closed set `flagship` / `balanced` / `fast`
 (`internal/config.Tier`). The concrete model each tier resolves to, per
 coding-agent tool, lives in `internal/config`'s `Tiers.ModelByTier` —
-today only the `claude` column is populated
-(`opus` / `sonnet` / `haiku` for `flagship` / `balanced` / `fast`
-respectively); see that package for why the `codex` column is still empty.
+`claude` resolves to `opus` / `sonnet` / `haiku` and `codex` to
+`gpt-6-astra` / `gpt-6-astra` / `gpt-5.6-luna`, for `flagship` / `balanced`
+/ `fast` respectively. Codex's GPT-6 family lists a single slug, so its
+flagship and balanced tiers share it; see that package for the measurement
+behind those values.
 
 No specialist's actual model assignment changes in this feature: every row
 below is a pure relabelling of the `model:` value the file already had.
 
 | Specialist file | Tier | Claude model (unchanged) |
 |---|---|---|
-| `app-context-updater.md` | balanced | sonnet |
 | `codebase-tour.md` | balanced | sonnet |
 | `go-architect.md` | flagship | opus |
 | `go-code-reviewer.md` | balanced | sonnet |
