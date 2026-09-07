@@ -3,13 +3,15 @@
 
 ## Verdict
 
-Proceed with the revised five-story design, conditional on integrating and re-pinning the inspected team-management implementation before implementation of the replacement schema. This checkout is not the current team-management implementation. No compatibility reader or conversion command is required. No new standards deviation is requested: reuse main's already recorded SD-4 amendment, and preserve the existing Validate permission boundary.
+Proceed with the refreshed five-story design against merged HEAD `69f701c3ed45819d39b0a9fa05df64f29f08fbe6`. The integration prerequisite is satisfied; schema replacement and exact-version runner probes can start from the current owners. No compatibility reader or conversion command is required. No new standards deviation is requested: retain the merged SD-4 amendment and existing Validate permission boundary. Runner catalog capability and measured token savings remain unproven implementation gates.
 
 ## System overview and evidence
 
-The checked-out baseline is `f218db4218708c6e01403cb11406912052bceba8`. The substantive reusable team implementation is on local `lf/68-new-way-to-work-with-agent-teams`, inspected at `16ac43633e8d2d18deaf7560487d51f1f40de62c`. Local main is `24ddd50e96a2e6b20fcb19b6ac7b88dbcb2c341d`. The team branch and main diverge at `a50d03d8d92c3c5ffc3a1d8aa73a298b2fa9ef38`, which already removes the retired updater tier. Main subsequently adds Claude configuration isolation (`eda84d1`) and its documented amendment (`24ddd50`). The team branch therefore already contains updater retirement but does not contain this later isolation implementation. Integration must reconcile both, rather than replacing one branch wholesale with the other.
+The checked-out baseline is `69f701c3ed45819d39b0a9fa05df64f29f08fbe6`. Current-session `RESEARCH_BRIEF.md` records the run 0007 source review at `a465e55e0f9ae6c61267f8fdbb4802526ac2867d`, successful ancestry checks for both previously inspected lineages, and passing focused tests in seven relevant packages. Team management and Claude managed configuration/home isolation are present in this checkout. Those diagnostics establish reusable baseline behavior, not completion of #125 or measured catalog isolation. No branch integration task remains.
 
-At the inspected team commit, `internal/team/types.go` defines an array of `{name, agents}` teams plus shared agents; entries hold `source` and `dest`. `internal/cli/cmd_team.go:teamRoster` adds every shared agent to each team's own agents. This is the precise catalog expansion #125 replaces. `internal/teamsource/resolve.go` chooses embedded, static-path or registered-repository sources; its repository source tier and store/repository dependency disappear from runtime source resolution. `internal/teamsource/render.go` owns source reading, frontmatter parsing, overrides and renderer adaptation. `internal/render` is pure and deterministic and rejects unsupported fields. `internal/team` owns validation, hashes, installation locks, provenance, safe writes and five drift classifications. These are substantial existing capabilities, not a reason to build a second registry subsystem.
+In the merged source, `internal/team/types.go` defines an array of `{name, agents}` teams plus shared agents; entries hold `source` and `dest`. `internal/cli/cmd_team.go:teamRoster` adds every shared agent to each team's own agents. This is the precise catalog expansion #125 replaces. `internal/teamsource/resolve.go` chooses embedded, static-path or registered-repository sources; its repository source tier and store/repository dependency disappear from runtime source resolution. `internal/teamsource/render.go` owns source reading, frontmatter parsing, overrides and renderer adaptation. `internal/render` is pure and deterministic and rejects unsupported fields. `internal/team` owns validation, hashes, installation locks, provenance, safe writes and five drift classifications. Reuse these owners directly.
+
+Two merged-source findings materially sharpen the work: `internal/render/claude.go:95` copies full specialist bodies into root `CLAUDE.md` as well as standalone agent files, so the token baseline must separately account for root-body exposure and catalog descriptions. Embedded/Claude Implement instructions retire the updater, but `.codex/skills/implement-orchestrator/SKILL.md` still invokes it. Embedded team definitions are canonical shipped content for this cutover; generated vendor copies and bootstrap instructions must agree before comparing behavior or tokens.
 
 Current `internal/turn` already receives the selected mode from daemon/classifier orchestration and owns one work turn. `internal/agent` defines the vendor-neutral runner contract; vendor flags and permission payload decoding belong exclusively in the runner adapters. `internal/store` owns repository associations and conversation segments. New team selection and bundle identity fit these existing boundaries.
 
@@ -61,9 +63,9 @@ The digest covers team/mode, ordered membership, canonical effective metadata, s
 
 ### Runner capability gate
 
-At #68, `internal/render/codex.go` emits `.codex/skills/<name>/SKILL.md` and explicitly rejects nonempty Model or Tools. This is a useful deterministic renderer, but neither its existence nor a sample external configuration proves native subagent availability, tier enforcement or repository catalog suppression. Adapt the renderer's placement/metadata contract and preserve unsupported-field errors. Do not silently drop a tier to make Codex rendering pass.
+At the merged baseline, `internal/render/codex.go` emits `.codex/skills/<name>/SKILL.md` and explicitly rejects nonempty Model or Tools. This is a useful deterministic renderer, but neither its existence nor a sample external configuration proves native subagent availability, tier enforcement or repository catalog suppression. Adapt the renderer's placement/metadata contract and preserve unsupported-field errors. Do not silently drop a tier to make Codex rendering pass.
 
-Before selecting production CLI arguments, run documented scratch probes for exact supported Claude and Codex versions. Prove selected agents/skills only, classifier isolation, project instruction retention, authentication, tool ceilings, per-agent tier handling, resume/cold execution and five concurrent mode bundles. Real paid runner probes must not become normal Go tests (EXT-1/2). Reuse main's `EnsureClaudeConfigDir` and credential-seeding lifecycle; it isolates personal configuration but does not, on its own, prove suppression of project-local discovery or safe per-run catalogs. Its authenticated state directory is not a shared place to overwrite mode agents.
+Before selecting production CLI arguments, run documented scratch probes for exact supported Claude and Codex versions. Prove selected agents/skills only, classifier isolation, project instruction retention, authentication, tool ceilings, per-agent tier handling, resume/cold execution and five concurrent mode bundles. Real paid runner probes must not become normal Go tests (EXT-1/2). Reuse the merged `EnsureClaudeConfigDir` and credential-seeding lifecycle; it isolates personal configuration but does not, on its own, prove suppression of project-local discovery or safe per-run catalogs. Its authenticated state directory is not a shared place to overwrite mode agents.
 
 If a supported runner cannot expose only the selected roster while preserving the required authority and tier semantics, return a precise capability refusal and record the limitation; do not fall back to the full catalog or claim parity. This gate is an implementation deliverable and cannot honestly be marked proven by this Plan review.
 
@@ -71,13 +73,13 @@ If a supported runner cannot expose only the selected roster while preserving th
 
 Implement owns production/test authoring and the checks needed to verify those changes. Move dedicated code review, acceptance assessment, test-evidence review and app-context drift checking to Validate. Do not move unit/infrastructure test *authoring* into Validate, do not make an automatic repair loop, and do not restore the retired updater or invent Maintenance.
 
-The current permission contract is exact: `internal/config/toolprofiles_test.go:TestValidateProfileIsExactlyReadOnly` allows Claude `Read, Glob, Grep, Task` (no Bash) and pins Codex `read-only`. Therefore Claude Validate reviews existing test evidence and source; it cannot run `go test` through a shell. Codex may run already permitted checks within its sandbox, but blocked cache/file generation is missing evidence, not grounds to widen access. Verification parity means equivalent truthful verdicts and boundaries, not identical tool invocations. Verdicts distinguish pass, findings and insufficient evidence and remain inline; no ARCH_REVIEW, context update or new test file is written by Validate.
+The current permission contract is exact: `internal/config/toolprofiles_test.go:TestValidateProfileIsExactlyReadOnly` allows Claude `Read, Glob, Grep, Task` (no Bash) and pins Codex `read-only`. Therefore Claude Validate reviews existing test evidence and source; it cannot run `go test` through a shell. Codex retains its read-only sandbox; this shared workflow assesses existing evidence and does not require test execution or environment provisioning. Missing test execution/artifacts are insufficient evidence, never grounds to widen access. Verification parity means equivalent truthful verdicts and boundaries, not identical tool invocations. Verdicts distinguish pass, findings and insufficient evidence and remain inline; no ARCH_REVIEW, context update or new test file is written by Validate.
 
 Prefer reusable small roles with Go skills over duplicated full language teams. Root-only Spike may use an empty roster. Research needs codebase/web skills; Plan needs requirements/architecture/decomposition skills; Implement needs Go implementation/unit/infrastructure-test skills; Validate needs read-only acceptance/review/evidence/drift skills. Do not force an extra subagent invocation merely because a skill exists. Audit actual loaded bytes and delegation overhead.
 
 ## Reuse map
 
-| Inspected #68 owner/API | Decision |
+| Merged owner/API | Decision |
 |---|---|
 | `team.Index`, `TeamEntry`, `AgentEntry`, `Decode`, `Validate` | Replace schema; retain strict aggregated stable validation and typed error conventions. |
 | `team.Migrate`, `migrate.go` | Remove unused legacy conversion and its callers/tests. Strict one-version decode only. |
@@ -99,13 +101,12 @@ All tasks are assigned to `go-implementation-engineer` by the current task-decom
 
 | ID | Deliverable | Type | Depends On | Est | Architecture hint |
 |---|---|---|---|---|---|
-| T-1.1 | Integrate inspected #68 implementation and relevant main deltas; record resulting baseline and API inventory | infra | — | L | Prerequisite gate: one team/teamsource/render owner; resolve isolation/updater differences before any new schema work; no checkout/merge was performed by this Plan run. |
-| T-1.2 | Replace index schema, strict decoder and mode-roster resolution; remove legacy converter | data | T-1.1 | M | `internal/team` owns shape/errors; reject duplicate JSON keys and ambiguous entry forms; preserve ordering and no implicit shared union (CFG-1/5, TEST-7). |
+| T-1.2 | Replace index schema, strict decoder and mode-roster resolution; remove legacy converter | data | — | M | `internal/team` owns shape/errors; reject duplicate JSON keys and ambiguous entry forms; preserve ordering and no implicit shared union (CFG-1/5, TEST-7). |
 | T-1.3 | Add external root paths and validated source/dependency snapshots | logic | T-1.2 | L | `config.Paths` derives roots, `teamsource` reads bounded regular files/closures; registry metadata wins only after consistency validation; no repo/store source tier. |
 | T-1.4 | Update embedded Go package and example version-2 registry | data | T-1.2, T-1.3 | M | Preserve existing embedded ownership; declare transitive mode/skill/assets rather than leaving repo-relative links broken; actual workflow content comes from US-4. |
 | T-1.5 | Registry, containment, dependency and deterministic snapshot test suites | test | T-1.2, T-1.3, T-1.4 | M | Table-driven malformed/duplicate/null/missing cases; cycle, symlink, source mutation and byte-budget cases; scratch roots, no real LF_HOME (TEST-1/2/7). |
 
-Recommended AC: one explicit mode roster has precisely its referenced IDs in order; all five mode keys required; unsupported old schema fails; a shared definition omitted from a roster contributes zero catalog entries; dependency-only changes alter digest; source paths cannot escape external root; the implementation baseline records actual integration of both inspected lineages.
+Recommended AC: one explicit mode roster has precisely its referenced IDs in order; all five mode keys required; unsupported old schema fails; a shared definition omitted from a roster contributes zero catalog entries; dependency-only changes alter digest; source paths cannot escape external root; reuse targets the merged `team`/`teamsource`/`render` implementation directly. T-1.1 (branch integration) is satisfied and retired; remaining task IDs stay stable.
 
 ### US-2 — External management and repository association
 
@@ -123,9 +124,9 @@ Recommended AC: new and existing registrations accept an explicit valid team; ma
 
 | ID | Deliverable | Type | Depends On | Est | Architecture hint |
 |---|---|---|---|---|---|
-| T-3.1 | Document exact-version runner capability probes and production transport decision | infra | T-1.1 | L | EXT-1/2 scratch-only evidence; prove discovery, auth, project bootstrap, tier and tool constraints; an unsupported result is a gate finding, not permission to weaken isolation. |
+| T-3.1 | Document exact-version runner capability probes and production transport decision | infra | — | L | EXT-1/2 scratch-only evidence; prove discovery, auth, project bootstrap, tier and tool constraints; an unsupported result is a gate finding, not permission to weaken isolation. |
 | T-3.2 | Adapt native rendering and immutable bundle publication | logic | T-1.3, T-1.4, T-3.1 | L | Pure `render` output then `team` safe-write owner; selected closure only; run-specific external directories, bounded snapshot lock, no mutable shared catalog (CONC-1/2). |
-| T-3.3 | Extend neutral request and both runner adapters for proven bundle transport | logic | T-3.2 | L | `agent` exports vendor-neutral descriptors only; adapters own vendor configuration; tool ceilings dominate roster/frontmatter; keep main's credential isolation. |
+| T-3.3 | Extend neutral request and both runner adapters for proven bundle transport | logic | T-3.2 | L | `agent` exports vendor-neutral descriptors only; adapters own vendor configuration; tool ceilings dominate roster/frontmatter; keep merged credential isolation. Prove classifier catalog exclusion separately from tool restrictions. |
 | T-3.4 | Wire team/mode after classification and rotate conversation segments by bundle identity | logic | T-2.1, T-3.3 | L | `daemon` selects mode, `turn` resolves bundle and existing `store` segment APIs persist identity; preserve agent-switch guard and CONC-7 last state write. |
 | T-3.5 | Test classifier/work separation, resume rotation and five concurrent bundles | test | T-3.3, T-3.4 | L | Fake runner/process fixtures plus real store; channels rather than sleeps; same-team different-mode runs cannot contaminate each other; no bundled content in classifier request. |
 
@@ -135,10 +136,10 @@ Recommended AC: exactly selected catalog visible for each supported runner, zero
 
 | ID | Deliverable | Type | Depends On | Est | Architecture hint |
 |---|---|---|---|---|---|
-| T-4.1 | Refactor Go roles and focused skill dependency declarations | logic | T-1.4 | L | Keep small workflow roles; language/platform/testing instructions in selected skills; reuse current sources and preserve both vendor renderings rather than maintaining independent stacks. |
+| T-4.1 | Refactor Go roles and focused skill dependency declarations | logic | T-1.4 | L | Keep small workflow roles; language/platform/testing instructions in selected skills; make embedded definitions canonical and verify generated vendor outputs against them; resolve the known Codex Implement updater invocation drift. |
 | T-4.2 | Slim Implement orchestration to authoring and required testing | logic | T-4.1 | M | Remove review/env administration/updater phases and automatic review-driven bug loop; keep tests that verify implementation and the final implementation report contract. |
 | T-4.3 | Add read-only Validate acceptance/review/evidence/drift choreography | logic | T-4.1 | M | Inline findings; no shell for Claude under current profile; no provisioning, fixes, durable files or updater; owner explicitly initiates later Implement. |
-| T-4.4 | Update project/bootstrap instructions, tier references and parity fixtures | logic | T-4.2, T-4.3, T-3.3 | M | Preserve mode header trust contract (STYLE-8); retire eager full-roster bootstrap sections; packaged resources replace `.claude` hardcoding; no retired updater anywhere in active rosters. |
+| T-4.4 | Update project/bootstrap instructions, tier references and parity fixtures | logic | T-4.2, T-4.3, T-3.3 | M | Preserve mode header trust contract (STYLE-8); remove full specialist body duplication from Claude root composition and eager full-roster bootstrap sections; packaged resources replace `.claude` hardcoding; no retired updater anywhere in active rosters. |
 | T-4.5 | Test mode membership, resource closure, boundary and report parity | test | T-4.4, T-3.5 | M | Preserve existing policy/surface tests; fake role outcomes check pass/findings/missing-evidence and no Validate tracked changes; do not rewrite permission tests to enable shell. |
 
 Recommended AC: Implement roster has implementation/testing specialists only; Validate review/evidence/drift specialists cannot write; exact current permission profiles retained; missing test evidence is never a pass; roots do not load the full language instruction body during unrelated modes; no maintenance/updater resurrection.
@@ -148,7 +149,7 @@ Recommended AC: Implement roster has implementation/testing specialists only; Va
 | ID | Deliverable | Type | Depends On | Est | Architecture hint |
 |---|---|---|---|---|---|
 | T-5.1 | Add bundle provenance and instruction byte breakdown to run metadata/inspection | logic | T-3.4 | M | Extend existing harvest/meta and CLI renderers; selected IDs, source/override hashes, dependencies, model resolution and render revision; redact externally, never log credentials. |
-| T-5.2 | Provide reproducible baseline-versus-mode benchmark procedure and fixtures | infra | T-5.1, T-4.5 | M | Equal tasks/vendor/model/versions; separate classifier, root discovery, skill-body loading, cache state and delegation totals; byte counts are not token counts. |
+| T-5.2 | Provide reproducible baseline-versus-mode benchmark procedure and fixtures | infra | T-5.1, T-4.5 | M | Equal tasks/vendor/model/versions; separate classifier, Claude full-body root duplication, catalog descriptions, skill-body loading, cache state and delegation totals; byte counts are not token counts. |
 | T-5.3 | Execute supported manual runner benchmark and document limitations | infra | T-5.2 | L | Scratch exact-version runs, no paid subprocess CI test; record available input/cached/total tokens, latency and outcome; missing telemetry stated explicitly. |
 | T-5.4 | Test stable provenance output and complete repository checks/docs | test | T-5.1, T-5.2 | M | Deterministic JSON/order; existing fake usage parsers; `make check` and safe `go build ./...`; no dist writes or runtime config edits. |
 
@@ -156,12 +157,12 @@ Recommended AC: reports identify precisely what content was visible and what was
 
 ## Security findings (forward design lens)
 
-Rulebook: `.aiteam/APP_CONSTRAINTS.md` security section, plus main's recorded SD-4 amendment. This is an architectural review of proposed changes, not a vulnerability audit of all dependencies.
+Rulebook: `.aiteam/APP_CONSTRAINTS.md` security section, plus the merged SD-4 amendment. This is an architectural review of proposed changes, not a vulnerability audit of all dependencies.
 
 | Area | Status | Finding |
 |---|---|---|
 | Input validation | Concern addressed by plan | New JSON unions, dependency graphs and import paths need strict duplicate-aware validation, bounded regular files and full preflight before writes or spawn. |
-| Authentication/authorization | Capability gate | Main's isolated Claude auth is reusable; runtime catalog isolation and subagent permission inheritance still need exact-version proof. Roster membership never grants authority. |
+| Authentication/authorization | Capability gate | Merged isolated Claude auth is reusable; runtime catalog isolation and subagent permission inheritance still need exact-version proof. Roster membership never grants authority. |
 | Secrets/configuration | Retain existing boundary | Reuse config secret scanning and render-byte checks, allowlisted child environment and controlled credential lifecycle; no credentials in registry/provenance. |
 | Data handling | Retain existing boundary | SQL stays in store; shared source is read-only to agents; provenance identifies origin without exposing content to outbound reports unless redacted. |
 | Dependencies/supply chain | Concern addressed by plan | Local operator-controlled imports only, no remote downloader/new dependency; source digests and explicit dependencies provide reproducibility, not an authenticity claim. No vulnerability scan performed. |
@@ -173,4 +174,4 @@ Go package ownership, errors.Join/typed errors, deterministic ordering, context 
 
 ## Deviations and limits
 
-No new standards exception is required. Main's SD-4 amendment explicitly allows a factory-set Claude config directory while leaving it absent from the inherited-environment allowlist; integration must carry that existing amendment and reconcile stale explanatory text. The owner has authorized the no-compatibility schema cutover and external team ownership. Runner capability proof remains an explicit implementation gate. No branch integration, implementation, external registry write, paid probe, or test execution was performed by this architecture review.
+No new standards exception is required. The merged SD-4 amendment explicitly allows a factory-set Claude config directory while leaving it absent from the inherited-environment allowlist; preserve that distinction. Existing team-write guarantees (SEC-12–18) carry forward: adapt owned-path derivation to the declared external target while retaining preflight, symlink refusal, atomic files and lockfile-last publication; update affected surface tests deliberately under TEST-10. The owner has authorized the no-compatibility schema cutover and external team ownership. Runner capability proof remains an explicit implementation gate. No branch integration, implementation, external registry write, paid probe, or test execution was performed by this architecture review.

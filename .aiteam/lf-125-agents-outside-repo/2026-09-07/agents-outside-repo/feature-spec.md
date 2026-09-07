@@ -8,12 +8,14 @@
 ## Evidence and Assumptions
 | Item | Verified baseline / decision |
 |---|---|
-| Source baseline | `f218db4218708c6e01403cb11406912052bceba8`; no `internal/` changes against `06342923778943a72aab2ee0ea5011e0d371b79d` in this checkout. |
+| Source baseline | Run 0008 refresh targets merged checkout `69f701c3ed45819d39b0a9fa05df64f29f08fbe6`; primary source is the current-session run 0007 `RESEARCH_BRIEF.md`, whose source review targets `a465e55e0f9ae6c61267f8fdbb4802526ac2867d`. |
 | Available team feature | `internal/repos/aiteam.go` detects team names from repository markers; `internal/store/repos.go` stores `AiteamTeam`; `internal/cli/cmd_repo.go` registers and lists that association. |
 | Available agent features | Vendor-neutral `agent.Runner`/`Request`; Claude and Codex adapters; configured vendor tiers and mode permission profiles; explicit mode selection and tool-free classifier. |
-| Available team-management branch | Local `lf/68-new-way-to-work-with-agent-teams` at `16ac43633e8d2d18deaf7560487d51f1f40de62c` contains `internal/team`, `internal/teamsource`, rendering, embedded definitions, provenance/hash/drift/write engines and `team list/show/add/status/update/manage` commands. It is not integrated into this task checkout; integrating and reconciling it is an implementation prerequisite. |
+| Available team management | Merged `internal/team`, `internal/teamsource`, `internal/render`, embedded definitions, provenance/hash/drift/write engines and `team list/show/add/status/update/manage` commands are the implementation foundation; the integration prerequisite is satisfied. |
 | Reuse and replace | Reuse #68's package ownership, strict aggregated errors, renderer, embedded definitions, drift/provenance and safe writes. Replace its flat team arrays plus implicit shared-agent inclusion, repository source tier, per-repo overrides and per-worktree materialization with explicit mode rosters and external ownership. |
-| Recent main | Local `main` is `24ddd50e96a2e6b20fcb19b6ac7b88dbcb2c341d`; it includes Claude config-directory isolation and app-context-updater retirement. Assess these deltas during integration; do not resurrect the retired updater or invent a second isolation mechanism. |
+| Available isolation | Claude managed configuration/home isolation is merged and must be reused. Exact classifier/work catalog isolation and Codex transport remain implementation capability gates. |
+| Workflow content gap | Embedded and Claude Implement definitions retire app-context updating; the Codex copy still invokes it. Resolve this confirmed parity drift using embedded team definitions as canonical shipped content, with generated vendor copies verified against them. |
+| Token evidence gap | Current Claude rendering copies full specialist bodies into root instructions as well as standalone files; benchmark that exposure separately from catalog descriptions. No real vendor isolation probe or token benchmark has yet passed. |
 | Accepted user decisions | Teams belong outside any project; team-first mode rosters; shared definitions or Markdown paths; token reduction is primary; no backward compatibility or configuration migration. |
 | Headless assumptions | One operator-owned registry at `$LF_HOME/teams/index.json`; external source tree under `$LF_HOME/teams/`, metadata under its `.litefactory/` directory, immutable snapshots under `$LF_HOME/bundles/`; explicit repository association; five current modes; no maintenance/updater restoration. |
 | Scope interpretation | Replace repository-owned specialist discovery in managed runs; retain repository-specific instructions, application context, constraints and session artifacts. |
@@ -74,7 +76,7 @@
 - Root workflow roles remain small; language-specific behavior is supplied through focused skills; provide the current Go team without adding Python or other full team stacks.
 - Implement authors production code and tests, runs the tests needed to verify its changes, and reports completion; dedicated review, context updating and environment administration leave its orchestration.
 - Validate performs acceptance review, language-aware code review, test-evidence assessment and application-context drift detection; verdict and findings are inline, with no code, test or durable documentation edits.
-- Validate may run existing checks only within its configured read-only authority; inability to generate required artifacts or provision infrastructure is reported as missing evidence, not a pass.
+- Validate uses existing evidence and read-only inspection; the current Claude profile does not permit shell execution, so running tests is not part of this scope. Missing test execution or required artifacts is reported as missing evidence, not a pass.
 - Review findings return to the owner for a later Implement instruction; no automatic fix loop or new mode transition is introduced.
 - Do not restore app-context-updater, its tier entry, or its automatic workflow invocation; any future writable maintenance feature requires a separate scope decision.
 - Changing mode, team or bundle digest cannot resume a conversation containing a different specialist catalog; open a fresh existing conversation segment when necessary.
@@ -105,6 +107,6 @@
 - [ ] Tier resolution, permissions, mode selection, runner choice and provenance reuse their current owners; roster content cannot elevate authority.
 - [ ] Changing bundle identity prevents stale-specialist conversation reuse; concurrent runs cannot overwrite each other's bundle snapshots.
 - [ ] Implement roster contains implementation/test roles; Validate exposes review/evidence/drift roles and produces no tracked changes; neither includes the retired app-context-updater.
-- [ ] A reproducible benchmark compares current full catalogs with selected mode catalogs for classification and representative work runs, recording bytes, available input/cached/total tokens, latency, vendor/version and task outcome without promising an unmeasured savings percentage.
-- [ ] Default Go instructions, workflow scaffolding and tests are updated together; both coding agents follow equivalent user-visible behavior.
-- [ ] Implementation integrates the inspected #68 source and reconciles relevant main changes before modifying team ownership; resulting code has one team schema/resolver/renderer/write owner, with no parallel registry implementation.
+- [ ] A reproducible benchmark compares current full catalogs with selected mode catalogs for classification and representative work runs, separately accounting for Claude root-body duplication and catalog descriptions, recording bytes, available input/cached/total tokens, latency, vendor/version and task outcome without promising an unmeasured savings percentage.
+- [ ] Embedded team definitions are canonical shipped content; generated Claude/Codex copies, workflow scaffolding and tests are updated together, remove all Implement updater invocations and preserve equivalent user-visible behavior.
+- [ ] Implementation reuses the merged team schema/resolver/renderer/write owners and Claude isolation infrastructure directly; no branch-integration prerequisite or parallel registry implementation remains.
