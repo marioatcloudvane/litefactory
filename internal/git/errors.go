@@ -97,6 +97,17 @@ var (
 	// [*CommandError] carrying whatever "unknown option" text that git
 	// version happens to print.
 	ErrUnsupportedGitVersion = errors.New("git version does not support merge-tree --write-tree (requires git 2.38 or newer)")
+
+	// ErrMergeTimedOut reports a merge whose per-command deadline fired
+	// before git finished. [Worktree.MergeBase] returns it after the same
+	// recovery [ErrMergeConflict] gets — "git merge --abort" against the
+	// branch, then a re-verify that HEAD landed back on the SHA captured
+	// before the merge started (US-10, S-5, S-8) — so a caller never has to
+	// wonder whether a timed-out merge left MERGE_HEAD or index.lock behind.
+	// It stays distinguishable from ErrMergeConflict on purpose: a disclosure
+	// can say "the merge timed out" rather than folding it into the same
+	// generic conflict message (AC-10.2).
+	ErrMergeTimedOut = errors.New("merge timed out")
 )
 
 // CommandError reports a git invocation that failed.

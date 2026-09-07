@@ -277,23 +277,26 @@ type MergeResult struct {
 // MergeBase refuses a dirty worktree before touching anything: uncommitted
 // changes make it unsafe to tell "the merge left this behind" apart from
 // "this was already here". On any failure once the merge itself has started —
-// a conflict, or any other non-zero exit — it runs "git merge --abort" and
-// re-reads HEAD to confirm the branch tip is exactly where it was before the
-// call; a mismatch here is reported as a failure in its own right rather than
-// silently accepted, because it would mean the rollback did not actually
-// restore the branch. base and the worktree's branch are screened by
-// [checkName], and base is confirmed to resolve before any merge is
-// attempted, so an unmerge-able ref is reported as [ErrRevisionNotFound]
-// rather than being folded into [ErrMergeConflict].
+// a conflict, a per-command timeout, or any other non-zero exit — it runs
+// "git merge --abort" and re-reads HEAD to confirm the branch tip is exactly
+// where it was before the call; a mismatch here is reported as a failure in
+// its own right rather than silently accepted, because it would mean the
+// rollback did not actually restore the branch. base and the worktree's
+// branch are screened by [checkName], and base is confirmed to resolve
+// before any merge is attempted, so an unmerge-able ref is reported as
+// [ErrRevisionNotFound] rather than being folded into [ErrMergeConflict].
 //
-// A per-command timeout firing during the merge itself is reported as-is,
-// without attempting "git merge --abort": the command may have left
-// MERGE_HEAD or index.lock behind, and issuing another git command against a
-// worktree in that state is more likely to hang the same way than to clean it
-// up. The caller sees a timed-out [*CommandError] rather than a generic one,
-// and the worktree needs a human or a later, separate recovery pass — this
-// method does not add a self-healing step (there is no Reset method on this
-// type; MergeBase is not one either).
+// A per-command timeout firing during the merge itself is recovered the same
+// way a conflict is (US-10, S-8): the abort runs against the same ctx the
+// merge itself used, which hands it its own fresh per-command deadline rather
+// than inheriting the one that just fired, so it is no more likely to hang
+// than the abort after a plain conflict — the risk of the merge having left
+// MERGE_HEAD or index.lock behind is exactly why the abort step exists at
+// all. Once the branch tip is reverified back at its pre-merge SHA, the
+// caller sees [ErrMergeTimedOut] rather than [ErrMergeConflict] so a
+// disclosure can tell the two apart (AC-10.2); if the abort itself fails, or
+// HEAD does not land back where it started, that is reported as its own
+// failure, exactly as for a conflict.
 func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions) (MergeResult, error) {
 	if err := w.check(); err != nil {
 		return MergeResult{}, err
@@ -343,15 +346,25 @@ func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions
 }
 
 // recoverFromFailedMerge aborts a merge that MergeBase started and could not
-// complete, then confirms the branch tip is back at before. It is the
-// rollback half of MergeBase's guarantee: whatever mergeErr turns out to
-// classify as, the caller never has to wonder whether the branch was left
-// half-merged.
+// complete — whether git rejected it outright or the per-command timeout
+// fired partway through — then confirms the branch tip is back at before
+// (S-5). It is the rollback half of MergeBase's guarantee: whatever mergeErr
+// turns out to classify as, the caller never has to wonder whether the
+// branch was left half-merged, or left with MERGE_HEAD/index.lock behind
+// from a merge that timed out (S-8, US-10).
+//
+// The abort-then-verify path is identical for a conflict and a timeout — the
+// abort runs against ctx, the same context the merge itself used, which
+// gives it its own fresh mergeTimeout deadline rather than inheriting the one
+// that just fired, so it is no more likely to hang than an abort after a
+// plain conflict. Only the sentinel reported once the branch is confirmed
+// clean differs: [ErrMergeTimedOut] for a timeout, [ErrMergeConflict]
+// otherwise (AC-10.2). There is no Reset method on this type and this
+// recovery path is not an exception: "git merge --abort" followed by a
+// re-verify is the only accepted self-heal, never "git reset" (S-5).
 func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before string, mergeErr error) (MergeResult, error) {
 	var cmdErr *CommandError
-	if errors.As(mergeErr, &cmdErr) && cmdErr.TimedOut {
-		return MergeResult{}, fmt.Errorf("merge %s into %s: %w", base, w.branch, mergeErr)
-	}
+	timedOut := errors.As(mergeErr, &cmdErr) && cmdErr.TimedOut
 
 	if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
 		return MergeResult{}, fmt.Errorf("merge %s into %s: %w (abort also failed: %v)", base, w.branch, mergeErr, abortErr)
@@ -365,5 +378,17 @@ func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before stri
 		return MergeResult{}, fmt.Errorf("merge %s into %s: branch tip moved from %s to %s while aborting a failed merge (original error: %v)", base, w.branch, before, after, mergeErr)
 	}
 
+	if timedOut {
+		// classify() itself refuses to reclassify an already-timed-out
+		// CommandError (a timeout must never be folded into an unrelated
+		// condition such as ErrRevisionNotFound), so the same substitution it
+		// performs for a plain exit code is done here by hand: keep every
+		// other field — Binary, Dir, Args, ExitCode, Stderr, TimedOut,
+		// Timeout — and swap only Err, so the caller keeps the full
+		// diagnostics alongside the named sentinel.
+		classified := *cmdErr
+		classified.Err = ErrMergeTimedOut
+		return MergeResult{}, &classified
+	}
 	return MergeResult{}, classify(mergeErr, ErrMergeConflict, 1)
 }

@@ -175,3 +175,94 @@ The two stories integrate cleanly and respect the boundary the plan brief draws 
 ## Verdict
 
 ADVISORY_ONLY — 1 advisory finding (CR-A-003) noted for the drift report. No BLOCKING findings for US-5 or US-9. Proceeding to environment setup / next phase.
+
+---
+---
+
+# Code Review — US-6 / US-10
+# Feature: Concurrent sync independence proof, and the rollback-on-failure guarantee
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: ADVISORY_ONLY
+
+---
+
+## Scope
+
+This section reviews only the files tied to US-6 ("Verify per-issue sync is
+independent under concurrency") and US-10 ("Guarantee the branch is untouched
+when sync fails"), passed inline by the orchestrator as Phase 1 task reports
+against uncommitted working-tree changes on branch
+`lf/70-how-to-merge-pull-manage-conflicts`. US-1 through US-5 and US-7 through
+US-9 are out of scope and were not re-reviewed (see the two sections above).
+
+Files reviewed:
+- `internal/turn/syncconcurrency_test.go` (new) — US-6
+- `internal/daemon/gate.go` (diff, doc comment only) — US-6
+- `internal/git/errors.go` (diff, `ErrMergeTimedOut` sentinel) — US-10
+- `internal/git/merge.go` (diff, `recoverFromFailedMerge` and doc comments on `MergeBase`) — US-10
+
+Also read for context, not critiqued: `internal/turn/gate_test.go` (the
+`sections`/`gated` maps and `testGate` instrumentation the new test relies
+on), `internal/turn/prepare.go` (`syncBase`, the caller of `MergeBase`),
+`internal/git/exec.go` (`runner.run`, `classifyRunError`, and the
+`mergeTimeout` constant, to verify the abort call's context/timeout
+semantics), `internal/daemon/pool.go` (`Quiesce`/`wait`, to check whether an
+in-flight turn's context is ever cancelled by shutdown).
+
+Verification run directly, not taken on the reports' word:
+- `gofmt -l internal/turn/syncconcurrency_test.go internal/daemon/gate.go internal/git/errors.go internal/git/merge.go` — clean
+- `go vet ./internal/turn/... ./internal/daemon/... ./internal/git/...` — clean
+- `go build ./...` — clean
+- `go test ./internal/git/...` — ok (40.7s)
+- `go test ./internal/turn/... -run 'TestConcurrentTurnsSyncIndependentlyOnOneClone|TestCriticalSectionsAreSingleAcquisitions' -v` — both PASS
+- `go test ./internal/turn/... -run TestConcurrentTurnsSyncIndependentlyOnOneClone -race -count=5` — ok (64.8s), no flakiness, no race
+- `go test ./internal/git/... -run 'TestCloneMethodSetIsTheAllowlist|TestCloneCannotMutateTheRegisteredClone' -v` — both PASS, unchanged
+- `go test ./internal/turn/... ./internal/daemon/...` (full packages) — both ok
+
+---
+
+## BLOCKING findings
+
+None.
+
+---
+
+## ADVISORY findings
+
+### CR-A-004: `recoverFromFailedMerge`'s abort call reuses a caller-supplied `ctx` with no documented contract that it must never be independently cancellable, which is silently load-bearing for S-5
+**File:** `internal/git/merge.go:369` (`recoverFromFailedMerge`)
+**Story:** US-10 / T-10.1, T-10.2
+**Category:** Error handling / Cross-story (S-5 rollback guarantee)
+**Finding:** Traced the actual mechanics rather than taking the doc comment's claim at face value. `runner.run(ctx, timeout, args...)` (`exec.go:207-234`) always derives `cmdCtx, cancel := context.WithTimeout(ctx, timeout)` fresh per call, so a *previous* call's `cmdCtx` expiring (the 120s `mergeTimeout` firing on the merge itself) does not poison the *next* call's `cmdCtx` — the abort genuinely gets its own full 120s budget, exactly as the doc comment claims, as long as `ctx` itself carries no deadline of its own and was not independently cancelled.
+
+The gap is what happens when that assumption doesn't hold. `classifyRunError` (`exec.go:283-307`) checks `ctx.Err() != nil` *before* checking `cmdCtx`'s own deadline, so a merge failure caused by the ambient `ctx` itself expiring or being cancelled — as opposed to the local `mergeTimeout` firing — is reported with `TimedOut == false` (its `Err` becomes `ctx.Err()`, not `context.DeadlineExceeded`). `recoverFromFailedMerge` still runs unconditionally in that case (`timedOut` just ends up false), and it reuses the *same*, already-expired-or-cancelled `ctx` for `w.runner.run(ctx, mergeTimeout, "merge", "--abort")`. `context.WithTimeout(ctx, timeout)` inherits the earlier of the two deadlines/cancellations, so that abort's own `cmdCtx` is born already-Done: the abort process is killed almost immediately, `abortErr != nil`, and the function returns the generic wrapped error at line 370 (`"...%w (abort also failed: %v)"`) rather than a classified sentinel. That is a correctly *reported* failure — S-5's "reported, never silently accepted" is honored — but the underlying working tree is left with `MERGE_HEAD`/index state from the aborted merge never actually cleaned up (the abort command itself never got to run), which would then trip `MergeBase`'s own dirty-worktree refusal (`ErrWorktreeUncommittedChanges`) on every subsequent sync attempt against that branch — effectively bricking that branch's auto-sync until someone manually intervenes.
+  I checked whether this is reachable today: `internal/turn/execute.go`'s `Execute(ctx, ...)` receives `ctx` as a bare parameter with no `context.WithTimeout`/`WithDeadline` wrapping anywhere in `internal/turn`, and `internal/daemon/pool.go`'s `Daemon.Quiesce`/`pool.wait()` confirm that neither shutdown path cancels an in-flight turn's own context — quiesce only *waits* on a separate context for the pool to drain, and production shutdown "goes through wait and starts nothing" (i.e., it does not touch the worker's `ctx` at all). So under this codebase's current call graph, `ctx` reaching `MergeBase` is not, in practice, independently cancelled mid-merge, and the risk is currently latent rather than live.
+**Suggestion:** No functional change required today given the verified call graph above, but the safety of reusing `ctx` for the abort is an unstated invariant on `Worktree.MergeBase`'s contract, and S-5 is explicitly a "High" severity guarantee — worth either (a) a doc-comment note on `MergeBase` stating that its `ctx` must not be cancelled/deadlined independently of process shutdown, since the rollback abort depends on it still being live, or (b) decoupling the abort call from the caller's own cancellation (e.g. `context.WithoutCancel(ctx)` before applying `mergeTimeout`) so the rollback step is guaranteed to get a chance to run regardless of what happens further up the call chain in the future. Either is acceptable; leaving the assumption undocumented and untested is the actual gap.
+
+### CR-A-005: one comment line in `gate.go`'s new doc section breaks the file's established ~76-78 column wrap
+**File:** `internal/daemon/gate.go:62`
+**Story:** US-6 / T-6.2
+**Category:** Idiom / Style
+**Finding:** Every other line in `cloneGate`'s doc comment (including the rest of the new "Keyed on the clone, not the branch" section this diff adds) wraps at 68-78 characters. The one line `// internal/turn's prepareClone critical section now includes a merge of the base branch` is 88 characters — a purely cosmetic outlier `gofmt` does not enforce but the surrounding paragraph's own convention does.
+**Suggestion:** Rewrap that line to match the rest of the paragraph. No functional impact.
+
+---
+
+## Notes for the orchestrator (not code defects)
+
+- **T-10.3 (AC-10.1/AC-10.2 proof) is genuinely open, not silently skipped.** Confirmed by reading the tree: `internal/git/merge_test.go` and `internal/git/merge_internal_test.go` (unchanged by this diff) exercise `MergeBase`'s conflict-recovery path, but nothing in the tree currently constructs a synthetic `*CommandError{TimedOut: true}` or otherwise drives `recoverFromFailedMerge` down the new `ErrMergeTimedOut` branch, and nothing asserts the branch SHA is byte-identical before/after a `blocked`/`failed`/timed-out attempt end-to-end. This matches the team's convention that implementers do not write tests (T-10.3 is explicitly reserved for the unit-test-engineer phase) and the implementer's own report that `recoverFromFailedMerge` was left independently callable against a worktree holding a live `MERGE_HEAD` specifically so that test can be written without waiting out the real 120s `mergeTimeout`. Flagging so Phase 2 test-writing scope does not drop AC-10.1/AC-10.2 — as of this review, no test in the tree proves either acceptance criterion.
+- **`errors.Join`-vs-fail-fast-in-a-loop pattern: not applicable to this diff.** `recoverFromFailedMerge` is a straight-line sequence (abort, then re-verify, then classify) with no loop over multiple fallible operations to aggregate. The only loop introduced by either story is `TestConcurrentTurnsSyncIndependentlyOnOneClone`'s per-issue assertion loop, which uses `t.Errorf`/`t.Fatalf` directly against `*testing.T` — the idiomatic and expected pattern for a test's per-case assertions, not a production error-aggregation site this pattern would apply to.
+- **US-6's test does genuinely prove AC-6.1/AC-6.2, not just "no error occurred."** The concurrent phase's gate-acquisition delta (`2 * len(issues)`, read off `testGate.report()`'s real counters rather than inferred) is the load-bearing assertion: a branch-keyed lock or any second acquisition wrapped around the merge would show up as a count above `2 * len(issues)`, and a missing acquisition (e.g. `prepareClone` silently skipping `syncBase`'s participation in the existing gate) would show up as a count below it — neither direction is masked. Cross-branch interference is checked by `git ls-tree` against origin per branch (each branch's own concurrent-phase file present, every other issue's absent), not by trusting `Result.Pushed`/`SyncOutcome` alone. Concurrency is driven by a single `sync.WaitGroup` with per-goroutine writes to disjoint slice indices (no shared mutable state raced outside the one `sync.Mutex`-guarded `calls` map, which is itself only used to derive a per-issue call sequence number, not to gate execution order) — no sleeps, no polling, no non-deterministic ordering assumed anywhere in the assertions. Re-ran the test 5 times with `-race`: no flakiness, no race detected.
+
+---
+
+## Cross-story summary (US-6 / US-10)
+
+US-6 and US-10 touch adjacent code — both sit inside `internal/git`'s merge path and `internal/turn`'s `syncBase` step — but do not functionally interact: US-6's new test drives only the happy/synced path (a clean merge with something genuinely behind to sync) and never exercises US-10's new `ErrMergeTimedOut` branch or the abort-then-reverify recovery path, so there is no boundary between the two stories' actual code changes to verify beyond "both build and both pass together," which they do. `internal/turn/gate_test.go`'s `"syncBase": {"prepareClone"}` entry and three-section `sections` map — the one piece of shared fixture state both stories' work depends on — are confirmed unchanged and correct. Neither diff introduces a new locking primitive, a `Reset` call, string-built git arguments, or a goroutine without a clear exit path. The one substantive risk surfaced (CR-A-004) is a latent, currently-unreachable one given this codebase's actual context-cancellation model, and the one gap surfaced (T-10.3) is a correctly-scoped, not-yet-written test rather than a silently dropped requirement.
+
+---
+
+## Verdict
+
+ADVISORY_ONLY — 2 advisory findings (CR-A-004, CR-A-005) noted for the drift report, plus two notes for the orchestrator to carry into test-planning (T-10.3 still open; `errors.Join` pattern confirmed not applicable here). No BLOCKING findings for US-6 or US-10. Proceeding to environment setup / next phase.

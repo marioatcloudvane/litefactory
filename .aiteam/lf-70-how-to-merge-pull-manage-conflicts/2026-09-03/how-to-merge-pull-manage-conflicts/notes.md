@@ -474,3 +474,119 @@ established testing convention for `internal/store`) plus a single call site
 in `internal/turn`. Neither story opens a new external HTTP call or message
 queue. Environment setup and the integration test suite were both skipped per
 the orchestrator's Phase 2 rule.
+
+---
+
+# Implementation Notes — US-6, US-10 (Concurrency verification, Rollback guarantee)
+
+## Scope of this run
+
+This run implemented **US-6 and US-10 in parallel**, per explicit instruction
+("continue with stories 6 and 10"). Both were unblocked (both depend only on
+US-2, already done and committed) and land on largely disjoint files: US-6
+added a new test file in `internal/turn` plus a doc-only comment in
+`internal/daemon/gate.go`; US-10 modified `internal/git/errors.go` and
+`internal/git/merge.go`. US-11 and US-12 remain out of scope per the run's own
+instruction — US-11 needs US-5+US-9 (both done, so it is unblocked but not
+requested this run) and US-12 needs US-11+US-10, so it cannot start until a
+later run regardless.
+
+The prior run's handoff described US-6's single task (T-6.1) as sized L — an
+N-turn, N-branch concurrency test — and noted it was deliberately excluded
+from an earlier batch for that reason. `US-6.md` was re-read fresh at the
+start of this run rather than assuming that description still held; its
+actual content (verification story, no new locking primitive, AC-6.1/AC-6.2)
+matched the prior description closely, with no further gap found.
+
+## What was built
+
+- **US-6**: `internal/turn/syncconcurrency_test.go` (new) —
+  `TestConcurrentTurnsSyncIndependentlyOnOneClone` (T-6.1): four issues share
+  one registered clone; each branch is cut sequentially, the base is advanced
+  once, then all four issues' second turns run concurrently via `Execute`.
+  Asserts each turn's persisted sync outcome/behind/commit-SHA, distinct merge
+  commit SHAs per issue, no cross-branch interference (checked via
+  `git ls-tree` on the bare origin, not worktree files, since that is the
+  artifact a bug would actually corrupt), and — read off the real gate's
+  acquisition counts before/after the concurrent phase — exactly
+  `2 * len(issues)` acquisitions during that phase (`prepareClone` +
+  `commitAndPush`, no more), zero overlaps, zero deadlines. No sleep-based
+  synchronization; deterministic via `sync.WaitGroup` and a mutex-protected
+  disambiguation map. `internal/daemon/gate.go`'s existing doc comment on
+  `cloneGate` gained a "Keyed on the clone, not the branch (US-6)" section
+  (T-6.2) explaining the keying choice and pointing at the new test.
+  `gate_test.go`'s `"syncBase": {"prepareClone"}` entry was confirmed already
+  present from an earlier run — no edit needed, no design-change test touched.
+- **US-10**: `internal/git/errors.go` gained the `ErrMergeTimedOut` sentinel,
+  matching the existing doc-comment shape of `ErrMergeConflict`/
+  `ErrUnsupportedGitVersion`. `internal/git/merge.go`'s
+  `recoverFromFailedMerge` now runs the same abort-then-reverify sequence for
+  a timed-out merge that it already ran for a conflicted one, diverging only
+  at final classification: it copies the original `*CommandError` (preserving
+  Binary/Dir/Args/ExitCode/Stderr) and swaps in `ErrMergeTimedOut` rather than
+  `ErrMergeConflict`. `classify()` itself was deliberately left untouched,
+  since it intentionally refuses to reclassify an already-timed-out error for
+  unrelated conditions (e.g. `ErrRevisionNotFound`) for other callers, and
+  that refusal must stay correct; the timeout substitution was written as a
+  small local copy-and-swap mirroring `classify()`'s own shape rather than
+  changing its contract. Never uses `git reset` (S-5 respected — no `Reset`
+  method exists on `*Worktree`). T-10.3 (the SHA-identity/TimedOut proof test)
+  was deliberately left to the unit-test-engineer phase, per this team's
+  standing rule that implementation engineers do not write test files; the
+  code was left directly testable (`recoverFromFailedMerge` factored out,
+  callable with a synthetic `*CommandError{TimedOut: true}` against a
+  worktree holding a real live merge conflict).
+
+## Code Review Advisories
+
+- **CR-A-004** (advisory, non-blocking, US-10): `recoverFromFailedMerge`
+  reuses the caller's `ctx` for the `git merge --abort` rollback call. The
+  reviewer traced `runner.run`/`classifyRunError` and confirmed the abort does
+  get a genuinely fresh budget when only the *local* per-command timeout
+  fired, but flagged a latent risk: if the *ambient* `ctx` were ever
+  independently cancelled (not just the per-command timeout), the abort's
+  derived context would be born already-done and the rollback would never
+  run. Traced against the actual call graph (`turn.Execute`,
+  `daemon/pool.go`'s `Quiesce`/`wait`) and confirmed this is not reachable
+  today — no in-flight turn's context is ever independently cancelled — so
+  it's latent, not live. Left as-is (document the contract, or decouple abort
+  from caller cancellation, is the reviewer's suggested follow-up, not
+  required for this story).
+- **CR-A-005** (advisory, cosmetic, US-6): one comment line in `gate.go`'s new
+  doc section (88 chars) breaks the file's otherwise ~76-78 col wrap
+  consistency. Left as-is.
+
+No BLOCKING findings for either story. `go-code-reviewer`'s verdict:
+ADVISORY_ONLY. Verified (not just read): `gofmt`, `go vet`, `go build ./...`
+all clean; `go test ./internal/git/...`, `./internal/turn/...`,
+`./internal/daemon/...` pass; the new concurrency test re-run 5x with `-race`
+by the reviewer specifically to check for flakiness — none found.
+`internal/git`'s `TestCloneMethodSetIsTheAllowlist`/
+`TestCloneCannotMutateTheRegisteredClone` and `internal/turn`'s
+`TestCriticalSectionsAreSingleAcquisitions` confirmed unchanged/passing. See
+`CODE_REVIEW.md`'s newest dated section for the full record; all five prior
+sections are unchanged.
+
+## Cross-agent visibility note (not a defect)
+
+Both implementation engineers, working in parallel in the same worktree, each
+independently flagged the other's in-progress diff as "unrelated pre-existing
+changes" in their own DONE reports — US-6's engineer noticed US-10's
+in-flight edits to `internal/git/errors.go`/`internal/git/merge.go`, and
+vice versa. This is expected: both agents share one worktree and ran
+concurrently. Confirmed the two stories' actual file sets are disjoint
+(US-6: `internal/turn/syncconcurrency_test.go`, `internal/daemon/gate.go`;
+US-10: `internal/git/errors.go`, `internal/git/merge.go`) — no real overlap
+or conflict.
+
+## Phase 2 — Environment setup
+
+Both US-6 and US-10 touch only `internal/git`/`internal/turn`/`internal/daemon`
+— shelling out to a local git binary against worktree-local refs and clones in
+temp directories, plus in-memory concurrency/gating logic. Consistent with
+this codebase's established convention (`internal/git`'s and
+`internal/turn`'s tests already run real git in temp directories as unit
+tests, not integration tests against a provisioned service), no story in this
+run's scope touches a real external dependency (database, external HTTP call,
+message queue). Environment setup and the integration test suite were both
+skipped per the orchestrator's Phase 2 rule.
