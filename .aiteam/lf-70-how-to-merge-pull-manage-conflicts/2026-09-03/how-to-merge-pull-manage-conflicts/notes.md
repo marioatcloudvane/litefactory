@@ -590,3 +590,71 @@ tests, not integration tests against a provisioned service), no story in this
 run's scope touches a real external dependency (database, external HTTP call,
 message queue). Environment setup and the integration test suite were both
 skipped per the orchestrator's Phase 2 rule.
+
+---
+
+# Close-out — US-6, US-10 (resumed run, 2026-09-07)
+
+## What was cut off, and what was verified before resuming
+
+The prior run was cut off by an API rate limit after code review had already
+returned ADVISORY_ONLY (CR-A-004, CR-A-005, zero BLOCKING), but before the
+unit-testing phase ran. Before doing any new work, this run independently
+verified — rather than assumed — that the interrupted run's partial output
+had actually landed: `git status --short` showed a clean tree and
+`git log --oneline` showed commit `cfa2a9f` as HEAD, confirming litefactory
+had committed the in-flight work despite the cutoff. `go build ./...`,
+`go vet ./...`, and `gofmt -l .` were all clean at that commit, and a
+targeted `go test -race ./internal/git/... ./internal/turn/...
+./internal/daemon/...` was green, confirming the already-committed
+implementation was not broken. Only then did the run proceed to Phase 3.
+
+## Phase 3 — unit testing (this run's actual work)
+
+`go-unit-test-engineer` was invoked for US-6 and US-10 only, told explicitly
+not to redo or rework the already-reviewed implementation. It read every
+relevant existing file — `internal/git/merge.go`, `errors.go`,
+`merge_timeout_internal_test.go`, `merge_test.go`,
+`merge_internal_test.go`, `internal/turn/syncconcurrency_test.go`,
+`gate_test.go`, `sync_test.go` — before writing anything, and reported that
+every acceptance criterion for both stories (AC-6.1, AC-6.2, AC-10.1,
+AC-10.2) was already fully proven by tests already on disk. In particular,
+T-10.3 — the one gap the interrupted run's own code review had explicitly
+flagged as outstanding — turned out to already be closed:
+`merge_timeout_internal_test.go`'s `TestRecoverFromFailedMergeTimeout` and
+`TestRecoverFromFailedMergeTimeoutAbortFailurePreservesOriginalError` were
+written by the same interrupted run, in a file that postdated the code
+review's "files reviewed" snapshot — the review was correct about the state
+it saw, and the gap it named was closed moments later, before the rate
+limit hit.
+
+Net result: zero new test files, zero production-code changes (no bug was
+found by the added scrutiny), 661 subtests passing under `go test -race
+-count=1 -v ./internal/git/... ./internal/turn/... ./internal/daemon/...`,
+`go vet ./...` clean, `gofmt -l` clean on the touched packages. Coverage:
+`internal/git` 84.6%, `internal/turn` 84.1%, `internal/daemon` 76.2%.
+
+## Repo-wide verification
+
+Per this run's own instruction, the orchestrator re-ran
+`go build ./... && go vet ./... && gofmt -l . && go test -race -count=1
+./...` directly across the whole repository, not just the previously-touched
+packages. All 22 packages passed (`cmd/litefactory`, `internal/agent`,
+`internal/attach`, `internal/cli`, `internal/codex`, `internal/config`,
+`internal/daemon`, `internal/git`, `internal/github`, `internal/gittest`,
+`internal/harness`, `internal/identity`, `internal/launchd`,
+`internal/logging`, `internal/naming`, `internal/planbrief`,
+`internal/redact`, `internal/report`, `internal/repos`, `internal/schedule`,
+`internal/secrets`, `internal/store`, `internal/turn`), `go vet` and
+`gofmt -l .` produced no output. No bug loop was needed — zero failures at
+any phase of this resumed run.
+
+## Close-out
+
+`DRIFT_REPORT.md` gained a seventh dated section (US-6/US-10), verdict
+CLEAN. `MANIFEST.md`'s Implement checkbox and history were updated to
+reflect US-6 and US-10 as delivered (10 of 12 stories now done). No
+`APP_CONTEXT.md`/`APP_CONSTRAINTS.md` update was made, per the retirement of
+that step from this team's workflow. Remaining for future runs, each needing
+its own comment: US-11 (needs US-5 + US-9, both already done — unblocked)
+and US-12 (needs US-11 + US-10 — US-10 now done, but still blocked on US-11).

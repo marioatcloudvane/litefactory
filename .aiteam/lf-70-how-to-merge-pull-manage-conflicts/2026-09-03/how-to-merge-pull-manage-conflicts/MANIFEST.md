@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-7, US-8, US-9 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-6, US-7, US-8, US-9, US-10 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -444,5 +444,34 @@ asked for; nothing here licenses starting the next one.
   retirement of that step. US-6, US-10, then US-11 (needs US-5 + US-9, now
   both satisfied), then US-12 (needs US-11 + US-10), remain for future runs,
   each needing its own comment.
+- 2026-09-07 — Implement mode run (scoped to US-6 and US-10, in parallel) was
+  cut off by an API rate limit mid-flight, after code review but before unit
+  testing. litefactory committed the in-flight work anyway (commit `cfa2a9f`):
+  `internal/daemon/gate.go`, `internal/git/errors.go`, `internal/git/merge.go`,
+  new `internal/git/merge_timeout_internal_test.go`, new
+  `internal/turn/syncconcurrency_test.go`. `go-code-reviewer` had already
+  returned ADVISORY_ONLY (CR-A-004, CR-A-005, zero BLOCKING) before the cutoff.
+- 2026-09-07 — Implement mode resumed (same scope, US-6 and US-10 only), per
+  explicit instruction to continue from where the interrupted run left off
+  without redoing completed work. Verified the worktree was clean at `cfa2a9f`
+  and the prior implementation/review stood before proceeding. Resumed at
+  Phase 3 (unit testing): `go-unit-test-engineer` read the existing
+  implementation and every existing test file first and found all four
+  acceptance criteria (AC-6.1, AC-6.2, AC-10.1, AC-10.2) already fully proven
+  by tests already on disk — `internal/turn/gate_test.go` and
+  `syncconcurrency_test.go` for US-6; `internal/git/merge_test.go` (pre-
+  existing, from US-2) plus the new `merge_timeout_internal_test.go` for
+  US-10, including the T-10.3 timeout/SHA-identity proof the interrupted
+  run's code review had flagged as the outstanding gap — that gap had in fact
+  already been closed by the same interrupted run, in a file the review's
+  file list predated. No new test files were written (writing more would have
+  duplicated existing coverage); no production code was touched (no bug
+  found). `go build ./...`, `go vet ./...`, `gofmt -l .` clean; `go test -race
+  -count=1 ./...` green across all 22 packages, re-run by the orchestrator
+  directly as the final gate — no bug loop needed. `DRIFT_REPORT.md` gained a
+  seventh dated section (US-6/US-10), verdict CLEAN. No APP_CONTEXT/
+  APP_CONSTRAINTS update was made, per the retirement of that step. US-11
+  (needs US-5 + US-9, both done) and US-12 (needs US-11 + US-10, US-10 now
+  done) remain for future runs, each needing its own comment.
 
 ## Notes
