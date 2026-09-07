@@ -95,6 +95,7 @@ func successRun() report.Run {
 			Model:      "claude-sonnet-4-5",
 			ResultText: "Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.",
 			CostUSD:    0.4213,
+			HasCost:    true,
 			HasResult:  true,
 			NumTurns:   6,
 			Duration:   93 * time.Second,
@@ -1242,3 +1243,233 @@ var (
 	_ func(*report.Reporter, context.Context, report.Run) (redact.Body, error)   = (*report.Reporter).RenderRun
 	_ func(*report.Reporter, context.Context, report.Reply) (redact.Body, error) = (*report.Reporter).RenderReply
 )
+
+// testWorktreePath is the worktree path every US-3 fixture in this file uses,
+// for a run that did not succeed but left its own worktree waiting.
+const testWorktreePath = "/Users/mario/dev/.lf-worktrees/acme-api/task-123"
+
+// TestNonSuccessReportNamesTheWorktree is US-3 (T-3.3, AC-3.1): the report for
+// a run that did not succeed names the worktree path holding the uncommitted
+// work, does not claim a commit, and must not describe "committed nothing" in
+// the words a successful, no-change run uses for the same phrase.
+func TestNonSuccessReportNamesTheWorktree(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	outcomes := []harness.Outcome{harness.OutcomeFailed, harness.OutcomeTimedOut, harness.OutcomeNoResult}
+	for _, outcome := range outcomes {
+		t.Run(outcome.String(), func(t *testing.T) {
+			t.Parallel()
+
+			run := failureRun()
+			run.Result.Outcome = outcome
+			if outcome != harness.OutcomeFailed {
+				run.Result.ExitCode = harness.SignalExitCode
+			}
+			run.WorktreePath = testWorktreePath
+
+			body := render(t, rep, run).String()
+
+			if got := strings.Count(body, testWorktreePath); got != 1 {
+				t.Errorf("the %s report names the worktree %d times, want exactly 1:\n%s", outcome, got, body)
+			}
+			if strings.Contains(body, "this run committed nothing") {
+				t.Errorf("the %s report uses the success-only wording for committing nothing:\n%s", outcome, body)
+			}
+			if strings.Contains(body, "(pushed)") {
+				t.Errorf("the %s report claims a commit was pushed:\n%s", outcome, body)
+			}
+		})
+	}
+
+	// The succeeded report is unaffected: it still uses its own, distinct
+	// wording and never names a worktree for work that was already committed.
+	success := successRun()
+	success.WorktreePath = testWorktreePath
+	successBody := render(t, rep, success).String()
+	if strings.Contains(successBody, testWorktreePath) {
+		t.Errorf("the succeeded report names the worktree, which only a non-success run should:\n%s", successBody)
+	}
+
+	noChange := successRun()
+	noChange.CommitSHA = ""
+	noChange.SHAAfter = ""
+	noChange.Pushed = false
+	noChange.Files = nil
+	noChange.WorktreePath = testWorktreePath
+	noChangeBody := render(t, rep, noChange).String()
+	if !strings.Contains(noChangeBody, "this run committed nothing") {
+		t.Errorf("a succeeded, no-change report lost its own wording:\n%s", noChangeBody)
+	}
+	if strings.Contains(noChangeBody, testWorktreePath) {
+		t.Errorf("a succeeded, no-change report names the worktree; nothing was left uncommitted:\n%s", noChangeBody)
+	}
+}
+
+// TestWorktreePathIsRenderedThroughTheSanitiserSpan is US-3 (T-3.4): the
+// worktree path reaches the comment through the package's existing
+// codeSpan/sanitiser helpers, the same as every other machine-controlled path
+// this package quotes — so a path carrying backticks or a newline cannot
+// break the comment's markdown or its own quoting.
+func TestWorktreePathIsRenderedThroughTheSanitiserSpan(t *testing.T) {
+	t.Parallel()
+
+	// Three consecutive backticks force codeSpan's delimiter to widen past the
+	// default single backtick, which is the only way to observe from outside
+	// the package that codeSpan's own collision-avoidance ran at all. The
+	// embedded newline exercises the same flattening every other quoted path
+	// in this package gets.
+	const maliciousPath = "/tmp/wt/```injected```\nrm -rf /"
+
+	run := failureRun()
+	run.WorktreePath = maliciousPath
+
+	body := render(t, newReporter(t), run)
+	text := body.String()
+
+	if !body.Valid() {
+		t.Fatalf("a hostile worktree path produced an invalid comment body:\n%s", text)
+	}
+	// The raw, multi-line path must never appear verbatim: codeSpan flattens
+	// it to one line before quoting it, exactly as it does for every other
+	// path this package renders.
+	if strings.Contains(text, maliciousPath) {
+		t.Errorf("the raw, multi-line worktree path reached the comment unflattened:\n%s", text)
+	}
+	// codeSpan widens its delimiter past the longest run of backticks in the
+	// content, so three consecutive backticks in the path force a four-tick
+	// delimiter around it.
+	if !strings.Contains(text, "````") {
+		t.Errorf("the worktree path's triple backtick did not force codeSpan's wider delimiter:\n%s", text)
+	}
+}
+
+// TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce is a regression test
+// for BT-001's other composition.
+//
+// BT-001 fixed the double mention of the worktree path on describeRunOutcome's
+// own non-success arms (OutcomeFailed/OutcomeTimedOut/OutcomeNoResult), leaving
+// worktreeNote's call from outcomeView.withFailure untouched as "the legitimate
+// single-mention case" — legitimate specifically when CommitSHA != "", per
+// run_push_failed.golden.
+//
+// But withFailure calls worktreeNote unconditionally, on every one of its three
+// branches, regardless of CommitSHA. metadataList's own Commit-line default arm
+// separately names the worktree whenever the run did not succeed
+// (view.succeed == false) and there is no commit (CommitSHA == "") but there is
+// a branch to hang the line on. Every withFailure branch ends with
+// view.succeed == false, so whenever a Run.Failure happens on top of a run that
+// produced no commit at all — the worktree was never created, the run itself
+// failed before committing, or the commit step (not just the push) is what
+// failed — both call sites fire and the path is named twice.
+func TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	tests := []struct {
+		name string
+		run  func() report.Run
+	}{
+		{
+			name: "turn never reached the agent",
+			run: func() report.Run {
+				return report.Run{
+					Ref:     testRef,
+					Ordinal: 1,
+					Failure: errors.New("git worktree add: fatal: 'lf/123-x' is already checked out somewhere"),
+					Branch:  "lf/123-add-dry-run-to-task-clean",
+				}
+			},
+		},
+		{
+			name: "run succeeded but the commit itself failed, not merely the push",
+			run: func() report.Run {
+				run := successRun()
+				run.CommitSHA = ""
+				run.SHAAfter = ""
+				run.Pushed = false
+				run.Failure = errors.New("git commit: fatal: unable to write new index file")
+				return run
+			},
+		},
+		{
+			name: "run failed and cleanup afterwards also failed",
+			run: func() report.Run {
+				run := failureRun()
+				run.Failure = errors.New("git worktree remove: fatal: could not remove worktree")
+				return run
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := tt.run()
+			run.WorktreePath = testWorktreePath
+
+			body := render(t, rep, run).String()
+
+			if got := strings.Count(body, testWorktreePath); got != 1 {
+				t.Errorf("the report names the worktree %d times, want exactly 1:\n%s", got, body)
+			}
+		})
+	}
+}
+
+// TestCostRowRendering is US-6 (T-6.2, AC-6.1): the Cost row is a
+// HasCost/HasResult-driven three-way, and is never silently omitted.
+func TestCostRowRendering(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	tests := []struct {
+		name   string
+		result *harness.RunResult
+		want   string
+	}{
+		{
+			name: "reported positive cost",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0.4213,
+			},
+			want: "- **Cost:** $0.4213",
+		},
+		{
+			name: "reported exactly zero cost",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0,
+			},
+			want: "- **Cost:** $0.0000",
+		},
+		{
+			name: "a terminal result with no cost reported at all",
+			result: &harness.RunResult{
+				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: false,
+			},
+			want: "- **Cost:** unknown",
+		},
+		{
+			name:   "no terminal result at all",
+			result: nil,
+			want:   "- **Cost:** unknown",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := report.Run{Ref: testRef, Ordinal: 1, Branch: "lf/123-x", Result: tc.result}
+			body := render(t, rep, run).String()
+
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("the report is missing %q:\n%s", tc.want, body)
+			}
+			if !strings.Contains(body, "- **Cost:**") {
+				t.Errorf("the Cost row is missing entirely:\n%s", body)
+			}
+		})
+	}
+}

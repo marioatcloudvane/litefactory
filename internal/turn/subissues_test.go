@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -822,4 +823,152 @@ func lockIndex(t *testing.T, worktree string) {
 		t.Fatalf("take the index lock at %s: %v", lock, err)
 	}
 	t.Cleanup(func() { _ = os.Remove(lock) })
+}
+
+// TestFileStoryIssuesGuardsNonSuccessRunResult is US-2 (T-2.3, AC-2.1): the
+// guard widened from "runResult == nil || Outcome == OutcomeAbandoned" to
+// "runResult == nil || !runResult.Succeeded()" covers every non-success
+// outcome, not abandonment alone. For each one, fileStoryIssues must return
+// before doing anything: no CreateSubIssues call, no rendered story, and the
+// Result handed back byte-identical to the one handed in.
+func TestFileStoryIssuesGuardsNonSuccessRunResult(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		runResult *harness.RunResult
+	}{
+		{name: "nil run result (never started)", runResult: nil},
+		{name: "failed", runResult: &harness.RunResult{Outcome: harness.OutcomeFailed, ExitCode: 2}},
+		{name: "timed out", runResult: &harness.RunResult{Outcome: harness.OutcomeTimedOut, ExitCode: harness.SignalExitCode}},
+		{name: "abandoned", runResult: &harness.RunResult{Outcome: harness.OutcomeAbandoned, ExitCode: harness.SignalExitCode}},
+		{name: "no result", runResult: &harness.RunResult{Outcome: harness.OutcomeNoResult, ExitCode: 0}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			creator := newFakeSubIssueCreator()
+			renderer := newSpyRenderer(t)
+			opts := Options{SubIssueCreator: creator, SubIssueRenderer: renderer}
+			prep := &preparation{}
+			in := Result{
+				Disposition: DispositionRan,
+				SessionID:   42,
+				Outcome:     harness.OutcomeFailed,
+				Reason:      "claude exited with status 2",
+			}
+
+			got := fileStoryIssues(t.Context(), opts, prep, in, tc.runResult, discardLogger())
+
+			if !reflect.DeepEqual(got, in) {
+				t.Errorf("fileStoryIssues mutated the result for a %s run.\ngot:  %+v\nwant: %+v", tc.name, got, in)
+			}
+			if n := creator.callCount(); n != 0 {
+				t.Errorf("CreateSubIssues called %d times for a %s run, want 0", n, tc.name)
+			}
+			if seen := renderer.storiesSeen(); len(seen) != 0 {
+				t.Errorf("RenderSubIssue called for %d stories on a %s run, want 0", len(seen), tc.name)
+			}
+		})
+	}
+}
+
+// TestFileStoryIssuesNoCommitOnAFailedDirtyWorktree is US-2 (T-2.4): the
+// relocation regression. A failed run that dirtied the worktree must produce
+// no commit from either [save] or [fileStoryIssues] — even when the
+// sub-issue phase is fully wired with a plan_brief.md sitting there ready to
+// be filed.
+func TestFileStoryIssuesNoCommitOnAFailedDirtyWorktree(t *testing.T) {
+	t.Parallel()
+
+	creator := newFakeSubIssueCreator()
+	renderer := newSpyRenderer(t)
+	dir := testSessionDir(t)
+
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeSessionFile(t, req, dir, "plan_brief.md", planBrief("C1"))
+		writeSessionFile(t, req, dir, "C1.md", storyFile("C1"))
+		result := succeeded(req, f.paths.Home())
+		result.Outcome = harness.OutcomeFailed
+		result.ExitCode = 2
+		result.Reason = "claude exited with status 2"
+		return result, nil
+	})
+	f = newFixture(t, runner)
+	f.opts.SubIssueCreator = creator
+	f.opts.SubIssueRenderer = renderer
+
+	result := f.execute(f.request())
+
+	if result.Succeeded() {
+		t.Fatalf("a failed run was reported as a success: %+v", result)
+	}
+	if result.Committed || result.Pushed {
+		t.Errorf("committed=%t pushed=%t, want neither for a failed run", result.Committed, result.Pushed)
+	}
+	if got := creator.callCount(); got != 0 {
+		t.Errorf("CreateSubIssues was called %d times after a failed run; the phase must not file "+
+			"anything from an uncommitted worktree", got)
+	}
+	// No branch reached the remote at all, so there is nothing commitCount can
+	// even count against — which is itself the proof that neither commit ran.
+	if f.originHas(testBranch) {
+		t.Errorf("origin carries %s after a failed run; nothing should have been pushed", testBranch)
+	}
+	if _, err := os.Stat(filepath.Join(f.worktreeDir(), dir, "plan_brief.md")); err != nil {
+		t.Errorf("the failed run's plan_brief.md is gone from the worktree: %v", err)
+	}
+}
+
+// TestFileStoryIssuesCommitsPredecessorLeftoversOnSucceedingRun is AC-2.2: a
+// run that succeeds after a predecessor failed in the same worktree commits
+// both its own changes and whatever the failed run left behind, in one
+// commit — because [save] stages everything in the worktree, not only what
+// the current run touched.
+func TestFileStoryIssuesCommitsPredecessorLeftoversOnSucceedingRun(t *testing.T) {
+	t.Parallel()
+
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		if req.RunOrdinal == 1 {
+			writeInWorktree(t, req, "leftover.go", "package api // left by the failed run\n")
+			result := succeeded(req, f.paths.Home())
+			result.Outcome = harness.OutcomeFailed
+			result.ExitCode = 2
+			result.Reason = "claude exited with status 2"
+			return result, nil
+		}
+		writeInWorktree(t, req, "finished.go", "package api // written by the succeeding run\n")
+		return succeeded(req, f.paths.Home()), nil
+	})
+	f = newFixture(t, runner)
+
+	first := f.execute(f.request())
+	if first.Succeeded() {
+		t.Fatalf("the first run was reported as a success: %+v", first)
+	}
+	if f.originHas(testBranch) {
+		t.Fatalf("origin carries %s after the first, failed run", testBranch)
+	}
+
+	second := f.execute(req2(f, "/spike finish the job"))
+	if !second.Succeeded() {
+		t.Fatalf("the second run did not succeed: %+v\nlogs:\n%s", second, f.logs)
+	}
+	if !second.Committed || !second.Pushed {
+		t.Errorf("committed=%t pushed=%t, want both on the run that finally succeeded", second.Committed, second.Pushed)
+	}
+
+	for _, name := range []string{"leftover.go", "finished.go"} {
+		content := originFile(t, f, testBranch, name)
+		if strings.TrimSpace(content) == "" {
+			t.Errorf("origin's %s is missing %s; the predecessor's leftovers were not committed", testBranch, name)
+		}
+	}
+	if got := commitCount(t, f, testBranch); got != 2 {
+		t.Errorf("branch carries %d commits, want 2 (the base commit and the one commit that landed both files)", got)
+	}
 }
