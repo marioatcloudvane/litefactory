@@ -15,7 +15,13 @@ package cli
 // (upstream updated, missing); a hand-edited or conflicting file is left
 // untouched and reported unless --force is passed. It writes exclusively
 // through internal/team's existing write engine (internal/team.Add) — it
-// never introduces a second write path. `team manage <agent-key>
+// never introduces a second write path. By default it acts on --repo alone;
+// passing --all-worktrees additionally discovers every worktree `git
+// worktree list` confirms belongs to the same repository — no persisted
+// schema relationship, discovery is live via internal/git's existing
+// Clone.WorktreeList — and applies the same per-worktree algorithm to each
+// independently, so a hand-edit or a failure in one worktree never blocks or
+// force-overwrites another. `team manage <agent-key>
 // set|unset|show` records, removes, or reports a per-repo override that
 // points one agent at a local markdown file instead of its index-resolved
 // source; the override is read at the same call site every render goes
@@ -922,15 +928,22 @@ func lockRecordKey(harness, agentKey, destPath string) string {
 	return harness + "\x00" + agentKey + "\x00" + destPath
 }
 
-// runTeamUpdate implements `team update`: it classifies every file tracked
-// by --repo's provenance lockfile exactly as runTeamStatus does — the same
-// internal/team.Classify five-state table, fed by the same
+// teamUpdateWorktree runs `team update`'s per-worktree algorithm (US-11)
+// against exactly one worktree: it classifies every file tracked by
+// repoPath's own provenance lockfile exactly as runTeamStatus does — the
+// same internal/team.Classify five-state table, fed by the same
 // internal/teamsource.RenderCurrent re-render — and then writes back only
 // what's safe to write back automatically, through internal/team's existing
 // write engine (team.Add). It never introduces a second write path and it
 // never discovers or touches any worktree other than repoPath: every
 // operation here is scoped to the one lockfile team.LoadLockfile(repoPath)
-// reads and the one repo team.Add(repoPath, ...) writes into (AC-3).
+// reads and the one repo team.Add(repoPath, ...) writes into.
+//
+// This is the unit --all-worktrees (US-15) repeats once per git-confirmed
+// sibling: runTeamUpdateAllWorktrees calls it independently for repoPath and
+// for every sibling runTeamUpdate discovers, so a failure classifying or
+// writing one worktree's files never touches another worktree's own
+// .litefactory bookkeeping.
 //
 // Per record:
 //   - In sync: nothing to do.
@@ -951,30 +964,24 @@ func lockRecordKey(harness, agentKey, destPath string) string {
 // and internal/teamsource/render.go's RenderTeam already use: one bad record
 // must never hide or block every other record's update.
 //
-// The returned error is a plain error, never a [UsageError] or
-// [PreconditionError], for the same reason runTeamStatus's is: a refused
-// file is a normal, expected outcome to report, not a usage mistake or an
-// unready machine.
-func runTeamUpdate(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, force, asJSON bool) (err error) {
-	repoPath, err := resolveTeamRepoPath(opts.repo)
-	if err != nil {
-		return err
-	}
-
-	rt, err := openTeamRuntime(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, rt.close()) }()
-
+// A nil *teamUpdateJSON return means repoPath's own team index or lockfile
+// could not even be resolved: nothing was classified, there is nothing to
+// print for this worktree, and the returned error explains why. A non-nil
+// report paired with a non-nil error means classification/writing went
+// ahead and produced something worth printing, but at least one record was
+// refused or could not be classified/written. Either way the returned error
+// is a plain error, never a [UsageError] or [PreconditionError], for the
+// same reason runTeamStatus's is: a refused file is a normal, expected
+// outcome to report, not a usage mistake or an unready machine.
+func teamUpdateWorktree(ctx context.Context, rt *teamRuntime, repoPath string, force bool) (*teamUpdateJSON, error) {
 	resolved, err := resolveTeamIndex(ctx, rt, repoPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	lf, err := team.LoadLockfile(repoPath)
 	if err != nil && !errors.Is(err, team.ErrNoLockfile) {
-		return err
+		return nil, err
 	}
 
 	// pending groups, per (Harness, AgentKey), the RenderedFile entries whose
@@ -1198,19 +1205,52 @@ func runTeamUpdate(ctx context.Context, env *Env, cmd *Command, opts teamRepoOpt
 		Records: records,
 	}
 
-	if asJSON {
-		if err := writeTeamUpdateJSON(env.Stdout, out); err != nil {
-			return err
-		}
-	} else {
-		writeTeamUpdateTable(env.Stdout, out)
-	}
-
 	if len(recordErrs) > 0 || refused > 0 {
 		summary := fmt.Errorf("%d updated, %d refused, %d error(s) out of %d tracked file(s)", updated, refused, len(recordErrs), len(records))
-		return errors.Join(append(recordErrs, summary)...)
+		return &out, errors.Join(append(recordErrs, summary)...)
 	}
-	return nil
+	return &out, nil
+}
+
+// runTeamUpdate implements the `team update` CLI command.
+//
+// Without --all-worktrees it resolves --repo, runs [teamUpdateWorktree]
+// against it, and prints exactly what it always has: the dispatch here
+// changes nothing about that path's calls, output shape, or returned error
+// (AC-3). With --all-worktrees it additionally discovers every worktree git
+// confirms belongs to the same repository (T-41, [discoverSiblingWorktrees])
+// and applies [teamUpdateWorktree] to repoPath and to each sibling
+// independently (US-15, [runTeamUpdateAllWorktrees]) — a failure in one
+// worktree is reported against that worktree specifically and never blocks
+// the others (AC-4).
+func runTeamUpdate(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, force, allWorktrees, asJSON bool) (err error) {
+	repoPath, err := resolveTeamRepoPath(opts.repo)
+	if err != nil {
+		return err
+	}
+
+	rt, err := openTeamRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, rt.close()) }()
+
+	if allWorktrees {
+		return runTeamUpdateAllWorktrees(ctx, env, rt, repoPath, force, asJSON)
+	}
+
+	out, updateErr := teamUpdateWorktree(ctx, rt, repoPath, force)
+	if out == nil {
+		return updateErr
+	}
+	if asJSON {
+		if writeErr := writeTeamUpdateJSON(env.Stdout, *out); writeErr != nil {
+			return writeErr
+		}
+	} else {
+		writeTeamUpdateTable(env.Stdout, *out)
+	}
+	return updateErr
 }
 
 // newTeamListCommand declares "litefactory team list".
@@ -1321,7 +1361,7 @@ func newTeamStatusCommand() *Command {
 func newTeamUpdateCommand() *Command {
 	cmd := &Command{
 		Name:  "team update",
-		Usage: "team update [--repo path] [--force] [--json]",
+		Usage: "team update [--repo path] [--force] [--all-worktrees] [--json]",
 		Short: "Bring installed agent files back in line with their current source",
 		Long: "Classify every file tracked by --repo's provenance lockfile exactly as\n" +
 			"`team status` does, then write back whatever is safe to write\n" +
@@ -1331,17 +1371,23 @@ func newTeamUpdateCommand() *Command {
 			"overwrite them too — every file --force overwrites is named\n" +
 			"explicitly in the output, never only counted. Writes go through\n" +
 			"internal/team's existing write engine and update the lockfile record\n" +
-			"for every file actually written. Acts only on --repo; never discovers\n" +
-			"or touches any other worktree of the same repository.",
+			"for every file actually written. Acts only on --repo, and never\n" +
+			"discovers or touches any other worktree of the same repository,\n" +
+			"unless --all-worktrees is passed: then every worktree `git worktree\n" +
+			"list` confirms belongs to the same repository is updated too, each\n" +
+			"against its own .litefactory bookkeeping, independently — a hand-edit\n" +
+			"or a failure in one worktree never blocks or force-overwrites another.",
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var opts teamRepoOptions
 		fs.StringVar(&opts.repo, "repo", ".",
 			"git repository whose provenance lockfile is brought up to date")
 		force := fs.Bool("force", false, "overwrite locally modified or conflicting files (destructive)")
+		allWorktrees := fs.Bool("all-worktrees", false,
+			"also update every other worktree git confirms belongs to this repository")
 		asJSON := fs.Bool("json", false, "emit JSON instead of a table")
 		return func(ctx context.Context, env *Env, args []string) error {
-			return runTeamUpdate(ctx, env, cmd, opts, *force, *asJSON)
+			return runTeamUpdate(ctx, env, cmd, opts, *force, *allWorktrees, *asJSON)
 		}
 	}
 	return cmd
