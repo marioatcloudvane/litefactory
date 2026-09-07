@@ -1427,3 +1427,229 @@ the Implement close-out run recommended above, consistent with this session's ow
 boundary between Research investigating and Implement/Plan editing their own artifacts (the same
 boundary Domain §12's fifth pass observed when it investigated the schema-drift blocker but left the
 actual document edits to a dedicated Plan pass).
+
+## Investigation Notice — 2026-09-07, seventh pass (post-implementation: what happened to Implement Run 31 / US-15 & US-16?)
+
+**Trigger.** The sponsor reported that Run 31 (Implement mode, instructed to build US-15 and US-16
+together — US-15 first, then US-16 on top of it, per `plan_brief.md`'s Hard-couplings note that
+US-16 depends on US-15's live worktree-discovery mechanism *actually existing*, not merely on US-15
+being "mostly done") was terminated mid-task by an HTTP 429 session-usage-limit cutoff. The only
+recovered partial output was the orchestrator's own statement of that same sequencing plan. This
+pass investigates exactly what landed before the cutoff, for both stories separately, and what a
+follow-up Implement run should do to finish both without redoing sound work. It is **not** a design
+pass — no design question above it is reopened.
+
+**[R this pass] Method and its limits, stated up front, same shape as the sixth pass.** This
+orchestrator has `Read`, `Write`, and `Agent` (restricted to `codebase-tour`, `web-researcher`) —
+no `Bash`, no `git`, no `Glob`/`Grep` of its own — so it again could not run `git log`/`git show`/
+`git diff` directly. What it did instead: (1) read `notes.md`, `DRIFT_REPORT.md`, `CODE_REVIEW.md`,
+`MANIFEST.md`, `US-15.md`, `US-16.md` directly, since these sit under `.aiteam/` and no permitted
+sub-agent can reach them; (2) read `.aiteam/AC_AMENDMENTS.md` directly, for the same reason,
+specifically to check US-16's T-44 (its SEC-7 Owned-Paths documentation amendment); (3) dispatched
+`codebase-tour` once, present-day-only, no git/`.aiteam` access, targeted at eight specific,
+concrete questions about on-disk US-15/US-16 code (live worktree discovery, the `--all-worktrees`
+flag, `.gitignore`-append logic, a runtime Owned-Paths write guard, tests, TODO markers, and the
+repo's own root `.gitignore`); (4) cross-referenced all of the above against the git status/log
+snippet already visible in this run's own environment context (branch
+`lf/68-new-way-to-work-with-agent-teams`, working tree **clean**, HEAD at `f7884f5` — commit message
+*"You've hit your session limit · resets 10:40am (Europe/Vienna)"* — parent `d491f76 Run 30
+(Implement, US-14) is complete and the artifact exists.`). No commit was inspected via `git show`/
+`git diff`; conclusions about what landed rest on corroboration across independent sources, flagged
+**[W]** wherever they rest on inference rather than a direct git read.
+
+**[V] Finding 1 — no Implement-mode process artifacts exist for Run 31 at all, for either story.**
+`notes.md` ends with Run 30's US-14 entry (and, above it in the file, the US-13 entry retroactively
+investigated by the sixth pass) — there is no US-15 or US-16 section anywhere in it. `DRIFT_REPORT.md`
+is still headed, verbatim, *"Drift Report — new-way-to-work-with-agent-teams (US-14)"*, dated
+2026-09-07 — this file's own established convention in this session is "one current-state report per
+Implement run, not cumulative" (explicit in Run 22's MANIFEST.md entry), so a run that actually
+reached its own close-out would have overwritten it with a US-15/US-16-scoped report, exactly as
+Runs 20, 22, 25, 26, and 30 each did in turn. It was not touched. `CODE_REVIEW.md`'s header likewise
+still reads *"Feature: Configurable Agent Teams — US-14..."*, with no trace of any US-15/US-16 review
+pass, BLOCKING or otherwise. `MANIFEST.md`'s History (before this pass's edit, below) stopped at Run
+30, and its Implement summary line still named "US-15, US-16, and US-17... each needing its own
+future run." Unlike Runs 21, 25, and 27's precedent — where an incomplete-looking run's *code* was
+real, reviewed, and tested, and only its own paperwork was missing — this run left no Implement-mode
+paperwork trail whatsoever, not even a first-pass code-review verdict, for either story.
+
+**[V] Finding 2 — direct, present-day inspection of the source tree shows US-15 is code-complete and
+wired end to end; US-16 has zero code anywhere.** A dedicated `codebase-tour` pass, read-only and
+present-day-only, reported the following (full citations as returned):
+- **US-15 — live worktree discovery (T-41):** found and wired up. `discoverSiblingWorktrees(ctx,
+  repoPath)` at `internal/cli/cmd_team_worktrees.go:46` opens the repo via `internal/git` and calls
+  `clone.WorktreeList(ctx)` (the pre-existing `git worktree list` wrapper, reused rather than
+  duplicated, consistent with the file's own header comment stating this is the only git verb the
+  story invokes), excludes bare/prunable entries, resolves symlinks, excludes self, and returns
+  sorted absolute paths. Called from `runTeamUpdateAllWorktrees` (`cmd_team_worktrees.go:126`),
+  itself called from `runTeamUpdate` in `internal/cli/cmd_team.go:1238` when the new
+  `--all-worktrees` flag is set.
+- **US-15 — the `--all-worktrees` flag (T-42):** present. Defined at `cmd_team.go:1386`
+  (`allWorktrees := fs.Bool("all-worktrees", false, ...)`), threaded into `runTeamUpdate`'s signature
+  and branch (`cmd_team.go:1226,1238`), usage string updated at `cmd_team.go:1364,1376`.
+- **US-15 — per-worktree aggregation/reporting:** JSON and table writers
+  (`teamUpdateAllJSON`/`teamUpdateWorktreeJSON` at `cmd_team_worktrees.go:90-112`,
+  `writeTeamUpdateAllJSON`/`writeTeamUpdateAllTable` at `:171,:184`) both present. A single
+  worktree's failure is isolated via `errors.Join` (`cmd_team_worktrees.go:167`) rather than
+  aborting the loop — matching AC-4's shape as described in `US-15.md`.
+- **US-15 — tests:** `internal/cli/cmd_team_worktrees_test.go` — five tests, all built on real
+  `git worktree add` fixtures via `gittest.Repo`: `TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling`,
+  `TestTeamUpdateAllWorktrees_ExcludesStalePathSilently`,
+  `TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers`,
+  `TestTeamUpdateAllWorktrees_DoesNotForceLocallyModifiedSibling`,
+  `TestTeamUpdate_AllWorktreesFlagDefaultsFalse` — one per AC-1 through AC-4 plus the flag's default.
+  No `TODO(US-15)` or similar marker was found anywhere in the tree.
+- **US-16 — gitignore management (T-45):** **nothing found.** No function resembling
+  `EnsureGitignore`/`AppendGitignore` exists anywhere in `internal/`; the only `gitignore`-related
+  hit across the whole tree is an unrelated pre-existing test fixture
+  (`internal/git/worktree_test.go:568`) writing a literal `.gitignore` as test data for an unrelated
+  git-status scenario. `internal/team/lock.go:32`'s `acquireRepoLock` creates `.litefactory/` via
+  `os.MkdirAll` but does nothing gitignore-related.
+- **US-16 — runtime write guard / Owned Paths (T-46):** **nothing found beyond what already existed
+  before this story.** `validateOwnedPath` (`internal/team/paths.go:69`, called from `Add` in
+  `internal/team/write.go:85`) is pre-existing US-9/US-18 machinery validating a *renderer's* output
+  path against the derived standalone path or a recognized root-file target — it has no awareness of
+  `.litefactory/` and was never extended, matching `US-1.md:61`'s own forward note ("US-16 later
+  extends this list by one"), which did not happen. The only other write-time guard present is the
+  pre-existing symlink refusal (`internal/team/writefile.go:18,68-77`), explicitly distinct from an
+  Owned-Paths allow-list check. No `WriteGuard`/`ownedPaths`-shaped new symbol exists.
+- **US-16 — tests / TODO markers:** none found (`TestGitignore...`, `TestOwnedPaths...`,
+  `TestWriteGuard...`, `TODO(US-16)` — all absent).
+- **Root `.gitignore`:** contains a pre-existing `/.litefactory/` line (line 26, under a "Local
+  runtime state" comment block) — this is litefactory's **own** repo's own `.gitignore`, predating
+  this story, and is explicitly not evidence of T-45's automated per-*target*-repo append logic,
+  which is what US-16 actually calls for. No other `.gitignore` file exists in this checkout (no
+  sibling worktree present to inspect one in).
+- **General sweep:** broad case-insensitive greps for "worktree" and "gitignore" across the whole
+  tree turned up nothing beyond the above — no stub functions, no commented-out code, no half-written
+  files, and no new error type (e.g. a `GitignoreError`/`WriteNotOwnedError` sibling to the existing
+  `PathNotOwnedError`/`ErrRefusedSymlink`) anywhere related to US-16.
+
+**[V] Finding 3 — a third, independent source confirms US-16's documentation task (T-44) was never
+reached, corroborating Finding 2's "zero US-16 code" from a completely different artifact.**
+`.aiteam/AC_AMENDMENTS.md` (read directly by this orchestrator, since it sits at the repo-root
+`.aiteam/` level, the same class of file the sixth pass read `APP_CONTEXT.md` from directly) contains
+an entry titled *"Amendment: SEC-7 override for Configurable Agent Teams — Owned Paths (interim),"*
+dated 2026-09-06 — i.e. it predates Run 31 and was already the interim state going into it. It lists
+exactly the three original harness directories (`.claude/agents/`, `.codex/skills/`,
+`.opencode/agents/`) as the Owned Paths override's scope, and its own status line states, verbatim:
+*"scope expected to be refined by US-16"* and *"It is expected to be corrected — not merely
+extended — once US-16 lands its own bookkeeping directory design... Until then, treat this entry as
+the floor of the override's scope, not its ceiling."* No entry beneath it in the ledger amends or
+supersedes it. This is T-44 exactly as `US-16.md` describes it (*"Amend `.aiteam/AC_AMENDMENTS.md`'s
+SEC-7 entry: replace the stale five-path list with harness dirs + `.litefactory/` + root-file
+composition targets"*), unamended — a third, structurally independent confirmation (alongside zero
+US-16 code and zero US-16 tests) that US-16 was never started, not merely under-documented.
+
+**[W] Finding 4 — where the cutoff most plausibly landed, reasoned from corroborating signals, not
+from a direct git read.** Several signals, read together, point at a specific and fairly narrow
+window:
+1. **The commit message itself is diagnostic, unlike the sixth pass's `2516882`.** `f7884f5`'s
+   message — *"You've hit your session limit · resets 10:40am (Europe/Vienna)"* — is not the generic
+   `"litefactory run"` fallback the sixth pass reasoned from; it names the session-limit cutoff
+   explicitly, matching the sponsor's own framing of this run's termination cause (HTTP 429) exactly.
+   This is stronger, not weaker, evidence for *why* the run stopped than anything available to the
+   sixth pass — but it says nothing on its own about *how far* the run got, which is what the rest of
+   this finding reasons about.
+2. **US-15's own tests (T-43) exist and match its Acceptance Criteria one-for-one.** This team's
+   established convention (visible throughout `notes.md`, e.g. Run 19's "all three registered... `go
+   build`, `go vet`, and `go test... all passed"` self-check before reporting DONE) is that a
+   `go-implementation-engineer`'s own Phase 1 delivery for a story includes that story's own
+   task-level tests, written and self-verified before the orchestrator ever dispatches a dedicated
+   Phase 1.5 code review. Five tests existing, one per US-15 AC plus the flag default, is consistent
+   with a `go-implementation-engineer` invocation for US-15 having run to its own natural completion.
+3. **Nothing downstream of that exists.** No `CODE_REVIEW.md` entry, no `notes.md` entry, no
+   `DRIFT_REPORT.md` update — none of the steps that, in every one of Runs 19/20/22/25/26/30, follow
+   a completed Phase 1 (a Phase 1.5 code-review dispatch, at minimum) are present for US-15, let alone
+   for US-16.
+4. **Taken together:** the most likely read is that the interruption landed **after** a
+   `go-implementation-engineer` had finished building and self-testing US-15 in full, but **before**
+   the orchestrator invoked (or received back a report from) `go-code-reviewer` for US-15 — and well
+   before any work began on US-16, which shows zero trace of even having been started. This is
+   consistent with, and does not contradict, the sponsor's own recovered fragment of the orchestrator's
+   stated plan (build US-15 fully first, then US-16 on top of it).
+   **[W] confidence: moderate — higher than a guess, lower than a confirmed fact.** Unlike the sixth
+   pass's Run 27 (which had three independent *completed*-shaped documents — `notes.md`,
+   `DRIFT_REPORT.md`, `CODE_REVIEW.md` — all agreeing, with only the bookkeeping file itself missing),
+   this run has **no completed-shaped process document at all** to corroborate against; the inference
+   here rests entirely on the on-disk code's own completeness and this team's own general Phase
+   1-then-1.5 convention, not on any run-authored narrative. A future run with `Bash`/`git` access
+   could sharpen this by running `git log --stat f7884f5` and `git show --stat f7884f5`, neither of
+   which this pass could do.
+
+**[V] Finding 5 — US-15's stated dependency is independently confirmed already landed, unrelated to
+this cutoff.** `US-15.md`'s own Architecture Notes name `US-11 T-30` as the dependency for T-41; the
+sixth pass's own investigation and this session's `MANIFEST.md` History both independently confirm
+US-11 (`team update`, single-worktree) landed in Run 26, well before Run 31 started. US-15 was not
+begun against a missing or incomplete foundation.
+
+**[W] Finding 6 — the one thing this pass could not close, and the single most important item for
+the next run.** Whether US-15's code, exactly as it stands on disk today, actually builds, vets, and
+passes its own five tests (`go build ./... && go vet ./... && gofmt -l . && go test -race ./...`) was
+**not verified this pass** — it has no `Bash`/`git` access (the same limit the sixth pass had), and
+`codebase-tour`'s read of the five test functions was a static read only, confirming they exist and
+target the right ACs, not that they pass. This matters more here than it did for the sixth pass's
+US-13, precisely because Finding 1 found **no** code-review or test-run artifact at all for US-15 —
+unlike US-13, which had three independent documents all separately attesting a real, run, all-green
+`go test -race ./...`. Nothing here contradicts that US-15 is sound; nothing here confirms it either.
+
+**Historical note on this brief's own prior recommendation, for continuity:** the sixth pass's own
+"Recommendation for the next Implement run" (immediately above) named US-14 and US-15 as the two
+stories newly dependency-clear at that point, and explicitly left the choice of which to schedule
+next to whoever opened that run. Run 30 (US-14) and Run 31 (US-15 + US-16) both followed directly
+from that list — this pass's findings are a continuation of that same thread, not a deviation from it.
+
+## Recommendation for the next Implement run — verify and close out US-15 first, then build US-16 fresh on top of it
+
+**[R this pass, seventh]** A narrow, corroborated recommendation for whoever opens the next Implement
+run against this session:
+
+1. **Do not re-implement US-15's core mechanism.** Live worktree discovery
+   (`internal/cli/cmd_team_worktrees.go`'s `discoverSiblingWorktrees`), the `--all-worktrees` flag,
+   per-worktree propagation/aggregation, and a five-test suite covering all four ACs are all present
+   and wired together on disk today (Finding 2). Rebuilding any of this from scratch would duplicate
+   real, apparently-sound work.
+2. **Do first run the build/vet/test check this pass could not run itself** — `go build ./... &&
+   go vet ./... && gofmt -l . && go test -race ./...` — before touching anything else. This is the
+   single open item Finding 6 leaves unresolved, and unlike US-13's precedent, there is no existing
+   `CODE_REVIEW.md`/`notes.md`/`DRIFT_REPORT.md` entry to fall back on if it turns out something is
+   broken. If it fails, treat the fix as a narrow bug-fix task against the already-landed US-15 code,
+   not as grounds to rebuild the feature.
+3. **Then run the Phase 1.5 code review that never happened for US-15**, scoped to the files Finding
+   2 names (`internal/cli/cmd_team_worktrees.go`, `internal/cli/cmd_team_worktrees_test.go`, and the
+   touched portions of `internal/cli/cmd_team.go`) — treat this exactly as if Run 31 had reached this
+   step but the process died first; running it now is completing the one step that never happened,
+   not redoing anything. Apply the standard 2-cycle fix/re-review rule if it finds anything BLOCKING —
+   this issue's own recurring `errors.Join`-aggregation mistake (BLOCKING in Runs 20, 25, and the
+   original Run 21) is the first thing worth checking specifically in `cmd_team_worktrees.go`'s
+   per-worktree loop (Finding 2 already confirms an `errors.Join` call exists at
+   `cmd_team_worktrees.go:167`, but this pass did not independently trace whether it is a real
+   isolate-and-continue or merely present).
+4. **Only once US-15 is confirmed sound (steps 2-3 clean), build US-16 fresh.** Finding 2 and Finding
+   3 agree from two independent angles: there is genuinely nothing to build on — no gitignore-append
+   code, no extended Owned-Paths write guard, no tests, and the SEC-7 ledger entry (T-44) is still the
+   original interim, three-path list. US-15's discovery mechanism now exists and is exactly the thing
+   `US-16.md`'s own Architecture Notes say to reuse rather than reinvent
+   (`discoverSiblingWorktrees`/T-41) — this is the concrete reason US-16 could not have started
+   correctly before US-15 was real, not merely a scheduling preference.
+5. **T-44 (the `.aiteam/AC_AMENDMENTS.md` SEC-7 correction) is part of US-16's own scope, not a
+   separate bookkeeping chore** — it is explicitly one of US-16's four tasks (`US-16.md`), and the
+   ledger is still waiting for exactly this amendment (Finding 3). Do it as part of building US-16,
+   not as an afterthought.
+6. **Close out both stories' bookkeeping together, once both are actually done** — overwrite
+   `DRIFT_REPORT.md` scoped to US-15+US-16 (following this file's established one-report-per-run
+   convention), add one `notes.md` entry covering both, and write the `MANIFEST.md` History entry.
+   Do not write a partial close-out for US-15 alone if US-16 is being attempted in the same run —
+   but if time runs short, closing out US-15 alone (with an honest note that US-16 was not reached)
+   is strictly better than repeating Run 31's shape of leaving zero bookkeeping for work that did
+   land.
+7. **Given this session's own repeated lesson** — Runs 20, 21, 25, and now 31 have each either
+   bundled multiple stories into one run and overrun, or been cut off by a usage limit mid-way — this
+   pass recommends treating "verify and close out US-15" as the hard requirement for the next run and
+   "then build US-16" as a should-if-time addendum within the same run, rather than a second
+   forced-together bundle. The two stories remain hard-sequenced (US-16 genuinely cannot start before
+   US-15 is confirmed sound, not merely present on disk), but sequencing does not require forcing both
+   into one run if the first alone risks running long.
+
+This pass does not edit `MANIFEST.md`'s Implement section, `notes.md`, `DRIFT_REPORT.md`, or
+`CODE_REVIEW.md` itself, for the same reason the sixth pass did not: those are Implement-mode's own
+bookkeeping artifacts, and the fix belongs to the Implement run recommended above.
