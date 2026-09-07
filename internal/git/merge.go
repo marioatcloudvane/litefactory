@@ -1,0 +1,317 @@
+package git
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// Divergence reports how far a worktree's branch has drifted from a base ref,
+// measured fresh at the moment [Worktree.Divergence] is called.
+//
+// Behind is the number of commits Base has that Branch does not — what a
+// merge or rebase would need to bring in. Ahead is the number of commits
+// Branch has that Base does not. Base and Branch are the exact ref names the
+// count was taken against, so a caller can report them without having to
+// remember what it passed in.
+type Divergence struct {
+	// Ahead is how many commits Branch has that Base does not.
+	Ahead int
+	// Behind is how many commits Base has that Branch does not.
+	Behind int
+	// Base is the ref the comparison was measured against, exactly as passed
+	// in — typically "origin/<base branch>".
+	Base string
+	// Branch is the worktree's own branch, the same value [Worktree.Branch]
+	// returns.
+	Branch string
+}
+
+// Divergence measures how far w's branch has drifted from base, using
+// "git rev-list --left-right --count base...branch". It is read-only: it
+// walks history in the local object store and touches neither the working
+// tree nor any ref.
+//
+// base is almost always a remote-tracking ref such as "origin/main" — this
+// method does not fetch, so the caller is responsible for updating base
+// before measuring against it. base and the worktree's branch are screened by
+// [checkName] before either reaches the range expression this method builds;
+// a base that no longer resolves — a deleted branch, a renamed default branch
+// — is reported as [ErrRevisionNotFound] rather than a raw exit code or a
+// panic.
+func (w *Worktree) Divergence(ctx context.Context, base string) (Divergence, error) {
+	if err := w.check(); err != nil {
+		return Divergence{}, err
+	}
+	if err := checkName("base", base); err != nil {
+		return Divergence{}, err
+	}
+	if err := checkName("branch", w.branch); err != nil {
+		return Divergence{}, err
+	}
+
+	// The range is assembled here, from the two names just screened, rather
+	// than accepted pre-joined from a caller: that is what keeps a
+	// caller-supplied range from ever reaching git unchecked.
+	//
+	// "base...branch" makes base the left side and branch the right side of
+	// "--left-right --count", whose output order is "<left> <right>": the
+	// left count is commits only base can reach (Behind), the right count is
+	// commits only branch can reach (Ahead). Swapping the two sides of "..."
+	// silently swaps Ahead and Behind, which is why this order is pinned by a
+	// regression test rather than left to be re-derived from memory.
+	rangeSpec := base + "..." + w.branch
+
+	// --end-of-options is a second lock on the door checkName already closed:
+	// it stops git from ever reading rangeSpec as an option, exactly as
+	// RevParse does for a single revision.
+	out, err := w.runner.run(ctx, divergenceTimeout, "rev-list", "--left-right", "--count", "--end-of-options", rangeSpec)
+	if err != nil {
+		return Divergence{}, classify(err, ErrRevisionNotFound, 128)
+	}
+
+	behind, ahead, err := parseDivergenceCounts(out)
+	if err != nil {
+		return Divergence{}, fmt.Errorf("parse divergence for %s: %w", rangeSpec, err)
+	}
+	return Divergence{Ahead: ahead, Behind: behind, Base: base, Branch: w.branch}, nil
+}
+
+// parseDivergenceCounts decodes "git rev-list --left-right --count" output:
+// two whitespace-separated non-negative integers, left then right.
+func parseDivergenceCounts(out string) (behind, ahead int, err error) {
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("%q: %w: expected \"<left> <right>\"", out, ErrInvalidArgument)
+	}
+	behind, err = strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("left count %q: %w: %v", fields[0], ErrInvalidArgument, err)
+	}
+	ahead, err = strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("right count %q: %w: %v", fields[1], ErrInvalidArgument, err)
+	}
+	return behind, ahead, nil
+}
+
+// MergePreview reports whether merging base into w's branch would succeed
+// cleanly.
+type MergePreview struct {
+	// Clean reports whether the merge would complete without conflicts.
+	Clean bool
+	// Conflicts lists the paths that would conflict. It is empty when Clean
+	// is true.
+	Conflicts []string
+	// TreeSHA is the object id of the tree merge-tree computed — the result
+	// of the merge whether or not it is clean. It is not attached to any ref.
+	TreeSHA string
+}
+
+// MergePreview reports whether merging base into w's branch would succeed
+// cleanly, using "git merge-tree --write-tree --name-only". It touches
+// neither the working tree, the index nor any ref — the branch is left
+// exactly as it was, whichever way the merge would go — which is what makes
+// it safe to call before deciding whether [Worktree.MergeBase] should run at
+// all.
+//
+// It is not fully side-effect free at the repository level: --write-tree
+// always writes the resulting tree object into the shared object database,
+// and on a conflicted merge it also writes a blob per conflicted file so
+// that git has something for the reported tree to point at. Those are loose
+// objects like any other git writes; they do not move any ref and do not
+// touch the working tree, and an eventual "git gc" reclaims them once
+// nothing else references them.
+//
+// base and the worktree's branch are screened by [checkName] before being
+// used to build the command, exactly as [Worktree.Divergence] does.
+func (w *Worktree) MergePreview(ctx context.Context, base string) (MergePreview, error) {
+	if err := w.check(); err != nil {
+		return MergePreview{}, err
+	}
+	if err := checkName("base", base); err != nil {
+		return MergePreview{}, err
+	}
+	if err := checkName("branch", w.branch); err != nil {
+		return MergePreview{}, err
+	}
+
+	// merge-tree exits 0 for a clean merge and 1 for a conflicted one, and
+	// either way the payload we need — the tree id, and on conflict the
+	// paths — is on stdout rather than stderr. runAllowingExit is what lets
+	// both of those be read as a reported outcome instead of an error.
+	out, exitCode, err := w.runner.runAllowingExit(ctx, mergePreviewTimeout, []int{0, 1},
+		"merge-tree", "--write-tree", "--name-only", "--end-of-options", w.branch, base)
+	if err != nil {
+		return MergePreview{}, classify(err, ErrRevisionNotFound, 128)
+	}
+	preview, err := parseMergePreview(out, exitCode == 0)
+	if err != nil {
+		return MergePreview{}, fmt.Errorf("merge-tree %s %s: %w", w.branch, base, err)
+	}
+	return preview, nil
+}
+
+// parseMergePreview decodes "git merge-tree --write-tree --name-only" output.
+// A clean merge is a single line: the tree id. A conflicted merge is three
+// sections separated by a blank line: the tree id, one conflicted path per
+// line, and informational messages this package has no use for.
+func parseMergePreview(out string, clean bool) (MergePreview, error) {
+	if out == "" {
+		return MergePreview{}, fmt.Errorf("%w: missing tree id", ErrInvalidArgument)
+	}
+	parts := strings.SplitN(out, "\n\n", 3)
+	preview := MergePreview{Clean: clean, TreeSHA: parts[0]}
+	if clean {
+		return preview, nil
+	}
+	if len(parts) < 2 {
+		return MergePreview{}, fmt.Errorf("%q: %w: missing conflicted file list", out, ErrInvalidArgument)
+	}
+	for _, path := range strings.Split(parts[1], "\n") {
+		if path != "" {
+			preview.Conflicts = append(preview.Conflicts, path)
+		}
+	}
+	if len(preview.Conflicts) == 0 {
+		return MergePreview{}, fmt.Errorf("%q: %w: conflicted but no paths listed", out, ErrInvalidArgument)
+	}
+	return preview, nil
+}
+
+// MergeOptions carries the identity a merge commit is authored as.
+// [Worktree.MergeBase] always merges --no-ff --no-edit, so unlike
+// [CommitOptions] there is no message or trailer to configure.
+type MergeOptions struct {
+	// Author is the identity recorded as the merge commit's author and
+	// committer, exactly as [CommitOptions.Author] is for a plain commit.
+	Author Author
+}
+
+func (o MergeOptions) validate() error {
+	if err := checkConfigValue("author name", o.Author.Name); err != nil {
+		return err
+	}
+	return checkConfigValue("author email", o.Author.Email)
+}
+
+// MergeResult reports the outcome of [Worktree.MergeBase].
+type MergeResult struct {
+	// Head is the worktree branch's HEAD once the call returns, whether or
+	// not a merge commit was actually created.
+	Head string
+	// Merged reports whether a merge commit was created. It is false when
+	// base was already an ancestor of the branch ("Already up to date."): the
+	// call is not an error, there is simply nothing to merge. This mirrors
+	// [CommitResult.Committed] — the caller reads the bool rather than being
+	// handed a "nothing to merge" sentinel error.
+	Merged bool
+}
+
+// MergeBase merges base into w's branch with "git merge --no-ff --no-edit",
+// carrying the same identity prelude as [Worktree.Commit]
+// ("-c user.name=... -c user.email=... -c commit.gpgsign=false"): omitting
+// commit.gpgsign=false risks a hang against GIT_TERMINAL_PROMPT=0 if the
+// caller's own git config asks for a signature.
+//
+// It never rebases and never force-pushes — either would rewrite the trailers
+// [Worktree.Commit] already wrote onto commits this branch may already carry
+// — so a clean merge is always a new merge commit on top of the branch, never
+// a rewrite of it. Pushing the result is the caller's job, later, through the
+// ordinary [Worktree.Push].
+//
+// MergeBase refuses a dirty worktree before touching anything: uncommitted
+// changes make it unsafe to tell "the merge left this behind" apart from
+// "this was already here". On any failure once the merge itself has started —
+// a conflict, or any other non-zero exit — it runs "git merge --abort" and
+// re-reads HEAD to confirm the branch tip is exactly where it was before the
+// call; a mismatch here is reported as a failure in its own right rather than
+// silently accepted, because it would mean the rollback did not actually
+// restore the branch. base and the worktree's branch are screened by
+// [checkName], and base is confirmed to resolve before any merge is
+// attempted, so an unmerge-able ref is reported as [ErrRevisionNotFound]
+// rather than being folded into [ErrMergeConflict].
+//
+// A per-command timeout firing during the merge itself is reported as-is,
+// without attempting "git merge --abort": the command may have left
+// MERGE_HEAD or index.lock behind, and issuing another git command against a
+// worktree in that state is more likely to hang the same way than to clean it
+// up. The caller sees a timed-out [*CommandError] rather than a generic one,
+// and the worktree needs a human or a later, separate recovery pass — this
+// method does not add a self-healing step (there is no Reset method on this
+// type; MergeBase is not one either).
+func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions) (MergeResult, error) {
+	if err := w.check(); err != nil {
+		return MergeResult{}, err
+	}
+	if err := checkName("base", base); err != nil {
+		return MergeResult{}, err
+	}
+	if err := checkName("branch", w.branch); err != nil {
+		return MergeResult{}, err
+	}
+	if err := opts.validate(); err != nil {
+		return MergeResult{}, err
+	}
+
+	changes, err := w.Status(ctx)
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("check worktree status before merging %s into %s: %w", base, w.branch, err)
+	}
+	if len(changes) > 0 {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: %w", base, w.branch, ErrWorktreeUncommittedChanges)
+	}
+
+	if _, err := revParse(ctx, w.runner, base, RevParseOptions{}); err != nil {
+		return MergeResult{}, fmt.Errorf("resolve base %s before merging into %s: %w", base, w.branch, err)
+	}
+
+	before, err := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s before merge: %w", w.branch, err)
+	}
+
+	args := []string{
+		"-c", "user.name=" + opts.Author.Name,
+		"-c", "user.email=" + opts.Author.Email,
+		"-c", "commit.gpgsign=false",
+		"merge", "--no-ff", "--no-edit", "--end-of-options", base,
+	}
+	if _, err := w.runner.run(ctx, mergeTimeout, args...); err != nil {
+		return w.recoverFromFailedMerge(ctx, base, before, err)
+	}
+
+	head, err := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s after merge: %w", w.branch, err)
+	}
+	return MergeResult{Head: head, Merged: head != before}, nil
+}
+
+// recoverFromFailedMerge aborts a merge that MergeBase started and could not
+// complete, then confirms the branch tip is back at before. It is the
+// rollback half of MergeBase's guarantee: whatever mergeErr turns out to
+// classify as, the caller never has to wonder whether the branch was left
+// half-merged.
+func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before string, mergeErr error) (MergeResult, error) {
+	var cmdErr *CommandError
+	if errors.As(mergeErr, &cmdErr) && cmdErr.TimedOut {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: %w", base, w.branch, mergeErr)
+	}
+
+	if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: %w (abort also failed: %v)", base, w.branch, mergeErr, abortErr)
+	}
+
+	after, revErr := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
+	if revErr != nil {
+		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s after aborting merge: %w", w.branch, revErr)
+	}
+	if after != before {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: branch tip moved from %s to %s while aborting a failed merge (original error: %v)", base, w.branch, before, after, mergeErr)
+	}
+
+	return MergeResult{}, classify(mergeErr, ErrMergeConflict, 1)
+}

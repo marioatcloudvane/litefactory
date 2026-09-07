@@ -80,6 +80,15 @@ var (
 	// ErrMalformedRemoteURL reports a remote URL that is not in any form this
 	// package recognises.
 	ErrMalformedRemoteURL = errors.New("unrecognised remote URL")
+
+	// ErrMergeConflict reports a merge that git could not complete on its own.
+	// [Worktree.MergeBase] returns it after aborting the in-progress merge and
+	// re-verifying the branch tip is back where it started, so a caller never
+	// has to distinguish "conflicted" from "conflicted and left half-merged" —
+	// only the former is reachable. A caller that wants to know in advance
+	// whether a merge would hit this should call [Worktree.MergePreview]
+	// first, which reports the same condition without touching the branch.
+	ErrMergeConflict = errors.New("merge conflict")
 )
 
 // CommandError reports a git invocation that failed.

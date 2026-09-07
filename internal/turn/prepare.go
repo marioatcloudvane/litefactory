@@ -107,7 +107,7 @@ func prepare(
 		return nil, err
 	}
 
-	session, branch, worktree, err := prepareClone(ctx, opts, req, clone, session, repo, logger)
+	session, branch, worktree, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -380,6 +380,7 @@ func prepareClone(
 	clone *git.Clone,
 	session store.Session,
 	repo store.Repo,
+	author git.Author,
 	logger *slog.Logger,
 ) (store.Session, string, *git.Worktree, error) {
 	// A cancelled context here is the daemon shutting down while this turn
@@ -406,7 +407,101 @@ func prepareClone(
 	if err != nil {
 		return session, "", nil, err
 	}
+
+	if err := syncBase(ctx, opts, worktree, repo, author, logger); err != nil {
+		return session, "", nil, err
+	}
 	return session, branch, worktree, nil
+}
+
+// autoSyncBaseEnabled and autoSyncMaxBehind gate whether syncBase attempts a
+// merge at all.
+//
+// TODO(US-8): replace with config.AutoSyncBase/AutoSyncMaxBehind once the
+// config story ships. There is also no per-issue "lf:sync=" label opt-out
+// yet (US-7); until that lands, auto-sync is unconditional for every task
+// subject only to this cap.
+const (
+	autoSyncBaseEnabled = true
+	autoSyncMaxBehind   = 100
+)
+
+// syncOutcome names the result syncBase reached, for logging. Rendering it to
+// the issue or persisting it to the store is future-story work (US-8+); today
+// it is observable only in daemon.log.
+type syncOutcome string
+
+const (
+	syncOutcomeUpToDate syncOutcome = "up_to_date"
+	syncOutcomeSynced   syncOutcome = "synced"
+	syncOutcomeBlocked  syncOutcome = "blocked"
+	syncOutcomeSkipped  syncOutcome = "skipped"
+)
+
+// syncBase merges the latest base branch into the task branch when that merge
+// is clean (US-2), as the fourth and last step of [prepareClone] — after
+// [ensureWorktree], still inside the one [Options.CloneGate] acquisition that
+// function took at its top. There is no separate gate for this step: the same
+// time-of-check-to-time-of-use reasoning that keeps fetch, freezeSlug and
+// ensureWorktree together applies here too, since a sibling's fetch landing
+// between Divergence and MergeBase would let this compute a preview against a
+// base that has already moved.
+//
+// It never returns an error for a merge that is merely unclean: a conflicted
+// [git.Worktree.MergePreview] is the "blocked" outcome, not a failure, and the
+// branch is left exactly as [ensureWorktree] produced it. An error return here
+// means the merge could not even be attempted or attempting it failed in a way
+// [git.Worktree.MergeBase] could not roll back on its own — both are reported
+// to the issue the same way every other prepareClone step's failure is.
+func syncBase(
+	ctx context.Context,
+	opts Options,
+	worktree *git.Worktree,
+	repo store.Repo,
+	author git.Author,
+	logger *slog.Logger,
+) error {
+	baseRef := opts.remote() + "/" + repo.BaseBranch
+
+	divergence, err := worktree.Divergence(ctx, baseRef)
+	if err != nil {
+		return failuref(err, "how far %s has diverged from %s could not be measured", worktree.Branch(), baseRef)
+	}
+
+	logFields := []any{
+		slog.String("branch", worktree.Branch()),
+		slog.String("base", baseRef),
+		slog.Int("behind", divergence.Behind),
+		slog.Int("ahead", divergence.Ahead),
+	}
+
+	if divergence.Behind == 0 {
+		logger.Debug("base sync: up to date", append(logFields, slog.String("outcome", string(syncOutcomeUpToDate)))...)
+		return nil
+	}
+
+	if !autoSyncBaseEnabled || divergence.Behind > autoSyncMaxBehind {
+		logger.Info("base sync: skipped", append(logFields, slog.String("outcome", string(syncOutcomeSkipped)))...)
+		return nil
+	}
+
+	preview, err := worktree.MergePreview(ctx, baseRef)
+	if err != nil {
+		return failuref(err, "whether %s could be merged into %s could not be previewed", baseRef, worktree.Branch())
+	}
+	if !preview.Clean {
+		logger.Info("base sync: blocked",
+			append(logFields, slog.String("outcome", string(syncOutcomeBlocked)), slog.Any("conflicts", preview.Conflicts))...)
+		return nil
+	}
+
+	result, err := worktree.MergeBase(ctx, baseRef, git.MergeOptions{Author: author})
+	if err != nil {
+		return failuref(err, "%s could not be merged into %s", baseRef, worktree.Branch())
+	}
+	logger.Info("base sync: synced",
+		append(logFields, slog.String("outcome", string(syncOutcomeSynced)), slog.String("head", result.Head), slog.Bool("merged", result.Merged))...)
+	return nil
 }
 
 // previousRun finds the last run of this segment that claude was actually

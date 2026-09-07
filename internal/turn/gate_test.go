@@ -206,8 +206,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"fetch":          {"prepareClone"},
 		"freezeSlug":     {"prepareClone"},
 		"ensureWorktree": {"prepareClone"},
-		"Commit":         {"commitAndPush", "commitStoryIndex"},
-		"Push":           {"commitAndPush", "commitStoryIndex"},
+		// syncBase runs inside the existing prepareClone gate, not a new
+		// section — TEST-10. It is the fourth step of that critical section,
+		// after ensureWorktree, and takes no acquisition of its own.
+		"syncBase": {"prepareClone"},
+		"Commit":   {"commitAndPush", "commitStoryIndex"},
+		"Push":     {"commitAndPush", "commitStoryIndex"},
 	}
 
 	funcs := packageFuncs(t)

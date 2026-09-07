@@ -14,12 +14,20 @@ import (
 
 // timeoutPolicy is the whole deadline policy, by constant name. AC-3.22 fixes
 // the two that reach the network: 60 seconds for a fetch, 120 for a push.
+//
+// divergenceTimeout and mergeTimeout cover "git rev-list --left-right --count"
+// (US-1's Divergence) and "git merge" (US-2's MergeBase and its abort-and-verify
+// rollback path) respectively; both are local, working-tree operations, so they
+// share their budget with the other local commands in this table rather than
+// the network ones.
 var timeoutPolicy = map[string]time.Duration{
-	"readTimeout":     15 * time.Second,
-	"fetchTimeout":    60 * time.Second,
-	"pushTimeout":     120 * time.Second,
-	"worktreeTimeout": 120 * time.Second,
-	"commitTimeout":   120 * time.Second,
+	"readTimeout":       15 * time.Second,
+	"fetchTimeout":      60 * time.Second,
+	"pushTimeout":       120 * time.Second,
+	"worktreeTimeout":   120 * time.Second,
+	"commitTimeout":     120 * time.Second,
+	"divergenceTimeout": 30 * time.Second,
+	"mergeTimeout":      120 * time.Second,
 }
 
 // TestTimeoutPolicyIsWhatTheDeadlinesSay pins the durations themselves.
@@ -27,11 +35,13 @@ func TestTimeoutPolicyIsWhatTheDeadlinesSay(t *testing.T) {
 	t.Parallel()
 
 	got := map[string]time.Duration{
-		"readTimeout":     readTimeout,
-		"fetchTimeout":    fetchTimeout,
-		"pushTimeout":     pushTimeout,
-		"worktreeTimeout": worktreeTimeout,
-		"commitTimeout":   commitTimeout,
+		"readTimeout":       readTimeout,
+		"fetchTimeout":      fetchTimeout,
+		"pushTimeout":       pushTimeout,
+		"worktreeTimeout":   worktreeTimeout,
+		"commitTimeout":     commitTimeout,
+		"divergenceTimeout": divergenceTimeout,
+		"mergeTimeout":      mergeTimeout,
 	}
 	for name, want := range timeoutPolicy {
 		if got[name] != want {
