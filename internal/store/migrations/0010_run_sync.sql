@@ -1,4 +1,4 @@
--- 0007_run_sync — persists the outcome of a run's base-branch auto-sync
+-- 0010_run_sync — persists the outcome of a run's base-branch auto-sync
 -- attempt (US-9), so the history of what happened to a task's branch
 -- survives past the comment that first disclosed it (US-3, US-4).
 --

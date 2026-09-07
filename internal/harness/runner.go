@@ -138,12 +138,15 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("prepare claude settings: %w", err)
 	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("prepare claude config dir: %w", err)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
 	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
-	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv), strings.NewReader(prompt)
+	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(prompt)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = waitDelay
 	cmd.Cancel = func() error {

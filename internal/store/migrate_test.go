@@ -181,7 +181,7 @@ func TestMigration0003RenamesSessionRefWithoutChangingItsConstraints(t *testing.
 // migration applies cleanly on top of the current latest (0006), and a run
 // written before it existed reads back with the new columns' defaults
 // rather than an error.
-func TestMigration0007AddsRunSyncColumnsWithSafeDefaults(t *testing.T) {
+func TestMigration0010AddsRunSyncColumnsWithSafeDefaults(t *testing.T) {
 	t.Parallel()
 
 	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "litefactory.db"))
@@ -194,7 +194,10 @@ func TestMigration0007AddsRunSyncColumnsWithSafeDefaults(t *testing.T) {
 		}
 	})
 
-	applyMigrationsThrough(t, db, 6)
+	// Everything before 0010_run_sync, so the run seeded below predates the
+	// sync columns exactly as a real pre-migration row would. testRepo needs
+	// 0007_repo_external_team's column, so stopping at 6 is not an option.
+	applyMigrationsThrough(t, db, 9)
 
 	repo := testRepo(t, db, "acme", "api")
 	session, err := db.GetOrCreateSession(t.Context(), repo, 123)
@@ -235,7 +238,7 @@ INSERT INTO runs (
 	} {
 		col, ok := findColumn(cols, want.name)
 		if !ok {
-			t.Fatalf("runs has no %s column after migration 0007: %+v", want.name, cols)
+			t.Fatalf("runs has no %s column after migration 0010: %+v", want.name, cols)
 		}
 		if col.notNull != want.notNull {
 			t.Errorf("%s.notNull = %v, want %v", want.name, col.notNull, want.notNull)
