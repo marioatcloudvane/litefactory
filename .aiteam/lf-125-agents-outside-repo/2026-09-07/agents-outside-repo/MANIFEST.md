@@ -5,11 +5,13 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(run 0009 retry diagnosis complete; remote story synchronization confirmed missing)*
-- [x] **Plan** — `plan_brief.md` + five complete per-story bodies *(run 0010 central storage/install/delivery clarification complete; existing index links #127–#131 retained; remote synchronization pending)*
-- [ ] **Implement** — partial: US-1/US-2 implemented and reviewed; US-3 runtime capability gate blocked, US-4/US-5 deferred *(run 0011; not feature-complete)*
+- [x] **Plan** — `plan_brief.md` + six complete per-story bodies *(run 0013 remote-primary distribution re-plan; existing #127–#131 need synchronization and new US-6 needs publication/link)*
+- [ ] **Implement** — partial: central US-1/US-2 foundation implemented; remote distribution/publishing and US-3–US-5 delivery/workflow/evidence remain. Run 0013 removes the outer-sandbox EPERM prerequisite; it is not a product capability blocker.
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
+
+- 2026-09-07 — run 0013: re-planned at 832c730882a13176f63e1e8eb1bd985150199fed for primary HTTPS distribution, independently versioned releases, corporate/default source configuration, integrity/pins, five byte-drift states plus freshness, offline operation and removal of embedded production content. Updated feature-spec, approved ARCH_REVIEW, plan and six story bodies; US-6 explicitly delivers publisher artifacts/workflow. Existing US-1/US-2 central management is reused. Main 6eb29bf roster fix is verified but not in task ancestry; retain its first-position orchestrators. Owner's Codex outside-sandbox success supersedes historical nested-EPERM prerequisite; suitable-environment delivery evidence remains acceptance. No implementation/probes/remote publication performed. Existing remote bodies require synchronization; US-6 URL awaits authorized publisher creation.
 
 - 2026-09-07 — run 0012: explained incomplete CLI delivery from committed capability/drift reports. Codex startup denial is evidence of an environment barrier, not unsupported external agents; Claude checks and US-3 implementation also remain incomplete. Research brief updated; no probes, implementation or permission changes performed.
 
@@ -30,4 +32,4 @@
 
 The owner explicitly requests re-planning using current code; proceed directly in Plan mode using the conversation's approved scope. Prior session artifacts remain historical. External team ownership and no backward compatibility are binding owner decisions.
 
-The merged task checkout contains team management and Claude configuration isolation; the refreshed plan has no integration prerequisite. The Story Index retains #127–#131 links. Updated local bodies are the authoritative input authorized for run 0011; remote synchronization was not performed in this run. Runner capability proof and measured token savings remain implementation gates. US-4 must remove the confirmed stale Codex Implement updater invocation and verify parity with canonical embedded definitions once runtime delivery is proven. Implement is partial as recorded above; this run did not invoke or restore the retired updater.
+The current run 0013 plan supersedes earlier distribution/capability conclusions; history above remains an account of those runs. Team management and Claude isolation are present. The known main 6eb29bf orchestrator fix still needs integration into this task lineage. Complete local US-1 through US-6 bodies are the revised handoff; #127–#131 remain associated but unsynchronized and US-6 has no known remote URL. Remote HTTPS acquisition and independent publishing extend delivered central management. US-4 preserves orchestrators, retires redundant root routing/stale updater behavior and removes embedded distribution. Suitable-environment runner evidence is delivery acceptance, not a prerequisite to adapter coding. Token savings remain unmeasured. No retired updater was invoked or restored.

@@ -1,39 +1,41 @@
-# US-4 — Focused modes and language skills
+# US-4 — Publish focused workflows independently of the binary
 
-> As an operator, I want implementation runs focused on building and testing, with review in validation, so that each stage loads the instructions needed for its work.
+> As an operator, I want each mode to retain its coordinator and only the necessary specialists so that content updates improve focus without disrupting workflow.
 
-Refactor the Go workflow into small roles with declared skills and a truthful read-only validation handoff.
+Relocate canonical content, complete focused workflows and remove embedded acquisition.
 
 ## Why This Matters
 
-The current implementation workflow carries review and administration responsibilities as well as coding. Smaller mode rosters can reduce that overhead, but moving a role without its supporting instructions would break execution. Validation also cannot promise test execution where its permitted tools only allow reading evidence.
+A smaller catalog still needs someone to sequence its specialists. Removing coordinators would save instructions by removing required behavior. The workflow content must also leave the binary so improvements can ship on their own schedule.
 
 ## Architecture Notes
 
-- Keep current workflow roles where useful and move language/platform/testing bodies into focused skills. Research selects codebase/web guidance, Plan requirements/architecture/decomposition, Implement implementation/unit/infrastructure test authoring, Validate acceptance/review/evidence/drift. Spike may remain root-only.
-- Audit each moved instruction's resource references and convert hardcoded repository-relative mode/template/hook/skill references into declared package dependencies or the selected bootstrap. No mandatory extra delegation just because a skill exists.
-- Slim Implement choreography to authoring and required verification; remove dedicated review/environment-administration phases and automatic review-driven remediation. Test authoring stays in Implement, including infrastructure tests only where the repository supports them.
-- Validate produces inline `pass`, `findings` or `insufficient evidence`, with acceptance, review and existing-evidence rationale; it creates no review artifact or tracked change. Claude's exact profile allows Read/Glob/Grep/Task and no Bash; Codex remains bounded by its read-only sandbox. This plan assigns no shell or test execution to Validate on either vendor. Owner initiates any later implementation correction.
-- Make embedded definitions the canonical shipped content and keep generated/checked-in Claude and Codex copies verified against it. The merged embedded/Claude stack retires the updater, but `.codex/skills/implement-orchestrator/SKILL.md` still invokes it; remove that stale invocation and tier references. Update bootstrap and parity fixtures together, preserving trusted mode headers and session artifacts while removing eager full-roster listings.
-- Platform: retain current policy/surface invariants. Risk: changing test expectations to permit shell/writes would silently expand Validate beyond this story.
+- Preserves issue #130. This story contains no migration or backward-compatibility command.
+- Apply the known `6eb29bf` correction as supplied: research, plan and implement orchestrators are first in their respective arrays. Preserve the complete relative resources and shared definitions when relocating publisher input.
+- The redundant root router is distinct from mode orchestration. Update trusted mode headers, paired Claude/Codex output and session artifact conventions together; the small workflow skill is not an orchestrator substitute.
+- Platform: preserve existing read-only Validate profile, language constraints and tier mapping. Downloaded content cannot expand local permissions.
+- Risk: removing the embed before an installable publication path exists strands empty installations. Coordinate T-4.1 → T-6.1 → T-4.4; US-4 and US-6 ship together without circular story execution.
+- Focused language skills are reusable instructions selected through declared dependencies; do not create duplicate full language stacks or require extra delegation merely to load a skill.
 
 ## Tasks
 
 | ID | Title | Type | Depends On | Est |
 |----|-------|------|------------|-----|
-| T-4.1 | Refactor Go roles and focused skill dependency declarations | logic | T-1.4 | L |
-| T-4.2 | Slim Implement to authoring and required testing | logic | T-4.1 | M |
-| T-4.3 | Add read-only Validate review/evidence/drift choreography | logic | T-4.1 | M |
-| T-4.4 | Update bootstrap, tier references and paired instruction fixtures | logic | T-4.2, T-4.3, T-3.3 | M |
-| T-4.5 | Test membership, closure, permissions and report parity | test | T-4.4, T-3.5 | M |
+| T-4.1 | Move complete canonical agent/skill/resource trees into publisher inputs and preserve exact first-position orchestrator rosters from the known fix. Ref: Runtime and Workflow Requirements Retained, Offline, Cache and Publication Rules. Agent: go-implementation-engineer. | logic | T-1.6 | M |
+| T-4.2 | Refine declared language/workflow skills and retain Implement orchestration of production/test authoring and verification; remove dedicated review/updater/admin phases and stale Codex updater references. Ref: Runtime and Workflow Requirements Retained. Agent: go-implementation-engineer. | logic | T-4.1 | L |
+| T-4.3 | Align read-only Validate inline findings, trusted mode bootstrap and vendor parity; remove redundant top-level routing/full-body duplication while preserving session conventions. Ref: Runtime and Workflow Requirements Retained. Agent: go-implementation-engineer. | logic | T-4.2 | M |
+| T-4.4 | Remove production team embed, embedded install default and seed/fallback after remote acquisition and publisher artifacts exist; retain only explicit test-owned fixtures. Ref: Offline, Cache and Publication Rules, Out of Scope. Agent: go-implementation-engineer. | logic | T-2.8, T-4.3, T-6.1 | M |
+| T-4.5 | Test exact rosters, complete dependency closure, permission parity, no eager unrelated bodies and production-build independence from team content. Ref: Acceptance Criteria. Agent: go-unit-test-engineer. | test | T-4.4, T-3.5 | M |
 
 ## Acceptance Criteria
 
 | ID | Criterion |
 |----|-----------|
-| AC-4.1 | Implement roster contains implementation/test specialists and verifies authored changes, without dedicated review, environment administration or updater invocation. |
-| AC-4.2 | Validate covers acceptance, Go-aware review, test evidence and context drift; missing evidence cannot yield pass and no code/test/durable-document edits occur. |
-| AC-4.3 | Existing exact Validate permission tests remain valid; Claude cannot launch Bash and Codex receives no additional writable authority. |
-| AC-4.4 | Each mode's selected closure contains every required resource; unrelated modes do not eagerly load all language-skill bodies or global roster descriptions. |
-| AC-4.5 | Embedded and generated/checked-in vendor instruction outputs preserve equivalent workflow and report boundaries; parity checks catch the previously stale Codex updater invocation and tier references, without updater or Maintenance restoration. |
-| AC-4.6 | Fixtures exercise pass/findings/insufficient-evidence outcomes, no tracked Validate changes, and an owner-driven subsequent correction rather than an automatic loop. |
+| AC-4.1 | Research resolves research-orchestrator, codebase-tour, web-researcher; Plan resolves plan-orchestrator, requirements-engineer, go-architect, proxy-product-owner, in those exact orders. |
+| AC-4.2 | Implement resolves implement-orchestrator, go-implementation-engineer, go-unit-test-engineer, go-integration-test-engineer in that order; Validate resolves go-code-reviewer; Spike resolves an empty roster. Unreferenced shared definitions remain excluded. |
+| AC-4.3 | Each orchestrator still sequences specialists and produces the expected session artifacts. Declared skills/resources survive relocation and selected-mode installation; a dependency-only content change alters effective identity. |
+| AC-4.4 | Implement content covers production coding, test authoring and verification without dedicated review, context updating, admin or automatic remediation phases. Both vendor variants remove stale updater invocation and preserve necessary Go rules through focused skills. |
+| AC-4.5 | Validate produces an inline acceptance/code/evidence/context-drift verdict under existing read-only profiles; it gains neither file writes nor Bash/test execution authority. |
+| AC-4.6 | Root bootstrap retains project constraints and trusted mode/session context but no redundant classifier/router decision or duplicated full specialist bodies; Claude and Codex variants preserve equivalent behavior. |
+| AC-4.7 | Production build inputs contain no embedded team prompt tree or embedded install/runtime fallback. Empty-home installation uses the remote configuration contract; explicit test fixtures cannot supply a production default. |
+| AC-4.8 | Building/upgrading litefactory leaves installed teams untouched, and editing/releasing distribution content requires no binary rebuild. Consumer tests install the independently built fixture with complete corrected rosters. |
