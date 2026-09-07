@@ -48,7 +48,7 @@
 | US-3 | CLI bundle delivery, lifecycle and conversation isolation | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/129 |
 | US-4 | Preserve orchestrators and cut over focused external content | L | US-1; ships with US-2, US-3, US-6 | https://github.com/marioatcloudvane/litefactory/issues/130 |
 | US-5 | Provenance, token evidence and end-to-end handoff | M | US-2, US-3, US-4, US-6 | https://github.com/marioatcloudvane/litefactory/issues/131 |
-| US-6 | Publish independent versioned team releases | L | US-1; US-4 source preparation; US-2 roundtrip | Pending litefactory publication |
+| US-6 | Publish independent versioned team releases | L | US-1; US-4 source preparation; US-2 roundtrip | https://github.com/marioatcloudvane/litefactory/issues/154 |
 
 ## Out of Scope
 
