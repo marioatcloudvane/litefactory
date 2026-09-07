@@ -1,0 +1,18 @@
+<!-- lf:reply task=github:acme/acme-api#123 -->
+
+Applied proposal `42`. Resolution from `claude`, confirmed by `octo-reporter`.
+
+Files applied:
+
+For `internal/cli/task.go`:
+```
+package cli
+
+func Task() {}
+
+```
+
+
+Commit: [`9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1`](https://github.com/acme/acme-api/commit/9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1)
+
+_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._

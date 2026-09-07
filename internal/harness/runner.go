@@ -120,6 +120,60 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// ProposeConflictResolution performs a stateless, tool-free advisory
+// invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
+// session id, run ordinal, or worktree, so it cannot become an ordinary
+// coding workflow or create run artefacts. It is bounded by r.timeout — its
+// own deadline, distinct from the turn's ambient context and from any git
+// budget already in play for this turn (see internal/turn's
+// attemptConflictSuggestion, which passes ctx through unbounded on purpose).
+func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+	prompt, err := agent.ConflictResolutionPrompt(req)
+	if err != nil {
+		return agent.ConflictResolution{}, err
+	}
+	if _, err := os.Stat(r.home); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor directory: %w", err)
+	}
+	if _, err := EnsureSettings(r.settingsPath, r.home); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("prepare claude settings: %w", err)
+	}
+	if _, err := EnsureClaudeConfigDir(r.claudeConfigDir, r.osHome); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("prepare claude config dir: %w", err)
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	cmd.Dir, cmd.Env, cmd.Stdin = r.home, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = waitDelay
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	stream := eventStream{logger: r.logger}
+	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
+		return agent.ConflictResolution{}, errors.New("conflict advisor returned no successful terminal result")
+	}
+	if len(stream.tools) != 0 {
+		return agent.ConflictResolution{}, errors.New("conflict advisor exposed tools")
+	}
+	resolution, err := agent.ParseConflictResolution(stream.result.Result)
+	if err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor returned invalid resolution: %w", err)
+	}
+	return resolution, nil
+}
+
 // waitDelay bounds how long cmd.Wait may block after the claude process itself
 // has exited. claude hands its stdout and stderr to children — node, git, and
 // whatever the Bash tool was asked for — and a survivor holding a pipe open

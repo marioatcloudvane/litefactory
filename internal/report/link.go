@@ -62,6 +62,33 @@ func blobURL(ref naming.Ref, sha, repoPath string) (string, bool) {
 	return b.String(), true
 }
 
+// commitURL builds a permalink to one commit in the task's own repository:
+//
+//	https://github.com/<owner>/<repo>/commit/<sha>
+//
+// It is [blobURL]'s sibling for US-12's disclosure (AC-12.5): a confirmed
+// application's commit link, rather than a permalink into one file at a
+// commit. The same refusal discipline applies — a forge other than
+// github.com or a sha that is not shaped like an object id renders no link
+// rather than a wrong one.
+func commitURL(ref naming.Ref, sha string) (string, bool) {
+	if ref.Forge != naming.ForgeGitHub {
+		return "", false
+	}
+	if ref.Validate() != nil || !validSHA(sha) {
+		return "", false
+	}
+
+	var b strings.Builder
+	b.WriteString(gitHubWebRoot)
+	b.WriteString(ref.Owner)
+	b.WriteByte('/')
+	b.WriteString(ref.Repo)
+	b.WriteString("/commit/")
+	b.WriteString(sha)
+	return b.String(), true
+}
+
 // validSHA reports whether s is shaped like a git object id: lowercase
 // hexadecimal, between an abbreviation and a full id in length.
 func validSHA(s string) bool {

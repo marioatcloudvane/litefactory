@@ -27,8 +27,9 @@ import (
 // # What it can do
 //
 // The read-only half records what happened: [Worktree.Path], [Worktree.Branch],
-// [Worktree.ClonePath], [Worktree.RevParse] and [Worktree.Status]. The mutating
-// half is [Worktree.Commit] and [Worktree.Push] — the only two operations in
+// [Worktree.ClonePath], [Worktree.RevParse], [Worktree.Status], [Worktree.Divergence],
+// [Worktree.MergePreview] and [Worktree.ConflictBlob]. The mutating half is [Worktree.Commit],
+// [Worktree.Push] and [Worktree.MergeBase] — the only three operations in
 // litefactory that write to a repository or to a remote.
 type Worktree struct {
 	runner runner
@@ -58,7 +59,7 @@ func (c *Clone) newWorktree(target, branch string) (*Worktree, error) {
 		return nil, fmt.Errorf("worktree path %s %w %s", target, ErrWorktreeOverlapsClone, c.path)
 	}
 	return &Worktree{
-		runner: runner{binary: c.runner.binary, dir: target},
+		runner: runner{binary: c.runner.binary, dir: target, mergeTreeSupported: c.runner.mergeTreeSupported},
 		path:   target,
 		branch: branch,
 		clone:  c.path,

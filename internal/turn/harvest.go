@@ -221,18 +221,21 @@ func runOutcome(result *harness.RunResult) store.RunOutcome {
 	return outcome
 }
 
-// save commits and pushes whatever the run left in the worktree.
+// save commits and pushes whatever the run left in the worktree, but only for
+// a run that actually succeeded.
 //
-// It runs for a failed run as well as a successful one. A run that timed out
-// after two hours may have produced most of the work, and throwing that away
-// because the process did not get to say goodbye is not a decision worth
-// making. The exception is an abandoned run: the daemon has under three seconds
-// to exit (D-B), a push takes up to two minutes, and the work is safe where it
-// is — the next run on this task reuses the same worktree and commits it then.
+// A branch's history is read as finished, reviewed work. A run that failed,
+// timed out, was abandoned or produced no result did not clear that bar, so
+// none of the four ever reaches [commitAndPush]: the commit summary is the
+// run's own result text, and a crash or a timeout is not a summary anyone
+// asked for. This holds even for a run that timed out after producing most of
+// a feature — the work is not thrown away, it stays in the worktree, and the
+// next run on this task reuses the same worktree and commits it then, this
+// time as part of a run that succeeded.
 //
 // Deciding that is all this does. The git itself belongs to [commitAndPush],
-// which is where the clone gate is held; keeping the abandonment check outside
-// it means a shutting-down daemon never joins the queue at all.
+// which is where the clone gate is held; keeping the check outside it means a
+// run that did not succeed never joins the queue at all.
 func save(
 	ctx context.Context,
 	opts Options,
@@ -241,9 +244,10 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
-	if runResult.Outcome == harness.OutcomeAbandoned {
-		logger.Warn("run was abandoned; leaving the work uncommitted in the worktree",
-			slog.String("worktree", prep.worktree.Path()))
+	if !runResult.Succeeded() {
+		logger.Warn("run did not succeed; leaving the work uncommitted in the worktree",
+			slog.String("worktree", prep.worktree.Path()),
+			slog.String("outcome", runResult.Outcome.String()))
 		return result
 	}
 	return commitAndPush(ctx, opts, prep, result, runResult, logger)

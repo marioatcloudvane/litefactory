@@ -6,10 +6,11 @@
 > Run 3 ran past the configured timeout for `claude` and litefactory killed it after 12.4s. The work it had done up to that point is still in the worktree. Raise the timeout or narrow the task, then comment again.
 
 - **Branch:** `lf/123-add-dry-run-to-task-clean`
-- **Commit:** none — this run committed nothing
+- **Commit:** none — this run did not succeed; if it produced anything, it is still in the worktree
 - **Exit status:** killed by litefactory, so there is no exit code
 - **Reason:** timed out after 30m0s; the process subtree was killed
 - **Duration:** 12.4s
+- **Cost:** unknown
 - **Model:** `claude-sonnet-4-5`
 - **Log:** `litefactory logs 123 --run 3` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
 

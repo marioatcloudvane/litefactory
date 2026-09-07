@@ -185,6 +185,56 @@ func (r *Runner) ProposeSchedule(ctx context.Context, req agent.ScheduleProposal
 	return proposal, nil
 }
 
+// ProposeConflictResolution performs a stateless read-only advisory
+// invocation, mirroring [Runner.ProposeSchedule]'s shape exactly (US-11): no
+// worktree and no run artefacts, so it cannot become an ordinary coding
+// workflow. It is bounded by r.timeout — its own deadline, distinct from the
+// turn's ambient context and from any git budget already in play for this
+// turn (see internal/turn's attemptConflictSuggestion, which passes ctx
+// through unbounded on purpose).
+func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+	prompt, err := agent.ConflictResolutionPrompt(req)
+	if err != nil {
+		return agent.ConflictResolution{}, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+	if r.model != "" {
+		args = append(args, "--model", r.model)
+	}
+	args = append(args, "-")
+	//nolint:gosec // binary/args are configuration/constants; request text is stdin.
+	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
+	// A proposal has no worktree. The resolved binary directory is guaranteed
+	// to exist at construction and is not a repository the advisor can mutate.
+	cmd.Dir, cmd.Env, cmd.Stdin = filepath.Dir(r.binary.Path), codexEnv(r.environ), strings.NewReader(prompt)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return os.ErrProcessDone
+		}
+		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w", err)
+	}
+	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
+	if !stream.completed || stream.failed {
+		return agent.ConflictResolution{}, errors.New("conflict advisor returned no successful terminal result")
+	}
+	resolution, err := agent.ParseConflictResolution(stream.text)
+	if err != nil {
+		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor returned invalid resolution: %w", err)
+	}
+	return resolution, nil
+}
+
 // Run executes one ordinary coding-agent request.
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, error) {
 	if err := req.Validate(); err != nil {

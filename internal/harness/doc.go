@@ -112,6 +112,35 @@
 // the loop, silently losing the terminal result event when Err is unchecked.
 // Real lines of 72,411 bytes were measured from an ordinary file read (SD-6).
 //
+// # Resuming a failed run does not resume its claims
+//
+// [PromptInput.PreviousFailed] and [PromptInput.PreviousReason] carry the
+// previous run's own success/failure verdict and stored error text into the
+// prompt of the run that resumes it — internal/turn derives both from
+// [store.Run.Succeeded] and hands them in already settled, the same way it
+// already does for PreviousMayAsk and PreviousMode, because the failed run's
+// own transcript cannot be trusted to say so: the last thing claude wrote
+// before a failed run ended often reads like a finished, successful report.
+//
+// [writeResumeHeader] turns PreviousFailed into a short corrective note,
+// written in litefactory's own voice, telling the resumed run that its
+// predecessor did not complete and that none of its claims are this run's
+// accomplishments. PreviousReason is agent-authored text — on the timeout and
+// abandonment paths it is litefactory's own words, but on the plain-exit path
+// it is [excerpt] of claude's own final message, bounded to 200 bytes and
+// newline-stripped but not sanitised for meaning. It is therefore never
+// interpolated into the header directly: it is capped again independently
+// ([MaxPreviousReasonBytes]), passed through [neutraliseNoteTags], and framed
+// inside a <note> element exactly like every other piece of third-party text
+// in the prompt, so a reason containing "</note>" or a forged "- Mode:" or
+// "# litefactory run" line stays confined to its own element instead of
+// reaching the header as structure.
+//
+// A cold run and a resume whose predecessor succeeded write nothing here at
+// all — the branch is silent, not merely short — which is what keeps both
+// kinds of prompt byte-for-byte identical to a build of this package from
+// before the feature existed.
+//
 // # Artefacts
 //
 // A run owns two files, both under $LF_HOME and both unredacted (S-1):

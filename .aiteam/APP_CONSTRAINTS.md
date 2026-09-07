@@ -121,6 +121,12 @@ These are not style rules. Each has a test or a type that fails if you break it.
   direction. `Classify` (`internal/team/status.go`) takes a caller-computed
   fresh render rather than rendering itself, so importing either here would
   let the leaf depend on what already depends on it.
+- **SEC-19** — `PromptInput.PreviousReason` (`internal/harness/prompt.go`), the
+  previous run's stored failure reason, MUST NOT reach a resumed run's prompt
+  raw — it can be agent-authored text. `writePreviousFailedNote` MUST route it
+  through `capText`/`neutraliseNoteTags` and frame it in a `<note>` element
+  like any other third-party text, so a forged `</note>` or `- Mode:` line
+  cannot reach the header as structure.
 
 ---
 
@@ -247,6 +253,12 @@ These are not style rules. Each has a test or a type that fails if you break it.
   window where `allocateRun`'s `runs` row reads `running` before its session
   does is accepted, not a bug — `ReconcileOrphans` self-heals it at daemon
   start; no compensating logic MUST be added for it.
+- **CONC-8 [enforced]** — A run MUST be committed and pushed only when it
+  genuinely succeeded. `save` (`internal/turn/harvest.go`) and `fileStoryIssues`
+  (`internal/turn/subissues.go`) both gate on `runResult.Succeeded()` before
+  touching git; any other outcome (failed, timed out, abandoned, no result) MUST
+  be left uncommitted in its worktree for the next run on the task to pick up
+  and commit once it does succeed.
 
 ---
 
@@ -296,6 +308,14 @@ These are not style rules. Each has a test or a type that fails if you break it.
   too. This exact fail-fast regression has reached BLOCKING code review twice,
   in two unrelated stories: the fix is one line, and missing it hides every
   problem after the first from the caller.
+- **STYLE-10** — `agent.RunResult.Succeeded()` (live subprocess) and
+  `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) MUST NOT be
+  collapsed into one call or converted into each other — different evidence,
+  different lifetimes, same English question.
+- **STYLE-11** — A non-success run report MUST name the uncommitted worktree in
+  exactly one place: `metadataList`'s Commit-line default arm
+  (`internal/report/run.go`, when `CommitSHA==""`) or `outcomeView.withFailure`
+  (when `CommitSHA!=""`) — never both.
 
 ---
 
@@ -329,6 +349,7 @@ rather than editing the test.
 | `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
 | `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` (CFG-3) |
 | `store/store_test.go` | FK enforcement, migrate idempotency, `AdvanceWatermark` never rewinds, `AllocateRun` refuses a replay, `CompleteRunReport` is one txn |
+| `store/runs_test.go` | `Run.Succeeded()`'s two-arm predicate: true for `RunSucceeded`, true for `RunReported` only when `Error==""` (STYLE-10) |
 | `daemon/clock_test.go` | only `Daemon.Tick` (never a helper, never a function literal) reads the daemon's clock |
 | `turn/gate_test.go` | `prepareClone`, `commitAndPush`, `commitStoryIndex` are the only call sites of `CloneGate.Acquire`, one each; the claude run itself is never inside a critical section |
 | `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | gate/pool/inflight mechanics in isolation — mutual exclusion per path, semaphore refuses over `max_concurrent_runs` (CONC-2) |
@@ -341,3 +362,7 @@ rather than editing the test.
 | `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |
 | `cli/cmd_team_status_test.go` | `team status` exits `ExitOK` only when every record is in sync, `ExitFailure` on any drift, `ExitPrecondition` reserved for a bad `--repo` (STYLE-6) |
 | `cli/cmd_team_update_test.go` (`TestTeamUpdate_MixedOutcomesInSingleRun`) | one refused record in a run does not block or hide a separately-applied record's update in the same run (STYLE-9) |
+| `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
+| `turn/harvest_test.go`, `turn/subissues_test.go` (`TestSaveOnlyCommitsASucceededRun` and siblings) | `save` and `fileStoryIssues` commit/push only a genuinely succeeded run (CONC-8) |
+| `harness/prompt_previous_failed_test.go` | `PreviousReason` is neutralised and framed inside a `<note>`, never interpolated raw; a cold prompt or a resume whose predecessor succeeded stays byte-unchanged (SEC-19) |
+| `report/report_test.go` (`TestNonSuccessReportNamesTheWorktree`, `TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce`) | the worktree is named in exactly one place per non-success report (STYLE-11) |

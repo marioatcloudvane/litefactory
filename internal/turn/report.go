@@ -236,11 +236,45 @@ type ReplyRequest struct {
 	OwningAgent    string
 	RequestedAgent string
 
+	// SyncBehind, SyncBase and SyncMaxBehind belong to
+	// [report.ReplyRefusesSyncTooFarBehind] alone: the distance that
+	// exceeded the cap, the ref it was measured against, and the cap.
+	SyncBehind    int
+	SyncBase      string
+	SyncMaxBehind int
+
+	// ConflictPaths belongs to [report.ReplyRefusesSync] alone (US-4): the
+	// paths [git.Worktree.MergePreview] reported as conflicting, carried
+	// through exactly as syncBase recorded them on [Result.SyncConflicts].
+	// internal/report renders them inside a fenced block (S-2) and does not
+	// sanitise or decide which paths are safe to show at all — that is
+	// US-5's job.
+	ConflictPaths []string
+
+	// ConflictProposal and ConflictSuggestionFailed belong to
+	// [report.ReplyRefusesSync]/[report.ReplySuggestsResolution] alone
+	// (US-11): the persisted suggestion, when one was produced, and the
+	// added one-line "no suggestion could be produced" note, when
+	// suggestions were attempted but none resulted. internal/report decides
+	// which of the two to render — this package only carries the facts
+	// through from [Result.ConflictProposal] and
+	// [Result.ConflictSuggestionFailed].
+	ConflictProposal         *report.ConflictProposal
+	ConflictSuggestionFailed bool
+
 	// ScheduleKind and Schedule describe a factory-owned scheduling response.
 	// They never carry the scheduled payload, so agent input is not echoed into
 	// Litefactory's signed comment.
 	ScheduleKind report.ReplyKind
 	Schedule     report.ScheduleReply
+
+	// ConfirmKind and Confirm describe a factory-owned /confirm response
+	// (US-12), the same shape ScheduleKind/Schedule already give scheduling:
+	// internal/daemon's confirmation dispatch is the only caller that sets
+	// these, and [report.ReplyKind.IsConfirmationReply] is the closed set
+	// [ReplyRequest.kind] and [ReplyRequest.validate] check membership in.
+	ConfirmKind report.ReplyKind
+	Confirm     report.ConfirmReply
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -261,9 +295,12 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 			req.ScheduleKind == report.ReplyScheduleProposalRejected ||
 			req.ScheduleKind == report.ReplyScheduleProposalFailed
 	}
+	if req.ConfirmKind != report.ReplyInvalid {
+		return req.ConfirmKind, req.ConfirmKind.IsConfirmationReply()
+	}
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
-			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode()
+			req.Refusal.RefusesSwitch() || req.Refusal.RefusesMode() || req.Refusal.RefusesSync()
 	}
 	return replyKind(req.Command.Kind)
 }
@@ -278,9 +315,9 @@ func (req ReplyRequest) validate() error {
 	case req.CommentID <= 0:
 		return invalidRequest("a comment id is required to reply to a comment")
 	case req.refusing() && !req.Refusal.RefusesTools() && !req.Refusal.RefusesAgent() &&
-		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode():
+		!req.Refusal.RefusesSwitch() && !req.Refusal.RefusesMode() && !req.Refusal.RefusesSync():
 		return invalidRequest("reply kind %s is not a tool-permission, agent-selection, "+
-			"mode-selection or agent-switch refusal", req.Refusal)
+			"mode-selection, agent-switch or sync refusal", req.Refusal)
 	case req.ScheduleKind != report.ReplyInvalid && req.ScheduleKind != report.ReplyScheduleInvalid &&
 		req.ScheduleKind != report.ReplyScheduleConfirmed && req.ScheduleKind != report.ReplyScheduleBlocked &&
 		req.ScheduleKind != report.ReplyScheduleProposalReady && req.ScheduleKind != report.ReplyScheduleProposalAccepted &&
@@ -288,10 +325,16 @@ func (req ReplyRequest) validate() error {
 		return invalidRequest("reply kind %s is not a schedule response", req.ScheduleKind)
 	case req.ScheduleKind != report.ReplyInvalid && req.refusing():
 		return invalidRequest("a reply cannot be both a schedule response and a refusal")
-	// Only when this is not a refusal. A refusal is triggered by a command that
-	// would have spawned a run, and a command that spawns a run draws no reply —
-	// so asking this question of a refusal refuses the refusal.
-	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && !req.Command.NeedsReply():
+	case req.ConfirmKind != report.ReplyInvalid && !req.ConfirmKind.IsConfirmationReply():
+		return invalidRequest("reply kind %s is not a confirmation response", req.ConfirmKind)
+	case req.ConfirmKind != report.ReplyInvalid && (req.refusing() || req.ScheduleKind != report.ReplyInvalid):
+		return invalidRequest("a reply cannot be both a confirmation response and a refusal or a schedule response")
+	// Only when this is not a refusal, schedule response or confirmation
+	// response. A refusal is triggered by a command that would have spawned
+	// a run, and a command that spawns a run draws no reply — so asking this
+	// question of a refusal refuses the refusal.
+	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
+		!req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
 	if err := req.Ref.Validate(); err != nil {
@@ -320,6 +363,9 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 
 	if result.Disposition == DispositionAgentSwitchRefused {
 		return r.reportAgentSwitchRefusal(ctx, result)
+	}
+	if result.Disposition == DispositionSyncRefused {
+		return r.reportSyncRefusal(ctx, result)
 	}
 
 	body, err := r.runInput(ctx, result)
@@ -372,6 +418,87 @@ func (r *Reporter) reportAgentSwitchRefusal(ctx context.Context, result Result) 
 		OwningAgent:    result.AgentOwning,
 		RequestedAgent: result.AgentRequested,
 	})
+}
+
+// reportSyncRefusal answers a [DispositionSyncRefused] turn (US-4): a task
+// branch that could not be merged with the base branch cleanly. No
+// session-state transition has occurred and no runs row has been allocated,
+// and the branch itself was never touched — [git.Worktree.MergePreview] only
+// ever inspects whether a merge would be clean. Because no run was
+// allocated, this takes the reply shape every other refusal uses
+// ([ReplyRequest]/[ReportReply]) rather than the run-report one, the same as
+// [Reporter.reportAgentSwitchRefusal].
+//
+// The issue-body trigger is the one path that posts nothing, for the same
+// reason [Reporter.reportAgentSwitchRefusal] does: a run started from the
+// issue body has no comment id to answer with, and [ReplyRequest] requires a
+// real one. The refusal still stands — nothing was run — and the next
+// comment on this issue is what reaches the thread with it (AC-2.16c's
+// issue-body convention).
+func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted, error) {
+	log := r.log.With(
+		slog.String("task", result.Ref.String()),
+		slog.Int64("session_id", result.SessionID),
+		slog.Int64("trigger_comment_id", result.TriggerCommentID),
+		slog.Int("conflicts", len(result.SyncConflicts)))
+
+	if result.SyncTooFarBehind {
+		if result.TriggerCommentID == 0 {
+			log.InfoContext(ctx, "refusing to run the issue body: this task's branch is further behind the "+
+				"base branch than the cap allows. Nothing was run and no comment was posted, because there "+
+				"is no comment to answer")
+			return Posted{Skipped: true}, nil
+		}
+		return r.ReportReply(ctx, ReplyRequest{
+			Ref:           result.Ref,
+			SessionID:     result.SessionID,
+			CommentID:     result.TriggerCommentID,
+			Refusal:       report.ReplyRefusesSyncTooFarBehind,
+			SyncBehind:    result.SyncBehind,
+			SyncBase:      result.SyncBase,
+			SyncMaxBehind: result.SyncMaxBehind,
+		})
+	}
+
+	if result.TriggerCommentID == 0 {
+		log.InfoContext(ctx, "refusing to run the issue body: the base branch could not be merged into "+
+			"this task's branch cleanly. Nothing was run and no comment was posted, because there is no "+
+			"comment to answer; the next comment on this issue is refused on the thread")
+		return Posted{Skipped: true}, nil
+	}
+
+	req := ReplyRequest{
+		Ref:           result.Ref,
+		SessionID:     result.SessionID,
+		CommentID:     result.TriggerCommentID,
+		Refusal:       report.ReplyRefusesSync,
+		ConflictPaths: result.SyncConflicts,
+	}
+	// US-11: a persisted suggestion draws its own reply kind; a suggestion
+	// that was attempted and failed still draws the plain refusal, plus its
+	// one added line. Neither is ever set unless
+	// [Options.SuggestConflictResolution] was true for this turn (AC-11.3).
+	switch {
+	case result.ConflictProposal != nil:
+		req.Refusal = report.ReplySuggestsResolution
+		req.ConflictProposal = conflictProposalReply(*result.ConflictProposal)
+	case result.ConflictSuggestionFailed:
+		req.ConflictSuggestionFailed = true
+	}
+	return r.ReportReply(ctx, req)
+}
+
+// conflictProposalReply converts a persisted [store.ConflictProposal] into
+// the plain data [report.ConflictProposal] renders (US-11). It carries
+// forward only the paths and the model's own resolution text; the raw
+// conflicting content shown to the model was never on the store row to
+// begin with (S-9, S-10).
+func conflictProposalReply(proposal store.ConflictProposal) *report.ConflictProposal {
+	files := make([]report.ConflictProposalFile, 0, len(proposal.Files))
+	for _, f := range proposal.Files {
+		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: f.Resolution})
+	}
+	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files}
 }
 
 // ReportRun posts one run's report, records the result comment id, advances the
@@ -497,13 +624,20 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	}
 
 	body, err := r.renderer.RenderReply(ctx, report.Reply{
-		Ref:            req.Ref,
-		Kind:           kind,
-		Command:        req.Command.Name,
-		Agent:          req.Agent,
-		OwningAgent:    req.OwningAgent,
-		RequestedAgent: req.RequestedAgent,
-		Schedule:       req.Schedule,
+		Ref:                      req.Ref,
+		Kind:                     kind,
+		Command:                  req.Command.Name,
+		Agent:                    req.Agent,
+		OwningAgent:              req.OwningAgent,
+		RequestedAgent:           req.RequestedAgent,
+		SyncBehind:               req.SyncBehind,
+		SyncBase:                 req.SyncBase,
+		SyncMaxBehind:            req.SyncMaxBehind,
+		ConflictPaths:            req.ConflictPaths,
+		ConflictProposal:         req.ConflictProposal,
+		ConflictSuggestionFailed: req.ConflictSuggestionFailed,
+		Schedule:                 req.Schedule,
+		Confirm:                  req.Confirm,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
@@ -658,6 +792,10 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		ToolsRequested: append([]string(nil), result.ToolsRequested...),
 		ToolProfile:    result.ToolProfile,
 		WorktreePath:   result.WorktreePath,
+		// US-3. Nil for a branch that was already current (AC-3.1) and for a
+		// turn that never reached syncBase; every other outcome renders,
+		// including a skip, which has to say why (AC-3.2).
+		Sync: result.Sync,
 		// Found by looking, not by deriving. internal/report does no I/O, and
 		// the session directory's date is knowable only from the filesystem —
 		// see report.Run.BriefPath for what deriving it used to get wrong.
