@@ -30,6 +30,7 @@ settings:
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
+  team_config: %q # empty means the embedded team index; absolute path when set
   worktree_retain_days: %d # informational; cleanup is currently explicit
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
@@ -37,6 +38,26 @@ settings:
   attachment_max_document_bytes: %d # valid range: %d..%d
   attachment_max_total_bytes: %d # valid range: %d..%d
   attachment_max_count: %d # valid range: %d..%d
+  # Auto-sync keeps a feature branch caught up with its base without being
+  # asked. It is on by default because staying behind quietly is the problem
+  # this feature exists to fix, and blocking on conflict is on by default
+  # because guessing wrong about a conflict is worse than stopping to ask.
+  auto_sync_base: %t
+  # A branch further behind than this refuses the run rather than skipping
+  # the sync: a run against a branch known to be stale is the failure this
+  # feature exists to prevent, and distance makes it worse, not safer.
+  # 0 means no cap — always merge, and let a real conflict be the only thing
+  # that stops a run. A negative value is a config load error, never silently
+  # clamped to 0 or to this default. The default of %d is a judgment call,
+  # not a measurement — no data set determined it; tune it for your pace.
+  auto_sync_max_behind: %d
+  block_run_on_conflict: %t
+  # Suggesting a resolution is off by default: this is the first place
+  # litefactory sends repository file content to a model, and turning it on
+  # is a decision for a human reviewer after a dedicated security sign-off.
+  suggest_conflict_resolution: %t
+  conflict_proposal_ttl_hours: %d # valid range: %d..%d
+  conflict_content_max_bytes: %d # valid range: %d..%d
 
 providers:
   github:
@@ -87,11 +108,16 @@ tool_profiles:
 		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
+		d.Settings.TeamConfig,
 		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount,
+		d.Settings.AutoSyncBase, d.Settings.AutoSyncMaxBehind, d.Settings.AutoSyncMaxBehind, d.Settings.BlockRunOnConflict,
+		d.Settings.SuggestConflictResolution,
+		d.Settings.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours,
+		d.Settings.ConflictContentMaxBytes, MinConflictContentMaxBytes, MaxConflictContentMaxBytes,
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
 		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools),

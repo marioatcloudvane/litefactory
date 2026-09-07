@@ -32,6 +32,9 @@ type Repo struct {
 	// AiteamTeam is the detected aiteam team; "" when it could not be
 	// determined, which is a warning rather than a failure (AC-1.5).
 	AiteamTeam string
+	// ExternalTeam explicitly selects an installed operator-wide team. Legacy
+	// detected markers never populate this association.
+	ExternalTeam string
 	// AiteamVerifiedAt is when aiteam's presence was last confirmed.
 	AiteamVerifiedAt time.Time
 	// LastFetchAt is when `git fetch --prune` last ran against this clone. The
@@ -64,8 +67,8 @@ func (db *DB) UpsertRepo(ctx context.Context, r Repo) (Repo, error) {
 	const stmt = `
 INSERT INTO repos (
     path, forge, owner, name, remote_url, base_branch, feature_prefix,
-    worktree_root, aiteam_team, aiteam_verified_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    worktree_root, aiteam_team, aiteam_verified_at, created_at, updated_at, external_team
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (path) DO UPDATE SET
     forge              = excluded.forge,
     owner              = excluded.owner,
@@ -75,6 +78,7 @@ ON CONFLICT (path) DO UPDATE SET
     feature_prefix     = excluded.feature_prefix,
     worktree_root      = excluded.worktree_root,
     aiteam_team        = excluded.aiteam_team,
+    external_team      = excluded.external_team,
     aiteam_verified_at = excluded.aiteam_verified_at,
     updated_at         = excluded.updated_at
 RETURNING ` + repoColumns
@@ -82,7 +86,7 @@ RETURNING ` + repoColumns
 	row := db.sql.QueryRowContext(ctx, stmt,
 		r.Path, r.Forge, r.Owner, r.Name, r.RemoteURL, r.BaseBranch, r.FeaturePrefix,
 		r.WorktreeRoot, nullString(r.AiteamTeam), nullTime(r.AiteamVerifiedAt),
-		FormatTime(now), FormatTime(now))
+		FormatTime(now), FormatTime(now), nullString(r.ExternalTeam))
 
 	stored, err := scanRepo(row)
 	if err != nil {
@@ -167,7 +171,7 @@ func (db *DB) TouchRepoFetch(ctx context.Context, repoID int64, at time.Time) er
 const repoColumns = `
     id, path, forge, owner, name, remote_url, base_branch, feature_prefix,
     worktree_root, aiteam_team, aiteam_verified_at, last_fetch_at,
-    created_at, updated_at`
+    created_at, updated_at, external_team`
 
 func scanRepo(s scanner) (Repo, error) {
 	var (
@@ -177,10 +181,11 @@ func scanRepo(s scanner) (Repo, error) {
 		lastFetchAt      sql.NullString
 		createdAt        sql.NullString
 		updatedAt        sql.NullString
+		externalTeam     sql.NullString
 	)
 	err := s.Scan(&r.ID, &r.Path, &r.Forge, &r.Owner, &r.Name, &r.RemoteURL, &r.BaseBranch,
 		&r.FeaturePrefix, &r.WorktreeRoot, &aiteamTeam, &aiteamVerifiedAt, &lastFetchAt,
-		&createdAt, &updatedAt)
+		&createdAt, &updatedAt, &externalTeam)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Repo{}, ErrNotFound
@@ -188,6 +193,7 @@ func scanRepo(s scanner) (Repo, error) {
 		return Repo{}, err
 	}
 	r.AiteamTeam = aiteamTeam.String
+	r.ExternalTeam = externalTeam.String
 
 	for _, field := range []struct {
 		src sql.NullString

@@ -6,10 +6,11 @@
 > Run 3 failed: `claude` exited with status 1.
 
 - **Branch:** `lf/123-add-dry-run-to-task-clean`
-- **Commit:** none — this run committed nothing
+- **Commit:** none — this run did not succeed; if it produced anything, it is still in the worktree
 - **Exit status:** `1`
 - **Reason:** claude exited 1
 - **Duration:** 12.4s
+- **Cost:** unknown
 - **Model:** `claude-sonnet-4-5`
 - **Log:** `litefactory logs 123 --run 3` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
 

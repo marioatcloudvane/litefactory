@@ -177,6 +177,83 @@ func TestMigration0003RenamesSessionRefWithoutChangingItsConstraints(t *testing.
 	}
 }
 
+// TestMigration0007AddsRunSyncColumnsWithSafeDefaults is AC-9.1: the new
+// migration applies cleanly on top of the current latest (0006), and a run
+// written before it existed reads back with the new columns' defaults
+// rather than an error.
+func TestMigration0010AddsRunSyncColumnsWithSafeDefaults(t *testing.T) {
+	t.Parallel()
+
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "litefactory.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+
+	// Everything before 0010_run_sync, so the run seeded below predates the
+	// sync columns exactly as a real pre-migration row would. testRepo needs
+	// 0007_repo_external_team's column, so stopping at 6 is not an option.
+	applyMigrationsThrough(t, db, 9)
+
+	repo := testRepo(t, db, "acme", "api")
+	session, err := db.GetOrCreateSession(t.Context(), repo, 123)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-session-id", AgentClaude)
+	if err != nil {
+		t.Fatalf("create segment: %v", err)
+	}
+	res, err := db.sql.ExecContext(t.Context(), `
+INSERT INTO runs (
+    session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
+    started_at, log_path
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		session.ID, segment.ID, 1, ModeSpike, AgentClaude, 0, string(RunRunning), FormatTime(nowUTC()), "/logs/0001.jsonl")
+	if err != nil {
+		t.Fatalf("seed pre-migration run: %v", err)
+	}
+	runID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatalf("run id: %v", err)
+	}
+
+	if err := db.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate the rest of the sequence: %v", err)
+	}
+
+	cols := tableColumns(t, db, "runs")
+	for _, want := range []struct {
+		name    string
+		notNull bool
+	}{
+		{"sync_outcome", true},
+		{"sync_behind", true},
+		{"sync_ahead", true},
+		{"sync_commit_sha", false},
+	} {
+		col, ok := findColumn(cols, want.name)
+		if !ok {
+			t.Fatalf("runs has no %s column after migration 0010: %+v", want.name, cols)
+		}
+		if col.notNull != want.notNull {
+			t.Errorf("%s.notNull = %v, want %v", want.name, col.notNull, want.notNull)
+		}
+	}
+
+	run, err := db.GetRun(t.Context(), runID)
+	if err != nil {
+		t.Fatalf("read migrated run: %v", err)
+	}
+	if run.SyncOutcome != "" || run.SyncBehind != 0 || run.SyncAhead != 0 || run.SyncCommitSHA != "" {
+		t.Errorf("pre-migration run got sync fields %+v, want all zero values", run)
+	}
+}
+
 func findColumn(cols []columnInfo, name string) (columnInfo, bool) {
 	for _, c := range cols {
 		if c.name == name {
@@ -217,7 +294,13 @@ func TestMigration0003BackfillsAgentAndLeavesResumeTokenNull(t *testing.T) {
 
 	applyMigrationsThrough(t, db, 2)
 
-	repo := testRepo(t, db, "acme", "api")
+	// Seed the historical schema directly; current UpsertRepo legitimately
+	// requires columns introduced after this migration under test.
+	repo := Repo{ID: 1, Path: filepath.Join(t.TempDir(), "api"), Forge: "github", Owner: "acme", Name: "api"}
+	_, err = db.sql.ExecContext(t.Context(), `INSERT INTO repos (id,path,forge,owner,name,remote_url,base_branch,feature_prefix,worktree_root,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, repo.ID, repo.Path, repo.Forge, repo.Owner, repo.Name, "https://github.com/acme/api.git", "main", "lf", repo.Path+"-worktrees", FormatTime(nowUTC()), FormatTime(nowUTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	session, err := db.GetOrCreateSession(t.Context(), repo, 123)
 	if err != nil {
 		t.Fatalf("create session: %v", err)

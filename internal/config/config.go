@@ -82,17 +82,86 @@ type Providers struct {
 // Keeping these values in config, rather than introducing a settings service,
 // preserves the existing immutable configuration flow to runtime consumers.
 type Settings struct {
-	PollIntervalSeconds        int    `yaml:"poll_interval_seconds"`
-	MaxConcurrentRuns          int    `yaml:"max_concurrent_runs"`
-	DefaultBaseBranch          string `yaml:"default_base_branch"`
-	FeaturePrefix              string `yaml:"feature_prefix"`
-	WorktreeRoot               string `yaml:"worktree_root"`
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	MaxConcurrentRuns   int    `yaml:"max_concurrent_runs"`
+	DefaultBaseBranch   string `yaml:"default_base_branch"`
+	FeaturePrefix       string `yaml:"feature_prefix"`
+	WorktreeRoot        string `yaml:"worktree_root"`
+	// TeamConfig is the static-path override for the team index (US-2 tier
+	// 2): when set, litefactory reads its team index and markdown tree from
+	// this path instead of the embedded default, and the embedded default is
+	// not consulted at all. Empty means "use the embedded default, unless a
+	// registered-repo override applies". Must be absolute when set. A
+	// configured-but-missing path is a hard startup error, never a silent
+	// fallback to the embedded default (US-2 AC-3).
+	TeamConfig                 string `yaml:"team_config"`
 	WorktreeRetainDays         int    `yaml:"worktree_retain_days"`
 	LogLevel                   string `yaml:"log_level"`
 	AttachmentMaxImageBytes    int64  `yaml:"attachment_max_image_bytes"`
 	AttachmentMaxDocumentBytes int64  `yaml:"attachment_max_document_bytes"`
 	AttachmentMaxTotalBytes    int64  `yaml:"attachment_max_total_bytes"`
 	AttachmentMaxCount         int    `yaml:"attachment_max_count"`
+
+	// AutoSyncBase controls whether a later story's auto-sync step runs at
+	// all. Defaults to true: staying behind the base branch quietly, without
+	// anyone noticing, is the failure mode the sync feature exists to
+	// prevent (US-8). This field is read by that later story's syncBase
+	// function; this package only loads and validates it.
+	AutoSyncBase bool `yaml:"auto_sync_base"`
+	// AutoSyncMaxBehind bounds how many commits behind its base branch a
+	// worktree may be before litefactory refuses the run on distance alone,
+	// rather than attempting the merge (US-8).
+	//
+	// Exceeding it refuses; it does not skip. Skipping was the original
+	// behaviour and was the worst of the three answers available: it neither
+	// brought the branch up to date nor stopped, so the run went ahead
+	// against a branch known to be stale — the failure [AutoSyncBase] exists
+	// to prevent — and distance makes that more dangerous, not less.
+	// Turning auto-sync off is still a skip, because an operator who turned
+	// it off asked for the run to go ahead.
+	//
+	// 0 means no cap: auto-sync is never skipped for being far behind.
+	// A negative value is a config load error, enforced in [Config.Validate]
+	// — it is never silently clamped to 0 or to [DefaultAutoSyncMaxBehind]
+	// (CFG-6).
+	//
+	// The default of 100 is a judgment call, not a measurement: no data set
+	// determined it, and none should be assumed from it. It exists to be
+	// tuned per repository by an operator who knows their own rate of
+	// change, not to be quoted as an evidence-based threshold. 0 is a
+	// reasonable choice for a repository that would rather always merge and
+	// let a real conflict be the only thing that stops a run.
+	AutoSyncMaxBehind int `yaml:"auto_sync_max_behind"`
+	// BlockRunOnConflict controls whether a merge conflict hit during
+	// auto-sync blocks the run rather than letting it proceed against a
+	// stale base. Defaults to true: guessing wrong about a conflict is worse
+	// than stopping and asking (US-8).
+	BlockRunOnConflict bool `yaml:"block_run_on_conflict"`
+
+	// SuggestConflictResolution controls whether a blocked run (US-4) also
+	// asks a tool-free model call to suggest how the conflict could be
+	// resolved, persists the suggestion, and posts it alongside the refusal
+	// (US-11).
+	//
+	// Defaults to false. This is the first place in litefactory where
+	// repository file content leaves the process and reaches a model, and
+	// turning it on is a decision for a human reviewer after a dedicated
+	// security sign-off — not something a fresh install opts into by
+	// running `litefactory init`.
+	SuggestConflictResolution bool `yaml:"suggest_conflict_resolution"`
+	// ConflictProposalTTLHours bounds how long a conflict-resolution
+	// proposal stays pending before a later one for the same session treats
+	// it as stale and expires it (US-11), mirroring the schedule proposal
+	// lifetime internal/daemon already applies to its own proposals.
+	ConflictProposalTTLHours int `yaml:"conflict_proposal_ttl_hours"`
+	// ConflictContentMaxBytes caps the total conflicting file content sent
+	// to the model across every conflicting file in one blocked merge
+	// (US-11, S-9, S-17). Per-file and total capping is internal/turn's
+	// job; this is the total ceiling it caps against — negative or zero is
+	// a config load error, never silently treated as "no cap": unlike
+	// [Settings.AutoSyncMaxBehind], there is no meaningful "unlimited"
+	// reading for content sent to an external model call.
+	ConflictContentMaxBytes int `yaml:"conflict_content_max_bytes"`
 }
 
 // Agents groups the fully typed configuration for every supported coding
@@ -364,12 +433,19 @@ func Defaults() Config {
 			DefaultBaseBranch:          "",
 			FeaturePrefix:              DefaultFeaturePrefix,
 			WorktreeRoot:               "",
+			TeamConfig:                 "",
 			WorktreeRetainDays:         DefaultWorktreeRetainDays,
 			LogLevel:                   DefaultLogLevel,
 			AttachmentMaxImageBytes:    DefaultAttachmentMaxImageBytes,
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
 			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
 			AttachmentMaxCount:         DefaultAttachmentMaxCount,
+			AutoSyncBase:               true,
+			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
+			BlockRunOnConflict:         true,
+			SuggestConflictResolution:  false,
+			ConflictProposalTTLHours:   DefaultConflictProposalTTLHours,
+			ConflictContentMaxBytes:    DefaultConflictContentMaxBytes,
 		},
 		Providers: Providers{
 			GitHub: GitHub{
@@ -464,6 +540,20 @@ const (
 	// DefaultAttachmentMaxCount is 10, the default ceiling on the number of
 	// attachments ingested for one turn (US-5).
 	DefaultAttachmentMaxCount = 10
+	// DefaultAutoSyncMaxBehind is 100 commits behind base before auto-sync is
+	// skipped on distance alone (US-8). It is a judgment call, not a
+	// measurement — see [Settings.AutoSyncMaxBehind].
+	DefaultAutoSyncMaxBehind = 100
+	// DefaultConflictProposalTTLHours is 24 hours: how long a conflict-
+	// resolution proposal stays pending before it is treated as stale
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictProposalTTLHours].
+	DefaultConflictProposalTTLHours = 24
+	// DefaultConflictContentMaxBytes is 16 KiB: the default total budget
+	// for conflicting file content sent to the model in one blocked merge
+	// (US-11). A judgment call, not a measurement — see
+	// [Settings.ConflictContentMaxBytes].
+	DefaultConflictContentMaxBytes = 16 * 1024
 )
 
 // NotInitializedError reports that $LF_HOME has no config.yaml, which means

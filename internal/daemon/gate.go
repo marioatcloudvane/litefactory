@@ -57,6 +57,26 @@ import (
 // words and a channel, and a gate that outlived its last holder is exactly what
 // the next turn on that clone needs.
 //
+// # Keyed on the clone, not the branch (US-6)
+//
+// internal/turn's prepareClone critical section now includes a merge of the base branch
+// into the task branch, which reads as a per-branch operation and invites the
+// question of whether the gate should be keyed on repo.Path plus branch, so
+// that two turns syncing two different branches of the same clone could run
+// their merges concurrently instead of queuing. They should not, and the
+// measurements above are why: a merge still runs "git fetch" against the same
+// remote-tracking refs, still resolves and moves a ref in the clone's one
+// shared refs/ namespace, and still reads and writes the clone's one shared
+// object database — none of that becomes branch-scoped just because the ref
+// being moved has a different name. Keying on branch would still need the
+// same per-clone exclusion underneath to protect the object database and the
+// refs directory, so it would add a second layer of bookkeeping for
+// contention that is already serialised, not remove any. Concurrent issues on
+// one clone already get independent, uncorrupted syncs under the existing
+// per-clone key, precisely because they are queuing on the clone, not
+// racing each other on the branch — see
+// internal/turn/syncconcurrency_test.go.
+//
 // A cloneGate is safe for concurrent use.
 type cloneGate struct {
 	mu    sync.Mutex

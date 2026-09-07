@@ -7,6 +7,7 @@
 
 - **Exit status:** killed by litefactory, so there is no exit code
 - **Duration:** unknown
+- **Cost:** unknown
 - **Log:** `litefactory logs 123 --run 5` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
 
 _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._

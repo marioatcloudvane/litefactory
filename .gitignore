@@ -48,3 +48,6 @@ go.work.sum
 
 # Personal Claude Code permission overrides — never committed.
 .claude/settings.local.json
+
+# macOS Finder metadata
+.DS_Store

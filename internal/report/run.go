@@ -157,6 +157,18 @@ type Run struct {
 	ToolsRequested []string
 	ToolProfile    string
 
+	// Sync is what litefactory's automatic branch sync reached for this run's
+	// task branch, before the run itself started (US-2). Nil renders no sync
+	// section at all — a caller that does not populate this field, or a repo
+	// where auto-sync has not landed, reports exactly as it did before this
+	// field existed. A non-nil Sync whose Outcome is [SyncUpToDate] also
+	// renders nothing (AC-3.1): the branch already had everything the base
+	// did, and that is not itself something to disclose.
+	//
+	// Every other outcome gets a rendered sentence, [SyncSkipped] included —
+	// a skip is never silent (AC-3.2), whatever caused it.
+	Sync *Sync
+
 	// BriefPath is the repository-relative, slash-separated path of this task's
 	// RESEARCH_BRIEF.md, as found on disk by the caller. Empty means the caller
 	// looked and there is no brief — or had no worktree to look in — and the
@@ -248,6 +260,7 @@ func (c cuts) any() bool {
 // expendable part first.
 const (
 	secFixed  = iota // marker, heading, status callout, metadata — never cut
+	secSync          // base branch sync disclosure — never cut (US-3)
 	secResult        // the run's final message
 	secFiles         // files touched
 	secOutput        // the <details> log tail
@@ -272,6 +285,7 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
+	sections[secSync] = syncSection(run)
 	sections[secResult] = resultSection(run, view)
 	sections[secFiles] = filesSection(run)
 
@@ -404,10 +418,44 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v.lead += "\n\nlitefactory then could not complete the turn either: " + failure
 	}
 
-	if run.WorktreePath != "" {
-		v.lead += "\n\nWhatever the run produced is still in the worktree at " + codeSpan(run.WorktreePath) + "."
+	// Only mention the worktree here when there is a commit to distinguish
+	// this callout from: with CommitSHA != "", metadataList's Commit line
+	// takes its own case (line 567/569) and never names the path itself, so
+	// this is the single place that does. With CommitSHA == "", metadataList's
+	// Commit-line default arm (below) already names the path for a non-success
+	// run with nothing committed — naming it here too would say it twice.
+	if run.CommitSHA != "" {
+		v.lead += worktreeNote(run.WorktreePath)
 	}
 	return v
+}
+
+// worktreeNote is the paragraph naming where a run's unfinished work still
+// sits, appended to a callout describing a run that did not succeed. Empty
+// when the worktree path was never recorded, because a report should never
+// claim a location it does not have.
+//
+// Called only from [outcomeView.withFailure], for a failure that happened
+// around the run itself (Run.Failure != nil) and left a commit behind
+// (Run.CommitSHA != ""), not from [describeRunOutcome]'s own non-success arms
+// and not for a CommitSHA == "" failure — those defer to metadataList's
+// Commit line, the single place a non-success report with nothing committed
+// names the worktree path (AC-3.1).
+func worktreeNote(path string) string {
+	if path == "" {
+		return ""
+	}
+	return "\n\nWhatever the run produced is still in the worktree" + inWorktreeAt(path) + "."
+}
+
+// inWorktreeAt renders where a run's worktree sits, as a clause to append
+// after "the worktree" — the path, quoted through [codeSpan] so it cannot
+// break the comment's markdown, or nothing when the path was never recorded.
+func inWorktreeAt(path string) string {
+	if path == "" {
+		return ""
+	}
+	return " at " + codeSpan(path)
 }
 
 // describeRunOutcome renders the heading word and the callout for how the run
@@ -494,7 +542,7 @@ func fixedSection(run Run, view outcomeView) string {
 		b.WriteString(alertBlock(view.alert, view.lead))
 	}
 	b.WriteString(sectionGap)
-	b.WriteString(metadataList(run))
+	b.WriteString(metadataList(run, view))
 	b.WriteString(sectionGap)
 	b.WriteString(ReplyPlainlyNotice)
 	return b.String()
@@ -526,7 +574,11 @@ func alertBlock(kind, text string) string {
 
 // metadataList renders the facts of the run as a bullet list. Every entry is
 // omitted rather than guessed when it is not known.
-func metadataList(run Run) string {
+//
+// view is the outcome already computed for the callout above — passed in
+// rather than recomputed, so the Commit line's wording and the callout's
+// never disagree about whether this run succeeded.
+func metadataList(run Run, view outcomeView) string {
 	var lines []string
 	add := func(label, value string) {
 		lines = append(lines, "- **"+label+":** "+value)
@@ -540,8 +592,17 @@ func metadataList(run Run) string {
 		add("Commit", codeSpan(run.CommitSHA)+" (pushed)")
 	case run.CommitSHA != "":
 		add("Commit", codeSpan(run.CommitSHA)+" (in the local worktree only — not pushed)")
-	case run.Branch != "":
+	case run.Branch == "":
+		// Nothing to report: with no branch there is no worktree to name either.
+	case view.succeed:
 		add("Commit", "none — this run committed nothing")
+	default:
+		// A non-success run that committed nothing is not the same fact as a
+		// successful run that had nothing to change (AC-3.1): the words must
+		// differ, and this is where the reader is told where the work — if
+		// there is any — still is.
+		add("Commit", "none — this run did not succeed; if it produced anything, it is still in the worktree"+
+			inWorktreeAt(run.WorktreePath))
 	}
 
 	// The brief sits with the branch and the commit because it is the same kind
@@ -580,12 +641,17 @@ func metadataList(run Run) string {
 	}
 
 	if res := run.Result; res != nil {
-		if res.CostUSD > 0 {
+		switch {
+		case res.HasCost:
 			add("Cost", fmt.Sprintf("$%.4f", res.CostUSD))
+		default:
+			add("Cost", "unknown")
 		}
 		if res.Model != "" {
 			add("Model", codeSpan(res.Model))
 		}
+	} else {
+		add("Cost", "unknown")
 	}
 
 	if tools, ok := toolsEntry(run); ok {
@@ -694,6 +760,209 @@ func codeList(names []string) string {
 		spans = append(spans, codeSpan(name))
 	}
 	return strings.Join(spans, ", ")
+}
+
+// SyncOutcome is which of the five outcomes litefactory's automatic branch
+// sync reached for one run's task branch, before the run itself started
+// (US-2).
+//
+// It is this package's own string type rather than a reuse of internal/turn's
+// unexported syncOutcome — the same reason [ReplyKind] is its own enum
+// instead of internal/turn's CommandKind: internal/turn depends on this
+// package to render its reports, so the dependency cannot point the other
+// way. The string values are chosen to match internal/turn's exactly, so a
+// future caller can convert one to the other with a plain type conversion
+// rather than a switch.
+type SyncOutcome string
+
+const (
+	// SyncUpToDate means the branch already had everything the base branch
+	// did. [Run.Sync] carrying this outcome renders no sync section at all
+	// (AC-3.1) — there is nothing to disclose.
+	SyncUpToDate SyncOutcome = "up_to_date"
+
+	// SyncSynced means litefactory merged the base branch in cleanly before
+	// the run started.
+	SyncSynced SyncOutcome = "synced"
+
+	// SyncBlocked means a merge was attempted only far enough to discover it
+	// would conflict; the branch was left exactly as it was, unmerged, and
+	// the run went ahead against it. This is the normal-run disclosure —
+	// not the refusal a different, factory-owned mechanism sends when an
+	// explicit sync request cannot be honoured (US-4's ReplyRefusesSync).
+	SyncBlocked SyncOutcome = "blocked"
+
+	// SyncSkipped means litefactory chose not to attempt a sync it could
+	// have attempted — the configured cap on how far behind a branch may be,
+	// auto-sync turned off for the repo, or an `Sync: Off` label on the
+	// issue. [Sync.Reason] is what says which; a skip is never rendered
+	// silently (AC-3.2).
+	SyncSkipped SyncOutcome = "skipped"
+
+	// SyncFailed means litefactory tried to sync and the attempt itself
+	// broke — as distinct from [SyncBlocked], where nothing was attempted
+	// because the conflict was foreseen ahead of time.
+	SyncFailed SyncOutcome = "failed"
+)
+
+// Sync is what litefactory's automatic branch sync reached for one run's task
+// branch, before the run itself started. See [Run.Sync] for how a nil or
+// up-to-date value renders.
+type Sync struct {
+	// Outcome is which of the five outcomes sync reached.
+	Outcome SyncOutcome
+
+	// Behind and Ahead are the divergence from Base that was measured before
+	// Outcome was decided: how many commits Base had that the branch did
+	// not, and how many the branch had that Base did not.
+	Behind, Ahead int
+
+	// Base is the base ref sync compared against and, when Outcome is
+	// [SyncSynced], the ref that was merged in — for example
+	// "origin/main". Rendered as plain text.
+	Base string
+
+	// CommitSHA is the merge commit sync produced, non-empty only when
+	// Outcome is [SyncSynced] and the merge actually moved the branch.
+	CommitSHA string
+
+	// Conflicts lists the paths a blocked merge preview reported, exactly as
+	// given. It is rendered inside a fenced block, the same defence
+	// [filesSection] uses for the files-touched list, so a path cannot
+	// become markup in the comment (S-2) no matter what it contains — but
+	// this package does not sanitise or truncate the list itself, or decide
+	// which paths are safe to show at all. That is a caller's job (US-5);
+	// this renderer shows whatever list it is handed.
+	Conflicts []string
+
+	// Reason is why sync did not complete, in a sentence fit to render
+	// directly after "because ": why it was skipped (the configured cap,
+	// auto-sync being off, or an `Sync: Off` label) when Outcome is
+	// [SyncSkipped], or what went wrong when Outcome is [SyncFailed]. Empty
+	// still renders a sentence rather than nothing — a skip is never silent
+	// (AC-3.2) even when the caller did not record why.
+	Reason string
+}
+
+const syncHeading = "**Base branch sync**"
+
+// syncSection renders the base-branch-sync disclosure (US-3). A nil Sync, or
+// one whose Outcome is [SyncUpToDate], renders nothing at all (AC-3.1): a
+// section that is merely empty would still look like something was omitted,
+// and the point of this rendering nothing here is that there is nothing to
+// say.
+//
+// Every other outcome gets a rendered sentence, [SyncSkipped] included
+// (AC-3.2) — see [Sync.Reason].
+func syncSection(run Run) string {
+	sync := run.Sync
+	if sync == nil || sync.Outcome == SyncUpToDate {
+		return ""
+	}
+
+	var withBase string
+	if sync.Base != "" {
+		withBase = " with " + codeSpan(sync.Base)
+	}
+
+	var lead string
+	switch sync.Outcome {
+	case SyncSynced:
+		lead = fmt.Sprintf("litefactory synced this branch%s before the run started: "+
+			"it was %d commit(s) behind and is now %d ahead.", withBase, sync.Behind, sync.Ahead)
+		if sync.CommitSHA != "" {
+			lead += " Merge commit: " + codeSpan(sync.CommitSHA) + "."
+		}
+
+	case SyncBlocked:
+		lead = fmt.Sprintf("litefactory could not sync this branch%s: merging would conflict, "+
+			"so the branch was left as it was (%d commit(s) behind) and the run went ahead against it.",
+			withBase, sync.Behind)
+
+	case SyncSkipped:
+		reason := oneLine(sync.Reason)
+		if reason == "" {
+			reason = "no reason was recorded for it"
+		}
+		lead = fmt.Sprintf("litefactory skipped syncing this branch%s (%d commit(s) behind): %s.",
+			withBase, sync.Behind, reason)
+
+	case SyncFailed:
+		reason := oneLine(sanitize(sync.Reason))
+		if reason == "" {
+			reason = "the attempt failed without recording why"
+		}
+		lead = fmt.Sprintf("litefactory tried to sync this branch%s but could not: %s.", withBase, reason)
+
+	default:
+		lead = fmt.Sprintf("litefactory recorded a base branch sync outcome it does not recognise (%s).", sync.Outcome)
+	}
+
+	var b strings.Builder
+	b.WriteString(syncHeading)
+	b.WriteString(sectionGap)
+	b.WriteString(lead)
+
+	if sync.Outcome == SyncBlocked && len(sync.Conflicts) > 0 {
+		b.WriteString(sectionGap)
+		fmt.Fprintf(&b, "Conflicting path(s) (%d):\n", len(sync.Conflicts))
+		b.WriteString(conflictsBlock(sync.Conflicts))
+	}
+	return b.String()
+}
+
+// conflictsBlock quotes conflicting paths inside a fenced block, so a path
+// holding markdown characters — or one crafted to look like a code fence of
+// its own — cannot become markup in the comment (S-2). It is the same
+// defence [filesSection] uses for the files-touched list, applied here for
+// the same reason: both lists are attacker-influenced content read from a
+// worktree, and neither is trusted to render as anything but literal text.
+//
+// Before any of that, every path is classified by [classifyConflictPaths]
+// (US-5): a path that could be read as an HTML comment shaped like
+// [MarkerPrefix], or one carrying a bidi-override rune, is rejected
+// outright — never printed, never printed truncated — and only counted
+// (AC-5.1). What survives that check is then capped at
+// [maxConflictPathEntries] with a remainder count; that cap is a display
+// rule distinct from the rejection check and is applied after it, never in
+// place of it (AC-5.2).
+func conflictsBlock(paths []string) string {
+	accepted, rejected := classifyConflictPaths(paths)
+
+	shown := accepted
+	var overflow int
+	if len(shown) > maxConflictPathEntries {
+		overflow = len(shown) - maxConflictPathEntries
+		shown = shown[:maxConflictPathEntries]
+	}
+
+	var b strings.Builder
+	if len(shown) > 0 {
+		lines := make([]string, 0, len(shown))
+		for _, p := range shown {
+			lines = append(lines, sanitize(p))
+		}
+		list := strings.Join(lines, "\n")
+		fence := fenceFor(list)
+		b.WriteString(fence)
+		b.WriteString("\n")
+		b.WriteString(list)
+		b.WriteString("\n")
+		b.WriteString(fence)
+	}
+	if overflow > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "_… and %d more._", overflow)
+	}
+	if rejected > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, conflictPathRejectionSentence, rejected)
+	}
+	return b.String()
 }
 
 const resultHeading = "**Result**"

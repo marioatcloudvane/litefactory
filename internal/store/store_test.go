@@ -1134,6 +1134,87 @@ func TestFinishRunRecordsAKillWithAReason(t *testing.T) {
 	}
 }
 
+// TestRecordRunSyncRoundTripsEveryOutcome is AC-9.2 and AC-9.3: whichever of
+// the five outcomes syncBase reached, RecordRunSync stores it and GetRun
+// reads it back unchanged, and a commit sha survives the round trip only for
+// the outcome that may legitimately carry one.
+func TestRecordRunSyncRoundTripsEveryOutcome(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	for i, tc := range []struct {
+		outcome   SyncOutcome
+		behind    int
+		ahead     int
+		commitSHA string
+	}{
+		{SyncUpToDate, 0, 2, ""},
+		{SyncSynced, 5, 1, "abc123def456"},
+		{SyncBlocked, 7, 0, ""},
+		{SyncSkipped, 40, 3, ""},
+		{SyncFailed, 3, 0, ""},
+	} {
+		run := testRun(t, db, session.ID, int64(1000+i))
+
+		updated, err := db.RecordRunSync(t.Context(), run.ID, RunSyncOutcome{
+			Outcome:   tc.outcome,
+			Behind:    tc.behind,
+			Ahead:     tc.ahead,
+			CommitSHA: tc.commitSHA,
+		})
+		if err != nil {
+			t.Fatalf("record run sync for outcome %q: %v", tc.outcome, err)
+		}
+		if updated.SyncOutcome != tc.outcome || updated.SyncBehind != tc.behind ||
+			updated.SyncAhead != tc.ahead || updated.SyncCommitSHA != tc.commitSHA {
+			t.Fatalf("record run sync for outcome %q returned %+v, want behind=%d ahead=%d commit=%q",
+				tc.outcome, updated, tc.behind, tc.ahead, tc.commitSHA)
+		}
+
+		reread, err := db.GetRun(t.Context(), run.ID)
+		if err != nil {
+			t.Fatalf("re-read run for outcome %q: %v", tc.outcome, err)
+		}
+		if reread.SyncOutcome != tc.outcome || reread.SyncBehind != tc.behind ||
+			reread.SyncAhead != tc.ahead || reread.SyncCommitSHA != tc.commitSHA {
+			t.Fatalf("re-read run for outcome %q got %+v, want behind=%d ahead=%d commit=%q",
+				tc.outcome, reread, tc.behind, tc.ahead, tc.commitSHA)
+		}
+	}
+}
+
+// TestRecordRunSyncRefusesACommitShaOutsideSynced guards AC-9.2's other half:
+// a non-null sync_commit_sha may only ever accompany the synced outcome, so
+// the write path refuses the combination rather than trusting every caller
+// to get it right.
+func TestRecordRunSyncRefusesACommitShaOutsideSynced(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+	run := testRun(t, db, session.ID, 2001)
+
+	if _, err := db.RecordRunSync(t.Context(), run.ID, RunSyncOutcome{
+		Outcome:   SyncBlocked,
+		CommitSHA: "should-not-be-allowed",
+	}); err == nil {
+		t.Fatal("RecordRunSync accepted a commit sha on a blocked outcome")
+	}
+}
+
+// TestRecordRunSyncOnAMissingRunReportsNotFound guards the read-then-write
+// shape shared with FinishRun and CompleteRunReport: a runID that does not
+// exist must not silently affect zero rows.
+func TestRecordRunSyncOnAMissingRunReportsNotFound(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+
+	_, err := db.RecordRunSync(t.Context(), 999999, RunSyncOutcome{Outcome: SyncUpToDate})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
 // TestCompleteRunReportIsOneTransaction is AC-4.10. The result comment id, the
 // watermark and the run's status move together or not at all.
 func TestCompleteRunReportIsOneTransaction(t *testing.T) {

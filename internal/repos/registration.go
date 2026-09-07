@@ -52,6 +52,8 @@ const (
 // empty field means "not given", which is how the resolution order below falls
 // through to the next source.
 type Options struct {
+	// ExternalTeam is an explicitly selected, already validated central team.
+	ExternalTeam string
 	// BaseBranch is --base.
 	BaseBranch string
 	// WorktreeRoot is --worktrees.
@@ -79,6 +81,7 @@ type Defaults struct {
 // and it is a plain value: nothing here has been written to disk or to the
 // database yet.
 type Registration struct {
+	ExternalTeam string
 	// Path is the clone's top level: absolute, symlink-resolved, canonical.
 	// It is the unique key the repos table is upserted on (AC-1.8).
 	Path string
@@ -121,6 +124,7 @@ func (r Registration) StoreRepo(verifiedAt time.Time) store.Repo {
 		FeaturePrefix:    r.FeaturePrefix,
 		WorktreeRoot:     r.WorktreeRoot,
 		AiteamTeam:       r.Aiteam.Team,
+		ExternalTeam:     r.ExternalTeam,
 		AiteamVerifiedAt: verifiedAt.UTC(),
 	}
 }
@@ -161,7 +165,7 @@ func Resolve(ctx context.Context, binary *git.Binary, path string, opts Options,
 	if err != nil {
 		return nil, &CheckError{Check: CheckAiteam, Path: root, Err: err}
 	}
-	if !aiteam.Present {
+	if !aiteam.Present && opts.ExternalTeam == "" {
 		return nil, &CheckError{Check: CheckAiteam, Path: root, Err: ErrAiteamMissing}
 	}
 
@@ -181,6 +185,7 @@ func Resolve(ctx context.Context, binary *git.Binary, path string, opts Options,
 	}
 
 	return &Registration{
+		ExternalTeam:       opts.ExternalTeam,
 		Path:               root,
 		Ref:                ref,
 		RemoteURL:          remoteURL,

@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -44,6 +45,13 @@ type preparation struct {
 	request  agent.Request
 	prompt   string
 	metaPath string
+
+	// sync is what [syncBase] reached for this task branch (US-2), read after
+	// [prepareClone] returns rather than recomputed. Rendering it into the
+	// issue comment is US-3's job and persisting SyncCommitSHA is US-9's; this
+	// is the one place both later stories can read the outcome off without a
+	// second call to git.
+	sync syncResult
 
 	// promptInput is what the prompt was built from, kept so that the resume
 	// fallback in [runAndHarvest] can rebuild it cold without reassembling any
@@ -97,6 +105,9 @@ func prepare(
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
+	if repo.ExternalTeam != "" {
+		return nil, failuref(fmt.Errorf("external team transport is not verified"), "external team %q is selected, but per-run CLI delivery is not available in this build; install a build with verified team transport before running this repository", repo.ExternalTeam)
+	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
 	if err != nil {
@@ -107,9 +118,36 @@ func prepare(
 		return nil, err
 	}
 
-	session, branch, worktree, err := prepareClone(ctx, opts, req, clone, session, repo, logger)
+	session, branch, worktree, sync, _, err := prepareClone(ctx, opts, req, clone, session, repo, author, logger, nil)
 	if err != nil {
 		return nil, err
+	}
+	// AC-4.1: a blocked merge preview stops the turn here, before anything
+	// else below is created or mutated — no segment, no runs row, no
+	// run-artifact directory — and the branch itself is untouched, because
+	// [git.Worktree.MergePreview] never performed one (US-2). syncBase
+	// produces the blocked outcome regardless of this flag (US-2's own scope
+	// boundary); [Options.BlockRunOnConflict] is what turns it into a refusal
+	// rather than a run that merely discloses the conflict and goes ahead.
+	// Distance refuses unconditionally: unlike a conflict, there is no
+	// BlockRunOnConflict-style "disclose and carry on" reading of a cap. An
+	// operator who wants the run to go ahead raises the cap or sets it to 0.
+	if sync.Outcome == syncOutcomeTooFarBehind {
+		return nil, &syncRefusal{
+			tooFarBehind: true,
+			behind:       sync.Behind,
+			maxBehind:    opts.AutoSyncMaxBehind,
+			branch:       sync.Branch, base: sync.Base,
+		}
+	}
+	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
+		return nil, &syncRefusal{
+			conflicts: append([]string(nil), sync.Conflicts...),
+			branch:    sync.Branch, base: sync.Base,
+			files:    sync.ConflictFiles,
+			excluded: sync.ConflictExcluded,
+			baseSHA:  sync.BaseSHA, branchSHA: sync.BranchSHA,
+		}
 	}
 	if session.WorktreePath != worktree.Path() {
 		if err = opts.DB.SetSessionWorktree(ctx, session.ID, worktree.Path()); err != nil {
@@ -200,6 +238,21 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	// US-9: sync was decided earlier, inside prepareClone's call into
+	// syncBase, but there was no runs row yet for the outcome to attach to —
+	// allocateRun just above is what creates it. Persisting it here, before
+	// anything else below that can fail, keeps the invariant the comment on
+	// the SetSessionState call further down relies on: every error return
+	// from this point on must leave sessions.state untouched, and that is
+	// only true if this write cannot itself be skipped by a later failure.
+	if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
+		Outcome:   store.SyncOutcome(sync.Outcome),
+		Behind:    sync.Behind,
+		Ahead:     sync.Ahead,
+		CommitSHA: sync.SyncCommitSHA,
+	}); err != nil {
+		return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
 	metaPath, err := harness.MetaPath(opts.Paths.Home(), ref, run.Ordinal)
 	if err != nil {
 		return nil, fmt.Errorf("derive the metadata path of run %d: %w", run.Ordinal, err)
@@ -232,6 +285,19 @@ func prepare(
 	attachments := ingestAttachments(ctx, opts, req, ref, run.Ordinal, logger)
 	writeAttachmentManifest(ctx, worktree.Path(), ref, run.Ordinal, attachments, logger)
 
+	// Both fields are populated only when resume is true: a cold run has no
+	// predecessor whose transcript needs correcting, and a zero store.Run's
+	// own Succeeded() would read as success anyway, which is not the fact a
+	// cold prompt could ever need. resumeDecision's own three conditions
+	// already guarantee found is true whenever resume is true, so previous is
+	// always the real predecessor row here, never the zero value.
+	var previousFailed bool
+	var previousReason string
+	if resume {
+		previousFailed = !previous.Succeeded()
+		previousReason = previous.Error
+	}
+
 	promptInput := harness.PromptInput{
 		Ref:               ref,
 		FeatureSlug:       session.FeatureSlug,
@@ -251,6 +317,8 @@ func prepare(
 		PreviousMode:      previous.Mode,
 		History:           history,
 		Attachments:       attach.PromptSection(attachments.Accepted),
+		PreviousFailed:    previousFailed,
+		PreviousReason:    previousReason,
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
@@ -321,6 +389,7 @@ func prepare(
 		prompt:      prompt,
 		metaPath:    metaPath,
 		promptInput: promptInput,
+		sync:        sync,
 		request: agent.Request{
 			Ref:            ref,
 			RunOrdinal:     run.Ordinal,
@@ -365,6 +434,32 @@ func prepare(
 // RETURNING against a local SQLite file — microseconds against the seconds a
 // fetch takes — so what it costs the turns queued behind it is not measurable.
 //
+// # confirmed (US-12)
+//
+// confirmed is nil for every ordinary turn and non-nil only for
+// [ExecuteApplyResolution]'s agentless apply turn. [syncBase] itself only
+// runs when confirmed is nil: a confirmed resolution already knows exactly
+// what it is merging and carries its own re-verification, so a second,
+// independent auto-sync attempt over the same branch would risk a second,
+// unconfirmed merge commit (AC-12.5) and could move the branch tip out from
+// under the TOCTOU check below before that check ever runs (S-15). When
+// confirmed is set, applying the confirmed proposal is instead this
+// section's fourth step, immediately after [ensureWorktree]: the stored
+// base/branch shas are re-verified against values read no earlier than this
+// same gate acquisition (S-15), and — only when they still match —
+// [git.Worktree.WriteResolvedFiles], [git.Worktree.StageResolvedFiles],
+// [git.Worktree.CompleteMerge] and [git.Worktree.Push] run right here,
+// inline, rather than through a separately named helper. That is
+// deliberate, not merely convenient: internal/turn/gate_test.go's static
+// analysis attributes a gated call to the literal function it is written
+// in, and the whole point of doing this here is that none of those four
+// calls exists anywhere else in the package — see gate_test.go's own
+// "gated" map, which names this function as their one allowed home. There is
+// no claude run between this step and [ensureWorktree] — the confirmation
+// grammar never starts one — so, unlike an ordinary turn's separate
+// [commitAndPush] critical section, nothing here needs to give the gate back
+// and take it a second time.
+//
 // # No deadline is imposed here
 //
 // The context is passed through untouched. Every git command starts its own
@@ -380,8 +475,10 @@ func prepareClone(
 	clone *git.Clone,
 	session store.Session,
 	repo store.Repo,
+	author git.Author,
 	logger *slog.Logger,
-) (store.Session, string, *git.Worktree, error) {
+	confirmed *confirmedProposal,
+) (store.Session, string, *git.Worktree, syncResult, *confirmedApplyResult, error) {
 	// A cancelled context here is the daemon shutting down while this turn
 	// queued behind a sibling's fetch. It is reported the same way a failed
 	// fetch is — as a *failure the issue hears about — because from the
@@ -389,24 +486,335 @@ func prepareClone(
 	// answer either way (AC-4.1).
 	release, err := opts.CloneGate.Acquire(ctx, repo.Path)
 	if err != nil {
-		return session, "", nil, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
+		return session, "", nil, syncResult{}, nil, failuref(err, "the gate on the clone at %s could not be taken", repo.Path)
 	}
 	defer release()
 
 	if err := fetch(ctx, opts, clone, repo, logger); err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, nil, err
 	}
 
 	session, branch, err := freezeSlug(ctx, opts, req, session, repo)
 	if err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, nil, err
 	}
 
 	worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
 	if err != nil {
-		return session, "", nil, err
+		return session, "", nil, syncResult{}, nil, err
 	}
-	return session, branch, worktree, nil
+
+	if confirmed == nil {
+		sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+		if err != nil {
+			return session, "", nil, syncResult{}, nil, err
+		}
+		return session, branch, worktree, sync, nil, nil
+	}
+
+	// US-12: see the "confirmed" section of this function's own doc comment
+	// above for why this runs inline rather than through a helper, and for
+	// why [syncBase] itself does not run at all on this path. There is no
+	// meaningful syncResult for this turn, so every return below carries the
+	// zero value.
+	stored := confirmed.proposal
+	currentBranchSHA, revErr := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+	if revErr != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "the head of %s could not be read", worktree.Branch())
+	}
+	baseRef := opts.remote() + "/" + repo.BaseBranch
+	currentBaseSHA, revErr := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+	if revErr != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "%s could not be resolved", baseRef)
+	}
+	if currentBranchSHA != stored.BranchSHA || currentBaseSHA != stored.BaseSHA {
+		logger.Info("confirmed proposal is stale; will be superseded rather than applied",
+			slog.Int64("proposal_id", stored.ID),
+			slog.String("stored_branch_sha", stored.BranchSHA), slog.String("current_branch_sha", currentBranchSHA),
+			slog.String("stored_base_sha", stored.BaseSHA), slog.String("current_base_sha", currentBaseSHA))
+		return session, branch, worktree, syncResult{}, &confirmedApplyResult{Superseded: true, Proposal: stored}, nil
+	}
+
+	ref, refErr := naming.ParseRef(session.TaskRef)
+	if refErr != nil {
+		return session, branch, worktree, syncResult{}, nil, fmt.Errorf("task ref %q on session %d: %w", session.TaskRef, session.ID, refErr)
+	}
+
+	files := make([]git.ResolvedFile, 0, len(stored.Files))
+	for _, f := range stored.Files {
+		files = append(files, git.ResolvedFile{Path: f.Path, Resolution: f.Resolution})
+	}
+	if err := worktree.WriteResolvedFiles(ctx, baseRef, files); err != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
+	}
+	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be staged", stored.ID)
+	}
+	mergeResult, err := worktree.CompleteMerge(ctx, git.CompleteMergeOptions{
+		Task: ref.String(), Mode: "confirm", Author: author,
+		ProposalID: stored.ID, ConfirmedBy: confirmed.confirmedBy, Model: stored.Model,
+	})
+	if err != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
+	}
+	if err := worktree.Push(ctx, opts.remote()); err != nil {
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the commit applying proposal %d could not be pushed", stored.ID)
+	}
+
+	return session, branch, worktree, syncResult{}, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, nil
+}
+
+// confirmedApplyResult is what [prepareClone] reached when confirmed was
+// non-nil (US-12): either the proposal turned out to be stale and was left
+// for the caller to mark superseded, or it was applied and CommitSHA is the
+// merge commit [git.Worktree.CompleteMerge] produced. It is nil whenever
+// confirmed was nil, and whenever an error is also returned — a git mutator
+// that failed reports through the ordinary error return, the same as every
+// other step of this function.
+type confirmedApplyResult struct {
+	// Superseded is true when the stored base/branch shas no longer matched
+	// what a fresh read found (AC-12.4). Proposal is set; CommitSHA is not.
+	Superseded bool
+	// Proposal is the proposal as [prepareClone] read it before deciding —
+	// carried back so the caller does not have to re-fetch it to know which
+	// proposal this result is about.
+	Proposal store.ConflictProposal
+	// CommitSHA is the merge commit produced, set only when Superseded is
+	// false.
+	CommitSHA string
+}
+
+// syncOutcome names the result syncBase reached (US-2). It is logged on every
+// path and carried on [preparation.sync] for the later stories that render it
+// (US-3) or persist it (US-9); today it is otherwise only observable in
+// daemon.log.
+type syncOutcome string
+
+const (
+	syncOutcomeUpToDate syncOutcome = "up_to_date"
+	syncOutcomeSynced   syncOutcome = "synced"
+	syncOutcomeBlocked  syncOutcome = "blocked"
+	syncOutcomeSkipped  syncOutcome = "skipped"
+	// syncOutcomeTooFarBehind is distance alone: further behind than
+	// [Options.AutoSyncMaxBehind] allows, so no merge was ever previewed.
+	// It refuses the run; see [syncRefusal.tooFarBehind].
+	syncOutcomeTooFarBehind syncOutcome = "too_far_behind"
+)
+
+// syncResult is what [syncBase] reached for one task branch: the outcome, the
+// divergence it was measured from, the merge commit's sha when one was made,
+// and the conflicting paths when the preview was unclean.
+//
+// It is deliberately a plain data value with no behaviour: US-3 reads Outcome
+// and Conflicts to render the comment, US-9 reads SyncCommitSHA to persist it,
+// and neither has to call back into internal/git to get there.
+type syncResult struct {
+	// Outcome is which of the four branches syncBase reached.
+	Outcome syncOutcome
+	// Behind and Ahead are the [git.Divergence] syncBase measured before
+	// deciding. Behind is 0 exactly when Outcome is [syncOutcomeUpToDate];
+	// Ahead is independent of Outcome and may be nonzero on any of the four.
+	Behind, Ahead int
+	// SyncCommitSHA is the merge commit [git.Worktree.MergeBase] produced,
+	// non-empty only when Outcome is [syncOutcomeSynced] and the merge
+	// actually moved the branch ([git.MergeResult.Merged]).
+	SyncCommitSHA string
+	// Conflicts lists the paths [git.Worktree.MergePreview] reported, non-nil
+	// only when Outcome is [syncOutcomeBlocked].
+	Conflicts []string
+	// Reason is why sync did not complete, phrased to read directly after
+	// "because ", and set only on [syncOutcomeSkipped] and
+	// [syncOutcomeFailed]. US-3 renders it; AC-3.2 is why a skip records one
+	// at all, since a skip that cannot say why is the silent staleness this
+	// whole feature exists to prevent.
+	Reason string
+
+	// Branch and Base are the exact ref names Outcome was decided against,
+	// carried alongside Conflicts so a suggested-resolution advisor (US-11)
+	// can be given proper names without reaching back into git for them.
+	Branch, Base string
+	// BranchSHA and BaseSHA are Branch and Base resolved to object ids at
+	// the moment [git.Worktree.MergePreview] evaluated them, still inside
+	// the same [Options.CloneGate] acquisition (US-12, S-15). Non-empty
+	// only when Outcome is [syncOutcomeBlocked] — they are what a later
+	// confirmation's own fresh reads are compared against before anything
+	// is applied.
+	BranchSHA, BaseSHA string
+	// ConflictFiles and ConflictExcluded are the conflicting content
+	// [collectConflictContent] gathered inside this same [Options.CloneGate]
+	// acquisition (US-11, S-10), non-nil only when
+	// [Options.SuggestConflictResolution] was true and Outcome reached
+	// [syncOutcomeBlocked].
+	ConflictFiles    []agent.ConflictFileContent
+	ConflictExcluded []string
+}
+
+// syncEnabled resolves whether auto-sync runs for this turn: a non-nil
+// [Request.SyncOverride] — the per-issue "Sync:" label's resolved decision
+// (US-7) — always wins; a nil override leaves the configured
+// [Options.AutoSyncBase] default in force (AC-7.1).
+func syncEnabled(opts Options, req Request) bool {
+	if req.SyncOverride != nil {
+		return *req.SyncOverride
+	}
+	return opts.AutoSyncBase
+}
+
+// withinSyncCap reports whether behind commits is close enough to attempt
+// auto-sync. [Options.AutoSyncMaxBehind] of 0 means no cap, exactly as
+// [config.Settings.AutoSyncMaxBehind] documents.
+func withinSyncCap(opts Options, behind int) bool {
+	return opts.AutoSyncMaxBehind == 0 || behind <= opts.AutoSyncMaxBehind
+}
+
+// reportSync renders one [syncResult] as the value [report.Run.Sync] takes,
+// or nil when there is nothing a run report should say. Up-to-date is the
+// nil case by design: AC-3.1 requires a report for a branch that was already
+// current to be byte-identical to one from before this feature existed.
+//
+// Blocked never reaches here either, for a different reason — a blocked run
+// is refused before it starts and answered by [report.ReplyRefusesSync], so
+// there is no run report to carry it.
+func reportSync(sync syncResult) *report.Sync {
+	switch sync.Outcome {
+	case syncOutcomeUpToDate, syncOutcomeBlocked:
+		return nil
+	}
+	return &report.Sync{
+		Outcome:   report.SyncOutcome(sync.Outcome),
+		Behind:    sync.Behind,
+		Ahead:     sync.Ahead,
+		Base:      sync.Base,
+		CommitSHA: sync.SyncCommitSHA,
+		Reason:    sync.Reason,
+	}
+}
+
+// syncOffLabel is the label a per-issue opt-out carries, named here only so a
+// skip can say what caused it. internal/daemon owns the label's resolution and
+// its spelling; this is the rendered name, not a second parser.
+const syncOffLabel = "`Sync: Off`"
+
+// syncBase merges the latest base branch into the task branch when that merge
+// is clean (US-2), as the fourth and last step of [prepareClone] — after
+// [ensureWorktree], still inside the one [Options.CloneGate] acquisition that
+// function took at its top. There is no separate gate for this step: the same
+// time-of-check-to-time-of-use reasoning that keeps fetch, freezeSlug and
+// ensureWorktree together applies here too, since a sibling's fetch landing
+// between Divergence and MergeBase would let this compute a preview against a
+// base that has already moved.
+//
+// It never returns an error for a merge that is merely unclean: a conflicted
+// [git.Worktree.MergePreview] is the "blocked" outcome, not a failure, and the
+// branch is left exactly as [ensureWorktree] produced it. An error return here
+// means the merge could not even be attempted or attempting it failed in a way
+// [git.Worktree.MergeBase] could not roll back on its own — both are reported
+// to the issue the same way every other prepareClone step's failure is.
+func syncBase(
+	ctx context.Context,
+	opts Options,
+	req Request,
+	worktree *git.Worktree,
+	repo store.Repo,
+	author git.Author,
+	logger *slog.Logger,
+) (syncResult, error) {
+	baseRef := opts.remote() + "/" + repo.BaseBranch
+
+	divergence, err := worktree.Divergence(ctx, baseRef)
+	if err != nil {
+		return syncResult{}, failuref(err, "how far %s has diverged from %s could not be measured", worktree.Branch(), baseRef)
+	}
+
+	logFields := []any{
+		slog.String("branch", worktree.Branch()),
+		slog.String("base", baseRef),
+		slog.Int("behind", divergence.Behind),
+		slog.Int("ahead", divergence.Ahead),
+	}
+
+	if divergence.Behind == 0 {
+		logger.Debug("base sync: up to date", append(logFields, slog.String("outcome", string(syncOutcomeUpToDate)))...)
+		return syncResult{Outcome: syncOutcomeUpToDate, Behind: divergence.Behind, Ahead: divergence.Ahead}, nil
+	}
+
+	if !syncEnabled(opts, req) {
+		reason := "auto-sync is turned off for this repository"
+		if req.SyncOverride != nil {
+			reason = "this issue carries a " + syncOffLabel + " label"
+		}
+		logger.Info("base sync: skipped",
+			append(logFields, slog.String("outcome", string(syncOutcomeSkipped)), slog.String("reason", reason))...)
+		return syncResult{Outcome: syncOutcomeSkipped, Behind: divergence.Behind, Ahead: divergence.Ahead, Reason: reason}, nil
+	}
+	// Over the cap refuses the run rather than skipping past it. A skip would
+	// let the run proceed against a branch known to be stale, disclosed only
+	// in a report nobody has to read; the cap says this branch is too far
+	// gone to merge unattended, and stopping is the honest answer to that.
+	// Being switched off, just above, stays a skip: an operator who turned
+	// sync off asked for the run to go ahead.
+	if !withinSyncCap(opts, divergence.Behind) {
+		logger.Info("base sync: too far behind",
+			append(logFields, slog.String("outcome", string(syncOutcomeTooFarBehind)),
+				slog.Int("max_behind", opts.AutoSyncMaxBehind))...)
+		return syncResult{
+			Outcome: syncOutcomeTooFarBehind, Behind: divergence.Behind, Ahead: divergence.Ahead,
+			Branch: worktree.Branch(), Base: repo.BaseBranch,
+		}, nil
+	}
+
+	preview, err := worktree.MergePreview(ctx, baseRef)
+	if err != nil {
+		return syncResult{}, failuref(err, "whether %s could be merged into %s could not be previewed", baseRef, worktree.Branch())
+	}
+	if !preview.Clean {
+		logger.Info("base sync: blocked",
+			append(logFields, slog.String("outcome", string(syncOutcomeBlocked)), slog.Any("conflicts", preview.Conflicts))...)
+		blocked := syncResult{
+			Outcome: syncOutcomeBlocked, Behind: divergence.Behind, Ahead: divergence.Ahead, Conflicts: preview.Conflicts,
+			Branch: worktree.Branch(), Base: repo.BaseBranch,
+		}
+		// US-12: the branch and base tips this preview was evaluated against
+		// are captured here, still inside the same gate acquisition, so a
+		// later confirmation has something to re-verify its own fresh reads
+		// against (S-15) — unconditional, the same way Branch and Base
+		// themselves are, since a proposal may or may not end up being
+		// generated from this refusal but the starting point it would need
+		// is cheapest to read right here, right now.
+		branchSHA, err := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+		if err != nil {
+			return syncResult{}, failuref(err, "the head of %s could not be read", worktree.Branch())
+		}
+		baseSHA, err := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+		if err != nil {
+			return syncResult{}, failuref(err, "%s could not be resolved", baseRef)
+		}
+		blocked.BranchSHA, blocked.BaseSHA = branchSHA, baseSHA
+		// US-11: the conflicting content is collected here, still inside
+		// prepareClone's one [Options.CloneGate] acquisition, and only when
+		// the feature is configured on and there is a comment to eventually
+		// attach a suggestion to — a disabled turn, or one triggered by the
+		// issue body (which draws no reply at all, AC-2.16c), must not
+		// spend the extra git reads this loop costs (AC-11.3).
+		if opts.SuggestConflictResolution && req.Trigger.CommentID != 0 {
+			blocked.ConflictFiles, blocked.ConflictExcluded = collectConflictContent(
+				ctx, worktree, preview.TreeSHA, preview.Conflicts, opts.ConflictContentMaxBytes)
+		}
+		return blocked, nil
+	}
+
+	result, err := worktree.MergeBase(ctx, baseRef, git.MergeOptions{Author: author})
+	if err != nil {
+		return syncResult{}, failuref(err, "%s could not be merged into %s", baseRef, worktree.Branch())
+	}
+	logger.Info("base sync: synced",
+		append(logFields, slog.String("outcome", string(syncOutcomeSynced)), slog.String("head", result.Head), slog.Bool("merged", result.Merged))...)
+
+	sync := syncResult{Outcome: syncOutcomeSynced, Behind: divergence.Behind, Ahead: divergence.Ahead}
+	if result.Merged {
+		sync.SyncCommitSHA = result.Head
+	}
+	return sync, nil
 }
 
 // previousRun finds the last run of this segment that claude was actually
