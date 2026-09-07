@@ -30,6 +30,7 @@ settings:
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
+  team_config: %q # empty means the embedded team index; absolute path when set
   worktree_retain_days: %d # informational; cleanup is currently explicit
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
@@ -87,6 +88,7 @@ tool_profiles:
 		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,
+		d.Settings.TeamConfig,
 		d.Settings.WorktreeRetainDays, d.Settings.LogLevel,
 		d.Settings.AttachmentMaxImageBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,

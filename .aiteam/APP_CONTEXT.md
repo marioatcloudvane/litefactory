@@ -19,8 +19,6 @@ Single Go module. Not a monorepo. Everything is under `internal/`, with
 `cmd/litefactory/main.go` as wiring only (umask, signal context, logger,
 dispatch, exit code).
 
-In a hurry? **[Do not reinvent these](#do-not-reinvent-these)** is the index.
-
 ---
 
 ## Before you run anything
@@ -53,6 +51,7 @@ secrets       →  (nothing)          leaf. keychain / env token resolution.
 identity      →  (nothing)          leaf. the only package that execs `gh`.
 launchd       →  (nothing)          leaf. the macOS LaunchAgent.
 logging       →  (nothing)          leaf. slog construction + file sink.
+render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
 planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies.
 attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
@@ -60,6 +59,7 @@ schedule      →  (nothing)          leaf. parses factory-owned /schedule contr
 
 agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
+team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
 codex         →  agent, config, naming
 harness       →  agent, config, naming
@@ -67,7 +67,8 @@ report        →  agent, git, naming, redact
 repos         →  git, naming, store
 turn          →  agent, attach, codex, config, git, github, harness, naming, planbrief, redact, report, store
 daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
-cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store
+teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
+cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store, team, teamsource
 cmd/litefactory → cli, config, logging
 ```
 
@@ -75,17 +76,16 @@ The load-bearing consequences:
 
 - **`internal/config` imports nothing from litefactory and is stdlib-only apart
   from the YAML decode.** `internal/config/purity_test.go` →
-  `TestValidationHasNoThirdPartyImports` parses every non-test file in the
-  package and fails on any import whose first path segment contains a dot.
-  `config.go` is the single exception, and only for `gopkg.in/yaml.v3`.
-  `internal/naming` states the same invariant in its `doc.go` and holds it.
-- **`internal/report` cannot import `internal/turn`** — `turn` depends on
-  `report` to render its replies, so the arrow cannot point back. That is why
-  `report.ReplyKind` (`internal/report/reply.go`) is its own enum rather than
-  reusing `turn.CommandKind`, and why the mapping is a small switch at the call
-  site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
-  reply shape, you add a `ReplyKind` **and** a case in that switch.
-  Note `report` is *not* a leaf — it imports `agent`, `git`, `naming`, `redact`.
+  `TestValidationHasNoThirdPartyImports` parses every non-test file and fails
+  on any import whose first path segment contains a dot; `config.go` is the
+  single exception, for `gopkg.in/yaml.v3`. `internal/naming` states and holds
+  the same invariant.
+- **`internal/report` cannot import `internal/turn`** — the dependency runs the
+  other way, so `report.ReplyKind` (`internal/report/reply.go`) is its own enum
+  rather than reusing `turn.CommandKind`; the mapping is a small switch,
+  `replyKind()` in `internal/turn/report.go` (~line 600). A new reply shape
+  needs a `ReplyKind` **and** a case there. `report` is not a leaf — it imports
+  `agent`, `git`, `naming`, `redact`.
 - **`internal/harness` is the only place that executes `claude`.** It owns the
   subprocess, the argv, the child environment allowlist, the kill sweep, and it
   writes the run's `NNNN.jsonl` event stream.
@@ -99,25 +99,26 @@ The load-bearing consequences:
   split is a named invariant (`internal/daemon/doc.go`,
   `internal/turn/doc.go`); it is what makes the whole business path testable
   without waiting for anything.
-- **`internal/daemon` importing `internal/repos` is new and deliberately
-  cycle-free** — added when the startup worktree-collision check
-  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
-  function rather than reimplementing it. `repos` still imports nothing back
-  from `daemon`.
+- **`internal/daemon` imports `internal/repos`, deliberately cycle-free** — the
+  startup worktree-collision check (`internal/repos/collision.go`, AC-PAR-4.8)
+  reuses the pure decision function rather than reimplementing it; `repos`
+  imports nothing back from `daemon`.
 - **`internal/agent` is the vendor-neutral contract two Runners implement** —
   `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
   `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
   implementation may inspect `Permissions.Payload`, which differs by `Kind`.
+- **`teamsource.readAgentSource` (`internal/teamsource/render.go`) checks a
+  per-repo override (`team.ReadOverrideSource`) before falling back to
+  `AgentEntry.Source`.** Used by `RenderTeam` and `RenderCurrent`, upstream of
+  hashing — `team.Classify` needs no override-awareness, and an overridden
+  agent's `team.lock.json` provenance is unaffected.
 
 ### Read the `doc.go` files
 
-Fourteen packages carry a `doc.go` whose prose is the real specification for
-that package — `agent`, `attach`, `daemon`, `git`, `github`, `harness`,
-`identity`, `launchd`, `naming`, `planbrief`, `redact`, `repos`, `report`,
-`turn` — and `config` and `store` carry theirs at the top of `config.go` /
-`store.go`. **Read the one for the package you are about to touch before you
-touch it.** They record what was measured, what was tried and rejected, and
-what breaks if you do the obvious thing.
+Eighteen packages carry a `doc.go` — the real spec for that package (`config`/
+`store` keep theirs atop `config.go`/`store.go` instead). Read the one for the
+package you are about to touch: it records what was measured and what breaks
+if you do the obvious thing.
 
 ---
 
@@ -129,9 +130,9 @@ what breaks if you do the obvious thing.
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
 | run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
-| serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op. The dispatch shape is specified in `internal/daemon/doc.go` |
+| serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op |
 | refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
-| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Written at dispatch, cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
+| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
@@ -142,6 +143,17 @@ what breaks if you do the obvious thing.
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
+| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
+| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock; no-op short-circuit compares recorded hashes **and** the actual on-disk bytes (or marker span), so a hand-edited or deleted file is never mistaken for already installed |
+| decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
+| compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
+| classify an installed agent artifact's drift against its current source | `internal/team.Classify` | 5-state `Status` (`InSync`/`LocallyModified`/`UpstreamUpdated`/`Conflict`/`Missing`); byte comparison only, read-only, never mutates the lockfile; caller supplies the fresh render via `teamsource.RenderCurrent`. `LoadLockfile`/`DecodeTeams` are exported wrappers for external callers |
+| override which local `.md` file an agent renders from, per repo | `internal/team` | `.litefactory/team.overrides.json`, flat `{agentKey: source}`; `SetOverride`/`UnsetOverride`/`ActiveOverride`/`ReadOverrideSource` (`internal/team/overrides.go`); `team manage <key> <set/unset/show>` is the CLI front door |
+| re-render one agent's current source for one harness, independent of team membership | `teamsource.RenderCurrent(fsys, harnessName, sourcePath)` | the fresh-render half `team.Classify` compares against; unlike `RenderTeam`, does no lockfile/team-union bookkeeping |
+| render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
+| resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
+| see which `team` CLI subcommands exist | `internal/cli` | all six (`list`/`show`/`add`/`status`/`update`/`manage`) are fully implemented, none a stub — one `Command` constructor each |
+| bring installed agent files back in sync with their current source | `internal/cli`'s `runTeamUpdate` (`team update`) | classifies each tracked lockfile record via `team.Classify`; auto-applies Upstream-updated/Missing; refuses Locally-modified/Conflict unless `--force` (reported as `overwritten`, never folded into `updated`); writes through `team.Add`; single-worktree scope only — no sibling-worktree discovery (that's future US-15) |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
@@ -152,31 +164,16 @@ Before you touch the store:
 
 - **SQLite via `modernc.org/sqlite`** (pure Go, cgo-free — the binary is static),
   driver name `"sqlite"`, not `"sqlite3"`. Pool capped at **one** connection.
-  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (SQLite defaults it
-  *off*, per connection — without it every `REFERENCES` is decorative),
-  `journal_mode(WAL)` so `litefactory logs` can read while the daemon writes,
-  `busy_timeout`, `synchronous(NORMAL)`.
-- **The cap stays at one, and is load-bearing now rather than incidental**: up
-  to `max_concurrent_runs` turn workers plus the daemon's tick goroutine reach
-  the store at the same instant in production, so concurrent callers queue
-  rather than contend (`store.go`'s doc comment). Raising it is out of scope
-  and is not the free throughput it looks like — `database/sql` opens a
-  transaction with a deferred `BEGIN`, so a transaction that reads and then
-  writes has to upgrade to a write lock partway through, and SQLite refuses
-  that upgrade with `SQLITE_BUSY` immediately rather than waiting
-  (`busy_timeout` does not apply to an upgrade, since waiting there could
-  deadlock). **The single-connection cap, `BEGIN IMMEDIATE` on every
-  read-then-write transaction, and per-connection verification of the DSN
-  pragmas move as one decision** — any one of the three alone leaves the other
-  two wrong.
+  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (off by default per
+  connection), `journal_mode(WAL)` so `litefactory logs` can read while the
+  daemon writes, `busy_timeout`, `synchronous(NORMAL)`.
+- **The one-connection cap is load-bearing**: turn workers and the daemon's
+  tick goroutine queue for the store rather than contend. A read-then-write
+  transaction upgrading its lock mid-transaction gets `SQLITE_BUSY` at once
+  (`busy_timeout` does not cover a lock upgrade), so the cap, `BEGIN IMMEDIATE`
+  on every such transaction, and the DSN pragmas move as one decision.
 - **Migrations are hand-rolled and embedded** —
   `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
   filename prefix, one transaction each, recorded in `schema_migrations`. A new
-  schema change is a new `.sql` file and nothing else. Adding a migration library
-  is an explicitly rejected dependency.
-
-NULL mapping in the store is uniform and worth copying: timestamps are
-`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text, so
-lexicographic order is chronological order); text whose empty value carries no
-meaning is a plain `string`; forge ids are `int64` with 0 meaning NULL; and
-numbers whose zero is a *real* value (an exit code, a cost) are **pointers**.
+  schema change is a new `.sql` file and nothing else — a migration library is
+  an explicitly rejected dependency.
