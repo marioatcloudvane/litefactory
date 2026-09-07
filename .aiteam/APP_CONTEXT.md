@@ -100,11 +100,10 @@ The load-bearing consequences:
   split is a named invariant (`internal/daemon/doc.go`,
   `internal/turn/doc.go`); it is what makes the whole business path testable
   without waiting for anything.
-- **`internal/daemon` importing `internal/repos` is new and deliberately
-  cycle-free** — added when the startup worktree-collision check
-  (`internal/repos/collision.go`, AC-PAR-4.8) reused the pure decision
-  function rather than reimplementing it. `repos` still imports nothing back
-  from `daemon`.
+- **`internal/daemon` imports `internal/repos`, deliberately cycle-free** — the
+  startup worktree-collision check (`internal/repos/collision.go`, AC-PAR-4.8)
+  reuses the pure decision function rather than reimplementing it; `repos`
+  imports nothing back from `daemon`.
 - **`internal/agent` is the vendor-neutral contract two Runners implement** —
   `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
   `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
@@ -142,14 +141,15 @@ rejected, and what breaks if you do the obvious thing.
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
-| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock, no-op short-circuit when source+rendered hashes already match |
+| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock; no-op short-circuit compares recorded hashes **and** the actual on-disk bytes (or marker span), so a hand-edited or deleted file is never mistaken for already installed |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
 | classify an installed agent artifact's drift against its current source | `internal/team.Classify` | 5-state `Status` (`InSync`/`LocallyModified`/`UpstreamUpdated`/`Conflict`/`Missing`); byte comparison only, read-only, never mutates the lockfile; caller supplies the fresh render via `teamsource.RenderCurrent`. `LoadLockfile`/`DecodeTeams` are exported wrappers for external callers |
 | re-render one agent's current source for one harness, independent of team membership | `teamsource.RenderCurrent(fsys, harnessName, sourcePath)` | the fresh-render half `team.Classify` compares against; unlike `RenderTeam`, does no lockfile/team-union bookkeeping |
 | render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
 | resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
-| see which `team` CLI subcommands work vs. remain stubs | `internal/cli` | `list`/`show`/`add`/`status` implemented; `update`/`manage` intentional stubs — all six always registered via one `Command` constructor each |
+| see which `team` CLI subcommands work vs. remain stubs | `internal/cli` | `list`/`show`/`add`/`status`/`update` implemented; `manage` intentional stub — all six always registered via one `Command` constructor each |
+| bring installed agent files back in sync with their current source | `internal/cli`'s `runTeamUpdate` (`team update`) | classifies each tracked lockfile record via `team.Classify`; auto-applies Upstream-updated/Missing; refuses Locally-modified/Conflict unless `--force` (reported as `overwritten`, never folded into `updated`); writes through `team.Add`; single-worktree scope only — no sibling-worktree discovery (that's future US-15) |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |

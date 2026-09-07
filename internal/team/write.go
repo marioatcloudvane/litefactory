@@ -1,6 +1,7 @@
 package team
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -128,25 +129,54 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 	result := &AddResult{}
 
 	// Split standalone candidates into no-ops and actual writes, against the
-	// lockfile as it stood before this call.
+	// lockfile as it stood before this call. A hash match alone is not
+	// enough to call something a no-op: matches() only compares recorded
+	// hashes against the fresh render, so it can never see the file itself.
+	// Two distinct drifts must both be ruled out before skipping: the file
+	// could have been deleted out from under a previously installed,
+	// hash-identical record (the scenario `team update` reports as
+	// "missing"), or it could still be present but hand-edited so its
+	// on-disk bytes no longer match what was last written (the scenario
+	// `team update` reports as "locally modified" and, with --force, means
+	// to overwrite). Both require reading the actual installed bytes and
+	// comparing them against what is about to be written, not merely
+	// checking that something is there.
 	var standaloneWrites []standaloneWrite
 	for _, c := range candidates {
 		if existing, found := lf.findRecord(c.record); found && existing.matches(c.record) {
-			result.Skipped = append(result.Skipped, existing)
-			continue
+			if onDisk, readErr := os.ReadFile(filepath.Join(root, c.path)); readErr == nil && bytes.Equal(onDisk, c.body) {
+				result.Skipped = append(result.Skipped, existing)
+				continue
+			}
 		}
 		standaloneWrites = append(standaloneWrites, c)
 	}
 
 	// Do the same for root-file sections, now that each section's
-	// RenderedHash (the marker span hash) can be computed.
+	// RenderedHash (the marker span hash) can be computed. Here "already
+	// there" means the marker section's own bytes — BEGIN/END delimiters
+	// and body, nothing outside that span — are byte-for-byte identical to
+	// what would be (re)written, not merely that a section with this
+	// agentKey is present: a hand-deleted section is exactly as much a
+	// no-op mismatch as a missing standalone file, and so is a
+	// hand-edited-but-still-present section. Comparing only the located
+	// span (never the whole root file) preserves the guarantee that edits
+	// outside an agent's own section never affect that agent's no-op
+	// decision.
 	changedSections := map[string][]rootSection{}
 	for rootFile, sections := range rootCandidates {
+		rootContent, readErr := os.ReadFile(filepath.Join(root, rootFile))
+		if readErr != nil && !os.IsNotExist(readErr) {
+			return nil, fmt.Errorf("read %s: %w", rootFile, readErr)
+		}
 		for _, sec := range sections {
 			sec.record.RenderedHash = markerSpanHash(sec.teams, sec.agentKey, sec.body)
 			if existing, found := lf.findRecord(sec.record); found && existing.matches(sec.record) {
-				result.Skipped = append(result.Skipped, existing)
-				continue
+				if start, end, sectionFound := locateMarkerSection(rootContent, sec.agentKey); sectionFound &&
+					bytes.Equal(rootContent[start:end], buildMarkerSection(sec.teams, sec.agentKey, sec.body)) {
+					result.Skipped = append(result.Skipped, existing)
+					continue
+				}
 			}
 			changedSections[rootFile] = append(changedSections[rootFile], sec)
 		}

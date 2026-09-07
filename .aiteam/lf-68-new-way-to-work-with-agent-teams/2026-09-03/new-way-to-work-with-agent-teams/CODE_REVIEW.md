@@ -1,137 +1,158 @@
 # Code Review
-# Feature: Configurable Agent Teams — US-10 (`team status` drift detection)
+# Feature: US-11 — `team update` (single-worktree scope)
 # Reviewed by: go-code-reviewer
-# Date: 2026-09-06 (re-review, cycle 2)
+# Date: 2026-09-07
 # Status: ADVISORY_ONLY
 
 ---
 
-## Scope (cycle 2 — re-review)
+## BLOCKING findings
 
-This is a scoped re-review verifying the engineer's fix for the sole cycle-1 BLOCKING
-finding, CR-B-001, in `internal/cli/cmd_team.go`'s `runTeamStatus`. Per the
-re-review contract, only this file (plus its immediate callers/callees needed to
-confirm the fix didn't break a cross-story contract) was re-read.
-`internal/team/status.go`, `internal/team/status_test.go`, and
-`internal/teamsource/render.go` were not re-reviewed — cycle 1 found no BLOCKING
-issues in them and the fix did not touch them.
+None.
 
-Independently re-verified (not just trusting the engineer's self-report):
-```
-go build ./...                                                                    # OK
-go vet ./...                                                                      # OK, no findings
-gofmt -l internal/cli/cmd_team.go                                                 # no output — clean
-go test -count=1 ./internal/cli/... ./internal/team/... ./internal/teamsource/... # all pass
-```
+Every item called out for explicit verification came back clean:
+
+1. **`errors.Join` isolate-and-continue aggregation is real.** `runTeamUpdate`'s
+   per-record loop (`internal/cli/cmd_team.go:921-1210`) uses `continue` on
+   every failure branch (`renderErr`, `classifyErr`, the
+   `include && !freshFound` anomaly guard) and never `return`s early out of
+   the loop. All accumulated `recordErrs` are joined with the summary line at
+   the very end via `errors.Join(append(recordErrs, summary)...)`. This is the
+   exact pattern whose absence caused two prior BLOCKING findings on this
+   issue (run 20's `Add()` validation loop, run 25's `runTeamStatus` loop) —
+   confirmed fixed/present here.
+2. **`--force` behavior matches AC-2.** `teamUpdateNote` produces the exact
+   text `"was %s; overwritten because --force was passed"` for the
+   `Overwritten` action, and the switch in `runTeamUpdate` only sets
+   `action = teamUpdateActionOverwritten` for `StatusLocallyModified` /
+   `StatusConflict` when `force` is true; otherwise it refuses
+   (`teamUpdateActionRefused`) and leaves the file untouched. Verified
+   end-to-end by `TestTeamUpdate_ForceOverwritesAndNamesWhatItDiscarded`,
+   which asserts the literal note string and that hand-edited content is
+   actually gone afterward.
+3. **AC-3 (single-worktree scope) is genuinely enforced and tested.**
+   `TestTeamUpdate_SingleWorktreeScope` creates a real second git worktree via
+   `repo.Git("worktree", "add", ...)`, captures its full state before and
+   after running `team update --force` against the primary worktree, and
+   asserts the diff is empty. This is a real integration check, not an
+   assertion resting on code reading alone.
+4. **No `--migrate-config` or `--all-worktrees` flag exists anywhere.**
+   Confirmed via grep across `internal/cli/*.go` and by reading
+   `newTeamUpdateCommand()` directly (`internal/cli/cmd_team.go:1317-1344`):
+   only `--repo`, `--force`, `--json` are registered.
+5. **The `write.go` dedup fix is sound and does not regress `team add`'s
+   idempotency guarantee.** Read `internal/team/write.go` in full and traced
+   both the standalone-file and root-file-section paths. The old code treated
+   a lockfile-hash match (`existing.matches(c.record)`) alone as sufficient to
+   skip a write. Because a "Locally modified" record has unchanged
+   `SourceHash`/`RenderedHash` (only the on-disk bytes were hand-edited), the
+   old check would wrongly no-op it even under `--force` — this was the root
+   cause the fix addresses. The new code adds a genuine `os.ReadFile` +
+   `bytes.Equal` comparison against the actual on-disk bytes (or, for root
+   files, `locateMarkerSection` + exact span comparison) before deciding to
+   skip. For a true no-op (in-sync file), the comparison still passes and the
+   skip/idempotency behavior other callers (`team add` re-runs) depend on is
+   preserved. For Missing files, `os.ReadFile` fails and correctly falls
+   through to a real write (restoration). This was verified by reading the
+   code and reasoning through all three cases, not by trusting the report.
+6. **Exit code mapping matches Shared Decision 2.** `runTeamUpdate`'s
+   refusal path returns a plain `error` via `errors.Join`, never a
+   `PreconditionError`/`UsageError`. `internal/cli/errors.go`'s `ExitCode`
+   dispatcher maps a plain error to `ExitFailure` (1). Confirmed against
+   `TestTeamUpdate_RefusesLocalModificationsByDefault`'s own assertion
+   (`code == ExitFailure`).
+7. **Package-boundary contract (`cli -> teamsource -> team`) is respected.**
+   `internal/team`'s non-test files import only
+   `github.com/cloudvane/litefactory/internal/config` from litefactory's
+   internal packages (grep-confirmed). Rendering/hashing logic for the update
+   path lives in `internal/teamsource.RenderCurrent`
+   (`internal/teamsource/render.go:147-169`), not in `internal/cli`.
+8. **`removeMarkerSection` non-invocation claim is structurally correct.**
+   `teamsource.RenderCurrent`'s doc comment and implementation confirm it
+   re-renders only the exact recorded `sourcePath`, with no roster/
+   team-membership re-resolution — it has no way to discover that a team has
+   stopped contributing a shared agent. Since US-11's Architecture Notes
+   scope `team update` to reusing US-10's five-state classification model
+   (In sync / Upstream updated / Missing / Locally modified / Conflict), none
+   of which represents "orphaned by team membership," this is an inherent
+   scope limitation correctly inherited from US-10, not a gap introduced by
+   this story. See CR-A-001 below for a related but non-blocking documentation
+   issue this surfaced.
+9. **Build/vet/format/race-test verification, run directly (not trusted from
+   the report):**
+   - `gofmt -l .` — no output (clean)
+   - `go vet ./...` — no output (clean)
+   - `go build ./...` — clean
+   - `go test -race ./internal/team/... ./internal/cli/...` — both `ok`
+   - `go test -race ./...` (full repo) — all packages `ok`, no failures
+   - No `fmt.Println`/`fmt.Printf`/stray `log.*` calls in `cmd_team.go`; all
+     output goes through `env.Stdout` via `fmt.Fprintf`/`tabwriter`.
+   - No `go func(`/goroutines introduced anywhere in the touched files —
+     satisfies the "no concurrency introduced" constraint.
+   - `writeFileAtomic` (`internal/team/writefile.go:63-117`, unmodified by
+     this story) passes `mode` straight to `os.OpenFile`'s `O_CREATE|
+     O_WRONLY|O_EXCL` rather than calling `Chmod`, satisfying the SEC-10/
+     gosec permission-bit convention; this story's diff never touches file
+     permissions.
+   - Checked whether the dedup fix's new pre-write `os.ReadFile` calls (used
+     only to decide skip-vs-write) create any symlink exposure ahead of the
+     existing `refuseSymlink` guard on the actual write. They do not: the
+     read result is used solely for a boolean comparison, never written back,
+     and every actual `writeFileAtomic` call is still preceded by
+     `refuseSymlink` (`internal/team/write.go:186-189`, `206-209`). If an
+     Owned Path were somehow already a symlink, the read either matches
+     `c.body` (skip, no write — the symlink was already present before this
+     call ran, not created by it) or doesn't match (falls through to the
+     write path, where `refuseSymlink` correctly blocks it). No write-bypass
+     is possible through this path.
 
 ---
 
-## CR-B-001 — RESOLVED
+## ADVISORY findings
 
-**File:** `internal/cli/cmd_team.go:686-805` (`runTeamStatus`)
-**Story:** US-10 / T-28
-
-**Original finding:** The loop over `lf.Records` returned immediately from inside
-the loop on the first `renderErr` or `classifyErr`, aborting the entire command —
-no report printed, every other lockfile record silently dropped. This undermined
-AC-1 (every tracked file classified) and AC-3 (a record whose file is missing must
-be classified Missing, not silently skipped), and deviated from this codebase's
-aggregate-via-`errors.Join` convention.
-
-**Verification of fix:**
-
-1. **The loop no longer returns early.** Both failure sites (`teamsource.RenderCurrent`
-   returning `renderErr`, and `team.Classify` returning `classifyErr`) now wrap the
-   error with context, append it to a new `recordErrs []error` slice, set
-   `inSync = false`, increment `drifted`, append a `teamStatusRecordJSON` entry with
-   `Status: "error"` and `Note` set to the wrapped error's text, and `continue` to the
-   next record. Confirmed by direct reading of lines 719-763.
-
-2. **No record is silently dropped.** `records` is built with exactly one `append`
-   call per code path (render-error, classify-error, success), and every one of
-   those three paths is reached exactly once per loop iteration before the loop
-   advances (via `continue` or falling through to the bottom). `records` therefore
-   always ends up with `len(lf.Records)` entries, for both the JSON and table
-   renderers, which both iterate `v.Records` unconditionally. Confirmed AC-1 (every
-   tracked file gets exactly one classification/outcome) and AC-3 (a record backed
-   by a missing/unrenderable file still gets its own report entry rather than being
-   dropped) now hold per-record, independent of any other record's outcome.
-
-3. **Exit-code contract preserved.** The function still returns a plain `error`
-   (via `errors.Join(append(recordErrs, summaryErr)...)`) when `!inSync`, and `nil`
-   only when every record classified as `team.StatusInSync` with no render/classify
-   errors. Never wraps the result in `UsageError` or `PreconditionError` — confirmed
-   by reading the full function body; the only other early returns
-   (`resolveTeamRepoPath`, `openTeamRuntime`, `resolveTeamIndex`, `LoadLockfile`
-   with the `team.ErrNoLockfile` exception) are unchanged from cycle 1 and were
-   already reviewed clean.
-
-4. **`errors.Join` usage matches the codebase convention.** This mirrors
-   `internal/teamsource/render.go`'s `RenderTeam`, which collects per-roster-entry
-   errors into a slice and joins them at the end rather than failing fast — the
-   same pattern CR-B-001 asked for. The per-record errors are joined together with
-   the pre-existing summary error (`"%d of %d tracked file(s) are not in sync"`),
-   so no error information is lost or swallowed; it's aggregation, not silencing.
-
-5. **Nothing else in the file was touched beyond what the fix required.** Diffed
-   the current `runTeamStatus`, `writeTeamStatusJSON`, `writeTeamStatusTable`,
-   `teamStatusRecordJSON`, `teamStatusJSON`, `teamStatusNote`, and
-   `newTeamStatusCommand` against what cycle 1 reviewed clean: JSON/table output
-   shape, sorting (`sort.Slice` by `DestPath`/`AgentKey`/`Harness`), the
-   hand-edit-risk note logic (scoped to Locally modified/Conflict only), and the
-   `team.ErrNoLockfile` tolerance are all unchanged.
-
-6. **Build/vet/gofmt/test independently re-run** — all clean, as shown above.
-
-**Verdict: CR-B-001 is resolved.** No re-opening required.
-
----
-
-## New findings from this fix
-
-No new BLOCKING issues were introduced by the fix.
-
-### CR-A-002: `team status --json`/table can now emit a sixth "error" outcome not mentioned in the command's documented five-state model
-**File:** `internal/cli/cmd_team.go:730, 760` (inside `runTeamStatus`); `internal/cli/cmd_team.go:887-893` (`newTeamStatusCommand`'s `Long` text)
-**Story:** US-10 / T-28
-**Category:** Standards / Documentation consistency
-**Finding:** The fix's per-record failure entries use a literal `Status: "error"` string that is distinct from all five `team.Status.String()` values (`"in sync"`, `"locally modified"`, `"upstream updated"`, `"conflict"`, `"missing"`) — correctly avoiding collision, which is good — but `newTeamStatusCommand`'s `Long` help text still says the command classifies files "into one of five states — in sync, locally modified, upstream updated, conflict, or missing", and `runTeamStatus`'s own doc comment doesn't mention this sixth possible outcome either. A user hitting a render/classify failure (e.g. a deleted source file with a still-tracked lockfile record for a different, unrelated issue than "Missing") will see a status value the command's own `--help` text doesn't describe.
-**Suggestion:** Either fold this failure into `team.StatusMissing` semantics at the CLI layer where appropriate, or update the `Long` text and `runTeamStatus`'s doc comment to mention that a record whose current source can no longer be re-rendered or classified is reported as `"error"` with a note explaining why, alongside the five drift states. Not required before proceeding — this is a documentation-completeness gap, not a functional defect — but worth folding in.
-
----
-
-## Preserved ADVISORY findings from cycle 1
-
-### CR-A-001: `RenderCurrent` is called once per lockfile record with no de-duplication across records sharing the same `(harness, sourcePath)`
-**File:** `internal/cli/cmd_team.go:720` (inside `runTeamStatus`'s loop; line shifted from cycle 1's `:712` due to the fix's added comment block, content unchanged)
-**Story:** US-10 / T-28
-**Category:** Performance
-**Finding:** A shared agent installed across multiple teams produces multiple `LockRecord`s with the
-same `(rec.Harness, rec.SourcePath)` pair but different `Teams`/`DestPath`. `runTeamStatus` calls
-`teamsource.RenderCurrent` independently for each such record, re-reading and re-rendering the same
-source markdown redundantly.
-**Suggestion:** Cache `RenderCurrent`'s result keyed by `(harness, sourcePath)` within one
-`runTeamStatus` invocation and reuse it across lockfile records that share the pair. Not required
-before proceeding — `team status` is an interactive CLI command against a small lockfile, not a hot
-service path — but worth folding in if the lockfile is expected to grow large.
+### CR-A-001: Stale doc comment names this story as `removeMarkerSection`'s caller
+**File:** `internal/team/marker.go:163-168`
+**Story:** US-11 (comment originates from US-18's marker.go)
+**Category:** Standards / documentation accuracy
+**Finding:** `removeMarkerSection`'s doc comment reads: "removes agentKey's
+marker section from content, for a future removal story (US-11) to call." US-11
+has now been implemented (this review) and, correctly per its actual
+Architecture Notes and acceptance criteria, does not call
+`removeMarkerSection` — `team update`'s scope is limited to US-10's per-file
+five-state classification, which has no state for "a team stopped
+contributing this shared agent." The comment's forward reference to "US-11"
+was evidently a placeholder guess made when `marker.go` was written (US-18)
+that no longer matches which story actually consumes the primitive, if any
+story yet does.
+**Suggestion:** Update the comment to drop the specific `(US-11)` reference
+(e.g., "for a future team-removal/prune story to call") so a future engineer
+searching for "US-11" as the integration point for this primitive isn't sent
+looking for a call site that was never in scope.
 
 ---
 
 ## Cross-story summary
 
-The fix isolates each lockfile record's outcome to its own report entry and no longer allows one
-problematic record to suppress the report for every other tracked record, closing the gap CR-B-001
-identified between `runTeamStatus`'s per-record loop and `RenderTeam`'s established
-aggregate-then-report convention in the same call graph. AC-1 and AC-3's per-record guarantees now
-hold even when a record's current source has become unrenderable or unclassifiable. The exit-code
-contract, `--json`/table output shape, sorting, hand-edit-risk note scoping, and `ErrNoLockfile`
-tolerance are all unchanged and remain correct. The only residual items are two ADVISORY-level notes
-(a minor documentation gap around the new "error" outcome, and the pre-existing per-record
-`RenderCurrent` de-duplication opportunity) — neither blocks proceeding to environment setup.
+This story integrates cleanly at every boundary it touches. It adds no new
+write path — `runTeamUpdate` composes `teamsource.RenderCurrent`,
+`team.Classify` (both pre-existing, from US-10/prior work), and `team.Add`
+(the same write engine `team add` uses), exactly as its own package doc
+comment claims. The one shared-engine change this story required —
+`internal/team/write.go`'s dedup-check fix — was necessary because `team.Add`
+previously could not distinguish a genuine no-op from a Locally-modified or
+Missing record, which would have silently defeated `--force` for `team
+update`'s core use case; the fix is scoped tightly (byte comparison added
+only at the skip-decision point) and verified not to regress `team add`'s own
+idempotent-rerun behavior. The `HashBytes` export (unexported `hashBytes` ->
+`HashBytes`) needed for `teamsource` to call it is applied consistently
+project-wide with no leftover unexported references. Exit-code, error-
+aggregation, and package-boundary conventions established by earlier stories
+in this feature are all followed without deviation. The single ADVISORY
+finding is documentation-only and does not affect behavior or test coverage.
 
 ---
 
 ## Verdict
 
-ADVISORY_ONLY — CR-B-001 resolved; 2 advisory suggestions noted (CR-A-001 carried over, CR-A-002 new).
-Proceeding to environment setup.
+ADVISORY_ONLY — 1 suggestion noted (CR-A-001, documentation only). No BLOCKING
+issues. Proceeding to environment setup.

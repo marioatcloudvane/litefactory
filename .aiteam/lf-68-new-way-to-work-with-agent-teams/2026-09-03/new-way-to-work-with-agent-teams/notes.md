@@ -461,3 +461,86 @@ prose named "CLEAN" specifically. Full findings in `$session/CODE_REVIEW.md`.
 
 Neither blocks correctness or this run's acceptance criteria; recorded for a
 future pass.
+
+## 2026-09-07 — Implement run (this run): US-11 (`team update`, single-worktree)
+
+**Scope** (per sponsor's issue #68 comment): US-11 only. Explicitly out of
+bounds this run: US-13, US-14, US-15, US-16, US-17, and any extension of
+`team manage` beyond its existing stub. Base state respected as given: US-10
+(`team status`) already landed and committed at `f625e3c` (run 25's "failed"
+status was only a post-completion session-limit hit, not incomplete work — not
+redone here); `main` already merged at `9530f3b` (not re-merged).
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out). Delivered:
+- New `internal/cli/cmd_team_update_test.go`: unit tests for `team update`
+  covering mixed-state auto-update (AC-1), refusal of Locally-modified files
+  without `--force` (AC-1), restoration of Missing files, `--force` overwrite
+  with a named discard note (AC-2), no-lockfile vacuous success, and
+  single-worktree scope via a real sibling `git worktree` left byte-for-byte
+  untouched (AC-3, via `internal/gittest`'s `Capture`/`.Diff()`).
+- Modified `internal/team/write.go`: fixed a latent bug in `Add()` found while
+  building `--force` (T-31) — the pre-existing no-op/dedup check for both
+  standalone files and root-file marker sections compared only
+  hash-vs-lockfile-record and bare presence, never actual on-disk bytes vs.
+  what was about to be written. Since a `StatusLocallyModified` record has an
+  unchanged source hash and an already-present file by definition, `Add()`
+  always treated a `--force` overwrite as an up-to-date no-op and silently
+  skipped it — meaning `--force` could never actually overwrite anything
+  before this fix. Fixed to compare real installed bytes (`os.ReadFile` vs
+  `c.body` for standalone; `locateMarkerSection`'s exact span vs
+  `buildMarkerSection(...)` for root-file sections) before deciding a write is
+  a no-op, preserving the existing guarantee that edits outside an agent's own
+  marker span never affect that agent's no-op decision.
+- `internal/cli/cmd_team.go`: `runTeamUpdate`/`newTeamUpdateCommand` replacing
+  the stub, reusing the `resolveTeamRepoPath`/`openTeamRuntime`/
+  `resolveTeamIndex` seam. Four `errors.Join` isolate-and-continue points in
+  the per-record loop (render errors, classify errors, `freshFound`-false
+  anomalies, post-`Add()` reconciliation) — the errors.Join-never-fail-fast
+  convention (BLOCKING twice already on this issue, runs 20 and 25) was
+  applied correctly from the start this run; code review independently
+  confirmed via `continue`-only control flow, no early `return`, in the loop.
+
+**T-50 (US-18 marker-removal primitive) reuse determination**: `team update`
+does NOT call `removeMarkerSection`. Investigated and confirmed by both the
+implementation engineer and, independently, code review:
+`teamsource.RenderCurrent` only re-renders the already-recorded `SourcePath`
+for one lockfile record, with no roster/team-membership re-resolution, so
+`team update` has no way to observe that a team has stopped contributing to a
+shared agent (that observation needs re-resolving the index against team
+membership, which US-10's five-state classification — the only classification
+this story uses — does not include an "orphaned by membership" state for).
+This is not a gap in this run; it is outside what US-11 asks for. Recorded in
+`runTeamUpdate`'s doc comment on disk.
+
+**`--all-worktrees` / `--migrate-config` confirmed absent**: per US-11's
+explicit scope ("has no partial or best-effort behavior toward it and makes no
+attempt at it") and Shared Decision 2 (an `--all-worktrees` opt-in belongs to
+US-15). Code review grep-confirmed neither flag exists anywhere in the CLI
+wiring.
+
+**Phase 1.5 — Code Review.** Single pass, verdict **ADVISORY_ONLY**, no
+BLOCKING findings — this is the first pass on this issue's `team` subcommands
+that did not need a fix cycle for the `errors.Join` aggregation mistake. All
+nine specifically-requested checks (errors.Join real-and-correct, `--force`
+matches AC-2 exactly including named-discard-note text, AC-3 backed by a real
+`git worktree`+byte-diff test not just an assertion, no `--migrate-config`/
+`--all-worktrees` flags, the `write.go` dedup fix sound and non-regressing for
+`team add`'s own no-op case, exit-code mapping correct — plain error/exit 1 for
+update-refusal, never `PreconditionError`/exit 3 — package boundary intact
+(`cli -> teamsource -> team/render`), `gofmt`/`go vet`/`go build`/
+`go test -race ./...` all clean) passed on the reviewer's own independent
+re-verification, not taken on the engineer's report alone. Full findings in
+`$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (this run, carried forward, non-blocking)
+
+- **CR-A-001** (new): `internal/team/marker.go`'s doc comment on
+  `removeMarkerSection` (written by US-18/run 20) says it exists "for a future
+  removal story (US-11) to call" — now stale, since this actual US-11
+  determined (see above) that it correctly does not call it. Suggest dropping
+  the specific `(US-11)` reference from that comment in a future pass;
+  documentation-only, not a functional defect.
+
+Neither this finding nor any other blocks correctness or this run's
+acceptance criteria.

@@ -10,10 +10,14 @@ package cli
 // provenance lockfile into one of five drift states by comparing installed
 // bytes against a fresh render of each agent's current source, using
 // internal/team.Classify; it writes nothing to disk and exits non-zero when
-// any tracked file is not in sync. `team update` and `team manage` are
-// declared here — so their flags and --help text are accurate — but their
-// behaviour lands in a later story; invoking them today returns
-// [ErrNotImplemented].
+// any tracked file is not in sync. `team update` reuses that same
+// per-record classification and writes back only what's safe automatically
+// (upstream updated, missing); a hand-edited or conflicting file is left
+// untouched and reported unless --force is passed. It writes exclusively
+// through internal/team's existing write engine (internal/team.Add) — it
+// never introduces a second write path. `team manage` is declared here — so
+// its flags and --help text are accurate — but its behaviour lands in a
+// later story; invoking it today returns [ErrNotImplemented].
 
 import (
 	"context"
@@ -496,6 +500,108 @@ func writeTeamStatusTable(out io.Writer, v teamStatusJSON) {
 	}
 }
 
+// teamUpdateRecordJSON is one lockfile record's outcome in `team update`'s
+// report: what it classified as, and what update did about it.
+type teamUpdateRecordJSON struct {
+	AgentKey string `json:"agent_key"`
+	Harness  string `json:"harness"`
+	DestPath string `json:"dest_path"`
+	Status   string `json:"status"`
+	Action   string `json:"action"`
+	Note     string `json:"note,omitempty"`
+}
+
+// teamUpdateJSON is `team update --json`'s top-level shape.
+type teamUpdateJSON struct {
+	Repo    string                 `json:"repo"`
+	Force   bool                   `json:"force"`
+	Updated int                    `json:"updated"`
+	Skipped int                    `json:"skipped"`
+	Refused int                    `json:"refused"`
+	Records []teamUpdateRecordJSON `json:"records"`
+}
+
+// teamUpdateAction* name the "action" column team update reports for one
+// record, distinct from its Status: a record's Status is what team.Classify
+// found; its action is what runTeamUpdate then decided to do about it.
+const (
+	// teamUpdateActionNone means the record was already in sync: nothing to
+	// write.
+	teamUpdateActionNone = "none"
+	// teamUpdateActionUpdated means the record was Upstream updated or
+	// Missing and was safely re-rendered and written: applying it discarded
+	// nothing (AC-1).
+	teamUpdateActionUpdated = "updated"
+	// teamUpdateActionOverwritten means the record was Locally modified or
+	// Conflict and --force was passed, so it was written anyway, discarding
+	// a hand-edit (AC-2). Every such record is named individually in the
+	// report — never only as an aggregate count.
+	teamUpdateActionOverwritten = "overwritten"
+	// teamUpdateActionRefused means the record was Locally modified or
+	// Conflict and --force was not passed, so it was left untouched (AC-1).
+	teamUpdateActionRefused = "refused"
+	// teamUpdateActionError means the record could not be classified at all
+	// (a render/classify failure), or classified as includable but its
+	// fresh render no longer produces its DestPath — either way, nothing
+	// was written for it.
+	teamUpdateActionError = "error"
+)
+
+// teamUpdateNote returns the report note attached to a record given its
+// classified status and the action taken, so the table and JSON forms agree
+// on wording without duplicating the switch.
+func teamUpdateNote(status team.Status, action string) string {
+	switch action {
+	case teamUpdateActionOverwritten:
+		return fmt.Sprintf("was %s; overwritten because --force was passed", status.String())
+	case teamUpdateActionRefused:
+		return fmt.Sprintf("hand-edited since install (%s); left untouched — pass --force to overwrite", status.String())
+	default:
+		return ""
+	}
+}
+
+// writeTeamUpdateJSON encodes v to out as indented JSON.
+func writeTeamUpdateJSON(out io.Writer, v teamUpdateJSON) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("encode team update json: %w", err)
+	}
+	return nil
+}
+
+// writeTeamUpdateTable prints v as the human-readable form of `team update`.
+// AC-2 requires that any overwritten file be named explicitly rather than
+// only counted, so every record is always listed, not just the changed
+// ones.
+func writeTeamUpdateTable(out io.Writer, v teamUpdateJSON) {
+	fmt.Fprintf(out, "repo: %s\n\n", v.Repo)
+
+	if len(v.Records) == 0 {
+		fmt.Fprintln(out, "no files tracked by this repo's team lockfile")
+		return
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(tw, "ACTION\tSTATUS\tAGENT\tHARNESS\tDEST\tNOTE\n")
+	for _, r := range v.Records {
+		note := r.Note
+		if note == "" {
+			note = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", r.Action, r.Status, r.AgentKey, r.Harness, r.DestPath, note)
+	}
+	// A failed write of already-reported output is not actionable.
+	_ = tw.Flush()
+
+	fmt.Fprintf(out, "\nupdated: %d\n", v.Updated)
+	fmt.Fprintf(out, "skipped (unchanged): %d\n", v.Skipped)
+	if v.Refused > 0 {
+		fmt.Fprintf(out, "refused (hand-edited; pass --force to overwrite): %d\n", v.Refused)
+	}
+}
+
 // runTeamList implements `team list` (AC-1): every resolved team and agent,
 // and which index source is currently in effect. It writes nothing to disk.
 func runTeamList(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, asJSON bool) (err error) {
@@ -804,6 +910,305 @@ func runTeamStatus(ctx context.Context, env *Env, cmd *Command, opts teamRepoOpt
 	return nil
 }
 
+// lockRecordKey mirrors internal/team's own LockRecord.key() composition
+// (Harness, AgentKey, DestPath, \x00-joined), for reconciling a team.Add
+// result against records this loop already decided to include without
+// reaching into internal/team's unexported key().
+func lockRecordKey(harness, agentKey, destPath string) string {
+	return harness + "\x00" + agentKey + "\x00" + destPath
+}
+
+// runTeamUpdate implements `team update`: it classifies every file tracked
+// by --repo's provenance lockfile exactly as runTeamStatus does — the same
+// internal/team.Classify five-state table, fed by the same
+// internal/teamsource.RenderCurrent re-render — and then writes back only
+// what's safe to write back automatically, through internal/team's existing
+// write engine (team.Add). It never introduces a second write path and it
+// never discovers or touches any worktree other than repoPath: every
+// operation here is scoped to the one lockfile team.LoadLockfile(repoPath)
+// reads and the one repo team.Add(repoPath, ...) writes into (AC-3).
+//
+// Per record:
+//   - In sync: nothing to do.
+//   - Upstream updated / Missing: safe to update — applying it discards
+//     nothing, so it is always re-rendered and written (AC-1).
+//   - Locally modified / Conflict: refused by default and reported by name
+//     and classification; only overwritten when force is true, in which
+//     case it is still named explicitly as overwritten rather than folded
+//     into an aggregate count (AC-2).
+//
+// As with team status, a repo with no lockfile yet has nothing tracked, so
+// this is a no-op rather than an error.
+//
+// Every per-record failure — a render/classify error, or a record decided
+// includable whose fresh render no longer produces its DestPath at all — is
+// isolated to its own report entry rather than aborting the batch, matching
+// the isolate-and-continue, errors.Join-at-the-end convention runTeamStatus
+// and internal/teamsource/render.go's RenderTeam already use: one bad record
+// must never hide or block every other record's update.
+//
+// The returned error is a plain error, never a [UsageError] or
+// [PreconditionError], for the same reason runTeamStatus's is: a refused
+// file is a normal, expected outcome to report, not a usage mistake or an
+// unready machine.
+func runTeamUpdate(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, force, asJSON bool) (err error) {
+	repoPath, err := resolveTeamRepoPath(opts.repo)
+	if err != nil {
+		return err
+	}
+
+	rt, err := openTeamRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, rt.close()) }()
+
+	resolved, err := resolveTeamIndex(ctx, rt, repoPath)
+	if err != nil {
+		return err
+	}
+
+	lf, err := team.LoadLockfile(repoPath)
+	if err != nil && !errors.Is(err, team.ErrNoLockfile) {
+		return err
+	}
+
+	// pending groups, per (Harness, AgentKey), the RenderedFile entries whose
+	// owning record was individually decided includable. Grouped rather than
+	// batched per-record so team.Add sees one AgentRender per agent — never
+	// an agent's whole fresh Files set just because one of its records needs
+	// updating, so a refused sibling file is never smuggled into the write
+	// batch alongside an included one.
+	type pendingAgent struct {
+		teams      []string
+		sourcePath string
+		sourceHash string
+		files      []team.RenderedFile
+	}
+	pending := map[string]*pendingAgent{}
+	var pendingOrder []string
+
+	// includedAt maps a record's lockRecordKey to its index in records, for
+	// every record this loop decided to include in the write batch, so the
+	// report can be corrected below once team.Add's actual outcome is known
+	// rather than assumed correct ahead of it.
+	includedAt := map[string]int{}
+
+	records := make([]teamUpdateRecordJSON, 0, len(lf.Records))
+	updated, skipped, refused := 0, 0, 0
+	var recordErrs []error
+
+	for _, rec := range lf.Records {
+		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(resolved.FS, rec.Harness, rec.SourcePath)
+		if renderErr != nil {
+			wrapped := fmt.Errorf("re-render %s (%s): %w", rec.AgentKey, rec.Harness, renderErr)
+			recordErrs = append(recordErrs, wrapped)
+			records = append(records, teamUpdateRecordJSON{
+				AgentKey: rec.AgentKey,
+				Harness:  rec.Harness,
+				DestPath: rec.DestPath,
+				Status:   "error",
+				Action:   teamUpdateActionError,
+				Note:     wrapped.Error(),
+			})
+			continue
+		}
+
+		// Mirrors runTeamStatus's own fresh-body lookup exactly: for a
+		// root-file target, freshBody is only this agent's marker section
+		// body (Classify wraps it via buildMarkerSection itself), never the
+		// whole shared root file.
+		var freshBody []byte
+		var freshFound bool
+		for _, f := range freshFiles {
+			if f.Path == rec.DestPath {
+				freshBody = f.Bytes
+				freshFound = true
+				break
+			}
+		}
+
+		freshTeams := team.DecodeTeams(rec.Teams)
+		status, classifyErr := team.Classify(repoPath, rec, freshSourceHash, freshTeams, freshBody)
+		if classifyErr != nil {
+			wrapped := fmt.Errorf("classify %s (%s, %s): %w", rec.AgentKey, rec.Harness, rec.DestPath, classifyErr)
+			recordErrs = append(recordErrs, wrapped)
+			records = append(records, teamUpdateRecordJSON{
+				AgentKey: rec.AgentKey,
+				Harness:  rec.Harness,
+				DestPath: rec.DestPath,
+				Status:   "error",
+				Action:   teamUpdateActionError,
+				Note:     wrapped.Error(),
+			})
+			continue
+		}
+
+		action := teamUpdateActionNone
+		include := false
+		switch status {
+		case team.StatusUpstreamUpdated, team.StatusMissing:
+			action = teamUpdateActionUpdated
+			include = true
+		case team.StatusLocallyModified, team.StatusConflict:
+			if force {
+				action = teamUpdateActionOverwritten
+				include = true
+			} else {
+				action = teamUpdateActionRefused
+			}
+		}
+
+		if include && !freshFound {
+			// A record decided includable whose fresh render no longer
+			// produces its DestPath at all must never flow into a
+			// RenderedFile{Bytes: nil} write — that would silently install
+			// an empty file. Reported as its own isolated anomaly instead.
+			wrapped := fmt.Errorf(
+				"%s (%s, %s) classified as %s but its current source no longer produces this file; left untouched rather than writing empty content",
+				rec.AgentKey, rec.Harness, rec.DestPath, status)
+			recordErrs = append(recordErrs, wrapped)
+			records = append(records, teamUpdateRecordJSON{
+				AgentKey: rec.AgentKey,
+				Harness:  rec.Harness,
+				DestPath: rec.DestPath,
+				Status:   status.String(),
+				Action:   teamUpdateActionError,
+				Note:     wrapped.Error(),
+			})
+			continue
+		}
+
+		switch action {
+		case teamUpdateActionUpdated, teamUpdateActionOverwritten:
+			updated++
+		case teamUpdateActionRefused:
+			refused++
+		default:
+			skipped++
+		}
+
+		idx := len(records)
+		records = append(records, teamUpdateRecordJSON{
+			AgentKey: rec.AgentKey,
+			Harness:  rec.Harness,
+			DestPath: rec.DestPath,
+			Status:   status.String(),
+			Action:   action,
+			Note:     teamUpdateNote(status, action),
+		})
+
+		if !include {
+			continue
+		}
+
+		includedAt[lockRecordKey(rec.Harness, rec.AgentKey, rec.DestPath)] = idx
+
+		agentKey := rec.Harness + "\x00" + rec.AgentKey
+		agent, ok := pending[agentKey]
+		if !ok {
+			agent = &pendingAgent{
+				teams:      freshTeams,
+				sourcePath: rec.SourcePath,
+				sourceHash: freshSourceHash,
+			}
+			pending[agentKey] = agent
+			pendingOrder = append(pendingOrder, agentKey)
+		}
+		agent.files = append(agent.files, team.RenderedFile{Path: rec.DestPath, Bytes: freshBody})
+	}
+
+	if len(pendingOrder) > 0 {
+		renders := make([]team.AgentRender, 0, len(pendingOrder))
+		for _, agentKey := range pendingOrder {
+			agent := pending[agentKey]
+			parts := strings.SplitN(agentKey, "\x00", 2)
+			renders = append(renders, team.AgentRender{
+				Harness:    parts[0],
+				AgentKey:   parts[1],
+				Teams:      agent.teams,
+				SourcePath: agent.sourcePath,
+				SourceHash: agent.sourceHash,
+				Files:      agent.files,
+			})
+		}
+
+		result, addErr := team.Add(repoPath, renders)
+		if addErr != nil {
+			wrapped := fmt.Errorf("write updated files: %w", addErr)
+			recordErrs = append(recordErrs, wrapped)
+			// team.Add's own doc comment: a failure partway through leaves
+			// either nothing changed or a partial set of artifacts on disk,
+			// with no way from here to tell which records landed. Every
+			// record this loop decided to include is downgraded from its
+			// optimistic "updated"/"overwritten" action to "error" rather
+			// than reporting a write that may never have happened.
+			for _, idx := range includedAt {
+				records[idx].Action = teamUpdateActionError
+				records[idx].Note = wrapped.Error()
+				updated--
+			}
+		} else {
+			// After internal/team/write.go's existence-aware dedup fix, a
+			// record this loop decided to include should never come back in
+			// AddResult.Skipped — StatusUpstreamUpdated/StatusMissing/forced
+			// overwrite all imply the installed bytes differ from the fresh
+			// render. If one still does, that is a genuine anomaly (the
+			// classify-time view and the write-time view of the same file
+			// disagreed, most likely a concurrent change), not a silent
+			// success, so it is reported as an error instead of counted as
+			// "updated".
+			for _, skippedRec := range result.Skipped {
+				key := lockRecordKey(skippedRec.Harness, skippedRec.AgentKey, skippedRec.DestPath)
+				idx, ok := includedAt[key]
+				if !ok {
+					continue
+				}
+				wrapped := fmt.Errorf(
+					"%s (%s, %s) was classified as changed but team.Add treated it as already up to date; left as-is — investigate a possible concurrent change",
+					skippedRec.AgentKey, skippedRec.Harness, skippedRec.DestPath)
+				recordErrs = append(recordErrs, wrapped)
+				records[idx].Action = teamUpdateActionError
+				records[idx].Note = wrapped.Error()
+				updated--
+			}
+		}
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].DestPath != records[j].DestPath {
+			return records[i].DestPath < records[j].DestPath
+		}
+		if records[i].AgentKey != records[j].AgentKey {
+			return records[i].AgentKey < records[j].AgentKey
+		}
+		return records[i].Harness < records[j].Harness
+	})
+
+	out := teamUpdateJSON{
+		Repo:    repoPath,
+		Force:   force,
+		Updated: updated,
+		Skipped: skipped,
+		Refused: refused,
+		Records: records,
+	}
+
+	if asJSON {
+		if err := writeTeamUpdateJSON(env.Stdout, out); err != nil {
+			return err
+		}
+	} else {
+		writeTeamUpdateTable(env.Stdout, out)
+	}
+
+	if len(recordErrs) > 0 || refused > 0 {
+		summary := fmt.Errorf("%d updated, %d refused, %d error(s) out of %d tracked file(s)", updated, refused, len(recordErrs), len(records))
+		return errors.Join(append(recordErrs, summary)...)
+	}
+	return nil
+}
+
 // newTeamListCommand declares "litefactory team list".
 func newTeamListCommand() *Command {
 	cmd := &Command{
@@ -904,19 +1309,36 @@ func newTeamStatusCommand() *Command {
 	return cmd
 }
 
-// newTeamUpdateCommand declares "litefactory team update". Its flags parse
-// and its --help is accurate; its behaviour is a follow-up story.
+// newTeamUpdateCommand declares "litefactory team update". Like team status,
+// it does not resolve or select a harness to render prospectively — every
+// lockfile record already names its own harness — so it binds --repo
+// directly rather than the shared teamRepoOptions.bind, which would also
+// expose a --harness flag with no meaning here.
 func newTeamUpdateCommand() *Command {
 	cmd := &Command{
 		Name:  "team update",
-		Usage: "team update [--repo path] [--harness list]",
-		Short: "Not yet implemented",
-		Long:  "team update is not implemented yet. This command currently only validates its flags.",
+		Usage: "team update [--repo path] [--force] [--json]",
+		Short: "Bring installed agent files back in line with their current source",
+		Long: "Classify every file tracked by --repo's provenance lockfile exactly as\n" +
+			"`team status` does, then write back whatever is safe to write\n" +
+			"automatically: upstream-updated and missing files are re-rendered and\n" +
+			"installed. Locally modified and conflicting files are left untouched\n" +
+			"by default and reported by name and classification; pass --force to\n" +
+			"overwrite them too — every file --force overwrites is named\n" +
+			"explicitly in the output, never only counted. Writes go through\n" +
+			"internal/team's existing write engine and update the lockfile record\n" +
+			"for every file actually written. Acts only on --repo; never discovers\n" +
+			"or touches any other worktree of the same repository.",
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var opts teamRepoOptions
-		opts.bind(fs)
-		return notImplemented(cmd.Name)
+		fs.StringVar(&opts.repo, "repo", ".",
+			"git repository whose provenance lockfile is brought up to date")
+		force := fs.Bool("force", false, "overwrite locally modified or conflicting files (destructive)")
+		asJSON := fs.Bool("json", false, "emit JSON instead of a table")
+		return func(ctx context.Context, env *Env, args []string) error {
+			return runTeamUpdate(ctx, env, cmd, opts, *force, *asJSON)
+		}
 	}
 	return cmd
 }
