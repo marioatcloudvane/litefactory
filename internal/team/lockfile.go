@@ -208,7 +208,7 @@ func (lf *Lockfile) save(root string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return fmt.Errorf("create %s: %w", litefactoryDir, err)
 	}
-	if err := writeFileAtomic(path, data, 0o666); err != nil {
+	if err := writeFileAtomic(root, filepath.Join(litefactoryDir, lockfileName), data, 0o666); err != nil {
 		return fmt.Errorf("write lockfile: %w", err)
 	}
 	return nil

@@ -1,106 +1,94 @@
-# Drift Report — new-way-to-work-with-agent-teams (US-15)
+# Drift Report — Configurable Agent Teams (US-16 + US-17)
 # Branch: lf/68-new-way-to-work-with-agent-teams | Date: 2026-09-07
 
-Scope of this report: this run's own delivery only — finishing US-15 (multi-worktree propagation
-for `team update`), which a prior run (run 31) left code-complete on disk but never reviewed,
-never build/test-confirmed, and never closed out. US-16 was explicitly out of scope for this run
-per instruction, and was not started, touched, or advanced in any way. US-1 through US-14 were
-already complete and out of scope for this run (re-confirmed clean — `go build ./...`, `go vet
-./...`, `gofmt -l .`, `go test -race ./...` all green across the whole 26-package module before
-any story-specific work began — not re-implemented here).
+This report is scoped to this run (US-16, US-17 — the last two stories on issue #68), per this
+session's one-report-per-run convention. Prior runs' drift reports for US-1 through US-15 are
+preserved in `notes.md`'s own per-run entries, not restated here.
 
 ## Delivered as planned
 
-- T-41 (live worktree discovery) — confirmed already present and correct on disk from run 31:
-  `internal/cli/cmd_team_worktrees.go`'s `discoverSiblingWorktrees` runs `git worktree list`
-  (reusing the pre-existing `internal/git` wrapper) and treats its output as the sole
-  ground-truth filter; no persisted repo-to-worktree schema relationship was introduced.
-- T-42 (`--all-worktrees` flag + per-worktree propagation) — confirmed already present and
-  correct: `cmd_team.go`'s `runTeamUpdate` registers `--all-worktrees` and dispatches to
-  `runTeamUpdateAllWorktrees`, which calls US-11's own unmodified `teamUpdateWorktree` once per
-  confirmed sibling path, sequentially, aggregating per-worktree outcomes into one JSON/table
-  report.
-- T-43 (tests) — confirmed already present and correct, one test per AC plus the flag's own
-  default: `TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling` (AC-1),
-  `TestTeamUpdateAllWorktrees_ExcludesStalePathSilently` (AC-2),
-  `TestTeamUpdate_AllWorktreesFlagDefaultsFalse` (AC-3),
-  `TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers` (AC-4),
-  `TestTeamUpdateAllWorktrees_DoesNotForceLocallyModifiedSibling` (Architecture Notes' explicit
-  "a hand-edit in one worktree does not block a sibling" case).
-- AC-1 through AC-4 all independently re-verified this run (not just re-read) by a fresh
-  `go-unit-test-engineer` pass that read the implementation directly, ran the full suite with
-  `-race -v -count=1`, and strengthened test assertions rather than trusting test names:
-  - AC-1: strengthened `TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling` to also assert the
-    *primary* worktree's own update (the original test asserted only the sibling's).
-  - AC-2: confirmed genuine — exit code, absence from the JSON report, and the discovery
-    implementation's sole reliance on `git worktree list`'s `Bare`/`Prunable` flags (no secondary
-    candidate-signal input) all checked directly.
-  - AC-3: confirmed genuine via `gittest.Capture`/`Diff` proving zero mutation of the sibling
-    worktree when the flag is absent.
-  - AC-4: strengthened `TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers` to also assert
-    the aggregated stderr text names the broken worktree specifically and not the healthy one.
-  - Closed a real, previously-unexercised coverage gap: `writeTeamUpdateAllTable` (the
-    human-readable, non-`--json` report path — the CLI's advertised default) had zero test
-    coverage; added `TestTeamUpdateAllWorktrees_TableOutputNamesEachWorktree`.
-- Phase 1.5 code review (the step run 31 never reached) completed this run: verdict
-  **ADVISORY_ONLY**, 0 BLOCKING findings. Specifically checked and confirmed clean: genuine reuse
-  of US-11's per-worktree algorithm (no divergent copy), `errors.Join` aggregation in the
-  per-worktree outcome loop (the class of mistake that was BLOCKING three times earlier on this
-  issue), no concurrency introduced, no `PreconditionError` leaking from `internal/team` (this
-  file never imports it), and symlink/path canonicalization (`filepath.Abs` +
-  `filepath.EvalSymlinks`) on every discovered sibling path before comparison.
+**US-16 — Gitignore the bookkeeping directory and protect it from accidental writes**
+- T-44: `.aiteam/AC_AMENDMENTS.md`'s SEC-7 ledger entry corrected to the actual current Owned Paths
+  (three harness dirs, `.litefactory/`, root-file marker spans, the single managed `.gitignore`
+  line). AC-2 met.
+- T-45: `.litefactory/` auto-appended to `.gitignore` on first bookkeeping-directory creation, per
+  worktree, idempotently — hooked into `acquireRepoLock` so it fires on every `Add`/`SetOverride`/
+  `UnsetOverride` call, including each per-worktree call inside US-15's `--all-worktrees` loop.
+  AC-1 met.
+- T-46: runtime write guard (`isOwnedWriteTarget`, wired into `writeFileAtomic`) refuses any write
+  outside the corrected Owned Paths list, reported as an internal error via a new
+  `ErrWriteOutsideOwnedPath` sentinel. AC-3 met.
+- T-47: tests for both the `.gitignore` idempotency/multi-worktree behavior and a fault-injected
+  out-of-scope write, independently re-verified by the unit test engineer with no gaps found.
+
+**US-17 — Bootstrap a `go-team` index from litefactory's own agents**
+- T-62: all surviving agents' markdown copied verbatim from `.claude/agents/` to their new
+  `internal/team/embedded/teams/{go-team,shared}/` homes; embedded default index rebuilt with a
+  real `go-team` entry (5 Go-specialist agents, inline) and a top-level `shared` map. AC-1, AC-2,
+  AC-3 met.
+- T-63: decode/validation tests against the real embedded snapshot, plus CLI-level `team list`/
+  `team show` tests against it, independently re-verified with no gaps found.
+
+Both stories implemented and tested against their own acceptance criteria independently, per this
+run's explicit instruction not to conflate them — no fix cycle was needed for either.
 
 ## Added scope
 
-One new test (`TestTeamUpdateAllWorktrees_TableOutputNamesEachWorktree`), added by the unit test
-engineer to close a real, previously-unexercised coverage gap in the table-output rendering path.
-Two existing tests strengthened with additional assertions (see above). Neither changes any
-production code path or any AC's scope — both are verification-depth improvements the story's own
-"verify behavior, not just presence" instruction called for.
+None beyond what each story's own tasks called for. No new command, package, or capability was
+added outside T-44 through T-47 and T-62/T-63.
 
 ## Dropped or deferred
 
-None for US-15 — all three tasks (T-41, T-42, T-43) and all four acceptance criteria (AC-1
-through AC-4) are delivered and independently verified in full.
-
-US-16 (gitignore + write-guard) remains entirely unstarted, by explicit instruction for this run —
-not a drop, a scope boundary honored as given. It remains open for a future run, sequenced after
-US-15 per plan_brief.md's Workflow (US-16 depends on US-15's live worktree-discovery mechanism
-existing, which is now confirmed sound).
+- **US-17's shared-map membership: 7 agents, not 8.** `US-17.md`'s literal text names 8
+  generic/orchestration agents including `app-context-updater`, but that agent was retired in a
+  prior run (run 30) and its `.claude/agents/app-context-updater.md` source file no longer exists in
+  this repo. The story's own architecture notes anticipated exactly this possibility and named the
+  correct resolution (drop it rather than invent content); the shipped index correctly ships 7
+  shared agents (12 total, not 13). This is not a scope drop in the sense of skipped work — it is
+  the story's own documented contingency firing, confirmed independently by the implementing
+  engineer, code review, and the unit test engineer, all three checking `.claude/agents/` directly
+  rather than trusting each other's claim.
+- **US-16's "reuses US-15's live worktree-discovery logic (T-41)" architecture note is satisfied by
+  a different mechanism than literally described** (see Architectural Deviations below) — not a
+  scope drop, but flagged here for completeness since it's the same category of "story doc doesn't
+  quite match what shipped" as the point above.
 
 ## Architectural deviations
 
-None. The delivered surface matches plan_brief.md's Shared Decision 2 (CLI surface: `--all-worktrees`
-opt-in on `team update`, no new default behavior) and Shared Decision 4 (drift/bookkeeping: live
-`git worktree list` discovery as sole ground truth, no persisted schema relationship, per-worktree
-independent outcome) exactly as specified, with no divergence found by either the independent test
-verification pass or the code review pass.
+- **US-16's gitignore propagation mechanism.** The story's Architecture Notes state this story
+  "reuses US-15's live worktree-discovery logic (T-41) rather than inventing a second way to
+  enumerate worktrees." The shipped implementation does not call `discoverSiblingWorktrees` from
+  `internal/team` at all. Instead, `ensureGitignoreEntry` is hooked into `acquireRepoLock`, which
+  every `Add`/`SetOverride`/`UnsetOverride` call already passes through — including each
+  per-worktree `Add` invoked from inside US-15's own `--all-worktrees` loop in
+  `cmd_team_worktrees.go`. This achieves the same "uniformly across every worktree" requirement
+  (AC-1) without a second, redundant worktree-enumeration call, and was verified correct by both the
+  implementing engineer's tests and code review's independent trace. Recorded as a deviation from
+  the story doc's literal wording, not from its actual intent (avoid inventing a second discovery
+  mechanism) — the shipped approach arguably satisfies that intent more directly, since it doesn't
+  even need a *first* dedicated discovery call for this purpose. Code review recommended (CR-A-002,
+  non-blocking) a one-line comment in `lock.go` calling this out explicitly for future readers; not
+  applied this run by judgment (advisory, not required).
+- **US-17's `source` path convention omits the story doc's literal `"teams/"` prefix.** The worked
+  example in `US-17.md` shows `source: "teams/go-team/go-architect.md"`. The shipped embedded index
+  instead uses `source: "go-team/go-architect.md"` (no `teams/` prefix), because
+  `internal/team/embedded.go`'s `fs.FS` is already rooted at `embedded/teams` — including the
+  literal prefix would have doubled the path segment and broken every read. This was checked against
+  `internal/teamsource/resolve.go`'s tier-2/tier-3 root convention and confirmed consistent across
+  all three index-source tiers (embedded default, static path override, registered-repo override):
+  none of them include a `teams/` prefix inside `source`, because in every tier the resolution root
+  is already `<tier-root>/teams`. This is a correction of an inconsistency in the story doc's worked
+  example, not a deviation from the accepted schema design (Shared Decision 1's `source`/`dest`
+  semantics are otherwise followed exactly).
 
 ## Verdict
 
-CLEAN — the story matches the plan in full; run 31's uncommitted-review, uncommitted-bookkeeping
-gap is now closed, and no gap or bug was found in the underlying implementation itself (the two
-test strengthenings above sharpened verification depth, not corrected wrong behavior).
-
-## Code review
-
-ADVISORY_ONLY (0 BLOCKING, 3 ADVISORY — full detail in `CODE_REVIEW.md`):
-- CR-A-001: a discovery-time `binary.Open`-class failure isn't wrapped in `Precondition(err)` the
-  way the adjacent `git.Resolve` failure is, so that one edge case (reachable only past an
-  already-tampered `.git` entry) exits 1 instead of the contractually-specified 3. Left unfixed by
-  judgment — narrow, low-likelihood, and not a correctness or safety issue.
-- CR-A-002: `writeTeamUpdateAllTable` duplicates `writeTeamUpdateTable`'s row-rendering loop
-  instead of sharing a helper, and its per-worktree section omits the
-  updated/skipped/refused summary lines the single-worktree table prints (the data is present in
-  the JSON report, just not surfaced in the table). Cosmetic/UX polish, not a correctness gap.
-- CR-A-003: the primary worktree's reported path isn't symlink-canonicalized the same way sibling
-  paths are; cosmetic only, dedup logic is unaffected and correct.
-
-None of the three findings are BLOCKING; per this team's Phase 1.5 rule, ADVISORY_ONLY is a valid
-terminal state and no fix cycle was required. All three are carried forward in `notes.md`.
-
-## Tests
-
-22 tests in `internal/cli` relevant to `team update`/worktree behavior, 22 passing, 0 failing
-(1 new test added this run, 2 existing tests strengthened). `go test -race ./...` clean across all
-26 packages. `gofmt -l .` and `go vet ./...` clean. No bug loop triggered — no bugs found.
+CLEAN — both stories delivered exactly against their own acceptance criteria. The two "deviations"
+above are cases where the shipped code correctly resolved an internal inconsistency in the story
+docs' own wording (a retired agent the story doc hadn't caught, a path-prefix convention the story
+doc's worked example got backwards relative to the load mechanism), not divergences from the plan's
+actual design intent — both were independently confirmed correct by code review and the unit test
+engineer, not asserted unilaterally by the implementing engineers. No BLOCKING code review finding,
+no bug-loop cycle, and `go test -race ./...` green across all 26 packages. **This is the last of the
+18 planned stories (US-1 through US-11, US-13 through US-19, US-12 dropped in Plan-mode
+reconciliation) on issue #68 — the feature is code-complete.**

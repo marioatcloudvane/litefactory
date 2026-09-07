@@ -4,17 +4,57 @@
     {
       "name": "go-team",
       "agents": {
+        "go-architect": {
+          "source": "go-team/go-architect.md",
+          "dest": "go-architect.md"
+        },
         "go-implementation-engineer": {
-          "source": "agents/go-implementation-engineer.md",
-          "dest": ".claude/agents/go-implementation-engineer.md"
+          "source": "go-team/go-implementation-engineer.md",
+          "dest": "go-implementation-engineer.md"
+        },
+        "go-code-reviewer": {
+          "source": "go-team/go-code-reviewer.md",
+          "dest": "go-code-reviewer.md"
+        },
+        "go-unit-test-engineer": {
+          "source": "go-team/go-unit-test-engineer.md",
+          "dest": "go-unit-test-engineer.md"
+        },
+        "go-integration-test-engineer": {
+          "source": "go-team/go-integration-test-engineer.md",
+          "dest": "go-integration-test-engineer.md"
         }
       }
     }
   ],
   "shared": {
     "codebase-tour": {
-      "source": "agents/codebase-tour.md",
-      "dest": ".claude/agents/codebase-tour.md"
+      "source": "shared/codebase-tour.md",
+      "dest": "codebase-tour.md"
+    },
+    "web-researcher": {
+      "source": "shared/web-researcher.md",
+      "dest": "web-researcher.md"
+    },
+    "requirements-engineer": {
+      "source": "shared/requirements-engineer.md",
+      "dest": "requirements-engineer.md"
+    },
+    "proxy-product-owner": {
+      "source": "shared/proxy-product-owner.md",
+      "dest": "proxy-product-owner.md"
+    },
+    "research-orchestrator": {
+      "source": "shared/research-orchestrator.md",
+      "dest": "research-orchestrator.md"
+    },
+    "plan-orchestrator": {
+      "source": "shared/plan-orchestrator.md",
+      "dest": "plan-orchestrator.md"
+    },
+    "implement-orchestrator": {
+      "source": "shared/implement-orchestrator.md",
+      "dest": "implement-orchestrator.md"
     }
   }
 }

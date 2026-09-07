@@ -1,11 +1,26 @@
 package team
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+)
 
 // litefactoryDir is the repo-relative directory this package owns for its
-// own bookkeeping: the provenance lockfile (team.lock.json) and the flock
-// target (.team.lock) that serializes concurrent Add calls.
+// own bookkeeping: the provenance lockfile (team.lock.json), the per-repo
+// agent source overrides (team.overrides.json) and the flock target
+// (.team.lock) that serializes concurrent Add calls.
 const litefactoryDir = ".litefactory"
+
+// harnessOwnedDirPrefixes lists the repo-relative, forward-slash directory
+// prefixes this package writes standalone per-agent artifacts under, one
+// per known harness. Every standalonePath result falls under exactly one of
+// these.
+var harnessOwnedDirPrefixes = []string{
+	".claude/agents/",
+	".codex/skills/",
+	".opencode/agents/",
+}
 
 // Root-file target literals a renderer's second RenderedFile.Path may name.
 // internal/render defines the harness-specific constants these mirror
@@ -78,4 +93,37 @@ func validateOwnedPath(harness, agentKey, filePath string) error {
 		return &PathNotOwnedError{AgentKey: agentKey, Harness: harness, Path: filePath, Want: want}
 	}
 	return nil
+}
+
+// isOwnedWriteTarget reports whether relPath — a repo-relative path exactly
+// as passed to writeFileAtomic — falls inside this package's Owned Paths, as
+// corrected by US-16 (see AC_AMENDMENTS.md's SEC-7 entry): one of the three
+// harness-facing standalone directories, the .litefactory bookkeeping
+// directory (lockfile, overrides, per-repo flock), a recognized root-file
+// composition target, or the repo-root .gitignore file this package manages
+// one line of (T-45).
+//
+// This is the runtime write guard (T-46): every write this package performs
+// funnels through writeFileAtomic, which calls this immediately before a
+// write lands rather than relying only on validateOwnedPath's earlier,
+// narrower check during AgentRender validation — validateOwnedPath cannot
+// see a lockfile, overrides, or .gitignore write at all, since none of those
+// originates from a renderer's output. A relPath this returns false for
+// means a bug in this package's own write path, not a caller mistake: every
+// relPath reaching writeFileAtomic is built by this package itself from its
+// own constants and validated inputs.
+func isOwnedWriteTarget(relPath string) bool {
+	clean := filepath.ToSlash(filepath.Clean(relPath))
+	if isRootFileTarget(clean) || clean == gitignoreName {
+		return true
+	}
+	if clean == litefactoryDir || strings.HasPrefix(clean, litefactoryDir+"/") {
+		return true
+	}
+	for _, prefix := range harnessOwnedDirPrefixes {
+		if strings.HasPrefix(clean, prefix) {
+			return true
+		}
+	}
+	return false
 }

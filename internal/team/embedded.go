@@ -13,15 +13,17 @@ import (
 // //go:embed migrations/*.sql pattern for the same reason (D-1: one static
 // binary).
 //
-// PLACEHOLDER CONTENT: the files under embedded/ are a minimal placeholder
-// (schemaVersion 1, one team, one shared agent) so this directive and the
-// loaders below have something real to embed, and so US-2's own
-// source-selection precedence (embedded < static-path override <
-// registered-repo override) can be exercised without waiting on US-17. US-17
-// ("bootstrap go-team index") replaces this placeholder *content* — the
-// index.json and its markdown files — with the real 13-agent worked example.
-// It does not change the loading mechanism below: Embedded and EmbeddedFS
-// are already the real, permanent entry points.
+// REAL CONTENT (US-17): the files under embedded/ are litefactory's own
+// worked example, built from this project's own agent roster — one team,
+// go-team, holding the 5 Go-specialist agents inline, plus a top-level
+// shared map holding the 7 generic/orchestration agents every future team
+// can also draw on (US-2's shared-agent semantics). The roster is 12 agents,
+// not the 13 originally scoped: app-context-updater was retired and has no
+// surviving .claude/agents/app-context-updater.md source to copy, so it was
+// dropped rather than invented. Every markdown file here is copied verbatim
+// from this repo's own .claude/agents/ at the time it was added; this
+// directory is the one-time destination of that copy, not something
+// regenerated at build or load time.
 //
 //go:embed embedded
 var embeddedFS embed.FS

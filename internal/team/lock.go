@@ -29,6 +29,16 @@ type repoLock struct {
 
 // acquireRepoLock blocks until it holds an exclusive lock on root's
 // .litefactory/.team.lock file, creating the directory and file as needed.
+//
+// Once the lock is held, it also ensures root's .gitignore carries an entry
+// for litefactoryDir (T-45, gitignore.go): this is the one place every write
+// path in this package (Add, SetOverride, UnsetOverride) passes through
+// before touching .litefactory, so it is the natural, single choke point for
+// keeping the ignore rule present in every worktree a team command ever
+// runs against, no matter which of those three entry points got there
+// first. Doing this after the flock rather than before it means two
+// concurrent callers against the same root can never race a read of
+// .gitignore against each other's write.
 func acquireRepoLock(root string) (*repoLock, error) {
 	dir := filepath.Join(root, litefactoryDir)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
@@ -49,6 +59,11 @@ func acquireRepoLock(root string) (*repoLock, error) {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	if err := ensureGitignoreEntry(root); err != nil {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+		return nil, err
 	}
 	return &repoLock{f: f}, nil
 }

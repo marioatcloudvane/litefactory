@@ -88,6 +88,16 @@ var (
 	// forward-slash path to an existing regular markdown file inside the
 	// target repo. SetOverride records no override when this occurs.
 	ErrOverridePath = errors.New("invalid agent source override path")
+
+	// ErrWriteOutsideOwnedPath reports that this package's own write path
+	// (writeFileAtomic) was about to write somewhere outside the Owned Paths
+	// it is permitted to touch under SEC-7's override (T-46). Reaching this
+	// is an internal invariant violation, not a caller input problem: every
+	// path reaching writeFileAtomic is built by this package itself, from
+	// its own constants and already-validated inputs, so seeing this error
+	// at runtime means a future change to the write path forgot the
+	// constraint it must hold.
+	ErrWriteOutsideOwnedPath = errors.New("internal error: write target is outside this package's owned paths")
 )
 
 // UnknownFieldError reports one JSON key that has no place in the index
@@ -285,3 +295,18 @@ func (e *OverridePathError) Error() string {
 }
 
 func (e *OverridePathError) Unwrap() error { return ErrOverridePath }
+
+// WriteOutsideOwnedPathError reports the specific repo-relative path a
+// writeFileAtomic call refused to write, because it falls outside every
+// Owned Path this package is permitted to write to (T-46). Seeing this
+// error means a bug in this package's own write path, not a caller mistake
+// — see ErrWriteOutsideOwnedPath.
+type WriteOutsideOwnedPathError struct {
+	Path string
+}
+
+func (e *WriteOutsideOwnedPathError) Error() string {
+	return fmt.Sprintf("internal error: refusing to write %q, outside this package's owned paths", e.Path)
+}
+
+func (e *WriteOutsideOwnedPathError) Unwrap() error { return ErrWriteOutsideOwnedPath }

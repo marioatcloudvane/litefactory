@@ -50,8 +50,15 @@ func splitPath(p string) []string {
 	return parts
 }
 
-// writeFileAtomic writes data to the repo-relative-resolved absolute path
-// via a temp file in the same directory, followed by an atomic rename.
+// writeFileAtomic writes data to root/relPath via a temp file in the same
+// directory, followed by an atomic rename. relPath is checked against
+// isOwnedWriteTarget before anything is touched (T-46): this is the single
+// choke point every write this package performs funnels through — standalone
+// artifact files and root-file sections (write.go), the provenance lockfile
+// (lockfile.go), the per-repo overrides file (overrides.go), and the
+// .gitignore entry this package manages (gitignore.go) — so guarding here
+// once covers all of them rather than trusting each caller to have checked
+// already.
 //
 // The temp file is created with os.OpenFile using mode directly at
 // creation (O_CREATE|O_WRONLY|O_EXCL), rather than os.CreateTemp (which
@@ -60,7 +67,11 @@ func splitPath(p string) []string {
 // on the umask installed as the first statement of main to narrow
 // permissions; passing mode straight to OpenFile satisfies that with the
 // same "0666-with-umask" result for a regular file.
-func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+func writeFileAtomic(root, relPath string, data []byte, mode os.FileMode) error {
+	if !isOwnedWriteTarget(relPath) {
+		return &WriteOutsideOwnedPathError{Path: relPath}
+	}
+	path := filepath.Join(root, relPath)
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)

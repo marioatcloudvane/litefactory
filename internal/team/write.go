@@ -192,8 +192,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 		if err := refuseSymlink(root, w.path); err != nil {
 			return nil, err
 		}
-		absPath := filepath.Join(root, w.path)
-		if err := writeFileAtomic(absPath, w.body, 0o666); err != nil {
+		if err := writeFileAtomic(root, w.path, w.body, 0o666); err != nil {
 			return nil, fmt.Errorf("write %s: %w", w.path, err)
 		}
 		lf.upsertRecord(w.record)
@@ -229,7 +228,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 			content = upsertMarkerSection(content, sec.teams, sec.agentKey, sec.body)
 		}
 
-		if err := writeFileAtomic(absPath, content, 0o666); err != nil {
+		if err := writeFileAtomic(root, rootFile, content, 0o666); err != nil {
 			return nil, fmt.Errorf("write %s: %w", rootFile, err)
 		}
 		for _, sec := range sections {

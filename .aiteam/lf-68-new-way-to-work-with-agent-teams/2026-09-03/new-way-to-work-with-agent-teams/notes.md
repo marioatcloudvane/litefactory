@@ -820,4 +820,88 @@ introduced or was asked to fix — noted here rather than silently corrected or 
 
 No commits or pushes made this run — worktree left for litefactory to inspect and commit. US-16
 and US-17 remain open for a future Implement run, each needing its own dedicated run per this
+
+## 2026-09-07 — Implement run: US-16 (gitignore + write-guard) + US-17 (go-team bootstrap) — last two stories on issue #68
+
+Sponsor scoped this run to exactly these two stories, run genuinely in parallel (no ordering
+dependency between them per `plan_brief.md`'s Workflow section — both depend only on already-landed
+prerequisites: US-16 on US-15+US-1, US-17 on US-1+US-4). Started from a clean tree at `e21c8a5`
+(US-15's own close-out commit).
+
+**US-16 delivered.** New `internal/team/gitignore.go` (`ensureGitignoreEntry`/`gitignoreHasEntry`,
+T-45) hooked into `acquireRepoLock` so every `Add`/`SetOverride`/`UnsetOverride` call — including
+each per-worktree `Add` inside US-15's `--all-worktrees` loop — establishes the `.litefactory/`
+`.gitignore` line idempotently, without a second worktree-enumeration call. `internal/team/paths.go`
+gained `isOwnedWriteTarget` (T-46), the runtime Owned Paths guard, wired into `writeFileAtomic`
+(signature changed to `(root, relPath string, ...)`) as the single choke point every write in the
+package funnels through; a new sentinel `ErrWriteOutsideOwnedPath`/`WriteOutsideOwnedPathError`
+reports a violation as an internal error. `.aiteam/AC_AMENDMENTS.md`'s SEC-7 ledger entry corrected
+(T-44) — though the implementing engineer found and reported that the pre-existing ledger entry
+never actually contained the two stale `.aiteam/team*.json` paths the story's framing described;
+code review independently confirmed this against the file's actual history, so "gone" is trivially
+true and the doc is internally consistent, not silently patched over a false claim.
+
+**US-17 delivered.** Checked `.claude/agents/` directly before assuming anything: `app-context-updater.md`
+does not exist (retired per run 30's record) — so the shared map ships 7 agents, not 8 (12 total,
+not 13), exactly as the story's own contingency instruction anticipated. Copied all 12 surviving
+agents' markdown verbatim to `internal/team/embedded/teams/{go-team,shared}/*.md` and rebuilt
+`internal/team/embedded/teams/index.json` with the real `go-team` (5 agents) + `shared` (7 agents)
+entries, replacing the placeholder content `embedded.go`'s doc comment had flagged. Deleted two
+placeholder-layout leftovers (`embedded/teams/agents/codebase-tour.md`,
+`embedded/teams/agents/go-implementation-engineer.md`) superseded by the new layout. One real
+deviation from the story doc's literal wording, confirmed correct by both the engineer and code
+review: `source` fields are written as `"go-team/<key>.md"`/`"shared/<key>.md"` with no `"teams/"`
+prefix, because `embedded.go`'s `fs.FS` is already rooted at `embedded/teams` — including the
+worked example's literal `"teams/"` prefix would have doubled the path segment and broken every
+read. Verified against `internal/teamsource/resolve.go`'s tier-2/3 root to confirm this convention
+is consistent across all three index tiers, not a US-17-only quirk.
+
+**Phase 1.5 — code review.** `go-code-reviewer` reviewed the actual current uncommitted tree (not
+the task reports) against both stories' ACs and plan_brief.md's cross-story constraints, with
+particular attention to the `errors.Join`-aggregation mistake that has been BLOCKING three times
+before on this issue (runs 20, 22, 25) — none found in either story's new code. Verdict
+**ADVISORY_ONLY**, 0 BLOCKING, 3 advisories (full detail in `CODE_REVIEW.md`):
+- **CR-A-001** — `internal/team/doc.go` (the package's "real spec" per plan_brief.md) was not
+  updated to describe T-46's write guard or T-45's `.gitignore` management. Non-blocking; left
+  unfixed by this run's judgment since it does not affect behavior.
+- **CR-A-002** — US-16.md's architecture note said this story "reuses US-15's live
+  worktree-discovery logic (T-41)"; the shipped mechanism instead hooks into `acquireRepoLock`,
+  achieving the same "every worktree" guarantee without a second discovery call — verified correct
+  and arguably cleaner, but the story doc's literal wording doesn't match what shipped. Non-blocking
+  documentation mismatch, not a code defect.
+- **CR-A-003** — `US-17.md` itself still says "8 shared agents" in its AC-1 text and worked example,
+  stale relative to the shipped, correct 7-agent count (`app-context-updater` retired). Code, tests,
+  and this run's routing prompt are all internally consistent with 7; only the story doc's own text
+  is stale. Flagged for whoever next touches Plan-mode bookkeeping on this session; not this run's
+  remit to edit `$session` plan artifacts.
+
+No fix cycle was needed (ADVISORY_ONLY is a valid terminal state per this team's Phase 1.5 rule).
+
+**Phase 2 — environment setup.** Skipped. Both stories are filesystem-only (`.gitignore`
+management, embedded index/markdown construction) — no database, external HTTP call, or message
+queue — consistent with every prior run on this issue (20/22/25/26/27/30/33).
+
+**Phase 3 — unit tests.** `go-unit-test-engineer` independently verified every AC in both stories
+by reading actual test assertions against actual source, not by counting test names or trusting the
+implementing engineers' self-reports. Found **no coverage gaps** — added no new tests. Notably
+verified AC-3 (US-16) via `TestWriteFileAtomicRefusesPathOutsideOwnedPaths` (fault-injected, asserts
+nothing lands on disk, not merely that no code path currently attempts the write) and AC-1/AC-2/AC-3
+(US-17) via exact-set assertions (not subset checks) plus an independent byte-diff of all 12 copied
+markdown files against their `.claude/agents/` originals. Deliberately did not add a
+byte-identity-to-`.claude/agents/` regression test, on the grounds that AC-3 asks about
+existence/resolvability, not permanent content-pinning, and pinning it would make the suite fail on
+ordinary future edits to those agent definitions — recorded here as a considered choice, not an
+oversight. `go test -race -cover ./internal/team/...`: 74/74 pass, 78.2% coverage.
+`go test -race -cover ./internal/cli/...`: 187/187 pass, 80.4% coverage. `internal/teamsource`
+untouched by either story (confirmed via diff), coverage unchanged at 50.4%.
+
+**Final gate check** (re-run independently by this orchestrator after all agent work completed):
+`go build ./...`, `gofmt -l .`, `go vet ./...` all clean; `go test -race ./...` green across all 26
+packages. No bug loop needed — zero test failures anywhere in this run.
+
+**Result: this is the last run needed to complete all 18 stories on issue #68.** US-1 through
+US-11, US-13 through US-19 (17 numbered stories, US-12 dropped per Plan-mode reconciliation) are now
+all implemented, reviewed (CLEAN or ADVISORY_ONLY, zero open BLOCKING findings anywhere across the
+whole feature), and passing `go test -race ./...`. No commits or pushes made this run — worktree
+left for litefactory to inspect and commit.
 issue's established one-story-per-run discipline.
