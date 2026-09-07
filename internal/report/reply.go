@@ -360,6 +360,84 @@ func commandSpan(command string) (string, bool) {
 	return "`" + token + "`", true
 }
 
+// maxConflictPathEntries caps how many accepted conflicting paths
+// [conflictsBlock] quotes in a comment. It is a display rule, not a security
+// rule (US-5): the full list, after rejection, is trimmed with a remainder
+// count the same way [filesSection] trims the files-touched list, and does
+// not substitute for [conflictPathPattern]'s rejection check, which runs
+// first and independently of it.
+const maxConflictPathEntries = 20
+
+// conflictPathPattern is the shape a conflicting path must have to be quoted
+// back verbatim into a comment litefactory signs its own name to (US-5).
+//
+// The paths [conflictsBlock] renders come from [git.Worktree.MergePreview],
+// reading the base branch's own file tree — which, on most repositories,
+// anyone who can land a commit can influence. A file name is just a string,
+// and nothing stops one from being chosen to look like an HTML comment shaped
+// exactly like [MarkerPrefix] — which [turn.HasMarker] matches on any line of
+// a body, not only the first — or to hold a Unicode bidirectional-override
+// rune that makes a name display in an order its bytes do not have (the
+// "Trojan Source" class of attack). Landing either as its own line inside a
+// comment litefactory signs its own name to would hand an attacker a way to
+// poison it: a person who later copies that text back — the exact scenario
+// [ReplyPlainlyNotice] warns about — could have their own reply silently read
+// as litefactory's own and dropped, or simply be shown a name that is not
+// what it appears to be.
+//
+// The pattern is a denylist rather than a narrow allowlist, checked again
+// here at the point of echo rather than trusted from [git.Worktree.MergePreview]
+// (SEC-5), the same discipline [agentNamePattern] holds for its own untrusted
+// string: any character is permitted except the ASCII control range (which
+// includes the newline that would otherwise let a single path plant an extra
+// line of its own), '<' and '>' (which an HTML comment needs on both ends),
+// and the Unicode bidirectional control characters. It is deliberately not
+// stricter than that — a run of backticks is still accepted, because
+// [fenceFor] already defeats a fence widened to break out of its own block,
+// and this pattern exists for the threats that survive fencing rather than to
+// duplicate it. A path failing it is dropped and counted rather than shown, so
+// over-rejecting an ordinary file name costs nothing but a slightly vaguer
+// list, while under-rejecting costs a poisoned comment.
+var conflictPathPattern = regexp.MustCompile(
+	`^[^\x00-\x1f\x7f<>\x{061c}\x{200e}\x{200f}\x{202a}-\x{202e}\x{2066}-\x{2069}]+$`,
+)
+
+// conflictPathSpan renders a single conflicting path for quoting back, the
+// same discipline [agentSpan] and [commandSpan] apply to their own untrusted
+// strings.
+//
+// Unlike [commandSpan] it does not stop at the first disallowed rune and keep
+// what came before: a path is a single, meaningful string, and a truncated
+// prefix of it is a different, real path — one that might not even be among
+// the ones that conflicted. So the whole path is checked at once, and a path
+// that fails is rejected outright: nothing of it is rendered, not even a
+// shortened form (AC-5.1).
+func conflictPathSpan(path string) (string, bool) {
+	if !conflictPathPattern.MatchString(path) {
+		return "", false
+	}
+	return path, true
+}
+
+// classifyConflictPaths splits paths into the ones safe to quote back and a
+// count of the ones that are not.
+//
+// Every path is classified independently — one path failing
+// [conflictPathPattern] says nothing about any other — so this walks the
+// whole list rather than stopping at the first rejection, matching this
+// package's other list-of-independent-values checks.
+func classifyConflictPaths(paths []string) (accepted []string, rejected int) {
+	accepted = make([]string, 0, len(paths))
+	for _, p := range paths {
+		if span, ok := conflictPathSpan(p); ok {
+			accepted = append(accepted, span)
+			continue
+		}
+		rejected++
+	}
+	return accepted, rejected
+}
+
 // body renders the reply. It is small on purpose: a reply is an answer to
 // something litefactory will not do, and the useful part is the sentence that
 // says what it will do instead.
@@ -555,3 +633,12 @@ const agentRefusalSentence = "Nothing was run: litefactory refuses a run it cann
 // stale branch.
 const syncRefusalSentence = "Nothing was run: litefactory refuses a run it cannot merge the base branch " +
 	"into cleanly rather than guessing at a resolution or running against a stale branch."
+
+// conflictPathRejectionSentence is the one thing every hidden-conflict-path
+// count has to say, for the same reason [syncRefusalSentence] exists: a path
+// failing [conflictPathPattern] is dropped and counted rather than shown —
+// never sanitised into something printable, never shown as a truncated
+// prefix — and a fourth account of that rule (US-5) must not drift from the
+// other three. It takes one %d verb for the count of paths it hid.
+const conflictPathRejectionSentence = "%d of the conflicting path(s) could not be shown safely and " +
+	"were counted instead of printed."

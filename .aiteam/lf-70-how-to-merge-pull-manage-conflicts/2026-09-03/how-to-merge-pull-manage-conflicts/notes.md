@@ -367,3 +367,110 @@ findings, both before and after the CR-B-001 fix.
 
 Not yet entered as of writing this note — pending Phase 3's dedicated
 `go-unit-test-engineer` pass.
+
+---
+
+# Implementation Notes — US-5, US-9 (Render conflicts safely, Persist sync outcomes)
+
+## Scope of this run
+
+This run implemented **US-5 and US-9 in parallel**, per explicit instruction
+("Implement US-5 and US-9 together"). Both were unblocked (US-5 depends on
+US-4, US-9 on US-1/US-2, all three already done and committed) and land in
+disjoint packages (`internal/report` for US-5; `internal/store` plus a single
+write-back call site in `internal/turn/prepare.go` for US-9), making this a
+genuine parallel fan-out. US-6, US-10, US-11, US-12 remain untouched and out
+of scope, per explicit instruction (US-6 in particular deliberately excluded
+from this batch — its concurrency test is sized L and would hold both
+finished stories at Gate A).
+
+## US-9's stale migration number
+
+`US-9.md`'s own prose cites `0005_run_sync.sql` on top of a `0004` head —
+confirmed stale before implementation started, per the run's own
+instructions. `internal/store/migrations/` was listed directly at the start
+of this run: the actual head is `0006_schedule_block_replies.sql`, so the
+correct next migration is `0007_run_sync.sql`. The implementation engineer
+was told this directly (not left to discover it) and re-verified it
+independently before writing the file. No collision.
+
+## What was built
+
+- **US-5**: `internal/report/reply.go` gained `maxConflictPathEntries` (20),
+  `conflictPathPattern` (local denylist: ASCII control chars, `<`/`>`, and
+  the standard Unicode bidi-control code points), `conflictPathSpan`
+  (whole-string reject-don't-salvage, mirroring `agentSpan`/`commandSpan`),
+  `classifyConflictPaths` (loops the full path list without short-circuiting,
+  splitting into accepted spans + a rejected count), and
+  `conflictPathRejectionSentence` grouped with the three existing refusal
+  sentences. `internal/report/run.go`'s existing `conflictsBlock` (from
+  US-3/US-4) was extended, not duplicated, to classify-then-truncate-then
+  report the rejected count. Backtick was deliberately left off the denylist
+  — the engineer's claim that `fenceFor`'s dynamic fence-width computation
+  already defeats backtick-based fence breakout was independently re-verified
+  by the code reviewer against `internal/report/text.go`, not trusted as
+  stated.
+- **US-9**: new migration `internal/store/migrations/0007_run_sync.sql` adds
+  `sync_outcome`/`sync_behind`/`sync_ahead`/`sync_commit_sha` to `runs`, each
+  `NOT NULL DEFAULT` per convention. `internal/store/runs.go` gained the
+  `SyncOutcome` type/constants, the four `Run` fields, and
+  `DB.RecordRunSync` (read-then-write under `BEGIN IMMEDIATE`, refusing a
+  non-empty `CommitSHA` paired with any outcome other than `synced`).
+
+## Deviation found and independently verified (US-9 integration point)
+
+The architecture notes cited `internal/turn/prepare.go:429`/`:505` as the
+write-back site (immediately after `syncBase` completes). The engineer found
+that no `runs` row exists yet at that point — `allocateRun` (which creates
+the row) runs later, in `prepare()` — and placed the write-back immediately
+after `allocateRun` instead, still strictly before the existing
+`SetSessionState` call documented as prepare's last store write. The code
+reviewer independently re-read `prepare()`'s actual current line numbers
+(confirming `prepareClone`/`syncBase` at line 117, `allocateRun` at line 216)
+and confirmed the deviation is correct, not merely plausible — a stale
+citation in the sub-issue, not a functional problem. This is recorded here
+per the plan's own re-pinning discipline (line numbers in a sub-issue drift
+as the codebase moves; the underlying ordering requirement — write before
+any comment-rendering step reads the outcome back — is what was verified,
+not the literal line numbers).
+
+## Code Review Advisories
+
+- **CR-A-003** (advisory, non-blocking, US-9): `SyncFailed` is a fully
+  supported, tested `SyncOutcome` value, but nothing in `internal/turn`
+  currently writes it — a git-level merge failure aborts the turn before
+  `allocateRun` creates a row, so a failed sync is never persisted, only
+  logged. Verified by the code reviewer as a pre-existing property of
+  `prepareClone`'s ordering, not a defect introduced by this run, and it does
+  not violate AC-9.2 as literally written (which binds only to a run that
+  reaches completion). Recorded in `DRIFT_REPORT.md` as a gap for a future
+  story to close, not fixed in this run — closing it would mean persisting a
+  run outcome before a run row exists, which is a larger structural change
+  than this story's scope.
+
+No BLOCKING findings for either story. `go-code-reviewer`'s verdict:
+ADVISORY_ONLY. See `CODE_REVIEW.md`'s newest dated section for the full
+record; all four prior sections (US-8, US-7, US-1, US-2/US-3/US-4) are
+unchanged.
+
+## Cross-story boundary check
+
+Verified (by the code reviewer, independently, not just asserted by either
+engineer): US-9 does not add a conflict-path column (explicitly deferred, per
+`plan_brief.md`'s S-9/S-17 and `US-9.md`'s own architecture notes — the
+conflict list is rendered live from `MergePreview`, not reloaded from
+storage), and US-5 does not import `internal/store` — the two stories'
+conflict-related work stays on opposite sides of the boundary the plan draws
+between them.
+
+## Phase 2 — Environment setup
+
+US-5 touches only `internal/report` (pure in-memory string classification and
+rendering). US-9 touches `internal/store` (SQLite via the existing
+`database/sql` + embedded-migration convention already used by every other
+migration in this repo — treated as unit-testable, not requiring a
+provisioned external database, consistent with this codebase's own
+established testing convention for `internal/store`) plus a single call site
+in `internal/turn`. Neither story opens a new external HTTP call or message
+queue. Environment setup and the integration test suite were both skipped per
+the orchestrator's Phase 2 rule.

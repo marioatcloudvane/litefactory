@@ -865,20 +865,51 @@ func syncSection(run Run) string {
 // defence [filesSection] uses for the files-touched list, applied here for
 // the same reason: both lists are attacker-influenced content read from a
 // worktree, and neither is trusted to render as anything but literal text.
+//
+// Before any of that, every path is classified by [classifyConflictPaths]
+// (US-5): a path that could be read as an HTML comment shaped like
+// [MarkerPrefix], or one carrying a bidi-override rune, is rejected
+// outright — never printed, never printed truncated — and only counted
+// (AC-5.1). What survives that check is then capped at
+// [maxConflictPathEntries] with a remainder count; that cap is a display
+// rule distinct from the rejection check and is applied after it, never in
+// place of it (AC-5.2).
 func conflictsBlock(paths []string) string {
-	lines := make([]string, 0, len(paths))
-	for _, p := range paths {
-		lines = append(lines, sanitize(p))
+	accepted, rejected := classifyConflictPaths(paths)
+
+	shown := accepted
+	var overflow int
+	if len(shown) > maxConflictPathEntries {
+		overflow = len(shown) - maxConflictPathEntries
+		shown = shown[:maxConflictPathEntries]
 	}
-	list := strings.Join(lines, "\n")
-	fence := fenceFor(list)
 
 	var b strings.Builder
-	b.WriteString(fence)
-	b.WriteString("\n")
-	b.WriteString(list)
-	b.WriteString("\n")
-	b.WriteString(fence)
+	if len(shown) > 0 {
+		lines := make([]string, 0, len(shown))
+		for _, p := range shown {
+			lines = append(lines, sanitize(p))
+		}
+		list := strings.Join(lines, "\n")
+		fence := fenceFor(list)
+		b.WriteString(fence)
+		b.WriteString("\n")
+		b.WriteString(list)
+		b.WriteString("\n")
+		b.WriteString(fence)
+	}
+	if overflow > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "_… and %d more._", overflow)
+	}
+	if rejected > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, conflictPathRejectionSentence, rejected)
+	}
 	return b.String()
 }
 

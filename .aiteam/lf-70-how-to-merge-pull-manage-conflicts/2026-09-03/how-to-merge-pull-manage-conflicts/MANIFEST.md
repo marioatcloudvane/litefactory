@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-7, US-8 of 12 stories delivered)*
+- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-7, US-8, US-9 of 12 stories delivered)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -397,5 +397,52 @@ asked for; nothing here licenses starting the next one.
   (conflict-path sanitization) is now unblocked since US-4 exists, and US-9's
   persistence work is the natural next story to complete US-3's deferred live
   wiring.
+- 2026-09-07 — Implement mode run (scoped to US-5 and US-9 together, per
+  explicit instruction — a genuine parallel fan-out since both were unblocked
+  (US-5 depends on US-4, US-9 on US-1/US-2, all three already done) and land
+  in disjoint packages. US-6, US-10, US-11, US-12 deliberately excluded, US-6
+  in particular held back because its concurrency test (T-6.1, sized L) would
+  have blocked both finished stories at Gate A. US-9's stale migration-number
+  citation (`0005_run_sync.sql` on `0004`) was corrected before implementation
+  started, per the run's own instructions — the actual, independently
+  re-verified next migration is `0007_run_sync.sql`, since `0005` and `0006`
+  were taken by an intervening scheduling feature. US-5 (`internal/report`)
+  delivered a local reject-don't-salvage denylist (`conflictPathPattern`/
+  `conflictPathSpan`) for conflict paths containing markdown-significant
+  characters, HTML markers, or bidi-override runes, built on US-3/US-4's
+  existing `conflictsBlock` rather than duplicating it; backtick was
+  deliberately left off the denylist since the existing `fenceFor` dynamic
+  fence-width mechanism already defeats backtick-based breakout, a claim the
+  code reviewer independently re-verified against source rather than trusted.
+  US-9 (`internal/store` + one call site in `internal/turn/prepare.go`)
+  delivered migration `0007_run_sync.sql` and `DB.RecordRunSync`, with one
+  deviation from the sub-issue's stale line-number citation: the write-back
+  lands immediately after `allocateRun` (not at the `syncBase` call site
+  itself, where no `runs` row yet exists) — independently verified correct by
+  the code reviewer against current source. `go-code-reviewer` returned
+  ADVISORY_ONLY with one new advisory (CR-A-003: `SyncFailed` is a supported,
+  tested outcome value currently unreachable from production code, a
+  pre-existing property of `prepareClone`'s ordering, not a defect either
+  story introduced) and zero BLOCKING findings — no bug loop needed. Phase 2
+  environment setup was skipped — neither story touches an external HTTP call,
+  message queue, or provisioned database (US-9's SQLite work follows this
+  codebase's existing unit-testable-migration convention). `go-unit-test-
+  engineer` cross-checked every AC in US-5/US-9 against existing tests and
+  closed three real gaps: two for US-5 (a positive test proving ordinary
+  markdown is accepted-and-safely-fenced rather than falsely over-rejected;
+  a test proving whole-path rejection specifically, using a marker string
+  that would survive a truncate-to-prefix regression but not genuine
+  reject-whole behavior) and one for US-9 (a genuine `internal/turn`-level
+  wiring test, `TestExecuteRecordsTheSyncOutcomeOnTheRunRow`, proving the real
+  call site fires during a real `Execute`/`prepare()` flow with a real git
+  merge and a real persisted commit SHA — closing a gap the store-level
+  round-trip tests alone could not catch). `go build ./...`, `go vet ./...`,
+  `gofmt -l .` all clean; `go test -race ./...` green across all 22 packages,
+  re-verified directly by the orchestrator as the final gate (no failures at
+  any phase). `DRIFT_REPORT.md` gained a sixth dated section (US-5/US-9),
+  verdict CLEAN. No APP_CONTEXT/APP_CONSTRAINTS update was made, per the
+  retirement of that step. US-6, US-10, then US-11 (needs US-5 + US-9, now
+  both satisfied), then US-12 (needs US-11 + US-10), remain for future runs,
+  each needing its own comment.
 
 ## Notes

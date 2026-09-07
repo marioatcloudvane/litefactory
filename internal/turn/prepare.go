@@ -217,6 +217,21 @@ func prepare(
 	if err != nil {
 		return nil, err
 	}
+	// US-9: sync was decided earlier, inside prepareClone's call into
+	// syncBase, but there was no runs row yet for the outcome to attach to —
+	// allocateRun just above is what creates it. Persisting it here, before
+	// anything else below that can fail, keeps the invariant the comment on
+	// the SetSessionState call further down relies on: every error return
+	// from this point on must leave sessions.state untouched, and that is
+	// only true if this write cannot itself be skipped by a later failure.
+	if _, err = opts.DB.RecordRunSync(ctx, run.ID, store.RunSyncOutcome{
+		Outcome:   store.SyncOutcome(sync.Outcome),
+		Behind:    sync.Behind,
+		Ahead:     sync.Ahead,
+		CommitSHA: sync.SyncCommitSHA,
+	}); err != nil {
+		return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
 	metaPath, err := harness.MetaPath(opts.Paths.Home(), ref, run.Ordinal)
 	if err != nil {
 		return nil, fmt.Errorf("derive the metadata path of run %d: %w", run.Ordinal, err)

@@ -160,3 +160,135 @@ story's scope during code review, not deferred. The one genuine deferral
 being out of scope for this run, not a scope miss — no follow-up planning
 cycle is needed for it; it will resolve naturally when a future run
 implements US-9 and threads `syncResult` through `turn.Result`.
+
+---
+
+# Drift Report — how-to-merge-pull-manage-conflicts (US-5, US-9 section)
+# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
+
+This section covers the run scoped to **US-5 and US-9**, implemented in
+parallel per explicit instruction, appended after the earlier US-8, US-7,
+US-1, and US-2/US-3/US-4 sections above (each still valid and unchanged).
+
+## Delivered as planned
+
+- **US-5 — Render conflicts in plain language, safely**
+  - T-5.1 local path pattern (`conflictPathPattern`) and reject-span helper
+    (`conflictPathSpan`) in `internal/report/reply.go` — delivered, following
+    `agentNamePattern`/`agentSpan`/`commandSpan`'s existing reject-don't-
+    salvage precedent exactly.
+  - T-5.2 truncation at 20 accepted entries plus rejected-count/remainder
+    reporting — delivered in `internal/report/run.go`'s existing
+    `conflictsBlock` (extended, not duplicated, per the story's explicit
+    instruction to build on US-3/US-4's existing helper).
+  - T-5.3 plain-language wording for the conflict-list section — delivered.
+  - T-5.4 injection-payload tests (markdown, HTML comment shaped like
+    `lf:status`, bidi-override runes) — delivered, and strengthened during
+    Phase 3 with two closed gaps: a positive test proving ordinary markdown
+    is accepted-and-safely-fenced rather than falsely rejected
+    (over-rejection would itself silently hide real conflicting files behind
+    a wrong count), and a test proving whole-path rejection specifically —
+    using a distinctive marker string that would survive a
+    truncate-to-safe-prefix regression but not a genuine reject-whole
+    implementation.
+  - AC-5.1 — delivered and tested, including the two gap-closing tests above.
+  - AC-5.2 — delivered and tested (truncation-and-rejection-independence
+    test already present from Phase 1).
+  - AC-5.3 — delivered: `conflictPathRejectionSentence` sits in the same
+    constant grouping as `toolsRefusalSentence`/`agentRefusalSentence`/
+    `syncRefusalSentence`, with a cross-referencing doc comment. Confirmed by
+    reading source directly (both by code review and by the unit-test
+    engineer); this criterion is a source-layout property, not a black-box
+    behavior, so no test asserts on it directly — recorded here rather than
+    covered by a tautological test.
+  - S-2 (untrusted conflict-path content) — the denylist plus the existing
+    `fenceFor` dynamic-width fence mechanism (not the denylist itself) jointly
+    defeat markdown/HTML/bidi injection; the backtick-safety delegation to
+    `fenceFor` was independently re-verified against `internal/report/text.go`
+    by the code reviewer, not merely accepted as claimed.
+
+- **US-9 — Persist sync outcomes behind the internal/git boundary**
+  - T-9.1 migration `0007_run_sync.sql` with the four new columns — delivered.
+    The plan's own stale citation (`0005_run_sync.sql` on `0004`) was
+    corrected before implementation started, per this run's explicit
+    instruction; `0007` was independently re-verified against
+    `internal/store/migrations/` by the orchestrator, the implementer, and
+    the code reviewer, three times over.
+  - T-9.2 writing the four sync fields to the run row after `syncBase`
+    completes — delivered, with one deviation from the sub-issue's literal
+    line-number citation (see Architectural Deviations below).
+  - T-9.3 tests (migration safety, round-trip of all five outcomes) —
+    delivered, and strengthened during Phase 3 with a genuine
+    `internal/turn`-level wiring test
+    (`TestExecuteRecordsTheSyncOutcomeOnTheRunRow`) proving the real call
+    site is actually invoked during a real `Execute`/`prepare()` flow with a
+    real git merge and a real persisted commit SHA — closing a gap the
+    store-level round-trip tests alone could not have caught (a regression
+    that stopped calling `RecordRunSync` at its real call site, while
+    `RecordRunSync` itself stayed correct, would not have been caught by the
+    Phase 1 tests alone).
+  - AC-9.1, AC-9.2, AC-9.3 — all delivered and tested.
+
+## Added scope
+
+- None beyond what the task tables and architecture notes already implied.
+  No new field, type, or column was added beyond the four named columns and
+  the `SyncOutcome`/`RunSyncOutcome` types the story's own architecture notes
+  call for.
+
+## Dropped or deferred
+
+- **Conflict-path list persistence** — explicitly out of scope per
+  `US-9.md`'s own architecture notes (S-9's parse-time cap is a distinct,
+  already-handled concern; the plan defers persisting the path list itself).
+  Not built, correctly, per instruction.
+- **`SyncFailed` is defined and tested at the store layer but currently
+  unreachable from production `internal/turn` code** — a git-level merge
+  failure aborts the turn before `allocateRun` creates a row, so this outcome
+  value is never actually persisted today, only logged. This is a
+  pre-existing structural property of `prepareClone`'s ordering (confirmed by
+  the code reviewer, not introduced by this run) and does not violate AC-9.2
+  as literally written (which binds only to a run that reaches completion).
+  Flagged here as a genuine gap for a future story to consider, not fixed in
+  this run — closing it would require persisting a run outcome before a
+  `runs` row exists, which is a larger structural change than US-9's scope.
+- US-6, US-10, US-11, US-12 remain entirely unbuilt, as instructed — out of
+  scope for this run. US-6 in particular was deliberately excluded from this
+  batch (its concurrency test is sized L and would have held both finished
+  stories at Gate A).
+
+## Architectural deviations
+
+- **US-9's write-back call-site placement.** `US-9.md`'s architecture notes
+  and this run's own instructions cited `internal/turn/prepare.go:429`
+  (the `syncBase` call site) as where the write-back belongs, "immediately
+  after `syncBase` completes." The implementing engineer found this citation
+  stale: no `runs` row exists yet at that point in `prepareClone` — the row
+  is created later, by `allocateRun`, inside `prepare()` — so there is
+  nothing yet to attach a sync outcome to at the literal cited line. The
+  write-back was placed immediately after `allocateRun` succeeds instead,
+  which is the earliest point a row exists, and still strictly before the
+  existing `SetSessionState` call already documented in the code as
+  `prepare()`'s last store write. The code reviewer independently re-read
+  `prepare()`'s current source (confirming `prepareClone`/`syncBase` at line
+  117, `allocateRun` at line 216 — neither matching the sub-issue's cited
+  line numbers) and confirmed the deviation is correct: the underlying
+  requirement — write before any comment-rendering step reads the outcome
+  back for US-3/US-4 — is satisfied, and no live code path today reads a
+  persisted sync outcome before this write happens (verified by grep-free
+  code review of `internal/turn/report.go`). This is a stale line-number
+  citation in a sub-issue written before intervening code changes, not a
+  functional or design deviation.
+
+## Verdict
+
+CLEAN — both stories delivered against their acceptance criteria with no
+scope drift beyond a stale line-number citation (corrected and independently
+verified) and one pre-existing, correctly-diagnosed gap (`SyncFailed`'s
+current unreachability) that neither story's AC set requires closing. No
+BLOCKING code-review findings; one advisory (CR-A-003) recorded and left
+open as a note for a future story rather than fixed out-of-scope. No follow-
+up planning cycle is needed for either story; the `SyncFailed`-unreachable
+observation is worth a future story's attention if persisting failed-sync
+outcomes ever becomes a real product need, but is not urgent — it already
+does not silently misreport anything AC-9.2 promises.

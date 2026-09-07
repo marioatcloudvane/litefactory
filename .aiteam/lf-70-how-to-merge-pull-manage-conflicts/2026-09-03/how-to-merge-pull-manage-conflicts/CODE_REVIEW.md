@@ -89,3 +89,89 @@ US-2, US-3, and US-4 integrate cleanly at every boundary checked: `syncResult`/`
 ## Verdict
 
 ADVISORY_ONLY — 2 advisory suggestions noted (CR-A-001, CR-A-002). CR-B-001 is resolved. Proceeding to environment setup.
+
+---
+---
+
+# Code Review — US-5 / US-9
+# Feature: Pre-run branch drift detection and safe auto-sync (US-5, US-9)
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: ADVISORY_ONLY
+
+---
+
+## Scope
+
+This section reviews only the files tied to US-5 ("Render conflicts in plain
+language, safely") and US-9 ("Persist sync outcomes behind the internal/git
+boundary"), per the orchestrator's request. US-1 through US-4, US-7, and US-8
+are out of scope and were not re-reviewed (see the section above, dated the
+same day, for that review). All files were read as uncommitted working-tree
+changes on top of commit `8c6144e`.
+
+Files reviewed:
+- `internal/report/reply.go` (diff)
+- `internal/report/run.go` (diff)
+- `internal/report/replykind_test.go` (diff, read for behavior confirmation only — out of grading scope per policy, not critiqued)
+- `internal/store/migrations/0007_run_sync.sql` (new)
+- `internal/store/runs.go` (diff)
+- `internal/store/migrate_test.go`, `internal/store/store_test.go` (diff, read for behavior confirmation only)
+- `internal/turn/prepare.go` (diff, plus the surrounding pre-existing `prepareClone`/`syncBase`/`allocateRun`/`SetSessionState` code it now sits between)
+
+`go build ./...`, `go vet ./...`, and `gofmt -l .` are all clean. `go test -count=1 ./internal/report/... ./internal/store/... ./internal/turn/...` all pass.
+
+---
+
+## BLOCKING findings
+
+None.
+
+---
+
+## ADVISORY findings
+
+### CR-A-003: `SyncFailed` is a persistable value with no code path that ever writes it, leaving a merge failure with no queryable audit trail
+**File:** `internal/store/runs.go:75-82` (`SyncFailed` constant); `internal/turn/prepare.go:117-120, 444-447` (`prepareClone`/`syncBase` error return)
+**Story:** US-9 / T-9.1, T-9.2
+**Category:** Standards / Cross-story
+**Finding:** Verified the engineer's own flagged claim directly. `syncBase` returns a bare `error` (not a `syncResult` carrying a "failed" outcome) whenever `Divergence`, `MergePreview`, or `MergeBase` themselves fail — e.g., `MergeBase` failing partway through a clean-preview merge. That error propagates through `prepareClone` and `prepare()` *before* `allocateRun` is ever called (`prepare()` returns at line 118-120, well before the `allocateRun` call at line 216), so no `runs` row exists for `RecordRunSync` to ever write `sync_outcome=failed` against. The claim holds: `SyncFailed` is unreachable given the current `internal/turn` wiring, and the store-layer round-trip test (`TestRecordRunSyncRoundTripsEveryOutcome`) only proves the column supports it, not that any code path produces it. The practical consequence: a git-level merge failure today is visible only in `daemon.log`, not on any run row — someone querying `runs` for "why did this branch look this way" gets nothing for the failure case, only for the four outcomes that reach `allocateRun`.
+**Suggestion:** No code change required for AC-9.1/9.2/9.3 as literally written — they only bind runs that reach completion, and this case never allocates a run row under the current architecture (a pre-existing US-2 design point, not something this diff introduced or was asked to fix). Worth a one-line note in the story's closing record or a drift-report entry so a future reader doesn't mistake `SyncFailed`'s presence in the five-outcome vocabulary for evidence that failures are actually being persisted anywhere yet.
+
+---
+
+## Verified correct
+
+### US-5 (`internal/report/reply.go`, `internal/report/run.go`)
+
+- **AC-5.1, the "safe because of fenceFor" claim, re-verified rather than trusted.** `fenceFor` (`internal/report/text.go:76-89`) computes the fence width as `max(3, longest backtick run in content + 1)`, computed fresh over the already-joined, already-classified path list every time `conflictsBlock` renders it. A conflicting path built entirely of backticks cannot break out of its own fence because the fence is always one backtick longer than the longest run present — this is the same mechanism `filesSection` already relies on for `run.Files` (an existing, previously-reviewed precedent), not a new or narrower claim. Confirmed by reading `fenceFor` directly, not by trusting the doc comment's assertion.
+  Separately, ordinary markdown metacharacters (`[`, `]`, `(`, `)`, `#`, `*`, `` ` `` runs shorter than the fence, `|`) are rendered inert because they sit inside a fenced code block, which CommonMark (and GitHub's renderer) treats as literal text with no further markdown parsing — this is *why* `conflictPathPattern` does not need to deny those characters itself, and the denylist is correctly scoped to the two threat classes fencing cannot neutralize: (1) `<`/`>`, because a downstream raw-text scanner (`turn.HasMarker`, which the doc comment correctly notes matches "any line of a body", i.e., the raw comment text, not the rendered markdown) would still see a literal `<!-- lf:status ... -->` sequence regardless of code-fence wrapping; and (2) the Unicode bidi-control code points, because a bidi-reordering "Trojan Source" attack is a rendering-engine behavior applied to the literal bytes, not defeated by code-fencing. Both exclusions are correctly reasoned and the pattern's character class (`\x00-\x1f`, `\x7f`, `<`, `>`, `\x{061c}`, `\x{200e}-\x{200f}`, `\x{202a}-\x{202e}`, `\x{2066}-\x{2069}`) matches the standard Unicode bidi-control set plus the two HTML-comment delimiters plus all ASCII control bytes (control-byte exclusion also independently blocks the newline-based line-injection threat the doc comment separately names). The backtick omission from the denylist is therefore correct, not merely plausible.
+- **Whole-path, reject-don't-salvage is genuinely enforced.** `conflictPathSpan` (`reply.go:415-420`) is a single `if !pattern.MatchString(path) { return "", false }; return path, true` — there is no partial-match branch, no substring extraction, and no fallback that renders a prefix. The regex itself is anchored `^[^denylist]+$` over the whole string (Go's RE2 `^`/`$` are text, not line, anchors here since no `(?m)` flag is set), so a single disallowed rune anywhere in the path fails the whole match. Confirmed this is a stricter discipline than `commandSpan`'s stop-at-first-bad-rune behavior, exactly as the doc comments on both functions claim, and exactly as AC-5.1 requires ("never printed as a partial/truncated string").
+- **`classifyConflictPaths` does not short-circuit.** The loop (`reply.go:429-439`) uses `continue`/increment-and-fall-through over the full input slice with no `break` or early `return`; every path is classified independently as the doc comment states. No `errors.Join`-style aggregation is needed here since there is nothing to aggregate (a bool-per-path result, not a fallible operation per path), and none was invented where a simple count sufficed.
+- **AC-5.2 truncation/rejection interaction is correct and non-double-counting.** Traced `conflictsBlock` (`run.go:877-914`): `classifyConflictPaths` runs first and produces `(accepted, rejected)`; truncation is applied only to `accepted`, producing a separate `overflow` count; the two counts (`overflow`, `rejected`) are rendered independently and additively, never combined into one number and never derived from each other. Verified against `TestReplyRefusesSyncTruncatesAcceptedPathsAtTwentyWithARemainderCount` (23 accepted paths → exactly 20 shown, "and 3 more") and `TestReplyRefusesSyncRejectionAndTruncationAreIndependent` (21 accepted + 1 rejected → "and 1 more" *and* the rejected-count sentence, both present, with the rejected path never appearing in the output). Both pass.
+- **AC-5.3.** `conflictPathRejectionSentence` sits immediately after `syncRefusalSentence` in `reply.go`, following the same single-`const`-statement, physically-adjacent grouping pattern the three prior refusal sentences (`toolsRefusalSentence`, `agentRefusalSentence`, `syncRefusalSentence`) already use — there is no single `const ( ... )` block uniting all four (none of the four siblings use one either), so this is consistent with, not a deviation from, the established convention.
+- **Boundary discipline confirmed.** `reply.go` and `run.go` import no `internal/store` package; US-5 renders exclusively from the `[]string` it is handed (`Reply.ConflictPaths` / `Run.Sync.Conflicts`), never from a stored row, matching the plan brief's stated boundary.
+
+### US-9 (`internal/store/runs.go`, `internal/store/migrations/0007_run_sync.sql`, `internal/turn/prepare.go`)
+
+- **The deviation from the architecture notes' cited line numbers is correct, verified by reading the actual current code rather than trusted from the report.** `prepare()` calls `prepareClone` (which runs `syncBase` as its last internal step) at line 117, and does not call `allocateRun` until line 216 — genuinely no `runs` row exists at the `syncBase` call site, confirming the engineer's stated reason for moving the write. `RecordRunSync` is called immediately after `allocateRun` succeeds (line 227), strictly before `metaPath` derivation, `commentHistory`, attachment ingestion, prompt assembly, and — critically — strictly before `SetSessionState` (the code's own documented "prepare's last store write, safe on every earlier error" comment at line 312 is unchanged and still true, since the new call sits above it, not below).
+- **No comment-rendering path reads the persisted sync outcome yet, so the write-before-render ordering concern the architecture notes raised does not yet have a code path to violate.** Grepped `internal/turn/report.go` for any `report.Sync`/`SyncOutcome` reference: none. US-3's disclosure rendering (`syncSection` in `internal/report/run.go`) is driven entirely by the in-memory `preparation.sync` field carried through `Execute`, not by a DB read-back; wiring `report.Sync` from the persisted `runs` row is explicitly out of scope for both US-3 (already shipped) and US-9 (this story), per both stories' own "NOT in scope" notes. This means the ordering guarantee the architecture notes worried about currently has no consumer to break — a fact worth confirming rather than assuming, which this review did by grepping the actual call sites.
+- **`SyncFailed`'s "not currently reachable" claim is correct** — see CR-A-003 above for the detailed trace; recorded there as an advisory rather than a blocking gap, because AC-9.2's promise binds only to a run that reaches `allocateRun`, and a `syncBase`-level failure never does.
+- **AC-9.1.** `0007_run_sync.sql` is confirmed the correct next migration number (`0006_schedule_block_replies.sql` is the prior head; migrations are discovered by directory listing and applied in filename order, so no renumbering risk). `TestMigration0007AddsRunSyncColumnsWithSafeDefaults` seeds a pre-migration row, migrates, and confirms the four new columns exist with the documented nullability and that the pre-existing row reads back its documented defaults (`""`, `0`, `0`, `""`). No existing migration-ordering test was modified. `go test ./internal/store/...` passes.
+- **AC-9.2.** `sync_commit_sha` is enforced non-null-only-with-`synced` by `RecordRunSync`'s own validation (`runs.go:375-378`, refuses a non-empty `CommitSHA` paired with any outcome other than `SyncSynced`), backed by `TestRecordRunSyncRefusesACommitShaOutsideSynced`. Confirmed the inverse is *not* claimed or required: `syncOutcomeSynced` with `result.Merged == false` (a no-op merge — pre-existing US-2 behavior, unchanged by this diff) correctly leaves `SyncCommitSHA` empty even though the outcome is `synced`, and both the migration's own doc comment and `RunSyncOutcome.CommitSHA`'s doc comment state this precisely ("carries a real value only when sync_outcome = 'synced' *and* the merge actually moved the branch") — a reading of AC-9.2's "only when synced" as a necessary-not-sufficient condition, which is the correct reading given `git.MergeResult.Merged`'s existing semantics.
+- **AC-9.3.** `TestRecordRunSyncRoundTripsEveryOutcome` writes and reads back all five `SyncOutcome` values (including the currently-unreachable-from-`internal/turn` `SyncFailed`, exercised directly at the store layer as the AC requires) and passes.
+- **`errors.Join`/fail-fast-in-a-loop claim verified true.** `RecordRunSync` is a single read (`SELECT`) followed by a single `UPDATE ... RETURNING`, both inside one `withTx` call — there is no loop over multiple rows or multiple fallible sub-operations to aggregate, so the engineer's claim that this pattern doesn't apply here is correct.
+- **Cross-story / no conflict-path column.** Grepped `internal/store` for `conflict`/`Conflicts`: the only hits are unrelated `ON CONFLICT` SQL upsert clauses in other files and the migration's own comment explaining *why* no such column exists. Confirmed no conflict-path list was persisted anywhere in this diff, matching both `plan_brief.md`'s shared decision and US-9.md's explicit "NOT in scope" note.
+- **Resource/transaction hygiene.** `RecordRunSync` follows the existing `withTx`/`BEGIN IMMEDIATE` pattern used by `FinishRun`/`CompleteRunReport` exactly; `ErrNotFound` propagates correctly through the wrapped `%w` error to satisfy `errors.Is` (confirmed via `TestRecordRunSyncOnAMissingRunReportsNotFound`, which passes). No goroutines, no unguarded shared state, nothing new to the concurrency surface.
+
+---
+
+## Cross-story summary (US-5 / US-9)
+
+The two stories integrate cleanly and respect the boundary the plan brief draws between them. US-9 persists `sync_outcome`/`sync_behind`/`sync_ahead`/`sync_commit_sha` on the `runs` row and deliberately never touches a conflict-path column; US-5 renders the conflict-path list safely at comment time from the live, in-memory list it is handed and never imports `internal/store`. Neither story's code reaches into the other's territory. The one thing genuinely worth tracking forward (CR-A-003, advisory) is that the five-outcome vocabulary `internal/store` now supports is presently only four-reachable from `internal/turn` — a `SyncFailed` row is never written today, because a git-level merge failure aborts the turn before a `runs` row exists to record it against. This is a pre-existing architectural property of `prepareClone`'s ordering (predating this diff), not a defect introduced by either story, and it does not violate either story's stated acceptance criteria as written.
+
+---
+
+## Verdict
+
+ADVISORY_ONLY — 1 advisory finding (CR-A-003) noted for the drift report. No BLOCKING findings for US-5 or US-9. Proceeding to environment setup / next phase.
