@@ -260,6 +260,14 @@ type ReplyRequest struct {
 	// Litefactory's signed comment.
 	ScheduleKind report.ReplyKind
 	Schedule     report.ScheduleReply
+
+	// ConfirmKind and Confirm describe a factory-owned /confirm response
+	// (US-12), the same shape ScheduleKind/Schedule already give scheduling:
+	// internal/daemon's confirmation dispatch is the only caller that sets
+	// these, and [report.ReplyKind.IsConfirmationReply] is the closed set
+	// [ReplyRequest.kind] and [ReplyRequest.validate] check membership in.
+	ConfirmKind report.ReplyKind
+	Confirm     report.ConfirmReply
 }
 
 // refusing reports whether this request is a tool-permission or
@@ -279,6 +287,9 @@ func (req ReplyRequest) kind() (report.ReplyKind, bool) {
 			req.ScheduleKind == report.ReplyScheduleProposalAccepted ||
 			req.ScheduleKind == report.ReplyScheduleProposalRejected ||
 			req.ScheduleKind == report.ReplyScheduleProposalFailed
+	}
+	if req.ConfirmKind != report.ReplyInvalid {
+		return req.ConfirmKind, req.ConfirmKind.IsConfirmationReply()
 	}
 	if req.refusing() {
 		return req.Refusal, req.Refusal.RefusesTools() || req.Refusal.RefusesAgent() ||
@@ -307,10 +318,16 @@ func (req ReplyRequest) validate() error {
 		return invalidRequest("reply kind %s is not a schedule response", req.ScheduleKind)
 	case req.ScheduleKind != report.ReplyInvalid && req.refusing():
 		return invalidRequest("a reply cannot be both a schedule response and a refusal")
-	// Only when this is not a refusal. A refusal is triggered by a command that
-	// would have spawned a run, and a command that spawns a run draws no reply —
-	// so asking this question of a refusal refuses the refusal.
-	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && !req.Command.NeedsReply():
+	case req.ConfirmKind != report.ReplyInvalid && !req.ConfirmKind.IsConfirmationReply():
+		return invalidRequest("reply kind %s is not a confirmation response", req.ConfirmKind)
+	case req.ConfirmKind != report.ReplyInvalid && (req.refusing() || req.ScheduleKind != report.ReplyInvalid):
+		return invalidRequest("a reply cannot be both a confirmation response and a refusal or a schedule response")
+	// Only when this is not a refusal, schedule response or confirmation
+	// response. A refusal is triggered by a command that would have spawned
+	// a run, and a command that spawns a run draws no reply — so asking this
+	// question of a refusal refuses the refusal.
+	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
+		!req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
 	if err := req.Ref.Validate(); err != nil {
@@ -592,6 +609,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		ConflictProposal:         req.ConflictProposal,
 		ConflictSuggestionFailed: req.ConflictSuggestionFailed,
 		Schedule:                 req.Schedule,
+		Confirm:                  req.Confirm,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+

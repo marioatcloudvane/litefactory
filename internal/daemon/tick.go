@@ -1349,6 +1349,10 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.handleSchedule(ctx, t, c, command, log)
 	}
 
+	if command.Kind == turn.KindConfirm {
+		return d.handleConfirm(ctx, t, c, command, log)
+	}
+
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
 	}

@@ -549,3 +549,138 @@ scope miss, and no follow-up planning cycle is needed to resolve it, only a
 human decision on the issue thread. US-12 is now unblocked (both of its
 dependencies, US-11 and US-10, are done) but remains gated by the plan's own
 observation gate (Phase 9), not by anything this run left undone.
+
+---
+
+# Drift Report — how-to-merge-pull-manage-conflicts (US-12)
+# Branch: lf/70-how-to-merge-pull-manage-conflicts | Date: 2026-09-07
+
+This section covers the run scoped to **US-12** ("Apply a confirmed
+resolution and complete the merge") — the twelfth and final story in this
+feature. Appended after the eleven prior dated sections in this file (all
+still valid and unchanged).
+
+## Delivered as planned
+
+- **T-12.1** `TestWorktreeMethodSetIsTheAllowlist` plus the forbidden-mutator
+  counterpart (`Reset`, `Rebase`, `CherryPick`, `Clean`, `Stash`, `Checkout`,
+  `Switch`) in `internal/git/surface_test.go` — present, passing, each new
+  mutator carries a recorded reason (AC-12.8).
+- **T-12.2 / T-12.3** — `internal/git/worktree_apply.go` (+ `worktree_apply_test.go`,
+  + a new white-box internal test added in Phase 3): contained write of
+  listed paths, staging, and merge completion, with path-containment
+  enforced inside `*Worktree` itself (`containedResolvedPath`) rejecting
+  absolute paths, `..` traversal, symlinked ancestors, symlinked leaves, and
+  unlisted paths — never by caller-side string-prefix comparison (S-13,
+  AC-12.7).
+- **T-12.4** — `internal/confirm/` (new package): confirmation comment
+  grammar, separate parser, canonical lowercase token, restricted charset;
+  structurally cannot spawn an agent run.
+- **T-12.5** — daemon dispatch (`internal/daemon/confirm.go`, new this run,
+  plus wiring in `daemon.go`/`executor.go`/`tick.go`/`setup.go`): this task
+  had **no implementation at all** anywhere in the three prior sessions'
+  committed work — see Dropped/Deferred-then-recovered, below. Built this
+  run: TTL sweep first, ownership check by numeric ID on session and
+  commenter, status/SHA guards, every refusal returned as a value with a
+  reason, modeled on `internal/daemon/proposals.go`'s existing lifecycle
+  shape exactly as the architecture notes specify.
+- **T-12.6** — the agentless apply turn (`internal/turn/apply.go`,
+  `ExecuteApplyResolution`): reuses `prepareClone` unchanged in structure
+  (gate, fetch, `freezeSlug`, `ensureWorktree`), plus the existing
+  commit-and-push path; `confirmedProposal` is an unexported value type with
+  no exported fields or constructor, produced only by `ValidateConfirmation`,
+  making the confirmation gate a compile-time property (AC-12.1, S-12) —
+  independently traced call-site-by-call-site by the code reviewer, not
+  taken on the implementation report's word.
+- **T-12.7** — commit trailers (proposal ID, confirming handle, model name —
+  never `Co-authored-by:` for the model, S-16) plus the identity prelude
+  (`-c user.name= -c user.email= -c commit.gpgsign=false`) on the application
+  commit.
+- **T-12.8** — `internal/report`: `ReplyAppliesResolution` and the seven
+  refusal kinds, their `replyKind` cases, and disclosure content (model,
+  confirmer, files, commit link) — present in `internal/report`, but its
+  `internal/turn` wiring (`ReplyRequest.ConfirmKind`/`.Confirm`) was entirely
+  missing before this run; see below.
+- **T-12.9 / T-12.10 / T-12.11** — gate tests (no-bypass, non-owner refusal,
+  unknown/expired/superseded/already-decided), the rollback test, and the
+  happy-path test all present and passing, several materially strengthened in
+  this run's Phase 3 pass (see Testing in `notes.md`).
+- **T-12.12** — security review sign-off: recorded as a Doc task, not
+  performed as code; see the Phase 9/7.5 disposition in `notes.md`. This is a
+  deliberate, plan-anticipated deferral (a human-only decision), not a scope
+  miss.
+- **AC-12.1 through AC-12.10** — all ten verified, independently, by the code
+  reviewer and the unit test engineer, each tracing from source rather than
+  trusting the prior report. Full detail in `notes.md`'s US-12 section and
+  `CODE_REVIEW.md`'s corresponding dated sections.
+
+## Added scope (beyond the task table, all judged necessary, not speculative)
+
+- Two bug fixes found by re-verifying pre-existing, previously-unreviewed
+  code rather than trusting it: the ownership-check direction bug in
+  `ValidateConfirmation` (a security-relevant correctness fix, not a
+  refactor), and a stale golden-text fixture in
+  `internal/report/testdata/reply_suggests_resolution.golden`.
+- `internal/turn/report.go` gained `ReplyRequest.ConfirmKind`/`.Confirm`
+  fields — not itself a task row, but a load-bearing wiring gap: without it,
+  T-12.8's `ReplyAppliesResolution` and its refusal-kind siblings existed in
+  `internal/report` but nothing in `internal/turn` could ever actually
+  produce one.
+- `errors.Join` applied in `internal/git/worktree_apply.go`'s
+  `checkResolvedFiles`, proactively following this codebase's established
+  aggregate-vs-fail-fast convention (already used by
+  `internal/repos.ValidateWorktreeRoots`) rather than waiting for review to
+  flag it, per this run's explicit instruction to do so.
+- `internal/daemon/fixture_test.go`'s `newDaemon(overrides)` test helper's
+  static field allowlist was additively extended (`Confirmer`,
+  `ConflictProposalTTL`) in Phase 3, purely to make T-12.5's dispatch layer
+  testable — no production behavior change.
+
+## Dropped or deferred
+
+- **T-12.5 (daemon dispatch) was found completely missing** at the start of
+  this run, despite every other task in the table having at least partial
+  pre-existing code. Not a deliberate deferral by any prior session — no
+  session claimed to have skipped it, and no doc comment or note flagged it
+  as intentionally left for later. This run built it in full; nothing remains
+  deferred here.
+- **The human-approval half of Phase 7.5/Phase 9** — the plan's own
+  observation gate ("at least one real blocked run has produced a suggestion
+  an owner has actually read") and the security review's human sign-off — is
+  not something any headless run can supply. This run proceeded past it on
+  the strength of a reported explicit waiver from the human owner
+  ("I accept the risk of shipping US-12"), covering the missing observation
+  only. This is the single planned item this feature leaves open at delivery
+  time, by design, not a scope miss.
+
+## Architectural deviations
+
+- None beyond what CR-B-003 corrected (an ordering bug, not a deliberate
+  architectural choice): `prepareClone`'s `syncBase` call is now gated behind
+  `confirmed == nil`, exactly matching what the architecture notes and two
+  pre-existing doc comments already (if previously incorrectly) asserted was
+  the design. No new locking primitive, no second `CloneGate` acquisition,
+  no `Reset`/`Checkout`/general-purpose `Apply` added to `*Worktree` — all
+  explicitly checked and confirmed absent, matching the "Watch out" list in
+  `US-12.md` point for point.
+
+## Verdict
+
+CLEAN — all ten acceptance criteria delivered, verified independently by both
+the code reviewer and the unit test engineer (not taken on any single prior
+report's word, given this is the highest-risk story in the entire feature).
+One BLOCKING finding (CR-B-003) was found and resolved within Phase 1.5's own
+re-review cycle before Phase 3 began, so no bug-loop cycle was needed. Five
+non-blocking advisories remain open (CR-A-008 through CR-A-012, plus
+cosmetic CR-A-013 from the re-review), none of which touch a stated
+acceptance criterion. The one deliberate, correctly-recognized deferral is
+the human-approval half of Phase 7.5/Phase 9, which no run can supply on its
+own and which this run proceeded past on the strength of an explicit,
+reported human waiver scoped narrowly to that missing observation — every
+other line of this story, especially the confirmation gate and its no-bypass
+rule, was held exactly as written and independently verified to hold.
+
+This closes the feature: all twelve user stories (US-1 through US-12) are now
+implemented, reviewed (CLEAN or ADVISORY_ONLY, zero open BLOCKING findings
+anywhere), tested, and green under `go test -race -count=1 ./...` across all
+24 packages in the module.

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -81,7 +80,7 @@ type confirmedProposal struct {
 // ValidateConfirmation is the whole of the confirmation gate (S-12, S-14).
 //
 // It never touches git, the worktree, or the index — everything here is a
-// database read plus two string comparisons — so it can run, and refuse,
+// database read plus one numeric comparison — so it can run, and refuse,
 // long before any [Options.CloneGate] is ever acquired. The one check it
 // deliberately does *not* make is whether the stored base/branch shas still
 // match reality: that is S-15's TOCTOU guard, and it is re-verified fresh,
@@ -89,19 +88,31 @@ type confirmedProposal struct {
 // anything — never here, where the answer could go stale before a worktree
 // is even opened.
 //
-// ownerLogin is the issue's own author login — the same value
-// [Trigger.Author] carries for an issue-body-triggered run — and
-// commenterLogin is who wrote the confirmation comment. Both must be
-// non-empty and match, case-insensitively the same way a forge handle
-// itself is case-insensitive, or the confirmation is refused as
-// [ConfirmationNotOwner] without moving the proposal's status at all
-// (watch-out #4).
+// ownerUserID is this daemon's single configured owner identity — the same
+// numeric id [Identities.OwnerUserID] carries and the same one
+// internal/daemon's own "assigned to me" gate compares against
+// (Daemon.runIssueBody) — and commenterUserID is the numeric id of whoever
+// wrote the confirmation comment. The two are
+// compared numerically and never by handle (D-I, SEC-8): a login is
+// renameable, and the daemon's admission filter has, by construction,
+// already refused every comment whose author is not this same owner id
+// before a body is ever classified as a confirmation control at all, so an
+// issue's own author — a stranger, an assignee, anyone but the configured
+// owner — is deliberately not what this compares against. Either id being
+// zero, or the two differing, refuses as [ConfirmationNotOwner] without
+// moving the proposal's status at all (watch-out #4).
+//
+// commenterLogin carries no authorization weight at all: it is recorded
+// verbatim as the confirming handle for [confirmedProposal.confirmedBy],
+// which becomes this story's disclosure and commit trailer, and
+// internal/report screens it again before ever echoing it into a comment
+// (S-16, SEC-5) — this function trusts it for storage only.
 //
 // A proposal id that does not resolve at all, and one that resolves to a
 // different session, are refused identically as [ConfirmationUnknownProposal]:
 // a confirmation must never be usable to learn whether some other session
 // has a proposal with a given id.
-func ValidateConfirmation(ctx context.Context, db *store.DB, sessionID, proposalID int64, ownerLogin, commenterLogin string) (confirmedProposal, ConfirmationRefusal, error) {
+func ValidateConfirmation(ctx context.Context, db *store.DB, sessionID, proposalID int64, ownerUserID, commenterUserID int64, commenterLogin string) (confirmedProposal, ConfirmationRefusal, error) {
 	proposal, err := db.GetConflictProposal(ctx, proposalID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -112,7 +123,7 @@ func ValidateConfirmation(ctx context.Context, db *store.DB, sessionID, proposal
 	if proposal.SessionID != sessionID {
 		return confirmedProposal{}, ConfirmationUnknownProposal, nil
 	}
-	if ownerLogin == "" || commenterLogin == "" || !strings.EqualFold(ownerLogin, commenterLogin) {
+	if ownerUserID == 0 || commenterUserID == 0 || ownerUserID != commenterUserID {
 		return confirmedProposal{}, ConfirmationNotOwner, nil
 	}
 
@@ -279,10 +290,11 @@ func ExecuteApplyResolution(ctx context.Context, opts Options, req ApplyRequest)
 
 	// prepareClone is reused for its gate/fetch/freezeSlug/ensureWorktree
 	// sequence and, because req.Proposal is non-nil here, also performs
-	// this story's own confirmed-application step as the fifth and last
-	// part of that same critical section (S-15) — see prepareClone's own
-	// doc comment for why that step is written inline there rather than
-	// through a helper this file could call directly.
+	// this story's own confirmed-application step as the fourth and last
+	// part of that same critical section (S-15) — [syncBase] itself is
+	// skipped for this turn shape (CR-B-003) — see prepareClone's own doc
+	// comment for why that step is written inline there rather than through
+	// a helper this file could call directly.
 	minimalReq := Request{SessionID: req.SessionID, Issue: Issue{Number: session.IssueNumber}}
 	_, _, _, _, applyResult, err := prepareClone(ctx, opts, minimalReq, clone, session, repo, author, logger, &req.Proposal)
 	if err != nil {

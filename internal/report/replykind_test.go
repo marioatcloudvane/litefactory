@@ -36,6 +36,14 @@ var everyReplyKind = []report.ReplyKind{
 	report.ReplyScheduleProposalAccepted,
 	report.ReplyScheduleProposalRejected,
 	report.ReplyScheduleProposalFailed,
+	report.ReplyConfirmInvalid,
+	report.ReplyConfirmNotOwner,
+	report.ReplyConfirmUnknownProposal,
+	report.ReplyConfirmExpiredProposal,
+	report.ReplyConfirmSupersededProposal,
+	report.ReplyConfirmAlreadyApplied,
+	report.ReplyConfirmFailed,
+	report.ReplyAppliesResolution,
 }
 
 // TestReplyKindStringIsDefinedAndDistinctForEveryKind is AC-4.2's

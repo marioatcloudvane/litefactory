@@ -14,8 +14,21 @@ import (
 // it one comment at a time.
 func NewExecutor(opts turn.Options) Executor { return turnExecutor{opts: opts} }
 
+// NewConfirmApplier adapts [turn.ExecuteApplyResolution] to the
+// [ConfirmApplier] US-12's confirm dispatch consumes, the same three-line
+// binding [NewExecutor] gives [turn.Execute]. It is a separate constructor
+// from [NewExecutor] rather than a shared one returning both interfaces,
+// because [Options.Turn] and [Options.Confirmer] are declared as two
+// different consumer interfaces (TEST-5) — production wiring calls both
+// constructors with the same turn.Options (setup.go).
+func NewConfirmApplier(opts turn.Options) ConfirmApplier { return turnExecutor{opts: opts} }
+
 type turnExecutor struct{ opts turn.Options }
 
 func (e turnExecutor) Execute(ctx context.Context, req turn.Request) (turn.Result, error) {
 	return turn.Execute(ctx, e.opts, req)
+}
+
+func (e turnExecutor) ApplyConfirmedResolution(ctx context.Context, req turn.ApplyRequest) (turn.ApplyResult, error) {
+	return turn.ExecuteApplyResolution(ctx, e.opts, req)
 }

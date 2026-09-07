@@ -407,10 +407,16 @@ func prepare(
 // # confirmed (US-12)
 //
 // confirmed is nil for every ordinary turn and non-nil only for
-// [ExecuteApplyResolution]'s agentless apply turn. When it is set, applying
-// the confirmed proposal is this section's fifth step, after [syncBase]: the
-// stored base/branch shas are re-verified against values read no earlier
-// than this same gate acquisition (S-15), and — only when they still match —
+// [ExecuteApplyResolution]'s agentless apply turn. [syncBase] itself only
+// runs when confirmed is nil: a confirmed resolution already knows exactly
+// what it is merging and carries its own re-verification, so a second,
+// independent auto-sync attempt over the same branch would risk a second,
+// unconfirmed merge commit (AC-12.5) and could move the branch tip out from
+// under the TOCTOU check below before that check ever runs (S-15). When
+// confirmed is set, applying the confirmed proposal is instead this
+// section's fourth step, immediately after [ensureWorktree]: the stored
+// base/branch shas are re-verified against values read no earlier than this
+// same gate acquisition (S-15), and — only when they still match —
 // [git.Worktree.WriteResolvedFiles], [git.Worktree.StageResolvedFiles],
 // [git.Worktree.CompleteMerge] and [git.Worktree.Push] run right here,
 // inline, rather than through a separately named helper. That is
@@ -418,9 +424,8 @@ func prepare(
 // analysis attributes a gated call to the literal function it is written
 // in, and the whole point of doing this here is that none of those four
 // calls exists anywhere else in the package — see gate_test.go's own
-// "gated" map, which now names this function as their one allowed home
-// alongside [syncBase] (already recorded there under TEST-10). There is no
-// claude run between this step and [ensureWorktree] — the confirmation
+// "gated" map, which names this function as their one allowed home. There is
+// no claude run between this step and [ensureWorktree] — the confirmation
 // grammar never starts one — so, unlike an ordinary turn's separate
 // [commitAndPush] critical section, nothing here needs to give the gate back
 // and take it a second time.
@@ -469,38 +474,40 @@ func prepareClone(
 		return session, "", nil, syncResult{}, nil, err
 	}
 
-	sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
-	if err != nil {
-		return session, "", nil, syncResult{}, nil, err
-	}
-
 	if confirmed == nil {
+		sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+		if err != nil {
+			return session, "", nil, syncResult{}, nil, err
+		}
 		return session, branch, worktree, sync, nil, nil
 	}
 
 	// US-12: see the "confirmed" section of this function's own doc comment
-	// above for why this runs inline rather than through a helper.
+	// above for why this runs inline rather than through a helper, and for
+	// why [syncBase] itself does not run at all on this path. There is no
+	// meaningful syncResult for this turn, so every return below carries the
+	// zero value.
 	stored := confirmed.proposal
 	currentBranchSHA, revErr := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
 	if revErr != nil {
-		return session, branch, worktree, sync, nil, failuref(revErr, "the head of %s could not be read", worktree.Branch())
+		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "the head of %s could not be read", worktree.Branch())
 	}
 	baseRef := opts.remote() + "/" + repo.BaseBranch
 	currentBaseSHA, revErr := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
 	if revErr != nil {
-		return session, branch, worktree, sync, nil, failuref(revErr, "%s could not be resolved", baseRef)
+		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "%s could not be resolved", baseRef)
 	}
 	if currentBranchSHA != stored.BranchSHA || currentBaseSHA != stored.BaseSHA {
 		logger.Info("confirmed proposal is stale; will be superseded rather than applied",
 			slog.Int64("proposal_id", stored.ID),
 			slog.String("stored_branch_sha", stored.BranchSHA), slog.String("current_branch_sha", currentBranchSHA),
 			slog.String("stored_base_sha", stored.BaseSHA), slog.String("current_base_sha", currentBaseSHA))
-		return session, branch, worktree, sync, &confirmedApplyResult{Superseded: true, Proposal: stored}, nil
+		return session, branch, worktree, syncResult{}, &confirmedApplyResult{Superseded: true, Proposal: stored}, nil
 	}
 
 	ref, refErr := naming.ParseRef(session.TaskRef)
 	if refErr != nil {
-		return session, branch, worktree, sync, nil, fmt.Errorf("task ref %q on session %d: %w", session.TaskRef, session.ID, refErr)
+		return session, branch, worktree, syncResult{}, nil, fmt.Errorf("task ref %q on session %d: %w", session.TaskRef, session.ID, refErr)
 	}
 
 	files := make([]git.ResolvedFile, 0, len(stored.Files))
@@ -508,23 +515,23 @@ func prepareClone(
 		files = append(files, git.ResolvedFile{Path: f.Path, Resolution: f.Resolution})
 	}
 	if err := worktree.WriteResolvedFiles(ctx, baseRef, files); err != nil {
-		return session, branch, worktree, sync, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
 	}
 	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
-		return session, branch, worktree, sync, nil, failuref(err, "the confirmed resolution for proposal %d could not be staged", stored.ID)
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be staged", stored.ID)
 	}
 	mergeResult, err := worktree.CompleteMerge(ctx, git.CompleteMergeOptions{
 		Task: ref.String(), Mode: "confirm", Author: author,
 		ProposalID: stored.ID, ConfirmedBy: confirmed.confirmedBy, Model: stored.Model,
 	})
 	if err != nil {
-		return session, branch, worktree, sync, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
 	}
 	if err := worktree.Push(ctx, opts.remote()); err != nil {
-		return session, branch, worktree, sync, nil, failuref(err, "the commit applying proposal %d could not be pushed", stored.ID)
+		return session, branch, worktree, syncResult{}, nil, failuref(err, "the commit applying proposal %d could not be pushed", stored.ID)
 	}
 
-	return session, branch, worktree, sync, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, nil
+	return session, branch, worktree, syncResult{}, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, nil
 }
 
 // confirmedApplyResult is what [prepareClone] reached when confirmed was

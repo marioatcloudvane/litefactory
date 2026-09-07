@@ -566,3 +566,846 @@ constructs a prompt outside `agent.ConflictResolutionPrompt`.
 
 CLEAR — CR-B-002 is resolved. No new findings in the two files reviewed.
 Proceeding to environment setup / next phase for US-11.
+
+---
+---
+
+# Code Review — US-12
+# Feature: Apply a confirmed resolution and complete the merge
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: BLOCKING
+
+---
+
+## Scope
+
+This section reviews only US-12 ("Apply a confirmed resolution and complete
+the merge"), the final story in this feature and the only one where
+model-produced text becomes committed bytes. Per the orchestrator's
+instruction, `.claude/skills/shared/security-scanner.md` was run against
+every file listed below; its findings are reported in the dedicated table
+below. US-1 through US-11 are out of scope and were not re-reviewed (see the
+sections above).
+
+This story's code is the product of two prior interrupted sessions plus a
+just-completed implementation-engineer pass. The engineer's own report claims
+several things (the ownership-check fix, the new daemon dispatch layer, the
+`turn/report.go` wiring, the golden-fixture regeneration, and the
+`errors.Join` addition in `checkResolvedFiles`). Every one of those claims was
+traced against the actual source below rather than taken on the report's
+word; the results are recorded against each claim individually.
+
+Files read in full:
+- `internal/confirm/confirm.go`, `confirm_test.go`, `doc.go`
+- `internal/git/commit.go`, `worktree_apply.go`, `surface_test.go`
+- `internal/report/link.go`
+- `internal/store/conflict_proposals.go`, `migrations/0009_conflict_proposal_confirmation.sql`
+- `internal/turn/apply.go`, `apply_test.go` (read for behaviour confirmation)
+- `internal/daemon/confirm.go`, `executor.go` (new/changed), `daemon.go`, `tick.go`, `setup.go` (diffs plus enough surrounding code to verify each claim)
+
+Files read in relevant part (diffs plus enough surrounding context to verify
+the specific claims above):
+- `internal/turn/prepare.go` (`prepareClone`, `syncBase`, `syncEnabled`)
+- `internal/turn/report.go` (`ReplyRequest.ConfirmKind`/`.Confirm`, `kind()`, `validate()`)
+- `internal/turn/command.go` (`KindConfirm` grammar)
+- `internal/turn/gate_test.go` (the `sections`/`gated` maps)
+- `internal/report/reply.go` (`ReplyKind` additions, `ConfirmReply`, rendering)
+- `internal/report/replykind_test.go`, `internal/report/testdata/reply_suggests_resolution.golden`
+- `internal/daemon/fixture_test.go` (`newDaemon`)
+
+Verification run directly, not taken on the report's word:
+- `go build ./...` — clean
+- `go vet ./...` — clean
+- `gofmt -l` over `internal/confirm internal/git internal/report internal/store internal/turn internal/daemon` — no files listed
+- `go test -count=1 ./internal/confirm/... ./internal/git/... ./internal/store/... ./internal/report/...` — all `ok`
+- `go test -count=1 -run 'ApplyConfirmedResolution|Confirm' ./internal/turn/... -v` — all 8 tests PASS
+
+---
+
+## Security Findings
+
+**Scope:** every file this story touches — `internal/confirm`, the three new
+`*git.Worktree` mutators and the trailer additions in `internal/git`, the
+confirmation gate and agentless apply turn in `internal/turn`, the new daemon
+dispatch layer in `internal/daemon`, the confirmation-reply rendering in
+`internal/report`, and the schema addition in `internal/store` — since this
+is the only story in the feature where model-produced text becomes committed
+bytes.
+**Rulebook:** not found (no `security:` section in any rulebook file passed
+by the caller, and no repository-level rulebook file exists) — applied the
+OWASP-based generic principles this skill falls back to, the same as the
+US-11 pass.
+
+| # | Area | Status | Finding |
+|---|---|---|---|
+| 1 | Input validation | ✅ | `confirm.Parse` restricts the phrase to a fixed lowercase-letters-and-spaces charset before comparing against `Phrase`, whole-match only, no partial credit (S-14). `checkResolvedFiles`/`containedResolvedPath` in `internal/git` independently re-screen every path a confirmed proposal names — absolute, `..`, symlink ancestor or leaf, or simply unlisted are all refused, and this lives inside `*Worktree` itself, never a caller-side string-prefix check (S-13, verified below). `CompleteMergeOptions.validate()` screens every trailer value for control characters before it reaches argv. |
+| 2 | Auth & authz | ✅ | `ValidateConfirmation`'s ownership check is genuinely numeric-ID-based (`ownerUserID != commenterUserID`, `internal/turn/apply.go:126`), matching `turn.Filter.Classify`'s `c.Author.ID == f.identities.OwnerUserID` pattern and `daemon.go`'s `t.issue.AssignedTo(...)` precedent exactly — never a login/handle comparison, and never (as the pre-fix bug reportedly did) a comparison against the issue's own author. Traced independently; see CR-A-008 below for a related but non-blocking observation about where this check is actually reachable from. |
+| 3 | Secrets & configuration | ✅ | No secret, token, or credential introduced. The three new trailers and the `ConfirmedBy` value are all either litefactory-controlled (`Model`, an `agent.Kind` string) or the confirming owner's own forge login — the only person who can ever reach this path per finding #2. |
+| 4 | Data handling | ✅ | The confirmed resolution text was already persisted in US-11 (out of scope here); this story adds no new raw-content persistence. `MaxConflictProposalFiles` and the existing per-file/total content caps are unaffected. Commit trailers and the rendered disclosure carry only the proposal id, the confirming handle, and the model name — verified in `internal/git/commit.go` and `internal/report/reply.go` — never raw comment text, and never a `Co-authored-by:` trailer for the model (S-16, explicit in `TrailerConfirmedBy`'s own doc comment). |
+| 5 | Dependencies & supply chain | ✅ | No new dependency in any file this story touches. |
+| 6 | Error handling | ✅ | Every `ReplyConfirm*`/`ReplyAppliesResolution` rendering branch in `internal/report/reply.go` references only `r.Confirm.ProposalID` (a numeric id) and fixed sentences — never `c.Body` or any other raw comment text (S-14, AC-12.2's "refusals never echo raw comment text" requirement, confirmed by direct reading, not inference). `agentSpan`/`confirmedBySpan` apply reject-don't-salvage screening to `Model`/`ConfirmedBy` before they are ever rendered. |
+
+**Summary:** The classic OWASP-shaped risks this story could have introduced —
+injection, broken auth, secret leakage, unsafe error disclosure — are all
+correctly mitigated and independently verified against the actual source,
+not the report's claims. The one serious defect this review found (CR-B-003,
+below) is not a security-classification issue in the OWASP sense — it leaks
+nothing and grants no unauthorized access — but it is a correctness defect in
+the exact mechanism (S-15's TOCTOU re-verification) the story's own threat
+model depends on to keep the confirmation gate meaningful, so it is reported
+here for visibility even though it does not fit a row in the table above.
+
+---
+
+## BLOCKING findings
+
+### CR-B-003: `prepareClone` runs `syncBase` unconditionally, even for the confirmed-apply turn, contradicting its own documented design and undermining S-15's re-verification
+**File:** `internal/turn/prepare.go:472-477` (`prepareClone`); doc comment at `internal/turn/prepare.go:407-426`; also `internal/turn/apply.go:234-237`
+**Story:** US-12 / T-12.6
+**Category:** Cross-story / Correctness / Concurrency (S-15)
+
+**Finding:** `ExecuteApplyResolution`'s own doc comment states, in `apply.go`:
+
+> "It never runs `syncBase`: a confirmed resolution already knows exactly
+> what it is merging and has its own re-verification, so a second,
+> independent auto-sync attempt over the same branch would be redundant at
+> best and a second, differently-decided merge at worst."
+
+`prepareClone`'s own doc comment repeats the same claim under its "confirmed
+(US-12)" heading: "applying the confirmed proposal is this section's fifth
+step, **after** `syncBase`" — implying `syncBase` runs and then the confirmed
+step follows, which is literally true, but the reader is meant to conclude
+`syncBase` is inert for this path. It is not gated at all.
+
+Reading `prepareClone`'s actual body (`prepare.go:436-528`) top to bottom:
+
+```go
+worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
+...
+sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)   // line 472 — unconditional
+if err != nil {
+    return session, "", nil, syncResult{}, nil, err
+}
+
+if confirmed == nil {                                                   // line 477 — the ONLY branch on confirmed
+    return session, branch, worktree, sync, nil, nil
+}
+// ... the confirmed-apply logic follows, using a *fresh* RevParse read ...
+```
+
+There is no `if confirmed == nil { sync, err = syncBase(...) }` guard, and no
+`else` that skips it. `syncBase` runs for *every* call to `prepareClone`,
+including the one `ExecuteApplyResolution` makes with a non-nil `confirmed`.
+Its return value (`sync`) is then silently discarded by the caller —
+`apply.go:298`: `_, _, _, _, applyResult, err := prepareClone(...)` — which is
+itself evidence this was not meant to run: nothing downstream of
+`ExecuteApplyResolution` ever reads it.
+
+`ExecuteApplyResolution`'s call into `prepareClone` builds `minimalReq :=
+Request{SessionID: req.SessionID, Issue: Issue{Number: session.IssueNumber}}`
+(`apply.go:297`) — a bare `Request` with `SyncOverride` left at its zero
+value (`nil`). `syncEnabled` (`prepare.go:609-614`) therefore falls through to
+`opts.AutoSyncBase`, which defaults to `true` in production
+(`plan_brief.md`'s Shared Decisions: `AutoSyncBase` default `true`). So in the
+*default* production configuration, every confirmed-apply turn:
+
+1. Re-measures `Divergence` against the base branch.
+2. If behind and within `AutoSyncMaxBehind`, runs a fresh `MergePreview`
+   against the **current** base tip — not the tip the proposal was computed
+   against.
+3. If that fresh preview is clean — which it will be whenever the base has
+   moved in a way compatible with the branch's own unresolved conflicting
+   content since the proposal was made (a later base commit reverting or
+   superseding the original conflicting hunk, or simply a base commit landed
+   after the propose turn's own conflict was independently resolved
+   upstream) — `MergeBase` actually runs and **commits a second, unconfirmed
+   merge** onto the task branch, moving `HEAD`, before the confirmed-apply
+   logic ever runs.
+
+This has two consequences, either of which is a real defect in this story's
+central guarantee:
+
+- **AC-12.5's "exactly one merge commit" is violated** whenever step 3 above
+  fires: the branch now carries an ordinary, unconfirmed auto-sync merge
+  commit *and* the confirmed-resolution merge commit, not "exactly one."
+  Nothing in `ExecuteApplyResolution` checks for or reports this — the
+  auto-sync merge is entirely invisible to the confirmation's own disclosure.
+- **S-15's re-verification is silently contaminated.** The `confirmed`
+  section's own SHA check (`prepare.go:483-499`) reads `currentBranchSHA`
+  via `worktree.RevParse(ctx, "HEAD", ...)` **after** `syncBase` has already
+  run and (in the scenario above) already moved `HEAD`. The comparison
+  against `stored.BranchSHA` is meant to answer "has anything happened to
+  this branch since the proposal was computed that the owner should know
+  about" (AC-12.4) — but it cannot distinguish genuine external drift from
+  this turn's own unrequested side effect. A proposal that is still perfectly
+  valid to apply can now be marked `superseded` purely because
+  `ExecuteApplyResolution`'s own internal call graph moved the branch out
+  from under it, and the owner is told "comment again to ask for a fresh
+  suggestion" for no real reason. Conversely, in the rarer case where the
+  auto-sync merge itself is what changes `currentBaseSHA` to equal
+  `stored.BaseSHA` by coincidence, the two side effects could in principle
+  interact in ways neither this function nor its tests reason about.
+
+I traced whether the existing test suite would have caught this and found it
+would not, by construction: `TestApplyConfirmedResolutionSupersedesOnStaleBase`
+advances the base with a commit to an *unrelated* file
+(`further.txt`), which leaves the original conflicting hunk untouched, so the
+fresh `MergePreview` `syncBase` runs stays unclean (`blocked`) and no merge is
+actually performed — the bug is present but not triggered by that specific
+scenario. `TestApplyConfirmedResolutionHappyPath` makes no intervening base
+commit at all, so `divergence.Behind` does not change between propose and
+confirm and the same "still blocked, no side effect" path is taken. Neither
+test constructs the scenario — a base commit that resolves or bypasses the
+original conflicting hunk — that would make the fresh preview clean and
+expose the extra commit. This is a real, currently-untested gap in production
+behavior, not a hypothetical.
+
+I also confirmed this is not intentional idempotent housekeeping:
+`prepareClone`'s own "No claude run between this step and `ensureWorktree`"
+reasoning (used to justify not releasing/retaking the gate) presumes nothing
+else mutates the branch in between — `syncBase` mutating it silently
+contradicts that same paragraph's premise.
+
+**Required fix:** Skip `syncBase` entirely when `confirmed != nil`, matching
+both doc comments' stated intent exactly:
+
+```go
+var sync syncResult
+if confirmed == nil {
+    sync, err = syncBase(ctx, opts, req, worktree, repo, author, logger)
+    if err != nil {
+        return session, "", nil, syncResult{}, nil, err
+    }
+} else {
+    // no auto-sync for a confirmed-apply turn — see doc comment
+}
+if confirmed == nil {
+    return session, branch, worktree, sync, nil, nil
+}
+```
+
+(or equivalent restructuring — the precise shape is the engineer's to choose,
+but the outcome must be that no `Divergence`/`MergePreview`/`MergeBase` call
+happens on the confirmed-apply path). Add a regression test that advances the
+base branch, between propose and confirm, with a commit that makes a fresh
+merge-tree preview against the *current* base clean (e.g., reverting the
+original conflicting hunk on the base side) while the branch's own confirmed
+resolution is still what was proposed, and assert: (a) the resulting branch
+carries exactly one new commit — the confirmed merge — not two; (b) the
+proposal is applied, not spuriously superseded, when `stored.BaseSHA`/
+`stored.BranchSHA` genuinely still describe the state the confirmation should
+be judged against per S-15's intent (i.e., the test should demonstrate the
+fix distinguishes "the base moved in a way that matters" from "the base
+moved in a way `syncBase` would have auto-merged anyway").
+
+---
+
+## ADVISORY findings
+
+### CR-A-008: `ValidateConfirmation`'s non-owner refusal is real and correctly implemented, but unreachable through the live daemon comment pipeline — AC-12.2's "reported in the thread" is exercised only at the unit level
+**File:** `internal/turn/apply.go:126-128` (`ValidateConfirmation`); `internal/turn/classify.go:245-252` (`Filter.Classify`); `internal/daemon/tick.go:1317-1326` (`handleComment`)
+**Story:** US-12 / T-12.5, T-12.9
+**Category:** Cross-story / Standards
+
+**Finding:** Traced the full path a `/confirm` comment takes before it can
+ever reach `ValidateConfirmation`. `Daemon.handleComment` calls
+`d.filter.Admit(ctx, t.session.ID, c)` and returns immediately — via
+`Consume` and no reply — whenever `!admission.Triggers()`
+(`tick.go:1317-1326`). `Admission.Triggers()` delegates to
+`Verdict.Triggers()`, which is `true` only when `Classification ==
+store.ClassificationInstruction` (`classify.go:179`), and `Filter.Classify`
+sets that classification only when `c.Author.ID == f.identities.OwnerUserID`
+(`classify.go:249-251`) — the *same* `Identities().OwnerUserID`
+`handleConfirm` later passes to `ValidateConfirmation` as `ownerUserID`. In
+other words: by the time a comment's body is even parsed by
+`turn.ParseCommand` (let alone reaches `KindConfirm` and `handleConfirm`),
+its author has already been proven, by the admission filter, to be the same
+account `ValidateConfirmation`'s ownership check compares against. A comment
+from any other account is silently consumed with no reply at all — the same
+path every ordinary third-party comment takes — and never reaches
+`confirm.Parse` or `ValidateConfirmation`.
+
+This means `ConfirmationNotOwner` is not, in practice, reachable via the live
+comment-processing pipeline today: it is a correct, independently
+unit-tested defense-in-depth backstop (`TestApplyConfirmedResolutionRefusesNonOwner`
+calls `ValidateConfirmation` directly with a mismatched `strangerUserID`,
+bypassing `Admit` entirely), not a behavior a real "stranger comments
+`/confirm`" scenario would trigger end-to-end. AC-12.2 reads "A confirmation
+from a non-owning author is refused, writes nothing, leaves the status at
+`pending`, and is reported in the thread" — the first three clauses hold
+(nothing is ever written and the status never moves, because the comment
+never reaches any write path), but "reported in the thread" would only be
+true if a non-owner's `/confirm` comment somehow classified as
+`ClassificationInstruction` and reached `handleConfirm`, which by
+construction it cannot under the current admission-filter design.
+
+This is exactly the same class of "correct, tested, but currently
+unreachable given the present call graph" situation this team's own prior
+review flagged as advisory rather than blocking (see CR-A-004 in the
+US-6/US-10 section above), and the code's own doc comment on
+`ValidateConfirmation` is candid about it ("the daemon's admission filter
+has, by construction, already refused every comment whose author is not this
+same owner id before a body is ever classified as a confirmation control at
+all"). It is not a defect in this story's code — it is a property of a
+design decision (single-owner comment admission) that predates US-12 and is
+shared with every other factory-owned control (`/schedule` has the identical
+property). Recorded here because AC-12.2's literal wording implies a visible
+reply that the current design does not, in fact, ever produce for this
+scenario.
+**Suggestion:** No code change required. Worth a one-line note in the
+story's closing record (or a drift-report entry) that AC-12.2's "reported in
+the thread" clause is verified only at the `ValidateConfirmation` unit level,
+consistent with `/schedule`'s pre-existing precedent, and that a real
+non-owner `/confirm` attempt in production is silently dropped like any
+other third-party comment rather than answered.
+
+### CR-A-009: `fixture_test.go`'s `newDaemon` helper does not merge `overrides.Confirmer` or `overrides.ConflictProposalTTL`, blocking a future daemon-level test of the confirmation dispatch path from injecting a fake confirmer
+**File:** `internal/daemon/fixture_test.go:996-1063` (`newDaemon`)
+**Story:** US-12 / T-12.5, T-12.9
+**Category:** Standards / Testability
+
+**Finding:** Confirmed directly: `newDaemon`'s override-merging block
+(`fixture_test.go:1015-1062`) has an `if overrides.X != nil { opts.X =
+overrides.X }` branch for every `daemon.Options` field except `Confirmer` and
+`ConflictProposalTTL`. Grepped the whole `internal/daemon` test package for
+any test that sets `daemon.Options{Confirmer: ...}` via `newDaemon`: none
+exists, and none is possible today — a test that tried would silently have
+its override dropped, leaving `d.confirmer` `nil` and every confirmation that
+otherwise passes `ValidateConfirmation` falling into `handleConfirm`'s
+"no confirmation applier is wired" branch (`confirm.go:52-61`), which always
+answers `ReplyConfirmFailed` regardless of what a fake confirmer would have
+returned. There is also currently no `internal/daemon/confirm_test.go` (or
+equivalent) at all — the entire `handleConfirm` dispatch function (TTL sweep
+ordering, the `confirmationRefusalReply` mapping, the "no confirmer wired"
+fallback, and the successful-application reply assembly) has zero test
+coverage at the daemon-package level today.
+
+This does **not** block T-12.9's core acceptance criteria: I confirmed
+AC-12.1 through AC-12.4's "no bypass" / non-owner / unknown / expired /
+superseded / already-decided cases are all independently covered at the
+`internal/turn.ValidateConfirmation` unit level in `apply_test.go`
+(`TestApplyConfirmedResolutionRefusesNonOwner`,
+`RefusesUnknownProposal`, `RefusesCrossSessionProposal`,
+`RefusesExpiredProposal`, `RefusesAlreadyDecidedProposal`,
+`SupersedesOnStaleBase` — all read and confirmed to pass), which needs no
+daemon fixture at all. What this gap blocks is a *daemon-level* integration
+test of `handleConfirm` itself — the TTL-sweep-first ordering, the reply-kind
+mapping, and the routing through the daemon's own dependency wiring — which
+is a real but narrower testability gap than a missing AC.
+**Suggestion:** Add the two missing override branches to `newDaemon` (`if
+overrides.Confirmer != nil { opts.Confirmer = overrides.Confirmer }` and the
+zero-means-default equivalent for `ConflictProposalTTL`, matching the
+pattern every other field already follows) before the test-writing phase
+attempts to exercise `handleConfirm` at the daemon level. This is a small,
+mechanical fix.
+
+### CR-A-010: `checkResolvedFiles`'s `errors.Join` justification does not match its one actual call site
+**File:** `internal/git/worktree_apply.go:368-391` (`checkResolvedFiles`)
+**Story:** US-12 / T-12.2
+**Category:** Idiom / Standards
+
+**Finding:** The function's doc comment justifies aggregating every bad path
+with `errors.Join` rather than failing fast on the first one: "the same
+aggregate-don't-fail-fast shape `[repos.ValidateWorktreeRoots]` already
+applies... **a caller fixing a confirmed file list one comment at a time
+would otherwise see only the first problem and have to resubmit to find the
+second**." That justification describes an interactive edit-and-resubmit
+workflow. No such workflow exists anywhere in this feature: the only call
+site (`prepare.go:506-511`, inside `prepareClone`'s confirmed-apply step)
+builds `files` directly from `stored.Files` — a proposal already persisted by
+US-11's `CreateOrGetConflictProposal`, whose paths were already screened by
+`internal/turn`'s `validateConflictResolution` before the proposal was ever
+written to the store. There is no owner-facing "fix your file list and
+resubmit" flow at all; US-12's own "NOT in scope" list explicitly excludes
+"applying an owner's hand-edited version of a suggestion rather than the
+stored one." A bad path reaching `checkResolvedFiles` today would indicate a
+data-integrity problem with an already-validated, litefactory-assembled
+list — not a human iteratively refining a submission — and a single
+representative error would serve a maintainer just as well as an aggregate
+one.
+
+This is not a functional defect: `errors.Join` on a single-element slice
+behaves identically to returning that one error, and if it ever aggregates
+more than one it is still a valid, correctly-formatted error. It is a
+documentation/rationale mismatch worth tightening, and the kind of
+aggregate-vs-fail-fast choice this team has previously flagged when the
+stated reason for the pattern doesn't hold up under scrutiny.
+**Suggestion:** Either correct the doc comment to state the real reason
+(uniform defense-in-depth screening of an internally-assembled list, not an
+interactive resubmission flow), or simplify to fail-fast on the first
+`checkName` failure, whichever the team prefers stylistically. No test or
+behavior change is required either way given the current single-call-site
+reality.
+
+### CR-A-011: `everyReplyKind` in `replykind_test.go` was not extended for US-12's eight new `ReplyKind` values, despite the plan brief explicitly calling for it
+**File:** `internal/report/replykind_test.go:19-39` (`everyReplyKind`)
+**Story:** US-12 / T-12.8
+**Category:** Standards / Cross-story
+
+**Finding:** `plan_brief.md`'s Tests section states: "The `report.ReplyKind`
+enum-exhaustiveness test passes with `ReplyRefusesSync` (US-4), then
+`ReplySuggestsResolution`/`ReplyAppliesResolution` (US-11/US-12), added in
+turn." `ReplySuggestsResolution` is present in `everyReplyKind` (added by
+US-11). None of US-12's eight new kinds are:
+`ReplyConfirmInvalid`, `ReplyConfirmNotOwner`, `ReplyConfirmUnknownProposal`,
+`ReplyConfirmExpiredProposal`, `ReplyConfirmSupersededProposal`,
+`ReplyConfirmAlreadyApplied`, `ReplyConfirmFailed`, and
+`ReplyAppliesResolution` itself are all absent from the list. Grepped the
+whole file to confirm — none of the eight names appear anywhere in it.
+
+The underlying production code is correct: I read `reply.go`'s `String()`
+switch (lines 211-225) and confirmed all eight cases exist, render distinct
+non-"invalid" labels, and are included in both the `valid()` membership
+switch (lines 253-255) and `IsConfirmationReply()` (lines 270-272). This is
+therefore a pure test-coverage gap against an explicit, named plan
+requirement — not a production defect — but it is exactly the kind of
+enum-exhaustiveness regression this specific test exists to catch, and the
+plan brief named it by name as something this story must do.
+**Suggestion:** Add all eight `ReplyConfirm*`/`ReplyAppliesResolution` values
+to `everyReplyKind` before Phase 2 test-writing closes this story out.
+
+### CR-A-012: `MarkConflictProposalApplied`/`SupersedeConflictProposal`'s lost-race path surfaces as a raw Go error rather than an `ApplyOutcomeFailed`/"already applied" value
+**File:** `internal/turn/apply.go:310-316` (`ExecuteApplyResolution`); `internal/store/conflict_proposals.go:190-233` (`SupersedeConflictProposal`, `MarkConflictProposalApplied`)
+**Story:** US-12 / T-12.6, T-12.9
+**Category:** Error handling / Concurrency
+
+**Finding:** Both store methods are correctly conditioned on `WHERE ... AND
+status = 'pending'` (AC-12.9's idempotence guard), and both return the
+generic `store.ErrNotFound`-wrapped error when that condition does not match
+— i.e., when a concurrent confirmation of the same proposal already changed
+its status between this call's `ValidateConfirmation` read and its own
+attempt to write. In `ExecuteApplyResolution`, the `Superseded` branch
+(`apply.go:310-316`) propagates that error as a bare Go `error`
+(`return ApplyResult{}, fmt.Errorf("supersede stale conflict proposal %d: %w", ...)`)
+rather than the `applyFailed(...)` value every *other* failure path in this
+function uses. A caller (`daemon.handleConfirm`) would then take the
+`d.leave(ctx, t, log, "could not apply a confirmed conflict-resolution
+proposal", err)` path — an internal-error log line and an unanswered
+comment — rather than a graceful `ReplyConfirmAlreadyApplied`/
+`ReplyConfirmFailed` reply.
+
+I traced whether this race is reachable given the daemon's actual
+concurrency model and confirmed it is not, currently: `Daemon.offer`'s
+`inflight.enter(c.session.ID)` guarantees at most one worker per session at a
+time, and `drain` processes a session's comments strictly sequentially
+within that one worker, so two `/confirm` comments on the same session
+cannot reach `ValidateConfirmation` concurrently under the present design.
+This is therefore latent rather than live, the same class of finding as
+CR-A-004 in the US-6/US-10 section above.
+**Suggestion:** For robustness against a future concurrency-model change
+(e.g., cross-instance confirmation dispatch), consider mapping a lost-race
+`ErrNotFound` from either store call back onto a graceful `ApplyResult`
+(`ApplyOutcomeSuperseded`/`ApplyOutcomeAlreadyApplied`-shaped, re-reading the
+current row) rather than a hard error, matching the discipline every other
+branch of this function already follows. Not required for this story to
+close, given the current single-worker-per-session invariant.
+
+---
+
+## Verified correct
+
+- **AC-12.1 / S-12, the compile-time gate, traced by hand at every call
+  site.** `confirmedProposal` (`turn/apply.go:75-78`) has no exported fields
+  and no exported constructor. Grepped every reference to `confirmedProposal`
+  and `ValidateConfirmation` across the tree (`apply.go`, `prepare.go`,
+  `daemon/confirm.go`, `daemon/executor.go`, `daemon/daemon.go`): the only
+  function in `internal/turn` that ever produces a non-zero
+  `confirmedProposal` is `ValidateConfirmation`, and `TestConfirmedProposalHasNoExportedFields`
+  (a reflection test, matching `TestWorktreeHasNoExportedConstructionPath`'s
+  own precedent) proves the struct's field-level guarantee directly, not by
+  inspection alone. `ApplyRequest.Proposal` is an exported field of an
+  unexported type: an external package can only ever place a
+  `ValidateConfirmation`-produced value there, or the type's zero value —
+  and `ApplyRequest.validate()`'s `r.Proposal.proposal.ID <= 0` check refuses
+  the zero-value case at the very top of `ExecuteApplyResolution`, so a
+  caller cannot even reach `prepareClone`'s confirmed-apply branch with an
+  unconfirmed value. `ExecuteApplyResolution` is the only production caller
+  of `prepareClone` with a non-nil fifth argument; `prepare()` (the ordinary
+  turn) always passes `nil`. No other call site anywhere in the tree
+  constructs or forwards a `confirmedProposal`. This structural claim holds.
+- **The ownership-check fix, traced independently.** `ValidateConfirmation`'s
+  comparison (`ownerUserID == 0 || commenterUserID == 0 || ownerUserID !=
+  commenterUserID`, `apply.go:126`) is genuinely numeric and compares against
+  `d.filter.Identities().OwnerUserID` — the daemon's single configured owner
+  identity — never against the issue's own author, and never against a
+  login/handle. This matches `turn.Filter.Classify`'s `c.Author.ID ==
+  f.identities.OwnerUserID` (`classify.go:249`) and `daemon.go`'s
+  `t.issue.AssignedTo(d.filter.Identities().OwnerUserID)`
+  (`tick.go:1107`) precedent exactly. The reported bug — comparing against
+  the issue's own author instead — would have inverted the common case (a
+  stranger's issue, the daemon owner confirming); the current code does not
+  do that. See CR-A-008 above for the separate, non-blocking observation
+  about where this check is actually reachable from in the live pipeline.
+- **S-13 path containment, traced against every named threat.**
+  `containedResolvedPath` (`worktree_apply.go:421-477`) rejects, in order: a
+  path not byte-for-byte present in the confirmed file list; an absolute
+  path; a path whose cleaned form differs from its input or resolves to `.`
+  or `..`; any path component equal to `..`; a joined target that
+  `filepath.Rel` cannot place inside `root`; a symlink anywhere along an
+  *existing* ancestor directory (walked component by component with
+  `os.Lstat`, stopping cleanly at the first `os.IsNotExist`); and a target
+  that is itself a symlink. This lives entirely inside
+  `internal/git/worktree_apply.go`, is called from both
+  `WriteResolvedFiles` and, independently, `StageResolvedFiles` (each
+  re-screens rather than trusting the other's prior check), and is never
+  implemented as a string-prefix comparison anywhere in the file. Confirmed
+  by reading the function body directly, not the doc comment's own claim
+  about it.
+- **S-15's structural placement is correct** (the contamination issue is
+  CR-B-003, a substantive-correctness defect, not a placement one). The
+  fresh `RevParse` reads for `currentBranchSHA`/`currentBaseSHA`
+  (`prepare.go:484-491`) happen inside the one `Options.CloneGate.Acquire`
+  taken at the top of `prepareClone` (`prepare.go:452`), immediately before
+  `WriteResolvedFiles` is ever called, and after — not before — that gate
+  acquisition, exactly as S-15 requires. `ExecuteApplyResolution` performs no
+  separate gate acquisition of its own.
+- **AC-12.6 rollback, traced through every mutator.** `WriteResolvedFiles`,
+  `StageResolvedFiles`, and `CompleteMerge` each call
+  `w.abortInProgressMerge(ctx, before, ...)` on every failure path after the
+  merge has started (`worktree_apply.go:122,126,132,135,170,175,250,255,260,272`),
+  and `abortInProgressMerge` (`worktree_apply.go:309-322`) runs `git merge
+  --abort` and then re-verifies the branch tip against `before`, reporting a
+  mismatch as its own, more urgent failure rather than silently accepting it
+  — the same discipline `recoverFromFailedMerge` already applies for
+  US-2/US-10's ordinary sync path. `git.Worktree`'s exported method set
+  (`TestWorktreeMethodSetIsTheAllowlist`) contains no `Reset` and
+  `TestWorktreeCannotRunGeneralPurposeMutators` explicitly forbids one —
+  confirmed by reading the test file, not by absence of a grep hit alone.
+- **AC-12.8, `TestWorktreeMethodSetIsTheAllowlist`.** Exists, pins exactly
+  the pre-US-12 read-only-plus-three-mutator surface plus the three new
+  US-12 mutators (`WriteResolvedFiles`, `StageResolvedFiles`,
+  `CompleteMerge`), each with a recorded reason in the test's own comment,
+  and the test's own doc comment confirms it was written to fail before the
+  mutators existed (T-12.1's stated ordering). `go test` confirms it passes
+  against the current method set.
+- **S-16, trailers and disclosure.** `TrailerConflictProposal`,
+  `TrailerConfirmedBy`, and `TrailerModel` are all litefactory-controlled or
+  pattern-screened values — `ConfirmedBy` is the confirming owner's own
+  login (the only account that can ever reach this path, per finding #2
+  above), `Model` is an `agent.Kind` string, and both are additionally
+  re-screened by `agentSpan`/`confirmedBySpan` before ever being rendered
+  into the posted comment (S-16, SEC-5, reject-don't-salvage). `TrailerConfirmedBy`'s
+  own doc comment explicitly states it is never a `Co-authored-by:` trailer.
+  Confirmed no `Co-authored-by` string appears anywhere in `commit.go` or
+  `worktree_apply.go`.
+- **S-14 / AC-12.2, the two other required properties.** A non-owner
+  confirmation returns `confirmedProposal{}, ConfirmationNotOwner, nil`
+  (`apply.go:127`) with no database write of any kind on that path — the
+  proposal's row is never touched. Every `ReplyConfirm*` rendering branch in
+  `reply.go` (lines 838-895) references only `r.Confirm.ProposalID` and
+  fixed sentences, never raw comment text.
+- **AC-12.9, idempotent double-confirmation.** A second `ValidateConfirmation`
+  call against an already-applied proposal finds `proposal.Status ==
+  store.ConflictProposalApplied` and returns `ConfirmationAlreadyApplied`
+  immediately (`apply.go:133-134`), before `ExecuteApplyResolution` is ever
+  reached a second time — confirmed against `TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal`,
+  which passes.
+- **AC-12.10, no held-open run.** `handleConfirm` and
+  `ExecuteApplyResolution` are both single synchronous call chains with no
+  polling loop, no channel wait, and no `time.Sleep` anywhere in either —
+  confirmed by reading both functions top to bottom.
+- **The confirmation grammar (T-12.4).** `confirm.Parse` requires a positive
+  integer id, then the exact phrase (case-insensitively, restricted to a
+  lowercase-letters-and-spaces charset), with no partial credit — a
+  malformed attempt refuses in full via `ErrInvalidRequest`, never
+  salvaging "the part that looked right." `internal/confirm` has no
+  dependency on storage, the forge, or an agent, matching `internal/schedule`'s
+  own precedent exactly, per its `doc.go`.
+- **`internal/turn/gate_test.go`'s registry edit is exactly the plan's
+  TEST-10 shape.** The `sections` map is confirmed unchanged at exactly
+  three entries (`prepareClone`, `commitAndPush`, `commitStoryIndex`). The
+  `gated` map gains `WriteResolvedFiles`, `StageResolvedFiles`, and
+  `CompleteMerge`, each scoped to `{"prepareClone"}` only, and `Push` gains
+  `"prepareClone"` as a third home alongside its two existing ones — no new
+  acquisition anywhere, matching the plan brief's explicit "US-12's
+  application turn reuses `prepareClone` unchanged... no further edit to
+  this file [beyond the gated-call list]" instruction.
+- **Grammar/dispatch wiring (T-12.4, T-12.5).** `KindConfirm` never sets
+  `Command.Spawns() == true` (`command.go:131`), so `handleComment` routes it
+  to `handleConfirm` before ever reaching the `Spawns()`/`d.run` branch
+  (`tick.go:1352-1360`) — a `/confirm` control can never start an agent run,
+  matching `KindSchedule`'s own precedent exactly. `daemon/setup.go` wires
+  `Confirmer: NewConfirmApplier(turnOpts)` and `ConflictProposalTTL:
+  conflictProposalTTL` into `daemon.Options` in production
+  (`setup.go:300-334`), confirmed by direct reading.
+- **`internal/turn/report.go`'s `ConfirmKind`/`Confirm` wiring (previously
+  dead, now live).** `ReplyRequest.kind()` checks `req.ConfirmKind !=
+  report.ReplyInvalid` ahead of the ordinary refusal/schedule/command
+  dispatch (`report.go:291-293`), `validate()` enforces the same closed-set
+  membership `ScheduleKind` already has (`report.go:321-324`), and
+  `ReportReply` forwards `req.Confirm` straight into `report.Reply.Confirm`
+  (`report.go:612`) with no transformation — the same three-line binding
+  `Schedule`/`ScheduleKind` already have. `daemon/confirm.go`'s
+  `replyConfirm` is the only caller that ever sets these two fields,
+  confirmed by grep.
+- **The regenerated golden fixture matches the code, deliberately.**
+  `reply_suggests_resolution.golden`'s new final sentence — "To apply it
+  exactly as shown, comment `/confirm 42 apply this resolution`." — is
+  produced by `reply.go:782`'s exact `fmt.Fprintf` call, using the same
+  literal `apply this resolution` phrase `confirm.Phrase` defines (verified
+  by reading both, not assuming the string literals agree). This is a
+  deliberate, correct regeneration reflecting US-12's new hint on US-11's
+  existing reply, not a stale or accidental diff.
+- **Build/vet/format/tests, re-run directly.** `go build ./...`, `go vet
+  ./...` — both clean. `gofmt -l` over every touched package — no output.
+  `go test -count=1 ./internal/confirm/... ./internal/git/...
+  ./internal/store/... ./internal/report/...` — all `ok`. `go test -count=1
+  -run 'ApplyConfirmedResolution|Confirm' ./internal/turn/... -v` — all 8
+  US-12 tests in `apply_test.go` individually PASS.
+
+---
+
+## Cross-story summary
+
+US-12 integrates correctly with US-10 (rollback), US-11 (the stored
+proposal), and the pre-existing `/schedule` dispatch pattern at almost every
+boundary this review checked: the compile-time confirmation gate (S-12) is
+genuinely structural and independently proven by a reflection test; the
+ownership-check bug the implementation engineer reported fixing is
+genuinely fixed, and is a numeric comparison matching this codebase's one
+established pattern for it; path containment (S-13) lives entirely inside
+`*git.Worktree` with no caller-side trust; the rollback discipline (S-5,
+AC-12.6) is the same abort-then-reverify shape US-10 already established,
+reused rather than reinvented; and the trailers/disclosure (S-16) never let
+model output or raw comment text into a commit or a comment. The one place
+this story falls short is a genuine correctness defect at the seam between
+US-2's pre-existing `syncBase` step and US-12's new confirmed-apply step
+inside the shared `prepareClone` critical section (CR-B-003): the two
+doc comments describing this exact seam both assert `syncBase` does not run
+for a confirmed-apply turn, and the code does not honor that assertion. This
+is precisely the kind of defect that costs two engineer-fix cycles instead
+of one if it reaches the test-writing phase undetected — the existing
+turn-level tests happen not to construct the one scenario (a base commit
+that resolves the original conflict) that would expose it.
+
+---
+
+## Verdict
+
+**BLOCKING** — 1 blocking finding (CR-B-003) and 5 advisory findings
+(CR-A-008 through CR-A-012) for US-12. Route CR-B-003 to the engineer owning
+`internal/turn/prepare.go`/`apply.go` before Phase 2 testing proceeds on this
+story. CR-A-008 through CR-A-012 are noted for the drift report and do not
+block. This does not reopen or affect the verdicts already recorded above
+for US-1 through US-11.
+
+
+---
+---
+
+# Re-review — US-12 / CR-B-003
+# Feature: Apply a confirmed resolution and complete the merge
+# Reviewed by: go-code-reviewer
+# Date: 2026-09-07
+# Status: CLEAR
+
+---
+
+## Scope
+
+Re-review of the single prior BLOCKING finding, CR-B-003 (`prepareClone`
+called `syncBase` unconditionally, even for the agentless confirm-apply
+turn). Per the orchestrator's instruction, only the files tied to the fix
+were reviewed:
+
+- `internal/turn/prepare.go` (the `prepareClone` gating change)
+- `internal/turn/apply.go` (doc-comment update only, per the report)
+- `internal/turn/gate_test.go` (comment/prose update only, per the report)
+- `internal/turn/apply_test.go` (the new test)
+
+Nothing else in US-1 through US-12 was re-graded; the rest of US-12's prior
+"Verified correct" section and its five advisory findings (CR-A-008 through
+CR-A-012) stand unchanged.
+
+Verification run directly, not taken on the report's word:
+- `go build ./...` — clean
+- `go vet ./...` — clean
+- `gofmt -l .` — no files listed
+- `go test -race -count=1 ./internal/turn/... ./internal/git/... ./internal/daemon/...` — all three packages `ok`
+- The new test was independently made to fail: `internal/turn/prepare.go` was
+  temporarily reverted to the exact pre-fix shape (a single unconditional
+  `syncBase` call before the `confirmed == nil` branch, `sync` threaded
+  through every downstream `confirmed`-branch return instead of
+  `syncResult{}`), `go build ./...` confirmed the reverted file still
+  compiles, and `go test -race -count=1 ./internal/turn/... -run
+  TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying -v` was run
+  against it before restoring the fixed file from a saved copy and
+  re-verifying `go build`/`go vet`/`gofmt -l`/the full three-package
+  `-race` suite all clean again afterward.
+
+---
+
+## CR-B-003: RESOLVED
+
+**Original finding:** `prepareClone` called `syncBase` unconditionally, even
+on the path `ExecuteApplyResolution` takes for a confirmed-apply turn, which
+could (a) produce a second, unconfirmed auto-sync merge commit — violating
+AC-12.5's "exactly one merge commit" — whenever the base had moved into a
+now-cleanly-mergeable state between propose and confirm, and (b) let that
+same side effect move `HEAD`/the base tip before S-15's TOCTOU
+re-verification ever read them, contaminating the comparison the
+re-verification exists to make honestly.
+
+**Fix verified against all five of the orchestrator's specific questions:**
+
+1. **`syncBase` is genuinely unreachable when `confirmed != nil`, and the
+   ordinary path's behavior/step order is unchanged.** Read `prepareClone`'s
+   body directly (`internal/turn/prepare.go:472-483`):
+   ```go
+   worktree, err := ensureWorktree(ctx, opts, clone, session, repo, branch, logger)
+   if err != nil {
+       return session, "", nil, syncResult{}, nil, err
+   }
+
+   if confirmed == nil {
+       sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+       if err != nil {
+           return session, "", nil, syncResult{}, nil, err
+       }
+       return session, branch, worktree, sync, nil, nil
+   }
+
+   // US-12: ... — the confirmed-apply logic follows, with every
+   // downstream return in this branch now carrying syncResult{} rather
+   // than a live sync value, since none exists on this path.
+   ```
+   `syncBase` appears exactly once in the function body, strictly inside the
+   `confirmed == nil` block, which returns immediately after — there is no
+   fallthrough, no `else`, and no later unconditional call. For the ordinary
+   (`confirmed == nil`) path, the sequence is `ensureWorktree` → `syncBase` →
+   return — byte-for-byte the same three-step order the pre-fix code ran,
+   just with the same two statements now living inside an `if` body instead
+   of above it; nothing about the ordinary turn's control flow, error
+   handling, or return values changed. Diffed against the pre-fix version
+   directly (`git diff internal/turn/prepare.go`) to confirm this is a
+   structural move, not a rewrite that could have introduced a second,
+   subtler behavior change: every downstream `confirmed`-branch return
+   changed only from returning the earlier `sync` value to returning
+   `syncResult{}` (correct, since there is genuinely no meaningful
+   `syncResult` for this turn shape now that `syncBase` never runs on it)
+   — no other return value, argument, or call was altered.
+
+2. **The new test genuinely exercises the bug's failure mode, not a
+   pre-existing outcome-level distinction.** Read the test body directly
+   (`internal/turn/apply_test.go:337-380`,
+   `TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying`). It reverts
+   the base's own conflicting edit in a new base commit between propose and
+   confirm — a scenario the test's own comment correctly reasons makes a
+   *fresh* `merge-tree` preview against the current base tip clean, while
+   still constituting a genuine `stored.BaseSHA` mismatch that S-15's
+   re-verification should supersede on its own merits. This is exactly the
+   scenario CR-B-003 named as the one existing tests missed
+   (`TestApplyConfirmedResolutionSupersedesOnStaleBase` advances the base
+   with an unrelated-file commit, which leaves the fresh preview unclean and
+   never triggers a merge). The assertions are on the side effect, not the
+   outcome: `result.Outcome != ApplyOutcomeSuperseded` is checked (and holds
+   in both the buggy and fixed version, exactly as the test's own comment
+   predicts — a stale base/branch sha genuinely warrants supersession either
+   way), while the load-bearing assertions are that `HEAD` in the worktree
+   directory is byte-identical before and after the call, and that the tip
+   commit has exactly one parent.
+
+   Independently reproduced both directions rather than trusting the
+   report's claim: reverted `prepareClone` to the exact pre-fix
+   unconditional-`syncBase` shape and re-ran the test — it failed exactly as
+   CR-B-003 predicted:
+   ```
+   apply_test.go:374: HEAD moved from dd4659ccde2920d46e52c784581a5a4c2517a7bb
+       to affbf94ec41a716b4ac8e2024a8055c23c16eb70: a superseded confirmation
+       must never leave a commit behind, not even one syncBase made for
+       itself before re-verifying (CR-B-003)
+   apply_test.go:378: HEAD has 2 parents, want exactly one: no merge commit
+       of any kind — sync or confirmed — was ever made
+   --- FAIL: TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying (0.80s)
+   ```
+   `Outcome` was still `ApplyOutcomeSuperseded` in that failing run (an
+   `t.Fatalf` on that check would have fired first if it hadn't been), which
+   independently confirms the test could not have caught this bug through
+   the outcome alone — precisely the constraint the test's own doc comment
+   states and reasons through. Restored the fixed file from a saved copy and
+   re-ran: `PASS`, 0.79s. This is not a scenario the pre-fix code would have
+   passed anyway; it is the one scenario built specifically to expose the
+   defect, verified failing and passing on both sides of the fix by direct
+   execution, not by re-reading the report's own claim to that effect.
+
+3. **S-15's re-verification reads pre-any-mutation state for this turn
+   shape.** For `confirmed != nil`, the call sequence between the one
+   `Options.CloneGate.Acquire` at the top of `prepareClone` and the
+   `currentBranchSHA`/`currentBaseSHA` reads is: `fetch` → `freezeSlug` →
+   `ensureWorktree` → (no `syncBase`) → `worktree.RevParse(ctx, "HEAD", ...)`
+   / `worktree.RevParse(ctx, baseRef, ...)`. Read `ensureWorktree`
+   (`prepare.go:1216-1251`) directly: it only checks out or creates a
+   worktree at an existing branch start via `git.EnsureWorktree` — it never
+   merges, fetches a fresh base tip beyond what the earlier `fetch` step
+   already did, or otherwise moves `HEAD`. With `syncBase` now excluded from
+   this path entirely, nothing between the gate acquisition and the
+   `RevParse` reads can move either ref out from under the comparison — the
+   values being compared are genuinely the state as of this turn's own gate
+   acquisition, with no self-inflicted mutation in between, which is exactly
+   what S-15 requires.
+
+4. **No second regression: `gate_test.go`'s actual allowlist data is
+   unchanged, and no other call site or test relies on `syncBase` having run
+   unconditionally.** Diffed `internal/turn/gate_test.go` directly
+   (`git diff`): the `gated` map's `"syncBase": {"prepareClone"}`,
+   `"WriteResolvedFiles"/"StageResolvedFiles"/"CompleteMerge": {"prepareClone"}`
+   entries, and the unchanged three-entry `sections` map, are all
+   byte-identical string values before and after — only the surrounding
+   `//` prose describing *why* `syncBase` is conditional and *where*
+   `WriteResolvedFiles` now sits relative to it (fourth step "in place of
+   syncBase" rather than fifth step "after syncBase") was edited. Grepped
+   every reference to `syncBase` across the repository
+   (`internal/turn/{prepare,apply,gate_test,report,conflict,errors,result,execute,sync_test,syncconcurrency_test,syncpersist_test}.go`,
+   `internal/store/{store_test,runs}.go`, `internal/config/config.go`): the
+   only production caller of `syncBase` in the entire tree is the one
+   `confirmed == nil` branch inside `prepareClone` itself; every test file
+   that exercises `syncBase`'s own outcomes (`sync_test.go`,
+   `syncconcurrency_test.go`, `syncpersist_test.go`) drives `prepare()` /
+   ordinary ("US-2 shape") turns exclusively and never constructs or passes
+   a `confirmedProposal`, so none of them depend on `syncBase` running
+   unconditionally for the confirmed-apply shape — there was nothing else in
+   the tree for this fix to break.
+
+   Separately confirmed `internal/turn/apply.go`'s diff against its
+   pre-fix-review state is doc-comment-only for this specific fix: the only
+   change attributable to CR-B-003 is the "fifth and last part" → "fourth
+   and last part... `syncBase` itself is skipped for this turn shape"
+   rewording in `ExecuteApplyResolution`'s own doc comment
+   (`apply.go:291-297`) and the matching paragraph in `ValidateConfirmation`'s
+   updated numeric-ownership doc comment, which was already reviewed and
+   verified correct in the prior (non-re-review) US-12 pass under CR-A-008 —
+   not a new change introduced by this fix.
+
+5. **Build/vet/format/race verification, re-run directly:**
+   - `go build ./...` — clean
+   - `go vet ./...` — clean
+   - `gofmt -l .` — no files listed
+   - `go test -race -count=1 ./internal/turn/... ./internal/git/... ./internal/daemon/...` — all three `ok`
+
+**Disposition:** Resolved. No new BLOCKING issue found in any of the four
+reviewed files. No regression to the ordinary (`confirmed == nil`) turn's
+behavior or to any of US-1 through US-11's previously-verified properties.
+
+---
+
+## New advisory finding (does not reopen CR-B-003 or block)
+
+### CR-A-013: two production doc comments now cite an internal review-finding ID (`CR-B-003`) that will outlive this document
+**File:** `internal/turn/apply.go:295` (`ExecuteApplyResolution` doc comment); `internal/turn/apply_test.go:375` (test failure message)
+**Story:** US-12 / T-12.6
+**Category:** Idiom / Style
+**Finding:** The fix threads the literal string `CR-B-003` into two places that ship as part of the binary/test suite rather than staying confined to this review document: `apply.go`'s doc comment ("`[syncBase]` itself is skipped for this turn shape (CR-B-003)") and the new test's `t.Errorf` message ("not even one syncBase made for itself before re-verifying (CR-B-003)"). `internal/turn/gate_test.go`'s updated comment does the same in a third place. A code-review finding ID is this session's artifact, not a stable, permanently-resolvable identifier the way an issue tracker ID or an AC number (`AC-12.5`, `S-15`) is elsewhere in this same codebase's convention — a future reader with no access to this `CODE_REVIEW.md` (or a later session that overwrites/archives it) will find a citation to nothing.
+**Suggestion:** No functional change needed. Consider rewording the two production/test-facing mentions to describe the invariant itself (e.g., "a confirmed-apply turn must never make its own auto-sync merge commit before this re-verification runs") rather than the finding ID, reserving `CR-B-003`-style citations for this document and closing commentary. Cosmetic; does not block.
+
+---
+
+## Verdict
+
+CLEAR — CR-B-003 is resolved, verified independently by reproducing both the
+failing (pre-fix) and passing (post-fix) test runs directly rather than
+trusting the engineer's report. One new cosmetic advisory (CR-A-013) noted;
+it does not block. No new BLOCKING finding. This closes out both of US-12's
+BLOCKING findings from this feature's review cycle (CR-B-002 was already
+resolved for US-11; CR-B-003 is now resolved for US-12). Proceeding to
+environment setup / next phase.

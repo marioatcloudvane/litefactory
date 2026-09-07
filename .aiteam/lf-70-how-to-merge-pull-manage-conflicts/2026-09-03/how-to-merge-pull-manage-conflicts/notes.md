@@ -864,3 +864,281 @@ Not entered — zero test failures reported by any phase (one BLOCKING code
 review finding was found and resolved within Phase 1.5's own re-review
 cycle, which is a distinct mechanism from the bug loop and does not count
 against its 2-cycle budget).
+
+---
+
+# Implementation Notes — US-12 (Apply a confirmed resolution and complete the merge)
+
+## Scope of this run
+
+This run resumed **US-12 only** — the final story (12 of 12) in this feature.
+US-1 through US-11 (already implemented, reviewed, and committed) were left
+untouched. Per explicit instruction, the run proceeded past `plan_brief.md`'s
+Phase 9 observation gate ("US-12 opens only after at least one real blocked
+run has produced a suggestion an owner has actually read") on the strength of
+an explicit, informed human waiver of that specific gate ("I accept the risk
+of shipping US-12"), reported to have been given in an earlier session on this
+same issue. That waiver was treated as covering the missing observation only
+— every one of US-12's own acceptance criteria, and in particular the
+confirmation gate (AC-12.1, S-12) and the "no bypass, in any form" rule, was
+held exactly as written, with no loosening.
+
+## A material discrepancy between this run's briefing and the actual worktree state
+
+The instructions handed to this run stated that a second US-12 attempt "was
+cut off by an API rate limit right after confirming the worktree was clean and
+before Phase 1 implementation actually began," that the worktree had been
+"independently re-confirmed... clean right now," and that "there is no
+partial code to resume from; this is effectively a fresh start on US-12."
+
+This was checked, not assumed, at the very start of this run — `git status
+--short` did show a clean tree, but `git log --oneline` and `git show --stat`
+on the tip commit (`8be7251`, message "You've hit your session limit," trailer
+`Litefactory-Run: 22`) showed that commit already contained roughly 2,300
+lines across 19 files implementing most of US-12: `internal/confirm/`
+(new package), `internal/git/worktree_apply.go` (+test), extensions to
+`internal/git/commit.go` and `surface_test.go`, `internal/report/link.go`
+(new) and `reply.go`, `internal/store/conflict_proposals.go` (+test),
+migration `0009_conflict_proposal_confirmation.sql`, and `internal/turn/apply.go`
+(+test) plus extensions to `command.go`/`conflict.go`/`errors.go`/
+`gate_test.go`/`prepare.go`. "Clean worktree" and "nothing was written" are
+not the same fact — the tree was clean because litefactory had already
+committed the interrupted run's work (consistent with "litefactory commits;
+nobody in here does"), not because the work didn't exist. The task briefing's
+"fresh start" framing was incorrect; this run treated the situation as a
+resume-and-verify, the same pattern already used successfully for US-2 and
+US-6/US-10 earlier in this feature, rather than either blindly trusting the
+briefing (which would have meant re-implementing over already-substantial
+work) or blindly trusting the pre-existing code (which would have meant
+shipping an unreviewed diff for the single riskiest story in the plan without
+verification).
+
+This is recorded here as a factual correction to the run's own briefing, not
+as a criticism of any prior session — API rate limits truncate sessions
+mid-flight by their nature, and litefactory's own "commit whatever's in the
+worktree when a run ends" behavior is exactly what the standing instructions
+say should happen.
+
+## What was verified, found broken, and fixed
+
+The implementation engineer read every pre-existing US-12 file in full (not
+skimmed) against the actual acceptance criteria and task table, rather than
+trusting that "builds clean and vets clean" meant "correct." Two real defects
+were found and fixed in this pass, plus one genuinely missing task:
+
+1. **Ownership-check direction bug** (`internal/turn/apply.go`,
+   `ValidateConfirmation`): the pre-existing code compared the confirming
+   comment's login against the *issue's own author* login, case-insensitively.
+   Given this daemon's admission filter dispatches only the single configured
+   owner identity by numeric ID (`Filter.Classify`/`OwnerUserID`, not
+   per-issue authorship — the same D-I/SEC-8 pattern already used at
+   `tick.go`'s `AssignedTo` call), this had the check backwards for the
+   ordinary case (an issue opened by someone other than the daemon's owner) —
+   it would have refused the legitimate owner's own confirmation, not
+   protected against a non-owner's. Fixed to compare `ownerUserID`/
+   `commenterUserID` numerically, matching the established pattern elsewhere
+   in this codebase. Independently re-traced and confirmed by the code
+   reviewer as a genuine fix, not a relocation of the bug.
+2. **Stale golden-text fixture** (`internal/report/testdata/reply_suggests_resolution.golden`):
+   a prior session's renderer change (appending the `/confirm <id> apply this
+   resolution` hint sentence to `ReplySuggestsResolution`, per its own doc
+   comment naming this a US-12 addition) was never accompanied by regenerating
+   the golden fixture, so `internal/report`'s test suite was failing on a
+   stale expectation, not a real defect. Regenerated via the package's own
+   `-update` test flag; the diff was confirmed to be exactly and only the one
+   added sentence.
+3. **T-12.5 (daemon dispatch) was entirely missing.** No `internal/daemon`
+   file relating to confirmation existed in the tip commit's diff at all —
+   grammar (`internal/confirm`), the git mutators, and the apply turn all
+   existed, but nothing wired a real GitHub comment into any of it. Without
+   this, AC-12.1 through AC-12.4 and AC-12.9 would not have been reachable in
+   production regardless of how correct the rest of the code was. Built
+   `internal/daemon/confirm.go` (TTL sweep first, parse, validate, dispatch,
+   refusal/outcome-to-reply mapping) plus wiring in `daemon.go` (new
+   `ConfirmApplier` interface, `Options.Confirmer`/`Options.ConflictProposalTTL`),
+   `executor.go` (`NewConfirmApplier`), `tick.go` (one new dispatch branch for
+   `KindConfirm`, placed before the generic "unsupported command" fallback —
+   confirmed this placement is load-bearing by testing the naive
+   placement-after would silently swallow every `/confirm` comment), and
+   `setup.go`. Modeled directly on the existing `handleProposalControl`/
+   `replySchedule` lifecycle shape, per the story's own architecture notes.
+4. Also found: `internal/turn/report.go`'s `ReplyRequest` had no
+   `ConfirmKind`/`Confirm` fields — `report.ReplyAppliesResolution` and its
+   seven refusal-kind siblings existed in `internal/report` but nothing in
+   `internal/turn` could ever actually produce one. Wired these in, using the
+   already-provided `report.ReplyKind.IsConfirmationReply()` closed-set check
+   whose doc comment had explicitly anticipated this wiring.
+5. Applied `errors.Join` in `internal/git/worktree_apply.go`'s
+   `checkResolvedFiles` to aggregate multiple independent path-containment
+   violations instead of failing on the first — following this codebase's
+   established aggregate-don't-fail-fast convention (already used by
+   `internal/repos.ValidateWorktreeRoots` for the same shape of
+   independent-per-item check) proactively, per this run's own instruction to
+   apply previously-flagged review patterns without waiting to be told again.
+
+## BLOCKING finding found and resolved during Phase 1.5
+
+- **CR-B-003** (was BLOCKING, now resolved): `internal/turn/prepare.go`'s
+  `prepareClone` called `syncBase` unconditionally, including on the
+  agentless confirm-apply turn, contradicting two doc comments in the same
+  diff that had already (incorrectly) asserted this was skipped. Consequence:
+  whenever the base branch had moved since a resolution was proposed, in a
+  way that happened to produce a clean merge-tree preview, the confirm-apply
+  turn would silently perform and commit an *extra, unconfirmed* auto-sync
+  merge before the confirmed-resolution's own commit — violating AC-12.5's
+  "exactly one merge commit" guarantee — and would read the S-15 TOCTOU
+  comparison SHAs *after* that self-inflicted side effect, so a genuinely
+  valid confirmation could be spuriously marked `superseded` by the turn's own
+  actions rather than by an actual race with something else. Fixed by gating
+  the `syncBase` call behind the same `confirmed == nil` branch that already
+  guards the rest of US-12's special-casing inside `prepareClone`; the
+  confirmed-apply turn now falls straight from `ensureWorktree` into the S-15
+  re-verification with no sync attempt in between. A new regression test,
+  `TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying`
+  (`internal/turn/apply_test.go`), was added and independently confirmed by
+  the code reviewer to fail against the pre-fix code (HEAD moved, carried an
+  extra merge commit) and pass against the fix. Re-review verdict: CLEAR — the
+  ordinary (`confirmed == nil`) path's behavior and step order were
+  independently diffed and confirmed byte-identical to before, and
+  `gate_test.go`'s actual allowlist data (not just its prose comments) was
+  confirmed unchanged.
+
+## Code Review Advisories
+
+- **CR-A-008** (non-blocking): the non-owner refusal path is correct but
+  currently unreachable through the live daemon pipeline, since the admission
+  filter already gates on the same owner ID before a comment is ever parsed.
+  Defense-in-depth, not a defect.
+- **CR-A-009** (non-blocking, testability): `internal/daemon/fixture_test.go`'s
+  `newDaemon(overrides)` helper originally had a static per-field allowlist
+  that did not merge `overrides.Confirmer`/`overrides.ConflictProposalTTL` —
+  closed in Phase 3 by additively extending the allowlist (see Testing,
+  below).
+- **CR-A-010** (non-blocking): the `errors.Join` usage in `checkResolvedFiles`
+  carries a comment rationale (interactive resubmission) that doesn't quite
+  match its actual single call site. Left as a wording nit, not a functional
+  issue.
+- **CR-A-011** (non-blocking, confirmed real, closed in Phase 3): `internal/report`'s
+  `everyReplyKind` enum-exhaustiveness test (`replykind_test.go`) had not been
+  extended to cover US-12's 8 new `ReplyKind` values, despite `plan_brief.md`'s
+  explicit cross-story constraint requiring it. Closed in Phase 3 (see
+  Testing, below).
+- **CR-A-012** (non-blocking): the lost-race path in `MarkConflictProposalApplied`/
+  `SupersedeConflictProposal` surfaces as a raw error rather than a graceful
+  outcome; currently unreachable given this daemon's one-worker-per-session
+  model. Left as-is.
+- **CR-A-013** (non-blocking, cosmetic): the CR-B-003 fix's doc comment, test
+  name, and `gate_test.go` prose all cite the internal review-finding ID
+  `CR-B-003` directly, which will become a dangling reference once this
+  session's review document is archived. Left as-is — a wording nit, not a
+  functional issue; the reviewer suggested describing the invariant instead of
+  the finding ID as a future polish item.
+
+No other BLOCKING findings. `go-code-reviewer`'s security-scanner pass
+(explicitly requested, standing in for Phase 7.5's "nearest available
+instrument" against this — the single riskiest story in the entire feature)
+independently verified, by hand-tracing rather than trusting the
+implementation engineer's report: the compile-time confirmation gate
+(AC-12.1/S-12: `confirmedProposal` has no exported fields or constructor, only
+`ValidateConfirmation` produces one, every call site traced), the corrected
+ownership check, S-13 path containment (`containedResolvedPath` rejects
+absolute/`..`/symlink-ancestor/symlink-leaf/unlisted paths, lives inside
+`*Worktree` itself), S-15's structural placement inside the gate, AC-12.6
+rollback (abort-then-reverify on every failure path, no `Reset` anywhere on
+`*Worktree`), S-16 trailers (proposal ID/confirmer/model, never
+`Co-authored-by:` for the model), and S-14 (non-owner confirmations never
+echo raw comment text, never move status off `pending`). See
+`CODE_REVIEW.md`'s newest dated sections (the original US-12 pass plus the
+CR-B-003 re-review) for the full record; all nine prior sections are
+unchanged.
+
+## Phase 9 observation gate — disposition
+
+Per the run's explicit authorization, this run proceeded past
+`plan_brief.md`'s Phase 9 gate ("at least one real blocked run has produced a
+suggestion an owner has actually read") on the strength of a reported explicit
+human waiver ("I accept the risk of shipping US-12") given earlier on this
+issue. This run did not itself obtain, re-confirm, or witness that waiver
+directly — it was relayed in the run's own instructions as a decision already
+made by the human owner on the issue thread. Recorded here for the record,
+not re-litigated: the waiver was treated as covering only the missing
+observation, and every acceptance criterion below was verified to hold in
+full, with no loosening of the confirmation gate or the no-bypass rule.
+
+## Phase 2 — Environment setup
+
+US-12 touches `internal/store` (SQLite via the existing embedded-migration
+convention, unit-tested per this codebase's established pattern), `internal/git`
+(shells out to a local git binary against worktree-local refs and clones in
+temp directories, tested via the existing `internal/gittest` real-git harness),
+and `internal/daemon`/`internal/turn`/`internal/report`/`internal/confirm`
+(in-memory grammar, dispatch, and rendering logic). No external HTTP call to
+another service and no message queue is introduced. Environment setup and the
+integration test suite were both skipped per the orchestrator's Phase 2 rule,
+consistent with every prior story in this feature.
+
+## Testing
+
+`go-unit-test-engineer` cross-checked all ten acceptance criteria
+(AC-12.1–AC-12.10) against tests already on disk from the three prior
+sessions plus this run's fix cycle. Most had solid existing coverage; several
+genuine gaps were closed without touching any production code:
+
+- CR-A-011's enum-exhaustiveness gap (`everyReplyKind` extended to cover all 8
+  new `ReplyKind` values).
+- The rendered-comment half of AC-12.2/12.3/12.4/12.5/12.6/12.9 — none of the
+  8 confirm `ReplyKind`s had any rendering test at all before this pass (only
+  production code referenced them); added `internal/report/confirm_reply_test.go`
+  (12 tests, including a new golden file) covering every kind's rendered text
+  and AC-12.5's "names the model, the confirmer, the files and the commit"
+  requirement.
+- `internal/turn/report.go`'s new `ReplyRequest.ConfirmKind`/`.validate()`
+  wiring (3 new tests: direct dispatch, rejection of a non-confirmation
+  `ConfirmKind`, mutual exclusion with `Refusal`/`ScheduleKind`).
+- CR-A-009's daemon dispatch layer (T-12.5) had zero tests before this pass;
+  the `newDaemon(overrides)` allowlist was additively extended
+  (`Confirmer`, `ConflictProposalTTL`) and `internal/daemon/confirm_test.go`
+  added (6 tests: invalid grammar, unknown proposal, TTL-sweep-induced expiry,
+  applied/failed/superseded outcome disclosure).
+- AC-12.7's "unlisted path" case, structurally unreachable through either
+  exported entry point — closed with a white-box (`package git`) internal test
+  directly exercising `containedResolvedPath`'s rejection branch.
+- AC-12.9's store-level race guard, previously only exercised indirectly
+  through turn-level fixtures — closed with 4 direct `internal/store` tests.
+- AC-12.10 ("two independently terminal runs, no held-open wait"), previously
+  only documented in comments — closed with a new test proving neither the
+  proposing turn nor the confirming turn ever allocates a `runs` row.
+
+No production code was modified during Phase 3 — no bug was found by the
+added scrutiny, only test/testdata gaps. One testability-only observation was
+noted but not acted on: `store.nowUTC()` (stamping `conflict_proposals.created_at`)
+is independent of the daemon's injectable tick clock, which had no production
+impact but required the new TTL-sweep test to advance the fixture clock far
+into the future rather than backdating a proposal directly.
+
+Final count: 497 test cases across the six touched packages, 0 failed;
+`go test -race -count=1 ./...` green across all 24 module packages.
+
+## Final gate (orchestrator-run, not delegated)
+
+`go build ./...`, `go vet ./...`, `gofmt -l .` (no output), and
+`go test -race -count=1 ./...` were all run directly by this orchestrator
+across the whole module (all 24 packages, including the new
+`internal/confirm` package) — both immediately after the implementation pass
+(as a pre-review gate check) and again as the final gate after Phase 3. Both
+runs are green: no build errors, no vet findings, no formatting issues, no
+race-detector findings, no test failures.
+
+## Bug loop
+
+Not entered — zero test failures reported by any phase. One BLOCKING code
+review finding (CR-B-003) was found and resolved within Phase 1.5's own
+re-review cycle, which is a distinct mechanism from the bug loop and does not
+count against its 2-cycle budget.
+
+## Story complete
+
+This closes the twelfth and final user story in this feature. All twelve
+stories (US-1 through US-12) are now implemented, reviewed (CLEAN or
+ADVISORY_ONLY, zero open BLOCKING findings), tested, and green under
+`go test -race -count=1 ./...` across the whole module.

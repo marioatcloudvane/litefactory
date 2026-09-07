@@ -208,16 +208,18 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"ensureWorktree": {"prepareClone"},
 		// syncBase runs inside the existing prepareClone gate, not a new
 		// section — TEST-10. It is the fourth step of that critical section,
-		// after ensureWorktree, and takes no acquisition of its own.
+		// after ensureWorktree, and takes no acquisition of its own — but
+		// only for an ordinary turn. It does not run at all when a confirmed
+		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
 		"syncBase": {"prepareClone"},
 		"Commit":   {"commitAndPush", "commitStoryIndex"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
-		// three new git.Worktree mutators. They run as prepareClone's fifth
-		// step, immediately after syncBase, only when a confirmed proposal is
-		// being applied — the same TEST-10 shape syncBase already has, and
-		// for the same reason: there is no claude run between ensureWorktree
-		// and this step for the agentless apply turn, so nothing needs the
-		// gate released and retaken.
+		// three new git.Worktree mutators. They run as prepareClone's fourth
+		// step, in place of syncBase (which this turn shape never calls),
+		// only when a confirmed proposal is being applied — the same TEST-10
+		// shape syncBase already has, and for the same reason: there is no
+		// claude run between ensureWorktree and this step for the agentless
+		// apply turn, so nothing needs the gate released and retaken.
 		"WriteResolvedFiles": {"prepareClone"},
 		"StageResolvedFiles": {"prepareClone"},
 		"CompleteMerge":      {"prepareClone"},

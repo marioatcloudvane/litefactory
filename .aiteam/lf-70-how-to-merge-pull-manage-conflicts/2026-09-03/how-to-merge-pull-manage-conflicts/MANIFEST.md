@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(in progress — US-1, US-2, US-3, US-4, US-5, US-6, US-7, US-8, US-9, US-10, US-11 of 12 stories delivered)*
+- [x] **Implement** — code + tests *(done — all 12 of 12 stories delivered: US-1 through US-12)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -540,5 +540,59 @@ asked for; nothing here licenses starting the next one.
   suggestion an owner has actually read" — which cannot be satisfied while
   `suggest_conflict_resolution` ships disabled by default; needs its own
   comment once that gate has genuinely opened.
+- 2026-09-07 — Implement mode run (resumed US-12, the final story, per
+  explicit instruction "Resume us-12" and a reported explicit human waiver of
+  the Phase 9 observation gate specifically, "I accept the risk of shipping
+  US-12" — the waiver was held to cover only the missing observation, not any
+  loosening of US-12's own acceptance criteria, and every AC was verified to
+  hold in full). This run's own briefing claimed a prior rate-limited attempt
+  had written nothing to disk and that this was "effectively a fresh start" —
+  checked, not assumed, and found materially wrong: `git log`/`git show
+  --stat` showed the tip commit (`8be7251`) already contained ~2,300 lines
+  across 19 files implementing most of US-12 (confirmation grammar in a new
+  `internal/confirm` package, `*Worktree` mutators in
+  `internal/git/worktree_apply.go`, the agentless apply turn in
+  `internal/turn/apply.go`, report/store extensions, migration
+  `0009_conflict_proposal_confirmation.sql`) — a clean `git status` meant
+  litefactory had already committed the interrupted run's work, not that the
+  work didn't exist. Corrected and recorded in `notes.md`; this run proceeded
+  as a resume-and-verify (the same pattern already used for US-2 and
+  US-6/US-10), not a rewrite. Verification found and fixed two real defects
+  (a security-relevant ownership-check direction bug in
+  `ValidateConfirmation` — it compared the confirming commenter's login
+  against the issue's own author instead of the daemon's single numeric owner
+  ID, backwards for the ordinary case; and a stale golden-text fixture in
+  `internal/report/testdata/`) and one genuinely missing task, T-12.5 (daemon
+  dispatch), built in full this run as `internal/daemon/confirm.go` plus
+  wiring, modeled on `internal/daemon/proposals.go`'s existing lifecycle
+  shape. `go-code-reviewer`'s pass (with an explicit security-scanner
+  instruction, standing in for Phase 7.5 against the single riskiest story in
+  the feature) found one BLOCKING finding, CR-B-003 (`prepareClone` called
+  `syncBase` unconditionally even on the confirmed-apply turn, risking an
+  extra unconfirmed merge commit and a spurious `superseded` result via S-15's
+  TOCTOU check) — fixed by gating the call behind the same `confirmed == nil`
+  branch already used elsewhere in the same function, with a new regression
+  test confirmed to fail pre-fix and pass post-fix; re-review verdict CLEAR,
+  five non-blocking advisories remain (CR-A-008 through CR-A-013). `go-unit-
+  test-engineer` cross-checked all ten ACs, closed several genuine coverage
+  gaps (rendered-comment assertions for all 8 new `ReplyKind` values, the
+  enum-exhaustiveness test, T-12.5's dispatch layer, AC-12.7's "unlisted path"
+  case, AC-12.9's store-level race guard, AC-12.10's terminal-run guarantee)
+  with zero production-code changes — 497 test cases, 0 failed. Phase 2
+  environment setup skipped, consistent with every prior story — no external
+  HTTP call or message queue is introduced. `go build ./...`, `go vet ./...`,
+  `gofmt -l .` clean; `go test -race -count=1 ./...` green across all 24
+  packages, re-verified directly by the orchestrator both before code review
+  and as the final gate. No bug loop needed — the one BLOCKING finding was
+  resolved within Phase 1.5's own re-review cycle. `DRIFT_REPORT.md` gained a
+  twelfth dated section (US-12), verdict CLEAN. No `APP_CONTEXT.md`/
+  `APP_CONSTRAINTS.md` update was made, per the retirement of that step. This
+  closes the feature: all twelve user stories (US-1 through US-12) are now
+  implemented, reviewed (CLEAN or ADVISORY_ONLY, zero open BLOCKING findings
+  anywhere), tested, and green. The one deliberately open item is the
+  human-approval half of Phase 7.5/Phase 9 (flipping
+  `suggest_conflict_resolution`'s default and formally recording the security
+  sign-off), which remains a decision only a human can make on the issue
+  thread — not performable by any headless run.
 
 ## Notes

@@ -369,16 +369,25 @@ func conflictSetMismatch(unmerged map[string]struct{}, files []ResolvedFile) err
 // before any of it reaches git or the filesystem: at least one entry, and
 // every path passes [checkName] the same way every other caller-supplied
 // name in this package does.
+//
+// Every entry is checked, and every problem found is reported: one malformed
+// path among several says nothing about the others, so this collects one
+// error per bad entry with errors.Join rather than stopping at the first —
+// the same aggregate-don't-fail-fast shape [repos.ValidateWorktreeRoots]
+// already applies to its own independent, per-item checks. A caller fixing a
+// confirmed file list one comment at a time would otherwise see only the
+// first problem and have to resubmit to find the second.
 func checkResolvedFiles(files []ResolvedFile) error {
 	if len(files) == 0 {
 		return fmt.Errorf("resolved files: %w: at least one file is required", ErrInvalidArgument)
 	}
+	var errs []error
 	for i, f := range files {
 		if err := checkName(fmt.Sprintf("resolved file %d path", i), f.Path); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // resolvedPaths projects files down to their paths, in order, for building an

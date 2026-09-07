@@ -16,8 +16,13 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// testOwnerLogin is [fixture.request]'s Issue.Author: the "issue owner" a
-// confirmation must match (US-12).
+// testOwnerLogin is the confirming handle every happy-path test in this file
+// passes to [ValidateConfirmation] and expects back on
+// [store.ConflictProposal.ConfirmedBy] and the commit trailer (US-12). It
+// carries no authorization weight — see [ValidateConfirmation]'s own doc
+// comment — so these tests separately pass [ownerUserID] (reused from
+// classify_test.go) as both the owner and commenter id for the happy path,
+// and [strangerUserID] as the commenter id for the refusal case.
 const testOwnerLogin = "octo-reporter"
 
 // blockedProposal drives one real blocked-merge run with suggestions
@@ -85,7 +90,7 @@ func TestApplyConfirmedResolutionHappyPath(t *testing.T) {
 
 	f, dir, proposal := blockedProposal(t)
 
-	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil || refusal != ConfirmationOK {
 		t.Fatalf("ValidateConfirmation = (refusal=%s, err=%v), want ConfirmationOK", refusal, err)
 	}
@@ -145,15 +150,15 @@ func TestApplyConfirmedResolutionHappyPath(t *testing.T) {
 }
 
 // TestApplyConfirmedResolutionRefusesNonOwner is AC-12.2: a confirmation
-// from a non-owning login is refused, writes nothing, and leaves the
-// proposal pending.
+// from a commenter whose numeric id does not match the configured owner id
+// is refused, writes nothing, and leaves the proposal pending.
 func TestApplyConfirmedResolutionRefusesNonOwner(t *testing.T) {
 	t.Parallel()
 
 	f, dir, proposal := blockedProposal(t)
 	before := f.repo.GitIn(dir, "rev-parse", "HEAD")
 
-	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, "someone-else")
+	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, strangerUserID, "someone-else")
 	if err != nil {
 		t.Fatalf("ValidateConfirmation error = %v", err)
 	}
@@ -177,7 +182,7 @@ func TestApplyConfirmedResolutionRefusesUnknownProposal(t *testing.T) {
 
 	f, _, _ := blockedProposal(t)
 
-	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, 9999999, testOwnerLogin, testOwnerLogin)
+	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, 9999999, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil {
 		t.Fatalf("ValidateConfirmation error = %v", err)
 	}
@@ -195,7 +200,7 @@ func TestApplyConfirmedResolutionRefusesCrossSessionProposal(t *testing.T) {
 
 	f, _, proposal := blockedProposal(t)
 
-	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID+1, proposal.ID, testOwnerLogin, testOwnerLogin)
+	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID+1, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil {
 		t.Fatalf("ValidateConfirmation error = %v", err)
 	}
@@ -216,7 +221,7 @@ func TestApplyConfirmedResolutionRefusesExpiredProposal(t *testing.T) {
 		t.Fatalf("ExpireConflictProposals: %v", err)
 	}
 
-	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	_, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil {
 		t.Fatalf("ValidateConfirmation error = %v", err)
 	}
@@ -233,7 +238,7 @@ func TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal(t *testing.T) {
 
 	f, dir, proposal := blockedProposal(t)
 
-	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil || refusal != ConfirmationOK {
 		t.Fatalf("first ValidateConfirmation = (%s, %v), want ConfirmationOK", refusal, err)
 	}
@@ -245,7 +250,7 @@ func TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal(t *testing.T) {
 	}
 	headAfterFirst := f.repo.GitIn(dir, "rev-parse", "HEAD")
 
-	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil {
 		t.Fatalf("second ValidateConfirmation error = %v", err)
 	}
@@ -254,6 +259,47 @@ func TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal(t *testing.T) {
 	}
 	if head := f.repo.GitIn(dir, "rev-parse", "HEAD"); head != headAfterFirst {
 		t.Errorf("HEAD moved from %s to %s: a second commit was made", headAfterFirst, head)
+	}
+}
+
+// TestApplyConfirmedResolutionAllocatesNoRunsRow is AC-12.10, made concrete:
+// propose and apply are two independently terminal runs rather than one
+// held open waiting for a confirmation, which this checks the one way it is
+// actually observable — [ExecuteApplyResolution] calls [prepareClone]
+// directly rather than through [prepare], so it never reaches
+// [allocateRun]. The blocked run that produced the proposal in the first
+// place already stopped before allocating one too (AC-4.1, prepare.go), so
+// no runs row exists for this session at any point across the whole
+// propose-then-confirm lifecycle.
+func TestApplyConfirmedResolutionAllocatesNoRunsRow(t *testing.T) {
+	t.Parallel()
+
+	f, _, proposal := blockedProposal(t)
+	before, err := f.db.ListRuns(t.Context(), f.session.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after the blocked proposal run: %v", err)
+	}
+	if len(before) != 0 {
+		t.Fatalf("runs after the blocked proposal run = %d, want 0: a blocked sync preview must not allocate one", len(before))
+	}
+
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
+	if err != nil || refusal != ConfirmationOK {
+		t.Fatalf("ValidateConfirmation = (%s, %v), want ConfirmationOK", refusal, err)
+	}
+	result, err := ExecuteApplyResolution(t.Context(), f.opts, ApplyRequest{
+		SessionID: f.session.ID, ConfirmedCommentID: 99001, Proposal: confirmed,
+	})
+	if err != nil || result.Outcome != ApplyOutcomeApplied {
+		t.Fatalf("ExecuteApplyResolution = (%+v, %v), want applied", result, err)
+	}
+
+	after, err := f.db.ListRuns(t.Context(), f.session.ID)
+	if err != nil {
+		t.Fatalf("ListRuns after applying the confirmed resolution: %v", err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("runs after applying a confirmed resolution = %d, want 0: the apply turn is agentless and allocates no run of its own", len(after))
 	}
 }
 
@@ -277,7 +323,7 @@ func TestApplyConfirmedResolutionSupersedesOnStaleBase(t *testing.T) {
 	f.repo.Git("commit", "--quiet", "--message", "advance the base further")
 	f.repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
 
-	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil || refusal != ConfirmationOK {
 		t.Fatalf("ValidateConfirmation = (%s, %v), want ConfirmationOK: the base moving does not change the proposal's own status", refusal, err)
 	}
@@ -299,12 +345,78 @@ func TestApplyConfirmedResolutionSupersedesOnStaleBase(t *testing.T) {
 	}
 
 	// A second confirmation attempt now finds the proposal decided.
-	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil {
 		t.Fatalf("ValidateConfirmation after supersede error = %v", err)
 	}
 	if refusal != ConfirmationSuperseded {
 		t.Fatalf("refusal after supersede = %s, want ConfirmationSuperseded", refusal)
+	}
+}
+
+// TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying is CR-B-003's
+// regression: [prepareClone] must never call [syncBase] for a confirmed
+// apply turn (US-12).
+//
+// Proving this by outcome alone is impossible whenever the stored
+// base/branch shas still match reality at confirm time: in that case
+// syncBase — even called unconditionally — could only ever rediscover the
+// same still-blocked merge the proposal was itself computed from (nothing
+// moved, so nothing about the preview's clean/blocked verdict could have
+// changed), which is exactly the unremarkable case
+// TestApplyConfirmedResolutionHappyPath already exercises with auto-sync
+// enabled. The bug is only observable once the base has moved into a
+// now-cleanly-mergeable state, and that is also a real base/branch sha
+// mismatch S-15's own re-verification would supersede on its own merits —
+// so this cannot prove the ordering bug by outcome (Superseded) either.
+// What it can prove, and does, is the side effect: the pre-fix ordering ran
+// syncBase before that re-verification, found the newly-clean merge, and
+// actually performed and committed it — leaving an extra, unpushed merge
+// commit on the local branch despite the run going on to apply nothing.
+// After the fix, syncBase never runs for this turn shape, so the branch is
+// left exactly as [ensureWorktree] found it, whatever the outcome.
+func TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying(t *testing.T) {
+	t.Parallel()
+
+	f, dir, proposal := blockedProposal(t)
+	before := f.repo.GitIn(dir, "rev-parse", "HEAD")
+
+	// Move the base past what the proposal recorded, in a way that resolves
+	// the original conflict rather than deepening it: reverting README.md
+	// back to the pre-divergence content leaves base's latest tip with no
+	// diff from the merge-base on that file, so a fresh merge-tree preview
+	// of base into the (unchanged) branch is now clean — precisely the
+	// "clean merge-tree preview" CR-B-003 describes.
+	if err := os.WriteFile(filepath.Join(f.repo.Dir, "README.md"), []byte("# fixture\n"), 0o600); err != nil {
+		t.Fatalf("revert base README.md: %v", err)
+	}
+	f.repo.Git("add", "--all")
+	f.repo.Git("commit", "--quiet", "--message", "base reverts its own conflicting edit")
+	f.repo.Git("push", "--quiet", "origin", gittest.DefaultBranch)
+
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
+	if err != nil || refusal != ConfirmationOK {
+		t.Fatalf("ValidateConfirmation = (%s, %v), want ConfirmationOK: the base moving does not change the proposal's own status", refusal, err)
+	}
+
+	result, err := ExecuteApplyResolution(t.Context(), f.opts, ApplyRequest{
+		SessionID: f.session.ID, ConfirmedCommentID: 99002, Proposal: confirmed,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteApplyResolution: %v\nlogs:\n%s", err, f.logs)
+	}
+	if result.Outcome != ApplyOutcomeSuperseded {
+		t.Fatalf("Outcome = %s (reason %q), want superseded: the base genuinely moved past what the proposal recorded\nlogs:\n%s",
+			result.Outcome, result.Reason, f.logs)
+	}
+
+	after := f.repo.GitIn(dir, "rev-parse", "HEAD")
+	if after != before {
+		t.Errorf("HEAD moved from %s to %s: a superseded confirmation must never leave a commit behind, "+
+			"not even one syncBase made for itself before re-verifying (CR-B-003)", before, after)
+	}
+	if parents := strings.Fields(f.repo.GitIn(dir, "log", "-1", "--pretty=%P", after)); len(parents) != 1 {
+		t.Errorf("HEAD has %d parents, want exactly one: no merge commit of any kind — sync or confirmed — was ever made", len(parents))
 	}
 }
 
@@ -331,7 +443,7 @@ func TestApplyConfirmedResolutionRollsBackOnMutatorFailure(t *testing.T) {
 		t.Fatalf("write left-behind.txt: %v", err)
 	}
 
-	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	confirmed, refusal, err := ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil || refusal != ConfirmationOK {
 		t.Fatalf("ValidateConfirmation = (%s, %v), want ConfirmationOK", refusal, err)
 	}
@@ -361,7 +473,7 @@ func TestApplyConfirmedResolutionRollsBackOnMutatorFailure(t *testing.T) {
 
 	// A fresh confirmation of the same proposal is not refused as
 	// already-decided: pending means retryable in a later run (AC-12.10).
-	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, testOwnerLogin, testOwnerLogin)
+	_, refusal, err = ValidateConfirmation(t.Context(), f.db, f.session.ID, proposal.ID, ownerUserID, ownerUserID, testOwnerLogin)
 	if err != nil || refusal != ConfirmationOK {
 		t.Fatalf("ValidateConfirmation after a failed application = (%s, %v), want ConfirmationOK", refusal, err)
 	}
