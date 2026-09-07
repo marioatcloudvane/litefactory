@@ -57,7 +57,7 @@ func envNames(env []string) []string {
 }
 
 func TestBuildEnvPassesOnlyTheAllowlist(t *testing.T) {
-	env := buildEnv(daemonEnviron(), false)
+	env := buildEnv(daemonEnviron(), false, "")
 
 	want := []string{
 		"PATH=/opt/homebrew/bin:/usr/bin:/bin",
@@ -78,14 +78,14 @@ func TestBuildEnvPassesOnlyTheAllowlist(t *testing.T) {
 // USER is not decoration. Without it claude's macOS Keychain lookup silently
 // fails and the run dies "Not logged in", exit 1 (SD-4). The spike measured it.
 func TestBuildEnvAlwaysCarriesUSER(t *testing.T) {
-	env := buildEnv(daemonEnviron(), false)
+	env := buildEnv(daemonEnviron(), false, "")
 	if !slices.Contains(env, "USER=tester") {
 		t.Fatalf("USER missing from child environment %q; Keychain auth will fail", env)
 	}
 }
 
 func TestBuildEnvForcesForegroundSubagents(t *testing.T) {
-	env := buildEnv(daemonEnviron(), false)
+	env := buildEnv(daemonEnviron(), false, "")
 	if !slices.Contains(env, DisableBackgroundTasksEnv+"=1") {
 		t.Fatalf("foreground-subagent policy missing from child environment %q", env)
 	}
@@ -95,7 +95,7 @@ func TestBuildEnvForcesForegroundSubagents(t *testing.T) {
 }
 
 func TestBuildEnvExcludesSecretsAndLitefactoryVariables(t *testing.T) {
-	env := buildEnv(daemonEnviron(), false)
+	env := buildEnv(daemonEnviron(), false, "")
 
 	for _, name := range envNames(env) {
 		if IsSecretEnvName(name) {
@@ -131,14 +131,14 @@ func TestBuildEnvExcludesSecretsAndLitefactoryVariables(t *testing.T) {
 // ANTHROPIC_*" and also stripped every name matching KEY, which ANTHROPIC_API_KEY
 // does. The carve-out has to be explicit, and it has to be off by default.
 func TestBuildEnvAnthropicForwardingIsOptIn(t *testing.T) {
-	off := buildEnv(daemonEnviron(), false)
+	off := buildEnv(daemonEnviron(), false, "")
 	for _, name := range envNames(off) {
 		if strings.HasPrefix(name, AnthropicEnvPrefix) {
 			t.Fatalf("%s forwarded without opting in", name)
 		}
 	}
 
-	on := buildEnv(daemonEnviron(), true)
+	on := buildEnv(daemonEnviron(), true, "")
 	names := envNames(on)
 	if !slices.Contains(names, "ANTHROPIC_API_KEY") {
 		t.Errorf("ANTHROPIC_API_KEY not forwarded when opted in; the KEY strip is cancelling the carve-out")
@@ -159,16 +159,16 @@ func TestBuildEnvAnthropicForwardingIsOptIn(t *testing.T) {
 
 func TestBuildEnvAnthropicForwardingIsOrdered(t *testing.T) {
 	parent := []string{"PATH=/bin", "ANTHROPIC_MODEL=x", "ANTHROPIC_API_KEY=y", "ANTHROPIC_BASE_URL=z"}
-	first := buildEnv(parent, true)
+	first := buildEnv(parent, true, "")
 	for range 20 {
-		if got := buildEnv(parent, true); !slices.Equal(got, first) {
+		if got := buildEnv(parent, true, ""); !slices.Equal(got, first) {
 			t.Fatalf("environment is not deterministic across map iterations:\n got %q\nfirst %q", got, first)
 		}
 	}
 }
 
 func TestBuildEnvDropsEmptyValues(t *testing.T) {
-	env := buildEnv([]string{"PATH=/bin", "HOME=", "USER=tester", "TMPDIR="}, false)
+	env := buildEnv([]string{"PATH=/bin", "HOME=", "USER=tester", "TMPDIR="}, false, "")
 	want := []string{"PATH=/bin", "USER=tester", DisableBackgroundTasksEnv + "=1"}
 	if !slices.Equal(env, want) {
 		t.Fatalf("empty values not dropped\n got %q\nwant %q", env, want)
@@ -179,14 +179,14 @@ func TestBuildEnvDropsEmptyValues(t *testing.T) {
 // leave the child unable to find node or git at all, so the fallback is
 // launchd's own PATH rather than nothing.
 func TestBuildEnvFallsBackToLaunchdPATH(t *testing.T) {
-	env := buildEnv([]string{"HOME=/Users/tester"}, false)
+	env := buildEnv([]string{"HOME=/Users/tester"}, false, "")
 	if !slices.Contains(env, "PATH="+fallbackPATH) {
 		t.Fatalf("PATH fallback missing from %q", env)
 	}
 }
 
 func TestBuildEnvIgnoresMalformedEntries(t *testing.T) {
-	env := buildEnv([]string{"PATH=/bin", "not-an-assignment", "=novalue", "USER=tester"}, false)
+	env := buildEnv([]string{"PATH=/bin", "not-an-assignment", "=novalue", "USER=tester"}, false, "")
 	want := []string{"PATH=/bin", "USER=tester", DisableBackgroundTasksEnv + "=1"}
 	if !slices.Equal(env, want) {
 		t.Fatalf("malformed entries not ignored\n got %q\nwant %q", env, want)

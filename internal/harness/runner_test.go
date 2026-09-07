@@ -428,12 +428,22 @@ func TestRunChildEnvironmentCarriesNoSecrets(t *testing.T) {
 			t.Errorf("litefactory variable %q reached claude", name)
 		}
 		switch name {
-		case "GITHUB_TOKEN", "GH_TOKEN", "SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR":
+		case "GITHUB_TOKEN", "GH_TOKEN", "SSH_AUTH_SOCK":
 			t.Errorf("%s reached claude", name)
 		}
 	}
 	if strings.Contains(dump, "leakcanary") {
 		t.Error("a credential value appears in the child environment")
+	}
+	// CLAUDE_CONFIG_DIR is the one variable litefactory sets rather than
+	// forwards (SD-4 as amended). The operator's own value must still not
+	// survive: what the child gets is litefactory's directory, not theirs.
+	wantConfigDir := ClaudeConfigDirEnv + "=" + config.NewPaths(f.home).ClaudeConfigDir()
+	if !strings.Contains(dump, wantConfigDir) {
+		t.Errorf("child environment is missing %q:\n%s", wantConfigDir, dump)
+	}
+	if strings.Contains(dump, ClaudeConfigDirEnv+"=/Users/tester/.claude") {
+		t.Error("the operator's own CLAUDE_CONFIG_DIR reached claude")
 	}
 	// USER is required: without it claude's Keychain auth fails "Not logged in".
 	if !strings.Contains(dump, "USER=lf-test-user") {
