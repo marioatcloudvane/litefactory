@@ -76,6 +76,12 @@ var (
 	// ErrMarkerNotFound reports that RemoveMarkerSection was asked to
 	// remove a marker span that is not present in the root file.
 	ErrMarkerNotFound = errors.New("marker section not found")
+
+	// ErrOverridePath reports that a path given to SetOverride cannot be
+	// recorded as an agent source override — it is not a repo-relative,
+	// forward-slash path to an existing regular markdown file inside the
+	// target repo. SetOverride records no override when this occurs.
+	ErrOverridePath = errors.New("invalid agent source override path")
 )
 
 // UnknownFieldError reports one JSON key that has no place in the index
@@ -224,3 +230,19 @@ func (e *MarkerNotFoundError) Error() string {
 }
 
 func (e *MarkerNotFoundError) Unwrap() error { return ErrMarkerNotFound }
+
+// OverridePathError reports why a path given to SetOverride for AgentKey was
+// refused. Reason is a short, human-readable description (for example "file
+// does not exist" or "must be a markdown (.md) file"); Path is exactly what
+// the caller passed in, unmodified.
+type OverridePathError struct {
+	AgentKey string
+	Path     string
+	Reason   string
+}
+
+func (e *OverridePathError) Error() string {
+	return fmt.Sprintf("agent %q: override path %q: %s", e.AgentKey, e.Path, e.Reason)
+}
+
+func (e *OverridePathError) Unwrap() error { return ErrOverridePath }

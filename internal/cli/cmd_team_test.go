@@ -245,3 +245,43 @@ func TestTeamAddSuccess(t *testing.T) {
 		t.Errorf("HasLockfile = false, want true after a successful add")
 	}
 }
+
+// TestTeamAddSuccess_ActiveOverride_SubstitutesLocalFile covers AC-1: an
+// active override recorded for an agent key is honored by `team add` itself
+// (not merely by teamsource.RenderTeam in isolation) -- the installed file's
+// bytes come from the override's local file, not from the team index's
+// source, for that key.
+func TestTeamAddSuccess_ActiveOverride_SubstitutesLocalFile(t *testing.T) {
+	const teamName = "reviewers"
+	const agentKey = "reviewer"
+
+	fixtureDir := newTeamIndexFixture(t, teamName, agentKey)
+	newTeamHome(t, fixtureDir)
+	repo := gittest.New(t)
+	writeManageOverrideSource(t, repo.Dir, "local/reviewer.md")
+	if err := team.SetOverride(repo.Dir, agentKey, "local/reviewer.md"); err != nil {
+		t.Fatalf("SetOverride: %v", err)
+	}
+
+	router, _, stderr := newTestRouter(t)
+	code := router.Run(t.Context(), []string{
+		"team", "add", teamName,
+		"--repo", repo.Dir,
+		"--harness", "claude",
+	})
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
+	}
+
+	agentFile := filepath.Join(repo.Dir, ".claude", "agents", agentKey+".md")
+	body, err := os.ReadFile(agentFile)
+	if err != nil {
+		t.Fatalf("read rendered agent file: %v", err)
+	}
+	if !strings.Contains(string(body), "Patched body.") {
+		t.Errorf("rendered agent file = %q, want it to contain the override's body", body)
+	}
+	if strings.Contains(string(body), "Review the code.") {
+		t.Errorf("rendered agent file = %q, want it NOT to contain the team index's original body", body)
+	}
+}

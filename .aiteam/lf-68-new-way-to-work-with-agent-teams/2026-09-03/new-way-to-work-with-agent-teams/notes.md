@@ -544,3 +544,153 @@ re-verification, not taken on the engineer's report alone. Full findings in
 
 Neither this finding nor any other blocks correctness or this run's
 acceptance criteria.
+
+## 2026-09-07 — Implement run (this run): US-13 (`team manage` per-repo agent source override)
+
+**Scope** (per sponsor's issue #68 comment): US-13 only, exactly as scoped in
+`US-13.md`. Explicitly out of bounds this run: US-14, US-15, US-16, US-17, and
+any extension of `team manage` beyond what US-13 itself specifies. Base state
+respected as given: US-11 (`team update`, single-worktree) landed and
+committed at `7dae487`; `main` already merged at `9530f3b` (not re-merged).
+This scoping is deliberate per the sponsor's own framing — three prior runs on
+this issue that bundled multiple stories together either blew past 3 hours or
+died on a usage limit; one story per run is what actually completes.
+
+**Environment note (this run only)**: `TodoWrite` was unavailable in this
+session — every invocation (both direct and inside subagents) returned "No
+such tool available: TodoWrite. TodoWrite is disabled for this session, in
+subagents as well as here." This is an environment-level constraint, not a
+choice; progress was tracked via this notes file and sequential execution
+instead of the formal tool the orchestrator role otherwise calls for.
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out). Delivered:
+- New `internal/team/overrides.go` (T-35): `.litefactory/team.overrides.json`
+  schema (`{agentKey: source}`), strict two-phase decode (`decodeOverrides`,
+  reusing US-1's generic-walk + `joinSorted` aggregation pattern from
+  `decode.go` — the errors.Join-never-fail-fast convention, raised BLOCKING
+  three times previously on this issue, was applied correctly from the start
+  this run), load/save, `validateOverrideSource` (exists, is markdown, resolves
+  inside the repo root, no symlink), and `SetOverride`/`UnsetOverride`/
+  `ActiveOverride`/`ReadOverrideSource`.
+- New `internal/team/overrides_test.go` (T-38): happy-path set/replace/unset/
+  idempotent-unset, `ReadOverrideSource` with/without an active override,
+  AC-4's five precondition-failure modes (missing file, non-markdown, empty
+  path, absolute path, path escaping repo root) each confirmed to record no
+  override, symlink refusal, invalid-agent-key rejection, and
+  `decodeOverrides`' error-aggregation behavior.
+- New `internal/cli/cmd_team_manage_test.go` (T-38): CLI-level tests through
+  the router — set→show round trip (AC-1), set→unset→show (AC-2),
+  nonexistent-path/non-markdown-path set both failing `ExitPrecondition`
+  (AC-4), invalid agent key failing `ExitUsage`.
+- Modified `internal/cli/cmd_team.go` (T-36): `newTeamManageCommand`/
+  `runTeamManage`/`teamManageError` replacing the existing US-4 stub. Engineer's
+  own self-caught, in-scope fix: the stub's `Usage` string
+  (`"team manage <agent-key> set source=<path> | unset | show [--repo path]"`)
+  did not literally contain `<action>`/`<source>` tokens required by the
+  whole-module invariant test `TestCommandsAreWellFormed`
+  (`internal/cli/router_test.go`, every `ArgSpec.Names` entry must appear
+  literally in `Usage`) — only surfaced by a full `go test ./...` run, not a
+  scoped one. Reworded to `"team manage <agent-key> <action> [<source>]
+  [--repo path]  (set source=<path> | unset | show)"`. Reported transparently
+  as a decision made, not hidden.
+- Modified `internal/team/errors.go` (T-35): `ErrOverridePath` sentinel +
+  `OverridePathError` typed error.
+- Modified `internal/teamsource/render.go` (T-37): `readAgentSource`
+  override-substitution call site used by both `RenderTeam` and
+  `RenderCurrent` — substitution happens upstream of hashing/rendering, so
+  `team.Classify` (US-10) needed no change, satisfying AC-3's "no special-cased
+  behavior" requirement structurally.
+- Modified `internal/teamsource/render_test.go` (T-38): `writeLocalOverrideFile`
+  helper plus `TestRenderTeam_ActiveOverride_SubstitutesLocalFile`,
+  `TestRenderCurrent_NoOverride_RendersFromFS` (baseline; `RenderCurrent` had
+  no prior coverage), `TestRenderCurrent_ActiveOverride_SubstitutesLocalFile`.
+
+Engineer's own report: `gofmt -l .`, `go vet ./...`, `go build ./...`,
+`go test ./...` all clean across the whole module.
+
+**Engineer's own note on a non-issue**: a system reminder indicated a
+background agent "Implement US-13" was reported running concurrently; the
+engineer confirmed via `git status`/`git diff --stat` that only its own edited
+files had changed, with no unexplained third-party changes, and proceeded
+without escalating.
+
+**Phase 1.5 — Code Review.** Single pass, verdict **ADVISORY_ONLY**, no
+BLOCKING findings. The recurring errors.Join/fail-fast finding (BLOCKING three
+times previously on this issue) was checked specifically and carefully in
+`decodeOverrides` and confirmed correct — reuses the established two-phase
+generic-walk + `joinSorted` pattern, collecting every fault rather than
+stopping at the first; `validateOverrideSource`'s sequential checks operate on
+a single scalar path (not a loop over a collection), a distinct case from the
+aggregation rule. Also independently confirmed: dependency direction intact
+(`cmd_team.go`'s new code is a thin wrapper, no rendering/hashing/source
+resolution in `internal/cli`); `PreconditionError` constructed only in
+`internal/cli`, never inside `internal/team`; no new cross-package import in
+`internal/team` (stdlib only); symlink refusal on both override-write-validate
+and override-read paths; `0o666`-with-umask via the shared atomic-write
+helper; `SetOverride`/`UnsetOverride` reuse the existing per-repo `flock`, no
+new concurrency; every `RenderedFile.Bytes` passes through
+`config.ClassifySecret` regardless of override-vs-index origin (`Add` has no
+visibility into which files came from an override, so no exemption path
+exists); AC-3 holds structurally (substitution upstream of hashing, `Classify`
+unmodified); the override mechanism's action switch (`set`/`unset`/`show`,
+else `Usagef`) stays closed, no arbitrary-key acceptance; no `context.Context`
+added to any renderer signature; command registration and the `Usage` string
+fix satisfy `TestCommandsAreWellFormed`. Full findings in
+`$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (this run, carried forward, non-blocking)
+
+- **CR-A-001** (new): `validateOverrideSource` in `internal/team/overrides.go`
+  has a dead/unreachable `filepath.IsAbs(clean)` check, since an earlier check
+  already rejects any absolute `localPath` and `filepath.Clean` cannot turn a
+  relative path into an absolute one. No behavioral impact; suggested to drop
+  or comment as intentional defense-in-depth.
+- Noted, not a new finding: symlink refusals from `SetOverride`/
+  `ReadOverrideSource` map to a plain error (exit 1) rather than
+  `PreconditionError` (exit 3) in `teamManageError` — confirmed consistent
+  with how the rest of `cmd_team.go` treats `ErrRefusedSymlink` everywhere else
+  (add/status/update do the same), and AC-4 doesn't enumerate symlinks among
+  its precondition modes, so this is inherited behavior, not a new
+  inconsistency.
+
+Neither finding blocks correctness or this run's acceptance criteria.
+
+**Phase 2 — Environment setup.** Skipped. US-13's implementation
+(`internal/team/overrides.go`, `internal/teamsource/render.go`,
+`internal/cli/cmd_team.go`) is filesystem-only — no database, external HTTP
+call, or message queue — matching the same judgment already recorded for runs
+20/22/25/26. No `TEST_BASE_URL`/`TEST_DATABASE_URL` lookup was needed.
+
+**Phase 3 — Testing.** `go-unit-test-engineer` confirmed the whole module
+(`go build ./...`, `go vet ./...`, `gofmt -l .`, `go test -race -cover ./...`)
+was already clean across all 26 packages, then closed three real coverage
+gaps found in the existing AC coverage (AC-2 and AC-4 were already fully
+covered pre-existing and needed nothing new):
+- `TestTeamAddSuccess_ActiveOverride_SubstitutesLocalFile`
+  (`internal/cli/cmd_team_test.go`) — proves AC-1 through `team add` end to
+  end (installed bytes come from the override, not the index).
+- `TestTeamUpdate_ActiveOverride_SubstitutesLocalFile`
+  (`internal/cli/cmd_team_update_test.go`) — proves AC-1 through `team update`
+  end to end.
+- `TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile`
+  (`internal/cli/cmd_team_status_test.go`) — proves AC-3 through `team status`
+  end to end: an override byte-identical to the original source reports
+  in-sync (wiring up an override alone introduces no false drift), then
+  mutating only the override's file (index source left untouched) flips the
+  record to "upstream updated" — confirming `team.Classify` needed no
+  special-casing, exactly as US-13's architecture notes predicted.
+
+Per-repo/per-key override scoping was judged structurally guaranteed rather
+than needing a dedicated leakage test: `overridesPath(root)` scopes the store
+to `<root>/.litefactory/team.overrides.json` by construction, and every test
+fixture uses `t.TempDir()` for a distinct repo root.
+
+Final state: `go test -race -cover ./...` all packages passing, no races,
+`gofmt`/`go vet` clean. Coverage: `internal/cli` 80.0%, `internal/team` 62.0%
+(unchanged), `internal/teamsource` 50.4% (unchanged). No bug loop was needed —
+zero test failures across both Phase 1's build/test pass and Phase 3's
+dedicated run.
+
+No commits or pushes made this run — worktree left for litefactory to inspect
+and commit.

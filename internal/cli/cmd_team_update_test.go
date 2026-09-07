@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/team"
 )
 
 // TestTeamUpdate_MixedState covers AC-1: In-sync, Upstream-updated, and
@@ -161,6 +162,55 @@ func TestTeamUpdate_RefusesLocalModificationsByDefault(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Errorf("refused file was modified:\nbefore: %s\nafter:  %s", before, after)
+	}
+}
+
+// TestTeamUpdate_ActiveOverride_SubstitutesLocalFile covers AC-1's "update"
+// half: once an agent is already installed, recording an active override for
+// its key and running `team update` classifies it as upstream updated
+// against the override's content and installs the override's bytes, not the
+// team index's original source.
+func TestTeamUpdate_ActiveOverride_SubstitutesLocalFile(t *testing.T) {
+	repoDir, _ := setupTeamStatusFixture(t)
+	writeManageOverrideSource(t, repoDir, "local/reviewer.md")
+	if err := team.SetOverride(repoDir, "reviewer", "local/reviewer.md"); err != nil {
+		t.Fatalf("SetOverride: %v", err)
+	}
+
+	router, stdout, _ := newTestRouter(t)
+	code := router.Run(t.Context(), []string{
+		"team", "update", "--repo", repoDir, "--json",
+	})
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstdout: %s", code, ExitOK, stdout)
+	}
+
+	var out teamUpdateJSON
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("decode json: %v\nstdout: %s", err, stdout)
+	}
+	found := false
+	for _, r := range out.Records {
+		if r.DestPath == teamStatusStandalonePath {
+			found = true
+			if r.Action != teamUpdateActionUpdated {
+				t.Errorf("standalone action = %q, want %q", r.Action, teamUpdateActionUpdated)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no record for %s: %+v", teamStatusStandalonePath, out.Records)
+	}
+
+	body, err := os.ReadFile(filepath.Join(repoDir, teamStatusStandalonePath))
+	if err != nil {
+		t.Fatalf("read standalone file: %v", err)
+	}
+	if !containsBytes(body, "Patched body.") {
+		t.Errorf("standalone file was not updated with the override's content: %s", body)
+	}
+	if containsBytes(body, "Review the code.") {
+		t.Errorf("standalone file still contains the team index's original body: %s", body)
 	}
 }
 

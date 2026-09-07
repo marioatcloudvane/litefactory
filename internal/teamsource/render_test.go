@@ -2,6 +2,8 @@ package teamsource
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -9,6 +11,21 @@ import (
 	"github.com/cloudvane/litefactory/internal/render"
 	"github.com/cloudvane/litefactory/internal/team"
 )
+
+// writeLocalOverrideFile writes content at root/relPath, creating any parent
+// directories, so a test can point team.SetOverride at a real markdown file
+// on disk inside root — separate from fsys, which is what an override
+// supersedes.
+func writeLocalOverrideFile(t *testing.T, root, relPath, content string) {
+	t.Helper()
+	full := filepath.Join(root, relPath)
+	if err := os.MkdirAll(filepath.Dir(full), 0o777); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o666); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
 
 // validAgentSource is a minimal, valid agent markdown source: frontmatter
 // with just name/description, no Extra fields, so it renders cleanly under
@@ -286,5 +303,139 @@ func TestRenderTeam_UnknownHarness_ReturnsError(t *testing.T) {
 	}
 	if !errors.Is(err, render.ErrUnknownHarness) {
 		t.Errorf("errors.Is(err, render.ErrUnknownHarness) = false, want true")
+	}
+}
+
+// TestRenderTeam_ActiveOverride_SubstitutesLocalFile proves the one override
+// substitution call site (readAgentSource) is wired into RenderTeam: with an
+// override active for "reviewer", RenderTeam reads and hashes the override's
+// local file instead of fsys's agents/reviewer.md, while a second,
+// non-overridden agent in the same roster still resolves from fsys as
+// before, and the overridden entry's SourcePath still reports the index's
+// original source (only the bytes read/hashed change, per readAgentSource's
+// doc comment).
+func TestRenderTeam_ActiveOverride_SubstitutesLocalFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fsys := fstest.MapFS{
+		"agents/reviewer.md": &fstest.MapFile{
+			Data: []byte(validAgentSource("reviewer", "reviews code", "Index-resolved review body.")),
+		},
+		"agents/writer.md": &fstest.MapFile{
+			Data: []byte(validAgentSource("writer", "writes docs", "Index-resolved writer body.")),
+		},
+	}
+	overrideContent := validAgentSource("reviewer", "reviews code", "Overridden review body.")
+	writeLocalOverrideFile(t, root, "local/reviewer.md", overrideContent)
+	if err := team.SetOverride(root, "reviewer", "local/reviewer.md"); err != nil {
+		t.Fatalf("SetOverride err = %v, want nil", err)
+	}
+
+	roster := []RosterEntry{
+		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "writer", Agent: team.AgentEntry{Source: "agents/writer.md", Dest: ".claude/agents/writer.md"}},
+	}
+
+	got, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
+
+	if err != nil {
+		t.Fatalf("RenderTeam err = %v, want nil", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(renders) = %d, want 2", len(got))
+	}
+	byKey := map[string]team.AgentRender{}
+	for _, ar := range got {
+		byKey[ar.AgentKey] = ar
+	}
+
+	reviewer, ok := byKey["reviewer"]
+	if !ok {
+		t.Fatalf("no render found for agent key reviewer")
+	}
+	if reviewer.SourcePath != "agents/reviewer.md" {
+		t.Errorf("reviewer SourcePath = %q, want %q (override does not change the recorded index source path)", reviewer.SourcePath, "agents/reviewer.md")
+	}
+	if want := team.HashBytes([]byte(overrideContent)); reviewer.SourceHash != want {
+		t.Errorf("reviewer SourceHash = %q, want %q (hash of the override's content, not fsys's)", reviewer.SourceHash, want)
+	}
+
+	writer, ok := byKey["writer"]
+	if !ok {
+		t.Fatalf("no render found for agent key writer")
+	}
+	if want := team.HashBytes([]byte(validAgentSource("writer", "writes docs", "Index-resolved writer body."))); writer.SourceHash != want {
+		t.Errorf("writer SourceHash = %q, want %q (non-overridden agent must still resolve from fsys)", writer.SourceHash, want)
+	}
+}
+
+// TestRenderCurrent_NoOverride_RendersFromFS establishes RenderCurrent's
+// baseline behavior (previously untested in this package): with no override
+// active, it reads sourcePath from fsys, hashes those bytes, and returns the
+// files that source renders to.
+func TestRenderCurrent_NoOverride_RendersFromFS(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	content := validAgentSource("reviewer", "reviews code", "Review the code.")
+	fsys := fstest.MapFS{
+		"agents/reviewer.md": &fstest.MapFile{Data: []byte(content)},
+	}
+
+	hash, files, err := RenderCurrent(root, fsys, "claude", "reviewer", "agents/reviewer.md")
+
+	if err != nil {
+		t.Fatalf("RenderCurrent err = %v, want nil", err)
+	}
+	if want := team.HashBytes([]byte(content)); hash != want {
+		t.Errorf("hash = %q, want %q", hash, want)
+	}
+	if len(files) != 2 {
+		t.Fatalf("len(files) = %d, want 2 (claude produces a standalone file and a CLAUDE.md section)", len(files))
+	}
+}
+
+// TestRenderCurrent_ActiveOverride_SubstitutesLocalFile proves RenderCurrent
+// goes through the same override substitution RenderTeam does: with an
+// override active for agentKey, the returned hash matches the override's
+// content, not fsys's index-resolved file — so a status/update check against
+// an overridden agent classifies drift against the override's current
+// content (internal/team.Classify needs no changes to benefit from this,
+// since it only ever compares hashes).
+func TestRenderCurrent_ActiveOverride_SubstitutesLocalFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	fsys := fstest.MapFS{
+		"agents/reviewer.md": &fstest.MapFile{
+			Data: []byte(validAgentSource("reviewer", "reviews code", "Index-resolved review body.")),
+		},
+	}
+	overrideContent := validAgentSource("reviewer", "reviews code", "Overridden review body.")
+	writeLocalOverrideFile(t, root, "local/reviewer.md", overrideContent)
+	if err := team.SetOverride(root, "reviewer", "local/reviewer.md"); err != nil {
+		t.Fatalf("SetOverride err = %v, want nil", err)
+	}
+
+	hash, files, err := RenderCurrent(root, fsys, "claude", "reviewer", "agents/reviewer.md")
+
+	if err != nil {
+		t.Fatalf("RenderCurrent err = %v, want nil", err)
+	}
+	if want := team.HashBytes([]byte(overrideContent)); hash != want {
+		t.Errorf("hash = %q, want %q (hash of the override's content, not fsys's)", hash, want)
+	}
+	if len(files) != 2 {
+		t.Fatalf("len(files) = %d, want 2", len(files))
+	}
+
+	// After unsetting, the same call must revert to fsys's content.
+	if err := team.UnsetOverride(root, "reviewer"); err != nil {
+		t.Fatalf("UnsetOverride err = %v, want nil", err)
+	}
+	hash, _, err = RenderCurrent(root, fsys, "claude", "reviewer", "agents/reviewer.md")
+	if err != nil {
+		t.Fatalf("RenderCurrent (after unset) err = %v, want nil", err)
+	}
+	if want := team.HashBytes([]byte(validAgentSource("reviewer", "reviews code", "Index-resolved review body."))); hash != want {
+		t.Errorf("hash (after unset) = %q, want %q (index-resolved source in effect again)", hash, want)
 	}
 }

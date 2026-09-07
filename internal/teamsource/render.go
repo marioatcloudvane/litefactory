@@ -52,6 +52,34 @@ func parseAgentSource(raw []byte) (render.ResolvedSource, error) {
 	return render.ResolvedSource{Frontmatter: fm, Body: body}, nil
 }
 
+// readAgentSource returns the raw markdown bytes to render for agentKey: root's
+// active override for that key (team.ReadOverrideSource), if one is set, or
+// otherwise sourcePath read from fsys.
+//
+// This is the one call site override substitution happens at. It changes
+// which raw bytes get hashed and rendered for agentKey; it never changes
+// AgentEntry.Dest, the lockfile schema, or entry.Agent.Source itself — both
+// RenderTeam and RenderCurrent still record the index's own SourcePath in
+// the team.AgentRender/status they return, exactly as before, so an
+// overridden agent's provenance in team.lock.json is unaffected by whether
+// an override happened to be active when it was rendered. team.Classify
+// (internal/team/status.go) never learns, or needs to learn, where the bytes
+// it is comparing hashes for came from.
+func readAgentSource(root string, fsys fs.FS, agentKey, sourcePath string) ([]byte, error) {
+	raw, _, ok, err := team.ReadOverrideSource(root, agentKey)
+	if err != nil {
+		return nil, fmt.Errorf("read override for %s: %w", agentKey, err)
+	}
+	if ok {
+		return raw, nil
+	}
+	raw, err = fs.ReadFile(fsys, sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", sourcePath, err)
+	}
+	return raw, nil
+}
+
 // RenderTeam renders every entry in roster for every named harness, reading
 // each agent's source from fsys, and returns one team.AgentRender per
 // (harness, agent) pair, ready to pass to team.Add.
@@ -85,9 +113,9 @@ func RenderTeam(root string, fsys fs.FS, teamName string, roster []RosterEntry, 
 			continue
 		}
 		for _, entry := range roster {
-			raw, readErr := fs.ReadFile(fsys, entry.Agent.Source)
+			raw, readErr := readAgentSource(root, fsys, entry.Key, entry.Agent.Source)
 			if readErr != nil {
-				errs = append(errs, fmt.Errorf("read %s: %w", entry.Agent.Source, readErr))
+				errs = append(errs, readErr)
 				continue
 			}
 			source, parseErr := parseAgentSource(raw)
@@ -144,14 +172,21 @@ func RenderTeam(root string, fsys fs.FS, teamName string, roster []RosterEntry, 
 // It returns HashBytes of the raw source bytes read from sourcePath, plus the
 // rendered files that source produces for harnessName, converted to
 // team.RenderedFile the same way RenderTeam does.
-func RenderCurrent(fsys fs.FS, harnessName, sourcePath string) (sourceHash string, files []team.RenderedFile, err error) {
+//
+// root and agentKey exist for exactly one reason: if agentKey has an active
+// override recorded in root (team manage set), the override's local file's
+// bytes are read and hashed in place of sourcePath, so a status/update check
+// against an overridden agent classifies drift against the override's
+// current content rather than the index's — the same substitution RenderTeam
+// applies at add time.
+func RenderCurrent(root string, fsys fs.FS, harnessName, agentKey, sourcePath string) (sourceHash string, files []team.RenderedFile, err error) {
 	renderer, err := render.Lookup(harnessName)
 	if err != nil {
 		return "", nil, err
 	}
-	raw, err := fs.ReadFile(fsys, sourcePath)
+	raw, err := readAgentSource(root, fsys, agentKey, sourcePath)
 	if err != nil {
-		return "", nil, fmt.Errorf("read %s: %w", sourcePath, err)
+		return "", nil, err
 	}
 	source, err := parseAgentSource(raw)
 	if err != nil {

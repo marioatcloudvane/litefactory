@@ -15,9 +15,13 @@ package cli
 // (upstream updated, missing); a hand-edited or conflicting file is left
 // untouched and reported unless --force is passed. It writes exclusively
 // through internal/team's existing write engine (internal/team.Add) — it
-// never introduces a second write path. `team manage` is declared here — so
-// its flags and --help text are accurate — but its behaviour lands in a
-// later story; invoking it today returns [ErrNotImplemented].
+// never introduces a second write path. `team manage <agent-key>
+// set|unset|show` records, removes, or reports a per-repo override that
+// points one agent at a local markdown file instead of its index-resolved
+// source; the override is read at the same call site every render goes
+// through (internal/teamsource's readAgentSource), so `team add`, `team
+// status`, and `team update` honor it automatically with no changes to
+// internal/team's drift classification.
 
 import (
 	"context"
@@ -823,7 +827,7 @@ func runTeamStatus(ctx context.Context, env *Env, cmd *Command, opts teamRepoOpt
 	// record's status (AC-1, AC-3).
 	var recordErrs []error
 	for _, rec := range lf.Records {
-		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(resolved.FS, rec.Harness, rec.SourcePath)
+		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(repoPath, resolved.FS, rec.Harness, rec.AgentKey, rec.SourcePath)
 		if renderErr != nil {
 			wrapped := fmt.Errorf("re-render %s (%s): %w", rec.AgentKey, rec.Harness, renderErr)
 			recordErrs = append(recordErrs, wrapped)
@@ -999,7 +1003,7 @@ func runTeamUpdate(ctx context.Context, env *Env, cmd *Command, opts teamRepoOpt
 	var recordErrs []error
 
 	for _, rec := range lf.Records {
-		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(resolved.FS, rec.Harness, rec.SourcePath)
+		freshSourceHash, freshFiles, renderErr := teamsource.RenderCurrent(repoPath, resolved.FS, rec.Harness, rec.AgentKey, rec.SourcePath)
 		if renderErr != nil {
 			wrapped := fmt.Errorf("re-render %s (%s): %w", rec.AgentKey, rec.Harness, renderErr)
 			recordErrs = append(recordErrs, wrapped)
@@ -1343,19 +1347,126 @@ func newTeamUpdateCommand() *Command {
 	return cmd
 }
 
-// newTeamManageCommand declares "litefactory team manage". Its flags parse
-// and its --help is accurate; its behaviour is a follow-up story.
+// newTeamManageCommand declares "litefactory team manage <agent-key>
+// set|unset|show". It points one agent, in one repo, at a local markdown
+// file instead of whatever the team index says, so an operator can
+// patch/customize a single agent for one repo without forking the whole
+// team definition.
+//
+// Unlike list/show/add/status/update, manage never resolves a team index or
+// a harness: an override is per (repo, agent key) only, so it binds --repo
+// directly rather than the shared teamRepoOptions.bind, which would also
+// expose a --harness flag with no meaning here.
 func newTeamManageCommand() *Command {
 	cmd := &Command{
 		Name:  "team manage",
-		Usage: "team manage [--repo path] [--harness list]",
-		Short: "Not yet implemented",
-		Long:  "team manage is not implemented yet. This command currently only validates its flags.",
+		Usage: "team manage <agent-key> <action> [<source>] [--repo path]  (set source=<path> | unset | show)",
+		Short: "Point one agent, in one repo, at a local markdown file",
+		Long: "Override a single agent's rendered source for one repo without\n" +
+			"forking the whole team definition.\n\n" +
+			"`set source=<path>` records <path> — a repo-relative markdown file\n" +
+			"inside --repo — as <agent-key>'s active override; every subsequent\n" +
+			"`team add`/`team update`/`team status` against --repo reads it in\n" +
+			"place of the team index's own source for that key alone. `unset`\n" +
+			"removes the override, reverting to the index-resolved source. `show`\n" +
+			"reports whether an override is active and, if so, its local path.\n\n" +
+			"Never changes an agent's install destination, the lockfile, or the\n" +
+			"team index itself.",
+		Args: ArgSpec{Names: []string{"agent-key", "action", "source"}, Min: 2},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
 		var opts teamRepoOptions
-		opts.bind(fs)
-		return notImplemented(cmd.Name)
+		fs.StringVar(&opts.repo, "repo", ".", "git repository the override applies to")
+		return func(ctx context.Context, env *Env, args []string) error {
+			var rest string
+			if len(args) > 2 {
+				rest = args[2]
+			}
+			return runTeamManage(ctx, env, cmd, opts, args[0], args[1], rest)
+		}
 	}
 	return cmd
+}
+
+// runTeamManage implements `team manage <agent-key> set|unset|show`. It
+// never touches the team index, a lockfile, or a rendered artifact — it only
+// records or reports which local markdown file, if any, currently
+// supersedes agentKey's index-resolved source for repoPath at render time
+// (internal/teamsource.readAgentSource).
+func runTeamManage(ctx context.Context, env *Env, cmd *Command, opts teamRepoOptions, agentKey, action, sourceArg string) error {
+	if !team.KeyPattern.MatchString(agentKey) {
+		return &UsageError{Cmd: cmd, Err: &team.KeyError{Path: "agent-key", Key: agentKey}}
+	}
+	repoPath, err := resolveTeamRepoPath(opts.repo)
+	if err != nil {
+		return err
+	}
+
+	switch action {
+	case "set":
+		path, ok := strings.CutPrefix(sourceArg, "source=")
+		if !ok || path == "" {
+			return Usagef(cmd, "team manage %s set requires source=<path>, got %q", agentKey, sourceArg)
+		}
+		if err := team.SetOverride(repoPath, agentKey, path); err != nil {
+			return teamManageError(cmd, err)
+		}
+		fmt.Fprintf(env.Stdout, "repo: %s\n", repoPath)
+		fmt.Fprintf(env.Stdout, "agent: %s\n", agentKey)
+		fmt.Fprintf(env.Stdout, "override set: %s\n", path)
+		return nil
+
+	case "unset":
+		if sourceArg != "" {
+			return Usagef(cmd, "team manage %s unset takes no source argument, got %q", agentKey, sourceArg)
+		}
+		if err := team.UnsetOverride(repoPath, agentKey); err != nil {
+			return teamManageError(cmd, err)
+		}
+		fmt.Fprintf(env.Stdout, "repo: %s\n", repoPath)
+		fmt.Fprintf(env.Stdout, "agent: %s\n", agentKey)
+		fmt.Fprintln(env.Stdout, "override unset")
+		return nil
+
+	case "show":
+		if sourceArg != "" {
+			return Usagef(cmd, "team manage %s show takes no source argument, got %q", agentKey, sourceArg)
+		}
+		path, active, err := team.ActiveOverride(repoPath, agentKey)
+		if err != nil {
+			return teamManageError(cmd, err)
+		}
+		fmt.Fprintf(env.Stdout, "repo: %s\n", repoPath)
+		fmt.Fprintf(env.Stdout, "agent: %s\n", agentKey)
+		if active {
+			fmt.Fprintln(env.Stdout, "override: active")
+			fmt.Fprintf(env.Stdout, "path: %s\n", path)
+		} else {
+			fmt.Fprintln(env.Stdout, "override: none (index-resolved source in effect)")
+		}
+		return nil
+
+	default:
+		return Usagef(cmd, "team manage: unknown action %q; want set, unset, or show", action)
+	}
+}
+
+// teamManageError translates internal/team's sentinel errors for
+// SetOverride/UnsetOverride/ActiveOverride into this package's exit-code
+// vocabulary: an invalid agent key is a usage mistake (ExitUsage); an
+// override path that fails validateOverrideSource's checks (AC-4 — does not
+// exist, is not repo-relative, is not a markdown file, ...) is a
+// precondition the operator must fix before retrying (ExitPrecondition);
+// anything else (an I/O failure, a corrupt overrides file, a refused
+// symlink, ...) is left as a plain error (ExitFailure).
+func teamManageError(cmd *Command, err error) error {
+	var keyErr *team.KeyError
+	if errors.As(err, &keyErr) {
+		return &UsageError{Cmd: cmd, Err: err}
+	}
+	var pathErr *team.OverridePathError
+	if errors.As(err, &pathErr) {
+		return Precondition(err)
+	}
+	return err
 }

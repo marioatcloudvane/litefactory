@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/team"
 )
 
 // setupTeamStatusFixture builds a repo with a resolvable team index (a
@@ -215,6 +216,68 @@ func TestTeamStatus_Classification(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile covers AC-3: an
+// overridden agent's drift is classified against the override's local file,
+// not the team index's original source, with no special-cased behavior
+// required in the classification logic itself -- changing only the
+// override's file (and leaving the index source untouched) is what flips the
+// status, and an override whose content is still byte-identical to the
+// original source introduces no false drift.
+func TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile(t *testing.T) {
+	repoDir, _ := setupTeamStatusFixture(t)
+	const overrideRel = "local/reviewer.md"
+	overridePath := filepath.Join(repoDir, overrideRel)
+	if err := os.MkdirAll(filepath.Dir(overridePath), 0o777); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Byte-identical to the original index source, so recording the override
+	// alone introduces no false drift.
+	content := validTeamAgentSource("reviewer", "a test reviewer agent", "Review the code.")
+	if err := os.WriteFile(overridePath, []byte(content), 0o600); err != nil {
+		t.Fatalf("write override source: %v", err)
+	}
+	if err := team.SetOverride(repoDir, "reviewer", overrideRel); err != nil {
+		t.Fatalf("SetOverride: %v", err)
+	}
+
+	router, stdout, _ := newTestRouter(t)
+	code := router.Run(t.Context(), []string{"team", "status", "--repo", repoDir, "--json"})
+	if code != ExitOK {
+		t.Fatalf("exit code = %d, want %d\nstdout: %s", code, ExitOK, stdout)
+	}
+	var out teamStatusJSON
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal json: %v\nstdout: %s", err, stdout)
+	}
+	if !out.InSync {
+		t.Fatalf("in_sync = false right after recording an identical-content override, want true: %+v", out.Records)
+	}
+
+	// Mutate only the override's local file; the index source under
+	// fixtureDir is left untouched.
+	replaceInFile(t, overridePath, "Review the code.", "Review the code, OVERRIDDEN UPSTREAM CHANGE.")
+
+	router, stdout, _ = newTestRouter(t)
+	code = router.Run(t.Context(), []string{"team", "status", "--repo", repoDir, "--json"})
+	if code != ExitFailure {
+		t.Fatalf("exit code = %d, want %d\nstdout: %s", code, ExitFailure, stdout)
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal json: %v\nstdout: %s", err, stdout)
+	}
+	if out.InSync {
+		t.Errorf("in_sync = true after mutating only the override's file, want false")
+	}
+	if len(out.Records) != 2 {
+		t.Fatalf("len(records) = %d, want 2: %+v", len(out.Records), out.Records)
+	}
+	for _, r := range out.Records {
+		if r.Status != "upstream updated" {
+			t.Errorf("%s status = %q, want %q (classification should follow the override's file, not the index source)", r.DestPath, r.Status, "upstream updated")
+		}
 	}
 }
 

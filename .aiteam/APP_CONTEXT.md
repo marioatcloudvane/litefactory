@@ -59,7 +59,7 @@ schedule      →  (nothing)          leaf. parses factory-owned /schedule contr
 
 agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
 redact        →  secrets
-team          →  config             write engine, index decode/validate, drift classifier (Status/Classify)
+team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
 codex         →  agent, config, naming
 harness       →  agent, config, naming
@@ -80,13 +80,12 @@ The load-bearing consequences:
   on any import whose first path segment contains a dot; `config.go` is the
   single exception, for `gopkg.in/yaml.v3`. `internal/naming` states and holds
   the same invariant.
-- **`internal/report` cannot import `internal/turn`** — `turn` depends on
-  `report` to render its replies, so the arrow cannot point back. That is why
-  `report.ReplyKind` (`internal/report/reply.go`) is its own enum rather than
-  reusing `turn.CommandKind`, and why the mapping is a small switch at the call
-  site: `replyKind()` in `internal/turn/report.go` (~line 600). If you add a
-  reply shape, you add a `ReplyKind` **and** a case in that switch.
-  Note `report` is *not* a leaf — it imports `agent`, `git`, `naming`, `redact`.
+- **`internal/report` cannot import `internal/turn`** — the dependency runs the
+  other way, so `report.ReplyKind` (`internal/report/reply.go`) is its own enum
+  rather than reusing `turn.CommandKind`; the mapping is a small switch,
+  `replyKind()` in `internal/turn/report.go` (~line 600). A new reply shape
+  needs a `ReplyKind` **and** a case there. `report` is not a leaf — it imports
+  `agent`, `git`, `naming`, `redact`.
 - **`internal/harness` is the only place that executes `claude`.** It owns the
   subprocess, the argv, the child environment allowlist, the kill sweep, and it
   writes the run's `NNNN.jsonl` event stream.
@@ -108,14 +107,18 @@ The load-bearing consequences:
   `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
   `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
   implementation may inspect `Permissions.Payload`, which differs by `Kind`.
+- **`teamsource.readAgentSource` (`internal/teamsource/render.go`) checks a
+  per-repo override (`team.ReadOverrideSource`) before falling back to
+  `AgentEntry.Source`.** Used by `RenderTeam` and `RenderCurrent`, upstream of
+  hashing — `team.Classify` needs no override-awareness, and an overridden
+  agent's `team.lock.json` provenance is unaffected.
 
 ### Read the `doc.go` files
 
-Eighteen packages carry a `doc.go` whose prose is the real specification for
-that package; `config` and `store` carry theirs at the top of `config.go` /
-`store.go` instead. **Read the one for the package you are about to touch
-before you touch it.** They record what was measured, what was tried and
-rejected, and what breaks if you do the obvious thing.
+Eighteen packages carry a `doc.go` — the real spec for that package (`config`/
+`store` keep theirs atop `config.go`/`store.go` instead). Read the one for the
+package you are about to touch: it records what was measured and what breaks
+if you do the obvious thing.
 
 ---
 
@@ -145,10 +148,11 @@ rejected, and what breaks if you do the obvious thing.
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
 | classify an installed agent artifact's drift against its current source | `internal/team.Classify` | 5-state `Status` (`InSync`/`LocallyModified`/`UpstreamUpdated`/`Conflict`/`Missing`); byte comparison only, read-only, never mutates the lockfile; caller supplies the fresh render via `teamsource.RenderCurrent`. `LoadLockfile`/`DecodeTeams` are exported wrappers for external callers |
+| override which local `.md` file an agent renders from, per repo | `internal/team` | `.litefactory/team.overrides.json`, flat `{agentKey: source}`; `SetOverride`/`UnsetOverride`/`ActiveOverride`/`ReadOverrideSource` (`internal/team/overrides.go`); `team manage <key> <set/unset/show>` is the CLI front door |
 | re-render one agent's current source for one harness, independent of team membership | `teamsource.RenderCurrent(fsys, harnessName, sourcePath)` | the fresh-render half `team.Classify` compares against; unlike `RenderTeam`, does no lockfile/team-union bookkeeping |
 | render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
 | resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
-| see which `team` CLI subcommands work vs. remain stubs | `internal/cli` | `list`/`show`/`add`/`status`/`update` implemented; `manage` intentional stub — all six always registered via one `Command` constructor each |
+| see which `team` CLI subcommands exist | `internal/cli` | all six (`list`/`show`/`add`/`status`/`update`/`manage`) are fully implemented, none a stub — one `Command` constructor each |
 | bring installed agent files back in sync with their current source | `internal/cli`'s `runTeamUpdate` (`team update`) | classifies each tracked lockfile record via `team.Classify`; auto-applies Upstream-updated/Missing; refuses Locally-modified/Conflict unless `--force` (reported as `overwritten`, never folded into `updated`); writes through `team.Add`; single-worktree scope only — no sibling-worktree discovery (that's future US-15) |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
@@ -163,20 +167,13 @@ Before you touch the store:
   DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (off by default per
   connection), `journal_mode(WAL)` so `litefactory logs` can read while the
   daemon writes, `busy_timeout`, `synchronous(NORMAL)`.
-- **The one-connection cap is load-bearing, not incidental**: concurrent
-  turn workers plus the daemon's tick goroutine queue for the store rather than
-  contend. Raising it is not free throughput — a read-then-write transaction
-  upgrading its lock mid-transaction gets `SQLITE_BUSY` immediately rather than
-  waiting (`busy_timeout` does not cover a lock upgrade). The cap, `BEGIN
-  IMMEDIATE` on every read-then-write transaction, and the DSN pragmas move as
-  one decision.
+- **The one-connection cap is load-bearing**: turn workers and the daemon's
+  tick goroutine queue for the store rather than contend. A read-then-write
+  transaction upgrading its lock mid-transaction gets `SQLITE_BUSY` at once
+  (`busy_timeout` does not cover a lock upgrade), so the cap, `BEGIN IMMEDIATE`
+  on every such transaction, and the DSN pragmas move as one decision.
 - **Migrations are hand-rolled and embedded** —
   `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
   filename prefix, one transaction each, recorded in `schema_migrations`. A new
   schema change is a new `.sql` file and nothing else — a migration library is
   an explicitly rejected dependency.
-
-NULL mapping in the store is uniform: `time.Time` zero means NULL (stored as
-UTC RFC 3339 ms text); an always-meaningful string is a plain `string`; forge
-ids are `int64` with 0 meaning NULL; a value whose zero is real (an exit code,
-a cost) is a **pointer**.
