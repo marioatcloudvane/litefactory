@@ -35,11 +35,11 @@
 
 | ID | Title | Size | Depends On | Sub-issue |
 |----|-------|------|------------|-----------|
-| US-1 | External registry and mode resolution | L | — | Pending litefactory publication of `US-1.md` |
-| US-2 | External management and repository association | L | US-1 | Pending litefactory publication of `US-2.md` |
-| US-3 | Per-run bundle isolation and conversation boundaries | L | US-1, US-2 | Pending litefactory publication of `US-3.md` |
-| US-4 | Focused modes and language skills | L | US-1, US-3 | Pending litefactory publication of `US-4.md` |
-| US-5 | Provenance, token evidence and handoff | M | US-3, US-4 | Pending litefactory publication of `US-5.md` |
+| US-1 | External registry and mode resolution | L | — | https://github.com/marioatcloudvane/litefactory/issues/127 |
+| US-2 | External management and repository association | L | US-1 | https://github.com/marioatcloudvane/litefactory/issues/128 |
+| US-3 | Per-run bundle isolation and conversation boundaries | L | US-1, US-2 | https://github.com/marioatcloudvane/litefactory/issues/129 |
+| US-4 | Focused modes and language skills | L | US-1, US-3 | https://github.com/marioatcloudvane/litefactory/issues/130 |
+| US-5 | Provenance, token evidence and handoff | M | US-3, US-4 | https://github.com/marioatcloudvane/litefactory/issues/131 |
 
 ## Out of Scope
 
