@@ -38,7 +38,7 @@ func TestRenderTeamThenAdd_IndexSourcedForbiddenFlag_RefusesWrite(t *testing.T) 
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	renders, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -68,7 +68,7 @@ func TestRenderTeamThenAdd_IndexSourcedSecret_RefusesWrite(t *testing.T) {
 		},
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	renders, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -103,7 +103,7 @@ func TestRenderTeamThenAdd_OverrideSourcedForbiddenFlag_RefusesWrite(t *testing.
 		t.Fatalf("SetOverride err = %v, want nil", err)
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	renders, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})
@@ -148,7 +148,7 @@ func TestRenderTeamThenAdd_OverrideSourcedSecret_RefusesWrite(t *testing.T) {
 		t.Fatalf("SetOverride err = %v, want nil", err)
 	}
 	roster := []RosterEntry{
-		{Key: "reviewer", Agent: team.AgentEntry{Source: "agents/reviewer.md", Dest: ".claude/agents/reviewer.md"}},
+		{Key: "reviewer", Agent: team.AgentEntry{Path: "agents/reviewer.md"}},
 	}
 
 	renders, err := RenderTeam(root, fsys, "team-a", roster, []string{"claude"})

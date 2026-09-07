@@ -22,5 +22,6 @@ func Commands() []*Command {
 		newTeamStatusCommand(),
 		newTeamUpdateCommand(),
 		newTeamManageCommand(),
+		newTeamValidateCommand(),
 	}
 }

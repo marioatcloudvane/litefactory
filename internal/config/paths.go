@@ -64,6 +64,31 @@ func Locate() (Paths, error) {
 // Home is the root directory, $LF_HOME.
 func (p Paths) Home() string { return p.home }
 
+// TeamsDir holds the central source catalog, never CLI-generated artifacts.
+func (p Paths) TeamsDir() string { return filepath.Join(p.home, "teams") }
+
+// TeamsIndexPath is the central registry document.
+func (p Paths) TeamsIndexPath() string { return filepath.Join(p.TeamsDir(), "index.json") }
+
+// SharedAgentPath locates a shared agent definition for a validated identifier.
+func (p Paths) SharedAgentPath(id string) string {
+	return filepath.Join(p.TeamsDir(), "agents", "shared", id+".md")
+}
+
+// TeamAgentPath locates a team-owned definition for validated identifiers.
+func (p Paths) TeamAgentPath(name, id string) string {
+	return filepath.Join(p.TeamsDir(), "agents", name, id+".md")
+}
+
+// TeamSkillDir contains a skill's instructions and relative resources.
+func (p Paths) TeamSkillDir(id string) string { return filepath.Join(p.TeamsDir(), "skills", id) }
+
+// TeamsMetadataDir separates management records from catalog source files.
+func (p Paths) TeamsMetadataDir() string { return filepath.Join(p.TeamsDir(), ".litefactory") }
+
+// BundlesDir separates immutable rendered snapshots from editable sources.
+func (p Paths) BundlesDir() string { return filepath.Join(p.home, "bundles") }
+
 // ConfigPath is $LF_HOME/config.yaml.
 func (p Paths) ConfigPath() string { return filepath.Join(p.home, configFileName) }
 
