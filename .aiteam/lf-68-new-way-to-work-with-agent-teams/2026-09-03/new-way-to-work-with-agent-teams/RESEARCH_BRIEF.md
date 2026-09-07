@@ -713,6 +713,13 @@ request's eight original items. Plausible replacements, none yet chosen:
 This is carried into Open Questions below rather than resolved here, since choosing among these
 changes the shape of `internal/cli/cmd_team.go`'s command surface materially.
 
+**[R 2026-09-07, sixth pass] Resolved.** US-13's own design record (see Investigation Notice below)
+settled this as candidate (a) — a per-repo, per-agent-key local source override — and it is now
+built and delivered. This section is left as-is, unedited, as the historical record of the question
+as Research originally posed it; the resolution and its implementation status are recorded in the
+new section below rather than folded back into this paragraph, consistent with this brief's
+established convention of not silently rewriting a still-accurate historical record.
+
 ### 9. Multi-worktree propagation — new capability, researched fresh this run for Refinement 3
 
 **[R 2026-09-05, new]** litefactory's own repos are not always a single checkout: this very
@@ -924,7 +931,9 @@ nothing. See Constraints & Risks and Open Questions for how this is carried forw
   same gap unless served via the embedded-snapshot mechanism recommended in Domain §2.
 - **[V] `team manage <agent> set <param>=<value>` has no clear target under the corrected model**
   (Domain §8) — treat this as an open design problem, not a carry-over item to implement as
-  originally worded.
+  originally worded. **[R 2026-09-07, sixth pass] Resolved and delivered — see the new Investigation
+  Notice and Domain §13 below; this bullet is left unedited as the historical record of the risk as
+  it stood before US-13 shipped.**
 - **[V] No composition/provenance tooling precedent exists in this codebase** (Domain §4, §7) — the
   root-singleton-file composition mechanism is new design end to end, informed by external
   precedent (terraform-docs/doctoc marker style) but not modeled on anything already working here.
@@ -1024,7 +1033,8 @@ nothing. See Constraints & Risks and Open Questions for how this is carried forw
    (Domain §4.) Correction 4's own wording implies yes; this needs to be stated as a firm design
    requirement, not inferred.
 6. **What does `team manage` become, now that there is no structured per-agent config to `set`?**
-   (Domain §8.) Three candidate replacements were sketched; none chosen.
+   (Domain §8.) Three candidate replacements were sketched; none chosen. **[R 2026-09-07, sixth
+   pass] Resolved and shipped — see Domain §13.**
 7. **Is "`team list`" and "`repo list`" the same command under two names, or does the sponsor mean
    two distinct things** (one listing teams/agents found in the configured index source, the other
    listing litefactory's already-registered repos)? Read here as the former being the new
@@ -1053,7 +1063,8 @@ nothing. See Constraints & Risks and Open Questions for how this is carried forw
 12. **New this run — what should the new litefactory-owned bookkeeping directory (Domain §10) be
     named, and does introducing it require a formal, narrow amendment to the `cmd_repo.go`
     "never writes inside the clone" disclaimer** (Open Question 3), rather than being treated as a
-    side effect of gitignoring the rest?
+    side effect of gitignoring the rest? **[R 2026-09-07, sixth pass] Settled by implementation,
+    not retroactively by Research: `.litefactory/` — see Domain §13.**
 13. **New this run — can the `dest` field in the revised index schema (Domain §1, Refinement 2)
     ever need to diverge from `<key>.md`/`<key>/SKILL.md`** (the per-harness renderer's own
     established output naming, Domain §4), or is it effectively always redundant with the key once
@@ -1091,6 +1102,16 @@ nothing. See Constraints & Risks and Open Questions for how this is carried forw
     work?** Recommended here as dedicated and narrow, matching how the second- and third-pass
     corrections were each reconciled in their own pass, but the final call belongs to whoever opens
     the next Plan-mode run, not to Research.
+20. **New this pass (sixth) — should `internal/team/overrides.go`'s dead-code advisory
+    (`validateOverrideSource`'s unreachable `filepath.IsAbs(clean)` check, CR-A-001 in
+    `CODE_REVIEW.md`) be cleaned up in a future pass, or left as intentional defense-in-depth with a
+    one-line comment?** Non-blocking; not investigated further by this pass — see Domain §13.
+21. **New this pass (sixth) — should the run that closes out Run 27's missing bookkeeping also
+    correct MANIFEST.md's stale Implement summary line, or only append the missing History entry?**
+    (Domain §13.) This pass recommends both, since the summary line is a single sentence and is
+    demonstrably wrong (still lists US-13 as open) the moment the History entry is added, but leaves
+    the exact wording to whoever performs that close-out, consistent with how Run 22 phrased its own
+    close-out of Run 21's gap.
 
 ## Recommended scope for Plan mode
 
@@ -1126,7 +1147,8 @@ nothing. See Constraints & Risks and Open Questions for how this is carried forw
   override; flag arbitrary remote URL support as an explicit follow-on rather than silently
   building toward it.
 - Re-scope or drop `team manage ... set <param>=<value>` (Domain §8, Open Question 6) based on a
-  fresh decision, not the original wording.
+  fresh decision, not the original wording. **[R 2026-09-07, sixth pass] Delivered — no further Plan
+  work needed for this item; see Domain §13.**
 - **New this pass — design multi-worktree propagation for `team update`/`team add`** (Domain §9):
   combine `sessions.WorktreePath` history and/or the `(forge,owner,name)` collision set as a
   candidate list with a live `git worktree list` as ground truth (recommended starting point, Open
@@ -1195,3 +1217,213 @@ accurate as high-level flags), adds two new Open Questions (18–19), and correc
 cross-reference in Recommended scope for Plan mode's "Out of scope" section (the `US-1.md`–
 `US-14.md` range, left over from the second pass, predating the current 18-story set). No prior
 Domain section, Open Question, or in-scope Plan recommendation is reopened or reversed by this pass.
+
+## Investigation Notice — 2026-09-07, sixth pass (post-implementation: what happened to Implement Run 27 / US-13?)
+
+**Trigger.** The sponsor asked for an investigation, not a design pass: Run 27 (Implement mode,
+scoped to US-13, `team manage` per-repo agent-source override) was reported by the harness as
+**failed**, and the sponsor asked what actually happened, how far the run got, what (if anything)
+landed in the working tree or was committed, and what an Implement run should do next without
+redoing sound work or doing anything redundant. This pass is that investigation. It is **not** a
+design pass — Domain §8's original question and Open Question 6 are already resolved (see below);
+nothing about the index schema or any other still-open design question above is touched, reopened,
+or revisited by this pass.
+
+**[R this pass] Method and its limits, stated up front.** The orchestrator role carrying out this
+pass has exactly `Read`, `Write`, and `Agent` (restricted to `codebase-tour`, `web-researcher`,
+`app-context-updater`) — no `Bash`, no `git`, no `Glob`/`Grep` of its own. `codebase-tour` itself
+has no `Bash` and is explicitly barred from reading anything under `.aiteam/` beyond a rulebook
+path (confirmed by its own refusal when first asked to reconstruct git history and read session
+artifacts in one request — a correct refusal, not a gap). **Consequently this pass could not run
+`git log`/`git show`/`git diff` directly and does not claim to have.** What it did instead: (1)
+read the session's own process artifacts directly (`notes.md`, `DRIFT_REPORT.md`, `CODE_REVIEW.md`,
+`MANIFEST.md`, `US-13.md`, `plan_brief.md`, `.aiteam/APP_CONTEXT.md`) as the orchestrator, since no
+permitted sub-agent can read `.aiteam/` for this purpose; (2) dispatched `codebase-tour` a second
+time, narrowed to a present-day-only read of the specific source and test files US-13's own process
+artifacts claim were delivered, with no git or `.aiteam` access, exactly the scope it confirmed it
+could perform; (3) cross-referenced both against the git status/log snippet already visible in this
+run's own environment context (branch `lf/68-new-way-to-work-with-agent-teams`, working tree
+**clean**, HEAD at `2516882 litefactory run`, parent `7dae487 Run 26 (Implement, US-11) is complete
+and the artifact exists.`). No commit was inspected via `git show`/`git diff`; the "what changed in
+2516882" question is answered by corroboration across independent sources, not by reading the diff
+itself — flagged **[W]** below wherever it rests on that inference rather than on a direct git read.
+
+**[V] Finding 1 — Run 27's own process artifacts describe a fully completed US-13 delivery, not a
+failure.** `notes.md`'s own entry for this run (dated 2026-09-07, headed "Implement run (this run):
+US-13 (`team manage` per-repo agent source override)") reads as a complete, standard-shape Implement
+close-out narrative — structurally identical to every prior run's entry in the same file (Run 19,
+20, 22, 25, 26) — covering Phase 1 development (all four tasks T-35–T-38), Phase 1.5 code review
+(single pass, **ADVISORY_ONLY**, zero BLOCKING findings — the first clean pass on this issue's
+recurring `errors.Join`-aggregation mistake, which had been BLOCKING three times previously), Phase
+2 (correctly skipped, filesystem-only), and Phase 3 testing (three new end-to-end tests added,
+closing real coverage gaps; final state "`go test -race -cover ./...` all packages passing, no
+races, `gofmt`/`go vet` clean"), ending with the same standard sign-off line every other run in this
+file uses: *"No commits or pushes made this run — worktree left for litefactory to inspect and
+commit."* `DRIFT_REPORT.md` (dated 2026-09-07, headed "Drift Report — US-13") independently confirms
+the same shape from a different angle: all four tasks and all four Acceptance Criteria delivered and
+verified, zero dropped/deferred items, verdict **CLEAN**. `CODE_REVIEW.md` (dated 2026-09-07,
+"Status: ADVISORY_ONLY") independently confirms the same review outcome with full findings,
+including a specific, successful re-check of the exact class of mistake (fail-fast instead of
+`errors.Join` aggregation) that had blocked three prior runs on this issue. All three documents are
+mutually consistent, internally detailed (specific function names, file:line citations, coverage
+percentages), and read as authored during real execution, not as a template filled in blind.
+
+**[V] Finding 2 — direct, present-day inspection of the source tree corroborates every specific
+claim in Finding 1; nothing was found missing, stubbed, or half-built.** A second, narrowly-scoped
+`codebase-tour` pass read the eight specific files/symbol sets `notes.md`/`DRIFT_REPORT.md` name as
+delivered — `internal/team/overrides.go` (`decodeOverrides`, `validateOverrideSource`,
+`SetOverride`, `UnsetOverride`, `ActiveOverride`, `ReadOverrideSource`), `internal/team/overrides_test.go`,
+`internal/team/errors.go` (`ErrOverridePath`, `OverridePathError`), `internal/cli/cmd_team.go`
+(`newTeamManageCommand`, `runTeamManage`, `teamManageError`), `internal/cli/cmd_team_manage_test.go`,
+`internal/teamsource/render.go` (`readAgentSource`, called from both `RenderTeam` and
+`RenderCurrent`), `internal/teamsource/render_test.go`, and three cross-command end-to-end tests in
+`cmd_team_test.go`/`cmd_team_update_test.go`/`cmd_team_status_test.go` — and reported every file
+present, every named symbol present with a matching signature, no `"not implemented yet"` stub
+text anywhere, no dangling reference to an undefined symbol, and the `team manage` command actually
+registered in `internal/cli/commands.go`'s `Commands()` table (reachable, not orphaned). Its own
+verbatim assessment: *"a self-reported 'fully delivered' claim for this feature is corroborated by
+what's in the repo today."* The one caveat it raised itself is honest and correctly scoped: it read
+source only, did not run `go build`/`go test` itself (it has no `Bash`), and so cannot independently
+rule out a compile or runtime-test failure invisible to static reading — that residual uncertainty
+is carried forward explicitly below, not silently dropped.
+
+**[V] Finding 3 — `.aiteam/APP_CONTEXT.md` (read directly by this orchestrator, not by
+`codebase-tour`, since it sits under `.aiteam/`) already documents US-13 as delivered, in the present
+tense, alongside run 26's US-11 documentation.** Its package map states, verbatim: *"`readAgentSource`
+checks a per-repo override (`team.ReadOverrideSource`) before falling back to `AgentEntry.Source`...
+used by `RenderTeam` and `RenderCurrent`, upstream of hashing — `team.Classify` needs no
+override-awareness"* and its "Do not reinvent these" table lists a live row, *"override which local
+`.md` file an agent renders from, per repo → `internal/team`... `team manage <key> <set/unset/show>`
+is the CLI front door,"* plus a separate row confirming *"all six [`team` subcommands]... are fully
+implemented, none a stub."* This is independent, third corroborating evidence, because
+`app-context-updater` is a distinct invocation from whatever wrote `notes.md`, and its own stated
+job is to describe what is *actually* in the tree, not to echo another agent's self-report.
+
+**[V] Finding 4 — the one piece of Run 27's own close-out that is demonstrably missing is
+`$session/MANIFEST.md`.** `MANIFEST.md`, read directly by this orchestrator, has **no History entry
+at all for a Run 27**, and its "Implement" summary line (the running parenthetical after the
+`[ ] Implement` checkbox) still reads, unmodified since Run 26: *"US-13/14/15/16/17 and US-1's
+`manage` subcommand beyond its existing stub still open."* Every prior Implement run in this session
+— including Run 25, which itself had a false "failed" terminal status corrected in a later pass (see
+below) — eventually got a matching `MANIFEST.md` History entry, either written by the run itself or
+retroactively by a subsequent close-out run (the precedent for Run 21, closed out by Run 22). Run 27
+has neither. This is the one concrete, verifiable gap between "what Run 27's own artifacts say it
+did" and "what the session's bookkeeping record reflects" — everything else checked above is
+consistent and corroborated.
+
+**[W] Finding 5 — the most likely explanation, reasoned from precedent and environmental signals,
+not confirmed by a direct git read.** Three independent signals point the same direction:
+1. The working tree is reported **clean** at HEAD (`2516882`), meaning whatever Run 27 wrote to disk
+   is either committed or never existed — and Finding 2 confirms the code exists on disk today.
+   Because litefactory (not any agent) performs the commit at the end of a run, and no agent in this
+   team is permitted to run `git commit` itself, the only way US-13's code is both present and the
+   tree is clean is that it was captured in a commit litefactory made when Run 27's process
+   terminated — almost certainly `2516882`.
+2. `2516882`'s commit message is the generic fallback *"litefactory run"*, unlike `7dae487`'s
+   descriptive, self-authored message for Run 26 (*"Run 26 (Implement, US-11) is complete and the
+   artifact exists."*). A descriptive commit message is plausibly generated from a run's own
+   terminal report; a generic one is consistent with litefactory committing a worktree's contents
+   without having received a clean terminal report to build a message from — i.e., the process ended
+   abnormally after doing its work but before (or during) reporting back.
+3. This exact shape — real, complete, tested work landing and getting auto-committed, while the
+   run's own *reported* terminal status read "failed" for a reason unrelated to the work's
+   correctness — already happened once in this same session: Run 25's terminal status "was only a
+   post-completion session-usage-limit hit occurring after all work was already committed at
+   `f625e3c` — not incomplete or reverted work" (MANIFEST.md, 2026-09-06/07 entry, itself confirmed
+   in a later investigation). Run 27 not having its own `MANIFEST.md` entry, but having every other
+   completion signal (notes.md close-out narrative, `DRIFT_REPORT.md` CLEAN verdict, `CODE_REVIEW.md`
+   ADVISORY_ONLY, `APP_CONTEXT.md` already updated), is consistent with the same failure mode
+   recurring: the run substantively finished (through Phase 3 testing and at least one round of
+   `app-context-updater`) and was cut off — by a session/usage limit, a duplicate-invocation
+   collision (see below), or a comparable harness-level event — at or near the very last step of its
+   own close-out checklist, specifically before it could write `$session/MANIFEST.md`.
+   **[W] confidence: high, but explicitly not equivalent to having read `git show 2516882` directly**
+   — no tool available to this pass can perform that read, and this finding should be treated as a
+   well-corroborated inference, not a verified fact, until a future run with `git`/`Bash` access
+   confirms it directly (a five-second check: `git show --stat 2516882`).
+
+**[V] Finding 6 — a documented, self-investigated non-issue that is nonetheless worth surfacing.**
+`notes.md`'s own Run 27 entry records: *"a system reminder indicated a background agent 'Implement
+US-13' was reported running concurrently; the engineer confirmed via `git status`/`git diff --stat`
+that only its own edited files had changed, with no unexplained third-party changes, and proceeded
+without escalating."* This raises, but does not confirm, the possibility that Run 27 was itself
+invoked twice (a duplicate/overlapping harness dispatch) rather than failing on its own merits — a
+plausible alternative or contributing explanation for Finding 5's "cut off near the end" hypothesis,
+since a harness-level collision between two runs targeting the same worktree is exactly the kind of
+event that could produce a real, substantively-complete commit from one process while the harness's
+own run-tracking records the encompassing invocation as failed. This pass does not have the tooling
+to confirm or rule this out (no access to litefactory's own run-dispatch records) and flags it as an
+open question rather than adopting it as the explanation.
+
+**[V] Finding 7 — dependency check, read directly from `plan_brief.md`'s Story Index, not assumed.**
+US-13's row states `Depends On: US-1, US-4, US-5, US-9`. All four are independently confirmed landed
+and committed prior to Run 27: US-1 (index schema/decoder) and US-5 (renderer contract) shipped in
+early Implement runs; US-4 (`team add`/`team list`/`team show` CLI scaffold) shipped in Runs 21-22;
+US-9 (write engine) shipped in Run 20 — all four are named as already-committed prerequisites in
+`notes.md`'s own Run 27 entry ("Base state respected as given: US-11... landed and committed at
+`7dae487`") and corroborated by `APP_CONTEXT.md`'s package map showing `internal/team`, `internal/
+teamsource`, and all six `team` CLI subcommands as live. US-13 was not started against a missing or
+incomplete foundation.
+
+### 13. `team manage`'s resolution, as actually shipped — closing Domain §8 / Open Question 6
+
+**[R this pass, sixth]** Domain §8 above posed three candidate replacements for the original,
+now-invalid `team manage <agent> set <param>=<value>` request item and left the choice as Open
+Question 6. `US-13.md`'s own Architecture Notes (read directly by this orchestrator) record that the
+choice was made during the fourth Plan reconciliation pass — candidate (a), *"point a key at a
+different local markdown file for this repo only"* — and Findings 1-3 above confirm it is now built,
+tested, and reviewed clean: `.litefactory/team.overrides.json` (a flat `{agentKey: source}` map, the
+same litefactory-owned bookkeeping directory US-9 introduced — directly answering the naming half of
+former Open Question 12 by delivered fact, not by further Research recommendation), consumed by
+`internal/teamsource/render.go`'s `readAgentSource` upstream of hashing in both `RenderTeam` and
+`RenderCurrent`, so that `team.Classify` (US-10's drift classifier) needed **zero** modification —
+exactly the "no special case" outcome US-13's own Architecture Notes predicted and `CODE_REVIEW.md`
+independently confirmed. The one non-blocking advisory recorded against this delivery
+(`CODE_REVIEW.md`'s CR-A-001: an unreachable `filepath.IsAbs(clean)` check in
+`validateOverrideSource`, dead code with no behavioral effect) is cosmetic and does not affect any
+Acceptance Criterion.
+
+## Recommendation for the next Implement run — do not redo US-13; close out Run 27's bookkeeping and continue the Story Index
+
+**[R this pass, sixth]** This is a narrow, corroborated recommendation for whoever opens the next
+Implement run against this session, not a new design question:
+
+1. **Do not re-implement US-13.** All four tasks (T-35–T-38) and all four Acceptance Criteria
+   (AC-1–AC-4) are delivered, reviewed `ADVISORY_ONLY` with zero BLOCKING findings, tested (unit
+   coverage across `internal/team`, `internal/teamsource`, and `internal/cli`, including three
+   dedicated cross-command end-to-end tests), and — per Finding 5 — almost certainly already
+   committed at `2516882`, the current tip of the branch, with a clean working tree. Re-running Phase
+   1 development for US-13 would duplicate real, sound work and risk producing a second, conflicting
+   implementation of the same override mechanism.
+2. **Do first confirm, not assume, that `2516882` builds and tests clean**, since this pass had no
+   `Bash`/`git` access to verify that directly (Finding 2's own stated limit). A single `go build
+   ./... && go vet ./... && gofmt -l . && go test -race ./...` at the start of the next run — cheap,
+   and exactly the kind of check every prior Implement run in this session already performs as a
+   matter of course before or after its own Phase 1 — closes the one residual gap this investigation
+   could not close itself. If that check surfaces any failure, treat it as a new, narrow bug-fix
+   task against the already-landed US-13 code, not as grounds to rebuild it from scratch.
+3. **Do write the missing `$session/MANIFEST.md` History entry for Run 27**, using `notes.md`'s own
+   Run 27 narrative, `DRIFT_REPORT.md`, and `CODE_REVIEW.md` as the source record (the same pattern
+   Run 22 used to retroactively document Run 21's gap) — and correct the stale "Implement" summary
+   line, which currently still lists US-13 as open. This is bookkeeping, not implementation work, and
+   is what actually closes Run 27 out; skipping it leaves the same false "still open" signal in place
+   for the next run to trip over.
+4. **Optionally, at the same run's discretion, fix `CODE_REVIEW.md`'s one recorded non-blocking
+   advisory** (CR-A-001, the dead `filepath.IsAbs(clean)` check in `validateOverrideSource`) — purely
+   cosmetic, not required by any Acceptance Criterion, and not worth a dedicated run on its own.
+5. **Proceed to new scope from the Story Index**, per `plan_brief.md`'s Workflow step 10: with US-11
+   and US-13 both now landed, US-14 (validation wiring, depends on US-5/US-9/US-13 — now fully
+   satisfied) is the next story with no unmet dependency, alongside US-15 (multi-worktree
+   propagation, depends on US-11 — also now satisfied). US-16 must still not be scheduled until
+   US-15 lands (sequence-dependency stated in Domain §9/§10 above, unchanged by this pass). This
+   pass does not choose between US-14 and US-15 for the next run — that is a scoping call for
+   whoever opens it, per this session's established one-story-per-run discipline (explicitly named
+   in Run 27's own `notes.md` entry as the reason bundled-scope runs 20/21/25 either overran or hit a
+   usage limit).
+
+This pass does not edit `MANIFEST.md`'s Implement section, `notes.md`, `DRIFT_REPORT.md`, or
+`CODE_REVIEW.md` itself — those are Implement-mode's own bookkeeping artifacts and the fix belongs to
+the Implement close-out run recommended above, consistent with this session's own established
+boundary between Research investigating and Implement/Plan editing their own artifacts (the same
+boundary Domain §12's fifth pass observed when it investigated the schema-drift blocker but left the
+actual document edits to a dedicated Plan pass).
