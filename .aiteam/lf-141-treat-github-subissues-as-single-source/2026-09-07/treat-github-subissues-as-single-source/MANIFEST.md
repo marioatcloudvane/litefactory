@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [x] **Plan** — `plan_brief.md` + six complete per-story publication bodies *(done; existing child links retained; run 0003 body synchronization pending)*
+- [x] **Plan** — `plan_brief.md` + five complete per-story publication bodies *(done; #143–#147 links retained; run 0004 body synchronization and #148 withdrawal pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -20,6 +20,8 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-07 — Plan completed for issue #141, run 0002: feature-spec.md, ARCH_REVIEW.md (approved; no deviation), plan_brief.md and US-1.md through US-6.md prepared with 29 tasks. Headless assumptions recorded. GitHub publication and real Story Index links remain litefactory post-run work; Implement is not started.
 
 - 2026-09-07 — Plan revised for issue #141, run 0003: owner clarified that each sub-issue must close immediately when its own verified implementation finishes. This supersedes the run 0002 save/push prerequisite; story completion is reported during the active parent run, separately from final delivery. Existing links to child issues #143–#148 retained. Updated publication bodies require synchronization to existing GitHub children; no GitHub mutation, implementation, commit or push performed.
+
+- 2026-09-07 — Plan revised for issue #141, run 0004: owner removed story 6 and all legacy plan/story migration. Active plan now has five stories (US-1–US-5), 25 tasks and retained child links #143–#147. US-6.md was removed from the publication handoff; existing GitHub #148 is withdrawn from local scope but its remote disposition remains pending synchronization. New-workflow instruction/docs alignment and parity checks stay in existing tasks. Run 0003 immediate story closure and affected-story reopening remain unchanged. No GitHub mutation, implementation, commit or push performed.
 
 ## Notes
 

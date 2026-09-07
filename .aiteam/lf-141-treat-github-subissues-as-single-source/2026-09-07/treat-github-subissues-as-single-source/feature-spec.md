@@ -13,7 +13,6 @@
 | US-3 | As the owner, I want promotion to freeze the approved story revisions and announce the policy so later comments cannot change active implementation. |
 | US-4 | As an implementation agent, I want the selected GitHub story revisions supplied on initial execution and resume so the work follows the approved scope. |
 | US-5 | As the owner, I want each child closed immediately when its own implementation is verified so I see progress while other stories and the parent run are still active. |
-| US-6 | As the owner, I want existing file-backed plans reconciled safely so adopting issue authority does not lose technical detail or human edits. |
 
 ## Data Model
 | Entity | Field | Type | Required | Constraints |
@@ -61,7 +60,6 @@
 - BR-12: A story becomes verified when structured evidence identifies its selected revision and implementation, demonstrates satisfaction of its acceptance criteria, and records passing review and tests required for that story. A raw specialist DONE message or process success is insufficient. Accept this milestone during the active parent run; verification and closure must not wait for other stories, feature-wide gates, subprocess exit, final saving/pushing, or merge. Required story-scoped checks must be available at that milestone; a story awaiting such checks remains open.
 - BR-13: Immediately upon accepting story verification, durably record the evidence, publish its completion report and close its child with reason completed, while other stories may still be running. Persist reporting/closure failures for retry without rerunning implementation and visibly distinguish pending delivery from successful closure; partial or failed stories remain open with an explanation. Reports state that story verification is complete and distinguish any still-pending parent validation or save/push. Later unrelated aggregate, run or push failures do not reopen verified stories. Later evidence that invalidates a story's acceptance or implementation reopens only affected stories with a linked explanation, revokes their completion, and keeps their approved scope frozen pending repair or an explicit parent Plan action. A human-closed issue alone is not evidence of implementation success.
 - BR-14: Continue observing tracked completed children for authorized comments and return the frozen/completed policy explanation. External reopening alone does not clear approval state or start execution.
-- BR-15: Adopt legacy stories only after comparing full tracked content, current issue content and provenance. Preserve complete technical detail and human additions; ambiguous divergence blocks migration for that feature with an actionable report. Remove current tracked story files and their live index references only after complete issue publication is confirmed; retain historical commit links as history.
 - BR-16: Both Claude and Codex planning, implementation, review and test workflows follow the same issue authority, runtime handoff, revision and completion contracts. Update all affected instruction copies and documentation together.
 - BR-17: Manually attached direct children may be explicitly adopted only through a validated parent Story Index and complete story contract. Unindexed children are left untouched; nested and cross-repository references in an index are rejected with actionable diagnostics.
 
@@ -77,7 +75,6 @@
 - A story verifies while siblings still run → report and close it immediately; do not batch its closure with the final feature result or push.
 - Later aggregate failure → retain completed stories unless evidence invalidates their completion; report unrelated failures on the parent/affected stories, and reopen invalidated stories transparently with retryable, ordered reporting so an older pending close cannot override invalidation.
 - Body publication exceeds supported limits → fail with the specific affected story; do not truncate technical instructions or silently split authority into tracked files.
-- Legacy truncated issue with available complete source → reconcile and publish complete content before file removal; missing or ambiguous source → block migration and identify what is missing.
 
 ## Assumptions and Provenance
 | Decision | Basis |
@@ -90,17 +87,18 @@
 | Parent Plan may reopen unfinished scope only when no run is active; validly completed stories use successors. | Provides a deterministic scope correction path without adding cancellation; automatic reopening is limited to invalidated completion and does not unfreeze scope. |
 | Same-repository, direct indexed children are initial scope; milestone updates supply progress. | Research recommends the existing parent-feature workflow and excludes generalized project management. |
 | Planning output needs a transient structured publication handoff despite eliminating committed story files. | Agents still need to propose new issue content before the daemon can publish it; transient transport is not another editable authority. |
+| No migration of existing file-backed plans or legacy story content is included; US-6, BR-15 and AC-10 are removed without renumbering remaining IDs. | Owner clarification in Plan run 0004 explicitly removes story 6 and migration; this supersedes the research migration recommendation and earlier planning scope. |
 | No unresolved owner decision blocks writing this plan. | Headless run explicitly requires reasonable assumptions and forbids questions or approval waits; decisions remain reviewable in this artifact. |
 
 ## Out of Scope
 - Implementation during this Plan run; live GitHub changes, commits or pushes by the planning agents.
 - Native conversation locks, preventing owners/admins from editing GitHub, or claiming atomic GitHub body updates.
 - Cross-repository/nested story execution, automatically enrolling arbitrary attached children, generalized project management or automatic merges.
-- Rewriting historical commits, bulk migration of unrelated archived sessions, or silently discarding ambiguous legacy content.
+- Migration, reconciliation, backfill or cleanup of existing file-backed plans and legacy story content, including removal of their tracked story files; rewriting historical commits.
 - Agent-specific divergence, independent child implementation sessions, streamed child token logs or interruption/cancellation controls.
 
 ## Acceptance Criteria
-- [ ] AC-1: Creating and revising a Plan produces complete attached GitHub stories; a second publication updates the same identities and successful plans contain no tracked per-story specification files.
+- [ ] AC-1: Creating and revising a Plan under the new issue-authoritative workflow produces complete attached GitHub stories; a second publication updates the same identities and introduces no tracked per-story specification files. Existing file-backed plans are outside this feature's migration scope.
 - [ ] AC-2: Missing/invalid/oversized/inaccessible stories and partial publication visibly prevent promotion; retries recover prior successful creation/attachment without duplicates.
 - [ ] AC-3: Authorized child Plan comments execute in the parent context and produce attributable replies; unauthorized comments and unrelated marker-like issues cannot gain execution privileges.
 - [ ] AC-4: Promotion persists one approved revision set, orders admitted planning work deterministically and publishes all required lock notices before any implementation launch.
@@ -109,6 +107,5 @@
 - [ ] AC-7: Known stale Plan proposals do not overwrite current issue content; detected concurrent changes produce conflict/drift reports without claiming an atomic remote lock.
 - [ ] AC-8: Child milestones identify the parent run and revision; a test holds the parent run and another story active and proves a story with accepted acceptance/review/test evidence is reported and closed before either completes and before final save/push. Raw DONE, missing checks and failed/incomplete/unknown outcomes leave stories open. Unrelated later run, aggregate or push failure retains valid closures; evidence invalidating completion reopens only affected stories with an explanation and preserves their scope freeze.
 - [ ] AC-9: Restart and API-failure tests prove pending notices, reporting, immediate closure and invalidation/reopening resume without duplicate story creation or repeat implementation; an obsolete pending close cannot undo a later invalidation.
-- [ ] AC-10: Legacy migration retains required technical content and human additions, blocks ambiguity, and removes live story files only after confirmed issue publication.
 - [ ] AC-11: An explicit parent Plan action after execution ends reopens only unfinished scope in a new generation; comments or external reopening alone cannot unfreeze a completed story.
 - [ ] AC-12: Claude and Codex workflow instructions, specialist inputs, documentation and tests agree on the issue authority and structured result contracts.

@@ -2,7 +2,7 @@
 # Created: 2026-09-07
 # Verdict: APPROVED FOR PLANNING
 
-Run 0003 review: read the revised `feature-spec.md`, `plan_brief.md` and six existing story bodies in the required context/constraints order. The owner requires immediate per-story closure for visible progress. This revision retains all six story IDs and 29 task IDs, including existing GitHub children #143–#148. This review writes no implementation code. Citation base: `ae5a20c104db9775facbb4c1ca648ac94709a3c6`; paths below refer to that repository revision. External platform facts are carried from this session's research, not freshly probed.
+Run 0004 review: read the revised `feature-spec.md`, `plan_brief.md` and six existing story bodies in the required context/constraints order, with platform, security and task-decomposition guidance. The owner removes US-6 and all legacy plan/story migration. The active plan retains US-1–US-5 and their 25 task IDs, linked to GitHub children #143–#147; US-6/#148 is withdrawn locally, with GitHub synchronization pending. Immediate per-story closure for visible progress remains required. This review writes no implementation code. Citation base: `ae5a20c104db9775facbb4c1ca648ac94709a3c6`; paths below refer to that repository revision. External platform facts are carried from this session's research, not freshly probed.
 
 ## System Overview
 
@@ -23,7 +23,8 @@ No new Go package, module, service, CLI or goroutine is needed. Add durable plan
 3. **Durable state:** A feature has generations, each with one selected revision set; a story has execution attempts tied to parent runs. A store transaction persists all unfinished frozen revisions and the freezing state together. Revisions digest exact fetched title/body with unambiguous encoding, alongside numeric identities and generation; `updated_at` is diagnostic only. Every required notice must be delivered before implementing starts. A retry reuses the same set. Explicit quiescent parent Plan creates a new generation for unfinished scope only; no inference from removable labels or externally reopened issues.
 4. **External effects and recovery:** Persist operation intent before a network mutation, then render/redact, deliver, and transactionally record successful delivery and any associated watermark (CONC-4). Intent and approval transactions do not claim delivery or consume source comments. No DB transaction spans network or git I/O. GitHub provides no atomic transaction or exactly-once comment/create primitive: persist stable operation IDs, reconcile bot-authored markers/returned numeric identities and verified relationships after ambiguous responses, and fail visibly on ambiguity instead of blindly duplicating. Recovery executes pending effects without rerunning agents; only daemon owns retry timing (CONC-6).
 5. **Agent contracts and completion:** Every cold run, resume and cold-after-resume-refusal receives exact selected revisions and source provenance. Plan proposals and implementation evidence are versioned, strict, bounded machine-readable contracts, never inferred from free-form success prose. Completion requires matching selected story/revision evidence and passing story-scoped acceptance/review/tests on a stable implementation basis. Accept evidence during the parent run and immediately report/close that story without waiting for sibling completion, aggregate gates, subprocess exit, save/push or merge. A raw DONE or missing required checks cannot verify. Report before closing and record completed only after both succeed. Later unrelated failures preserve closures; invalidating evidence revokes affected completion and requires explained reopening with frozen scope intact.
-6. **Security and parity:** Source bodies/comments and agent outputs remain untrusted. Trusted envelopes describe policy and delimit data; no source text enters argv, tool authorization, filesystem paths or forge targets (SEC-2, SEC-4, SEC-8, SEC-9). All outward issue bodies/notices pass `report` and redaction (SEC-5/6). Claude/Codex workflows must change together, including specialist context and review/test evidence, without widening tool permissions.
+6. **Scope and compatibility:** No conversion, reconciliation, backfill, restoration or removal of existing file-backed plans and legacy story content is included. Existing artifacts are not readiness prerequisites for the new workflow. New-workflow contract validation still blocks incomplete issue specifications without importing legacy files; ordinary publication/recovery and required embedded SQL schema migrations remain in scope.
+7. **Security and parity:** Source bodies/comments and agent outputs remain untrusted. Trusted envelopes describe policy and delimit data; no source text enters argv, tool authorization, filesystem paths or forge targets (SEC-2, SEC-4, SEC-8, SEC-9). All outward issue bodies/notices pass `report` and redaction (SEC-5/6). Claude/Codex workflows must change together, including specialist context and review/test evidence, without widening tool permissions.
 
 ### Data Flow
 
@@ -105,8 +106,8 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 #### T-1.2: Define full story and transient Plan proposal contracts
 **Agent:** go-implementation-engineer
 
-- **Package placement / integration:** internal/planbrief; internal/agent; internal/harness; dependencies: T-1.1.
-- **Architectural hints:** Keep story/index parsing pure; strict versioned proposal validation requires complete acceptance, tasks, architecture and dependencies. The trusted prompt supplies the transient handoff location; target paths and forge authority never come from model output.
+- **Package placement / integration:** internal/planbrief; internal/agent; internal/harness; mirrored Plan instructions; dependencies: T-1.1.
+- **Architectural hints:** Keep story/index parsing pure; strict versioned proposal validation requires complete acceptance, tasks, architecture and dependencies. The trusted prompt supplies the transient handoff location; target paths and forge authority never come from model output. Align Claude/Codex Plan orchestrator, requirements and story-authoring instructions with this proposal contract and index-only output for the new workflow. This does not convert existing story files.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-1.3: Add validated parent reads and full issue body updates
@@ -120,21 +121,21 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 **Agent:** go-implementation-engineer
 
 - **Package placement / integration:** internal/report; internal/turn/subissues.go; dependencies: T-1.1, T-1.2, T-1.3.
-- **Architectural hints:** Replace technical excerpt/truncation and marker-only reuse. Capture intent before create, recover ambiguous create/attach, compare base before update and verify afterward. Publication failure prevents readiness and is a reportable result, not a log-only warning.
+- **Architectural hints:** Replace technical excerpt/truncation and marker-only reuse. Capture intent before create, recover ambiguous create/attach, compare base before update and verify afterward. Publication failure prevents readiness and is a reportable result, not a log-only warning. Correct relevant existing redacted publication/API inventory prose without weakening the normative boundary.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-1.5: Persist link-only index and remove transient handoff before harvest
 **Agent:** go-implementation-engineer
 
 - **Package placement / integration:** internal/turn/harvest.go; internal/turn/subissues.go; internal/git existing gateway; dependencies: T-1.4.
-- **Architectural hints:** Restrict publication to explicit Plan; save index after confirmed issue publication using existing short clone gate. Exclude runtime transport on every save path. Do not depend on source-file permalinks or claim Plan ready before index persistence.
+- **Architectural hints:** Restrict publication to explicit Plan; save index after confirmed issue publication using existing short clone gate. Exclude runtime transport on every save path; do not delete or rewrite legacy story files. Do not depend on source-file permalinks or claim Plan ready before index persistence.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-1.6: Test contract, rendering and publication failure boundaries
 **Agent:** go-implementation-engineer
 
 - **Package placement / integration:** internal/planbrief; internal/report; internal/github; internal/turn fixtures; dependencies: T-1.2, T-1.3, T-1.4, T-1.5.
-- **Architectural hints:** Cover full content, oversize, absent sections, stale base, duplicate marker, partial attachment, API failures and no tracked transport. HTTP via httptest, no live GitHub.
+- **Architectural hints:** Cover full content, oversize, absent sections, stale base, duplicate marker, partial attachment, API failures and no tracked transport. Cover mirrored Plan authoring contract parity. HTTP via httptest, no live GitHub.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-1.7: Test durable publication crash recovery
@@ -241,8 +242,8 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 #### T-4.3: Update both implementation and specialist input workflows
 **Agent:** go-implementation-engineer
 
-- **Package placement / integration:** .claude/agents; .codex/skills; .claude/modes; AGENTS.md and CLAUDE.md relevant contracts; dependencies: T-4.1, T-4.2.
-- **Architectural hints:** Orchestrator assigns each specialist its selected GitHub-derived story/revision. Add per-story review/test checkpoints as each story finishes, producing incremental evidence before sibling completion; the current aggregate Gate A/B ordering cannot be its only validation path. Coordinate overlapping work so checks use stable snapshots and revise affected completion if later shared changes invalidate it. Preserve final feature-wide checks, mode-header coordination (STYLE-8) and tool boundaries.
+- **Package placement / integration:** .claude/agents; .codex/skills; .claude/modes; AGENTS.md and CLAUDE.md relevant contracts; .aiteam/APP_CONTEXT.md and relevant README/docs; dependencies: T-4.1, T-4.2.
+- **Architectural hints:** Orchestrator assigns each specialist its selected GitHub-derived story/revision. Add per-story review/test checkpoints as each story finishes, producing incremental evidence before sibling completion; the current aggregate Gate A/B ordering cannot be its only validation path. Coordinate overlapping work so checks use stable snapshots and revise affected completion if later shared changes invalidate it. Preserve final feature-wide checks, mode-header coordination (STYLE-8) and tool boundaries. Align the execution/review/test documentation and current context with issue-derived inputs, freeze/readiness rules and scoped validation; cover only the new workflow, with no legacy conversion or cleanup.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-4.4: Test cold, resumed and fallback revision parity
@@ -260,7 +261,7 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 | T-5.3 | Validate evidence and emit story milestones | logic | T-5.1, T-4.2 | US-5 | L |
 | T-5.4 | Reconcile completion reporting and closure without reexecution | logic | T-5.2, T-5.3, T-1.1 | US-5 | L |
 | T-5.5 | Test malformed evidence and successful/partial story outcomes | test | T-5.1, T-5.2, T-5.3 | US-5 | M |
-| T-5.6 | Test milestone/closure recovery across restarts | test | T-5.4, T-3.3 | US-5 | M |
+| T-5.6 | Test milestone/closure recovery and workflow parity | test | T-5.4, T-3.3, T-4.3 | US-5 | L |
 
 #### T-5.1: Define structured story evidence and persist execution attempts
 **Agent:** go-implementation-engineer
@@ -280,7 +281,7 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 **Agent:** go-implementation-engineer
 
 - **Package placement / integration:** internal/turn progress service; internal/daemon tick scheduling; internal/report; both implementation orchestrator copies; dependencies: T-5.1, T-4.2.
-- **Architectural hints:** Consume incremental events during the active run; validate known identities, sequence, selected revision and named AC/review/test evidence against a stable implementation snapshot. Persist verification and immediately attempt completion reporting/close, without final harvest or push. A raw DONE or absent required scoped checks leaves the story open. Later unrelated failures retain closures; invalidating evidence revokes only affected completions. Distinguish launch-admitted started notice from proven running process.
+- **Architectural hints:** Consume incremental events during the active run; validate known identities, sequence, selected revision and named AC/review/test evidence against a stable implementation snapshot. Persist verification and immediately attempt completion reporting/close, without final harvest or push. A raw DONE or absent required scoped checks leaves the story open. Later unrelated failures retain closures; invalidating evidence revokes only affected completions. Distinguish launch-admitted started notice from proven running process. Update both instruction copies and relevant current context/user documentation for immediate closure, pending parent checks/save/push, and invalidation/reopening.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
 #### T-5.4: Reconcile completion reporting and closure without reexecution
@@ -297,49 +298,12 @@ Task ownership is `go-implementation-engineer` for every entry per the shared ta
 - **Architectural hints:** Hold the fake parent runner and a sibling story active with channels; submit valid scoped evidence and prove completion report/close precede their release and any save/push. Cover raw DONE, missing checks, malformed identities, changing evidence, replay/conflicting duplicates, partial success, unrelated later gate/process/push failure and affected-story invalidation. Use real git fixtures and no sleeps.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
 
-#### T-5.6: Test milestone/closure recovery across restarts
+#### T-5.6: Test milestone/closure recovery and workflow parity
 **Agent:** go-implementation-engineer
 
-- **Package placement / integration:** internal/store; internal/daemon and turn fixtures; dependencies: T-5.4, T-3.3.
-- **Architectural hints:** Real SQLite and httptest exercise live report/close failure, acknowledgement loss, close success before local persistence, restart and reopen failure. Exercise invalidation overtaking queued or uncertain close; only the newest desired state may settle. Assert no repeat implementation, no stale reclose and no lost refusal on completed or reopened-frozen children.
+- **Package placement / integration:** internal/store; internal/daemon and turn fixtures; dependencies: T-5.4, T-3.3, T-4.3.
+- **Architectural hints:** Real SQLite and httptest exercise live report/close failure, acknowledgement loss, close success before local persistence, restart and reopen failure. Exercise invalidation overtaking queued or uncertain close; only the newest desired state may settle. Assert no repeat implementation, no stale reclose and no lost refusal on completed or reopened-frozen children. Extend fixtures through new Plan publication → child refinement → freeze → resume → live verification/close before parent exit → affected invalidation/reopen with both fake runners and no tracked story transport. No legacy migration fixtures or legacy-file cleanup assertions.
 - **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
-### US-6
-
-| ID | Title | Type | Depends On | Story | Est |
-|---|---|---|---|---|---|
-| T-6.1 | Reconcile legacy file bodies with current child contracts | logic | T-1.4 | US-6 | L |
-| T-6.2 | Remove confirmed migrated live story files and references | logic | T-6.1, T-1.5 | US-6 | M |
-| T-6.3 | Align Plan publication instructions and persistent context documentation | logic | T-6.2, T-4.3, T-5.3 | US-6 | M |
-| T-6.4 | Test safe migration and end-to-end workflow parity | test | T-6.1, T-6.2, T-6.3, T-5.6 | US-6 | L |
-
-#### T-6.1: Reconcile legacy file bodies with current child contracts
-**Agent:** go-implementation-engineer
-
-- **Package placement / integration:** internal/planbrief; internal/turn/subissues.go; dependencies: T-1.4.
-- **Architectural hints:** Use indexed current file and existing provenance only; compare full technical content and human changes. Reuse current-base publication protocol. Missing source, competing edits, missing relationship or uncertain origin blocks migration with explicit evidence; never fetch arbitrary local paths from issue text.
-- **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
-
-#### T-6.2: Remove confirmed migrated live story files and references
-**Agent:** go-implementation-engineer
-
-- **Package placement / integration:** internal/turn worktree harvesting; internal/planbrief; dependencies: T-6.1, T-1.5.
-- **Architectural hints:** Only remove files confirmed as this active plan’s sources after full issue reread matches publication. Preserve historical commits/links. Recover post-publication/pre-removal crash without republishing stale data; do not bulk-migrate archived sessions.
-- **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
-
-#### T-6.3: Align Plan publication instructions and persistent context documentation
-**Agent:** go-implementation-engineer
-
-- **Package placement / integration:** .claude and .codex instruction copies; .aiteam/APP_CONTEXT.md; relevant README/docs; dependencies: T-6.2, T-4.3, T-5.3.
-- **Architectural hints:** Replace tracked story authoring with transient publication contract and index-only artifacts; cover proposal source revisions, readiness failure, lock semantics, immediate per-story completion before parent validation/push, invalidation/reopening and migration. Update stale inventory prose without weakening normative redaction, method surfaces or security policy.
-- **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
-
-#### T-6.4: Test safe migration and end-to-end workflow parity
-**Agent:** go-implementation-engineer
-
-- **Package placement / integration:** internal/planbrief; internal/turn and daemon fixtures; dependencies: T-6.1, T-6.2, T-6.3, T-5.6.
-- **Architectural hints:** Prove truncated legacy restoration, human-addition preservation, ambiguous refusal, publish-before-removal, restart and old historical links. Exercise complete Plan→child refinement→freeze→resume→live verify/close before parent exit→affected invalidation/reopen with both fake runners and no tracked story transport.
-- **Boundary:** Deliver this task only; use the shared contracts above and leave other lifecycle stages to their listed tasks.
-
 ## Platform Constraints
 
 - Platform: Layout and interfaces — reuse internal packages and consumer-side interfaces; no public package or new service.
@@ -371,10 +335,10 @@ Highest-priority safeguards are canonical parent authorization, complete contrac
 
 **DEVIATION: none requested.** The plan does not require weaker secrets, authorization, redaction, transaction, goroutine or clone boundaries. No amendment ledger is written because no normative departure is proposed.
 
-Existing research documented stale SEC-6/API inventory: the rulebook describes a sole PostComment consumer and no exported extraction, whereas current code also creates redacted issues and exposes Body.String. Do not silently treat that stale wording as permission to add an unredacted write route or further extraction methods. US-6 documentation work must accurately describe the existing redacted transport boundary; any actual relaxation of normative security is a separate deviation and remains prohibited. The implementation reviewer must specifically inspect new body update/close method-surface changes under TEST-10. Expected behavior changes to file mirroring, truncation and close-discovery tests must be explained as this feature's intentional design changes.
+Existing research documented stale SEC-6/API inventory: the rulebook describes a sole PostComment consumer and no exported extraction, whereas current code also creates redacted issues and exposes Body.String. Do not silently treat that stale wording as permission to add an unredacted write route or further extraction methods. T-1.4 publication documentation and T-4.3/T-5.3 workflow documentation must accurately describe the existing redacted transport boundary; any actual relaxation of normative security is a separate deviation and remains prohibited. The implementation reviewer must specifically inspect new body update/close method-surface changes under TEST-10. Expected behavior changes to file mirroring, truncation and close-discovery tests must be explained as this feature's intentional design changes.
 
-Planning assumptions in the feature spec are adopted: application lock with visible refusal, all unfinished stories frozen at parent promotion, immediate closure after story-scoped verification while the parent remains active, without final save/push or merge, explicit quiescent replanning of unfinished scope, and no cross-repository/nested execution. No specialist outside Go backend architecture is required; workflow prose follows the established mirrored instructions and reviewable contracts.
+Planning assumptions in the feature spec are adopted: application lock with visible refusal, all unfinished stories frozen at parent promotion, immediate closure after story-scoped verification while the parent remains active, without final save/push or merge, explicit quiescent replanning of unfinished scope, no legacy plan/story migration or cleanup, and no cross-repository/nested execution. No specialist outside Go backend architecture is required; workflow prose follows the established mirrored instructions and reviewable contracts.
 
-Publication caveat: actual Story Index links #143–#148 are retained. The current publisher can skip already linked children and abbreviate bodies, as documented in RESEARCH_BRIEF.md; local revised handoff bodies do not prove their GitHub copies changed. Verify complete remote propagation before implementation.
+Publication caveat: active Story Index links #143–#147 are retained; #148 is withdrawn from local implementation scope and its GitHub disposition remains pending synchronization. The current publisher can skip already linked children and abbreviate bodies, as documented in RESEARCH_BRIEF.md; local revised handoff bodies do not prove their GitHub copies changed. Verify complete remote propagation before implementation.
 
 Architecture artifact complete; no code, GitHub mutation, commit or push was performed. Testing described here is planned, not executed.
