@@ -4,12 +4,14 @@
 
 ## Modes
 
-- [x] **Research** — `RESEARCH_BRIEF.md` *(run 0009 retry diagnosis complete; remote story synchronization confirmed missing)*
+- [x] **Research** — `RESEARCH_BRIEF.md` *(run 0014 scope/status clarification and owner-required default URL recorded; endpoint availability unverified)*
 - [x] **Plan** — `plan_brief.md` + six complete per-story bodies *(run 0013 remote-primary distribution re-plan; existing #127–#131 need synchronization and new US-6 needs publication/link)*
 - [ ] **Implement** — partial: central US-1/US-2 foundation implemented; remote distribution/publishing and US-3–US-5 delivery/workflow/evidence remain. Run 0013 removes the outer-sandbox EPERM prerequisite; it is not a product capability blocker.
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
+
+- 2026-09-07 — run 0014: verified current central management and missing remote configuration/acquisition/CLI delivery through a focused code tour. Explained full feature scope and recorded the owner's mandatory config.yaml discovery URL default, superseding run 0013's unset-default decision. Suggested teams.index_url as a proposed key, not implemented syntax; Plan must reconcile its alias design. Exact requested URL could not be verified by browsing (tool error, not confirmed 404). Updated Research brief and manifest only; no production/plan/story edits, tests, vendor probes or remote writes.
 
 - 2026-09-07 — run 0013: re-planned at 832c730882a13176f63e1e8eb1bd985150199fed for primary HTTPS distribution, independently versioned releases, corporate/default source configuration, integrity/pins, five byte-drift states plus freshness, offline operation and removal of embedded production content. Updated feature-spec, approved ARCH_REVIEW, plan and six story bodies; US-6 explicitly delivers publisher artifacts/workflow. Existing US-1/US-2 central management is reused. Main 6eb29bf roster fix is verified but not in task ancestry; retain its first-position orchestrators. Owner's Codex outside-sandbox success supersedes historical nested-EPERM prerequisite; suitable-environment delivery evidence remains acceptance. No implementation/probes/remote publication performed. Existing remote bodies require synchronization; US-6 URL awaits authorized publisher creation.
 
