@@ -1,0 +1,907 @@
+# Implement-mode notes
+
+## 2026-09-07 — Implement run 30: US-14 (allowlist + forbidden-flag + secret-scan validation)
+
+Sponsor scoped this run to exactly US-14, continuing the one-story-per-run discipline. US-13 was
+independently verified already complete on `ae7a303` (26 packages, `go test -race ./...` green,
+`gofmt`/`go vet` clean, zero `not implemented yet` stubs) before this run started — not re-verified
+or redone here.
+
+**The gap closed:** `internal/team/validate.go:14`'s `TODO(US-14)` assumed a
+`config.ContainsForbiddenFlag` that did not exist. Exported it from `internal/config/policy.go` as
+`ContainsForbiddenFlag(value string) bool`, wrapping the pre-existing
+`strings.Contains(value, forbiddenFlag())` check; refactored the package's own
+`validateNoForbiddenFlag` to call the new exported function internally instead of duplicating the
+`strings.Contains` call, so there is exactly one definition of the check (DEV-2, satisfying SEC-1's
+single-grep-site guarantee). `internal/team` now calls this new export at two points: `validate.go`
+(index-level `Source`/`Dest` string check, resolving the TODO) and `write.go`'s `Add()` (post-render
+byte check, alongside the pre-existing `config.ClassifySecret` call) — the second is the one AC-1/
+AC-2 actually depend on, since both `team add` and `team update` route through `Add()` as the single
+post-render validation gate. `team manage` itself never renders/writes; it only records an override
+pointer that a later `team add`/`team update` renders, so override content is covered by the same
+gate, not a separate check.
+
+New/extended error types (`internal/team/errors.go`): `ErrForbiddenFlag` sentinel,
+`ForbiddenFlagError{AgentKey, Harness, Path}` (post-render), `ForbiddenFlagInIndexError{Path,
+Field}` (index-level), and `SecretDetectedError` extended with `AgentKey`/`Harness`. None of their
+`Error()` methods include the matched flag substring or secret value — only category/location
+labels — satisfying the leakage constraint (CFG-4) while still naming agent key + harness + which
+check failed (AC-2).
+
+**Files touched:** `internal/config/policy.go`, `internal/team/validate.go`,
+`internal/team/errors.go`, `internal/team/write.go`, `internal/team/doc.go` (Invariants section
+updated — it previously described `config.ContainsForbiddenFlag` as "added by a later story").
+
+**Code review (Phase 1.5):** CLEAN, one advisory recorded in `CODE_REVIEW.md`:
+- **CR-A-001** (performance, non-blocking): `Add`'s per-file loop converts `f.Bytes` to `string`
+  twice (once for `ClassifySecret`, once for `ContainsForbiddenFlag`) — a minor duplicate
+  allocation, not hot-path-critical since rendered files are small markdown documents. Left
+  unfixed by judgment; not worth a fix cycle for a CLEAN-gated advisory.
+
+The reviewer traced actual call graphs (`runTeamAdd`/`runTeamUpdate` in `cmd_team.go`, both routing
+through `team.Add`; `runTeamManage`'s override-pointer-only behavior) rather than trusting the
+engineer's self-report, and independently re-verified `errors.Join`/`joinSorted` aggregation is
+real (genuine `continue` statements in both touched loops, not fail-fast) — this exact mistake class
+has been BLOCKING three times before on this issue (US-9's `Add`, US-10's `runTeamStatus`), so this
+is the first validation-focused story to get it right without a fix cycle needed at all, on top of
+run 26's first-clean-pass precedent.
+
+## 2026-09-05 — Run halted before Phase 1: schema drift judged a severe blocker
+
+Read in full before starting: `plan_brief.md`, `MANIFEST.md`, `US-1.md`, `US-2.md`,
+`US-17.md`, `SPIKE.md`. Read `RESEARCH_BRIEF.md` through its fourth revision
+pass (the section describing the schema change directly).
+
+**Finding.** `plan_brief.md`'s Shared Decision 1 — which the plan explicitly
+tells Implement mode to treat as settled — specifies a flat top-level schema:
+
+```go
+Index{SchemaVersion int, Agents map[string]AgentEntry, Shared []string, Teams []TeamEntry}
+```
+
+US-1 (the first story, gating all 17 others directly or transitively) builds
+exactly this shape: its Architecture Notes quote the same struct verbatim, and
+its highest-risk task (T-03, sized L, called out as "the single biggest sizing
+risk in this story") is a two-phase strict decoder written against it. US-17's
+worked JSON example and `SPIKE.md`'s reference JSON both instantiate the same
+flat `agents` map.
+
+`RESEARCH_BRIEF.md`'s fourth revision pass (2026-09-05, ~17:28 — the most
+recent accepted design decision, made in direct response to the sponsor's own
+comment on issue #68 that a flat top-level `agents` map "will become
+complicated" past 20-30 teams) removes that top-level map entirely: `shared`
+becomes its own key→`{source,dest}` map, each team's `agents` field becomes a
+key→`{source,dest}` map scoped to that team's own non-shared agents, and a new
+structural invariant is fixed — an agent key lives in exactly one place in the
+whole index (inline under one team, XOR once in `shared`); a key appearing in
+more than one place is a loader error, not a merge.
+
+MANIFEST.md's own history entry for that pass independently corroborates that
+this is unreconciled: it records, in the project's own words, that
+"plan_brief.md, all 18 US-*.md sub-issues (especially US-17.md), and SPIKE.md
+all still embed the old flat-map shape... both left for a future Plan
+reconciliation pass."
+
+**Judgment.** This is not an ordinary scope ambiguity resolvable on "the most
+reasonable reading of the plan" — the two schemas are structurally
+incompatible (presence vs. absence of a top-level map; key-string lists vs.
+inline full definitions; no uniqueness invariant vs. an exactly-once
+invariant), and the incompatibility sits in the one story every other story in
+the feature depends on. Two paths were open and both are foreclosed:
+
+1. **Implement the old (plan_brief/US-1) schema as written.** This means
+   hand-building the highest-risk piece of the whole feature — a strict
+   two-phase decoder — against a shape the sponsor has already rejected on the
+   record, on exactly the scaling concern (20-30 teams) this feature exists to
+   solve. That is building known-to-be-wrong foundational code and calling it
+   delivered.
+2. **Implement the new (RESEARCH_BRIEF.md fourth-pass) schema instead**,
+   silently substituting it for US-1's spec. That is re-deriving the
+   architecture inside Implement mode, which this mode is explicitly not
+   authorized to do — reconciling a design document against new research is
+   Plan mode's job.
+
+Both are ruled out by the same fact: the frozen artifact (`plan_brief.md`/
+`US-1.md`) and the latest accepted design (`RESEARCH_BRIEF.md`) disagree on the
+central data structure of the feature, and no reading of either document makes
+them fit together. Per the Escalating rubric, this is a **material plan
+change**: finishing US-1 (and everything built on it) as currently specified
+would contradict the sponsor's own most recent, on-the-record feedback.
+
+**Decision: escalate. No implementation agent was invoked. No code was
+written.** The worktree is unchanged from session start except for this note.
+
+See the run's final report (returned to the dispatcher) for the formal
+escalation write-up.
+
+## 2026-09-06 — Run 19: US-6, US-7, US-8 (the three renderers), Workflow step 5
+
+**Scope for this run** (per sponsor's issue #68 comment): only US-6, US-7, US-8,
+run in parallel, building on US-5's already-landed renderer contract
+(`internal/render/`, T-13). US-7 (Codex) closes fully. US-6 (Claude) and US-8
+(opencode) implement the standalone-file output path only — their
+marker-tagged-section paths wait for US-18, not started this run. US-4, US-9,
+US-18 explicitly untouched.
+
+**Verification performed before starting** (per sponsor's own instruction to
+verify rather than trust the run-18 note on faith): read `plan_brief.md`'s
+Workflow (steps 5–6) and Story Index, and US-5/US-6/US-7/US-8's own sub-issue
+files. Confirmed via `ls`/`git status --short`/`git log --oneline` (structure
+only, no content read for this check) that `internal/render/` already contained
+only the US-5 contract files (`doc.go, errors.go, registry.go, render.go,
+render_smoke_test.go, types.go`) with no `claude.go`/`codex.go`/`opencode.go`
+yet, and that `internal/team/`, `internal/teamsource/` (US-1/US-2/US-3/US-19)
+were present and committed (clean git status). This matched the sponsor's claim
+exactly. Also confirmed the schema-drift blocker recorded above (2026-09-05
+entry) is moot for this run: the worktree's `internal/team/` types reflect the
+reconciled (post-4th-pass) schema, not the old flat-map shape — the escalation
+from that earlier run was resolved by a subsequent Plan reconciliation pass
+before run 18 started.
+
+**Phase 1.** Three `go-implementation-engineer` invocations in parallel, one
+per story, each scoped explicitly to standalone-file output only (US-6, US-8)
+or full closure (US-7). All three reported DONE. All three independently
+registered their renderer under a distinct harness key (`claude`, `codex`,
+`opencode`) via `init()` + `render.Register`, per `registry.go`'s documented
+convention. `go build ./...`, `go vet ./...`, and `go test
+./internal/render/... -v` all passed (22/22) after all three landed side by
+side — no registration collisions, no import-boundary violations (all three
+files import only stdlib + `gopkg.in/yaml.v3` + `internal/render` itself).
+
+No other package in the repo imports `internal/render` yet (`go list -f
+'{{.ImportPath}}: {{.Imports}}' ./...` shows no importer), so these changes are
+fully isolated from the rest of the tree. A full-repo `go test ./...` run timed
+out at 2 minutes; since nothing imports the touched package, this is judged to
+be pre-existing slow/hanging behavior elsewhere in the repo, unrelated to this
+run's changes, and not investigated further (out of this run's scope).
+
+**Phase 1.5 — Code Review.** First pass: BLOCKING (CR-B-001) — the three
+renderers, written in parallel with no visibility into each other's code, each
+handled the "empty `Frontmatter.Name`" precondition differently (one bare
+unwrapped error, two divergently-named sentinels). Dispatched one
+`go-implementation-engineer` to unify all three onto a single shared sentinel,
+`render.ErrMissingAgentName`, added to `errors.go` next to
+`ErrUnsupportedField`/`ErrUnknownHarness`. Re-review (scoped to the touched
+files only) confirmed the fix and returned ADVISORY_ONLY. Full findings in
+`$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (carried forward, non-blocking)
+
+- **CR-A-001**: The Extra-key sort-and-report block (for the "unsupported field"
+  error path) is duplicated verbatim across `claude.go`, `codex.go`, and
+  `opencode.go`. Candidate for a shared helper in the `render` package if a
+  fourth harness is ever added.
+- **CR-A-002**: `codex.go` hardcodes the string literal `"codex"` in four places
+  instead of a named const, unlike `claude.go`/`opencode.go` which each define
+  one for their own harness key.
+- **CR-A-003**: Claude's empty-body path produces a trailing blank line
+  (`---\n\n`) that Codex's and opencode's renderers explicitly guard against
+  (and test for, via `TestCodexRenderEmptyBody`/`TestOpencodeRenderEmptyBody`);
+  Claude has no equivalent guard or test.
+- **CR-A-004**: Minor inconsistency — Claude calls `yaml.Marshal(&header)`
+  (pointer) where its siblings pass the struct by value; harmless but worth
+  aligning for consistency if this file is touched again.
+
+None of these block correctness or the acceptance criteria for US-6/7/8 as
+scoped to this run; recorded for a future pass (e.g. when US-18 lands and
+these renderers are extended for the marker-section path).
+
+## 2026-09-06 — Run 20: US-9 (write engine) + US-18 (root-file composition), Workflow steps 6-7 as one delivery window
+
+**Scope for this run** (per sponsor's issue #68 comment): US-9 and US-18 only,
+built as a single combined delivery given their explicit two-way hard coupling
+in `plan_brief.md`'s Workflow section ("Hard couplings, stated once" —
+US-9 supplies the atomic-write primitives US-18's marker upsert reuses; US-18
+supplies the root-file write path US-9's install needs). US-4, US-10, US-11,
+US-13, US-17 explicitly untouched this run.
+
+**Deviation from standard Phase 1 fan-out**: instead of one
+`go-implementation-engineer` per story in parallel, a single engineer built
+both stories together in one pass, given the two-way coupling — avoids an
+interface mismatch that two independent parallel implementations would risk
+(e.g. one side assuming a `RenderedFile` shape the other didn't build).
+
+**Assumption (deferred CLI wiring)**: US-9's T-20 (repo-identifier resolution
+CLI integration via US-19) is explicitly excluded from this run per the task
+instruction — the engine's entry point, `team.Add(root string, renders
+[]AgentRender) (*AddResult, error)`, is delivered as the complete contract for
+a future caller (US-4's `cmd_team.go`, or `internal/teamsource` glue) to build
+against. No `internal/cli` changes were made.
+
+**Engineer's own documented assumptions** (reasonable-reading judgment calls):
+1. No-op short-circuit path tested via black-box `os.Stat` mtime-unchanged
+   check rather than mocking the filesystem.
+2. Concurrent-serialization test (`TestAddSerializesConcurrentCalls`, 8
+   concurrent `Add` calls under `-race`) asserts indirectly via final
+   lockfile-record count and error-free completion, rather than instrumenting
+   internal lock acquisition directly.
+3. `Add` takes no `context.Context` parameter — read as consistent with the
+   plan's "no concurrency beyond the specified per-repo flock" constraint,
+   since nothing else in this engine's call chain (renderers, flock) is
+   ctx-aware either.
+
+**Phase 1.5 — Code Review.** First pass: BLOCKING (CR-B-001) — `Add`'s
+validation loop failed fast on the first bad harness/key/path/secret instead
+of aggregating every validation problem in the batch via `errors.Join`, per
+`plan_brief.md`'s Cross-Story Constraints (stated under both Platform and
+Security, the latter explicitly naming `team add`). `doc.go` had documented
+the fail-fast behavior as intentional, which itself conflicted with the plan.
+Dispatched one `go-implementation-engineer` to fix: the loop now collects
+every validation error into a slice and joins them once via the package's
+existing `joinSorted` helper (already used by `decode.go`), returning nothing-
+written unless the whole batch validates cleanly; individual sentinel types
+remain reachable via `errors.Is`/`errors.As` against the joined result
+(native `errors.Join` behavior). `doc.go` corrected. New test
+`TestAddAggregatesAllValidationFailuresInOneBatch` added, proving both
+error-completeness (two distinct problems, both reported) and atomicity
+(nothing written) in the multi-failure case. Re-review (scoped to
+`write.go`/`doc.go`/`write_test.go` only) independently confirmed the fix —
+re-ran `go build`, `go vet`, `go test -race`, `gofmt -l` — and returned CLEAN.
+Full findings in `$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (Run 20, carried forward, non-blocking)
+
+- **CR-A-001**: `lock.go`'s `acquireRepoLock` has an inline symlink check that
+  duplicates a narrower version of `writefile.go`'s `refuseSymlink`; candidate
+  for reuse via the shared helper.
+- **CR-A-002**: `Add` takes no `context.Context`, though `plan_brief.md`
+  describes a `ctx.Err()` check for write paths generally; flagged for
+  awareness ahead of US-4's CLI wiring (which will presumably thread a context
+  in from the command layer) — not judged a defect in `internal/team` as
+  delivered, since nothing in this engine's own call chain is ctx-aware.
+
+Both non-blocking; not fixed this run per Phase 1.5 handling of
+ADVISORY-only findings.
+
+## 2026-09-06 — Implement run 21 (retroactively documented): US-4 `team add` CLI wiring
+
+No entry for this run existed in this file before now — it is added retroactively
+from the surviving artifacts (`CODE_REVIEW.md`'s original BLOCKING findings,
+`git log`, and the committed `internal/cli/cmd_team.go`) because the run that
+did this work ended (commit 76f3159) without completing its own close-out steps.
+
+**Scope, as far as can be reconstructed:** `team add`'s CLI wiring in
+`internal/cli/cmd_team.go` (791 lines, new file) plus a 6-line addition to
+`internal/cli/commands.go` registering the subcommand — the caller-side glue
+between US-4's CLI scaffold and US-9/US-18's already-landed `team.Add` engine.
+`team list`/`team show` were built in the same file with no BLOCKING findings
+against them.
+
+**Phase 1.5 — Code Review.** First pass returned **BLOCKING**, with two
+findings against `team add` specifically (full text preserved verbatim in
+`CODE_REVIEW.md`):
+
+- **CR-B-001**: each `team.AgentRender` was built with `Teams:
+  []string{teamName}` — always just the current invocation's team, never
+  merged with contributing teams already recorded for a shared agent. This
+  defeated US-18 AC-2 (one deduplicated marker block per shared agent, listing
+  every contributing team): a second team adding a shared agent would silently
+  drop the first team's membership from the marker's `team=` list.
+- **CR-B-002**: rendering/hashing/team-collection logic (`parseAgentSource`,
+  `hashSourceBytes`, and the render loop) was built inside `internal/cli`
+  instead of `internal/teamsource`, violating the package-boundary contract
+  documented in `internal/team/doc.go` and `write_types.go`, which assign this
+  responsibility to `internal/teamsource` — the same layering US-9/US-18's
+  engine already follows.
+
+The run stopped after this review pass without dispatching a fix cycle, and
+without any of its own close-out steps (no `DRIFT_REPORT.md`, no MANIFEST.md
+History entry, no notes.md entry, no `APP_CONTEXT.md`/`APP_CONSTRAINTS.md`
+update). That is the incomplete state this session (run 22, below) was asked
+to close out.
+
+## 2026-09-06 — Implement run 22: close out run 21 — fix CR-B-001/CR-B-002, add missing tests, complete bookkeeping
+
+**Scope** (per sponsor's issue #68 comment): fix exactly the two BLOCKING
+findings left open against `team add` in run 21, then complete the
+review/test/bookkeeping steps that run skipped. Explicitly out of bounds this
+run: US-10, US-11, US-13, US-17, and US-1's `manage` subcommand beyond its
+existing stub. No new user-story scope was started.
+
+**Phase 1 — Fix.** A single `go-implementation-engineer` fixed both findings
+together in one pass (per `CODE_REVIEW.md`'s own instruction that they belong
+at the same layer):
+
+- New file `internal/teamsource/render.go`: a `RosterEntry` type and a
+  `RenderTeam(root string, fsys fs.FS, teamName string, roster
+  []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` entry
+  point. Relocates `parseAgentSource` (now package-private inside
+  `internal/teamsource`) from `cmd_team.go`. For each (harness, agent key)
+  pair, calls the pre-existing `team.ExistingTeams(root, harness, agentKey)`
+  read accessor to discover prior contributing teams, unions the result with
+  the current `teamName`, and passes the full set through to the renderer and
+  into the returned `team.AgentRender.Teams` — closing CR-B-001 without
+  inventing new durable state, since `ExistingTeams` already existed for
+  exactly this purpose. Converts `render.RenderedFile` → `team.RenderedFile`
+  and aggregates per-entry errors via `errors.Join`.
+- `internal/cli/cmd_team.go`: `parseAgentSource`/`hashSourceBytes` deleted;
+  `runTeamAdd`'s render loop now builds `[]teamsource.RosterEntry` from the
+  existing roster result and calls `teamsource.RenderTeam`, passing its
+  output straight to `team.Add` — closing CR-B-002. Now-unused imports
+  (`crypto/sha256`, `encoding/hex`, `gopkg.in/yaml.v3`, `internal/render`)
+  removed.
+- `internal/team/hash.go`'s unexported `hashBytes` exported as `HashBytes`
+  (taking CR-A-001's advisory since this boundary was already being touched),
+  with call-site renames in `marker.go`, `write.go`, and the two existing
+  `_test.go` files in that package to keep them compiling.
+
+Build, vet, gofmt, and the existing test suite all passed clean after the
+fix.
+
+**Phase 1.5 — Re-review.** `go-code-reviewer` re-reviewed, scoped only to the
+seven touched files, independently re-ran build/vet/gofmt/test/grep checks,
+and confirmed both CR-B-001 and CR-B-002 resolved. Verdict: **ADVISORY_ONLY**
+(no third review cycle needed) — treated as satisfying "confirm CLEAN" for
+gating purposes, per this orchestrator's own rule that ADVISORY_ONLY is a
+terminal, non-blocking state equivalent to CLEAN. CR-A-001 (the original
+`hashSourceBytes` duplication advisory) is now moot, since the duplicated
+code was deleted rather than kept side by side. CR-A-002 (lockfile-exists
+short-circuit skips harness/index validation ordering) is unchanged/open.
+One new advisory recorded:
+
+## Code Review Advisories (Run 22, carried forward, non-blocking)
+
+- **CR-A-002** (carried from run 21's review, still open): the lockfile-exists
+  short-circuit in `team add` skips harness/index validation ordering —
+  non-functional, documentation-only suggestion.
+- **CR-A-003** (new): `teamsource.RenderTeam` calls `team.ExistingTeams` once
+  per (harness, roster entry) pair rather than loading the lockfile once and
+  querying it in memory — a performance nit on repeated per-entry lockfile
+  reads, not a correctness issue at today's team/agent-count scale.
+
+Neither blocks correctness or this run's acceptance criteria; recorded for a
+future pass.
+
+**Phase 2 — Environment setup.** Skipped. `team add`'s implementation
+(`internal/cli/cmd_team.go`, `internal/teamsource`, `internal/team`) is
+filesystem-only — no database, external HTTP call, or message queue — matching
+the same judgment already recorded for run 20. No `TEST_BASE_URL`/
+`TEST_DATABASE_URL` lookup was needed.
+
+**Phase 3 — Testing.** `go-unit-test-engineer` added the tests run 21 never
+wrote, scoped narrowly to `team add` and the newly-relocated `teamsource`
+logic (not a full-story re-test pass, and not touching `team list`/`team
+show`, which the engineer separately flagged as themselves still having no
+test coverage in this worktree — out of scope for this run, noted here as an
+open gap for a future pass):
+
+- `internal/teamsource/render_test.go` — `TestParseAgentSource`,
+  `TestRenderTeam_SingleHarnessSingleAgent`,
+  `TestRenderTeam_MultipleHarnesses`,
+  `TestRenderTeam_FirstEverAdd_TeamsIsJustCurrentTeam`,
+  `TestRenderTeam_SharedAgentWithExistingContributingTeam_UnionsTeams` (direct
+  regression coverage for CR-B-001 — asserts the union, not an overwrite, via
+  a real prior `team.Add` seeding a lockfile),
+  `TestRenderTeam_MalformedFrontmatterSource_ReturnsWrappedError`,
+  `TestRenderTeam_UnknownHarness_ReturnsError`.
+- `internal/cli/cmd_team_test.go` (new) — `TestTeamAddRejections` (missing
+  team argument, unknown `--harness` value, no `.git` at the repo path, an
+  already-existing lockfile → the four `UsageError`/`PreconditionError`/plain-
+  error exit-code paths) and `TestTeamAddSuccess` (full happy path: real
+  temp-dir fixtures for the team index, config, and target repo; asserts
+  stdout summary, on-disk rendered file content, and post-add lockfile
+  presence).
+
+`go test ./internal/teamsource/... ./internal/cli/... -race -cover`: all
+passing, `-race` clean, `go vet` clean. Coverage 44.6% (`teamsource`), 73.2%
+(`cli`, whole package). No bug loop was needed — zero test failures.
+
+**Assumptions made this run** (headless, no clarifying question put to a
+human):
+1. ADVISORY_ONLY satisfies the sponsor's "confirm CLEAN" instruction, per this
+   orchestrator's own Phase 1.5 handling rule that both verdicts gate
+   identically. Recorded here explicitly since the sponsor's prose named
+   "CLEAN" specifically.
+2. No new `internal/team` read accessor was needed for CR-B-001 — the
+   pre-existing `team.ExistingTeams` already covered the "prior contributing
+   teams for this (harness, agent key)" query the fix needed.
+3. `team list`/`team show`'s pre-existing lack of test coverage (discovered by
+   the unit-test engineer, not by this orchestrator) is left as-is — fixing it
+   was not part of this run's scope (fixing CR-B-001/CR-B-002 plus their
+   missing tests), and is noted here as an open item for a future pass rather
+   than silently expanded into.
+
+No commits or pushes made this run — worktree left for litefactory to inspect
+and commit.
+
+## 2026-09-06 — Implement run 25: US-10 (`team status` drift detection) + closing the `team list`/`team show` test-coverage gap
+
+**Scope** (per sponsor's request on issue #68): US-10 only, plus the open
+`team list`/`team show` test-coverage gap flagged by run 22 and independently
+noted again by run 24. Explicitly out of bounds this run: US-11, US-13, US-14,
+US-15, US-16, US-17, and any extension of `team manage` beyond its existing
+stub. Headless run — no clarifying questions were put to a human; ambiguities
+were settled on the most reasonable reading of the plan and recorded below.
+
+**Pre-run state read as ground truth, not re-verified**: `main` had been merged
+into this branch (`9530f3b`) shortly before this run started, restructuring
+config into a nested `Settings` struct (`TeamConfig` → `settings.team_config`
+across `config.go`, `validate.go`, `template.go`, `cmd_team.go`); `go test
+-race ./...` was reported green (26 packages) at that point.
+
+**Decision required by the sponsor and recorded here, as instructed — CLI
+surface for unimplemented subcommands.** With `team status` now real, `team
+update` and `team manage` remain registered stubs whose help text says "X is
+not implemented yet. This command currently only validates its flags."
+Decision: **keep advertising all six `team` subcommands** (`list`, `show`,
+`add`, `status`, `update`, `manage`) rather than hiding the two remaining
+stubs from `--help` until they land. Reasoning:
+1. `plan_brief.md`'s Shared Decision 2 architects the CLI surface as "six
+   commands, one `Command` constructor each, one line each in
+   `internal/cli/commands.go`'s `Commands()` — no switch, no mutable
+   registry." That statically pre-commits to registering all six regardless
+   of implementation status; conditionally hiding a subcommand would require
+   a registration mechanism the plan explicitly rules out.
+2. No story in the 18-story plan describes building dynamic/conditional
+   command registration, so building one now would be scope not asked for.
+3. The stub pattern (`"X is not implemented yet. This command currently only
+   validates its flags."`) is itself the plan's existing, honest way of
+   telling a user a subcommand isn't real yet — `team status` used exactly
+   this pattern before this run, and `team update`/`team manage` continue to
+   use it now. This is judged an acceptable ordinary-ambiguity resolution,
+   not a severe blocker, since a full worked precedent (the six-command
+   architecture) already existed to read from.
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out; the `team list`/`show` test gap is testing work, not
+new implementation, so it was scoped to Phase 3 instead). Delivered:
+- New `internal/team/status.go`: `Status` enum (`StatusInSync`,
+  `StatusLocallyModified`, `StatusUpstreamUpdated`, `StatusConflict`,
+  `StatusMissing`) with `String()`; exported `LoadLockfile`/`DecodeTeams`
+  wrappers; `Classify(root, rec, freshSourceHash, freshTeams, freshBody)` —
+  the five-state byte-comparison classifier from US-10's Architecture Notes,
+  handling both standalone targets and root-file marker-span targets;
+  read-only (only ever `os.ReadFile`, reuses the existing `refuseSymlink`
+  helper rather than a second one). Imports stdlib only — no
+  `internal/render`/`internal/teamsource` import, preserving `internal/team`'s
+  import-boundary contract.
+- New `internal/team/status_test.go`: one reproduction per classification
+  state (including the missing-file and both-sides-changed-conflict cases
+  T-29 calls for), plus two root-file-target variants and a `Status.String()`
+  table test.
+- Modified `internal/teamsource/render.go`: added `RenderCurrent(fsys,
+  harnessName, sourcePath) (sourceHash string, files []team.RenderedFile,
+  err error)` — a narrow, team-membership-independent re-render of one
+  agent's current source, giving `team status` the "fresh render" half of
+  each comparison without writing anything. `RenderTeam` itself untouched.
+- Modified `internal/cli/cmd_team.go`: replaced the `team status` stub with
+  `runTeamStatus`/`newTeamStatusCommand` plus JSON/table report helpers,
+  reusing the same `resolveTeamRepoPath`/`openTeamRuntime`/`resolveTeamIndex`
+  seam `team list`/`team show` already use. `team status` binds its own
+  `--repo` flag directly (no `--harness` — each lockfile record already
+  names its own harness, so exposing one would be misleading).
+  `team update`/`team manage` stubs confirmed unchanged.
+
+**Phase 1.5 — Code Review.** First pass: **BLOCKING** (CR-B-001) —
+`runTeamStatus`'s loop over lockfile records returned immediately from inside
+the loop on the first render/classify error, aborting the whole command and
+silently dropping every other record from the report — undermining AC-1
+("every tracked file classified") and AC-3 ("a missing-file record is
+classified Missing, not silently skipped") for realistic failure modes (e.g.
+a record whose source was since deleted/renamed), and diverging from this
+codebase's established aggregate-via-`errors.Join` convention (the very
+`teamsource.RenderTeam` this code calls into already follows it). Dispatched
+one `go-implementation-engineer` to fix: per-record render/classify failures
+are now isolated to that record's own report entry (`Status: "error"`, `Note`
+set to the wrapped error), the loop continues to every other record, and all
+per-record errors are aggregated via `errors.Join` alongside the existing
+"N of M not in sync" summary — exit-code contract preserved (still a plain
+error, never `UsageError`/`PreconditionError`). Re-review (scoped to
+`cmd_team.go`'s `runTeamStatus` only) independently re-ran build/vet/gofmt/
+test and confirmed the fix. Verdict: **ADVISORY_ONLY** — treated as
+satisfying "not ADVISORY_ONLY with open blockers" per this orchestrator's
+standing rule that ADVISORY_ONLY and CLEAN gate identically (both are
+terminal, non-blocking states); recorded explicitly since the sponsor's
+prose named "CLEAN" specifically. Full findings in `$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (Run 25, carried forward, non-blocking)
+
+- **CR-A-001**: `RenderCurrent` is called once per lockfile record with no
+  caching across records sharing the same `(harness, sourcePath)` pair — a
+  performance nit, not a correctness issue at today's scale.
+- **CR-A-002** (new): the fix for CR-B-001 introduces a sixth `Status:
+  "error"` outcome for records whose current source can no longer be
+  re-rendered/classified, but `newTeamStatusCommand`'s `--help` text and
+  `runTeamStatus`'s doc comment still describe only the original five drift
+  states — a documentation-completeness gap, not a functional defect.
+
+Neither blocks correctness or this run's acceptance criteria; recorded for a
+future pass.
+
+## 2026-09-07 — Implement run (this run): US-11 (`team update`, single-worktree)
+
+**Scope** (per sponsor's issue #68 comment): US-11 only. Explicitly out of
+bounds this run: US-13, US-14, US-15, US-16, US-17, and any extension of
+`team manage` beyond its existing stub. Base state respected as given: US-10
+(`team status`) already landed and committed at `f625e3c` (run 25's "failed"
+status was only a post-completion session-limit hit, not incomplete work — not
+redone here); `main` already merged at `9530f3b` (not re-merged).
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out). Delivered:
+- New `internal/cli/cmd_team_update_test.go`: unit tests for `team update`
+  covering mixed-state auto-update (AC-1), refusal of Locally-modified files
+  without `--force` (AC-1), restoration of Missing files, `--force` overwrite
+  with a named discard note (AC-2), no-lockfile vacuous success, and
+  single-worktree scope via a real sibling `git worktree` left byte-for-byte
+  untouched (AC-3, via `internal/gittest`'s `Capture`/`.Diff()`).
+- Modified `internal/team/write.go`: fixed a latent bug in `Add()` found while
+  building `--force` (T-31) — the pre-existing no-op/dedup check for both
+  standalone files and root-file marker sections compared only
+  hash-vs-lockfile-record and bare presence, never actual on-disk bytes vs.
+  what was about to be written. Since a `StatusLocallyModified` record has an
+  unchanged source hash and an already-present file by definition, `Add()`
+  always treated a `--force` overwrite as an up-to-date no-op and silently
+  skipped it — meaning `--force` could never actually overwrite anything
+  before this fix. Fixed to compare real installed bytes (`os.ReadFile` vs
+  `c.body` for standalone; `locateMarkerSection`'s exact span vs
+  `buildMarkerSection(...)` for root-file sections) before deciding a write is
+  a no-op, preserving the existing guarantee that edits outside an agent's own
+  marker span never affect that agent's no-op decision.
+- `internal/cli/cmd_team.go`: `runTeamUpdate`/`newTeamUpdateCommand` replacing
+  the stub, reusing the `resolveTeamRepoPath`/`openTeamRuntime`/
+  `resolveTeamIndex` seam. Four `errors.Join` isolate-and-continue points in
+  the per-record loop (render errors, classify errors, `freshFound`-false
+  anomalies, post-`Add()` reconciliation) — the errors.Join-never-fail-fast
+  convention (BLOCKING twice already on this issue, runs 20 and 25) was
+  applied correctly from the start this run; code review independently
+  confirmed via `continue`-only control flow, no early `return`, in the loop.
+
+**T-50 (US-18 marker-removal primitive) reuse determination**: `team update`
+does NOT call `removeMarkerSection`. Investigated and confirmed by both the
+implementation engineer and, independently, code review:
+`teamsource.RenderCurrent` only re-renders the already-recorded `SourcePath`
+for one lockfile record, with no roster/team-membership re-resolution, so
+`team update` has no way to observe that a team has stopped contributing to a
+shared agent (that observation needs re-resolving the index against team
+membership, which US-10's five-state classification — the only classification
+this story uses — does not include an "orphaned by membership" state for).
+This is not a gap in this run; it is outside what US-11 asks for. Recorded in
+`runTeamUpdate`'s doc comment on disk.
+
+**`--all-worktrees` / `--migrate-config` confirmed absent**: per US-11's
+explicit scope ("has no partial or best-effort behavior toward it and makes no
+attempt at it") and Shared Decision 2 (an `--all-worktrees` opt-in belongs to
+US-15). Code review grep-confirmed neither flag exists anywhere in the CLI
+wiring.
+
+**Phase 1.5 — Code Review.** Single pass, verdict **ADVISORY_ONLY**, no
+BLOCKING findings — this is the first pass on this issue's `team` subcommands
+that did not need a fix cycle for the `errors.Join` aggregation mistake. All
+nine specifically-requested checks (errors.Join real-and-correct, `--force`
+matches AC-2 exactly including named-discard-note text, AC-3 backed by a real
+`git worktree`+byte-diff test not just an assertion, no `--migrate-config`/
+`--all-worktrees` flags, the `write.go` dedup fix sound and non-regressing for
+`team add`'s own no-op case, exit-code mapping correct — plain error/exit 1 for
+update-refusal, never `PreconditionError`/exit 3 — package boundary intact
+(`cli -> teamsource -> team/render`), `gofmt`/`go vet`/`go build`/
+`go test -race ./...` all clean) passed on the reviewer's own independent
+re-verification, not taken on the engineer's report alone. Full findings in
+`$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (this run, carried forward, non-blocking)
+
+- **CR-A-001** (new): `internal/team/marker.go`'s doc comment on
+  `removeMarkerSection` (written by US-18/run 20) says it exists "for a future
+  removal story (US-11) to call" — now stale, since this actual US-11
+  determined (see above) that it correctly does not call it. Suggest dropping
+  the specific `(US-11)` reference from that comment in a future pass;
+  documentation-only, not a functional defect.
+
+Neither this finding nor any other blocks correctness or this run's
+acceptance criteria.
+
+## 2026-09-07 — Implement run (this run): US-13 (`team manage` per-repo agent source override)
+
+**Scope** (per sponsor's issue #68 comment): US-13 only, exactly as scoped in
+`US-13.md`. Explicitly out of bounds this run: US-14, US-15, US-16, US-17, and
+any extension of `team manage` beyond what US-13 itself specifies. Base state
+respected as given: US-11 (`team update`, single-worktree) landed and
+committed at `7dae487`; `main` already merged at `9530f3b` (not re-merged).
+This scoping is deliberate per the sponsor's own framing — three prior runs on
+this issue that bundled multiple stories together either blew past 3 hours or
+died on a usage limit; one story per run is what actually completes.
+
+**Environment note (this run only)**: `TodoWrite` was unavailable in this
+session — every invocation (both direct and inside subagents) returned "No
+such tool available: TodoWrite. TodoWrite is disabled for this session, in
+subagents as well as here." This is an environment-level constraint, not a
+choice; progress was tracked via this notes file and sequential execution
+instead of the formal tool the orchestrator role otherwise calls for.
+
+**Phase 1 — Development.** One `go-implementation-engineer` invocation
+(single-story fan-out). Delivered:
+- New `internal/team/overrides.go` (T-35): `.litefactory/team.overrides.json`
+  schema (`{agentKey: source}`), strict two-phase decode (`decodeOverrides`,
+  reusing US-1's generic-walk + `joinSorted` aggregation pattern from
+  `decode.go` — the errors.Join-never-fail-fast convention, raised BLOCKING
+  three times previously on this issue, was applied correctly from the start
+  this run), load/save, `validateOverrideSource` (exists, is markdown, resolves
+  inside the repo root, no symlink), and `SetOverride`/`UnsetOverride`/
+  `ActiveOverride`/`ReadOverrideSource`.
+- New `internal/team/overrides_test.go` (T-38): happy-path set/replace/unset/
+  idempotent-unset, `ReadOverrideSource` with/without an active override,
+  AC-4's five precondition-failure modes (missing file, non-markdown, empty
+  path, absolute path, path escaping repo root) each confirmed to record no
+  override, symlink refusal, invalid-agent-key rejection, and
+  `decodeOverrides`' error-aggregation behavior.
+- New `internal/cli/cmd_team_manage_test.go` (T-38): CLI-level tests through
+  the router — set→show round trip (AC-1), set→unset→show (AC-2),
+  nonexistent-path/non-markdown-path set both failing `ExitPrecondition`
+  (AC-4), invalid agent key failing `ExitUsage`.
+- Modified `internal/cli/cmd_team.go` (T-36): `newTeamManageCommand`/
+  `runTeamManage`/`teamManageError` replacing the existing US-4 stub. Engineer's
+  own self-caught, in-scope fix: the stub's `Usage` string
+  (`"team manage <agent-key> set source=<path> | unset | show [--repo path]"`)
+  did not literally contain `<action>`/`<source>` tokens required by the
+  whole-module invariant test `TestCommandsAreWellFormed`
+  (`internal/cli/router_test.go`, every `ArgSpec.Names` entry must appear
+  literally in `Usage`) — only surfaced by a full `go test ./...` run, not a
+  scoped one. Reworded to `"team manage <agent-key> <action> [<source>]
+  [--repo path]  (set source=<path> | unset | show)"`. Reported transparently
+  as a decision made, not hidden.
+- Modified `internal/team/errors.go` (T-35): `ErrOverridePath` sentinel +
+  `OverridePathError` typed error.
+- Modified `internal/teamsource/render.go` (T-37): `readAgentSource`
+  override-substitution call site used by both `RenderTeam` and
+  `RenderCurrent` — substitution happens upstream of hashing/rendering, so
+  `team.Classify` (US-10) needed no change, satisfying AC-3's "no special-cased
+  behavior" requirement structurally.
+- Modified `internal/teamsource/render_test.go` (T-38): `writeLocalOverrideFile`
+  helper plus `TestRenderTeam_ActiveOverride_SubstitutesLocalFile`,
+  `TestRenderCurrent_NoOverride_RendersFromFS` (baseline; `RenderCurrent` had
+  no prior coverage), `TestRenderCurrent_ActiveOverride_SubstitutesLocalFile`.
+
+Engineer's own report: `gofmt -l .`, `go vet ./...`, `go build ./...`,
+`go test ./...` all clean across the whole module.
+
+**Engineer's own note on a non-issue**: a system reminder indicated a
+background agent "Implement US-13" was reported running concurrently; the
+engineer confirmed via `git status`/`git diff --stat` that only its own edited
+files had changed, with no unexplained third-party changes, and proceeded
+without escalating.
+
+**Phase 1.5 — Code Review.** Single pass, verdict **ADVISORY_ONLY**, no
+BLOCKING findings. The recurring errors.Join/fail-fast finding (BLOCKING three
+times previously on this issue) was checked specifically and carefully in
+`decodeOverrides` and confirmed correct — reuses the established two-phase
+generic-walk + `joinSorted` pattern, collecting every fault rather than
+stopping at the first; `validateOverrideSource`'s sequential checks operate on
+a single scalar path (not a loop over a collection), a distinct case from the
+aggregation rule. Also independently confirmed: dependency direction intact
+(`cmd_team.go`'s new code is a thin wrapper, no rendering/hashing/source
+resolution in `internal/cli`); `PreconditionError` constructed only in
+`internal/cli`, never inside `internal/team`; no new cross-package import in
+`internal/team` (stdlib only); symlink refusal on both override-write-validate
+and override-read paths; `0o666`-with-umask via the shared atomic-write
+helper; `SetOverride`/`UnsetOverride` reuse the existing per-repo `flock`, no
+new concurrency; every `RenderedFile.Bytes` passes through
+`config.ClassifySecret` regardless of override-vs-index origin (`Add` has no
+visibility into which files came from an override, so no exemption path
+exists); AC-3 holds structurally (substitution upstream of hashing, `Classify`
+unmodified); the override mechanism's action switch (`set`/`unset`/`show`,
+else `Usagef`) stays closed, no arbitrary-key acceptance; no `context.Context`
+added to any renderer signature; command registration and the `Usage` string
+fix satisfy `TestCommandsAreWellFormed`. Full findings in
+`$session/CODE_REVIEW.md`.
+
+## Code Review Advisories (this run, carried forward, non-blocking)
+
+- **CR-A-001** (new): `validateOverrideSource` in `internal/team/overrides.go`
+  has a dead/unreachable `filepath.IsAbs(clean)` check, since an earlier check
+  already rejects any absolute `localPath` and `filepath.Clean` cannot turn a
+  relative path into an absolute one. No behavioral impact; suggested to drop
+  or comment as intentional defense-in-depth.
+- Noted, not a new finding: symlink refusals from `SetOverride`/
+  `ReadOverrideSource` map to a plain error (exit 1) rather than
+  `PreconditionError` (exit 3) in `teamManageError` — confirmed consistent
+  with how the rest of `cmd_team.go` treats `ErrRefusedSymlink` everywhere else
+  (add/status/update do the same), and AC-4 doesn't enumerate symlinks among
+  its precondition modes, so this is inherited behavior, not a new
+  inconsistency.
+
+Neither finding blocks correctness or this run's acceptance criteria.
+
+**Phase 2 — Environment setup.** Skipped. US-13's implementation
+(`internal/team/overrides.go`, `internal/teamsource/render.go`,
+`internal/cli/cmd_team.go`) is filesystem-only — no database, external HTTP
+call, or message queue — matching the same judgment already recorded for runs
+20/22/25/26. No `TEST_BASE_URL`/`TEST_DATABASE_URL` lookup was needed.
+
+**Phase 3 — Testing.** `go-unit-test-engineer` confirmed the whole module
+(`go build ./...`, `go vet ./...`, `gofmt -l .`, `go test -race -cover ./...`)
+was already clean across all 26 packages, then closed three real coverage
+gaps found in the existing AC coverage (AC-2 and AC-4 were already fully
+covered pre-existing and needed nothing new):
+- `TestTeamAddSuccess_ActiveOverride_SubstitutesLocalFile`
+  (`internal/cli/cmd_team_test.go`) — proves AC-1 through `team add` end to
+  end (installed bytes come from the override, not the index).
+- `TestTeamUpdate_ActiveOverride_SubstitutesLocalFile`
+  (`internal/cli/cmd_team_update_test.go`) — proves AC-1 through `team update`
+  end to end.
+- `TestTeamStatus_ActiveOverride_ClassifiesAgainstOverrideFile`
+  (`internal/cli/cmd_team_status_test.go`) — proves AC-3 through `team status`
+  end to end: an override byte-identical to the original source reports
+  in-sync (wiring up an override alone introduces no false drift), then
+  mutating only the override's file (index source left untouched) flips the
+  record to "upstream updated" — confirming `team.Classify` needed no
+  special-casing, exactly as US-13's architecture notes predicted.
+
+Per-repo/per-key override scoping was judged structurally guaranteed rather
+than needing a dedicated leakage test: `overridesPath(root)` scopes the store
+to `<root>/.litefactory/team.overrides.json` by construction, and every test
+fixture uses `t.TempDir()` for a distinct repo root.
+
+Final state: `go test -race -cover ./...` all packages passing, no races,
+`gofmt`/`go vet` clean. Coverage: `internal/cli` 80.0%, `internal/team` 62.0%
+(unchanged), `internal/teamsource` 50.4% (unchanged). No bug loop was needed —
+zero test failures across both Phase 1's build/test pass and Phase 3's
+dedicated run.
+
+No commits or pushes made this run — worktree left for litefactory to inspect
+and commit.
+
+## Implement run — 2026-09-07: finish US-15 (verify, review, close out)
+
+Scoped narrowly by explicit instruction: confirm and finish US-15 (multi-worktree `team update`),
+which run 31 left code-complete on disk but never reviewed, never build/test-confirmed, and never
+closed out (see MANIFEST.md's run 31 and seventh-pass Research entries for the full history this
+run picked up from). US-16 explicitly excluded — not started, not touched.
+
+**Starting-state re-verification.** Before touching anything US-15-specific: `git status --short`
+confirmed a clean working tree at `f7884f5`; `go build ./...`, `gofmt -l .`, and `go vet ./...` all
+returned clean with no output; `go test -race ./...` passed across all 26 packages (`internal/cli`
+131.9s, `internal/daemon` 81.4s, `internal/turn` 74.9s, everything else cached-clean or fast). The
+five pre-existing US-15 tests (`TestTeamUpdateAllWorktrees_UpdatesGitConfirmedSibling`,
+`TestTeamUpdateAllWorktrees_ExcludesStalePathSilently`,
+`TestTeamUpdateAllWorktrees_OneFailureDoesNotBlockOthers`,
+`TestTeamUpdateAllWorktrees_DoesNotForceLocallyModifiedSibling`,
+`TestTeamUpdate_AllWorktreesFlagDefaultsFalse`) were re-run individually with `-race -v -count=1`
+(bypassing the test cache) and all passed. This confirms the Research seventh pass's moderate-
+confidence "code-complete on disk" read was correct.
+
+**Independent AC verification (`go-unit-test-engineer`).** Rather than trust existing test names,
+dispatched a fresh verification pass that read `cmd_team_worktrees.go` and
+`cmd_team_worktrees_test.go` directly, confirmed each of AC-1 through AC-4 has a real behavioral
+assertion behind it (not just "no error"), and specifically checked the no-concurrency and
+`errors.Join`-aggregation cross-story constraints by reading the propagation loop's source
+directly (both hold: sequential `for` loop, no goroutines; `errors.Join(errs...)` after the loop
+completes, never an early return on the first failure). Found no behavioral bug. Found and closed
+one real coverage gap (the non-`--json` table-output path, `writeTeamUpdateAllTable`, had zero
+test coverage despite being the CLI's advertised default) and strengthened two existing tests
+whose assertions were weaker than their names implied (see `DRIFT_REPORT.md` for the specific
+gaps). Full re-run after the changes: `go build ./...`/`gofmt -l .`/`go vet ./...` clean, `go test
+-race ./...` green across all 26 packages.
+
+**Phase 1.5 — Code Review (`go-code-reviewer`), the step run 31 never reached.** Verdict
+**ADVISORY_ONLY**, 0 BLOCKING. Checked specifically, per this issue's recurring mistake classes:
+`errors.Join` aggregation in the per-worktree outcome loop (correct — the exact pattern that was
+BLOCKING three times previously on US-9/US-10/one other story, this is at least the second story
+in a row to get it right from the start); no concurrency introduced (confirmed, plain sequential
+loop); `PreconditionError` never leaking from `internal/team` (N/A — `cmd_team_worktrees.go` never
+imports that package); genuine reuse of US-11's `teamUpdateWorktree` rather than a divergent copy;
+symlink/path canonicalization on discovered sibling paths (`filepath.Abs` + `filepath.EvalSymlinks`
+before comparison, no traversal risk since inputs come from git's own porcelain output).
+
+## Code Review Advisories (this run, non-blocking)
+
+- **CR-A-001** (new): a discovery-time failure class isn't wrapped in `Precondition(err)` the way
+  the adjacent `git.Resolve` failure is, so that one edge case (reachable only past an
+  already-tampered `.git` entry) exits 1 instead of the contractually-specified 3. Left unfixed by
+  judgment — narrow, low-likelihood, not a correctness or safety issue.
+- **CR-A-002** (new): `writeTeamUpdateAllTable` duplicates `writeTeamUpdateTable`'s row-rendering
+  loop instead of sharing a helper, and its per-worktree section omits the
+  updated/skipped/refused summary lines the single-worktree table prints (the data is present in
+  the JSON report, just not surfaced in the table). Cosmetic/UX polish, not a correctness gap —
+  candidate for a future small cleanup story, not urgent.
+- **CR-A-003** (new): the primary worktree's reported path isn't symlink-canonicalized the same
+  way sibling paths are; cosmetic only, dedup logic itself is unaffected and correct.
+
+None of the three findings block correctness or this run's acceptance criteria.
+
+**Phase 2 — Environment setup.** Skipped. US-15's implementation
+(`internal/cli/cmd_team_worktrees.go`, `cmd_team.go`, plus the test file) is filesystem/git-only —
+`git worktree list` is the one git verb this feature invokes, read-only, consistent with
+plan_brief.md's Tests cross-story constraint — no database, external HTTP call, or message queue.
+Matches the same judgment already recorded for runs 20/22/25/26/27/30. No
+`TEST_BASE_URL`/`TEST_DATABASE_URL` lookup was needed.
+
+**Final gate check.** `go build ./...`, `gofmt -l .`, `go vet ./...` all clean; `go test -race
+./...` green across all 26 packages. No bug loop needed — zero test failures throughout this run,
+in either the starting-state re-verification or the post-verification-pass re-run.
+
+**Assumption recorded**: `DRIFT_REPORT.md` and this file's own prior content (run 27's US-13
+narrative) were the actual end-of-file state found — `MANIFEST.md`'s run 30 History entry claims
+`notes.md` was updated with run 30's (US-14) narrative, but no such section is present in this
+file; run 30's actual narrative appears only in `MANIFEST.md`'s own retroactive History entry and
+in `DRIFT_REPORT.md`/`CODE_REVIEW.md` (both since overwritten by this run per the one-report-
+per-run convention). This is a pre-existing bookkeeping gap from run 30, not something this run
+introduced or was asked to fix — noted here rather than silently corrected or silently ignored.
+
+No commits or pushes made this run — worktree left for litefactory to inspect and commit. US-16
+and US-17 remain open for a future Implement run, each needing its own dedicated run per this
+
+## 2026-09-07 — Implement run: US-16 (gitignore + write-guard) + US-17 (go-team bootstrap) — last two stories on issue #68
+
+Sponsor scoped this run to exactly these two stories, run genuinely in parallel (no ordering
+dependency between them per `plan_brief.md`'s Workflow section — both depend only on already-landed
+prerequisites: US-16 on US-15+US-1, US-17 on US-1+US-4). Started from a clean tree at `e21c8a5`
+(US-15's own close-out commit).
+
+**US-16 delivered.** New `internal/team/gitignore.go` (`ensureGitignoreEntry`/`gitignoreHasEntry`,
+T-45) hooked into `acquireRepoLock` so every `Add`/`SetOverride`/`UnsetOverride` call — including
+each per-worktree `Add` inside US-15's `--all-worktrees` loop — establishes the `.litefactory/`
+`.gitignore` line idempotently, without a second worktree-enumeration call. `internal/team/paths.go`
+gained `isOwnedWriteTarget` (T-46), the runtime Owned Paths guard, wired into `writeFileAtomic`
+(signature changed to `(root, relPath string, ...)`) as the single choke point every write in the
+package funnels through; a new sentinel `ErrWriteOutsideOwnedPath`/`WriteOutsideOwnedPathError`
+reports a violation as an internal error. `.aiteam/AC_AMENDMENTS.md`'s SEC-7 ledger entry corrected
+(T-44) — though the implementing engineer found and reported that the pre-existing ledger entry
+never actually contained the two stale `.aiteam/team*.json` paths the story's framing described;
+code review independently confirmed this against the file's actual history, so "gone" is trivially
+true and the doc is internally consistent, not silently patched over a false claim.
+
+**US-17 delivered.** Checked `.claude/agents/` directly before assuming anything: `app-context-updater.md`
+does not exist (retired per run 30's record) — so the shared map ships 7 agents, not 8 (12 total,
+not 13), exactly as the story's own contingency instruction anticipated. Copied all 12 surviving
+agents' markdown verbatim to `internal/team/embedded/teams/{go-team,shared}/*.md` and rebuilt
+`internal/team/embedded/teams/index.json` with the real `go-team` (5 agents) + `shared` (7 agents)
+entries, replacing the placeholder content `embedded.go`'s doc comment had flagged. Deleted two
+placeholder-layout leftovers (`embedded/teams/agents/codebase-tour.md`,
+`embedded/teams/agents/go-implementation-engineer.md`) superseded by the new layout. One real
+deviation from the story doc's literal wording, confirmed correct by both the engineer and code
+review: `source` fields are written as `"go-team/<key>.md"`/`"shared/<key>.md"` with no `"teams/"`
+prefix, because `embedded.go`'s `fs.FS` is already rooted at `embedded/teams` — including the
+worked example's literal `"teams/"` prefix would have doubled the path segment and broken every
+read. Verified against `internal/teamsource/resolve.go`'s tier-2/3 root to confirm this convention
+is consistent across all three index tiers, not a US-17-only quirk.
+
+**Phase 1.5 — code review.** `go-code-reviewer` reviewed the actual current uncommitted tree (not
+the task reports) against both stories' ACs and plan_brief.md's cross-story constraints, with
+particular attention to the `errors.Join`-aggregation mistake that has been BLOCKING three times
+before on this issue (runs 20, 22, 25) — none found in either story's new code. Verdict
+**ADVISORY_ONLY**, 0 BLOCKING, 3 advisories (full detail in `CODE_REVIEW.md`):
+- **CR-A-001** — `internal/team/doc.go` (the package's "real spec" per plan_brief.md) was not
+  updated to describe T-46's write guard or T-45's `.gitignore` management. Non-blocking; left
+  unfixed by this run's judgment since it does not affect behavior.
+- **CR-A-002** — US-16.md's architecture note said this story "reuses US-15's live
+  worktree-discovery logic (T-41)"; the shipped mechanism instead hooks into `acquireRepoLock`,
+  achieving the same "every worktree" guarantee without a second discovery call — verified correct
+  and arguably cleaner, but the story doc's literal wording doesn't match what shipped. Non-blocking
+  documentation mismatch, not a code defect.
+- **CR-A-003** — `US-17.md` itself still says "8 shared agents" in its AC-1 text and worked example,
+  stale relative to the shipped, correct 7-agent count (`app-context-updater` retired). Code, tests,
+  and this run's routing prompt are all internally consistent with 7; only the story doc's own text
+  is stale. Flagged for whoever next touches Plan-mode bookkeeping on this session; not this run's
+  remit to edit `$session` plan artifacts.
+
+No fix cycle was needed (ADVISORY_ONLY is a valid terminal state per this team's Phase 1.5 rule).
+
+**Phase 2 — environment setup.** Skipped. Both stories are filesystem-only (`.gitignore`
+management, embedded index/markdown construction) — no database, external HTTP call, or message
+queue — consistent with every prior run on this issue (20/22/25/26/27/30/33).
+
+**Phase 3 — unit tests.** `go-unit-test-engineer` independently verified every AC in both stories
+by reading actual test assertions against actual source, not by counting test names or trusting the
+implementing engineers' self-reports. Found **no coverage gaps** — added no new tests. Notably
+verified AC-3 (US-16) via `TestWriteFileAtomicRefusesPathOutsideOwnedPaths` (fault-injected, asserts
+nothing lands on disk, not merely that no code path currently attempts the write) and AC-1/AC-2/AC-3
+(US-17) via exact-set assertions (not subset checks) plus an independent byte-diff of all 12 copied
+markdown files against their `.claude/agents/` originals. Deliberately did not add a
+byte-identity-to-`.claude/agents/` regression test, on the grounds that AC-3 asks about
+existence/resolvability, not permanent content-pinning, and pinning it would make the suite fail on
+ordinary future edits to those agent definitions — recorded here as a considered choice, not an
+oversight. `go test -race -cover ./internal/team/...`: 74/74 pass, 78.2% coverage.
+`go test -race -cover ./internal/cli/...`: 187/187 pass, 80.4% coverage. `internal/teamsource`
+untouched by either story (confirmed via diff), coverage unchanged at 50.4%.
+
+**Final gate check** (re-run independently by this orchestrator after all agent work completed):
+`go build ./...`, `gofmt -l .`, `go vet ./...` all clean; `go test -race ./...` green across all 26
+packages. No bug loop needed — zero test failures anywhere in this run.
+
+**Result: this is the last run needed to complete all 18 stories on issue #68.** US-1 through
+US-11, US-13 through US-19 (17 numbered stories, US-12 dropped per Plan-mode reconciliation) are now
+all implemented, reviewed (CLEAN or ADVISORY_ONLY, zero open BLOCKING findings anywhere across the
+whole feature), and passing `go test -race ./...`. No commits or pushes made this run — worktree
+left for litefactory to inspect and commit.
+issue's established one-story-per-run discipline.

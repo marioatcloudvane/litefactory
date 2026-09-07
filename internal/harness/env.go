@@ -32,8 +32,14 @@ import (
 //
 //   - SSH_AUTH_SOCK. claude does not need it, and litefactory — not the agent —
 //     performs the push. It is forwarded to the git child only (SD-5).
-//   - CLAUDE_CONFIG_DIR. Setting it breaks Keychain auth even when the
-//     directory is seeded (SD-4). It is not in this list and must not be added.
+//   - CLAUDE_CONFIG_DIR. It is *set* by litefactory rather than inherited, so
+//     it does not belong in an allowlist of what the child may take from the
+//     daemon's environment. SD-4 originally recorded it as breaking Keychain
+//     auth "even when the directory is seeded"; seeding the directory with a
+//     symlink to the operator's .credentials.json rather than a copy resolves
+//     that, measured end to end (exit 0, is_error false, apiKeySource "none").
+//     See [EnsureClaudeConfigDir] for why the child needs its own directory at
+//     all, and .aiteam/AC_AMENDMENTS.md for the amendment.
 //   - ANTHROPIC_*. See [Options.ForwardAnthropicEnv].
 //   - everything else, including every LF_*, GITHUB_TOKEN and GH_TOKEN, by
 //     construction rather than by rule.
@@ -90,10 +96,10 @@ func IsSecretEnvName(name string) bool { return secretNameRE.MatchString(name) }
 // [envAllowlist] matches it today; the check is there so that adding a name
 // later cannot quietly open a hole, and so that the ANTHROPIC_* carve-out is
 // visibly a carve-out.
-func buildEnv(parent []string, forwardAnthropic bool) []string {
+func buildEnv(parent []string, forwardAnthropic bool, claudeConfigDir string) []string {
 	values := envMap(parent)
 
-	env := make([]string, 0, len(envAllowlist)+3)
+	env := make([]string, 0, len(envAllowlist)+4)
 	for _, name := range envAllowlist {
 		value := values[name]
 		if name == "PATH" && value == "" {
@@ -108,9 +114,15 @@ func buildEnv(parent []string, forwardAnthropic bool) []string {
 	if forwardAnthropic {
 		env = append(env, anthropicEnv(values)...)
 	}
-	// This is factory policy, not ambient configuration: always force the
-	// value even when the daemon's own environment says otherwise.
+	// Both of these are factory policy, not ambient configuration: force the
+	// value even when the daemon's own environment says otherwise. An empty
+	// claudeConfigDir is the one exception — it means an embedder assembled the
+	// runner by hand, and inventing a directory here would be worse than
+	// letting claude use its default.
 	env = append(env, DisableBackgroundTasksEnv+"=1")
+	if claudeConfigDir != "" {
+		env = append(env, ClaudeConfigDirEnv+"="+claudeConfigDir)
+	}
 	return env
 }
 

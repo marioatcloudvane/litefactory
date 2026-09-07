@@ -219,6 +219,18 @@ func isAllowAllQualifier(qualifier string) bool {
 	return strings.Trim(trimmed, "*: \t") == ""
 }
 
+// ContainsForbiddenFlag reports whether value contains the claude
+// permission-skipping flag, in any form: a config field, a rendered agent
+// definition about to be written, or anything else that ends up on a claude
+// command line. Exported so a package outside internal/config — internal/team,
+// specifically — can run the same check this package uses internally without
+// duplicating [forbiddenFlag] or the strings.Contains call; that duplication
+// is exactly what internal/team's import restriction (internal/config only,
+// for this and [ClassifySecret]) exists to prevent.
+func ContainsForbiddenFlag(value string) bool {
+	return strings.Contains(value, forbiddenFlag())
+}
+
 // validateNoForbiddenFlag refuses any configured value that smuggles the
 // permission-skipping flag into the claude command line — through the binary
 // path, the tool surface or a permission rule.
@@ -226,7 +238,7 @@ func validateNoForbiddenFlag(c *Claude, profiles map[string]ToolProfile) []error
 	flag := forbiddenFlag()
 	var errs []error
 	check := func(key, value string) {
-		if strings.Contains(value, flag) {
+		if ContainsForbiddenFlag(value) {
 			errs = append(errs, fmt.Errorf("%s: must not contain %s; litefactory never runs claude with permissions disabled", key, flag))
 		}
 	}
