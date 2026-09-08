@@ -167,7 +167,7 @@ func (w *Worktree) Commit(ctx context.Context, opts CommitOptions) (CommitResult
 
 	var message string
 	if len(files) > 0 {
-		if _, err := w.runner.run(ctx, commitTimeout, "add", "--all", "--", ".", ":(exclude).litefactory-plan-proposal.json", ":(exclude).litefactory-story-events/**"); err != nil {
+		if _, err := w.runner.run(ctx, commitTimeout, "add", "--all", "--", "."); err != nil {
 			return CommitResult{}, fmt.Errorf("stage changes in %s: %w", w.path, err)
 		}
 		// Transport is excluded even if the agent staged it before returning.
