@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "catalog_schema_version": 2,
+  "team": "go-team",
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "agents/go-team/go-architect.md",
+      "size": 725,
+      "sha256": "0c5270add95ca724d4cdc3b0de29a7d5fffea02a509f2110125c24308201aaef"
+    },
+    {
+      "path": "agents/go-team/go-code-reviewer.md",
+      "size": 756,
+      "sha256": "b3bc1119ae550f383882c98896a1f8a4ec6f3ffaa4de576b611fd605432b9d4f"
+    },
+    {
+      "path": "agents/go-team/go-implementation-engineer.md",
+      "size": 1065,
+      "sha256": "2eaa518f7e01a53f55aa8e0f7a3db35baf8ae8785eb0cb317b61d7894ec7e11f"
+    },
+    {
+      "path": "agents/go-team/go-integration-test-engineer.md",
+      "size": 916,
+      "sha256": "5c7bd414304002ec0810d5f69ab830f3e70a7f60da28be66c94dddc867de2d75"
+    },
+    {
+      "path": "agents/go-team/go-unit-test-engineer.md",
+      "size": 814,
+      "sha256": "125af9763439f47ec919ae6cc2f36b072fc3b36cc4ca333c18bbdf9fe7d24c50"
+    },
+    {
+      "path": "agents/shared/codebase-tour.md",
+      "size": 696,
+      "sha256": "58001eb1941f72441d7661624ef2d32f4144efdaff94f61f5ae5ab59e2deea42"
+    },
+    {
+      "path": "agents/shared/implement-orchestrator.md",
+      "size": 1963,
+      "sha256": "3c1d4a9017c519a9a6e088e2e7c74a50ecd0cadc16fbbdf6e5d48cadf5d6b5e6"
+    },
+    {
+      "path": "agents/shared/plan-orchestrator.md",
+      "size": 954,
+      "sha256": "8e8dd1123d0b733eb3bfcec7a86cbf4d1844b202a7a68086e5e4d806dcff54fa"
+    },
+    {
+      "path": "agents/shared/proxy-product-owner.md",
+      "size": 792,
+      "sha256": "4237d75796015d5266a543130e057e69df44466d97a1cc1cfe05d9720f2ffe11"
+    },
+    {
+      "path": "agents/shared/requirements-engineer.md",
+      "size": 726,
+      "sha256": "a766f24a00ac20c155e2d2011c1c1c18dc9c1f9638016bff4dbf3d5cffe81320"
+    },
+    {
+      "path": "agents/shared/research-orchestrator.md",
+      "size": 941,
+      "sha256": "c6bfcf949a9d88dc141fdf59a75d48a29ce99b7acc55d213c57aab72e8b0446d"
+    },
+    {
+      "path": "agents/shared/web-researcher.md",
+      "size": 720,
+      "sha256": "c1de8ed1fb06b80c32824daa9b76609f97860d41a30d5f7ebefc9839975b055a"
+    },
+    {
+      "path": "index.json",
+      "size": 3902,
+      "sha256": "99c72c5d0eb309cddd58913c1572144e043bfde542a1fe28a4b63310e193f71f"
+    },
+    {
+      "path": "skills/go-constraints/SKILL.md",
+      "size": 649,
+      "sha256": "26e4e18edf8941e32f706577b2d38d4baf1b39b95c79537d2b449c7973fe1e11"
+    },
+    {
+      "path": "skills/go-constraints/references/checklist.md",
+      "size": 235,
+      "sha256": "22ab61ab07ef8a182e1c5aa6ef01adede75b3f20c82cde5e41ee5c29ebf27b0b"
+    },
+    {
+      "path": "skills/planning-contracts/SKILL.md",
+      "size": 1090,
+      "sha256": "c7f2ef58f269044df29f73cb4bba1478a54b4524ab44c45b4f551f8b05c1ef1b"
+    },
+    {
+      "path": "skills/research-evidence/SKILL.md",
+      "size": 946,
+      "sha256": "e6021b9f5b3531f844bd35eb09446211b6a34726a2ea361627acb916bf3fb4e0"
+    },
+    {
+      "path": "skills/review-evidence/SKILL.md",
+      "size": 939,
+      "sha256": "4a72a4a18c42f40eb49b2a0d608eaae5dcdba3b380efe9b00166ab6f53743494"
+    },
+    {
+      "path": "skills/test-evidence/SKILL.md",
+      "size": 1025,
+      "sha256": "12a23bc4399552bef4221ed3621996e79b7c534a3a99490f919179880b5e4714"
+    },
+    {
+      "path": "skills/workflow/SKILL.md",
+      "size": 1438,
+      "sha256": "0dd65d964190982bbb7b200d68299091d471aea8ebde5aceb2379e69eb065aba"
+    }
+  ]
+}

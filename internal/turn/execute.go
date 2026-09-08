@@ -121,6 +121,9 @@ type Options struct {
 	// it.
 	Paths config.Paths
 
+	// Tiers is the operator-owned specialist model mapping, never remote content.
+	Tiers config.Tiers
+
 	// InstanceID is this daemon's instance id. It is what the per-task lock is
 	// held under, and what tells a reclaimed lock from a live one (AC-3.2).
 	InstanceID string

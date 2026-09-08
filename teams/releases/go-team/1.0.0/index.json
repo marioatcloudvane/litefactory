@@ -1,0 +1,142 @@
+{
+  "schema_version": 2,
+  "shared": {
+    "codebase-tour": {
+      "desc": "Locate existing code owners and report scoped evidence.",
+      "path": "agents/shared/codebase-tour.md",
+      "tier": "balanced",
+      "skills": [
+        "research-evidence"
+      ]
+    },
+    "web-researcher": {
+      "desc": "Resolve external questions from authoritative sources.",
+      "path": "agents/shared/web-researcher.md",
+      "tier": "balanced",
+      "skills": [
+        "research-evidence"
+      ]
+    },
+    "requirements-engineer": {
+      "desc": "Write a concise, evidence-backed feature specification.",
+      "path": "agents/shared/requirements-engineer.md",
+      "tier": "flagship",
+      "skills": [
+        "planning-contracts"
+      ]
+    },
+    "proxy-product-owner": {
+      "desc": "Decompose the reviewed specification into executable local stories.",
+      "path": "agents/shared/proxy-product-owner.md",
+      "tier": "balanced",
+      "skills": [
+        "planning-contracts"
+      ]
+    },
+    "research-orchestrator": {
+      "desc": "Coordinate research specialists and write the research brief.",
+      "path": "agents/shared/research-orchestrator.md",
+      "tier": "balanced",
+      "skills": [
+        "research-evidence"
+      ]
+    },
+    "plan-orchestrator": {
+      "desc": "Sequence specification, architecture and story decomposition.",
+      "path": "agents/shared/plan-orchestrator.md",
+      "tier": "balanced",
+      "skills": [
+        "planning-contracts"
+      ]
+    },
+    "implement-orchestrator": {
+      "desc": "Sequence approved implementation and test work.",
+      "path": "agents/shared/implement-orchestrator.md",
+      "tier": "balanced",
+      "skills": [
+        "test-evidence"
+      ]
+    }
+  },
+  "teams": {
+    "go-team": {
+      "desc": "A team for standard Go development",
+      "research": [
+        {
+          "ref": "research-orchestrator"
+        },
+        {
+          "ref": "codebase-tour"
+        },
+        {
+          "ref": "web-researcher"
+        }
+      ],
+      "plan": [
+        {
+          "ref": "plan-orchestrator"
+        },
+        {
+          "ref": "requirements-engineer"
+        },
+        {
+          "id": "go-architect",
+          "desc": "Guide Go architecture using existing owners and constraints.",
+          "path": "agents/go-team/go-architect.md",
+          "tier": "flagship",
+          "skills": [
+            "go-constraints",
+            "planning-contracts"
+          ]
+        },
+        {
+          "ref": "proxy-product-owner"
+        }
+      ],
+      "implement": [
+        {
+          "ref": "implement-orchestrator"
+        },
+        {
+          "id": "go-implementation-engineer",
+          "desc": "Implement one approved Go story using supplied architecture hints.",
+          "path": "agents/go-team/go-implementation-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "go-constraints"
+          ]
+        },
+        {
+          "id": "go-unit-test-engineer",
+          "desc": "Author and run focused unit tests for approved Go behavior.",
+          "path": "agents/go-team/go-unit-test-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "test-evidence"
+          ]
+        },
+        {
+          "id": "go-integration-test-engineer",
+          "desc": "Verify Go behavior across real infrastructure boundaries safely.",
+          "path": "agents/go-team/go-integration-test-engineer.md",
+          "tier": "balanced",
+          "skills": [
+            "test-evidence"
+          ]
+        }
+      ],
+      "validate": [
+        {
+          "id": "go-code-reviewer",
+          "desc": "Return read-only Go code review findings in Validate.",
+          "path": "agents/go-team/go-code-reviewer.md",
+          "tier": "balanced",
+          "skills": [
+            "review-evidence"
+          ]
+        }
+      ],
+      "spike": []
+    }
+  }
+}

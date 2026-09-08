@@ -87,9 +87,6 @@ Authorized instruction:
 }
 
 func (d *Daemon) classifyMode(ctx context.Context, t *task, instruction string) (agent.Mode, error) {
-	if t.repo.ExternalTeam != "" {
-		return "", fmt.Errorf("external team %q is selected, but per-run CLI delivery is not available in this build; install a build with verified team transport before running this repository", t.repo.ExternalTeam)
-	}
 	classifier := d.classifiers[d.defaultAgent]
 	if classifier == nil {
 		return "", fmt.Errorf("default agent %q has no mode classifier", d.defaultAgent)

@@ -47,6 +47,7 @@ import (
 // absent key and is rejected instead of silently replaced.
 type Config struct {
 	Settings Settings `yaml:"settings"`
+	Teams    Teams    `yaml:"teams"`
 
 	Providers Providers `yaml:"providers"`
 	// Tiers is the litefactory-owned tier→model table (US-6). See [Tiers].
@@ -427,6 +428,7 @@ type ToolProfileCodex struct {
 // semantic and an absent agents mapping must not silently configure runners.
 func Defaults() Config {
 	return Config{
+		Teams: Teams{IndexURL: DefaultTeamsIndexURL},
 		Settings: Settings{
 			PollIntervalSeconds:        DefaultPollIntervalSeconds,
 			MaxConcurrentRuns:          DefaultMaxConcurrentRuns,

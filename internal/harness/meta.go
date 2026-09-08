@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -39,6 +40,8 @@ const metaFileMode = 0o600
 // distinguishable in the JSON — a run that never emitted a result event has an
 // unknown cost, not a cost of zero.
 type Meta struct {
+	// Delivery records the retained, credential-free native instruction bundle.
+	Delivery *agent.Delivery `json:"delivery,omitempty"`
 	// RunOrdinal matches the NNNN stem of this file and the runs row.
 	RunOrdinal int `json:"run_ordinal"`
 	// TaskRef is the canonical forge:owner/name#issue string.
@@ -145,6 +148,10 @@ func NewMeta(req Request, prompt string, result *RunResult) Meta {
 		ToolsRequested: append([]string{}, ts.Tools...),
 		ToolProfile:    req.Permissions.Profile,
 		FilesTouched:   []string{},
+	}
+	if req.Delivery != nil {
+		delivery := req.Delivery.Clone()
+		meta.Delivery = &delivery
 	}
 	if result == nil {
 		return meta

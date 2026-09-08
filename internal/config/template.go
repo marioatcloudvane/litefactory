@@ -23,6 +23,12 @@ func DefaultFileContents() []byte {
 # references only: token_keychain names a Keychain item; token_env, shown as
 # the commented alternative below, names an environment variable.
 
+teams:
+  # GitHub file locations are fetched as raw JSON. Omission uses this URL.
+  index_url: %q
+  # Optional sources: {corporate: {index_url: "https://teams.example/index.json"}}
+  # default_source: corporate # takes precedence over index_url
+
 settings:
   # Daemon scheduling, repository defaults, worktree placement and logging.
   poll_interval_seconds: %d # valid range: %d..%d
@@ -30,7 +36,7 @@ settings:
   default_base_branch: %q # empty means discover it from the remote
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
-  team_config: %q # empty means the embedded team index; absolute path when set
+  team_config: %q # deprecated; central teams use teams.index_url above
   worktree_retain_days: %d # informational; cleanup is currently explicit
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
@@ -105,6 +111,7 @@ tiers:
 tool_profiles:
   permissions:
 `,
+		d.Teams.IndexURL,
 		d.Settings.PollIntervalSeconds, MinPollIntervalSeconds, MaxPollIntervalSeconds,
 		d.Settings.MaxConcurrentRuns, MinMaxConcurrentRuns, MaxMaxConcurrentRuns,
 		d.Settings.DefaultBaseBranch, d.Settings.FeaturePrefix, d.Settings.WorktreeRoot,

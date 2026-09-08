@@ -43,7 +43,7 @@ var hostLevelToolingKeys = []string{
 
 // TestEmbeddedDecodesUnderStrictDecoder exercises US-1's strict two-pass
 // decoder against the real shipped snapshot, not a synthetic fixture: this
-// is the same load path ResolveEmbedded (tier 1) uses in production.
+// uses the same strict decoder as production; these historical bytes are test-only.
 func TestEmbeddedDecodesUnderStrictDecoder(t *testing.T) {
 	idx, err := Embedded()
 	if err != nil {

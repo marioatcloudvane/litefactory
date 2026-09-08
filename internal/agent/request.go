@@ -49,6 +49,8 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// Delivery is nil for catalog-free operations and unassigned repositories.
+	Delivery *Delivery
 	// Ref identifies the task. It fixes the run log path and names the task
 	// on every log line the run emits.
 	Ref naming.Ref
@@ -98,6 +100,11 @@ type Request struct {
 // an implementation MAY check more (internal/harness re-checks Permissions
 // against its own configured ceiling, for one).
 func (req Request) Validate() error {
+	if req.Delivery != nil {
+		if err := req.Delivery.validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+		}
+	}
 	if err := req.Ref.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}

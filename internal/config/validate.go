@@ -95,6 +95,7 @@ var (
 // errors.Is(err, ErrLiteralSecret) — must exit 3 (AC-0.9).
 func (c *Config) Validate() error {
 	var errs []error
+	errs = append(errs, c.Teams.validate()...)
 	s := &c.Settings
 	if s.PollIntervalSeconds < MinPollIntervalSeconds || s.PollIntervalSeconds > MaxPollIntervalSeconds {
 		errs = append(errs, fmt.Errorf("settings.poll_interval_seconds: %d is out of range; must be between %d and %d",
