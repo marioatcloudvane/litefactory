@@ -1,19 +1,11 @@
 # APP_CONTEXT — litefactory
 
-**This file is a lookup reference, not a design document.** It answers one
-question: *does this already exist, and where?* Read it to find what is already
-built so you do not reinvent it.
-
-It deliberately does **not** hold the rules you must follow — those are in
-[`.aiteam/APP_CONSTRAINTS.md`](APP_CONSTRAINTS.md), and they are normative
-(MUST / SHOULD / MAY). It also deliberately holds no history: what was built
-last week is in git log and under `.aiteam/<branch>/<date>/`, and reading it
-back as context is how a run ends up loading a hundred kilobytes to answer a
-question the package map answers in three lines.
+**Lookup reference:** what exists and where. Normative rules live in
+[`APP_CONSTRAINTS.md`](APP_CONSTRAINTS.md).
 
 `litefactory` (module `github.com/cloudvane/litefactory`, **Go 1.26**) is a macOS
 daemon that polls GitHub issues and, when the owner comments, runs a headless
-`claude` process inside a git worktree and reports back on the thread.
+configured Claude or Codex process inside a git worktree and reports back on the thread.
 
 Single Go module. Not a monorepo. Everything is under `internal/`, with
 `cmd/litefactory/main.go` as wiring only (umask, signal context, logger,
@@ -23,18 +15,9 @@ dispatch, exit code).
 
 ## Before you run anything
 
-- **A live daemon is running from `dist/litefactory`.** Do not `make build`, do
-  not write into `dist/`, do not kill or restart it. `dist/` is gitignored.
-- Safe: `go build ./...`, `go test ./...`, `go vet ./...`, `gofmt -l .`.
-- `make check` = `fmt vet lint test` (this is what CI enforces). `make test`
-  runs with `-race`. `make lint` runs a pinned golangci-lint v2 (`.golangci.yml`
-  is a v2-format config).
-- There are **no build tags and no integration tests** in the tree today. A
-  `PreToolUse` hook (`.claude/hooks/check-test-env.sh`) blocks
-  `go test -tags integration` / `-run …Integration` unless `TEST_BASE_URL` and
-  `TEST_DATABASE_URL` are set — you will only trip it if you invent one.
-- Runtime state lives in `$LF_HOME` (default `~/.litefactory`). Do not edit
-  `~/.litefactory/config.yaml`.
+- `dist/litefactory` may be a live daemon; safe builds use `go build ./...`.
+- `make check` runs fmt, vet, pinned golangci-lint v2 and race tests; `go test ./...` is the quick pass.
+- Tests use no integration tags. Runtime state is under `$LF_HOME` (default `~/.litefactory`). See the working rules for build/runtime prohibitions.
 
 ---
 
@@ -53,7 +36,7 @@ launchd       →  (nothing)          leaf. the macOS LaunchAgent.
 logging       →  (nothing)          leaf. slog construction + file sink.
 render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
 gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
-planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies.
+planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies; strict versioned transient Plan proposals.
 attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
 schedule      →  (nothing)          leaf. parses factory-owned /schedule controls with injected time and location.
 
@@ -72,53 +55,14 @@ cli           →  config, daemon, git, github, identity, launchd, naming, repos
 cmd/litefactory → cli, config, logging
 ```
 
-The load-bearing consequences:
-
-- **`internal/config` imports nothing from litefactory and is stdlib-only apart
-  from the YAML decode.** `internal/config/purity_test.go` →
-  `TestValidationHasNoThirdPartyImports` parses every non-test file and fails
-  on any import whose first path segment contains a dot; `config.go` is the
-  single exception, for `gopkg.in/yaml.v3`. `internal/naming` states and holds
-  the same invariant.
-- **`internal/report` cannot import `internal/turn`** — the dependency runs the
-  other way, so `report.ReplyKind` (`internal/report/reply.go`) is its own enum
-  rather than reusing `turn.CommandKind`; the mapping is a small switch,
-  `replyKind()` in `internal/turn/report.go` (~line 600). A new reply shape
-  needs a `ReplyKind` **and** a case there. `report` is not a leaf — it imports
-  `agent`, `git`, `naming`, `redact`.
-- **`internal/harness` is the only place that executes `claude`.** It owns the
-  subprocess, the argv, the child environment allowlist, the kill sweep, and it
-  writes the run's `NNNN.jsonl` event stream.
-  *Path derivation is not.* `naming.RunLogPath` / `naming.RunMetaPath`
-  derive the paths and `config.Paths` owns the `$LF_HOME` layout. The sidecar
-  `NNNN.meta.json` is written by **`internal/turn`** (`harvest.go`, via
-  `harness.WriteMeta`) once the shas and touched files are known.
-- **`internal/turn` orchestrates one turn** and has no clock, no ticker, no
-  signals. **`internal/daemon` is litefactory's sense of time** — tick loop,
-  singleton lock, backoff, cursor, shutdown — and owns no business logic. This
-  split is a named invariant (`internal/daemon/doc.go`,
-  `internal/turn/doc.go`); it is what makes the whole business path testable
-  without waiting for anything.
-- **`internal/daemon` imports `internal/repos`, deliberately cycle-free** — the
-  startup worktree-collision check (`internal/repos/collision.go`, AC-PAR-4.8)
-  reuses the pure decision function rather than reimplementing it; `repos`
-  imports nothing back from `daemon`.
-- **`internal/agent` is the vendor-neutral contract two Runners implement** —
-  `harness` (Claude) and `codex` (OpenAI Codex CLI). Both take an
-  `agent.Request` and return an `agent.RunResult`; nothing outside a `Runner`
-  implementation may inspect `Permissions.Payload`, which differs by `Kind`.
-- **`teamsource.readAgentSource` (`internal/teamsource/render.go`) checks a
-  per-repo override (`team.ReadOverrideSource`) before falling back to
-  `AgentEntry.Source`.** Used by `RenderTeam` and `RenderCurrent`, upstream of
-  hashing — `team.Classify` needs no override-awareness, and an overridden
-  agent's `team.lock.json` provenance is unaffected.
+Useful boundary checks: `config/purity_test.go` pins the configuration leaf;
+`github/surface_test.go` pins the forge API inventory; `turn/gate_test.go` pins
+clone-gate call sites. `internal/agent` holds both runners' shared contracts;
+`internal/report` renders values while `internal/turn` delivers them.
 
 ### Read the `doc.go` files
 
-Eighteen packages carry a `doc.go` — the real spec for that package (`config`/
-`store` keep theirs atop `config.go`/`store.go` instead). Read the one for the
-package you are about to touch: it records what was measured and what breaks
-if you do the obvious thing.
+Package specifications live in `doc.go`; `config` and `store` use the comments atop `config.go` and `store.go`.
 
 ---
 
@@ -132,9 +76,9 @@ if you do the obvious thing.
 | run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
 | serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op |
 | refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
-| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` (`internal/store/sessions.go`) over `sessions.needs_poll`. Cleared only on a fully drained turn — never from a `defer` (T-PAR-12) |
+| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` in `store/sessions.go`; durable `sessions.needs_poll` backlog |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
-| call the GitHub API | `internal/github` | Concrete `*Client`, seven endpoints, `net/http` only. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
+| call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
@@ -144,61 +88,35 @@ if you do the obvious thing.
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
 | tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` — see below |
-| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer` + `Register`/`Lookup` registry. `claude`/`opencode` each emit **two** `RenderedFile`s: the standalone file (`.claude/agents/<agent>.md` tools comma-joined, or `.opencode/agents/<agent>.md` tools as YAML list) plus a root-file section (`CLAUDE.md`/`AGENTS.md`) for `internal/team` to marker-compose; `codex` → `.codex/skills/<agent>/SKILL.md` only (no `model`/`tools`, fails loudly). Pure; empty `Name` → `render.ErrMissingAgentName` |
-| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root string, renders []AgentRender) (*AddResult, error)` — batch-validate-then-write-all-or-nothing, per-repo flock; no-op short-circuit compares recorded hashes **and** the actual on-disk bytes (or marker span), so a hand-edited or deleted file is never mistaken for already installed |
+| turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer`, `Register`/`Lookup`; Claude/OpenCode produce a standalone file plus a root marker section; Codex produces `.codex/skills/<agent>/SKILL.md` |
+| install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root, renders)` validates the batch, writes atomically under a repo flock, and compares recorded hashes with actual file/marker bytes |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
 | compose one agent's section into a shared root file instead of a standalone file | `internal/team`'s `marker.go` | upsert located by agent key alone; an agent shared by multiple teams gets one deduplicated section listing every contributing team |
-| classify an installed agent artifact's drift against its current source | `internal/team.Classify` | 5-state `Status` (`InSync`/`LocallyModified`/`UpstreamUpdated`/`Conflict`/`Missing`); byte comparison only, read-only, never mutates the lockfile; caller supplies the fresh render via `teamsource.RenderCurrent`. `LoadLockfile`/`DecodeTeams` are exported wrappers for external callers |
+| classify an installed agent artifact's drift against its current source | `internal/team.Classify` | `Classify` returns InSync/LocallyModified/UpstreamUpdated/Conflict/Missing; caller supplies `teamsource.RenderCurrent`; `LoadLockfile`/`DecodeTeams` expose provenance |
 | override which local `.md` file an agent renders from, per repo | `internal/team` | `.litefactory/team.overrides.json`, flat `{agentKey: source}`; `SetOverride`/`UnsetOverride`/`ActiveOverride`/`ReadOverrideSource` (`internal/team/overrides.go`); `team manage <key> <set/unset/show>` is the CLI front door |
 | re-render one agent's current source for one harness, independent of team membership | `teamsource.RenderCurrent(fsys, harnessName, sourcePath)` | the fresh-render half `team.Classify` compares against; unlike `RenderTeam`, does no lockfile/team-union bookkeeping |
-| render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName string, roster []RosterEntry, harnessNames []string) ([]team.AgentRender, error)` — reads/parses/renders each roster entry per harness, hashes the source via `team.HashBytes`, and unions `teamName` into `team.ExistingTeams(...)` rather than overwriting it. This is the entry point `internal/cli`'s `team add` calls, in place of the inline rendering logic it used before this package existed |
+| render + collect a team's roster for `team add`, unioning shared-agent membership | `internal/teamsource` | `RenderTeam(root, fsys, teamName, roster, harnessNames)` resolves sources, renders, hashes, and unions `team.ExistingTeams` |
 | resolve the team index (embedded default < static-path override < registered-repo override) | `internal/teamsource` | `Resolve` (and `ResolveEmbedded`/`ResolveStaticPath`/`ResolveRegisteredRepo`) → `Resolved{Source, Index, FS}`; every tier loads via `team.Migrate`, never `team.Decode` directly |
 | see which `team` CLI subcommands exist | `internal/cli` | all six (`list`/`show`/`add`/`status`/`update`/`manage`) are fully implemented, none a stub — one `Command` constructor each |
-| bring installed agent files back in sync with their current source | `internal/cli`'s `runTeamUpdate` (`team update`) | classifies each tracked lockfile record via `team.Classify`; auto-applies Upstream-updated/Missing; refuses Locally-modified/Conflict unless `--force` (reported as `overwritten`, never folded into `updated`); writes through `team.Add`; single-worktree scope only — no sibling-worktree discovery (that's future US-15) |
+| bring installed agent files back in sync with their current source | `internal/cli`'s `runTeamUpdate` (`team update`) | `runTeamUpdate` classifies tracked files, applies UpstreamUpdated/Missing, and reports LocallyModified/Conflict; `--force` overwrites through `team.Add` |
+| publish a complete managed Plan | `turn.PublishPlan`, `planbrief.ParseProposal` | Full current-base story proposals; `turn/plan_handoff.go` consumes the fixed transient file and persists a link-only index before readiness |
+| identify every acceptance obligation | `planbrief.AcceptanceCriteria` | Shared publication/evidence parser; enumerates explicit, numbered and prose criteria without dropping unnamed obligations |
+| route managed child discussion | `daemon/story_refinements.go`, `store/story_refinements.go` | Closed-child discovery, canonical parent admission, separate child consumption and bot-verified acknowledgement recovery |
+| freeze and reload an approved generation | `store.ApproveManagedStories`, `ListApprovedStoryRevisions`, `turn/managed_scope.go` | Atomic immutable revisions, pending-refinement exclusion and durable notices; explicit quiescent parent `/plan` or `replan` opens unfinished scope |
+| supply approved stories to either runner | `agent.ApprovedBundle.Clone`, `harness/stories.go`, `turn/approved_context.go` | Complete JSON context on cold/resume/fallback, relationship checks, read-only completed dependencies and aggregate-only parent recovery |
+| observe and close a story during its parent run | `turn.StoryProgress` | Tick-polled strict event validation, immutable snapshot evidence and durable ordered completion/invalidation effects |
+| serialize story effects across processes | `store.LockStoryProgress`, `config.Paths.StoryProgressLocksDir` | Nonblocking parent ownership covers ingestion and external delivery without holding a SQL transaction |
+| distinguish story closure from final feature delivery | `store/story_completion.go` | Children close at scoped verification; feature completion additionally records aggregate/save success and delivered effects |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
-| decide *when* work happens | `internal/daemon` | `Tick` is an ordinary method, callable straight from a test. It returns synchronously but does **not** wait for the turns it dispatched — use `f.settle()` (one tick plus `Daemon.Quiesce`) in a test that needs to observe what a dispatched turn did |
+| decide *when* work happens | `internal/daemon` | `Tick` dispatches asynchronously; tests use `Daemon.Quiesce` or fixture `settle` to await dispatched turns |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
 
-Before you touch the store:
+Store entry points are `store.Open(ctx, path)` and explicit `Migrate(ctx)`.
+The driver is pure-Go `modernc.org/sqlite`, with one connection and embedded
+numbered SQL migrations. `store/store.go` documents the transaction/pragmas.
 
-- **SQLite via `modernc.org/sqlite`** (pure Go, cgo-free — the binary is static),
-  driver name `"sqlite"`, not `"sqlite3"`. Pool capped at **one** connection.
-  DSN pragmas are correctness, not tuning: `foreign_keys(ON)` (off by default per
-  connection), `journal_mode(WAL)` so `litefactory logs` can read while the
-  daemon writes, `busy_timeout`, `synchronous(NORMAL)`.
-- **The one-connection cap is load-bearing**: turn workers and the daemon's
-  tick goroutine queue for the store rather than contend. A read-then-write
-  transaction upgrading its lock mid-transaction gets `SQLITE_BUSY` at once
-  (`busy_timeout` does not cover a lock upgrade), so the cap, `BEGIN IMMEDIATE`
-  on every such transaction, and the DSN pragmas move as one decision.
-- **Migrations are hand-rolled and embedded** —
-  `internal/store/migrations/NNNN_*.sql` via `//go:embed`, version from the
-  filename prefix, one transaction each, recorded in `schema_migrations`. A new
-  schema change is a new `.sql` file and nothing else — a migration library is
-  an explicitly rejected dependency.
-
-NULL mapping in the store is uniform and worth copying: timestamps are
-`time.Time` with the zero time meaning NULL (stored as UTC RFC 3339 ms text, so
-lexicographic order is chronological order); text whose empty value carries no
-meaning is a plain `string`; forge ids are `int64` with 0 meaning NULL; and
-numbers whose zero is a *real* value (an exit code, a cost) are **pointers**.
-
-Before you touch a run's outcome, its commit gate, or its report:
-
-- `agent.RunResult.Succeeded()` (live subprocess exit + result event) and
-  `store.Run.Succeeded()` (persisted row, `internal/store/runs.go`) are two
-  distinct predicates from different sources of truth — never collapse one
-  into the other. `turn.save` (`internal/turn/harvest.go`) and
-  `turn.fileStoryIssues` (`internal/turn/subissues.go`) both gate their
-  commit/push on the *live* one (`runResult.Succeeded()`); any other outcome
-  leaves the worktree uncommitted for the next run on the same task to pick up.
-- A non-success report names the worktree in exactly one place:
-  `metadataList`'s Commit-line default arm (`internal/report/run.go`) when
-  `CommitSHA==""`; `outcomeView.withFailure` only adds it when
-  `CommitSHA!=""` — the two arms are mutually exclusive by construction.
-- A resumed run whose predecessor failed gets a corrective note:
-  `harness.PromptInput.PreviousFailed`/`PreviousReason`
-  (`internal/harness/prompt.go`), populated only by `turn.prepare` on the
-  resume path, rendered into the prompt by `writeResumeHeader`.
+`agent.RunResult.Succeeded()` describes live subprocess evidence;
+`store.Run.Succeeded()` describes persisted outcomes. `turn.save` gates saving
+on the live result, and `report.run` renders the resulting delivery status.

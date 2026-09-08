@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -41,6 +42,10 @@ type Renderer interface {
 
 // ReporterOptions are the dependencies of a [Reporter].
 type ReporterOptions struct {
+	// BotUserID and StoryLockDir enable recoverable managed-story acknowledgements.
+	// StoryLockDir is config.Paths.StoryProgressLocksDir, shared by every process.
+	BotUserID    int64
+	StoryLockDir string
 	// DB is the open database. Required.
 	//
 	// It is the concrete store and not a narrow interface, deliberately, and it
@@ -106,10 +111,12 @@ func (o ReporterOptions) validate() error {
 //
 // A Reporter is immutable after construction and safe for concurrent use.
 type Reporter struct {
-	db       *store.DB
-	forge    Poster
-	renderer Renderer
-	log      *slog.Logger
+	botUserID    int64
+	storyLockDir string
+	db           *store.DB
+	forge        Poster
+	renderer     Renderer
+	log          *slog.Logger
 }
 
 // NewReporter builds a Reporter. Every dependency is required, and a missing one
@@ -120,7 +127,16 @@ func NewReporter(opts ReporterOptions) (*Reporter, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	return &Reporter{db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger}, nil
+	if opts.StoryLockDir != "" {
+		if err := os.MkdirAll(opts.StoryLockDir, 0o700); err != nil {
+			return nil, err
+		}
+		info, err := os.Lstat(opts.StoryLockDir)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.Join(fmt.Errorf("story acknowledgement lock directory must be a real directory"), err)
+		}
+	}
+	return &Reporter{db: opts.DB, forge: opts.Forge, renderer: opts.Renderer, log: opts.Logger, botUserID: opts.BotUserID, storyLockDir: opts.StoryLockDir}, nil
 }
 
 // Posted is what a report left behind.
@@ -518,6 +534,14 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 	}
 
 	ref := rep.Run.Ref
+	destination, refinement, err := r.refinementDestination(ctx, rep.SessionID, rep.CommentID, ref)
+	if err != nil {
+		return Posted{}, err
+	}
+	if refinement != nil {
+		rep.Run.SourceStoryIssue = refinement.ChildNumber
+		rep.Run.SourceCommentID = refinement.CommentID
+	}
 	log := r.log.With(
 		slog.String("task", ref.String()),
 		slog.Int64("session_id", rep.SessionID),
@@ -547,7 +571,7 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 		return Posted{}, fmt.Errorf("render the report for run %d of task %s: %w", rep.Run.Ordinal, ref, err)
 	}
 
-	comment, err := r.post(ctx, ref, body, log)
+	comment, err := r.post(ctx, destination, body, log)
 	if err != nil {
 		return Posted{}, err
 	}
@@ -560,7 +584,7 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 	if rep.RunID == 0 {
 		// No run row was ever allocated (a preparation failure), so there is no
 		// status to move and the watermark advances on its own.
-		if _, err := r.db.AdvanceWatermark(commit, rep.SessionID, rep.CommentID); err != nil {
+		if err := r.consumeSource(commit, rep.SessionID, rep.CommentID); err != nil {
 			log.ErrorContext(ctx, "posted the report but could not consume the comment; "+
 				"a later tick will report it again",
 				slog.Int64("comment_id", comment.ID), slog.Any("error", err))
@@ -603,6 +627,16 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 	if err := req.validate(); err != nil {
 		return Posted{}, err
 	}
+	destination, refinement, err := r.refinementDestination(ctx, req.SessionID, req.CommentID, req.Ref)
+	if err != nil {
+		return Posted{}, err
+	}
+	var sourceStory int
+	var sourceComment int64
+	if refinement != nil {
+		sourceStory = refinement.ChildNumber
+		sourceComment = refinement.CommentID
+	}
 	kind, ok := req.kind()
 	if !ok {
 		return Posted{}, invalidRequest("%s draws no reply", req.Command.Kind)
@@ -625,6 +659,8 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 
 	body, err := r.renderer.RenderReply(ctx, report.Reply{
 		Ref:                      req.Ref,
+		SourceStoryIssue:         sourceStory,
+		SourceCommentID:          sourceComment,
 		Kind:                     kind,
 		Command:                  req.Command.Name,
 		Agent:                    req.Agent,
@@ -645,13 +681,13 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		return Posted{}, fmt.Errorf("render the %s reply for task %s: %w", kind, req.Ref, err)
 	}
 
-	comment, err := r.post(ctx, req.Ref, body, log)
+	comment, err := r.post(ctx, destination, body, log)
 	if err != nil {
 		return Posted{}, err
 	}
 	posted := Posted{CommentID: comment.ID}
 
-	if _, err := r.db.AdvanceWatermark(context.WithoutCancel(ctx), req.SessionID, req.CommentID); err != nil {
+	if err := r.consumeSource(context.WithoutCancel(ctx), req.SessionID, req.CommentID); err != nil {
 		log.ErrorContext(ctx, "posted the reply but could not consume the comment; "+
 			"a later tick will reply again",
 			slog.Int64("comment_id", comment.ID), slog.Any("error", err))
@@ -738,6 +774,11 @@ func (r *Reporter) reported(ctx context.Context, rep RunReport) (bool, store.Run
 // It is the run-less half of the replay guard. A missing watermark is not
 // consumed: a task with no watermark row has had nothing consumed at all.
 func (r *Reporter) consumed(ctx context.Context, sessionID, commentID int64) (bool, error) {
+	if refinement, err := r.db.GetStoryRefinement(ctx, sessionID, commentID); err == nil {
+		return refinement.Consumed, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
 	wm, exists, err := r.db.GetWatermark(ctx, sessionID)
 	if err != nil {
 		return false, fmt.Errorf("read the watermark of session %d: %w", sessionID, err)

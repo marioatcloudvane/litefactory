@@ -27,7 +27,7 @@ type Installation struct {
 	Observation *UpstreamObservation       `json:"observation,omitempty"`
 	Origin      string                     `json:"origin"`
 	Hashes      map[string]string          `json:"hashes"`
-	Definition  team.TeamEntry             `json:"definition"`
+	Definition  team.Entry                 `json:"definition"`
 	Shared      map[string]team.AgentEntry `json:"shared"`
 }
 
@@ -96,9 +96,9 @@ func baseCatalog(idx *team.Index, m *CatalogMetadata) (*team.Index, error) {
 	}
 	return cloned, nil
 }
-func definitionHash(def team.TeamEntry, shared map[string]team.AgentEntry) string {
+func definitionHash(def team.Entry, shared map[string]team.AgentEntry) string {
 	b, _ := json.Marshal(struct {
-		Definition team.TeamEntry
+		Definition team.Entry
 		Shared     map[string]team.AgentEntry
 	}{def, shared})
 	return team.HashBytes(b)
@@ -144,7 +144,7 @@ func readIndex(ctx context.Context, root string) (*team.Index, error) {
 	defer r.Close()
 	b, err := (&captureReader{ctx: ctx, root: r, base: root}).readFresh("index.json")
 	if errors.Is(err, fs.ErrNotExist) {
-		return &team.Index{SchemaVersion: 2, Teams: map[string]team.TeamEntry{}, Shared: map[string]team.AgentEntry{}}, nil
+		return &team.Index{SchemaVersion: 2, Teams: map[string]team.Entry{}, Shared: map[string]team.AgentEntry{}}, nil
 	}
 	if err != nil {
 		return nil, err

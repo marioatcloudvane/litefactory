@@ -84,7 +84,18 @@ func (w *Worktree) Status(ctx context.Context) ([]FileChange, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseStatus(out)
+	files, err := parseStatus(out)
+	if err != nil {
+		return nil, err
+	}
+	filtered := files[:0]
+	for _, f := range files {
+		if f.Path == ".litefactory-plan-proposal.json" || f.Path == ".litefactory-story-events" || strings.HasPrefix(f.Path, ".litefactory-story-events/") {
+			continue
+		}
+		filtered = append(filtered, f)
+	}
+	return filtered, nil
 }
 
 // parseStatus decodes NUL-delimited "git status --porcelain -z" output.

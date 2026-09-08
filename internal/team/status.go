@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 // Status classifies one lockfile-tracked artifact by comparing its installed
@@ -102,10 +101,9 @@ func Classify(root string, rec LockRecord, freshSourceHash string, freshTeams []
 	if err := refuseSymlink(root, rec.DestPath); err != nil {
 		return 0, err
 	}
-	absPath := filepath.Join(root, rec.DestPath)
 
 	if isRootFileTarget(rec.DestPath) {
-		content, err := os.ReadFile(absPath)
+		content, err := readRepoFile(root, rec.DestPath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return StatusMissing, nil
@@ -121,7 +119,7 @@ func Classify(root string, rec LockRecord, freshSourceHash string, freshTeams []
 		return classifyBytes(installed, freshSpan, freshSourceHash, rec), nil
 	}
 
-	installed, err := os.ReadFile(absPath)
+	installed, err := readRepoFile(root, rec.DestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return StatusMissing, nil

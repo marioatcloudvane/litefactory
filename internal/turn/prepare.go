@@ -23,9 +23,11 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
-	repo    store.Repo
-	session store.Session
-	ref     naming.Ref
+	validateScope func(context.Context) (string, error)
+	scopeDrift    string
+	repo          store.Repo
+	session       store.Session
+	ref           naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -112,6 +114,10 @@ func prepare(
 		if err != nil {
 			return nil, failuref(err, "external team instructions could not be captured")
 		}
+	}
+
+	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
+		return nil, err
 	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
@@ -323,6 +329,18 @@ func prepare(
 		PreviousFailed:    previousFailed,
 		PreviousReason:    previousReason,
 	}
+	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
+		return nil, err
+	}
+	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+		return nil, err
+	}
+	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
+		return nil, err
+	}
+	if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
+		return nil, err
+	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
@@ -400,10 +418,11 @@ func prepare(
 		promptInput: promptInput,
 		sync:        sync,
 		request: agent.Request{
-			Delivery:       delivery,
-			Ref:            ref,
-			RunOrdinal:     run.Ordinal,
-			SegmentOrdinal: segment.Ordinal,
+			Delivery:         delivery,
+			PlanProposalPath: promptInput.PlanProposalPath,
+			Ref:              ref,
+			RunOrdinal:       run.Ordinal,
+			SegmentOrdinal:   segment.Ordinal,
 			// Ref is the segments row's own value, never recomputed: if it and
 			// a fresh derivation ever disagree the stored one wins, because it
 			// is the one the tool has already seen. Resume is the tool's own

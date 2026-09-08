@@ -64,3 +64,18 @@ agent/skill loading; Codex verification was blocked by the execution sandbox.
 Runs for repositories with an external team selected fail with an actionable
 transport-unavailable error before invoking a CLI. Existing repositories without
 an external team assignment keep their current runtime behavior.
+
+### GitHub story progress
+
+Managed plans keep complete user stories in GitHub sub-issues. Planning comments
+on a story refine the parent plan. Promotion to Implement freezes selected story
+revisions; subsequent comments receive a locked notice and do not alter scope.
+The factory supplies the same approved bodies to cold and resumed executions.
+Detached, missing or moved stories block a later dispatch; live body edits are
+reported without silently replacing approved requirements.
+
+Each story closes as soon as its own acceptance checks, review and tests have
+verified it, while other stories can still be running. If later work invalidates
+that evidence, the affected story reopens. Final feature checks remain required.
+Comment `replan` or `/plan <instruction>` on the parent while no run is active
+to reopen unfinished scope. Existing legacy story files are not migrated or converted.

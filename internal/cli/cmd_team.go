@@ -84,7 +84,7 @@ func newCatalogReadCommand(verb string, named bool) *Command {
 			}
 			modes := team.Modes()
 			if *mode != "" {
-				if _, ok := (team.TeamEntry{}).Mode(*mode); !ok {
+				if _, ok := (team.Entry{}).Mode(*mode); !ok {
 					return Usagef(cmd, "unknown mode %q", *mode)
 				}
 				modes = []string{*mode}

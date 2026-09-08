@@ -82,7 +82,7 @@ func lockfilePath(root string) string {
 // ErrNoLockfile.
 func loadLockfile(root string) (*Lockfile, error) {
 	path := lockfilePath(root)
-	data, err := os.ReadFile(path)
+	data, err := readRepoFile(root, filepath.Join(litefactoryDir, lockfileName))
 	if errors.Is(err, os.ErrNotExist) {
 		return &Lockfile{Version: lockfileSchemaVersion}, fmt.Errorf("%s: %w", path, ErrNoLockfile)
 	}
@@ -91,7 +91,7 @@ func loadLockfile(root string) (*Lockfile, error) {
 	}
 	var lf Lockfile
 	if err := json.Unmarshal(data, &lf); err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", path, ErrLockfileCorrupt, err)
+		return nil, fmt.Errorf("%s: %w: %w", path, ErrLockfileCorrupt, err)
 	}
 	return &lf, nil
 }
@@ -205,10 +205,11 @@ func (lf *Lockfile) save(root string) error {
 	}
 	data = append(data, '\n')
 	path := lockfilePath(root)
+	// #nosec G301 -- SEC-10 requires main to install umask 077 before these repository writes.
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return fmt.Errorf("create %s: %w", litefactoryDir, err)
 	}
-	if err := writeFileAtomic(root, filepath.Join(litefactoryDir, lockfileName), data, 0o666); err != nil {
+	if err := writeFileAtomic(root, filepath.Join(litefactoryDir, lockfileName), data); err != nil {
 		return fmt.Errorf("write lockfile: %w", err)
 	}
 	return nil

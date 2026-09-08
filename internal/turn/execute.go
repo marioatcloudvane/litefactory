@@ -80,6 +80,9 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// StoryProgress is shared with daemon ticks for live checkpoints and final drain.
+	StoryProgress *StoryProgress
+
 	// DB is the open database. Required.
 	DB *store.DB
 

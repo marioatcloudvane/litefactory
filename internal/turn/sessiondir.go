@@ -2,6 +2,7 @@ package turn
 
 import (
 	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ import (
 // file existing and wrong about where, which is the worst of both.
 //
 // So: try the run's own day first, because it is exact and free in the ordinary
-// case and costs one [os.Stat]; fall back to one bounded, one-level read of
+// case and uses bounded capability-rooted metadata reads; fall back to one bounded, one-level read of
 // .aiteam/<branchDir>/, newest date first. marker is the file whose presence
 // makes a date directory the right one — a session directory that exists but
 // does not hold the artefact being looked for is not an answer.
@@ -49,13 +50,23 @@ func findSessionDir(worktreeDir, branch string, issue int, day time.Time, marker
 }
 
 // sessionDirOn derives the session directory for one candidate day and reports
-// whether marker actually exists in it — one [os.Stat] and nothing more.
+// whether marker exists as a regular file without symlink components.
 func sessionDirOn(worktreeDir, branch, slug string, day time.Time, marker string) (string, bool) {
 	dir, err := naming.AITeamSessionDir(branch, day, slug)
 	if err != nil {
 		return "", false
 	}
-	if _, err := os.Stat(filepath.Join(worktreeDir, filepath.FromSlash(dir), marker)); err != nil {
+	root, err := os.OpenRoot(worktreeDir)
+	if err != nil {
+		return "", false
+	}
+	defer root.Close()
+	path := filepath.Join(filepath.FromSlash(dir), marker)
+	if err := checkStoryComponents(root, path); err != nil {
+		return "", false
+	}
+	info, err := root.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
 		return "", false
 	}
 	return dir, true
@@ -74,7 +85,20 @@ func scanSessionDates(worktreeDir, branch, slug, marker string, log *slog.Logger
 	}
 
 	root := filepath.Join(worktreeDir, filepath.FromSlash(branchDir))
-	entries, err := os.ReadDir(root)
+	capability, err := os.OpenRoot(worktreeDir)
+	if err != nil {
+		return "", false
+	}
+	defer capability.Close()
+	if err := checkStoryComponents(capability, filepath.FromSlash(branchDir)); err != nil {
+		return "", false
+	}
+	branchRoot, err := capability.OpenRoot(filepath.FromSlash(branchDir))
+	if err != nil {
+		return "", false
+	}
+	defer branchRoot.Close()
+	entries, err := fs.ReadDir(branchRoot.FS(), ".")
 	if err != nil {
 		if log != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Debug("list the aiteam branch directory",

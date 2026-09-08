@@ -243,7 +243,7 @@ func TestReplyRefusesSyncRejectsABidiOverrideRune(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
 
-	evil := "safe‮txt.exe.go"
+	evil := "safe\u202etxt.exe.go"
 	body, err := rep.RenderReply(t.Context(), report.Reply{
 		Ref: testRef, Kind: report.ReplyRefusesSync, ConflictPaths: []string{evil},
 	})
@@ -252,7 +252,7 @@ func TestReplyRefusesSyncRejectsABidiOverrideRune(t *testing.T) {
 	}
 	text := body.String()
 
-	if strings.Contains(text, evil) || strings.Contains(text, "‮") {
+	if strings.Contains(text, evil) || strings.Contains(text, "\u202e") {
 		t.Errorf("a bidi-override rune leaked into the reply:\n%s", text)
 	}
 	if !strings.Contains(text, fmt.Sprintf("%d of the conflicting path(s) could not be shown safely", 1)) {

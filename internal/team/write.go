@@ -149,7 +149,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 	var standaloneWrites []standaloneWrite
 	for _, c := range candidates {
 		if existing, found := lf.findRecord(c.record); found && existing.matches(c.record) {
-			if onDisk, readErr := os.ReadFile(filepath.Join(root, c.path)); readErr == nil && bytes.Equal(onDisk, c.body) {
+			if onDisk, readErr := readRepoFile(root, c.path); readErr == nil && bytes.Equal(onDisk, c.body) {
 				result.Skipped = append(result.Skipped, existing)
 				continue
 			}
@@ -170,7 +170,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 	// decision.
 	changedSections := map[string][]rootSection{}
 	for rootFile, sections := range rootCandidates {
-		rootContent, readErr := os.ReadFile(filepath.Join(root, rootFile))
+		rootContent, readErr := readRepoFile(root, rootFile)
 		if readErr != nil && !os.IsNotExist(readErr) {
 			return nil, fmt.Errorf("read %s: %w", rootFile, readErr)
 		}
@@ -192,7 +192,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 		if err := refuseSymlink(root, w.path); err != nil {
 			return nil, err
 		}
-		if err := writeFileAtomic(root, w.path, w.body, 0o666); err != nil {
+		if err := writeFileAtomic(root, w.path, w.body); err != nil {
 			return nil, fmt.Errorf("write %s: %w", w.path, err)
 		}
 		lf.upsertRecord(w.record)
@@ -212,6 +212,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 			return nil, err
 		}
 		absPath := filepath.Join(root, rootFile)
+		// #nosec G304 -- rootFile came through validateOwnedPath and refuseSymlink immediately above.
 		content, err := os.ReadFile(absPath)
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -228,7 +229,7 @@ func Add(root string, renders []AgentRender) (*AddResult, error) {
 			content = upsertMarkerSection(content, sec.teams, sec.agentKey, sec.body)
 		}
 
-		if err := writeFileAtomic(root, rootFile, content, 0o666); err != nil {
+		if err := writeFileAtomic(root, rootFile, content); err != nil {
 			return nil, fmt.Errorf("write %s: %w", rootFile, err)
 		}
 		for _, sec := range sections {

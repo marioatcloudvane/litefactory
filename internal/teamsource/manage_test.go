@@ -27,8 +27,8 @@ func managementPackage(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	a := team.AgentEntry{ID: "reader", Desc: "Reads sources", Path: "agents/shared/reader.md", Tier: "fast"}
-	tm := team.TeamEntry{Desc: "Test team", Research: []team.AgentEntry{{Ref: "reader"}}, Plan: []team.AgentEntry{}, Implement: []team.AgentEntry{}, Validate: []team.AgentEntry{}, Spike: []team.AgentEntry{}}
-	idx := team.Index{SchemaVersion: 2, Teams: map[string]team.TeamEntry{"blue": tm}, Shared: map[string]team.AgentEntry{"reader": a}}
+	tm := team.Entry{Desc: "Test team", Research: []team.AgentEntry{{Ref: "reader"}}, Plan: []team.AgentEntry{}, Implement: []team.AgentEntry{}, Validate: []team.AgentEntry{}, Spike: []team.AgentEntry{}}
+	idx := team.Index{SchemaVersion: 2, Teams: map[string]team.Entry{"blue": tm}, Shared: map[string]team.AgentEntry{"reader": a}}
 	b, err := json.Marshal(idx)
 	if err != nil {
 		t.Fatal(err)

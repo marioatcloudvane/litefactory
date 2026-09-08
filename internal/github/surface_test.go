@@ -80,6 +80,9 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		// installation token, so it is the only place an attachment fetch
 		// can safely happen (US-3).
 		"FetchAsset",          // GET <allow-listed attachment URL>
+		"GetParentIssue",      // GET …/issues/{n}/parent
+		"SetStoryState",       // PATCH verified managed story state and reason
+		"UpdateIssue",         // PATCH …/issues/{n}, full title and body
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments

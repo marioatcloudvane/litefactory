@@ -25,7 +25,7 @@ func TestWriteFileAtomicRefusesPathOutsideOwnedPaths(t *testing.T) {
 	}
 
 	for _, bad := range badPaths {
-		err := writeFileAtomic(root, bad, []byte("payload"), 0o666)
+		err := writeFileAtomic(root, bad, []byte("payload"))
 		if err == nil {
 			t.Errorf("writeFileAtomic(%q) succeeded, want it refused as outside Owned Paths", bad)
 			continue

@@ -480,7 +480,11 @@ RETURNING `+runColumns,
 		// Factory-private schedule triggers had their source comments consumed
 		// when scheduling was acknowledged, so advancing a
 		// watermark with one would be both meaningless and unsafe.
-		if !IsScheduleTrigger(run.TriggerCommentID) {
+		refinement, err := consumeRefinement(ctx, tx, run.SessionID, run.TriggerCommentID)
+		if err != nil {
+			return fmt.Errorf("consume story refinement: %w", err)
+		}
+		if !refinement && !IsScheduleTrigger(run.TriggerCommentID) {
 			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
 				return fmt.Errorf("advance watermark: %w", err)
 			}

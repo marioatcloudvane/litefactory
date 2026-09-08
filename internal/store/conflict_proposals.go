@@ -18,6 +18,7 @@ import (
 // "accepted" and "rejected" belong to a later story that does not exist yet.
 type ConflictProposalStatus string
 
+// Conflict proposal states distinguish pending advice from terminal outcomes.
 const (
 	ConflictProposalPending    ConflictProposalStatus = "pending"
 	ConflictProposalSuperseded ConflictProposalStatus = "superseded"

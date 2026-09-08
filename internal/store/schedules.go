@@ -11,6 +11,7 @@ import (
 // ScheduleStatus is a scheduled item's durable lifecycle.
 type ScheduleStatus string
 
+// Schedule states persist execution progress across daemon restarts.
 const (
 	SchedulePending   ScheduleStatus = "pending"
 	ScheduleRunning   ScheduleStatus = "running"
@@ -427,6 +428,7 @@ func collectSchedules(rows *sql.Rows) ([]Schedule, error) {
 // ProposalStatus is the lifecycle of an agent-produced schedule proposal.
 type ProposalStatus string
 
+// Proposal states distinguish owner decisions from expired advice.
 const (
 	ProposalPending  ProposalStatus = "pending"
 	ProposalAccepted ProposalStatus = "accepted"
