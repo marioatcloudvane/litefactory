@@ -407,13 +407,18 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name   string
-		ignore bool
-		empty  bool
+		name          string
+		ignore        bool
+		empty         bool
+		staged        bool
+		transportOnly bool
 	}{
 		{name: "ignored nonempty directory", ignore: true},
 		{name: "ignored empty directory", ignore: true, empty: true},
 		{name: "unignored transport"},
+		{name: "already staged transport", staged: true},
+		{name: "transport only", transportOnly: true},
+		{name: "already staged transport only", staged: true, transportOnly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -438,9 +443,14 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 			for path, content := range transport {
 				repo.WriteFile(filepath.Join(rel, path), content)
 			}
-			repo.WriteFile(filepath.Join(rel, "ordinary.txt"), "completed work\n")
+			if !tc.transportOnly {
+				repo.WriteFile(filepath.Join(rel, "ordinary.txt"), "completed work\n")
+			}
 
-			if !tc.ignore {
+			if tc.staged {
+				repo.GitIn(dir, "add", "--all", "--", ".")
+			}
+			if !tc.ignore && !tc.staged && !tc.transportOnly {
 				// Prove the reset alone excludes both unignored paths, without
 				// relying on Worktree.Status, which deliberately hides transport.
 				repo.GitIn(dir, "add", "--all", "--", ".")
@@ -454,6 +464,12 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 				if got := repo.GitIn(dir, "diff", "--cached", "--name-only"); got != "ordinary.txt" {
 					t.Fatalf("staged after reset = %q, want ordinary.txt", got)
 				}
+				for path, want := range transport {
+					got, err := os.ReadFile(filepath.Join(dir, path))
+					if err != nil || string(got) != want {
+						t.Fatalf("transport %s after reset = %q, %v; want %q", path, got, err, want)
+					}
+				}
 			}
 
 			before := repo.GitIn(dir, "rev-parse", "HEAD")
@@ -461,11 +477,20 @@ func TestCommitExcludesFactoryTransport(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
-			if !result.Committed || result.SHA == "" || result.SHA == before || result.Head != result.SHA {
-				t.Fatalf("Commit did not make a new commit: %+v", result)
-			}
-			if got := repo.GitIn(dir, "show", "HEAD:ordinary.txt"); got != "completed work" {
-				t.Errorf("committed ordinary file = %q", got)
+			if tc.transportOnly {
+				if result.Committed || result.SHA != "" || result.Head != before || len(result.Files) != 0 {
+					t.Errorf("transport-only Commit = %+v, want successful no-op at %s", result, before)
+				}
+				if got := repo.GitIn(dir, "rev-parse", "HEAD"); got != before {
+					t.Errorf("transport-only HEAD = %q, want unchanged %q", got, before)
+				}
+			} else {
+				if !result.Committed || result.SHA == "" || result.SHA == before || result.Head != result.SHA {
+					t.Fatalf("Commit did not make a new commit: %+v", result)
+				}
+				if got := repo.GitIn(dir, "show", "HEAD:ordinary.txt"); got != "completed work" {
+					t.Errorf("committed ordinary file = %q", got)
+				}
 			}
 			if got := repo.GitIn(dir, "ls-tree", "-r", "--name-only", "HEAD", "--", proposal, events); got != "" {
 				t.Errorf("committed transport: %s", got)

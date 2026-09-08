@@ -6,7 +6,7 @@
 
 - [ ] **Research** — not requested
 - [x] **Plan** — plan_brief.md + managed JSON proposal (complete; factory publication pending)
-- [ ] **Implement** — not started
+- [x] **Implement** — run 0003, frozen US-1 / #158 (verified; aggregate checks passed)
 - [x] **Spike** — `SPIKE.md` (run 0002; fix and validation complete)
 
 ## History
@@ -22,3 +22,5 @@
 ## Notes
 
 Explicit managed Plan handoff authorizes planning directly from the supplied issue. No existing story identities or revisions were supplied; propose new stories only. No questions, commits, pushes, or forge access.
+
+- 2026-09-08 — run 0003: US-1 acceptance checks, clean scoped review, six transport cases, full internal/git race/coverage and make check passed; stable verification evidence prepared for run 226.
