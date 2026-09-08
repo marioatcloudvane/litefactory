@@ -401,6 +401,119 @@ func TestEnsureWorktreeRefusesPathsOverlappingTheClone(t *testing.T) {
 	}
 }
 
+// An ignored event directory can survive run cleanup even when it is empty.
+// Neither that directory nor unignored transport may prevent ordinary commits.
+func TestCommitExcludesFactoryTransport(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name          string
+		ignore        bool
+		empty         bool
+		staged        bool
+		transportOnly bool
+	}{
+		{name: "ignored nonempty directory", ignore: true},
+		{name: "ignored empty directory", ignore: true, empty: true},
+		{name: "unignored transport"},
+		{name: "already staged transport", staged: true},
+		{name: "transport only", transportOnly: true},
+		{name: "already staged transport only", staged: true, transportOnly: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := gittest.New(t)
+			worktree, dir := newTaskWorktree(t, repo, 157, "Exclude factory transport")
+			rel := relTo(t, repo, dir)
+			if tc.ignore {
+				repo.WriteFile(filepath.Join(rel, ".gitignore"), "/.litefactory-story-events/\n")
+			}
+			const proposal = ".litefactory-plan-proposal.json"
+			const events = ".litefactory-story-events"
+			const event = events + "/0002/verified.json"
+			transport := map[string]string{proposal: "{\"version\":1}\n"}
+			if tc.empty {
+				if err := os.MkdirAll(filepath.Join(dir, events), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				transport[event] = "{\"status\":\"verified\"}\n"
+			}
+			for path, content := range transport {
+				repo.WriteFile(filepath.Join(rel, path), content)
+			}
+			if !tc.transportOnly {
+				repo.WriteFile(filepath.Join(rel, "ordinary.txt"), "completed work\n")
+			}
+
+			if tc.staged {
+				repo.GitIn(dir, "add", "--all", "--", ".")
+			}
+			if !tc.ignore && !tc.staged && !tc.transportOnly {
+				// Prove the reset alone excludes both unignored paths, without
+				// relying on Worktree.Status, which deliberately hides transport.
+				repo.GitIn(dir, "add", "--all", "--", ".")
+				staged := strings.Split(repo.GitIn(dir, "diff", "--cached", "--name-only"), "\n")
+				for path := range transport {
+					if !slices.Contains(staged, path) {
+						t.Fatalf("transport %q was not staged: %v", path, staged)
+					}
+				}
+				repo.GitIn(dir, "reset", "--quiet", "HEAD", "--", proposal, events)
+				if got := repo.GitIn(dir, "diff", "--cached", "--name-only"); got != "ordinary.txt" {
+					t.Fatalf("staged after reset = %q, want ordinary.txt", got)
+				}
+				for path, want := range transport {
+					got, err := os.ReadFile(filepath.Join(dir, path))
+					if err != nil || string(got) != want {
+						t.Fatalf("transport %s after reset = %q, %v; want %q", path, got, err, want)
+					}
+				}
+			}
+
+			before := repo.GitIn(dir, "rev-parse", "HEAD")
+			result, err := worktree.Commit(t.Context(), commitOptions("Save completed work.", 2))
+			if err != nil {
+				t.Fatalf("Commit: %v", err)
+			}
+			if tc.transportOnly {
+				if result.Committed || result.SHA != "" || result.Head != before || len(result.Files) != 0 {
+					t.Errorf("transport-only Commit = %+v, want successful no-op at %s", result, before)
+				}
+				if got := repo.GitIn(dir, "rev-parse", "HEAD"); got != before {
+					t.Errorf("transport-only HEAD = %q, want unchanged %q", got, before)
+				}
+			} else {
+				if !result.Committed || result.SHA == "" || result.SHA == before || result.Head != result.SHA {
+					t.Fatalf("Commit did not make a new commit: %+v", result)
+				}
+				if got := repo.GitIn(dir, "show", "HEAD:ordinary.txt"); got != "completed work" {
+					t.Errorf("committed ordinary file = %q", got)
+				}
+			}
+			if got := repo.GitIn(dir, "ls-tree", "-r", "--name-only", "HEAD", "--", proposal, events); got != "" {
+				t.Errorf("committed transport: %s", got)
+			}
+			if got := repo.GitIn(dir, "ls-files", "--", proposal, events); got != "" {
+				t.Errorf("transport remains in index: %s", got)
+			}
+			for path, want := range transport {
+				got, err := os.ReadFile(filepath.Join(dir, path))
+				if err != nil || string(got) != want {
+					t.Errorf("transport %s on disk = %q, %v; want %q", path, got, err, want)
+				}
+			}
+			if tc.empty {
+				entries, err := os.ReadDir(filepath.Join(dir, events))
+				if err != nil || len(entries) != 0 {
+					t.Errorf("empty event directory = %v, %v", entries, err)
+				}
+			}
+		})
+	}
+}
+
 // TestCommitWritesTheProvenanceTrailers is the shape of AC-3.21: the summary
 // above, the three trailers below, authored as the human.
 func TestCommitWritesTheProvenanceTrailers(t *testing.T) {
