@@ -6,10 +6,14 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(run 0014 scope/status clarification and owner-required default URL recorded; endpoint availability unverified)*
 - [x] **Plan** — `plan_brief.md` + six complete per-story bodies *(run 0013 remote-primary distribution re-plan; existing #127–#131 need synchronization and new US-6 needs publication/link)*
-- [ ] **Implement** — partial: central US-1/US-2 foundation implemented; remote distribution/publishing and US-3–US-5 delivery/workflow/evidence remain. Run 0013 removes the outer-sandbox EPERM prerequisite; it is not a product capability blocker.
+- [ ] **Implement** — run 0015 production implementation delivered across US-1–US-6; independent code review CLEAN, 25 new scoped test functions and the full race-enabled suite pass. `make check` stops on 41 unchanged-source lint findings. Real CLI acceptance and comparative token evidence remain open, so full acceptance is not marked done.
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
+
+- 2026-09-08 — run 0015 final verification (same session across midnight): `GOMAXPROCS=2 go test -race -p 2 ./...` passed every package. Serial make check passed formatting/vet and stopped at 41 lint findings; reviewer verified all affected files unchanged from starting HEAD 9bb0fbeccad30fcc4ae1761e6014cb6cf758fb2b. New code/test lint findings fixed. Detailed test and drift reports retain real CLI/token release gates and public-publishing prerequisite; no acceptance waiver or unsupported-Codex conclusion.
+
+- 2026-09-07 — run 0015: implemented remote-primary distribution, owner's default index URL with explicit GitHub raw normalization, corporate source controls, versions/pins/cache/offline status, journaled updates, native mode bundles/conversation identity/durable provenance, focused external content and independent publisher/initial release artifacts. Removed production embed; retained historical test/benchmark fixtures. Independent review fixed alias collision; one test bug cycle fixed omitted override provenance in identity. 25 new scoped test functions pass. No real CLI/token acceptance, public deployment, commits or pushes; final serial checks recorded in TEST_REPORT.md when complete.
 
 - 2026-09-07 — run 0014: verified current central management and missing remote configuration/acquisition/CLI delivery through a focused code tour. Explained full feature scope and recorded the owner's mandatory config.yaml discovery URL default, superseding run 0013's unset-default decision. Suggested teams.index_url as a proposed key, not implemented syntax; Plan must reconcile its alias design. Exact requested URL could not be verified by browsing (tool error, not confirmed 404). Updated Research brief and manifest only; no production/plan/story edits, tests, vendor probes or remote writes.
 

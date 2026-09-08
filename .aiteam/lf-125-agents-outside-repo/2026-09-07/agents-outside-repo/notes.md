@@ -1,4 +1,25 @@
-# Implementation notes — run 0011
+# Implementation notes — run 0015
+
+## Current run decisions and progress
+
+- Owner authorizes implementing the approved remote-distribution/delivery solution with run 0014's default URL correction. `teams.index_url` defaults to the literal `https://github.com/marioatcloudvane/litefactory/teams/teams.json`; explicitly configured aliases may select corporate sources. This supersedes run 0013's unset-default clauses, not its integrity/offline boundaries.
+- Treat the owner's GitHub URL as a repository-file locator: explicitly normalize the supported shorthand to raw GitHub content on `HEAD` (the default branch) before enforcing origin/root containment. Retain logical source identity; do not permit arbitrary cross-origin redirects or treat HTML as JSON. Publishing deployment is still not authorized or claimed by local code changes.
+- US-1 contracts/configuration: implemented; focused existing tests/vet pass, independent acceptance tests pending.
+- US-2 remote acquisition/central management: implementation reported complete, including explicit source switching; independent review/tests pending.
+- US-3 CLI bundle delivery/conversations: implementation reported complete; existing focused suites and resume regression pass, new acceptance tests and real CLI evidence pending.
+- US-4 focused content: canonical teams/source prepared with exact rosters and reusable skills; production embed removed, historical bytes preserved as test fixtures; selected runtime bootstrap supplied by delivery.
+- US-5 provenance/evidence/docs: durable inline delivery.evidence, operator docs and reproducible byte benchmark implemented. Actual billed-token/latency/delegation evidence is explicitly unmeasured.
+- US-6 deterministic independent publisher: generated teams/teams.json and immutable go-team/1.0.0 release; independent manual artifact workflow supplied. Actual hosted publication not performed.
+- Independent code review cycle 1: CR-B-004 alias/local-directory collision resolved; re-review code verdict CLEAN. Test bug cycle 1 fixed BT-001 (override evidence omitted from identity); its regression and narrow re-review pass. CR-B-005 remains incomplete release acceptance: no real vendor delegation/isolation or comparative token evidence was collected. Production implementation and deterministic tests do not satisfy AC-3.7 or measured portions of AC-5.2; full acceptance is not marked done.
+- Final verification, 2026-09-08: all 25 new scoped test functions pass; the entire `GOMAXPROCS=2 go test -race -p 2 ./...` suite passes. Final serial make check passes formatting/vet and stops on 41 lint findings in files unchanged from starting HEAD, verified by reviewer. No introduced lint issues remain. Test/drift reports are complete in the original session directory.
+- External environment suites skipped: TEST_BASE_URL and TEST_DATABASE_URL are both unset. Approved ordinary Go tests use local TLS/temporary-root/fake-runner fixtures, not a substituted live environment or invented integration tags.
+- Initial `go build ./...` and `go test ./...` passed. An early `make check` overlapped active edits and stopped on formatting; this is not a final verification result and will be rerun after integration.
+- No TodoWrite tool is available; this list and commentary track progress instead.
+- No paid nested capability probes, sandbox bypasses, live runtime/dist edits, commits or pushes. Owner-provided outside-sandbox Codex success removes the previous coding prerequisite, but does not replace end-to-end release evidence.
+- `make check` with a writable temporary lint cache currently finds 57 issues; introduced lint issues are being corrected before final accounting. An overlapping lint retry was rejected by the linter lock; no linter-policy bypass was used.
+- The approved removal of the retired app-context updater takes precedence over the stale orchestrator exit instruction; do not invoke or restore it.
+
+## Historical run 0011 record
 
 The owner authorized implementation of the five local approved stories. Their local bodies are authoritative; stale remote issue synchronization does not block this run. Starting checkout: `10b5bb26031b0e007a1c574fcd8e774128c5a2b7`.
 

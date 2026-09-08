@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,14 +11,64 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/gittest"
+	"github.com/cloudvane/litefactory/internal/teampublish"
 )
 
+// CR-B-004: a checkout directory must never override an operator source alias.
+func TestTeamSourceAliasWinsDirectoryCollision(t *testing.T) {
+	source, err := filepath.Abs("../../teams/source")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := t.TempDir()
+	if err := teampublish.Publish(t.Context(), source, output, "go-team", "1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.FileServer(http.Dir(output)))
+	defer server.Close()
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configuration := strings.Replace(string(config.DefaultFileContents()), "teams:\n", fmt.Sprintf("teams:\n  sources:\n    corp:\n      index_url: %s/teams.json\n", server.URL), 1)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(configuration), 0600); err != nil {
+		t.Fatal(err)
+	}
+	working := t.TempDir()
+	if err := os.Mkdir(filepath.Join(working, "corp"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(working)
+	router, out, stderr := newTestRouter(t)
+	router.env.TeamTransport = server.Client().Transport
+	if code := router.Run(t.Context(), []string{"team", "add", "go-team", "--source", "corp"}); code != ExitOK {
+		t.Fatalf("alias lost to local directory: exit %d %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, "teams", "index.json")); err != nil {
+		t.Fatal(err)
+	}
+	server.Close()
+	out.Reset()
+	stderr.Reset()
+	if code := router.Run(t.Context(), []string{"team", "status", "--json"}); code != ExitOK {
+		t.Fatalf("offline cached status: %d %s", code, stderr)
+	}
+	if !strings.Contains(out.String(), "1.0.0") {
+		t.Fatalf("status omitted installed version: %s", out)
+	}
+	if code := router.Run(t.Context(), []string{"team", "add", "go-team", "--source", "./corp"}); code == ExitOK {
+		t.Fatal("explicit empty local directory unexpectedly became remote alias")
+	}
+}
+
 func TestCentralTeamCommandsOutsideGit(t *testing.T) {
+	source, err := filepath.Abs("../../teams/source")
+	if err != nil {
+		t.Fatal(err)
+	}
 	home := t.TempDir()
 	t.Setenv(config.EnvHome, home)
 	t.Chdir(t.TempDir())
 	router, out, stderr := newTestRouter(t)
-	if code := router.Run(t.Context(), []string{"team", "add", "go-team"}); code != ExitOK {
+	if code := router.Run(t.Context(), []string{"team", "add", "go-team", "--source", source}); code != ExitOK {
 		t.Fatalf("add: %d %s", code, stderr)
 	}
 	if _, err := os.Stat(filepath.Join(home, "teams/index.json")); err != nil {
@@ -44,9 +97,13 @@ func TestCentralTeamCommandsOutsideGit(t *testing.T) {
 }
 
 func TestRepositoryExternalTeamAssociationDoesNotWriteClones(t *testing.T) {
+	source, err := filepath.Abs("../../teams/source")
+	if err != nil {
+		t.Fatal(err)
+	}
 	paths := newRepoHome(t)
 	router, out, stderr := newTestRouter(t)
-	if code := router.Run(t.Context(), []string{"team", "add", "go-team"}); code != ExitOK {
+	if code := router.Run(t.Context(), []string{"team", "add", "go-team", "--source", source}); code != ExitOK {
 		t.Fatal(stderr)
 	}
 	first := newRepoFixture(t)

@@ -1,5 +1,35 @@
 # Drift Report — agents-outside-repo
 
+## Run 0015 — current delivery accounting
+
+### Delivered implementation
+
+- US-1: configurable remote index/default and named corporate sources, strict distribution/manifest contracts, SemVer selection and safe GitHub raw-file normalization. Reuses the existing central schema rather than adding a compatibility layer.
+- US-2: explicit remote add/update/refresh, verified content cache, recorded source/version/pins/history, five-state drift with separate remote observations, explicit source switching, concurrent-edit preflight, and journaled whole-catalog recovery. Local package imports require explicit path syntax; bare corporate aliases cannot be shadowed by local directories (CR-B-004 resolved).
+- US-3: native file-backed Claude/Codex bundles, selected-mode capture, operator-owned model mapping, catalog-free classifier setup, retained-resource integrity checks and conversation-segment identity, with durable inline delivery evidence. Deterministic acceptance testing is in progress; real CLI acceptance is separate below.
+- US-4: focused canonical team/skill content, exact first-position orchestrators, coding/testing-only Implement content, read-only reviewer content for Validate, empty Spike roster, and selected runtime bootstrap. Removed production embedded agent content and acquisition; old bytes remain test/benchmark fixtures. Active repository instructions were not destructively rewritten.
+- US-5: documented actual operator commands/configuration and durable evidence; reproducible instruction-byte benchmark plus a clearly unmeasured live-token template. Byte counts are not billed-token measurements.
+- US-6: deterministic independently invoked content publisher, generated `teams/teams.json` and immutable initial release, immutable-first/index-last publication, manual artifact workflow and corporate hosting instructions. These are locally generated publication artifacts, not a deployed public release.
+
+### Owner-approved adjustments
+
+- Run 0014/0015 supersede the old unset-default clauses: `teams.index_url` defaults to the owner's literal GitHub URL. A narrow GitHub file-locator normalization to raw content on `HEAD` makes retrieval explicit before origin checks; arbitrary cross-origin redirects remain forbidden.
+- No nested sandbox capability prerequisite, paid probes, outer permission bypass, live state/dist edits, commits or pushes. The historical EPERM gate is retired.
+
+### Deferred acceptance and verification
+
+- AC-3.7: real exact-version CLI delegation, authentication, tier/permission behavior, concurrent catalog isolation and resume evidence has not been collected in this run.
+- AC-5.2: comparative live token/latency/delegation observations remain unmeasured. Retained byte fixtures and deterministic tests do not satisfy that measurement requirement.
+- Code re-review is CLEAN, with CR-B-005 explicitly retained as an open release-evidence gate, not waived or counted as accepted.
+- Production hosting/push is outside this run. The public default returned HTTP 404 during obsolete fixtures; generated files must reach the source's default branch before default public installation can succeed.
+- 25 new scoped test functions pass, and the final full race-enabled repository suite passes with no excluded tests. `make check` passes formatting/vet but stops on 41 lint findings whose source files are unchanged from starting HEAD. Consult the run 0015 test reports, not historical counts below. Untested acceptance branches are explicitly listed by the test engineers.
+
+### Verdict
+
+DRIFTED / release acceptance incomplete: the implementation and full deterministic race verification are delivered, but real CLI and token acceptance are not complete and the existing lint gate remains red. No new planning cycle is needed for the owner-mandated default; suitable-environment release verification and authorized publication remain separate follow-ups.
+
+## Historical run 0011 record
+
 Branch: lf/125-agents-outside-repo
 
 ## Delivered as planned

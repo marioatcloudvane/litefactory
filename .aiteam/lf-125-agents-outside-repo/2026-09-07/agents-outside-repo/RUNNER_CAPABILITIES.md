@@ -1,5 +1,32 @@
 # T3.1 exact-version capability gate — run 0011
 
+## Run 0015 correction and verification boundary
+
+The historical EPERM below came from the outer Codex workspace-write sandbox,
+not a demonstrated Codex transport limitation. The owner reports that the same
+codex-cli 0.153.4 role-config command succeeds outside that sandbox and returns
+`turn.completed`. That correction supersedes any earlier treatment of this result
+as a hard implementation gate. Native delivery is implemented in run 0015;
+fake-runner and source-byte tests are not authenticated end-to-end proof.
+
+No paid CLI probes were run again in run 0015. To verify live behavior, execute
+the bounded scratch-fixture procedure below from a Claude-driven run or an
+operator-controlled process outside the outer Codex sandbox, while retaining the
+child's normal sandbox and permission policy. Do not bypass permissions. Record
+the exact installed CLI version, selected catalog initialization evidence,
+ordinary project-instruction marker, actual delegated model, forbidden-operation
+result and concurrent-mode separation. A failure before inference must record
+the execution environment separately from product capability. Missing credentials
+or unavailable telemetry are explicit unverified rows, never inferred passes.
+
+The reproducible offline byte command is `go run ./cmd/team-benchmark` and its
+inputs and output are retained under `teams/`. Use
+`teams/benchmark-run-template.json` for authorized future full-catalog/selected-mode
+trials with equivalent tasks, models and cache conditions. Parent-only usage does
+not measure delegated workload; no numeric token or latency savings are claimed.
+
+## Historical run 0011 record (not a current product blocker)
+
 Status: **NOT PASSED (remaining end-to-end isolation gates), not a claim that native external delivery is impossible.** Initial inspection used help only. After the orchestrator confirmed that the approved plan authorizes bounded manual verification, three small authenticated Claude calls ran; Codex was blocked by the execution environment before inference. No credential contents were printed, live LF_HOME changes or production runner edits were made. Do not describe a fake-argv test as passing this gate.
 
 ## Evidence executed

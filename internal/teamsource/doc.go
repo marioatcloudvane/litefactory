@@ -1,7 +1,7 @@
 // Package teamsource loads centrally installed team definitions and captures
 // exact mode rosters with their transitive skill resources. Resolve never
-// consults a repository or falls back to embedded defaults. ResolveEmbedded is
-// reserved for explicit installation of the shipped distribution.
+// consults a repository or falls back to embedded defaults. Explicit management
+// fetches independently released web content or imports a local package.
 //
 // Capture holds the same management lock as catalog writers. os.Root confines
 // reads to the catalog even through symlinks; bounded regular-file reads,

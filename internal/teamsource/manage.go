@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/team"
 )
@@ -22,16 +23,19 @@ const metadataPath = ".litefactory/catalog.json"
 // Installation records imported provenance without making runtime reads depend
 // on the original package. Hashes describe the last successful publication.
 type Installation struct {
-	Origin     string                     `json:"origin"`
-	Hashes     map[string]string          `json:"hashes"`
-	Definition team.TeamEntry             `json:"definition"`
-	Shared     map[string]team.AgentEntry `json:"shared"`
+	Remote      *ReleaseProvenance         `json:"remote,omitempty"`
+	Observation *UpstreamObservation       `json:"observation,omitempty"`
+	Origin      string                     `json:"origin"`
+	Hashes      map[string]string          `json:"hashes"`
+	Definition  team.TeamEntry             `json:"definition"`
+	Shared      map[string]team.AgentEntry `json:"shared"`
 }
 
 // CatalogMetadata owns installation baselines and explicit source overrides.
 type CatalogMetadata struct {
-	Teams     map[string]Installation `json:"teams"`
-	Overrides map[string]Override     `json:"overrides"`
+	DigestHistory map[string]string       `json:"digest_history,omitempty"`
+	Teams         map[string]Installation `json:"teams"`
+	Overrides     map[string]Override     `json:"overrides"`
 }
 
 // Override records the effective central source and its retained base definition.
@@ -53,13 +57,20 @@ type OverrideFile struct {
 // CatalogStatus is one deterministic drift observation; Error qualifies missing
 // upstream evidence without inventing a sixth drift state.
 type CatalogStatus struct {
-	Team          string `json:"team"`
-	Path          string `json:"path"`
-	State         string `json:"state"`
-	Origin        string `json:"origin"`
-	InstalledHash string `json:"installed_hash"`
-	UpstreamHash  string `json:"upstream_hash"`
-	Error         string `json:"error,omitempty"`
+	Version          string `json:"version,omitempty"`
+	CandidateVersion string `json:"candidate_version,omitempty"`
+	LatestStable     string `json:"latest_stable,omitempty"`
+	Policy           string `json:"policy,omitempty"`
+	Freshness        string `json:"freshness,omitempty"`
+	LastAttempt      string `json:"last_attempt,omitempty"`
+	LastSuccess      string `json:"last_success,omitempty"`
+	Team             string `json:"team"`
+	Path             string `json:"path"`
+	State            string `json:"state"`
+	Origin           string `json:"origin"`
+	InstalledHash    string `json:"installed_hash"`
+	UpstreamHash     string `json:"upstream_hash"`
+	Error            string `json:"error,omitempty"`
 }
 
 // Metadata returns a separately owned provenance view under the catalog lock.
@@ -151,39 +162,6 @@ func readIndex(ctx context.Context, root string) (*team.Index, error) {
 }
 
 func capturePackage(ctx context.Context, origin, name string) (*team.Index, map[string][]byte, error) {
-	if origin == "embedded" {
-		resolved, err := ResolveEmbedded()
-		if err != nil {
-			return nil, nil, err
-		}
-		tmp, err := os.MkdirTemp("", "litefactory-team-package-")
-		if err != nil {
-			return nil, nil, err
-		}
-		defer os.RemoveAll(tmp)
-		files := map[string][]byte{}
-		err = fs.WalkDir(resolved.FS, ".", func(p string, d fs.DirEntry, e error) error {
-			if e != nil {
-				return e
-			}
-			if d.IsDir() {
-				return nil
-			}
-			b, e := fs.ReadFile(resolved.FS, p)
-			if e != nil {
-				return e
-			}
-			files[p] = b
-			return nil
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if err = team.WriteCatalogUnlocked(ctx, tmp, files, nil); err != nil {
-			return nil, nil, err
-		}
-		return capturePackage(ctx, tmp, name)
-	}
 	files := map[string][]byte{}
 	for _, mode := range team.Modes() {
 		s, err := CaptureUnlocked(ctx, origin, name, mode)
@@ -284,9 +262,9 @@ func selectedShared(idx *team.Index, name string) map[string]team.AgentEntry {
 // a repository and never records provenance until every source validates.
 func Install(ctx context.Context, root, name, origin string, force bool) error {
 	if origin == "" {
-		origin = "embedded"
+		return fmt.Errorf("local import requires an explicit package root; use remote team add for configured default")
 	}
-	if origin != "embedded" {
+	{
 		p, err := filepath.Abs(origin)
 		if err != nil {
 			return err
@@ -325,6 +303,10 @@ func Install(ctx context.Context, root, name, origin string, force bool) error {
 }
 
 func installUnlocked(ctx context.Context, root, name, origin string, source *team.Index, files map[string][]byte, force bool) error {
+	return installReleaseUnlocked(ctx, root, name, origin, source, files, force, nil, nil)
+}
+
+func installReleaseUnlocked(ctx context.Context, root, name, origin string, source *team.Index, files map[string][]byte, force bool, remote *ReleaseProvenance, observation *UpstreamObservation) error {
 	idx, err := readIndex(ctx, root)
 	if err != nil {
 		return err
@@ -352,6 +334,40 @@ func installUnlocked(ctx context.Context, root, name, origin string, source *tea
 		}
 	}
 	previous, installed := m.Teams[name]
+	var removed []string
+	for _, p := range sortedFileKeys(previous.Hashes) {
+		if _, retained := files[p]; retained {
+			continue
+		}
+		used := false
+		for other, record := range m.Teams {
+			if other != name {
+				if _, ok := record.Hashes[p]; ok {
+					used = true
+				}
+			}
+		}
+		for _, o := range m.Overrides {
+			if o.Path == p {
+				used = true
+			}
+			if _, ok := o.Closure[p]; ok {
+				used = true
+			}
+		}
+		if used {
+			continue
+		}
+		if err := checkInstalledFile(ctx, root, p, nil, previous.Hashes[p], true, force); err != nil {
+			faults = append(faults, err)
+		}
+		removed = append(removed, p)
+	}
+	for scope := range m.Overrides {
+		if scopeAffectsTeam(baseIndex, name, scope) && !scopeAffectsTeam(source, name, scope) {
+			faults = append(faults, fmt.Errorf("update removes overridden agent %s; unset override explicitly first", scope))
+		}
+	}
 	if installed && !force && definitionHash(baseIndex.Teams[name], selectedShared(baseIndex, name)) != definitionHash(previous.Definition, previous.Shared) {
 		faults = append(faults, fmt.Errorf("team %s registry metadata is locally modified; inspect it or use --force", name))
 	}
@@ -375,6 +391,18 @@ func installUnlocked(ctx context.Context, root, name, origin string, source *tea
 		return err
 	}
 	idx.Teams[name] = source.Teams[name]
+	for id := range previous.Shared {
+		used := false
+		for other := range idx.Teams {
+			if _, ok := selectedShared(idx, other)[id]; ok {
+				used = true
+				break
+			}
+		}
+		if !used {
+			delete(idx.Shared, id)
+		}
+	}
 	for id, a := range shared {
 		idx.Shared[id] = a
 	}
@@ -405,7 +433,12 @@ func installUnlocked(ctx context.Context, root, name, origin string, source *tea
 			hashes[p] = team.HashBytes(data)
 		}
 	}
-	m.Teams[name] = Installation{Origin: origin, Hashes: hashes, Definition: source.Teams[name], Shared: shared}
+	m.Teams[name] = Installation{Origin: origin, Hashes: hashes, Definition: source.Teams[name], Shared: shared, Remote: remote, Observation: observation}
+	if remote != nil {
+		if err := rememberTeamDigest(m, name, remote); err != nil {
+			return err
+		}
+	}
 	if err := validatePublication(ctx, root, idx, m, files); err != nil {
 		return err
 	}
@@ -413,7 +446,7 @@ func installUnlocked(ctx context.Context, root, name, origin string, source *tea
 	if err != nil {
 		return err
 	}
-	return team.WriteCatalogUnlocked(ctx, root, files, append(metadata, '\n'))
+	return team.WriteCatalogTransactionUnlocked(ctx, root, files, append(metadata, '\n'), removed)
 }
 
 func validatePublication(ctx context.Context, root string, idx *team.Index, m *CatalogMetadata, files map[string][]byte) error {
@@ -528,6 +561,14 @@ func Status(ctx context.Context, root string) (records []CatalogStatus, err erro
 		defer r.Close()
 		for _, name := range sortedFileKeys(m.Teams) {
 			record := m.Teams[name]
+			if record.Remote != nil {
+				remote, e := remoteStatus(ctx, root, name, record, baseIndex, time.Now().UTC())
+				if e != nil {
+					return e
+				}
+				records = append(records, remote...)
+				continue
+			}
 			sourceIndex, upstream, originErr := capturePackage(ctx, record.Origin, name)
 			if originErr != nil && len(record.Hashes) == 0 {
 				records = append(records, CatalogStatus{Team: name, Path: "index.json#" + name, Origin: record.Origin, State: "in-sync", Error: fmt.Sprintf("origin unavailable: %v; installed team remains usable", originErr)})
@@ -596,6 +637,12 @@ func driftState(base, current, next string) string {
 
 // Update refreshes installed packages and effective overrides from their origins.
 func Update(ctx context.Context, root string, force bool) error {
+	return UpdateLocalTeam(ctx, root, "", force)
+}
+
+// UpdateLocalTeam refreshes one explicit local import and its overrides. Empty
+// name preserves the existing all-local update entry point; no HTTP is used.
+func UpdateLocalTeam(ctx context.Context, root, name string, force bool) error {
 	return team.WithCatalogLock(ctx, root, func() error {
 		m, err := readMetadata(ctx, root)
 		if err != nil {
@@ -608,6 +655,9 @@ func Update(ctx context.Context, root string, force bool) error {
 		var errs []error
 		failedOverrides := map[string]bool{}
 		for _, scope := range sortedFileKeys(m.Overrides) {
+			if name != "" && !scopeAffectsTeam(idx, name, scope) {
+				continue
+			}
 			a, e := scopedAgent(idx, scope)
 			if e == nil {
 				e = refreshOverrideUnlocked(ctx, root, scope, m.Overrides[scope], a, force)
@@ -617,7 +667,11 @@ func Update(ctx context.Context, root string, force bool) error {
 				failedOverrides[scope] = true
 			}
 		}
-		for _, name := range sortedFileKeys(m.Teams) {
+		for _, teamName := range sortedFileKeys(m.Teams) {
+			if name != "" && teamName != name {
+				continue
+			}
+			name := teamName
 			blocked := false
 			for scope := range failedOverrides {
 				if scopeAffectsTeam(idx, name, scope) {
@@ -628,6 +682,9 @@ func Update(ctx context.Context, root string, force bool) error {
 				continue
 			}
 			record := m.Teams[name]
+			if record.Remote != nil {
+				continue
+			}
 			source, files, e := capturePackage(ctx, record.Origin, name)
 			if e == nil {
 				e = installUnlocked(ctx, root, name, record.Origin, source, files, force)

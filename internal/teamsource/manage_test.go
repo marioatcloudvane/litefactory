@@ -169,10 +169,10 @@ func TestCentralOverrideSurvivesBaseUpdateAndUnsets(t *testing.T) {
 	}
 }
 
-func TestCentralEmbeddedInstall(t *testing.T) {
+func TestCentralLocalFixtureInstall(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "teams")
-	if err := Install(t.Context(), root, "go-team", "", false); err != nil {
+	if err := Install(t.Context(), root, "go-team", centralFixture(t), false); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range team.Modes() {
