@@ -5,8 +5,8 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [x] **Plan** — `plan_brief.md` + transient managed JSON proposal *(complete; factory publication pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Plan** — `plan_brief.md` + managed proposal *(complete; factory selected frozen issues #166–168 for Implement)*
+- [x] **Implement** — code + tests + incremental evidence *(done; run 0003 / 231)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human asked for; nothing here licenses starting the next one.
@@ -22,3 +22,5 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 
 - Headless research run: resolve ambiguity with reasonable assumptions; no questions or approval waits.
 - Worktree only; litefactory owns committing and pushing.
+
+- 2026-09-08 — Implement completed for issue #159, run 0003 / 231: all three frozen stories implemented, all 15 acceptance criteria verified, final events 000007–000009 published after scoped review/testing and overlap revalidation. Final make check (fmt/vet/pinned lint/full race suite), go build ./... and whitespace checks passed; 0 failing packages, no blocking review findings, drift CLEAN. Context updated. Worktree left uncommitted for factory save/push.

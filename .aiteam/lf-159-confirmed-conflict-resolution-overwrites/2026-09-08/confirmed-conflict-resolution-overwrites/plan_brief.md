@@ -3,7 +3,7 @@
 # Parent: github:marioatcloudvane/litefactory#159
 # Generation: 1
 # Created: 2026-09-08
-# Status: PLAN COMPLETE — PROPOSAL PENDING FACTORY PUBLICATION
+# Status: IMPLEMENTED — FROZEN GENERATION 1 VERIFIED
 
 ## Goal and Source
 
@@ -33,7 +33,7 @@ internal/agent owns the common tool-free advisor contract. internal/git owns bou
 
 ## Delivery Order and Scope
 
-US-1 (L): identified-region contract, bounded collection, deterministic reconstruction and reusable policy. US-2 (L), after US-1: versioned persistence and safe confirmed application with rollback. US-3 (M), after US-2: complete metrics, bounded preview and final checks/documentation. Shared groundwork in US-1 is unavoidable; confirmed application is verified end-to-end in US-2. Execute sequentially because all stories touch the same conflict flow. Detailed tasks and acceptance obligations exist solely in the proposal until the factory publishes the GitHub bodies.
+US-1 (L): identified-region contract, bounded collection, deterministic reconstruction and reusable policy. US-2 (L), after US-1: versioned persistence and safe confirmed application with rollback. US-3 (M), after US-2: complete metrics, bounded preview and final checks/documentation. Shared groundwork in US-1 is unavoidable; confirmed application is verified end-to-end in US-2. Execute sequentially because all stories touch the same conflict flow. Detailed tasks and acceptance obligations for Implement came solely from factory-selected immutable GitHub revisions for issues #166–168; links remain a provenance-only Story Index.
 
 ## Evidence and Definition of Done
 
@@ -46,3 +46,7 @@ All story criteria verified; no unresolved blocking review findings or standards
 The complete generation-1 version-1 proposal is transient root .litefactory-plan-proposal.json, left for factory consumption and never to be committed. No existing factory-supplied GitHub story context was provided, so all three stories have create intent, zero numeric identities and empty expected_base. Publication/readiness is pending factory verification. The factory replaces the Story Index with real links and removes transient transport before saving.
 
 Conservative headless policy choices are recorded in feature-spec.md: region splicing, fixed bounds, strict-half refusal and unsupported legacy rejection. Historical repair, universal parsing, semantic correctness, threshold UI and equal-size malicious-edit guarantees remain out of scope.
+
+## Implement result
+
+Run 0003 / 231 delivered all selected generation-1 stories. [DRIFT_REPORT.md](DRIFT_REPORT.md) records CLEAN delivery; [CODE_REVIEW.md](CODE_REVIEW.md) records no blocking findings. Final make check and go build ./... passed. Final transient events 000007–000009 carry scoped snapshots and all acceptance evidence; factory owns ingestion and forge state. Earlier Plan handoff paragraphs above describe run-0002 history, not a substitute for frozen Implement scope.

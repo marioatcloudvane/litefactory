@@ -225,16 +225,19 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 		}
 		return nil
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := agent.ConflictOutputBuffers()
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w", err)
+	}
+	if stdout.Exceeded || stderr.Exceeded {
+		return agent.ConflictResolution{}, errors.New("conflict advisor output exceeds 1 MiB")
 	}
 	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
 	if !stream.completed || stream.failed {
 		return agent.ConflictResolution{}, errors.New("conflict advisor returned no successful terminal result")
 	}
-	resolution, err := agent.ParseConflictResolution(stream.text)
+	resolution, err := agent.ParseRegionConflictResolution(stream.text, req)
 	if err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor returned invalid resolution: %w", err)
 	}

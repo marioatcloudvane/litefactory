@@ -42,6 +42,8 @@ const (
 	// ConfirmationExpired means this proposal's TTL passed before it was
 	// confirmed.
 	ConfirmationExpired
+	// ConfirmationUnsupportedFormat requires regeneration and fresh confirmation.
+	ConfirmationUnsupportedFormat
 )
 
 // String renders the refusal for logs and comment rendering.
@@ -57,6 +59,8 @@ func (r ConfirmationRefusal) String() string {
 		return "already_applied"
 	case ConfirmationSuperseded:
 		return "superseded"
+	case ConfirmationUnsupportedFormat:
+		return "unsupported_format_regenerate"
 	case ConfirmationExpired:
 		return "expired"
 	default:
@@ -129,6 +133,9 @@ func ValidateConfirmation(ctx context.Context, db *store.DB, sessionID, proposal
 
 	switch proposal.Status {
 	case store.ConflictProposalPending:
+		if proposal.Format != store.ConflictRegionFormat {
+			return confirmedProposal{}, ConfirmationUnsupportedFormat, nil
+		}
 		return confirmedProposal{proposal: proposal, confirmedBy: commenterLogin}, ConfirmationOK, nil
 	case store.ConflictProposalApplied:
 		return confirmedProposal{}, ConfirmationAlreadyApplied, nil

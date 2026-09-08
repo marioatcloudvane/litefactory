@@ -35,8 +35,8 @@ func createConflictProposal(t *testing.T, f *fixture, sourceComment int64) store
 
 	session := f.session()
 	proposal, _, err := f.db.CreateOrGetConflictProposal(t.Context(), store.CreateConflictProposalParams{
-		SessionID: session.ID, TriggerCommentID: sourceComment, Model: "claude",
-		Files:     []store.ConflictProposalFile{{Path: "README.md", Resolution: "resolved by the advisor\n"}},
+		SessionID: session.ID, TriggerCommentID: sourceComment, Model: "claude", Format: store.ConflictRegionFormat,
+		Files:     []store.ConflictProposalFile{{Path: "README.md", Details: store.ConflictFileDetails{OriginalDigest: "original", ResultDigest: "result", Regions: []store.ConflictRegionResolution{{ID: "region", Resolution: "resolved by the advisor\n"}}}}},
 		BaseSHA:   "base0000000000000000000000000000000000",
 		BranchSHA: "branch000000000000000000000000000000000",
 	})
@@ -153,10 +153,10 @@ func TestHandleConfirmAppliedPostsDisclosure(t *testing.T) {
 			Outcome:   turn.ApplyOutcomeApplied,
 			CommitSHA: commitSHA,
 			Proposal: store.ConflictProposal{
-				ID: 1, Model: "claude", ConfirmedBy: ownerLogin,
+				ID: 1, Model: "claude", ConfirmedBy: ownerLogin, Format: store.ConflictRegionFormat,
 				Status:           store.ConflictProposalApplied,
 				AppliedCommitSHA: commitSHA,
-				Files:            []store.ConflictProposalFile{{Path: "README.md", Resolution: "resolved by the advisor\n"}},
+				Files:            []store.ConflictProposalFile{{Path: "README.md", Details: store.ConflictFileDetails{OriginalDigest: "original", ResultDigest: "result", Regions: []store.ConflictRegionResolution{{ID: "region", Resolution: "resolved by the advisor\n"}}}}},
 			},
 		}, nil
 	}}
@@ -191,7 +191,8 @@ func TestHandleConfirmAppliedPostsDisclosure(t *testing.T) {
 
 // TestHandleConfirmFailedOutcomeReplies is AC-12.6's daemon-dispatch half: an
 // application that could not be completed answers the thread with
-// [report.ReplyConfirmFailed] rather than silence, naming that nothing was
+// [report.ReplyConfirmFailed] rather than silence, naming the actual failure.
+// It must not claim restoration that the applier has not established. Previously nothing was
 // written.
 func TestHandleConfirmFailedOutcomeReplies(t *testing.T) {
 	f := newFixture(t)
@@ -218,11 +219,11 @@ func TestHandleConfirmFailedOutcomeReplies(t *testing.T) {
 	if len(posted) != 1 {
 		t.Fatalf("posted %d comments, want exactly one failure disclosure\nlogs:\n%s", len(posted), f.logs)
 	}
-	if !strings.Contains(posted[0], "I could not apply proposal") {
+	if !strings.Contains(posted[0], "I could not complete application of proposal") {
 		t.Errorf("reply does not read as a failed-application disclosure:\n%s", posted[0])
 	}
-	if !strings.Contains(posted[0], "branch, index and") {
-		t.Errorf("reply does not disclose that nothing was written:\n%s", posted[0])
+	if !strings.Contains(posted[0], "an untracked file was left in the worktree") {
+		t.Errorf("reply does not disclose the actual failure:\n%s", posted[0])
 	}
 
 	// The failing outcome must not itself move the proposal off pending: only
@@ -267,5 +268,27 @@ func TestHandleConfirmSupersededOutcomeReplies(t *testing.T) {
 	}
 	if !strings.Contains(posted[0], "Comment again to ask for a fresh suggestion") {
 		t.Errorf("reply does not ask for a fresh suggestion:\n%s", posted[0])
+	}
+}
+
+func TestHandleConfirmLegacyProposalRequestsFreshRegeneration(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Legacy conflict task")
+	f.settle()
+	session := f.session()
+	p, _, err := f.db.CreateOrGetConflictProposal(t.Context(), store.CreateConflictProposalParams{SessionID: session.ID, TriggerCommentID: 500, Model: "codex",
+		BaseSHA: "base", BranchSHA: "branch", Files: []store.ConflictProposalFile{{Path: "README.md", Resolution: "fragment"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.forge.addComment(testIssue, 501, owner(), "/confirm "+strconv.FormatInt(p.ID, 10)+" apply this resolution")
+	f.settle()
+	posted, _, _ := f.forge.snapshot()
+	if len(posted) != 1 || !strings.Contains(posted[0], "Legacy or unknown proposal format") || !strings.Contains(posted[0], "confirm the new proposal number") {
+		t.Fatalf("legacy refusal missing actionable reply: %v", posted)
+	}
+	if calls := f.turns.calls(); len(calls) != 0 {
+		t.Fatal("legacy confirmation ran agent")
 	}
 }

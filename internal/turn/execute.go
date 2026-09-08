@@ -220,6 +220,8 @@ type Options struct {
 	// zero value, which is what keeps a caller that constructs Options
 	// without setting it on the security-conservative default (AC-11.3).
 	SuggestConflictResolution bool
+	// ConflictPreviewer refuses unreviewable proposals before persistence.
+	ConflictPreviewer ConflictPreviewer
 
 	// ConflictContentMaxBytes is [config.Settings.ConflictContentMaxBytes]
 	// (US-11): the total budget [collectConflictContent] caps the
