@@ -34,6 +34,7 @@ func ensureGitignoreEntry(root string) error {
 		return err
 	}
 	path := filepath.Join(root, gitignoreName)
+	// #nosec G304 -- path is the fixed .gitignore under the selected repository; refuseSymlink checked every component.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -53,7 +54,7 @@ func ensureGitignoreEntry(root string) error {
 	buf.WriteString(gitignoreEntry)
 	buf.WriteByte('\n')
 
-	if err := writeFileAtomic(root, gitignoreName, buf.Bytes(), 0o666); err != nil {
+	if err := writeFileAtomic(root, gitignoreName, buf.Bytes()); err != nil {
 		return fmt.Errorf("write %s: %w", gitignoreName, err)
 	}
 	return nil

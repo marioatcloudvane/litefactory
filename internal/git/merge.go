@@ -88,11 +88,11 @@ func parseDivergenceCounts(out string) (behind, ahead int, err error) {
 	}
 	behind, err = strconv.Atoi(fields[0])
 	if err != nil {
-		return 0, 0, fmt.Errorf("left count %q: %w: %v", fields[0], ErrInvalidArgument, err)
+		return 0, 0, fmt.Errorf("left count %q: %w: %w", fields[0], ErrInvalidArgument, err)
 	}
 	ahead, err = strconv.Atoi(fields[1])
 	if err != nil {
-		return 0, 0, fmt.Errorf("right count %q: %w: %v", fields[1], ErrInvalidArgument, err)
+		return 0, 0, fmt.Errorf("right count %q: %w: %w", fields[1], ErrInvalidArgument, err)
 	}
 	return behind, ahead, nil
 }
@@ -399,7 +399,7 @@ func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before stri
 	timedOut := errors.As(mergeErr, &cmdErr) && cmdErr.TimedOut
 
 	if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
-		return MergeResult{}, fmt.Errorf("merge %s into %s: %w (abort also failed: %v)", base, w.branch, mergeErr, abortErr)
+		return MergeResult{}, fmt.Errorf("merge %s into %s: %w (abort also failed: %w)", base, w.branch, mergeErr, abortErr)
 	}
 
 	after, revErr := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
@@ -407,7 +407,7 @@ func (w *Worktree) recoverFromFailedMerge(ctx context.Context, base, before stri
 		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s after aborting merge: %w", w.branch, revErr)
 	}
 	if after != before {
-		return MergeResult{}, fmt.Errorf("merge %s into %s: branch tip moved from %s to %s while aborting a failed merge (original error: %v)", base, w.branch, before, after, mergeErr)
+		return MergeResult{}, fmt.Errorf("merge %s into %s: branch tip moved from %s to %s while aborting a failed merge (original error: %w)", base, w.branch, before, after, mergeErr)
 	}
 
 	if timedOut {

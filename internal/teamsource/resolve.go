@@ -14,16 +14,11 @@ import (
 type Source int
 
 const (
-	// SourceEmbedded is the bundled distribution available for installation.
-	SourceEmbedded Source = iota
 	// SourceCentral is the centrally installed operator-managed catalog.
-	SourceCentral
+	SourceCentral Source = iota
 )
 
 func (s Source) String() string {
-	if s == SourceEmbedded {
-		return "embedded"
-	}
 	if s == SourceCentral {
 		return "central"
 	}
@@ -62,17 +57,4 @@ func Resolve(ctx context.Context, paths config.Paths) (resolved *Resolved, err e
 		return nil, fmt.Errorf("resolve central teams (install with team add): %w", err)
 	}
 	return resolved, nil
-}
-
-// ResolveEmbedded exposes distribution bytes for explicit installation only.
-func ResolveEmbedded() (*Resolved, error) {
-	idx, err := team.Embedded()
-	if err != nil {
-		return nil, err
-	}
-	f, err := team.EmbeddedFS()
-	if err != nil {
-		return nil, err
-	}
-	return &Resolved{Source: SourceEmbedded, Index: idx, FS: f}, nil
 }

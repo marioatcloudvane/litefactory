@@ -58,6 +58,8 @@ const (
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	SourceStoryIssue int
+	SourceCommentID  int64
 	// Ref is the task this run belongs to. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -535,6 +537,7 @@ func describeRunOutcome(run Run) outcomeView {
 func fixedSection(run Run, view outcomeView) string {
 	var b strings.Builder
 	b.WriteString(StatusMarker(run.Ref, run.Ordinal))
+	b.WriteString(storySource(run.Ref, run.SourceStoryIssue, run.SourceCommentID))
 	b.WriteString(sectionGap)
 	fmt.Fprintf(&b, "### litefactory · run %d · %s", run.Ordinal, view.word)
 	if view.alert != "" {

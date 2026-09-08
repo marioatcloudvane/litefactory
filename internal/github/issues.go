@@ -48,6 +48,8 @@ type Issue struct {
 	Body string
 	// State is "open" or "closed"; only [StateOpen] is acted on (AC-2.22).
 	State string
+	// StateReason distinguishes completed from an unrelated human closure.
+	StateReason string
 	// Author is who opened the issue. It is the attribution the prompt carries
 	// — "opened by X" — and, on an issue whose body is run as its first
 	// instruction, the author of that trigger too (AC-2.16b).
@@ -277,17 +279,18 @@ func convertIssue(payload *gogithub.Issue) Issue {
 		return Issue{}
 	}
 	return Issue{
-		ID:        payload.GetID(),
-		Number:    payload.GetNumber(),
-		Title:     payload.GetTitle(),
-		Body:      payload.GetBody(),
-		State:     payload.GetState(),
-		Author:    convertUser(payload.User),
-		Assignees: convertUsers(payload.Assignees),
-		Labels:    labelNames(payload.Labels),
-		HTMLURL:   payload.GetHTMLURL(),
-		CreatedAt: payload.GetCreatedAt().UTC(),
-		UpdatedAt: payload.GetUpdatedAt().UTC(),
+		ID:          payload.GetID(),
+		Number:      payload.GetNumber(),
+		Title:       payload.GetTitle(),
+		Body:        payload.GetBody(),
+		State:       payload.GetState(),
+		StateReason: payload.GetStateReason(),
+		Author:      convertUser(payload.User),
+		Assignees:   convertUsers(payload.Assignees),
+		Labels:      labelNames(payload.Labels),
+		HTMLURL:     payload.GetHTMLURL(),
+		CreatedAt:   payload.GetCreatedAt().UTC(),
+		UpdatedAt:   payload.GetUpdatedAt().UTC(),
 	}
 }
 

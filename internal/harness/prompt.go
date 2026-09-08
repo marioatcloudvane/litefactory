@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
@@ -174,6 +175,16 @@ type HistoryEntry struct {
 // into the prompt; the ones documented as untrusted are neutralised and capped
 // first.
 type PromptInput struct {
+	// ApprovedStories is copied before rendering; it is explicit on all execution paths.
+	ApprovedStories *agent.ApprovedBundle
+	// RefinementStory is the complete current child specification, independently bounded.
+	RefinementStory  string
+	RefinementSource string
+	// PlanProposalPath and PlanGeneration are factory-supplied transport authority.
+	PlanProposalPath string
+	PlanGeneration   int
+	PlanStoryContext string
+
 	// Ref identifies the task. Rendered in the header as the canonical
 	// forge:owner/name#issue string.
 	Ref naming.Ref
@@ -381,6 +392,19 @@ func BuildPrompt(in PromptInput) (string, error) {
 	}
 
 	var b strings.Builder
+	if in.PlanProposalPath != "" {
+		if in.Mode != "plan" || in.PlanProposalPath != ".litefactory-plan-proposal.json" || in.PlanGeneration < 1 {
+			return "", fmt.Errorf("%w: invalid plan handoff", ErrInvalidPrompt)
+		}
+		fmt.Fprintf(&b, "## Managed Plan handoff\n\nWrite the complete version-1 JSON Plan proposal to `%s` in the worktree root. Parent: `%s`; generation: %d. This is transient transport and must never be committed. Keep plan_brief.md as shared context and a link-only Story Index; do not write per-story Markdown files. Each story has key, intent (create/update/unchanged), issue_number, issue_id, expected_base (SHA256 of title + NUL + body for an existing issue), title, full body, dependencies. The envelope has version, parent, generation, stories. Each body needs nonempty level-2 User Story, Acceptance Criteria, Tasks, Architecture, Dependencies sections. Use only the factory-supplied existing GitHub story context, numeric identities and base revisions. The factory alone reads GitHub, publishes and verifies the proposal. Acceptance evidence names must match every criterion: a leading AC identifier, or the exact criterion text after its list/checklist prefix; table criteria require a leading AC identifier.\n\n", in.PlanProposalPath, in.Ref.String(), in.PlanGeneration)
+		if len(in.PlanStoryContext) > 8*1024*1024 {
+			return "", fmt.Errorf("%w: plan context too large", ErrInvalidPrompt)
+		}
+		if in.PlanStoryContext != "" {
+			b.WriteString(note("Current GitHub story specifications (read-only execution context)", neutraliseNoteTags(in.PlanStoryContext)))
+			b.WriteString("\n\n")
+		}
+	}
 	if in.Resume {
 		writeResumeHeader(&b, in, ordinal)
 	} else {
@@ -396,6 +420,16 @@ func BuildPrompt(in PromptInput) (string, error) {
 	// below, because a resumed run's trigger comment can carry attachments
 	// the conversation has never seen.
 	writeAttachments(&b, in)
+	if err := writeApprovedStories(&b, in); err != nil {
+		return "", err
+	}
+	if in.RefinementStory != "" {
+		if len(in.RefinementStory) > 70*1024 || len(in.RefinementSource) > 1024 {
+			return "", fmt.Errorf("%w: refinement context exceeds limit", ErrInvalidPrompt)
+		}
+		b.WriteString("\n## Current target story\n\n")
+		b.WriteString(note(capText(in.RefinementSource, 1024), neutraliseNoteTags(in.RefinementStory)))
+	}
 
 	// A resumed run whose trigger was the issue body has nothing to frame at
 	// all: the issue note is in the conversation's first prompt and there is no
@@ -831,6 +865,9 @@ func commentNote(in PromptInput) string {
 
 	source := fmt.Sprintf("comment on issue #%d, written by %s, which triggered this run",
 		in.Ref.Issue, attribution(in.CommentAuthor))
+	if in.RefinementSource != "" {
+		source = "planning refinement comment from " + capText(in.RefinementSource, 1024) + ", written by " + attribution(in.CommentAuthor)
+	}
 	return note(source, body)
 }
 

@@ -44,7 +44,31 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		}
 	}()
 
+	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
+		if err := opts.StoryProgress.Register(ctx, prep.promptInput.ApprovedStories, prep.worktree.Path()); err != nil {
+			return result, err
+		}
+	}
+	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	runResult, runErr := runClaude(ctx, prep, logger)
+	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
+		if err := opts.StoryProgress.Finish(bookkeeping, prep.run.ID, "Parent attempt finished; this story has no accepted scoped verification and remains unfinished."); err != nil {
+			logger.Error("story progress remains pending", slog.Any("error", err))
+		}
+	}
+	if runResult != nil && prep.promptInput.ApprovedStories != nil {
+		drift, checkErr := prep.validateScope(bookkeeping)
+		if checkErr != nil {
+			drift += "\nApproved story relationship could not be confirmed after execution: " + checkErr.Error()
+		}
+		if drift == "" {
+			drift = prep.scopeDrift
+		}
+		if drift != "" {
+			runResult = runResult.Clone()
+			runResult.ResultText += "\n\nFactory scope observation:\n" + drift
+		}
+	}
 	// Rebuilt from the preparation as it finally stood, because the fallback may
 	// have replaced the prompt and the path under it: what this document records
 	// has to be what was actually sent (AC-3.11), not what was first assembled.
@@ -80,7 +104,18 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	result.Run = run
 
+	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
+	if prep.promptInput.ApprovedStories != nil && result.Succeeded() {
+		if err := opts.DB.MarkStoryAggregateSucceeded(bookkeeping, prep.run.ID); err != nil {
+			result.Err = err
+		} else if opts.StoryProgress != nil {
+			if err := opts.StoryProgress.Poll(bookkeeping); err != nil {
+				logger.Error("story completion remains pending", slog.Any("error", err))
+			}
+		}
+	}
+	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
 	result = fileStoryIssues(ctx, opts, prep, result, runResult, logger)
 	return finish(bookkeeping, opts, prep, result, runResult, &meta, logger)
 }
@@ -106,6 +141,9 @@ func runClaude(
 	prep *preparation,
 	logger *slog.Logger,
 ) (*agent.RunResult, error) {
+	if err := checkAttemptScope(ctx, prep); err != nil {
+		return nil, err
+	}
 	result, err := prep.runner.Run(ctx, prep.request)
 	if !errors.Is(err, agent.ErrSessionNotResumable) {
 		return result, err
@@ -138,6 +176,9 @@ func runClaude(
 	prep.request.Prompt = prompt
 	prep.request.Path = agent.PathColdAfterResumeRefused
 
+	if err := checkAttemptScope(ctx, prep); err != nil {
+		return nil, err
+	}
 	result, err = prep.runner.Run(ctx, prep.request)
 	if errors.Is(err, agent.ErrSessionNotResumable) {
 		// Unreachable against a real claude: a cold run is never classified as a
@@ -244,6 +285,9 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
+	if result.Err != nil {
+		return result
+	}
 	if !runResult.Succeeded() {
 		logger.Warn("run did not succeed; leaving the work uncommitted in the worktree",
 			slog.String("worktree", prep.worktree.Path()),

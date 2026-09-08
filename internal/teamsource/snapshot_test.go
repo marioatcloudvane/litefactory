@@ -16,11 +16,8 @@ import (
 func centralFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	f, err := team.EmbeddedFS()
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = fs.WalkDir(f, ".", func(p string, d fs.DirEntry, err error) error {
+	f := os.DirFS("../team/testdata/teams")
+	err := fs.WalkDir(f, ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}

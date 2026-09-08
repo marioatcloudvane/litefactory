@@ -161,6 +161,7 @@ type ScheduleProposal struct {
 	Items []ScheduleProposalItem
 }
 
+// ScheduleProposalItem carries advisory work and timing, without factory-owned identity.
 type ScheduleProposalItem struct {
 	Payload string
 	DueAt   time.Time

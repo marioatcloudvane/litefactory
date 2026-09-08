@@ -1,191 +1,199 @@
-# Architect: Go Architect
-# Created: 2026-09-07
+# Architecture Review — agents-outside-repo, run 0013
 
-## Verdict
+Architect: Go Architect. Date: 2026-09-07. Verdict: APPROVE revised feature spec for story decomposition; this is a plan, not delivery verification.
 
-Proceed with the run 0010 five-story clarification at HEAD `0b2aa7ba437585515593e65f47ba0b86c6e563cf`. Central storage was already covered by US-1–US-3; their acceptance criteria must now explicitly cover bootstrap/import, installed source independence and complete run delivery/lifetime. No sixth registry story, compatibility reader or conversion command is required. No new standards deviation is requested: retain the merged SD-4 amendment and existing Validate permission boundary. Runner catalog capability and measured token savings remain unproven implementation gates. The source inventory below is the prior merged-source review, not a claim of newly executed implementation tests.
+Source baseline: `832c730882a13176f63e1e8eb1bd985150199fed`. The updated `feature-spec.md` supersedes embedded distribution and the old hard capability prerequisite. The known first-position orchestrator correction is `6eb29bf2a66ea9ee80a99130845cf2fcfb7bb10a` on local main; incorporate the correction without repeating its investigation.
 
-## Run 0010 — central source and delivery lifecycle review
+## System overview
 
-The updated `feature-spec.md` makes the missing operational detail concrete. `$LF_HOME/teams/index.json` describes teams and mode membership; installed canonical agent bodies live in `agents/shared/<id>.md` or `agents/<team-id>/<id>.md` beneath that root. Focused skills and their relative resource trees live in `skills/<skill-id>/`. Management provenance, origins, overrides and locks remain under `teams/.litefactory/`. These sources are durable operator-managed input, distinct from disposable vendor-facing snapshots under `$LF_HOME/bundles/`.
+The existing central installation is the foundation. `team` already owns schema-2 ordered rosters, validation and guarded file writes; `teamsource` captures complete agent/skill resources and manages central provenance, overrides and five drift states. `config.Paths` owns external roots and explicit repository association already exists. US-1 and US-2 extend these implemented pieces rather than repeat centralization.
 
-US-1 owns this layout and the contained source/dependency contracts (T-1.3/T-1.4). US-2 owns explicit default installation and custom-package import (T-2.3), including a fresh empty scratch LF_HOME, complete closure copying, stable installed references, origin tracking, and rejection without advertised partial installation. `team add go-team --source /path/to/external-package` is the proposed import interface; subsequent work resolves installed central bytes even if that original directory moves or becomes unavailable. Status/update must report an unavailable upstream honestly; they must not delete installed bytes or report them in sync. Existing shared definitions reused by a new team must be checked for content/metadata conflicts before publication rather than silently overwritten.
+Add bounded remote acquisition, preferably `internal/teamremote`, containing distribution protocol, version comparison, HTTP acquisition and verified cache. It may import `team` for payload validation; neither `team` nor `render` imports it. `teamsource` consumes verified releases and remains owner of installed composition, snapshots and publication. Any acquisition interface is declared at its consumer (TEST-5). `cli` wires operator config, credential references and acquisition; daemon startup never fetches. No network belongs in config, render, store or runners.
 
-US-3 owns the full execution lifetime (T-3.2–T-3.5): select mode, resolve installed team, capture a consistent source closure, render and publish a per-run snapshot, pass its neutral descriptor to the selected adapter, run in the supplied task worktree, stop all child processes, persist identity/provenance, then release disposable content. The adapters choose only a transport proven by their exact-version capability gate. Nothing in this layout authorizes installing managed specialist catalogs into the project or making central definitions writable to the coding agent.
-
-Cleanup must not weaken conversation correctness. Before reusing a conversation, reconstruct the current bundle and compare its full identity with the persisted segment identity; missing identity or changed bytes/metadata/model mapping means a fresh segment. If a vendor retains run-path references that cannot be restored safely, refuse that resume or start a fresh segment even when content hashes match. Retaining a finalized bundle until the vendor's resume contract is proven is acceptable; do not promise unconditional deletion that breaks resume. Always clean failed unpublished staging when safe. Finalized cleanup is permitted only after children stop and required provenance has been durably recorded; on metadata failure retain the bounded bundle and report the failure. Recovery must inspect existing run ownership/liveness through existing machinery and target only validated inactive factory-owned paths, with no TTL janitor or new clock service.
-
-US-5 documents this operator-to-CLI path and records durable provenance (T-5.1/T-5.4). Two repositories sharing one installed agent, an active run retaining old bytes during an update, future runs observing new bytes, and origin removal leaving installed runs usable are cross-story acceptance checks. Fake-process and real-store fixtures cover lifetime failures without paid subprocesses in normal tests. The five existing stories remain sufficient; localized acceptance and task-hint additions make their existing responsibilities reviewable.
-
-No new architectural correction is required beyond the explicit cleanup/resume guard above. Remote issue publication remains a separate plan-handoff operation: this review neither synchronizes nor verifies #127–#131.
-
-## System overview and evidence
-
-The checked-out baseline is `69f701c3ed45819d39b0a9fa05df64f29f08fbe6`. Current-session `RESEARCH_BRIEF.md` records the run 0007 source review at `a465e55e0f9ae6c61267f8fdbb4802526ac2867d`, successful ancestry checks for both previously inspected lineages, and passing focused tests in seven relevant packages. Team management and Claude managed configuration/home isolation are present in this checkout. Those diagnostics establish reusable baseline behavior, not completion of #125 or measured catalog isolation. No branch integration task remains.
-
-In the merged source, `internal/team/types.go` defines an array of `{name, agents}` teams plus shared agents; entries hold `source` and `dest`. `internal/cli/cmd_team.go:teamRoster` adds every shared agent to each team's own agents. This is the precise catalog expansion #125 replaces. `internal/teamsource/resolve.go` chooses embedded, static-path or registered-repository sources; its repository source tier and store/repository dependency disappear from runtime source resolution. `internal/teamsource/render.go` owns source reading, frontmatter parsing, overrides and renderer adaptation. `internal/render` is pure and deterministic and rejects unsupported fields. `internal/team` owns validation, hashes, installation locks, provenance, safe writes and five drift classifications. Reuse these owners directly.
-
-Two merged-source findings materially sharpen the work: `internal/render/claude.go:95` copies full specialist bodies into root `CLAUDE.md` as well as standalone agent files, so the token baseline must separately account for root-body exposure and catalog descriptions. Embedded/Claude Implement instructions retire the updater, but `.codex/skills/implement-orchestrator/SKILL.md` still invokes it. Embedded team definitions are canonical shipped content for this cutover; generated vendor copies and bootstrap instructions must agree before comparing behavior or tokens.
-
-Current `internal/turn` already receives the selected mode from daemon/classifier orchestration and owns one work turn. `internal/agent` defines the vendor-neutral runner contract; vendor flags and permission payload decoding belong exclusively in the runner adapters. `internal/store` owns repository associations and conversation segments. New team selection and bundle identity fit these existing boundaries.
+The consumer protocol is also the publisher contract. Canonical sources move out of `internal/team/embedded` to a distribution input tree with an independently triggered content release workflow. A separate content repository is an optional hosting arrangement; independently versioned/released content in this repository already removes binary coupling. A concrete publisher deliverable merits US-6, rather than a documentation-only note in US-5.
 
 ```text
-Operator team commands -> teamsource -> team schema, source snapshots, install/provenance
-                                              |
-repo registration -> store team association    |
-daemon mode selection / bare classifier        |
-          -> turn -> resolve(team, mode) -------+
-                    -> render(selected closure)
-                    -> immutable external run bundle
-                    -> agent.Request -> existing vendor runner
-                    -> existing harvest/report + bundle provenance
+operator-approved HTTPS source
+  -> discovery -> immutable manifest -> verified file closure
+  -> teamsource publication -> $LF_HOME/teams + provenance
+  -> selected team/mode snapshot -> pure renderer -> per-run bundle
+  -> agent.Request -> existing Claude/Codex adapter in task worktree
 ```
 
-No new top-level package or service is warranted. Extend `team`, `teamsource`, `render`, `config`, `repos`, `store`, `turn`, existing CLI handlers and the two runner adapters. `team` must retain its constrained imports; source I/O composition stays in `teamsource`, vendor rendering stays in `render`, and `$LF_HOME` derivation stays in `config.Paths` (CFG-8). No SQL escapes `store`; no direct git invocation escapes `internal/git`.
+Only explicit add/update/status refresh use acquisition. Runtime consumes installed content, independent of source/cache availability. Source/version/manifest provenance travels with snapshots and durable run metadata. Effective bundle identity additionally covers overrides, mode, dependencies, render/bootstrap revision and model mapping; content version alone is insufficient for conversation identity. `store` remains the only SQL owner; reuse repository association and existing conversation segments. `turn` retains CONC-4/7 reporting and state ordering.
 
-## Binding shared contracts
+### Concurrency and publication
 
-### External ownership and selection
+Download and validate in owned bounded staging outside the central lock. Record the intended installed baseline; once locked, compare it again and refuse/replan after concurrent edits. Preserve shared-source conflicts and explicit overrides. Publication exposes an old or new complete selected-team installation to cooperative snapshot readers, metadata last. Per-file temp/rename alone does not prove crash atomicity for a multi-file release: add transaction staging/recovery or generation publication at the existing write owner and test interruption. Do not silently weaken this acceptance claim.
 
-Use one operator-owned registry at `$LF_HOME/teams/index.json`; source Markdown, focused skills and supporting assets live beneath `$LF_HOME/teams/`. Embedded definitions are a distribution source installed by explicit `team add`, not an implicit runtime fallback. A missing registry or unknown team is actionable failure. This plan deliberately removes #68's registered-repository source selection and static-path source precedence; operator-imported files are copied into the external root by team management. Runtime never reads `teams/index.json` from a registered clone or task worktree.
+Release locks before rendering, subprocesses and network. No background fetch goroutine, retry loop or clock service (CONC-2/6). Context bounds acquisition/staging, and mutable data is copied across boundaries (CONC-1). Distinct runs have distinct immutable paths. Retain active/resumable bundles until safe lifecycle cleanup is demonstrated; credentials never enter retained bundle/cache content.
 
-Registry version is `schema_version: 2`, teams are keyed by team ID, descriptions are `desc`, and `research`, `plan`, `implement`, `validate`, `spike` are required ordered arrays. Shared definitions are included only through explicit `{ "ref": "id" }` entries. Inline entries contain `id`, `desc`, `path`, `tier`, `skills`. Exactly one entry form is allowed. Empty arrays explicitly allow root-only operation. Reject old arrays, `source`/`dest` pairs, unsupported versions, duplicate JSON object keys, unknown fields, unknown modes and duplicate effective IDs within a roster. A shared reference cannot reference another shared reference.
+## Binding contracts
 
-Resolve runtime paths against the registry directory. Absolute source paths are permitted only when they resolve beneath that same canonical external root; no runtime URL fetch, project-root source or symlink escape. Operator imports may read a chosen external source path, validate the full instruction dependency closure, and copy it into the registry root; no hidden lazy reference back to that import source is required for running a team. Track imported origin explicitly for status/update. Source import roots must themselves be outside registered clones and task worktrees. This restriction applies to imported external packages, not the executable's embedded default resources.
+### Format and source selection
 
-Do not resolve relative resource links against the task CWD. Agent-to-skill references and skill-to-skill/resource dependencies need a closed, validated package contract. Recommended extension: optional frontmatter `requires` for explicit relative Markdown skill dependencies and `resources` for supporting relative files/directories, parsed by `teamsource`; preserve a selected skill's own relative tree. Walk these declarations transitively, reject unresolved dependencies and cycles, deduplicate shared resources, bound both individual and aggregate bytes, and hash every included byte. Directory resources contain only regular files inside the allowed root. Ordinary prose links are not a reliable dependency manifest. Existing sources referring to mode files, templates, hooks, platform constraints or other skill instructions must be converted to declared dependencies or replaced by the selected mode's bootstrap. Merely copying the top-level Markdown will break today's stack.
+Use an HTTPS discovery index plus immutable manifests/files, not archives. Distribution schema `1` wraps existing catalog schema `2`. Discovery maps team/version to manifest path and exact-byte SHA-256; stable explicitly names one listed non-prerelease. The manifest repeats team/version/schema and lists all payload relative paths, sizes and SHA-256 hashes. Exactly one payload `index.json` describes the team and required shared definitions. Manifest references resolve relative to the discovery index directory; manifest file references resolve relative to the manifest directory. Payload references resolve inside the release root. All URLs stay beneath the configured index directory and exact HTTPS origin; consumer/publisher fixtures must agree on these bases.
 
-Registry metadata owns effective ID, description and tier. If source frontmatter repeats these fields, require equality or remove redundant fields in shipped sources; never silently choose between conflicting definitions. Existing config tiers own the vocabulary and vendor-model mapping. Skills do not acquire an independent model registry. Renderer support for a skill is not proof of enforceable per-agent model selection; see capability gate below.
+`teams.sources` maps operator aliases to HTTPS URL and optional credential reference; `teams.default_source` selects an alias. No verified first-party endpoint is known, so ship an unset default: add without source fails with configuration guidance, while installed runs and daemon startup work. `--source` distinguishes alias, HTTPS URL and explicit local development package path; reject unsupported schemes. Repositories select installed team IDs only. Direct URLs inherit no ambient credential; authenticated sources use configured aliases. Installed provenance stores resolved URL, so editing alias/default never silently retargets teams. Source switching requires an explicit operator action naming the new source/team.
 
-Persist a new explicitly selected external-team association through existing repository registration. Reuse the repository row and APIs, but distinguish this value from legacy marker-derived `AiteamTeam`: use an explicitly named external-team column or an association-origin discriminator, initially unset. Do not backfill from markers. `repo add <path> --team <id>` must update this association for an existing registration as well as a new one, without changing unrelated registration settings or touching the clone. An additive SQLite migration for the new association/segment metadata is normal application persistence work, not the forbidden legacy team-configuration migration.
+### Versions and pins
 
-### Management commands and state
+Use strict SemVer 2 syntax and numeric core/prerelease ordering, with optional build metadata. Reject leading `v`, ranges/wildcards and implicit prefix matching. Build metadata does not affect precedence; equal-precedence versions must not be selected through arbitrary ordering. Stable explicitly selects its target. Default installation tracks stable while recording exact installed version/digest; `--version` selects exact policy and may name a prerelease. A content version differs from distribution/payload schema versions.
 
-Retain the existing command family, with external targets: `team add <team>` installs a selected embedded team and its transitive resources into the external root; `team validate` validates the complete active registry without writing; `team list` shows IDs/descriptions; `team show <team> --mode <mode>` shows the resolved roster and provenance; `team status` compares tracked external installed sources with their recorded origins; `team update` updates unmodified installations and retains the existing explicit `--force` behavior for modified/conflicted files; `team manage <agent-key> set source=<path>`, `unset`, `show` operates on operator-wide external overrides. A shared agent override affects all explicit references to that shared ID. Inline override identity must be team-qualified to avoid ambiguity; document and validate that key convention.
+An optional independently supplied digest is a concrete release pin: moving to another release requires explicit replacement or clearing of that digest pin. The CLI must expose that policy change unambiguously, preferably requiring an exact version when replacing/clearing a pin. A previously verified source/team/version whose digest changes is always an integrity failure, including under `--force`. Force authorizes local-edit overwrite only. Ordinary stable update refuses rollback; explicit exact selection may downgrade. Exact-pin status reports latest stable separately from its selected candidate. Newer version with identical bytes is a version difference, not byte drift. Removed release means unavailable, never uninstall. Unsupported schemas fail directly without compatibility conversion.
 
-Remove `--repo` and `--all-worktrees` from team commands, repository detection, repository marker writes and per-worktree propagation. Keep `--json` machine output where existing commands support it. Preserve in-sync, locally-modified, upstream-updated, conflict and missing drift states; report effective override origin and hash truthfully. A source path that names the registry definition while hashes describe override bytes is insufficient provenance for this feature.
+### Drift and freshness
 
-Place external installation metadata under `$LF_HOME/teams/.litefactory/` to retain #68's rooted lock/override mechanism without a second writer; derive the external root via `config.Paths`. Reuse the installation flock, preflight all files and commit lockfile last. For active runtime resolution, hold the same root lock while capturing a complete source snapshot so an update cannot produce a mixed catalog. Release it before rendering/spawning. No lock is held for an agent's lifetime. Direct unsupported manual edits during a read must be detected where possible by stable reread/digest checks; CLI writes are the supported atomic update path.
+Preserve `teamsource.driftState` order: missing local -> missing; local equals candidate -> in-sync; local equals baseline -> upstream-updated; candidate equals baseline -> locally-modified; otherwise conflict. Coincidentally matching local/upstream edits remain in-sync. Compare definitions/effective override resources as well as agent bodies. A removed file supplies candidate absence: deletion requires ownership/local-drift preflight and must preserve still-shared/override dependencies.
 
-### Per-run bundles and conversation identity
+Freshness is separate: never-checked/fresh/stale/unavailable. Fresh means successfully checked within 24 hours using caller-supplied time; expiry only changes display, never triggers network. Record last attempt, last successful observation and last error. Cached byte comparison must identify its verified candidate and stale/unavailable status. Without verified candidate bytes, report local baseline drift and unknown upstream; never substitute baseline and claim verified synchronization. Missing local stays missing during outages. Status fails for drift or failed explicit refresh (STYLE-6); normal offline inspection may succeed when cached bytes are in sync while truthfully displaying stale freshness. Discovery-only refresh may report version availability, not fabricated file drift; claiming candidate byte drift requires verified candidate bytes.
 
-Derive a dedicated external bundle root through `config.Paths` and per-run identity through `naming`: `$LF_HOME/bundles/<forge>/<owner>/<repo>/<issue>/<run-ordinal>/`. It contains only the selected mode bootstrap, roster, transitive skills/assets and provenance manifest. Build into a unique staging directory, validate the complete render and publish atomically. Never mutate a published bundle and never share a writable native agent catalog directory across concurrent turns. Source definitions and sibling run directories are not writable agent roots. Cleanup may remove only finalized run-owned snapshots; do not invent a global cache service or mutable symlink named `current`.
+### Trust, network and cache
 
-The classifier gets no team bundle and no project specialist catalog. Work runners get one selected bundle, with no union of ambient personal/project/shared catalogs. Keep ordinary project instructions, APP_CONTEXT, APP_CONSTRAINTS and task session conventions accessible; remove roster enumerations from shipped project bootstrap. Distinguish instructions the root always receives from skills whose descriptions are discoverable and bodies are loaded only on demand. Copying a resource outside the repository alone does not reduce tokens.
+- Normal TLS certificate/hostname verification is mandatory. Reject HTTP, URL userinfo/fragments and credential-bearing queries. Corporate DNS/trust roots use operator-managed platform trust, never a verification bypass.
+- At most three redirects, exact scheme/host/effective port and distribution-root containment. Credentials never cross origins. Sanitize remote/redirect URL errors before logging.
+- Reject absolute/traversal refs, empty/dot segments, backslashes, encoded separators/traversal, schemes/query/fragment refs, duplicate normalized paths, nonregular/symlink local files and undeclared dependency downloads. Reuse rooted closure validation.
+- Limits: 1 MiB discovery; 1 MiB manifest; 1 MiB each payload file (`MaxSourceBytes`); 16 MiB total payload (`MaxSnapshotBytes`); 1,024 files; 120-second operation deadline, with earlier caller cancellation. Count decoded body bytes despite compression/Content-Length. Bounded sequential fetching is sufficient initially.
+- Verify manifest exact-byte hash against discovery and optional operator digest, then all sizes/hashes and complete closure before publication. Invalid bytes never become verified cache or replace trusted history.
+- A `config.Paths`-owned root such as `$LF_HOME/cache/teams/` stores immutable verified blobs by digest and observations by resolved source/team/policy. Reverify on consumption. Keep historical version/digest pins independently of evictable cache blobs. No automatic fetch/expiry deletion. Failed explicit fetch cannot silently install an older cached release; explicit local import supports offline installation.
+- Existing secret facilities resolve source-specific credentials only at the HTTP boundary: no bot-token fallback, literal config secrets, child environment forwarding or secrets in logs/cache/provenance. Review tests pinning Token.Reveal call sites deliberately when adding this authorized boundary (TEST-10), not by weakening protections generally.
+- Source choice plus HTTPS establishes initial publisher trust. Same-source hashes cannot authenticate a compromised publisher independently; out-of-band digest pins strengthen first-install trust. Signatures/key rotation are explicitly deferred. Downloaded files cannot alter local permission ceilings, execute hooks, install plugins or apply CLI settings during installation.
 
-The digest covers team/mode, ordered membership, canonical effective metadata, selected dependencies, rendered bytes, bootstrap/render format revision and effective tier/model mapping. Store or record this identity alongside existing segment/run metadata. In `turn` compare it before resume; a change to team, mode or digest creates a fresh existing conversation segment. Do not change the existing vendor-switch guard. Do not assume `FirstSegmentOrdinal` can remain hardcoded: inspect and extend the existing segment allocation/read path and its tests. Old segments without a bundle identity require a fresh segment, not a guessed identity. This preserves history without a compatibility loader.
+### Runtime and content
 
-### Runner capability gate
+Owner-reported outside-sandbox success on Codex 0.153.4 supersedes the EPERM capability conclusion. Adapter coding has no dependency on reproducing a nested probe. Suitable-environment exact-version verification remains release acceptance; denied environments mean missing evidence, not unsupported transport. No probes/permission bypass are part of this Plan run. Preserve SD-4 factory-owned Claude authentication isolation.
 
-At the merged baseline, `internal/render/codex.go` emits `.codex/skills/<name>/SKILL.md` and explicitly rejects nonempty Model or Tools. This is a useful deterministic renderer, but neither its existence nor a sample external configuration proves native subagent availability, tier enforcement or repository catalog suppression. Adapt the renderer's placement/metadata contract and preserve unsupported-field errors. Do not silently drop a tier to make Codex rendering pass.
+Research/Plan/Implement retain their orchestrator first followed by exact spec order. Validate remains review-only, Spike empty. The small workflow skill cannot replace orchestration. Remove redundant root routing/full-body duplication while coordinating trusted mode headers and session artifacts (STYLE-8). Do not restore updater/admin/remediation phases.
 
-Before selecting production CLI arguments, run documented scratch probes for exact supported Claude and Codex versions. Prove selected agents/skills only, classifier isolation, project instruction retention, authentication, tool ceilings, per-agent tier handling, resume/cold execution and five concurrent mode bundles. Real paid runner probes must not become normal Go tests (EXT-1/2). Reuse the merged `EnsureClaudeConfigDir` and credential-seeding lifecycle; it isolates personal configuration but does not, on its own, prove suppression of project-local discovery or safe per-run catalogs. Its authenticated state directory is not a shared place to overwrite mode agents.
+## Task decomposition
 
-If a supported runner cannot expose only the selected roster while preserving the required authority and tier semantics, return a precise capability refusal and record the limitation; do not fall back to the full catalog or claim parity. This gate is an implementation deliverable and cannot honestly be marked proven by this Plan review.
+Implementation tasks are assigned to go-implementation-engineer by the decomposer convention; test tasks remain separate for test-roster scheduling. Existing completed tasks remain historical foundation; these are remaining deltas. US-6 is recommended to the product owner as the publisher outcome explicitly required by the approved spec. All estimates are at most one day.
 
-### Implement / Validate split
-
-Implement owns production/test authoring and the checks needed to verify those changes. Move dedicated code review, acceptance assessment, test-evidence review and app-context drift checking to Validate. Do not move unit/infrastructure test *authoring* into Validate, do not make an automatic repair loop, and do not restore the retired updater or invent Maintenance.
-
-The current permission contract is exact: `internal/config/toolprofiles_test.go:TestValidateProfileIsExactlyReadOnly` allows Claude `Read, Glob, Grep, Task` (no Bash) and pins Codex `read-only`. Therefore Claude Validate reviews existing test evidence and source; it cannot run `go test` through a shell. Codex retains its read-only sandbox; this shared workflow assesses existing evidence and does not require test execution or environment provisioning. Missing test execution/artifacts are insufficient evidence, never grounds to widen access. Verification parity means equivalent truthful verdicts and boundaries, not identical tool invocations. Verdicts distinguish pass, findings and insufficient evidence and remain inline; no ARCH_REVIEW, context update or new test file is written by Validate.
-
-Prefer reusable small roles with Go skills over duplicated full language teams. Root-only Spike may use an empty roster. Research needs codebase/web skills; Plan needs requirements/architecture/decomposition skills; Implement needs Go implementation/unit/infrastructure-test skills; Validate needs read-only acceptance/review/evidence/drift skills. Do not force an extra subagent invocation merely because a skill exists. Audit actual loaded bytes and delegation overhead.
-
-## Reuse map
-
-| Merged owner/API | Decision |
-|---|---|
-| `team.Index`, `TeamEntry`, `AgentEntry`, `Decode`, `Validate` | Replace schema; retain strict aggregated stable validation and typed error conventions. |
-| `team.Migrate`, `migrate.go` | Remove unused legacy conversion and its callers/tests. Strict one-version decode only. |
-| `teamsource.Resolve`, `ResolveRegisteredRepo`, source enum | Keep one source-resolution owner; replace precedence chain with external registry resolution; embedded used explicitly for installation. |
-| CLI `teamRoster` | Replace implicit shared union with ordered mode resolution in the domain/source layer, reusable by CLI and runtime. |
-| `teamsource.RenderTeam`, `RenderCurrent`, source/override reader | Adapt to selected closure and explicit origin metadata; never render all teams in a work run. |
-| `render.Lookup`, renderer contract/errors | Reuse pure deterministic adapters; adapt external destinations and supported capability metadata; no silent unsupported fields. |
-| `team.Add`, write validation, lock/hash/writefile/lockfile | Reuse one safe writer rooted externally; remove clone requirement and repository-owned-path assumptions, replacing them with external containment rules. |
-| `team.Classify`, five `Status` values | Retain drift semantics over external installations and origin hashes. |
-| `team` overrides + `team manage` | Retain operator override workflow, external scope and explicit effective provenance. |
-| Root marker composition, gitignore editing, `cmd_team_worktrees.go` | Remove from managed team installation/runtime; no writes to project bootstrap to install team agents. |
-| Existing config tiers, mode policy, repo/store, segment and runner APIs | Extend at their owners; no duplicate model registry, SQL layer, clock or process launcher. |
-
-## Per-story tasks and hints
-
-All tasks are assigned to `go-implementation-engineer` by the current task-decomposer roster. Test tasks are separate. Estimates are implementation planning estimates, not elapsed promises. Use the story IDs below consistently when synthesizing sub-issues.
-
-### US-1 — External registry and mode resolution
-
-| ID | Deliverable | Type | Depends On | Est | Architecture hint |
+| ID | Title | Type | Depends On | Story | Est |
 |---|---|---|---|---|---|
-| T-1.2 | Replace index schema, strict decoder and mode-roster resolution; remove legacy converter | data | — | M | `internal/team` owns shape/errors; reject duplicate JSON keys and ambiguous entry forms; preserve ordering and no implicit shared union (CFG-1/5, TEST-7). |
-| T-1.3 | Add external root paths and validated source/dependency snapshots | logic | T-1.2 | L | `config.Paths` derives roots, `teamsource` reads bounded regular files/closures; registry metadata wins only after consistency validation; no repo/store source tier. |
-| T-1.4 | Update embedded Go package and example version-2 registry | data | T-1.2, T-1.3 | M | Preserve existing embedded ownership; declare transitive mode/skill/assets rather than leaving repo-relative links broken; actual workflow content comes from US-4. |
-| T-1.5 | Registry, containment, dependency and deterministic snapshot test suites | test | T-1.2, T-1.3, T-1.4 | M | Table-driven malformed/duplicate/null/missing cases; cycle, symlink, source mutation and byte-budget cases; scratch roots, no real LF_HOME (TEST-1/2/7). |
+| T-1.6 | Distribution/version/provenance contracts | data | — | US-1 | M |
+| T-1.7 | Operator source config and cache paths | infra | T-1.6 | US-1 | M |
+| T-1.8 | Strict protocol/version/closure tests | test | T-1.6, T-1.7 | US-1 | M |
+| T-2.6 | Bounded HTTPS acquisition and verified cache | logic | T-1.6, T-1.7 | US-2 | L |
+| T-2.7 | Remote install/update and atomic publication | logic | T-2.6 | US-2 | L |
+| T-2.8 | Cached status, refresh and pin/source controls | api | T-2.7 | US-2 | L |
+| T-2.9 | Transport/security/offline tests | test | T-2.6 | US-2 | L |
+| T-2.10 | Drift/pin/concurrency/command tests | test | T-2.7, T-2.8 | US-2 | L |
+| T-3.1 | Correct capability record and target-environment procedure | infra | — | US-3 | M |
+| T-3.2 | Native rendering and immutable bundle publication | logic | T-1.6 | US-3 | L |
+| T-3.3 | Neutral request and CLI adapters | logic | T-3.2 | US-3 | L |
+| T-3.4 | Post-classification and conversation identity | logic | T-3.3 | US-3 | L |
+| T-3.5 | Classifier/resume/concurrency tests | test | T-3.4 | US-3 | L |
+| T-4.1 | Move distribution sources and preserve corrected rosters | logic | T-1.6 | US-4 | M |
+| T-4.2 | Focused skills and Implement orchestration | logic | T-4.1 | US-4 | L |
+| T-4.3 | Read-only Validate/bootstrap/vendor parity | logic | T-4.2 | US-4 | M |
+| T-4.4 | Remove embedded acquisition/production embed | logic | T-2.8, T-4.3, T-6.1 | US-4 | M |
+| T-4.5 | Roster/closure/permissions/independence tests | test | T-4.4, T-3.5 | US-4 | M |
+| T-5.1 | Durable version/source/bundle provenance | logic | T-3.4, T-2.7 | US-5 | M |
+| T-5.2 | Reproducible benchmark and runner evidence | infra | T-5.1, T-4.5 | US-5 | L |
+| T-5.3 | Operator documentation and final checks | test | T-5.2, T-6.3 | US-5 | M |
+| T-6.1 | Deterministic release builder/artifacts | logic | T-1.6, T-4.1 | US-6 | L |
+| T-6.2 | Independent publication workflow/hosting contract | infra | T-6.1 | US-6 | M |
+| T-6.3 | Publisher reproducibility/consumer roundtrip tests | test | T-6.2, T-2.8 | US-6 | L |
 
-Recommended AC: one explicit mode roster has precisely its referenced IDs in order; all five mode keys required; unsupported old schema fails; a shared definition omitted from a roster contributes zero catalog entries; dependency-only changes alter digest; source paths cannot escape external root; reuse targets the merged `team`/`teamsource`/`render` implementation directly. T-1.1 (branch integration) is satisfied and retired; remaining task IDs stay stable.
+## Per-task architectural hints
 
-### US-2 — External management and repository association
+### T-1.6
+Reuse team schema-2 decoder/capture; outer wire contracts belong in teamremote, installed provenance in teamsource. No render/network import in team. Strict duplicate/unknown/future schema faults aggregate deterministically (SEC-12, CFG-5); no migration or second registry.
 
-| ID | Deliverable | Type | Depends On | Est | Architecture hint |
-|---|---|---|---|---|---|
-| T-2.1 | Persist explicit external-team association and support registration/reassignment | data | T-1.2 | M | Reuse `repos`/`store` and additive embedded SQLite migration; do not reinterpret `AiteamTeam`; no SQL outside store, single connection and ctx-first APIs. |
-| T-2.2 | Adapt list/show/validate and registration CLI to external resolution | api | T-1.3, T-2.1 | M | Evolve `cmd_team.go` and `cmd_repo.go` closures (STYLE-6); machine output includes mode, IDs, origin and bytes; no CWD repository discovery. |
-| T-2.3 | Retarget install/import/update safe writes, locks and drift provenance | logic | T-1.3, T-1.4 | L | Extend `team.Add` owner, replace OwnedPath rules with external containment, lock last-record semantics; preserve force/conflict reporting and all-files preflight. |
-| T-2.4 | Adapt global manage overrides and remove repo/worktree command paths | logic | T-2.3 | M | Shared ID or qualified inline ID scopes override; effective source/hash must agree; remove all-worktree copying and repository markers. |
-| T-2.5 | Test command independence, association, safe writes and drift/override states | test | T-2.1, T-2.2, T-2.3, T-2.4 | L | Real SQLite for association assertions, `gittest` snapshots for untouched clones; prove two repos share external team without installed files; interruption cannot produce false provenance. |
+### T-1.7
+Follow config Defaults/template/Paths (CFG-1–8). Missing default is an add precondition, not startup failure. Source credentials are references, resolved outside config. Existing repository association remains a team ID only.
 
-Recommended AC: new and existing registrations accept an explicit valid team; marker-only rows remain unassigned until operator action; all commands work outside a git repository; one external update reaches future runs across repos without changing worktrees; all five drift states survive; failed validation leaves registry and provenance unchanged.
+### T-1.8
+Table-test semver core/prerelease/build metadata, equal precedence, unsafe paths, relative URL bases and unsupported schemas. Ordinary deterministic Go tests, no live Internet (TEST-1/2/7).
 
-### US-3 — Per-run bundle isolation and conversation boundaries
+### T-2.6
+Place acquisition/cache in teamremote with injected transport/auth at consumer wiring. Context/byte/redirect limits apply before trust. No automatic retry or fetch (CONC-6). Sanitize remote error/URL data and keep credential values out of cache.
 
-| ID | Deliverable | Type | Depends On | Est | Architecture hint |
-|---|---|---|---|---|---|
-| T-3.1 | Document exact-version runner capability probes and production transport decision | infra | — | L | EXT-1/2 scratch-only evidence; prove discovery, auth, project bootstrap, tier and tool constraints; an unsupported result is a gate finding, not permission to weaken isolation. |
-| T-3.2 | Adapt native rendering and immutable bundle publication | logic | T-1.3, T-1.4, T-3.1 | L | Pure `render` output then `team` safe-write owner; selected closure only; run-specific external directories, bounded snapshot lock, no mutable shared catalog (CONC-1/2). |
-| T-3.3 | Extend neutral request and both runner adapters for proven bundle transport | logic | T-3.2 | L | `agent` exports vendor-neutral descriptors only; adapters own vendor configuration; tool ceilings dominate roster/frontmatter; keep merged credential isolation. Prove classifier catalog exclusion separately from tool restrictions. |
-| T-3.4 | Wire team/mode after classification and rotate conversation segments by bundle identity | logic | T-2.1, T-3.3 | L | `daemon` selects mode, `turn` resolves bundle and existing `store` segment APIs persist identity; preserve agent-switch guard and CONC-7 last state write. |
-| T-3.5 | Test classifier/work separation, resume rotation and five concurrent bundles | test | T-3.3, T-3.4 | L | Fake runner/process fixtures plus real store; channels rather than sleeps; same-team different-mode runs cannot contaminate each other; no bundled content in classifier request. |
+### T-2.7
+Extend teamsource Install/Update, capturePackage/validatePublication and existing write owner. Fetch outside lock, baseline-check inside. Protect obsolete/shared/override files. Prove multi-file crash recovery; aggregate independent-team errors without half-installing a team (STYLE-9). Force never bypasses integrity or pin policy.
 
-Recommended AC: exactly selected catalog visible for each supported runner, zero catalog for classifier, project instructions still available, source/bundle roots not writable by agents, unchanged identity resumes while changed identity opens a fresh segment, cancellation leaves no published partial bundle, unsupported capability fails before work execution. Capability support cannot be asserted solely from fake argv tests.
+### T-2.8
+CLI owns flags/error mapping (STYLE-6); teamsource owns policy, drift and observations. Reuse list/show/validate/manage/repo association. Explicit source switch and digest-pin replace/clear are distinct from changing configured defaults. No network for ordinary inspection.
 
-### US-4 — Focused modes and language skills
+### T-2.9
+Use httptest TLS and temporary roots for corruption, redirects, certificates, auth, cancellation and limit edges. Prove zero requests on daemon/classifier/work/resume/cached inspection. No integration tags or public/paid subprocess tests.
 
-| ID | Deliverable | Type | Depends On | Est | Architecture hint |
-|---|---|---|---|---|---|
-| T-4.1 | Refactor Go roles and focused skill dependency declarations | logic | T-1.4 | L | Keep small workflow roles; language/platform/testing instructions in selected skills; make embedded definitions canonical and verify generated vendor outputs against them; resolve the known Codex Implement updater invocation drift. |
-| T-4.2 | Slim Implement orchestration to authoring and required testing | logic | T-4.1 | M | Remove review/env administration/updater phases and automatic review-driven bug loop; keep tests that verify implementation and the final implementation report contract. |
-| T-4.3 | Add read-only Validate acceptance/review/evidence/drift choreography | logic | T-4.1 | M | Inline findings; no shell for Claude under current profile; no provisioning, fixes, durable files or updater; owner explicitly initiates later Implement. |
-| T-4.4 | Update project/bootstrap instructions, tier references and parity fixtures | logic | T-4.2, T-4.3, T-3.3 | M | Preserve mode header trust contract (STYLE-8); remove full specialist body duplication from Claude root composition and eager full-roster bootstrap sections; packaged resources replace `.claude` hardcoding; no retired updater anywhere in active rosters. |
-| T-4.5 | Test mode membership, resource closure, boundary and report parity | test | T-4.4, T-3.5 | M | Preserve existing policy/surface tests; fake role outcomes check pass/findings/missing-evidence and no Validate tracked changes; do not rewrite permission tests to enable shell. |
+### T-2.10
+Cross five states with freshness/policies, removed files, overrides and shared conflicts. Channel-coordinate writers/readers and inject interruption; avoid sleeps (TEST-8). Pin history survives blob eviction. Verify unchanged installations after any failed update.
 
-Recommended AC: Implement roster has implementation/testing specialists only; Validate review/evidence/drift specialists cannot write; exact current permission profiles retained; missing test evidence is never a pass; roots do not load the full language instruction body during unrelated modes; no maintenance/updater resurrection.
+### T-3.1
+Correct RUNNER_CAPABILITIES provenance and suitable-environment procedure (EXT-2). Deliberately not a predecessor of adapter coding. Complete permissions/auth/delegation/isolation evidence before accepted delivery; denied environment does not imply unsupported transport.
 
-### US-5 — Provenance, token evidence and handoff
+### T-3.2
+render owns pure native output; teamsource supplies selected immutable bytes/provenance. Reuse guarded publication with run paths, never remote origin reads. Keep full bodies out of bootstrap.
 
-| ID | Deliverable | Type | Depends On | Est | Architecture hint |
-|---|---|---|---|---|---|
-| T-5.1 | Add bundle provenance and instruction byte breakdown to run metadata/inspection | logic | T-3.4 | M | Extend existing harvest/meta and CLI renderers; selected IDs, source/override hashes, dependencies, model resolution and render revision; redact externally, never log credentials. |
-| T-5.2 | Provide reproducible baseline-versus-mode benchmark procedure and fixtures | infra | T-5.1, T-4.5 | M | Equal tasks/vendor/model/versions; separate classifier, Claude full-body root duplication, catalog descriptions, skill-body loading, cache state and delegation totals; byte counts are not token counts. |
-| T-5.3 | Execute supported manual runner benchmark and document limitations | infra | T-5.2 | L | Scratch exact-version runs, no paid subprocess CI test; record available input/cached/total tokens, latency and outcome; missing telemetry stated explicitly. |
-| T-5.4 | Test stable provenance output and complete repository checks/docs | test | T-5.1, T-5.2 | M | Deterministic JSON/order; existing fake usage parsers; `make check` and safe `go build ./...`; no dist writes or runtime config edits. |
+### T-3.3
+agent.Request stays neutral; harness/codex own vendor role/config syntax. Preserve tiers and permission ceilings. Instructions travel through files/stdin, not raw argv (SEC-2). Reuse Claude auth isolation; no shared mutable catalogs.
 
-Recommended AC: reports identify precisely what content was visible and what was actually loaded where telemetry allows; no savings claim based on disk usage; cold/warm cache comparisons labelled; selected-mode tokens and total task/delegation tokens distinguished; mode bundle validity/behavior accompanies performance numbers.
+### T-3.4
+Resolve after mode selection in turn; preserve CONC-4/7 and existing vendor-switch guard. Extend current store segment ownership rather than another session subsystem. Identity changes rotate segments; durable provenance survives cleanup. Replace assigned-team refusal with complete delivery rather than fallback.
 
-## Security findings (forward design lens)
+### T-3.5
+Fake runners/real store fixtures prove concurrent modes, classifier empty exposure, offline launch, stable resume and rotation. Retained/restorable resources matter as well as hashes. Real observed isolation remains suitable-environment evidence.
 
-Rulebook: `.aiteam/APP_CONSTRAINTS.md` security section, plus the merged SD-4 amendment. This is an architectural review of proposed changes, not a vulnerability audit of all dependencies.
+### T-4.1
+Relocate complete canonical trees to publisher input and retain known 6eb29bf exact first-position orchestrators. Preserve relative resources and vendor parity. Do not replace orchestrators with workflow skill.
+
+### T-4.2
+Keep implement-orchestrator sequencing production/test authoring and verification. Select language bodies through declared skills without forced delegation. Remove dedicated review/updater/admin phases and stale Codex updater references.
+
+### T-4.3
+Validate returns inline acceptance/code/evidence/drift verdict under unchanged read-only profiles. No Bash/test execution expansion. Update root router/header trust and paired outputs together (STYLE-8), retaining session artifacts.
+
+### T-4.4
+Remove production embed/default only after acquisition/publisher inputs exist. Test fixtures are explicitly test-owned. App build/update never refreshes teams; no bootstrap seed or compatibility fallback.
+
+### T-4.5
+Assert exact arrays, first orchestrators, complete closure and no unrelated eager bodies. Production build input excludes prompt trees; remote fixture remains installable. Preserve policy tests (TEST-10).
+
+### T-5.1
+Extend harvest/inspection: source URL/alias, version/manifest digest, selected IDs/mode, overrides/effective digest and bytes. No credentials in metadata; retain outbound redaction (SEC-6).
+
+### T-5.2
+Preserve old full-catalog benchmark fixtures before conversion. Compare equivalent task outcomes and all delegated usage, recording input/cached/total tokens when available, versions/models/cache/latency and missing telemetry. No bytes-as-token claims or nested-EPERM conclusion.
+
+### T-5.3
+Document configured HTTPS empty-home install, corporate auth, explicit local import, pin/source changes, offline status/update conflicts and retention. Complete make check/safe build; no dist/live runtime writes. Distinguish validated publishing artifacts from an unprovisioned public endpoint.
+
+### T-6.1
+Builder uses the consumer validation contract and exact deterministic manifest bytes/hashes. Output immutable team/version paths and discovery, complete resources and no hooks. Content release requires no litefactory rebuild or runtime registry service.
+
+### T-6.2
+Publish immutable files/manifest first, reject version replacement, advance stable last. CI/hosting topology is outside Go backend architecture and no infrastructure architect is rostered; engineer follows APP_CONSTRAINTS and records hosting assumptions. Supply independently triggered workflow/corporate instructions; owner credentials/public hosting remain deployment prerequisites, not invented URLs.
+
+### T-6.3
+Two content versions install/update with one unchanged consumer binary; rebuilding the app leaves installed content untouched. TLS-served fixtures prove path/hash agreement and reproducibility. An explanatory HTTP layout must not disable production HTTPS rules. These are local acceptance tests, not live deployment claims.
+
+## Security findings
+
+Scope: proposed remote distribution and inspected ownership boundaries. Rulebook: APP_CONSTRAINTS §1; architectural review, not a whole-code vulnerability scan.
 
 | Area | Status | Finding |
 |---|---|---|
-| Input validation | Concern addressed by plan | New JSON unions, dependency graphs and import paths need strict duplicate-aware validation, bounded regular files and full preflight before writes or spawn. |
-| Authentication/authorization | Capability gate | Merged isolated Claude auth is reusable; runtime catalog isolation and subagent permission inheritance still need exact-version proof. Roster membership never grants authority. |
-| Secrets/configuration | Retain existing boundary | Reuse config secret scanning and render-byte checks, allowlisted child environment and controlled credential lifecycle; no credentials in registry/provenance. |
-| Data handling | Retain existing boundary | SQL stays in store; shared source is read-only to agents; provenance identifies origin without exposing content to outbound reports unless redacted. |
-| Dependencies/supply chain | Concern addressed by plan | Local operator-controlled imports only, no remote downloader/new dependency; source digests and explicit dependencies provide reproducibility, not an authenticity claim. No vulnerability scan performed. |
-| Error handling | Retain existing boundary | Aggregate typed errors with useful local paths; external reports use existing redaction; unsupported capabilities/refusals are visible outcomes, not silent catalog fallback. |
+| Input validation | Concern addressed by plan | New network boundary requires strict limits, rooted closure and digest validation before publication. |
+| Auth/authorization | Concern retained explicitly | TLS/source choice is first-use trust; same-origin hashes cannot independently authenticate compromised publisher. Permissions remain local. |
+| Secrets/configuration | Compliant design | Source-specific references only, approved origin only, no secret persistence with instructions. |
+| Data handling | Compliant design | No SQL outside store; provenance excludes credentials; remote errors sanitized. |
+| Supply chain | Concern addressed by plan | Independent content versions and retained digest history; signatures deferred, not implied; no new modules. |
+| Error handling | Compliant design | Typed aggregate diagnostics; failed fetch/integrity preserves installed state with truthful freshness. |
 
-## Platform and concurrency notes
+No standards deviation requested. Recorded SD-4 factory-set Claude configuration amendment still applies. Structural tests must change deliberately with reviewed boundaries (TEST-10), not be disabled.
 
-Go package ownership, errors.Join/typed errors, deterministic ordering, context propagation, consumer-owned interfaces and existing hand-written fixtures apply. No HTTP service, new dependency, new migration framework or goroutine pool is needed. Registry capture uses a bounded lock phase; run lifetime remains bounded by existing turn/runner contexts. Deep-copy mutable slices/maps at request/snapshot boundaries (CONC-1). Keep post-before-database-report ordering (CONC-4), current session-state ordering (CONC-7) and source snapshot work outside the clone git gate. Changes to purity, surface and policy tests require documented deliberate architecture decisions (TEST-10), never quiet weakening.
+## Platform findings
 
-## Deviations and limits
-
-No new standards exception is required. The merged SD-4 amendment explicitly allows a factory-set Claude config directory while leaving it absent from the inherited-environment allowlist; preserve that distinction. Existing team-write guarantees (SEC-12–18) carry forward: adapt owned-path derivation to the declared external target while retaining preflight, symlink refusal, atomic files and lockfile-last publication; update affected surface tests deliberately under TEST-10. The owner has authorized the no-compatibility schema cutover and external team ownership. Runner capability proof remains an explicit implementation gate. No branch integration, implementation, external registry write, paid probe, or test execution was performed by this architecture review.
+- Platform: project layout — internal transport, pure config, reuse existing owners.
+- Platform: errors — typed/wrapped aggregate errors, no new panic/recover.
+- Platform: concurrency — caller context, bounded sequential network and existing locks, no background refresh.
+- Platform: interfaces — small consumer-defined seams only.
+- Platform: dependencies — stdlib HTTP/crypto/JSON, no new module required.
+- Platform: HTTP server/shutdown — not applicable (client); servers are fixtures only.
+- Platform: database — reuse association; any conversation migration remains store-owned and one-connection-safe.
+- Platform: tests — co-located deterministic hand fakes/TLS fixtures, race checks, no paid CLI tests/invented integration tags.
+- Platform: logging — existing structured logger/redaction, no added telemetry framework.
+- Platform: format/lint — make check and safe build; record actual unrelated baseline failures rather than assuming old counts persist.

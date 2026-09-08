@@ -33,6 +33,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 )
 
 // Handler runs a command. args holds the positional arguments, validated
@@ -51,6 +52,8 @@ type Handler func(ctx context.Context, env *Env, args []string) error
 // Fields may be added as later stories need them (config, store, clock).
 // Adding a field is not a breaking change for existing commands.
 type Env struct {
+	// TeamTransport is an HTTP test seam. Nil uses normal system TLS validation.
+	TeamTransport http.RoundTripper
 	// Stdout is where command *results* go. Printing results with
 	// fmt.Fprintf(env.Stdout, ...) is output, not logging, and is the one
 	// sanctioned exception to the slog-only rule.

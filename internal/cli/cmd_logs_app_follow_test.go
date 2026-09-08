@@ -18,7 +18,7 @@ import (
 // does — runBareLogs cannot be reused here because it always runs against
 // t.Context(), and every test in this file needs a bounded, cancellable
 // context to let a -f session run for a few poll ticks before it ends.
-func runFollowLogs(t *testing.T, ctx context.Context, args ...string) (code int, stdout, stderr string) {
+func runFollowLogs(ctx context.Context, t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 
 	var out, errOut bytes.Buffer
@@ -57,7 +57,7 @@ func TestFollowAppLog_StreamsAppendedRecord(t *testing.T) {
 		}
 	}()
 
-	code, stdout, stderr := runFollowLogs(t, ctx, "logs", "--raw", "-f")
+	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -108,7 +108,7 @@ func TestFollowAppLog_TerminalEventDoesNotStopFollow(t *testing.T) {
 		}
 	}()
 
-	code, stdout, stderr := runFollowLogs(t, ctx, "logs", "--raw", "-f")
+	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -150,7 +150,7 @@ func TestFollowAppLog_WaitsForFileThenStreams(t *testing.T) {
 		}
 	}()
 
-	code, stdout, stderr := runFollowLogs(t, ctx, "logs", "--raw", "-f")
+	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
@@ -191,7 +191,7 @@ func TestFollowAppLog_ResumesAfterTruncation(t *testing.T) {
 		}
 	}()
 
-	code, stdout, stderr := runFollowLogs(t, ctx, "logs", "--raw", "-f")
+	code, stdout, stderr := runFollowLogs(ctx, t, "logs", "--raw", "-f")
 
 	if code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)

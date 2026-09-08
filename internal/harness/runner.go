@@ -40,6 +40,7 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	args := []string{"-p", "--output-format", "stream-json", "--verbose", "--tools", "", "--settings", r.settingsPath, "--model", r.model, "--strict-mcp-config"}
+	args = append(args, "--setting-sources", "", "--disable-slash-commands", "--agents", "{}")
 	//nolint:gosec // binary/args are configuration/constants; untrusted text is stdin.
 	cmd := exec.CommandContext(runCtx, r.binary.Path, args...)
 	cmd.Dir, cmd.Env, cmd.Stdin = req.WorkingDirectory, buildEnv(r.environ, r.forwardEnv, r.claudeConfigDir), strings.NewReader(req.Prompt)
@@ -604,8 +605,15 @@ func (r *Runner) args(req agent.Request) []string {
 		// be swallowed as another tool rule.
 		args = append(args, "--allowedTools", strings.Join(allowedTools, ","))
 	}
+	if req.Delivery != nil {
+		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
+	}
 	return append(args, "--strict-mcp-config")
 }
+
+// InstructionIdentity invalidates a conversation when operator-owned parent
+// model settings change. Remote team content cannot override this value.
+func (r *Runner) InstructionIdentity() string { return r.model + "/" + r.autoCompact }
 
 // surface picks the pair of tool lists one run is invoked with. It is the only
 // place that choice is made, so argv and the log line that reports what argv

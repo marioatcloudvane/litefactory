@@ -17,6 +17,9 @@ const FirstSegmentOrdinal = 1
 // always has exactly one per session; the table exists so the conversation's
 // identity is recorded now and LF-8/LF-17 need no migration later.
 type Segment struct {
+	// DeliveryIdentity and DeliveryRoot pin the effective instruction bundle.
+	DeliveryIdentity string
+	DeliveryRoot     string
 	// ID is the surrogate key.
 	ID int64
 	// SessionID is the task this segment belongs to.

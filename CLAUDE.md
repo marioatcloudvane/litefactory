@@ -137,3 +137,17 @@ into another one. Say so in the report and stop.
 2. Never skip a mode prerequisite without explicit user approval.
 3. Never move from one mode to the next on your own.
 4. If a request doesn't map cleanly to a mode, ask before routing.
+
+## Managed GitHub story execution
+
+GitHub issues are the sole editable story source. Implement consumes the
+factory-supplied frozen revision bundle on cold, resumed and fallback attempts;
+pass each selected story inline with its issue identity and revision. Never
+substitute local story files, current live edits or conversation history.
+Verify each finished story immediately with its own acceptance checks, review
+and tests and publish the supplied per-run evidence event so the daemon can
+close it before siblings or the parent finish. Later invalidation reopens it.
+Final aggregate gates remain required. Only the factory reads or mutates forge
+state; agents receive no forge credentials. An owner comment `replan` or `/plan <instruction>` on the
+parent reopens unfinished scope only when no run is active; changing a label
+does not unlock stories.

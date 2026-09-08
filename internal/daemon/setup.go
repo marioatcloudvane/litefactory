@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"time"
 
@@ -212,10 +213,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
-		DB:       s.DB,
-		Forge:    client,
-		Renderer: renderer,
-		Logger:   s.Logger,
+		BotUserID:    identities.BotUserID,
+		StoryLockDir: s.Paths.StoryProgressLocksDir(),
+		DB:           s.DB,
+		Forge:        client,
+		Renderer:     renderer,
+		Logger:       s.Logger,
 	})
 	if err != nil {
 		return nil, Startup{}, err
@@ -249,10 +252,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// dependency, and building turn.Options twice would be two chances for
 	// the two to drift.
 	conflictProposalTTL := time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour
+	storyProgress, err := turn.NewStoryProgress(s.DB, client, renderer, identities.BotUserID, s.Paths.StoryProgressLocksDir())
+	if err != nil {
+		return nil, Startup{}, err
+	}
 	turnOpts := turn.Options{
-		DB:      s.DB,
-		Git:     gitBinary,
-		Runners: runners,
+		StoryProgress: storyProgress,
+		DB:            s.DB,
+		Git:           gitBinary,
+		Runners:       runners,
 		// One registry for the process, built here because this is the
 		// only place a turn's dependencies are bound. turn.Options
 		// validates it as required, so this line going missing is a
@@ -260,6 +268,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// (AC-PAR-3.1).
 		CloneGate:  newCloneGate(),
 		Paths:      s.Paths,
+		Tiers:      copyDeliveryTiers(s.Config.Tiers),
 		InstanceID: instanceID,
 		// The sub-issue phase's two dependencies (internal/turn/subissues.go,
 		// closing CR-B-001): the same forge client and the same renderer
@@ -357,6 +366,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		startup.ClaudeTimeout = claude.Timeout()
 	}
 	return daemon, startup, nil
+}
+
+func copyDeliveryTiers(source config.Tiers) config.Tiers {
+	result := config.Tiers{ModelByTier: make(map[config.Kind]map[config.Tier]string, len(source.ModelByTier))}
+	for kind, models := range source.ModelByTier {
+		result.ModelByTier[kind] = maps.Clone(models)
+	}
+	return result
 }
 
 func (s Setup) validate() error {

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -110,6 +111,11 @@ func (r *Runner) Classify(ctx context.Context, req agent.Classification) (agent.
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	args := []string{"exec", "--json", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+	skills, err := r.skillOverrides(ctx, req.WorkingDirectory, nil)
+	if err != nil {
+		return "", err
+	}
+	args = append(args, "-c", skills)
 	if r.model != "" {
 		args = append(args, "--model", r.model)
 	}
@@ -270,6 +276,18 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	defer logFile.Close()
 
 	args := r.args(req, sandbox)
+	if req.Delivery != nil {
+		selected := make([]string, 0, len(req.Delivery.Skills))
+		for _, skill := range req.Delivery.Skills {
+			selected = append(selected, filepath.Join(req.Delivery.Root, skill))
+		}
+		overrides, err := r.skillOverrides(ctx, req.WorktreePath, selected)
+		if err != nil {
+			return nil, err
+		}
+		// Overrides must precede the resume subcommand and its positional id.
+		args = append([]string{args[0], "-c", overrides}, args[1:]...)
+	}
 	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	//nolint:gosec // binary/args are configuration; issue text is delivered on stdin.
@@ -335,10 +353,16 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 	// Dropping this is what lets the repository's .codex/skills reach the
 	// model, at the cost of Codex also reading the operator's own
 	// config.toml — one flag, both effects. See config.Codex.AllowUserConfig.
-	if !r.userConfig {
+	if !r.userConfig || req.Delivery != nil {
 		args = append(args, "--ignore-user-config")
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
+	if req.Delivery != nil {
+		args = append(args, "--strict-config")
+		for _, role := range req.Delivery.Roles {
+			args = append(args, "-c", "agents."+role+".description="+strconv.Quote("Selected mode specialist; consult the mode roster."), "-c", "agents."+role+".config_file="+strconv.Quote(filepath.Join(req.Delivery.Root, "roles", role+".toml")))
+		}
+	}
 	// Before --model and before the subcommand, so the resume form below
 	// still ends with the prompt argument. A read-only run gets them too:
 	// --add-dir names a directory, and it is the sandbox mode that decides
@@ -361,6 +385,9 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 	}
 	return append(args, "-")
 }
+
+// InstructionIdentity is part of the retained effective bundle identity.
+func (r *Runner) InstructionIdentity() string { return r.model }
 
 type streamState struct {
 	threadID, text                 string

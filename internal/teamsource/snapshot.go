@@ -27,6 +27,7 @@ const MaxSnapshotBytes = 16 << 20
 
 // CapturedAgent pairs registry metadata with its verified source.
 type CapturedAgent struct {
+	Override   bool
 	Definition team.AgentEntry
 	Source     render.ResolvedSource
 }
@@ -34,12 +35,13 @@ type CapturedAgent struct {
 // Snapshot owns its bytes; files retain catalog-relative resource trees so
 // references in skill Markdown work after delivery to a CLI.
 type Snapshot struct {
-	Team   string
-	Mode   string
-	Agents []CapturedAgent
-	Files  map[string][]byte
-	Hashes map[string]string
-	Digest string
+	Provenance *ReleaseProvenance
+	Team       string
+	Mode       string
+	Agents     []CapturedAgent
+	Files      map[string][]byte
+	Hashes     map[string]string
+	Digest     string
 }
 
 // Capture snapshots one centrally installed team's mode and dependency closure.
@@ -153,15 +155,38 @@ func CaptureUnlocked(ctx context.Context, root, name, mode string) (*Snapshot, e
 		}
 	}
 	manifest := struct {
-		Team   string
-		Mode   string
-		Hashes map[string]string
-	}{name, mode, c.hashes}
+		Team       string
+		Mode       string
+		Roster     []team.AgentEntry
+		Hashes     map[string]string
+		Provenance *ReleaseProvenance
+	}{Team: name, Mode: mode, Hashes: make(map[string]string)}
+	for _, a := range agents {
+		manifest.Roster = append(manifest.Roster, a.Definition)
+	}
+	for path, hash := range c.hashes {
+		if path != "index.json" {
+			manifest.Hashes[path] = hash
+		}
+	}
+	metadata, err := readMetadata(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	manifest.Provenance = metadata.Teams[name].Remote
+	for i := range agents {
+		for _, override := range metadata.Overrides {
+			if override.Path == agents[i].Definition.Path {
+				agents[i].Override = true
+				break
+			}
+		}
+	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("hash snapshot: %w", err)
 	}
-	return &Snapshot{Team: name, Mode: mode, Agents: agents, Files: c.files, Hashes: c.hashes, Digest: team.HashBytes(encoded)}, nil
+	return &Snapshot{Team: name, Mode: mode, Agents: agents, Files: c.files, Hashes: c.hashes, Digest: team.HashBytes(encoded), Provenance: manifest.Provenance}, nil
 }
 
 // agentDependencies captures declared edges and removes transport-only headers

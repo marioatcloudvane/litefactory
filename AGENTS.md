@@ -165,3 +165,17 @@ identifier (`SEC-1`, `CFG-4`, `TEST-8`, …) — lives in
 the codebase lives in `.aiteam/APP_CONTEXT.md`. Read the sections relevant
 to the change you are making; nothing in this file should be read as
 overriding either of those.
+
+## Managed GitHub story execution
+
+GitHub issues are the sole editable story source. Implement consumes the
+factory-supplied frozen revision bundle on cold, resumed and fallback attempts;
+pass each selected story inline with its issue identity and revision. Never
+substitute local story files, current live edits or conversation history.
+Verify each finished story immediately with its own acceptance checks, review
+and tests and publish the supplied per-run evidence event so the daemon can
+close it before siblings or the parent finish. Later invalidation reopens it.
+Final aggregate gates remain required. Only the factory reads or mutates forge
+state; agents receive no forge credentials. An owner comment `replan` or `/plan <instruction>` on the
+parent reopens unfinished scope only when no run is active; changing a label
+does not unlock stories.

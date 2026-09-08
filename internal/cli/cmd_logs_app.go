@@ -140,8 +140,7 @@ func runAppLog(ctx context.Context, env *Env, cmd *Command, opts logsOptions) er
 
 	if offset > 0 {
 		if _, err := f.Seek(offset, io.SeekStart); err != nil {
-			f.Close()
-			return fmt.Errorf("seek %s: %w", path, err)
+			return errors.Join(fmt.Errorf("seek %s: %w", path, err), f.Close())
 		}
 	}
 
@@ -150,16 +149,14 @@ func runAppLog(ctx context.Context, env *Env, cmd *Command, opts logsOptions) er
 		line, readErr := reader.ReadBytes('\n')
 		if len(line) > 0 {
 			if _, writeErr := sink.write(line); writeErr != nil {
-				f.Close()
-				return writeErr
+				return errors.Join(writeErr, f.Close())
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				break
 			}
-			f.Close()
-			return fmt.Errorf("read %s: %w", path, readErr)
+			return errors.Join(fmt.Errorf("read %s: %w", path, readErr), f.Close())
 		}
 	}
 

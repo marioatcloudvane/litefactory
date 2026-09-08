@@ -108,12 +108,12 @@ type gitVersion struct {
 	major, minor int
 }
 
-// atLeast reports whether v is the same as or newer than min.
-func (v gitVersion) atLeast(min gitVersion) bool {
-	if v.major != min.major {
-		return v.major > min.major
+// atLeast reports whether v is the same as or newer than minimum.
+func (v gitVersion) atLeast(minimum gitVersion) bool {
+	if v.major != minimum.major {
+		return v.major > minimum.major
 	}
-	return v.minor >= min.minor
+	return v.minor >= minimum.minor
 }
 
 // parseGitVersion extracts the major.minor out of "git version X.Y[.Z] ..." —

@@ -1,5 +1,69 @@
 # Research Brief — agents-outside-repo
 
+## Run 0014 — feature scope and default discovery URL
+
+### Request and binding owner decision
+
+[O] Explain exactly what this feature adds. Provide an operator-configurable location for the remote teams JSON file in `config.yaml`; when the setting is absent, use exactly `https://github.com/marioatcloudvane/litefactory/teams/teams.json`.
+
+[O/R0] This supersedes run 0013's decision to require explicit source configuration when no verified public default was known. Remote distribution remains primary; neither an embedded catalog nor a local directory becomes an automatic fallback. This is a Research clarification, not an implementation or a rewrite of the six story bodies.
+
+### What the complete feature adds
+
+1. [R0] Independently released team content: fetch a discovery index and its versioned, integrity-checked agent/skill payloads over HTTPS, without rebuilding litefactory. Independent content publishing is a deliverable (US-6), not merely a downloader assumption.
+2. [V/R0] One centrally managed installed catalog under `$LF_HOME/teams`, reusable by multiple repositories and worktrees. Repositories select a team; they do not own its definitions. The central foundation exists (`internal/config/paths.go:67`, `internal/cli/cmd_repo.go:55`).
+3. [V/R0] Explicit ordered rosters by mode, shared references or direct Markdown definitions, tiers and associated skills. Schema and snapshot selection exist (`internal/team/types.go:8`, `internal/teamsource/snapshot.go:45`); native per-run delivery is still planned. The intended token improvement comes from exposing only the selected mode's dependency closure and keeping classifiers free of the team catalog, not from moving files on disk alone.
+4. [R0] Immutable per-run bundles delivered to the configured CLI, with provenance and conversation boundaries preventing an old run from silently adopting changed instructions. Keep the mode orchestrators and the main roster correction; do not replace sequencing with the small workflow skill.
+5. [R0] Explicit remote add/update and refresh, content versions and pins, installed-versus-upstream reporting, and local-change protection. Preserve the five byte-drift states and report remote freshness/version separately. Ordinary runs use installed content without fetching and remain usable offline.
+6. [R0] Corporate distribution through the same configurable HTTPS source protocol. Validate paths, TLS/redirects, sizes and checksums before publishing installed content; a failed download or integrity check must not replace a valid installation. Same-source checksums provide integrity, not independent publisher authentication.
+
+[R0] Implement remains focused on implementation and tests; Validate retains review in its agreed read-only scope. Broader maintenance/updater authority, automatic downloads during runs, backward compatibility and measured token-saving claims are not included.
+
+### Current code versus intended outcome
+
+[V] The codebase-tour specialist verified central installation/management, explicit repository selection, schema-v2 rosters and bounded snapshots. `team add` still defaults to embedded content (`internal/cli/cmd_team.go:139`, `internal/teamsource/manage.go:285`, `internal/team/embedded.go:12`). Remote URL configuration, network acquisition and independently versioned remote updates are absent. External-team classifier/work execution still fails explicitly because per-run delivery is unavailable (`internal/daemon/mode.go:90`, `internal/turn/prepare.go:100`). No runtime token savings can yet be claimed.
+
+[V] Existing `settings.team_config` is an absolute local-filesystem-path setting, not a URL field (`internal/config/config.go:90`, `internal/config/validate.go:115`); `Config` currently has no `teams` block (`internal/config/config.go:46`). Do not instruct operators to paste the requested URL into that old field.
+
+### Configuration requirement for the next Plan handoff
+
+[O] The requirement is a configurable discovery-file URL plus an automatic built-in URL default when omitted. [Recommendation] A clear minimal user-facing spelling is:
+
+```yaml
+# Proposed configuration; not supported by the current binary.
+teams:
+  index_url: "https://github.com/marioatcloudvane/litefactory/teams/teams.json"
+```
+
+Omitting `teams.index_url` should be equivalent to this value. A corporate operator can supply their own HTTPS index URL instead. This is a proposed key name, not an owner-prescribed spelling or a claim that the parser already supports it. Run 0013's `teams.sources`/`teams.default_source` alias design must be reconciled with this simpler default-source requirement in Plan; do not introduce competing defaults. Retain an installed team's resolved source identity so changing a configuration default does not silently retarget existing installations. An invalid explicit source must fail clearly rather than silently switch to the public source.
+
+### Endpoint verification and risks
+
+[V] Both direct browsing and the web-researcher could not retrieve the exact requested URL: the browsing tool returned cache/internal errors, not a confirmed HTTP 404. Whether it currently serves machine-readable JSON is **unverified**. Preserve the owner's literal requested default in the requirement; do not silently substitute another endpoint or claim it is live.
+
+[V] GitHub documents raw retrieval using its repository-contents API with `Accept: application/vnd.github.raw+json`, and distinguishes browser URLs from raw download URLs: [GitHub repository contents API](https://docs.github.com/en/rest/repos/contents#get-repository-content), checked 2026-09-07. A raw-download example for the intended file is `https://raw.githubusercontent.com/marioatcloudvane/litefactory/main/teams/teams.json`, but the branch/file and endpoint were not verified. This is an example, **not** an approved replacement default. Publishing must verify the actual JSON endpoint and referenced payloads; any canonical URL change or cross-origin resolution needs explicit treatment in the source/trust contract, not unrestricted redirect following.
+
+[O/R0] The prior Codex EPERM was attributed by the owner to the outer sandbox and must not remain an adapter-coding prerequisite. No nested vendor probe was rerun in this research. Suitable-environment CLI acceptance evidence is still necessary before claiming delivery works.
+
+### Open questions and handoff
+
+- Publishing/Plan must establish that the requested default serves the discovery document, or explicitly reconcile it with a canonical raw endpoint. Current tool failure does not settle availability.
+- Plan must settle the final configuration key/alias precedence, apply the mandatory omitted-setting fallback to US-1/US-2 and add verification of the default endpoint to US-6. This run records the superseding requirement without claiming those plans or production code were changed.
+- End-to-end CLI delivery, remote publishing and token measurements remain outstanding. This run changed only this brief and the manifest; no tests, runtime configuration edits, remote issue updates, commits or pushes were performed.
+
+The sections below are historical. In particular, run 0012's capability-gate wording is superseded by the owner's run 0013 correction above.
+
+## Run 0012 — why CLI delivery is incomplete
+
+[V] Checked the committed run 0011 evidence in `RUNNER_CAPABILITIES.md` and `DRIFT_REPORT.md` at `a0f7b7563b18cbae7a9c19af72713b434fb795d3`. This explanation does not rerun probes or claim a more precise operating-system cause than the recorded error supports.
+
+- [R0] The authenticated Codex 0.153.4 scratch probe exited before inference with `failed to initialize in-process app-server client: Operation not permitted (os error 1)`. The failing startup prevented testing external-agent discovery, authentication and delegation. It does not establish that Codex cannot accept external definitions, nor identify which syscall or environmental restriction caused the denial.
+- [R0] Three bounded Claude probes found a candidate that exposed the selected agent/skill while excluding the tested ambient sentinel and retaining explicitly appended project instructions. They did not execute delegated agents or verify delegated tiers/permissions, concurrent catalogs, all ancestor discovery cases, or credential refresh. Therefore removing the Codex startup barrier alone would not finish the remaining proof matrix.
+- [V] The approved US-3 task ordering makes real capability evidence a prerequisite to production transport choices and runtime enablement. Implementation stopped at that gate rather than delivering the adapter and lifecycle work without its required evidence. This was a conservative implementation decision under the approved plan, not a claim that every remaining coding task was physically impossible.
+- [R0] US-1/US-2 central storage and management were delivered. Native CLI rendering/delivery, run bundle publication and conversation identity handling in US-3 remain unfinished; US-4 workflow conversion and US-5 runtime evidence depend on them. The implementation explicitly refuses assigned external-team runs rather than silently running without the selected team.
+
+The next step is a bounded diagnosis/reproduction of the Codex startup failure in an environment permitted to run it, followed by the remaining Claude/Codex capability checks and actual US-3 wiring. Completing storage does not complete delivery, and a successful startup probe alone will not supply the missing code. No new authority is needed to explain this state; no subprocess, source change, live configuration edit or permission bypass was attempted in run 0012.
+
 ## Request
 
 [O] Run 0009: “re-try please!” [V] This Research retry checks whether run 0008's local plan refresh persisted and whether its linked GitHub stories reflect that refresh. [O/R0] Retain the owner's decisions: teams are managed outside individual repositories, mode-specific specialist availability should reduce instruction tokens, and no backward compatibility is required. The reasonable interpretation is to diagnose and verify the incomplete handoff, not to implement the feature or rerun the entire planning pipeline.

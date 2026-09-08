@@ -17,14 +17,17 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
-	repo    store.Repo
-	session store.Session
-	ref     naming.Ref
+	validateScope func(context.Context) (string, error)
+	scopeDrift    string
+	repo          store.Repo
+	session       store.Session
+	ref           naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -105,8 +108,16 @@ func prepare(
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
+	var selected *teamsource.Snapshot
 	if repo.ExternalTeam != "" {
-		return nil, failuref(fmt.Errorf("external team transport is not verified"), "external team %q is selected, but per-run CLI delivery is not available in this build; install a build with verified team transport before running this repository", repo.ExternalTeam)
+		selected, err = teamsource.Capture(ctx, opts.Paths, repo.ExternalTeam, req.mode())
+		if err != nil {
+			return nil, failuref(err, "external team instructions could not be captured")
+		}
+	}
+
+	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
+		return nil, err
 	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
@@ -160,6 +171,10 @@ func prepare(
 	if err != nil {
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
+	deliveryPlan, err := planDelivery(opts, req, selected, worktree.Path())
+	if err != nil {
+		return nil, failuref(err, "external team instructions could not be prepared")
+	}
 
 	// The one place in the tree that derives a session ref. Every later
 	// consumer — the harness, the run log, the metadata document — reads it back
@@ -178,16 +193,10 @@ func prepare(
 	// layer never invents a vendor-specific fallback.
 	resolvedKind := req.Agent
 
-	// GetOrCreateSegment's stored-row-wins semantics are what make this one
-	// call sufficient for both the ordinary path and the switch refusal
-	// below (US-3, AC-3.5): a session with no segment yet is created under
-	// resolvedKind and there is nothing to refuse, and a session whose
-	// segment already exists comes back exactly as stored regardless of
-	// resolvedKind, which is what the comparison below reads. Splitting this
-	// into a check followed by a conditional create would open a window
-	// between the two store calls; this is the single call the store's
-	// BEGIN IMMEDIATE design is built for.
-	segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, sessionRef, string(resolvedKind))
+	// The task lock serializes segment selection and creation. Effective
+	// instruction changes rotate same-vendor segments; vendor changes still
+	// return the stored segment unchanged for the refusal below.
+	segment, delivery, err := prepareDeliverySegment(ctx, opts, req, session, ref, sessionRef, deliveryPlan)
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
 	}
@@ -320,9 +329,27 @@ func prepare(
 		PreviousFailed:    previousFailed,
 		PreviousReason:    previousReason,
 	}
+	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
+		return nil, err
+	}
+	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+		return nil, err
+	}
+	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
+		return nil, err
+	}
+	if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
+		return nil, err
+	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
+	if delivery != nil {
+		prompt = "Instruction bundle: " + delivery.Root + "\n\n" + prompt
+		if string(req.Agent) == "codex" {
+			prompt = string(deliveryPlan.files["bootstrap.md"]) + "\n" + prompt
+		}
 	}
 
 	path := agent.PathCold
@@ -391,9 +418,11 @@ func prepare(
 		promptInput: promptInput,
 		sync:        sync,
 		request: agent.Request{
-			Ref:            ref,
-			RunOrdinal:     run.Ordinal,
-			SegmentOrdinal: segment.Ordinal,
+			Delivery:         delivery,
+			PlanProposalPath: promptInput.PlanProposalPath,
+			Ref:              ref,
+			RunOrdinal:       run.Ordinal,
+			SegmentOrdinal:   segment.Ordinal,
 			// Ref is the segments row's own value, never recomputed: if it and
 			// a fresh derivation ever disagree the stored one wins, because it
 			// is the one the tool has already seen. Resume is the tool's own

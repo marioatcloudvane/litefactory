@@ -47,5 +47,10 @@ func WithCatalogLock(ctx context.Context, root string, fn func() error) (err err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// A process may have stopped between individual catalog renames. Recovery
+	// completes under the same stable lock before any reader sees a generation.
+	if err := recoverCatalogTransaction(root); err != nil {
+		return fmt.Errorf("recover catalog: %w", err)
+	}
 	return fn()
 }

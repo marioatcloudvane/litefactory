@@ -80,6 +80,9 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// StoryProgress is shared with daemon ticks for live checkpoints and final drain.
+	StoryProgress *StoryProgress
+
 	// DB is the open database. Required.
 	DB *store.DB
 
@@ -120,6 +123,9 @@ type Options struct {
 	// Paths is the resolved $LF_HOME layout. Run artefacts are written beneath
 	// it.
 	Paths config.Paths
+
+	// Tiers is the operator-owned specialist model mapping, never remote content.
+	Tiers config.Tiers
 
 	// InstanceID is this daemon's instance id. It is what the per-task lock is
 	// held under, and what tells a reclaimed lock from a live one (AC-3.2).

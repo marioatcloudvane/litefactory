@@ -86,6 +86,9 @@ func (p Paths) TeamSkillDir(id string) string { return filepath.Join(p.TeamsDir(
 // TeamsMetadataDir separates management records from catalog source files.
 func (p Paths) TeamsMetadataDir() string { return filepath.Join(p.TeamsDir(), ".litefactory") }
 
+// TeamsCacheDir holds verified remote releases, never the installed catalog.
+func (p Paths) TeamsCacheDir() string { return filepath.Join(p.home, "cache", "teams") }
+
 // BundlesDir separates immutable rendered snapshots from editable sources.
 func (p Paths) BundlesDir() string { return filepath.Join(p.home, "bundles") }
 
@@ -136,3 +139,6 @@ func (p Paths) EnsureHome() error {
 	}
 	return nil
 }
+
+// StoryProgressLocksDir holds factory-owned cross-process story delivery locks.
+func (p Paths) StoryProgressLocksDir() string { return filepath.Join(p.home, "story-progress-locks") }
