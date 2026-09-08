@@ -9,7 +9,7 @@
 
 This generation contains one cohesive story. Its behavioral contract, acceptance criteria, tasks, and architecture belong exclusively to the managed story body; there are no additional cross-story design decisions.
 
-GitHub issues are the sole editable story source. The factory publishes the version-1 generation-1 proposal and supplies frozen revisions and per-run acceptance evidence for implementation. No existing child identities or base revisions were supplied; the proposal requests creation and leaves identity assignment to the factory.
+GitHub issues are the sole editable story source. The factory publishes the version-1 generation-1 proposal and supplies frozen revisions and per-run acceptance evidence for implementation. Refinement run 0003 uses the factory-supplied existing story US-1, issue #156 (database ID 5387500996), with expected base cac8f61bbd84134987aa8a8cd59dc1bb374cbd62dacc555abaa1ea5766d062c8. The story is preserved with intent unchanged; no new scope was requested.
 
 ## Workflow
 
@@ -27,7 +27,7 @@ Repository constraints and supplied worktree boundaries remain in force. Agents 
 
 ## Publication Status
 
-Proposal prepared for factory publication. The factory replaces the Story Index with real numeric GitHub issue links after publishing and verifying the proposal; no child links exist yet in this planning run.
+The factory supplied the published story identity and revision for issue #156. The Story Index links to that issue. The generation-1 refinement proposal preserves its full title and body unchanged; factory verification of this handoff remains pending.
 
 ## Out of Scope
 

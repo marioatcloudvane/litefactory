@@ -29,11 +29,11 @@ No new goroutines, provider calls, retry loops, or sleeps. Preserve the current 
 5. Reuse existing deterministic stdlib tests and fake subprocess seams, plus existing harvest safeguards. No live Codex invocation or real network disconnect is needed to establish the adapter regression (TEST-1/2/3/8/10).
 6. One cohesive story is appropriate because parser evidence, result normalization, and four-consumer regression coverage describe the same behavior. No inter-story dependency is needed. Managed publication and frozen revision consumption remain factory-owned (SEC-20/21, CONC-11/12).
 
-## Task Hints for the Product Owner
+## Task Hints for US-1
 
-No final task table was supplied for this feature-spec review. The following task-shaped guidance covers the approved scope and can be assigned task identifiers by the product owner without creating additional stories.
+The factory-supplied current story #156 provides T-1 through T-3. Its scope and task assignments match the existing guidance below; no task or acceptance change is required.
 
-### Normalize stream evidence and failure explanations
+### T-1: Normalize stream evidence and failure explanations
 
 Agent: go-implementation-engineer.
 
@@ -41,7 +41,7 @@ Placement: `internal/codex/runner.go`, retaining current adapter ownership and c
 
 Guardrails: preserve raw line logging, existing malformed/unrelated-event handling, structured payload validation, process/context precedence, and session-resume detection. Do not introduce English-prefix recognition, reset sticky explicit failure at completion, widen public contracts, or alter harvest/reporting policy. Update comments that describe the changed semantics (STYLE-1).
 
-### Verify event ordering and all adapter consumers
+### T-2: Verify event ordering and all adapter consumers
 
 Agent: go-unit-test-engineer.
 
@@ -49,7 +49,7 @@ Placement: existing `internal/codex` tests and temporary executable fixtures. Us
 
 Keep timeout/cancellation and completed-success/context-race tests deterministic using existing seams or a narrow package-private evidence classification seam if needed; production scheduling or exported interfaces must not be added for tests. No polling sleeps or live provider dependence. Run focused `go test ./internal/codex` before the aggregate gate. This guidance covers AC-1 through AC-6 and the focused portion of AC-8.
 
-### Verify publication safeguards and produce acceptance evidence
+### T-3: Verify publication safeguards and produce acceptance evidence
 
 Agents: go-code-reviewer for scoped review; go-unit-test-engineer and implementation orchestrator for existing checks and evidence.
 
@@ -72,7 +72,7 @@ Required implementation completion gate is `make check` (format, vet, pinned lin
 
 ## Managed Proposal Contract and Publication Findings
 
-The normative local decoder is `internal/planbrief/proposal.go`. Use version 1, parent `github:marioatcloudvane/litefactory#155`, generation 1, and one story. Since no existing factory GitHub story context was supplied, the new story must use `intent: create`, `issue_number: 0`, `issue_id: 0`, and `expected_base: ""`. Do not infer a child identity from parent #155 or fetch one. Existing-story updates/unchanged entries would require factory-supplied positive numeric identities and the exact SHA256 of title + NUL + body.
+The normative local decoder is `internal/planbrief/proposal.go`. Use version 1, parent `github:marioatcloudvane/litefactory#155`, generation 1, and one story. For this refinement, the factory supplies existing story `US-1`, issue #156, database ID 5387500996, and expected base `cac8f61bbd84134987aa8a8cd59dc1bb374cbd62dacc555abaa1ea5766d062c8`. The reviewed contract needs no amendment: use `intent: unchanged`, these exact identities and base, and the supplied title and full body unchanged. Do not fetch forge state or infer a newer revision.
 
 A suitable key is `US-1`; accepted keys match `^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`. Dependencies are a JSON array of story-key strings; use `[]` for this independent story. Every key must be unique; dependencies must reference included keys without self-reference, duplicates, or cycles. Titles are nonempty single lines of at most 256 bytes. The envelope limit is 8 MiB; full story bodies are limited to 65536 bytes.
 
@@ -84,4 +84,12 @@ The root `.litefactory-plan-proposal.json` must be left present for consumption.
 
 ## Deviations and Limitations
 
-No architectural standard deviation is required. The managed handoff's JSON story bodies supersede legacy per-story Markdown instructions, as expressly required by the user and CONC-12. The empty prepublication index is a transient factory input, not a claim of completed forge publication. Historical Codex version and TLS root cause remain unverified and outside the story. No code changed, no test commands run, and no forge access performed during this architecture review.
+No architectural standard deviation is required. The managed handoff's JSON story bodies supersede legacy per-story Markdown instructions, as expressly required by the user and CONC-12. The current link-only Story Index can retain the factory-supplied #156 link; prior first-publication guidance does not authorize treating this existing story as new. Historical Codex version and TLS root cause remain unverified and outside the story. No code changed, no test commands run, and no forge access performed during this architecture review.
+
+## Run 0003 Adequacy Review
+
+The supplied US-1 contract addresses the reported classifier defect completely; an unchanged proposal is justified. AC-1 removes generic diagnostics from terminal-failure evidence, AC-2 preserves the final message and raw notices, and AC-3 prevents the contradictory zero-exit failure reason. AC-4 and AC-5 preserve conservative terminal, process, and context safeguards. AC-6 covers all three additional consumers of the shared parser, AC-7 keeps success-only publication intact (CONC-8), and AC-8 requires focused regressions, aggregate validation, and accurate protocol provenance. No material architectural gap or standard deviation was found.
+
+Source inspection during this review confirms that `internal/codex/runner.go` still latches both `turn.failed` and generic `error` as failure and still uses the zero-status default explanation. Therefore the plan is sufficient to solve the bug once implemented and verified; the current code is not fixed by this planning run. Successful adapter classification restores eligibility for normal saving and publishing, subject to the existing downstream checks. It cannot guarantee that every later git or forge operation succeeds.
+
+The certificate problem that triggers reconnects and recovery/publication of earlier unpublished work remain separate, explicit exclusions. Historical work was retained locally according to the supplied evidence, not deleted by the classifier fix or this review. No production changes, runtime access, forge access, or test execution were performed.

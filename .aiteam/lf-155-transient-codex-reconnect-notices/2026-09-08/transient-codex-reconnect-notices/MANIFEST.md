@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [x] **Plan** — `plan_brief.md` + managed JSON proposal *(prepared; factory publication pending)*
+- [x] **Plan** — `plan_brief.md` + managed JSON proposal *(refinement prepared; factory verification pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -19,6 +19,8 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-08 — plan run 0002 complete: feature-spec.md, ARCH_REVIEW.md, plan_brief.md and root version-1 generation-1 JSON proposal prepared for one new managed story. Factory publication and Story Index links remain pending. No implementation, commits, pushes, or forge access.
 
+- 2026-09-08 — plan refinement run 0003 complete: architectural adequacy review approved US-1 unchanged. Root version-1 generation-1 proposal preserves factory-supplied issue #156 (ID 5387500996), with title/body SHA256 verified against supplied expected_base. Story Index uses the supplied GitHub link; stale publication prose corrected. Implementation and tests remain outstanding; factory verification pending. No commits, pushes, or forge access.
+
 ## Notes
 
-- Headless research only; no questions, approval waits, implementation, commits or pushes.
+- Headless Research and Plan runs; no questions, approval waits, implementation, commits or pushes.
