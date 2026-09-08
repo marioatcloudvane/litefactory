@@ -134,6 +134,17 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
+	// Progress is reconciled even while the sole turn worker is occupied.
+	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
+		if err := progress.PollStoryProgress(ctx); err != nil {
+			d.log.ErrorContext(ctx, "story progress remains pending", slog.Any("error", err))
+			var rate *github.RateLimitError
+			if errors.As(err, &rate) {
+				return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+			}
+		}
+	}
+
 	// Proposals are advice, not work. Expiring them on the tick clock keeps a
 	// stale approval from becoming actionable after a daemon restart without
 	// adding a timer or a background worker.
@@ -343,6 +354,9 @@ func (d *Daemon) discover(
 		}
 	}
 
+	if err := d.managedParents(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.backlog(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -422,6 +436,11 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 // path re-checks the same thing in [Daemon.materialise], where the session
 // already exists and the only question left is whether to run.
 func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*candidate, error) {
+	if _, err := d.db.ManagedParentForChild(ctx, q.repo.ID, issue.Number); err == nil {
+		return nil, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
 	if issue.State != github.StateOpen {
 		q.log.DebugContext(ctx, "skipping an issue that is not open; closing an issue is how "+
 			"litefactory is told to stop working on it",
@@ -597,6 +616,7 @@ func (d *Daemon) commentedIssues(
 // on it is written after the `go`, which is what makes it safe to pass by
 // pointer with no lock anywhere near it.
 type task struct {
+	refining  bool
 	repo      store.Repo
 	forgeRepo github.Repo
 	issue     github.Issue
@@ -961,6 +981,12 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
 func (d *Daemon) work(ctx context.Context, t *task) {
+	if deferred, err := d.refineStories(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not refine managed stories", err)
+		return
+	} else if deferred {
+		return
+	}
 	watermark, exists, err := d.db.GetWatermark(ctx, t.session.ID)
 	if err != nil {
 		d.stopped(ctx, t, "could not read this task's watermark", err)
@@ -1498,7 +1524,7 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	workflowEnabled := len(d.classifiers) > 0
+	workflowEnabled := len(d.classifiers) > 0 && !t.refining
 	selection := store.ModeSelection{}
 	selectionErr := store.ErrNotFound
 	if workflowEnabled {
@@ -1508,14 +1534,30 @@ func (d *Daemon) run(
 	var mode agent.Mode
 	var labelled bool
 	var err error
+	// Durable approval wins over temporary labels and classifier history.
+	feature, featureErr := d.db.GetManagedFeature(ctx, t.ref.String())
+	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
+		return featureErr
+	}
+	managedFrozen := featureErr == nil && feature.State != "planning" && !t.refining
 	switch {
+	case managedFrozen:
+		mode, labelled = agent.ModeImplement, true
+		if turn.ManagedReplan(command) {
+			mode = agent.ModePlan
+		}
 	case selectionErr == nil:
 		mode, err = storedMode(selection)
 		labelled = selection.LabelApplied
 	case !errors.Is(selectionErr, store.ErrNotFound):
 		return selectionErr
 	default:
-		mode, labelled, err = resolveModeLabel(t.issue.Labels)
+		if t.refining {
+			mode = agent.ModePlan
+			labelled = true
+		} else {
+			mode, labelled, err = resolveModeLabel(t.issue.Labels)
+		}
 	}
 	if err != nil {
 		var refusal *modeRefusal
@@ -1553,7 +1595,7 @@ func (d *Daemon) run(
 		}
 	}
 	labels, canLabel := d.forge.(labelForge)
-	canLabel = canLabel && len(d.classifiers) > 0
+	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining
 	if mode.Valid() && !labelled && canLabel {
 		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
 			return d.leave(ctx, t, log, "could not apply the selected mode label", err)

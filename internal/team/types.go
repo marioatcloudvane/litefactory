@@ -15,8 +15,8 @@ type AgentEntry struct {
 	Skills []string `json:"skills,omitempty"`
 }
 
-// TeamEntry declares a team's description and explicit ordered mode rosters.
-type TeamEntry struct {
+// Entry declares a team's description and explicit ordered mode rosters.
+type Entry struct {
 	Desc      string       `json:"desc"`
 	Research  []AgentEntry `json:"research"`
 	Plan      []AgentEntry `json:"plan"`
@@ -28,7 +28,7 @@ type TeamEntry struct {
 // Index is the versioned central catalog of teams and shared definitions.
 type Index struct {
 	SchemaVersion int                   `json:"schema_version"`
-	Teams         map[string]TeamEntry  `json:"teams"`
+	Teams         map[string]Entry      `json:"teams"`
 	Shared        map[string]AgentEntry `json:"shared"`
 }
 
@@ -36,7 +36,7 @@ type Index struct {
 func Modes() []string { return []string{"research", "plan", "implement", "validate", "spike"} }
 
 // Mode returns the declared roster and whether the requested mode is known.
-func (t TeamEntry) Mode(m string) ([]AgentEntry, bool) {
+func (t Entry) Mode(m string) ([]AgentEntry, bool) {
 	switch m {
 	case "research":
 		return t.Research, true

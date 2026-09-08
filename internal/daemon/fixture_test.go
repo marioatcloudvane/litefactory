@@ -100,6 +100,7 @@ func toFakeLabels(names ...string) []fakeLabel {
 }
 
 type fakeIssue struct {
+	ID     int64    `json:"id,omitempty"`
 	Number int      `json:"number"`
 	Title  string   `json:"title"`
 	Body   string   `json:"body"`
@@ -967,6 +968,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("build the renderer: %v", err)
 	}
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
+		BotUserID: identities.BotUserID, StoryLockDir: paths.StoryProgressLocksDir(),
 		DB: db, Forge: client, Renderer: renderer, Logger: logger,
 	})
 	if err != nil {

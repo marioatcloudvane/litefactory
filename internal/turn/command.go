@@ -207,16 +207,16 @@ func ParseCommand(body string) Command {
 	}
 
 	name := strings.ToLower(token)
-	switch {
-	case name == SpikeCommand || name == "/research" || name == "/plan" || name == "/implement" || name == "/validate":
+	switch name {
+	case SpikeCommand, "/research", "/plan", "/implement", "/validate":
 		text := strings.TrimSpace(rest)
 		if text == "" {
 			return Command{Kind: KindSpikeEmpty, Name: name, Tagged: tagged}
 		}
 		return Command{Kind: KindSpike, Name: name, Text: text, Tagged: tagged}
-	case name == ScheduleCommand:
+	case ScheduleCommand:
 		return Command{Kind: KindSchedule, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
-	case name == ConfirmCommand:
+	case ConfirmCommand:
 		return Command{Kind: KindConfirm, Name: name, Text: strings.TrimSpace(rest), Tagged: tagged}
 	default:
 		return Command{Kind: KindUnknown, Name: name, Tagged: tagged}

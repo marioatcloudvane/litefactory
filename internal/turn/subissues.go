@@ -111,6 +111,14 @@ func fileStoryIssues(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
+	if prep.promptInput.PlanProposalPath != "" {
+		return result
+	}
+	// The managed forge uses only the explicit Plan handoff. Legacy file
+	// discovery must never publish an old plan during another mode.
+	if _, managed := opts.SubIssueCreator.(PlanForge); managed {
+		return result
+	}
 	if opts.SubIssueCreator == nil || opts.SubIssueRenderer == nil {
 		return result
 	}

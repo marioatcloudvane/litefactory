@@ -97,11 +97,17 @@ the brief, then follow the index to the story you need. The index carries identi
 and location only, never content.
 
 The brief stays a file in the repo, so it is versioned, diffable and reviewable.
-The sub-issues are not — a sub-issue is editable by anyone with write access, so
-the per-story plan of record is mutable and unversioned. That is a real, accepted
-cost; keeping the brief in git is what limits its blast radius, and is a large
-part of why the brief — not the sub-issues — is what a mode gate checks for. Gates
-stay local file-existence checks; no mode gate makes a network call.
+GitHub is the sole editable story source during Plan. On promotion, litefactory
+records complete immutable approved revisions and supplies them explicitly on
+cold, resumed and fallback execution. Implement requires that approved bundle,
+not just a brief's existence. Agents do not fetch live issues or use local story
+Markdown files as a fallback; the factory validates current relationships.
+
+Each selected story reaches review and tests when its own implementation is
+ready, before siblings finish. The orchestrator publishes the supplied per-run
+verification evidence so the daemon can close that issue immediately. Later
+invalidation reopens it, and final aggregate gates remain required. Completion
+is tied to a stable implementation digest and the approved issue revision.
 
 **The single-file plan is retired.** Plan mode used to write one document holding
 every story in full. It no longer does. Sessions archived under `.aiteam/` before

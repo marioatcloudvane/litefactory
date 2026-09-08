@@ -22,6 +22,7 @@ var (
 // Kind identifies the scheduling control requested by an owner.
 type Kind int
 
+// Scheduling kinds separate direct work from proposal lifecycle controls.
 const (
 	KindDirect Kind = iota + 1
 	KindPropose

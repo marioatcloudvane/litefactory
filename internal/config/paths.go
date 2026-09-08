@@ -136,3 +136,6 @@ func (p Paths) EnsureHome() error {
 	}
 	return nil
 }
+
+// StoryProgressLocksDir holds factory-owned cross-process story delivery locks.
+func (p Paths) StoryProgressLocksDir() string { return filepath.Join(p.home, "story-progress-locks") }

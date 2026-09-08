@@ -49,6 +49,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// PlanProposalPath is trusted transient transport, delivered only through the prompt.
+	PlanProposalPath string
+
 	// Ref identifies the task. It fixes the run log path and names the task
 	// on every log line the run emits.
 	Ref naming.Ref

@@ -111,7 +111,7 @@ func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []
 	}
 	if exitCode == 0 {
 		if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
-			return fmt.Errorf("%w: merge of %s into %s produced no conflicts, and undoing it failed: %v",
+			return fmt.Errorf("%w: merge of %s into %s produced no conflicts, and undoing it failed: %w",
 				ErrConflictMismatch, base, w.branch, abortErr)
 		}
 		return fmt.Errorf("%w: merge of %s into %s produced no conflicts", ErrConflictMismatch, base, w.branch)
@@ -131,6 +131,7 @@ func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []
 		if containErr != nil {
 			return w.abortInProgressMerge(ctx, before, containErr)
 		}
+		// #nosec G306 -- SEC-10 umask 077 narrows newly created files; existing worktree modes are preserved.
 		if err := os.WriteFile(target, []byte(f.Resolution), 0o644); err != nil {
 			return w.abortInProgressMerge(ctx, before, fmt.Errorf("write resolved content for %s: %w", f.Path, err))
 		}
@@ -308,7 +309,7 @@ func completeMergeMessage(opts CompleteMergeOptions) string {
 // their own, more urgent failure instead.
 func (w *Worktree) abortInProgressMerge(ctx context.Context, before string, cause error) error {
 	if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
-		return fmt.Errorf("%w (aborting the in-progress merge also failed: %v)", cause, abortErr)
+		return fmt.Errorf("%w (aborting the in-progress merge also failed: %w)", cause, abortErr)
 	}
 	after, revErr := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
 	if revErr != nil {

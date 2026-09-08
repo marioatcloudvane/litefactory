@@ -212,10 +212,12 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 	reporter, err := turn.NewReporter(turn.ReporterOptions{
-		DB:       s.DB,
-		Forge:    client,
-		Renderer: renderer,
-		Logger:   s.Logger,
+		BotUserID:    identities.BotUserID,
+		StoryLockDir: s.Paths.StoryProgressLocksDir(),
+		DB:           s.DB,
+		Forge:        client,
+		Renderer:     renderer,
+		Logger:       s.Logger,
 	})
 	if err != nil {
 		return nil, Startup{}, err
@@ -249,10 +251,15 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	// dependency, and building turn.Options twice would be two chances for
 	// the two to drift.
 	conflictProposalTTL := time.Duration(s.Config.Settings.ConflictProposalTTLHours) * time.Hour
+	storyProgress, err := turn.NewStoryProgress(s.DB, client, renderer, identities.BotUserID, s.Paths.StoryProgressLocksDir())
+	if err != nil {
+		return nil, Startup{}, err
+	}
 	turnOpts := turn.Options{
-		DB:      s.DB,
-		Git:     gitBinary,
-		Runners: runners,
+		StoryProgress: storyProgress,
+		DB:            s.DB,
+		Git:           gitBinary,
+		Runners:       runners,
 		// One registry for the process, built here because this is the
 		// only place a turn's dependencies are bound. turn.Options
 		// validates it as required, so this line going missing is a

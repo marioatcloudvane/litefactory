@@ -81,7 +81,6 @@ const (
 	// the model (S-9, S-10).
 	ReplySuggestsResolution
 
-	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	// ReplyRefusesSyncTooFarBehind answers a turn whose task branch is
 	// further behind its base than [config.Settings.AutoSyncMaxBehind]
 	// allows. No merge was previewed and no conflict is known: distance
@@ -95,11 +94,18 @@ const (
 	// an operator who turned sync off asked for the run to go ahead.
 	ReplyRefusesSyncTooFarBehind
 
+	// ReplyMalformedModeLabel answers a malformed or unknown Mode label.
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
 	ReplyAmbiguousModeLabels
 	// ReplyConflictingModeSelection answers a command/label disagreement.
 	ReplyConflictingModeSelection
+	// ReplyStoryLocked refuses edits to scope already promoted to implementation.
+	ReplyStoryLocked
+	// ReplyStoryPlanOnly redirects child workflow commands to the parent.
+	ReplyStoryPlanOnly
+	// ReplyStoryPlanning acknowledges admission into the parent planning session.
+	ReplyStoryPlanning
 
 	// ReplyLegacyToolLabel answers an issue or comment still carrying the old
 	// lf:tools=<profile> label syntax.
@@ -129,11 +135,14 @@ const (
 	// because one of its prerequisites failed.
 	ReplyScheduleBlocked
 
-	// Proposal replies are factory-owned acknowledgements. They never expose
+	// ReplyScheduleProposalReady acknowledges factory-owned advice without exposing
 	// an agent's proposed payload in a signed forge comment.
 	ReplyScheduleProposalReady
+	// ReplyScheduleProposalAccepted confirms the owner accepted scheduled work.
 	ReplyScheduleProposalAccepted
+	// ReplyScheduleProposalRejected confirms the owner rejected scheduling advice.
 	ReplyScheduleProposalRejected
+	// ReplyScheduleProposalFailed reports that no usable scheduling proposal was produced.
 	ReplyScheduleProposalFailed
 
 	// ReplyConfirmInvalid answers a /confirm control whose factory grammar
@@ -205,6 +214,12 @@ func (k ReplyKind) String() string {
 		return "malformed_mode_label"
 	case ReplyAmbiguousModeLabels:
 		return "ambiguous_mode_labels"
+	case ReplyStoryPlanning:
+		return "story_planning"
+	case ReplyStoryLocked:
+		return "story_locked"
+	case ReplyStoryPlanOnly:
+		return "story_plan_only"
 	case ReplyConflictingModeSelection:
 		return "conflicting_mode_selection"
 	case ReplyLegacyToolLabel:
@@ -257,7 +272,7 @@ func (k ReplyKind) valid() bool {
 		return true
 	case ReplyRefusesSync, ReplySuggestsResolution, ReplyRefusesSyncTooFarBehind:
 		return true
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
+	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly, ReplyStoryPlanning:
 		return true
 	case ReplyLegacyToolLabel:
 		return true
@@ -294,7 +309,7 @@ func (k ReplyKind) IsConfirmationReply() bool {
 // RefusesMode reports whether k is a mode-selection refusal.
 func (k ReplyKind) RefusesMode() bool {
 	switch k {
-	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection:
+	case ReplyMalformedModeLabel, ReplyAmbiguousModeLabels, ReplyConflictingModeSelection, ReplyStoryLocked, ReplyStoryPlanOnly:
 		return true
 	default:
 		return false
@@ -362,6 +377,9 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
+	SourceGeneration int
+	SourceStoryIssue int
+	SourceCommentID  int64
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -689,6 +707,10 @@ func conflictProposalBlock(files []ConflictProposalFile) string {
 func (r Reply) body() string {
 	var b strings.Builder
 	b.WriteString(ReplyMarker(r.Ref))
+	if r.Kind == ReplyStoryPlanning {
+		b.WriteString(StoryAcknowledgementMarker(r.Ref, r.SourceGeneration, r.SourceStoryIssue, r.SourceCommentID))
+	}
+	b.WriteString(storySource(r.Ref, r.SourceStoryIssue, r.SourceCommentID))
 	b.WriteString(sectionGap)
 
 	span, named := commandSpan(r.Command)
@@ -741,6 +763,12 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString("Leave exactly one canonical Mode label and comment again.")
 
+	case ReplyStoryPlanning:
+		b.WriteString("This comment has been admitted to the parent plan. The parent task will refine this story and report the parent run here.")
+	case ReplyStoryLocked:
+		b.WriteString("This user story is locked after promotion to Implement. The approved scope is retained. Comment `replan` on the parent after the active run finishes to reopen Plan for unfinished stories. Completed stories remain completed; new scope requires a successor.")
+	case ReplyStoryPlanOnly:
+		b.WriteString("Story comments refine the parent plan only. Use the parent issue for workflow commands; nothing was run.")
 	case ReplyConflictingModeSelection:
 		b.WriteString("The slash command and the issue's `Mode: …` label select different modes, so nothing was run.")
 		b.WriteString(sectionGap)

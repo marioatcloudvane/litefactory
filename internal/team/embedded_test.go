@@ -173,7 +173,7 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func inlineAgents(t TeamEntry) map[string]AgentEntry {
+func inlineAgents(t Entry) map[string]AgentEntry {
 	agents := map[string]AgentEntry{}
 	for _, mode := range Modes() {
 		entries, _ := t.Mode(mode)

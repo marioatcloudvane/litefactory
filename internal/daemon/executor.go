@@ -32,3 +32,11 @@ func (e turnExecutor) Execute(ctx context.Context, req turn.Request) (turn.Resul
 func (e turnExecutor) ApplyConfirmedResolution(ctx context.Context, req turn.ApplyRequest) (turn.ApplyResult, error) {
 	return turn.ExecuteApplyResolution(ctx, e.opts, req)
 }
+
+// PollStoryProgress is independent of Execute and worker capacity.
+func (e turnExecutor) PollStoryProgress(ctx context.Context) error {
+	if e.opts.StoryProgress == nil {
+		return nil
+	}
+	return e.opts.StoryProgress.Poll(ctx)
+}

@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + five complete per-story publication bodies *(done; #143–#147 links retained; run 0004 body synchronization and #148 withdrawal pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — code + tests *(runtime/tests verified in run 0006; make check and build passed; full completion blocked by unapplied protected Codex workflow parity)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -26,3 +26,7 @@ asked for; nothing here licenses starting the next one.
 ## Notes
 
 - Headless run: resolve ambiguity through stated assumptions; no questions or approval waits.
+
+- 2026-09-08 — Implement resumed, run 0006. Independently verified local retained implementation and remote task-branch baseline; fresh build passed. Required checks, acceptance audit, documentation and drift accounting in progress.
+
+- 2026-09-08 — Implement run 0006 verification finished: inspected retained implementation rather than restarting it; added three missing proposal rejection cases and fixed test-local lint; baseline rooted team reads/type naming cleanup and concurrent lock repair completed. Final make check passed (format/vet, pinned lint 0 issues, race tests 27 packages passed/0 failed); final go build and whitespace check passed. APP_CONTEXT/APP_CONSTRAINTS, CODE_REVIEW, notes and DRIFT_REPORT updated. Both preserved Codex parity patches pass read-only applicability check but cannot be installed in protected .codex; Implement remains incomplete for that environmental release gate. No forge mutation, commit, push or runtime deployment performed.

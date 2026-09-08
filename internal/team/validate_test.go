@@ -92,7 +92,7 @@ func TestValidateAgentEntry_CleanEntry_ReturnsNoForbiddenFlagError(t *testing.T)
 func TestValidate_ForbiddenFlagInTeamOwnedAgent_ReportsDottedTeamPath(t *testing.T) {
 	flag := "--dangerously-" + "skip-permissions"
 	idx := &Index{
-		Teams: map[string]TeamEntry{
+		Teams: map[string]Entry{
 			"go-team": {
 				Plan: []AgentEntry{
 					{ID: "go-architect", Path: "agents/go-architect.md " + flag, Desc: ".claude/agents/go-architect.md"},

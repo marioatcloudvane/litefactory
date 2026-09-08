@@ -862,8 +862,20 @@ func TestFileStoryIssuesGuardsNonSuccessRunResult(t *testing.T) {
 
 			got := fileStoryIssues(t.Context(), opts, prep, in, tc.runResult, discardLogger())
 
-			if !reflect.DeepEqual(got, in) {
-				t.Errorf("fileStoryIssues mutated the result for a %s run.\ngot:  %+v\nwant: %+v", tc.name, got, in)
+			// This path must return the original result, including the exact error
+			// identity. These failed-subprocess fixtures have no factory error.
+			gotValue, wantValue := reflect.ValueOf(got), reflect.ValueOf(in)
+			for i := range gotValue.NumField() {
+				name := gotValue.Type().Field(i).Name
+				if name == "Err" {
+					if got.Err != nil {
+						t.Errorf("fileStoryIssues changed the error for a %s run", tc.name)
+					}
+					continue
+				}
+				if !reflect.DeepEqual(gotValue.Field(i).Interface(), wantValue.Field(i).Interface()) {
+					t.Errorf("fileStoryIssues changed %s for a %s run", name, tc.name)
+				}
 			}
 			if n := creator.callCount(); n != 0 {
 				t.Errorf("CreateSubIssues called %d times for a %s run, want 0", n, tc.name)

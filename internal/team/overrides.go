@@ -106,10 +106,11 @@ func saveOverrides(root string, overrides map[string]string) error {
 	}
 	data = append(data, '\n')
 	path := overridesPath(root)
+	// #nosec G301 -- SEC-10 requires main to install umask 077 before these repository writes.
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return fmt.Errorf("create %s: %w", litefactoryDir, err)
 	}
-	if err := writeFileAtomic(root, filepath.Join(litefactoryDir, overridesName), data, 0o666); err != nil {
+	if err := writeFileAtomic(root, filepath.Join(litefactoryDir, overridesName), data); err != nil {
 		return fmt.Errorf("write team overrides: %w", err)
 	}
 	return nil
@@ -244,7 +245,7 @@ func ReadOverrideSource(root, agentKey string) (raw []byte, path string, ok bool
 	if err := refuseSymlink(root, path); err != nil {
 		return nil, "", false, err
 	}
-	raw, err = os.ReadFile(filepath.Join(root, path))
+	raw, err = readRepoFile(root, path)
 	if err != nil {
 		return nil, "", false, fmt.Errorf("read override %s for agent %q: %w", path, agentKey, err)
 	}

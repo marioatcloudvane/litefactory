@@ -51,3 +51,6 @@ go.work.sum
 
 # macOS Finder metadata
 .DS_Store
+
+# Factory-owned incremental story evidence transport.
+/.litefactory-story-events/

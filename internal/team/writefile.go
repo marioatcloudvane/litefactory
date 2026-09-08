@@ -60,18 +60,18 @@ func splitPath(p string) []string {
 // once covers all of them rather than trusting each caller to have checked
 // already.
 //
-// The temp file is created with os.OpenFile using mode directly at
+// The temp file is created with os.OpenFile using regular-file mode 0666 at
 // creation (O_CREATE|O_WRONLY|O_EXCL), rather than os.CreateTemp (which
 // always creates at 0600 and cannot take a mode) followed by a Chmod call.
 // SEC-10 requires that nothing in litefactory call Chmod, relying instead
 // on the umask installed as the first statement of main to narrow
-// permissions; passing mode straight to OpenFile satisfies that with the
+// permissions; passing 0666 to the checked writer satisfies that with the
 // same "0666-with-umask" result for a regular file.
-func writeFileAtomic(root, relPath string, data []byte, mode os.FileMode) error {
+func writeFileAtomic(root, relPath string, data []byte) error {
 	if !isOwnedWriteTarget(relPath) {
 		return &WriteOutsideOwnedPathError{Path: relPath}
 	}
-	return writeFileAtomicChecked(root, relPath, data, mode)
+	return writeFileAtomicChecked(root, relPath, data, 0o666)
 }
 
 // writeFileAtomicChecked is shared by the harness and central-catalog writers
@@ -82,6 +82,7 @@ func writeFileAtomicChecked(root, relPath string, data []byte, mode os.FileMode)
 	}
 	path := filepath.Join(root, relPath)
 	dir := filepath.Dir(path)
+	// #nosec G301 -- SEC-10 requires main to install umask 077 before these repository writes.
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
@@ -111,6 +112,7 @@ func writeFileAtomicChecked(root, relPath string, data []byte, mode os.FileMode)
 		return fmt.Errorf("lstat %s: %w", tmpPath, err)
 	}
 
+	// #nosec G304 -- callers validate owned paths; refuseSymlink checks components and O_EXCL refuses a replaced temp target.
 	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
 	if err != nil {
 		return fmt.Errorf("create temp file %s: %w", tmpPath, err)

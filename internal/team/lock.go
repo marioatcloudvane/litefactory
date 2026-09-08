@@ -41,6 +41,7 @@ type repoLock struct {
 // .gitignore against each other's write.
 func acquireRepoLock(root string) (*repoLock, error) {
 	dir := filepath.Join(root, litefactoryDir)
+	// #nosec G301 -- SEC-10 requires main to install umask 077 before these repository writes.
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return nil, fmt.Errorf("create %s: %w", litefactoryDir, err)
 	}
@@ -52,7 +53,26 @@ func acquireRepoLock(root string) (*repoLock, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("lstat %s: %w", path, err)
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o666)
+	if err := refuseSymlink(root, filepath.Join(litefactoryDir, repoLockName)); err != nil {
+		return nil, err
+	}
+	repo, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("open repository root: %w", err)
+	}
+	defer repo.Close()
+	metadata, err := repo.OpenRoot(litefactoryDir)
+	if err != nil {
+		return nil, fmt.Errorf("open repository metadata: %w", err)
+	}
+	defer metadata.Close()
+	// Create the stable inode exclusively, then open the winner's inode on
+	// contention. Concurrent nonexclusive O_CREATE opens can fail with ENOENT
+	// on macOS; no caller may remove or replace this coordination file.
+	f, err := metadata.OpenFile(repoLockName, os.O_CREATE|os.O_EXCL|os.O_RDWR|syscall.O_NOFOLLOW, 0o666)
+	if os.IsExist(err) {
+		f, err = metadata.OpenFile(repoLockName, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
