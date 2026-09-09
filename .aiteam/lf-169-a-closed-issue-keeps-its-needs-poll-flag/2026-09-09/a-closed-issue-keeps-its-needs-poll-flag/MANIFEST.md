@@ -14,6 +14,8 @@ asked for; nothing here licenses starting the next one.
 
 ## History
 
+- 2026-09-09 — Run 0005 / 246 reverified committed US-1/#179 at 86c5d543e11ed6679b537fb50a3bd279134cd23d against the same frozen revision. Current review CLEAN, scoped and aggregate race/coverage plus formatting/vet/pinned lint PASS. Submitted fresh event 000001 and verified its immutable snapshot. No production/test edits. Factory closes accepted issues without ticking Markdown checkboxes; actual remote acceptance/closure remains unconfirmed from the worktree. See COMPLETION_CHECK_RUN_0005.md.
+
 - 2026-09-09 — Implement run 0004 complete: US-1/#179 AC-1–AC-7 verified, scoped and aggregate review CLEAN, event 000001 published for run 242. Build and aggregate formatting/vet/pinned lint/full race+coverage passed. Aggregate completion used temporary writable lint cache, serialized lint/15m allowance and Go test `-p 2 -timeout 30m -cover` to resolve environment runtime/lock failures without disabling checks. No commits, pushes or runtime operations.
 
 - 2026-09-09 — Implement retry run 0004 (run ID 242) started from verified clean worktree at d6b32f8. Selected US-1/#179 revision 96542e65fbc2199159a9698271747405c9d4c6801335da7f6a094708f3df6024; no prior implementation credited.
