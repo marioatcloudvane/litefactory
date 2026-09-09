@@ -60,6 +60,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 
 | I need to… | Use | Notes |
 |---|---|---|
+| plan proof for coding-agent behavior | [Nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) | Evidence inventory, external capture route and historical claim limits |
 | resolve `$LF_HOME` or any path under it | `config.Locate()` → `config.Paths` | `ConfigPath DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath` |
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
