@@ -29,3 +29,7 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-09 — Run 0003 begins Implement from four factory-selected frozen revisions; per-story gates and evidence precede dependent work. Base is now synchronized at 592131d.
 
 - 2026-09-09 — Run 0003: US-001/002/003 implemented, independently reviewed, acceptance-tested and verified (latest events 000010/000011/000012). US-004 runtime tests pass, but AC-004-4/5 remain blocked by read-only .codex; event 000013 and CODEX_SKILLS.patch retain the exact remaining work. Build, make check and full race/coverage gates passed after reducing concurrency and increasing test timeout. Implement is not marked complete. No commits or pushes.
+
+## Run 0013 — generation 2 implementation verification
+
+Current Implement status: BLOCKED on US-004 AC-004-4 and AC-004-5 (protected Codex instruction copies). US-001–003 passed fresh scoped gates and evidence events 000001–000003 were published; event 000004 records US-004 blocked. Four other US-004 criteria passed runtime verification. Added true empty-classifier retirement coverage only; no production edits. Aggregate build, make check and full race coverage passed. See RUN_0013_VERIFICATION.md and RUN_0013_CODE_REVIEW.md for this run's evidence and remaining repair. Historical entries above are not assertions of current completion.
