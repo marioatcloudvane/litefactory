@@ -367,6 +367,26 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 	default:
 		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", result.ExitCode)
 	}
+	// No stdout events is deliberately conservative: once the agent emits a
+	// stream, quoted tool output cannot establish a startup failure. Neither
+	// generated text nor an isolated permission warning is diagnostic authority.
+	if result.Outcome == agent.OutcomeFailed && result.ExitCode > 0 && stream.events == 0 &&
+		!stream.turnStarted && !stream.completed && !stream.failed && startupPermissionFailure(result.Stderr) {
+		result.Diagnostic = "Codex could not initialize its in-process app-server. A sandbox restriction is possible; " +
+			"nested Codex in a managed run has a known initialization limitation, but this error does not establish nesting. " +
+			"Use externally captured fixtures with provenance under docs/agent-evidence-capture.md; " +
+			"see docs/codex-initialization-troubleshooting.md."
+	}
+}
+
+func startupPermissionFailure(stderr string) bool {
+	const signature = "Error: failed to initialize in-process app-server client: Operation not permitted (os error 1)"
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.TrimSuffix(line, "\r") == signature {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) args(req agent.Request, sandbox string) []string {

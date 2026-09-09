@@ -60,6 +60,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 
 | I need to… | Use | Notes |
 |---|---|---|
+| plan proof for coding-agent behavior | [Nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) | Evidence inventory, external capture route and historical claim limits |
 | resolve `$LF_HOME` or any path under it | `config.Locate()` → `config.Paths` | `ConfigPath DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath` |
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
@@ -71,7 +72,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
-| build a comment body | `internal/report` | Renders only; reaches no network and no database |
+| build a comment body | `internal/report` | Pure rendering; failed-run `agent.RunResult.Diagnostic` is sanitized, literal and bounded |
 | resolve bounded conflict regions | `agent.ParseRegionConflictResolution`; `git.CollectConflictSnapshots`, `ValidateConflict` | Identified spans, complete reconstruction, raw digests/statistics and Go syntax/shrinkage checks |
 | persist and confirm conflict proposals | `store/conflict_proposals.go`; `turn/conflict_values.go`; `git/worktree_apply.go` | Versioned regions and fresh revision/merge checks; dirty confirmation stays pending with owner-comment recovery guidance |
 | recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
