@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + managed generation-1 JSON proposal *(complete; factory publication pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -19,4 +19,6 @@ asked for; nothing here licenses starting the next one.
 
 ## Notes
 
-- Headless research run; record unresolved questions without requesting confirmation.
+- 2026-09-09 — Plan run 0002 completed specification, architecture review, shared plan brief and one complete create-story proposal; factory publication pending. No implementation, commits or pushes performed.
+- The root `.litefactory-plan-proposal.json` is transient transport and must never be committed. No existing story identities or revisions were supplied; the factory owns publication and Story Index links.
+- Headless run; assumptions recorded without requesting confirmation.
