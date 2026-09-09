@@ -23,7 +23,7 @@ type storyRelationForge interface {
 // managedParents joins the registry into the ordinary fair parent dispatch.
 // This does not depend on GitHub updating the parent's timestamp when a child
 // changes. Closed children are inspected by the same parent worker.
-func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]bool) error {
+func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	features, err := d.db.ListManagedFeatures(ctx)
 	if err != nil {
 		return err
@@ -34,15 +34,21 @@ func (d *Daemon) managedParents(ctx context.Context, byRepo map[int64]*repoQueue
 			return err
 		}
 		q := byRepo[s.RepoID]
-		if q == nil || seen[s.ID] {
+		if q == nil {
+			continue
+		}
+		if existing := seen[s.ID]; existing != nil {
+			existing.addSource("managed_registry")
 			continue
 		}
 		ref, err := naming.ParseRef(s.TaskRef)
 		if err != nil {
 			return err
 		}
-		q.candidates = append(q.candidates, q.candidate(s, ref))
-		seen[s.ID] = true
+		c := q.candidate(s, ref)
+		c.addSource("managed_registry")
+		q.candidates = append(q.candidates, c)
+		seen[s.ID] = c
 	}
 	return nil
 }

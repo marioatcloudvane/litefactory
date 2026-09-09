@@ -1,0 +1,39 @@
+Command: make check
+Exit status: 0
+Omitted 2720 repetitive sandbox-denied golangci-lint cache persistence warnings; analysis completed with 0 issues. Raw output retained in /private/tmp/lf187-make-check-raw.txt for this session.
+
+go vet ./...
+golangci-lint v2.13.1 (go run; slower — 'brew install golangci-lint' to speed this up)
+0 issues.
+go test -race ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.352s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	1.818s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.579s
+ok  	github.com/cloudvane/litefactory/internal/cli	283.652s
+ok  	github.com/cloudvane/litefactory/internal/codex	57.397s
+ok  	github.com/cloudvane/litefactory/internal/config	6.947s
+ok  	github.com/cloudvane/litefactory/internal/confirm	2.579s
+ok  	github.com/cloudvane/litefactory/internal/daemon	527.937s
+ok  	github.com/cloudvane/litefactory/internal/git	167.431s
+ok  	github.com/cloudvane/litefactory/internal/github	6.719s
+ok  	github.com/cloudvane/litefactory/internal/gittest	7.231s
+ok  	github.com/cloudvane/litefactory/internal/harness	65.061s
+ok  	github.com/cloudvane/litefactory/internal/identity	24.942s
+ok  	github.com/cloudvane/litefactory/internal/launchd	4.772s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.103s
+ok  	github.com/cloudvane/litefactory/internal/naming	2.403s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	2.721s
+ok  	github.com/cloudvane/litefactory/internal/redact	3.522s
+ok  	github.com/cloudvane/litefactory/internal/render	2.541s
+ok  	github.com/cloudvane/litefactory/internal/report	4.069s
+ok  	github.com/cloudvane/litefactory/internal/repos	15.000s
+ok  	github.com/cloudvane/litefactory/internal/schedule	2.894s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.874s
+ok  	github.com/cloudvane/litefactory/internal/store	103.482s
+ok  	github.com/cloudvane/litefactory/internal/team	6.619s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	8.073s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	4.527s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	26.702s
+ok  	github.com/cloudvane/litefactory/internal/turn	509.166s
