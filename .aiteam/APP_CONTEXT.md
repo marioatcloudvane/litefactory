@@ -111,7 +111,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | serialize story effects across processes | `store.LockStoryProgress`, `config.Paths.StoryProgressLocksDir` | Nonblocking parent ownership covers ingestion and external delivery without holding a SQL transaction |
 | distinguish story closure from final feature delivery | `store/story_completion.go` | Children close at scoped verification; feature completion additionally records aggregate/save success and delivered effects |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
-| decide *when* work happens | `internal/daemon` | `Tick` dispatches asynchronously; tests use `Daemon.Quiesce` or fixture `settle` to await dispatched turns |
+| dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
