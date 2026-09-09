@@ -29,7 +29,7 @@ type conflictBlobReader interface {
 // (AC-11.5): a single very large conflicting file must not be free to
 // consume the whole total budget on its own and starve every other file out
 // of the suggestion entirely.
-const conflictFilePerFileMaxBytes = 4096
+const conflictFilePerFileMaxBytes = 8192
 
 // conflictMarkers are the three lines a real merge conflict is delimited by.
 var conflictMarkers = [3]string{"<<<<<<<", "=======", ">>>>>>>"}
