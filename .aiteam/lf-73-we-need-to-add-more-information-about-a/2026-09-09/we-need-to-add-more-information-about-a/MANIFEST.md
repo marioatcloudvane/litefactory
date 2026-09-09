@@ -6,7 +6,7 @@
 
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not run in this session)*
 - [x] **Plan** — `plan_brief.md` and managed JSON proposal *(authored; factory publication pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — run 0012 blocked at US-1 AC-1.4; no production implementation
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
@@ -35,3 +35,19 @@ Explicit managed Plan retry authorizes regenerating the handoff in this session.
 - Regenerated the complete version-1 transient proposal for parent github:marioatcloudvane/litefactory#73, generation 1, from this run's factory-supplied issue bodies, numeric identities and expected bases. All seven story intents are unchanged. No per-story Markdown or production code was written; no forge access, commits or pushes.
 
 - Run 0011 validation: actual repository ParseProposal/AcceptanceCriteria passed seven unchanged stories and 45 criterion/evidence references; all seven title/body SHA256 hashes and supplied numeric identities/base revisions verified. Temporary validator removed. Factory publication remains pending.
+
+## Run 0012 implementation attempt
+
+- Consumed factory-selected immutable US-1 through US-7 revisions for run_id 245, generation 1. No live forge access or local story substitution.
+- Early US-1 manual scratch capability probes found Claude Code 2.1.266 can execute and supply partial child/model evidence. Authenticated codex-cli 0.153.4 failed app-server initialization with EPERM before output in two bounded read-only probes. CAPABILITY_REPORT.md records sanitized evidence.
+- All stories remain unfinished; published seven atomic blocked events at .litefactory-story-events/245/000001.json through 000007.json. No verified event, production code, migration or CLI was produced.
+- Safe go build ./... passed. Aggregate make check failed as recorded below; baseline checks do not validate the unimplemented feature.
+- Implement remains unchecked. No commit/push, runtime edits, permission bypass, historical-log importer or dist writes.
+
+## Final baseline validation result
+
+- go build ./...: passed, exit 0.
+- make check: failed, exit 2. Format and go vet passed; pinned golangci-lint v2.13.1 reported 0 issues (default cache-write permission warnings).
+- go test -race ./...: internal/daemon and internal/turn exceeded the default 10-minute package timeout, failing after 605.286s and 606.989s respectively. Daemon was running TestTheFirstEverTickDoesNotReachBack during fixture migration; turn had multiple ApplyConfirmedResolution and other tests active. This output does not establish one test as the root cause. Other reported packages passed, including cli, codex, harness and store.
+- No production or test source changed; these are baseline results, not feature acceptance. No repeated full suite or unrelated repair was attempted after the required provider capability gate was found blocked.
+- Scoped review: CODE_REVIEW.md is BLOCKING (CR-B-001, missing mandatory provider capability evidence). No acceptance completion was claimed.
