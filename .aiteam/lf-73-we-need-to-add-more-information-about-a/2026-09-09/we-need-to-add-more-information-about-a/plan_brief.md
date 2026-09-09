@@ -8,6 +8,8 @@
 
 ## Shared Decisions
 
+- [Data model diagram and rationale](DATA_MODEL.md) explains the nine proposed tables, foreign-key relationships, replay accounting and immutable pricing. It records simplification tradeoffs without changing the managed story contract.
+
 - Full managed-root and every causally related descendant invocation with actual-model provenance for Claude and Codex is mandatory in v1. Exact supported versions need real-execution proof; unknown models or missing children prevent complete status and do not satisfy the release gate.
 - Extend internal/agent. Provider collectors live in harness/codex, attempt orchestration in turn, durable DTOs/SQL in store, presentation in cli/report, and pure normalization/reconciliation/valuation in internal/meter. Mutable payloads are copied across ownership boundaries.
 - Reuse repos → sessions → runs as project/issue/run identity; add attempts → invocation ancestry → exclusive per-model measurements. Source observations/checkpoints retain replay and cumulative baselines. Inclusive totals reconcile, never add to exclusive rows. No new tasks table or duplicated repository identity.
