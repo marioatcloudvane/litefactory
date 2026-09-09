@@ -13,6 +13,9 @@
 - Assume scope includes all agent work causally belonging to the managed run and every descendant; separate daemon helper invocations are excluded from run estimates and explicitly labelled as excluded overhead.
 - Assume local CLI access follows existing operator permissions; no new network service or credentials are introduced.
 - Assume immutable price revision selected at attempt start; edits affect later attempts only, including when an earlier attempt finishes after an edit.
+- Run 0010 story authority: factory-supplied GitHub US-1 through US-7 (#172–#178); local documents are shared context, not editable story specifications.
+- Run 0010 additions: expose concrete proposed database fields and every new CLI command; add repository-required CSV export with coding_agent, issue, mode, time_from and time_to filters.
+- Assume export belongs under `meter`, writes CSV to stdout and selects whole attempts by their start time; timestamps represent measurement scope rather than individual token timestamps.
 
 ## User Stories
 | ID | Story |
@@ -22,7 +25,7 @@
 | US-3 | As an operator, I need every Codex root and descendant measured by actual model so that delegated work is accounted for. |
 | US-4 | As an operator, I need durable deduplicated measurements across attempts and interruptions so that totals reflect consumed work. |
 | US-5 | As an operator, I need editable price revisions and frozen estimates so that my agreements apply without changing history. |
-| US-6 | As an operator, I need filtered metering reports and run summaries so that I can understand consumption and coverage. |
+| US-6 | As an operator, I need filtered metering reports, repository-scoped CSV export and run summaries so that I can understand consumption and coverage outside the CLI. |
 | US-7 | As a maintainer, I need end-to-end evidence for both agents and full descendant coverage before v1 can ship. |
 
 ## Data Model
@@ -33,6 +36,7 @@
 | Measurement | Source identity, invocation, actual model, model attribution provenance, uncached input, cache read, cache write, output, optional provider-specific dimensions | Identity and provenance | Nonnegative integer counters; unknown dimensions remain nullable; cached subsets never inflate totals. |
 | Price revision | Stable revision identity, creation/effective time, model selector, currency, dimension rates | Yes | Exact nonnegative decimal rates; immutable revisions; explicit unknown pricing. |
 | Frozen valuation | Attempt, selected price revision, measurement quantities, applied rates, estimated amount, pricing completeness | Yes except unknown amount/rates | Pricing evidence and outcome survive later edits; never silently reprice old runs. |
+- Physical table names, column types, keys, nullability, uniqueness and indexes are specified in `ARCH_REVIEW.md` and the managed US-4/US-5 proposal bodies; shared `plan_brief.md` links to the inventory and defines cross-story semantics. Existing repository/task/run identities are preserved.
 
 ### Relationships
 - Repository → task → run → attempt → root invocation → descendant invocations → model measurements.
@@ -45,9 +49,33 @@
 | CLI | `litefactory meter [repository [task-id]]` | Existing local operator | Summary of tokens, estimates and coverage across all attempts in scope. |
 | CLI | `--mode`, `--ca`, `--model`, `--json` | Existing local operator | Composable filters; stable machine output distinguishes null from zero. |
 | CLI | `--details` | Existing local operator | Show run, attempt, invocation ancestry and per-model dimensions. |
-| CLI | `litefactory meter prices list` and `litefactory meter prices set <model>` with dimension-rate flags | Existing local operator | Supported revision-creating edit path; do not require manual daemon-state edits. |
+| CLI | `litefactory meter prices list [--json]` | Existing local operator | Display current catalog revision and exact dimension rates; no history mutation. |
+| CLI | `litefactory meter prices set <model> --coding_agent <agent> --input <rate> --output <rate> [--cache_read <rate>] [--cache_write <rate>] [--cache_write_5m <rate>] [--cache_write_1h <rate>]` | Existing local operator | Replace that agent/model entry in a copied full-catalog revision; omitted optional rates become unknown; zero is an explicit valid rate. |
+| CLI | `litefactory meter export github:OWNER/REPO [--coding_agent <agent>] [--issue <number>] [--mode <mode>] [--time_from <RFC3339>] [--time_to <RFC3339>]` | Existing local operator | Required project; CSV stdout; all attempts/issues/modes/agents/times in that project unless filtered. |
 | Existing report | Managed run completion | Existing factory delivery | Token summary and independently calculated estimate with explicit completeness. |
 | Runner contract | Shared usage payload and collection evidence | Internal | Extend existing abstraction with one adapter per coding agent. |
+
+### Complete New Command Inventory
+- `litefactory meter [repository [task-id]] [--mode <mode>] [--ca <agent>] [--model <model>] [--json] [--details]`.
+- `litefactory meter prices list [--json]`.
+- `litefactory meter prices set <model> --coding_agent <agent> --input <rate> --output <rate> [--cache_read <rate>] [--cache_write <rate>] [--cache_write_5m <rate>] [--cache_write_1h <rate>]`.
+- `litefactory meter export github:OWNER/REPO [--coding_agent <agent>] [--issue <positive-integer>] [--mode <research|plan|implement|spike>] [--time_from <RFC3339>] [--time_to <RFC3339>]`.
+- `meter prices` is a help-only grouping command; no import, reprice, global export, export-all or separate file-writing command is introduced.
+
+### CSV Contract
+- Project is mandatory, resolves to a single known GitHub repository and cannot default to current directory or every project; an invalid/unknown project returns a validation error before CSV output.
+- Filters combine with AND; `--issue` is the GitHub issue number within the selected project; omitted filters include every recorded value.
+- `time_from` is inclusive and `time_to` exclusive over attempt `started_at`; accept RFC3339 timestamps with explicit timezone, convert to UTC, allow either bound alone and reject equal/reversed bounds.
+- Selecting an attempt includes its measured descendant consumption even when the attempt finishes outside the requested interval; export does not claim per-token wall-clock attribution.
+- Apply the reversible spreadsheet-safe text escaping defined in ARCH_REVIEW.md before standard CSV quoting, with a fixed header and stable column order; UTF-8 text, RFC3339 UTC timestamps, decimal integer tokens, exact decimal USD and no locale-specific formatting.
+- Row grain is one exclusive invocation/actual-model measurement rollup per attempt; include coverage-only rows for selected attempts with no observations and known invocations without measurements; never export inclusive reconciliation summaries as additive usage.
+- Columns: `project,issue,run,attempt_id,attempt_started_at,attempt_finished_at,coding_agent,mode,invocation_id,parent_invocation_id,actual_model,model_provenance,input_uncached_tokens,cache_read_tokens,cache_write_tokens,cache_write_5m_tokens,cache_write_1h_tokens,output_tokens,reasoning_tokens,price_revision_id,estimated_usd,priced_subtotal_usd,pricing_status,collection_status,diagnostic_codes,row_kind`.
+- Cache-write duration fields and reasoning tokens are subsets; they never increase the mutually exclusive total again. Parent/child identity remains visible without parent-inclusive usage rows.
+- Unknown numeric/model values are empty fields; measured zero is `0`; known priced subtotal is separate from nullable all-in estimate; coverage fields explain incomplete/unpriced rows.
+- Attempt-level coverage is repeated for measurement rows; these repeated status fields are metadata, never additive counters. Row kinds are `measurement` and `coverage`.
+- Stable sorting: project, issue number, run ordinal, attempt start/id, invocation id, actual model; no matches returns the header alone with success.
+- Validate inputs before writing header; stdout contains CSV only, diagnostics use stderr; write failures return nonzero. Streaming failure may leave partial stdout and must be signalled; shell redirection controls file destination.
+- Exports reconcile with CLI totals for the same project/filters and retain unresolved model/child evidence rather than silently dropping it.
 
 ## Business Rules
 - Full root and descendant usage with actual model attribution for both agents is a v1 release gate; partial display is failure handling, never an acceptable substitute for full support.
@@ -87,3 +115,6 @@
 - [ ] AC-6: Global, repository and task CLI scopes and composable mode/agent/model filters return reconciled totals, per-model dimensions, invocation details and coverage in text and JSON.
 - [ ] AC-7: Completion reports use local frozen estimates and distinguish unpriced or incomplete usage; legacy reported costs are labelled separately.
 - [ ] AC-8: No historical recovery code or script enters the repository; all SQL and durable usage ownership remain within existing store boundaries.
+- [ ] AC-9: Project-required CSV export implements all five requested filters with AND semantics, half-open attempt-start time selection, fixed columns and exclusive invocation/model row grain, retaining coverage-only rows and unknown/zero distinctions.
+- [ ] AC-10: Export tests cover nested/parallel/failed descendants, replay, all filter combinations, cross-project issue numbers, timezone boundaries, invalid inputs, empty results, quoting and writer failure; exported token/estimate sums reconcile with corresponding persisted reports without recalculation.
+- [ ] AC-11: Shared plan context links to the architect-reviewed physical database fields/relationships and complete CLI inventory; no per-story Markdown or historical-recovery script is produced.

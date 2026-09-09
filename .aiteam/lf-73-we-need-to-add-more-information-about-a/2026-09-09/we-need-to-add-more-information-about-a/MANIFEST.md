@@ -20,3 +20,10 @@
 Explicit managed Plan retry authorizes regenerating the handoff in this session. Prior run claims are unverified. No existing story identities supplied. Factory alone accesses GitHub and publishes. Headless; no questions, commits or pushes.
 
 - Run 0009 validation: repository ParseProposal accepted 7 stories; AcceptanceCriteria extracted 35 canonical AC identifiers with matching evidence references. Corrected initial US-prefixed IDs to AC-prefixed IDs. Checked current-session regular plan brief, literal Story Index heading, and absence of per-story Markdown. Temporary validator removed. Forge publication and readiness remain factory-owned and unverified.
+
+## Run 0010 revision
+
+- 2026-09-09 — updated requirements and architecture review for explicit database fields, full CLI inventory and repository-required CSV export with five filters.
+- Regenerated complete version-1 proposal for parent github:marioatcloudvane/litefactory#73, generation 1, using factory-supplied issues #172–#178 and expected bases: US-1..3 unchanged, US-4..7 update. No per-story Markdown, implementation, commits or pushes.
+- Retained shared link-only Story Index with supplied issue links. Proposed nine persistent tables, immutable price catalogs, bounded snapshot CSV and exact command contracts. Plan authoring complete; current proposal publication/verification remains factory-owned.
+- Prior run Notes describe that historical run only; existing numeric story context was supplied for run 0010 and is used unchanged.
