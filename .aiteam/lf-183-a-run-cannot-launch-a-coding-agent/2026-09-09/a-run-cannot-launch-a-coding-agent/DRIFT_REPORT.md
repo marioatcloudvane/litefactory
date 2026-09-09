@@ -1,31 +1,28 @@
 # Drift Report — a-run-cannot-launch-a-coding-agent
-
-Branch: lf/183-a-run-cannot-launch-a-coding-agent | Date: 2026-09-09
+# Branch: lf/183-a-run-cannot-launch-a-coding-agent | Date: 2026-09-09
 
 ## Delivered as planned
 
-Partial US-1: durable decision, persistent context lookup and EXT-4 constraint, and identical evidence-review guidance in the three Claude authoring sources. No story is verified.
+- US-1 (#184, revision fa4ac7eced68ec100ca598b717f2055a05e1bfb49aceeecce6616ad3099a9c32): verified the retained decision, unique EXT-4, persistent discovery links and equivalent evidence inventory instructions in all three Claude/Codex planning roles. All five criteria pass. The small later context lookup update was preceded by invalidation and followed by independent re-verification.
+- US-2 (#185, revision b97897b508363160ee3c4869b02a200be7bb42262662c5121ad4056d7e30c242): delivered external capture/sanitization/review procedure, reusable provenance template, accurate quota example limitations and bounded supplied #73/#125 mappings. All six criteria pass.
+- US-3 (#186, revision abd496c8b2bcbd7ae70735c61c697107a95659318129c60e58ebf7b730173d82): delivered provider-owned failed-startup recognition, a neutral diagnostic value, visible sanitized and bounded report guidance, troubleshooting and offline regressions. All six scoped criteria pass; final aggregate make check passes.
 
 ## Added scope
 
-None.
+None. Scoped review artifacts and the neutral Diagnostic contract support the approved tasks. The renderer budget correction fixes an acceptance regression discovered by the required offline tests.
 
 ## Dropped or deferred
 
-- US-1 (#184): required Codex counterparts could not be edited under the run permission boundary. AC-2 and AC-5 fail; AC-3 is partial across planning paths. Independent scoped review is BLOCKING (CR-B-001). AC-1 and AC-4 pass retained-scope review.
-- US-2 (#185): not implemented because the US-1 prerequisite is blocked. Capture/provenance procedure and its review remain obligations.
-- US-3 (#186): not implemented because US-1 and US-2 prerequisites are unfinished. Recognition, reporting, troubleshooting and offline tests remain obligations.
-
-The future capture and troubleshooting links in the decision point to planned files not created in this blocked run. No recovery claim for historical #73/#125 is made.
+None from the selected scope. Historical #73/#125 feature obligations remain unverified external references; this work makes no recovery claim and does not revise those stories. New authentic capture is intentionally an external operator prerequisite, not an implementation step.
 
 ## Architectural deviations
 
-Claude/Codex authoring guidance temporarily differs because the required `.codex/skills` edit was denied. No permission bypass, runtime permission change, forge action, real agent probe, commit or push was attempted.
+None. Diagnostic is provider-neutral, independently cloned and does not change Reason, outcome or recovery policy. Recognition remains in the Codex adapter; the report layer remains pure. Supplemental diagnostic reduction at tight body caps preserves the mandatory worktree location. Sandbox, invocation, authentication, timeout/cancellation, quota, resume and agent selection policies are unchanged.
+
+## Validation
+
+Scoped documentation checks and reviews pass. Offline race tests pass for internal/codex, internal/report and internal/agent. Independent aggregate review is CLEAN without advisories. `make check` passes formatting, vet, pinned lint and the complete race suite. No live agent or infrastructure integration probe was needed. Final events: US-1 attempt2/000004, US-2 attempt1/000002, US-3 attempt2/000007 in the factory-supplied run-251 directory.
 
 ## Verdict
 
-DRIFTED — implementation is blocked by an immutable filesystem permission boundary before US-1 parity; all three approved stories remain unfinished. Resume the same approved scope in an environment where the required repository instruction copies can be edited normally. No scope reduction or replanning is assumed.
-
-## Aggregate validation
-
-`make check` passed (exit 0), including formatting, vet, pinned lint (0 issues), and the full race suite. Scoped documentation review remains BLOCKING; passing regression tests do not imply story acceptance.
+CLEAN — delivered matches the factory-selected plan within approved implementation choices. Run 0002's permission blocker is resolved by the retained manual changes; its historical outcome remains in the manifest, notes and factory run-249 events.

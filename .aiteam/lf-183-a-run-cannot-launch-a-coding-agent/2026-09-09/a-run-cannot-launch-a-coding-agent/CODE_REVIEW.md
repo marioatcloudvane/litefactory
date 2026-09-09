@@ -3,66 +3,58 @@
 Feature: a-run-cannot-launch-a-coding-agent
 Reviewed by: go-code-reviewer
 Date: 2026-09-09
-Status: BLOCKING
-
-## Scope
-
-Partial US-1, issue #184, issue ID 5397886530, approved revision
-`fa4ac7eced68ec100ca598b717f2055a05e1bfb49aceeecce6616ad3099a9c32`.
-Reviewed the retained decision, APP_CONTEXT/APP_CONSTRAINTS additions and the
-three Claude authoring guidance additions. Read paired Codex guidance solely to
-check the required parity. No runtime code, live probes or forge access reviewed
-or performed. This report does not verify US-1 or its dependent stories.
+Status: CLEAN
 
 ## BLOCKING findings
 
-### CR-B-001: Required Codex authoring guidance is missing
+None.
 
-Story: US-1 / T-3, T-4. Category: Cross-story consistency.
+## ADVISORY findings
 
-Files: `.codex/skills/requirements-engineer/SKILL.md`,
-`.codex/skills/plan-orchestrator/SKILL.md`,
-`.codex/skills/proxy-product-owner/SKILL.md`.
+None.
 
-The Claude sources contain the new evidence review block; all three Codex copies
-lack it. Requirements engineering therefore lacks the direct decision entry point
-required by the approved architecture, and paired source agreement fails.
-The implementer reports that the ordinary patch was denied by workspace approval
-settings; this review did not attempt a bypass. Required fix: deliver equivalent
-guidance to all three Codex copies in an authorized writable context and repeat
-the discoverability/parity review. Owner: US-1 implementation engineer.
+## Scope and authority
 
-## Acceptance review
-
-| Criterion | Result | Concrete finding |
-|---|---|---|
-| AC-1 | Pass for retained scope | Durable decision chooses external captured evidence, distinguishes ordinary top-level execution, and attributes both nested Codex 0.153.4 failure and reported Claude success to supplied #183, explicitly declining generalization. |
-| AC-2 | Blocked | Persistent lookup and new EXT-4 link the decision, and all three Claude sources require evidence review before freeze. All three corresponding Codex copies lack the new block. |
-| AC-3 | Partial; not verified | Decision and Claude instructions require criterion, proof method, availability, context/version bounds and missing prerequisite; they reject unsupported nesting and preserve unavailable obligations. Codex authoring parity remains missing. |
-| AC-4 | Pass for retained scope | #73 and #125 are linked as unvalidated supplied historical reports; current state/full criteria are explicitly unknown. Recovery requires criterion review, actual evidence and factory-mediated replanning where applicable. No recovery assertion is made. |
-| AC-5 | Blocked | Claude paths encounter the direct decision link, and the three inserted blocks are byte-identical. Codex parity fails. This scoped review names AC-1 through AC-5 exactly but cannot confirm full agreement. |
-
-## Validation and constraints
-
-`git diff --check` passed with no output. A read-only Python check confirmed
-identical evidence blocks in all three Claude files and absent blocks in all
-three Codex copies. EXT-4 appears once as the added normative rule; the two
-pre-existing EXT-3 rules remain unchanged. The representative attribution
-inventory in the decision correctly leaves unavailable authentic identity/model
-evidence unsatisfied and rejects synthetic evidence as runtime proof.
-Documentation review is the applicable scoped validation; implementation-mirroring
-tests are not warranted for these prose edits. Aggregate gates are the
-orchestrator's separate responsibility.
+Reviewed selected US-1 (#184), US-2 (#185), and US-3 (#186) bodies supplied inline
+by the orchestrator. US1_REVIEW.md and US2_REVIEW.md retain criterion-level
+checks for their immutable scoped implementations. US3_REVIEW.md records the
+runtime and reporting review. No live forge state or local story files were used
+as replacement specifications. No implementation was edited by this reviewer.
 
 ## Cross-story summary
 
-The retained decision supplies an explicit policy boundary for US-2 and US-3,
-including links to their capture and troubleshooting documents. This partial
-review does not establish those documents' acceptance or satisfied dependencies.
-No permission widening, executable changes, credentials or runtime state changes
-were introduced in the reviewed diff. No additional advisory findings.
+The durable decision, capture procedure and troubleshooting reference each other
+and use consistent historical claim limits. Persistent EXT-4 and the descriptive
+lookup expose the boundary; all six planning instruction paths reference the
+same decision. US-1's attempt-2 review covers the coordinated APP_CONTEXT change
+and its discovery path remains intact. US-2 preserves unknown quota provenance
+and keeps authentic acquisition outside managed runs. US-3 communicates a
+possible restriction only for directly observed failed startup; it does not
+claim to inspect arbitrary nested output or establish recovery of #73/#125.
+The adapter owns recognition, agent owns a neutral string, and report owns
+sanitized bounded rendering. No security boundary or outcome policy changed.
 
-## Verdict
+Go idiom, error handling, concurrency, resources, security, performance and
+package ownership checks reveal no blocking issue in the changed production
+paths. No new goroutine or I/O exists. The recursive tight-budget path makes
+strict progress on a clone and retains existing worktree metadata placement.
+The new string is carried by existing value cloning. Existing typed redaction,
+quota/terminal/context precedence and success predicates remain intact.
 
-BLOCKING — CR-B-001 prevents US-1 verification. Preserve the partial work and
-report the permission blocker; do not claim paired instructions agree.
+## Validation and verdict
+
+CLEAN. Scoped documentation reviews pass and scoped offline package tests pass,
+including the orchestrator-reported final race/coverage execution. Aggregate
+`make check` remains required after incremental verification; its execution and
+result belong to the orchestrator's final gate and are not implied by this review.
+
+## Attempt 2 validation-artifact re-review
+
+After US-3 invalidation event 000006, removed Markdown trailing spaces from the
+review artifacts and recorded the completed aggregate result. No source or test
+bytes changed; the scoped production review and passing tests remain applicable.
+The orchestrator reports `make check` passed with exit 0: format, vet, pinned lint
+(0 issues; nonfatal default-cache warnings), and the full race suite, including
+`internal/turn` in 371.840 seconds. The previously outstanding aggregate gate is
+therefore complete. No source or test rerun was needed for this artifact-only
+cleanup. Verdict remains CLEAN.

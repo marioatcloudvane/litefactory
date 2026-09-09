@@ -89,6 +89,11 @@ type RunResult struct {
 	// failure comment and for the runs row. Empty when the run succeeded.
 	Reason string
 
+	// Diagnostic is optional adapter-authored troubleshooting guidance for a
+	// failed run. It does not change outcome or recovery policy. Renderers must
+	// bound and sanitize it as literal text, independently of the raw stderr.
+	Diagnostic string
+
 	// ExitCode is the process's exit status, or [SignalExitCode] when it was
 	// killed or never produced a status.
 	ExitCode int
