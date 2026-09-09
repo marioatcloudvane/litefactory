@@ -88,6 +88,7 @@ type eventStream struct {
 	quota     quotaEvidence
 
 	writeErr error
+	usage    *usageCollector
 }
 
 // consume reads r to EOF.
@@ -118,6 +119,7 @@ func (s *eventStream) record(line []byte) {
 		s.longest = len(line)
 	}
 	s.write(line)
+	s.usage.observe(line)
 	s.observe(line)
 }
 

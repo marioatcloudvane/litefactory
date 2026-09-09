@@ -16,7 +16,7 @@ import (
 const (
 	RegionProposalVersion    = 1
 	MaxConflictOriginalBytes = 1 << 20
-	MaxConflictRegionBytes   = 4096
+	MaxConflictRegionBytes   = 8192
 	MaxConflictProposalFiles = 100
 	MaxConflictOutputBytes   = 1 << 20
 )

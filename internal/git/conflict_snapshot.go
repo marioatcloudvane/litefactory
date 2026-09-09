@@ -111,7 +111,7 @@ func (w *Worktree) CollectConflictSnapshots(ctx context.Context, treeSHA, branch
 		}
 		total += size
 		if size > MaxConflictRegionBytes {
-			faults = append(faults, refuse(path, "complete conflict content exceeds 4096 bytes"))
+			faults = append(faults, refuse(path, fmt.Sprintf("complete conflict content exceeds %d bytes", MaxConflictRegionBytes)))
 		}
 		if total > totalMax {
 			faults = append(faults, refuse(path, "total conflict content budget exceeded"))
