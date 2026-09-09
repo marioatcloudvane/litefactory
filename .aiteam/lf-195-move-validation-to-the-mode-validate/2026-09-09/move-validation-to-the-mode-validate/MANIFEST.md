@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + managed JSON proposal *(complete; factory publication pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -17,9 +17,12 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-09 — session created for issue #195, research run 0001
 - 2026-09-09 — Research completed for run 0001: documented lifecycle and evidence coupling, Validate admission/permission gaps, review instruction drift, owner exception/follow-up decisions, and parent delivery scope.
 - 2026-09-09 — Research run 0002 completed: owner requested all open decisions; preserved the original findings and added 11 owner choices with recommended defaults, alternatives, and engineering decisions that need no owner answer.
+- 2026-09-09 — Plan run 0003 completed: incorporated owner decisions, produced feature-spec.md and ARCH_REVIEW.md, and wrote shared plan_brief.md plus the ignored version-1 transport proposal for generation 1. Nine create stories carry 55 criterion-named evidence inventories; schema, required sections, dependency DAG, harness isolation and transport exclusion checks passed. Factory publication supplies issue identities and Story Index links. No per-story Markdown was created.
 
 ## Notes
 
 Headless run: resolve ambiguity with documented assumptions; no confirmation required. Do not commit or push.
 
-Run 0002: the owner's explicit request for open decisions authorizes questions in the final report. Recommendations remain unapproved; Plan has not started.
+Run 0002 historical note: the owner's explicit request for open decisions authorized questions in the final report; recommendations were then unapproved.
+
+Run 0003: the owner answered the decisions and authorized planning. Implement and Validate stay separate owner-triggered runs. Claude and Codex instruction changes are independent sibling stories requiring a manual harness switch; no story writes both protected trees. Later implementation changes are new issue work and do not automatically reopen acceptance. All attached children count toward normal readiness; explicit owner exceptions remain auditable. Implementation, GitHub publication and main integration have not occurred in this run.
