@@ -331,6 +331,23 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	//    ref; Apply's hard-truncate is the backstop below this.
 	sections[secFiles] = filesHeading + sectionGap + "_Omitted to fit the comment size limit._"
 	c.filesDropped = true
+	// Supplemental guidance must not push mandatory metadata (especially the
+	// sole worktree location) into Apply's hard truncation. Rebudget with shorter
+	// guidance when even the reduced report cannot fit. Clone keeps rendering
+	// pure; each retry removes at least the overflow plus literal markup room,
+	// and guidance too short to be useful is omitted altogether.
+	if len(join(sections[:])) > r.budget && run.Result != nil &&
+		run.Result.Outcome == agent.OutcomeFailed && run.Result.Diagnostic != "" {
+		run.Result = run.Result.Clone()
+		diagnostic := oneLine(run.Result.Diagnostic)
+		room := min(len(diagnostic), 1024) - (len(join(sections[:])) - r.budget) - 32
+		if room < 64 {
+			run.Result.Diagnostic = ""
+		} else {
+			run.Result.Diagnostic, _ = truncateEnd(diagnostic, "…", room)
+		}
+		return r.runBody(run)
+	}
 	return join(sections[:]), c
 }
 
@@ -495,6 +512,12 @@ func describeRunOutcome(run Run) outcomeView {
 		lead := fmt.Sprintf("Run %d failed: `%s` exited with status %d.", n, tool, res.ExitCode)
 		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
+		}
+		// Guidance is a neutral adapter value, not arbitrary Reason content.
+		// Quote it literally and cap it before it enters the fixed report budget.
+		if diagnostic := oneLine(res.Diagnostic); diagnostic != "" {
+			diagnostic, _ = truncateEnd(diagnostic, "…", 1024)
+			lead += "\n\nDiagnostic: " + codeSpan(diagnostic)
 		}
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 

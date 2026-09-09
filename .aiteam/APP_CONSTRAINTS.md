@@ -252,6 +252,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **EXT-3 [enforced]** — Codex generic `error` notices MUST remain raw-log diagnostics, separate from final agent content. Success MUST require exit zero, `turn.completed` and no explicit `turn.failed`; explicit failure MUST stay sticky regardless of terminal ordering or malformed optional detail. Zero-exit failure reasons MUST describe the stream evidence, not a failed process exit.
 
+- **EXT-4** — Before acceptance criteria freeze, planners MUST apply the [nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) and inventory each affected criterion’s proof method, source availability, version/context bounds and missing prerequisite. Unsupported in-run nested Codex observation MUST NOT be required under the current boundary. Missing authentic evidence MUST remain an unsatisfied obligation, never dropped scope or a success claim; frozen contract changes MUST use factory-mediated replanning.
+
 ---
 
 ## Enforcement
