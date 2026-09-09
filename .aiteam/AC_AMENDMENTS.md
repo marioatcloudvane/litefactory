@@ -1543,3 +1543,35 @@ refused as `*WriteOutsideOwnedPathError` / `ErrWriteOutsideOwnedPath`, an
 internal error rather than a silently-avoided possibility, so a future
 change to this package's write path that forgets the constraint fails loudly
 instead of quietly widening what SEC-7's override actually covers.
+
+
+## Amendment: #195 separated engineering, acceptance and delivery
+
+- Authorized: owner run 0003 decisions and frozen US-007 (#202), 2026-09-09.
+- Scope: newly approved separated-workflow features; existing active features,
+  their replans, closed stories and pending legacy effects retain persisted legacy
+  semantics. No historical story is silently migrated.
+- SEC-21: separate immutable engineering/check evidence from complete retained-
+  evidence acceptance/review. Validate performs no edits or fresh checks. Explicit
+  reasoned numeric-owner waivers cover all substantive blockers while preserving
+  factual failed/unverified outcomes and transport/identity boundaries.
+- CONC-10: retain ownership, intent-before-I/O and verified recovery; version-gate
+  legacy invalidation. Historical new-workflow acceptance never automatically
+  expires or reopens after later code/main changes.
+- CONC-11: engineering releases implementation dependencies without acceptance or
+  closure. Validate signs off each story independently. Every attached child and
+  managed decision participates in normal readiness; owner readiness exceptions
+  retain exact scope. Follow-ups require concrete approval, attachment is explicit,
+  and merge needs separate PR/current-head/main approval. Parent closes only after
+  confirmed integration; no automatic mode chain or fabricated operational fact.
+- EXT-4: missing authentic evidence remains unverified, even when explicitly
+  waived; broad owner authority changes acceptance disposition, not test history.
+  Frozen requirement changes still use factory replanning.
+
+These amended clauses are normative requirements, not claims that all runtime
+paths already enforce the separated lifecycle. Existing enforcement rows retain
+legacy coverage; the selected backend stories establish new behavior separately.
+The prior blanket [enforced] annotation on SEC-21/CONC-10/CONC-11 is removed until
+those new runtime checks land. Shared-source verification does not assert live
+agent or forge behavior. Security identity, credential isolation, immutable scope,
+factual evidence and actual merge confirmation remain nonwaivable boundaries.

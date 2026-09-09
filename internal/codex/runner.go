@@ -261,6 +261,9 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		return nil, fmt.Errorf("%w: codex permissions require a sandbox", agent.ErrInvalidRequest)
 	}
 	sandbox := p.Mode
+	if req.Mode == "validate" && sandbox != "read-only" {
+		return nil, fmt.Errorf("%w: Validate requires read-only sandbox", agent.ErrInvalidRequest)
+	}
 	if sandbox != "read-only" && sandbox != "workspace-write" {
 		return nil, fmt.Errorf("%w: unsupported codex sandbox %q", agent.ErrInvalidRequest, sandbox)
 	}
@@ -398,6 +401,11 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 		args = append(args, "--ignore-user-config")
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
+	if req.Mode == "validate" {
+		// Validate consumes retained source/check bytes from stdin. Disabling shell
+		// execution prevents even read-only tests from being commissioned.
+		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
+	}
 	if req.Delivery != nil {
 		args = append(args, "--strict-config")
 		for _, role := range req.Delivery.Roles {

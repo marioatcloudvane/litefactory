@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete)*
 - [x] **Plan** — `plan_brief.md` + managed JSON proposal *(complete; factory publication pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — run 0004: US-001–US-007 implemented and verified; US-008 excluded; US-009 blocked pending Claude. Full feature instruction parity remains outstanding.
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -26,3 +26,5 @@ Headless run: resolve ambiguity with documented assumptions; no confirmation req
 Run 0002 historical note: the owner's explicit request for open decisions authorized questions in the final report; recommendations were then unapproved.
 
 Run 0003: the owner answered the decisions and authorized planning. Implement and Validate stay separate owner-triggered runs. Claude and Codex instruction changes are independent sibling stories requiring a manual harness switch; no story writes both protected trees. Later implementation changes are new issue work and do not automatically reopen acceptance. All attached children count toward normal readiness; explicit owner exceptions remain auditable. Implementation, GitHub publication and main integration have not occurred in this run.
+
+- 2026-09-09 — Implement run 0004 finished feasible scope US-001–US-007 with independent per-story acceptance/review/tests and 36 atomic progress events (including invalidation before overlap and final renewal). US-008 explicitly excluded; US-009 requires Claude for `.codex/**`. Final `make check` passed with a temporary test-only 20-minute timeout wrapper; initial default 10-minute turn timeout retained in notes. Final pinned lint: 0 issues; full race suite passed; `go build ./...` passed. No commits, pushes, protected-tree edits or live forge actions.

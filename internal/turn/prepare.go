@@ -439,11 +439,12 @@ func prepare(
 		promptInput: promptInput,
 		sync:        sync,
 		request: agent.Request{
-			Delivery:         delivery,
-			PlanProposalPath: promptInput.PlanProposalPath,
-			Ref:              ref,
-			RunOrdinal:       run.Ordinal,
-			SegmentOrdinal:   segment.Ordinal,
+			RetainedValidation: promptInput.Validation != nil,
+			Delivery:           delivery,
+			PlanProposalPath:   promptInput.PlanProposalPath,
+			Ref:                ref,
+			RunOrdinal:         run.Ordinal,
+			SegmentOrdinal:     segment.Ordinal,
 			// Ref is the segments row's own value, never recomputed: if it and
 			// a fresh derivation ever disagree the stored one wins, because it
 			// is the one the tool has already seen. Resume is the tool's own
@@ -772,6 +773,9 @@ func syncBase(
 	author git.Author,
 	logger *slog.Logger,
 ) (syncResult, error) {
+	if req.mode() == "validate" {
+		return syncResult{Outcome: syncOutcomeSkipped, Reason: "Validate reviews retained evidence without synchronizing code"}, nil
+	}
 	baseRef := opts.remote() + "/" + repo.BaseBranch
 
 	divergence, err := worktree.Divergence(ctx, baseRef)
