@@ -331,27 +331,25 @@ WHERE id = ? AND lock_owner = ?`,
 // lose it after the cursor has already moved on — that would be permanent
 // silence on the thread, which AC-4.1 forbids.
 //
-// The protocol has one write site and one clear rule: the tick sets the flag
-// for every session it takes out of the eligible set — the ones it dispatches,
-// before the worker starts, and the ones it defers for want of a free slot —
-// and only
-// [DB.ClearSessionNeedsPoll] on a fully drained, error-free turn takes it back
-// off. Setting it on a session that already carries it is a no-op, so the call
-// needs no read first. A session that does not exist is [ErrNotFound].
+// The tick sets the flag for every session it takes out of the eligible set:
+// before dispatch and when deferring for want of a free slot. A fully drained,
+// error-free turn or an authoritative closed-issue observation may clear it
+// through [DB.ClearSessionNeedsPoll] (US-1 AC-7). Repeated sets preserve the flag
+// and refresh updated_at; no preliminary read is needed. A session that does
+// not exist is [ErrNotFound].
 func (db *DB) SetSessionNeedsPoll(ctx context.Context, sessionID int64) error {
 	return db.setSessionNeedsPoll(ctx, sessionID, true)
 }
 
 // ClearSessionNeedsPoll takes the backlog flag off a session.
 //
-// Only a fully drained, error-free turn may call this. Every other exit —
-// a killed daemon, a worker abandoned at shutdown, a drain that stopped on an
-// unconsumed comment, a lock lost to a second process, an error mid-turn —
-// must leave the flag standing, because a stale-true flag is self-healing (the
-// next tick re-lists the session, finds nothing above its watermark and clears
-// it) while a stale-false flag is silence. That asymmetry is the same posture
-// as [DB.AdvanceWatermark]'s never-rewind: a bad outcome leaves the row
-// pointing at more work, never less.
+// A fully drained, error-free turn or a successful explicit closed-issue
+// observation may call this. Terminal clearing retires ordinary polling only:
+// session state, identity, comment watermarks and report obligations survive.
+// Every other exit — an abandoned worker, unconsumed comment, contended lock,
+// unknown issue state or error — must retain retry intent. Stale-true can heal
+// after a later clean drain or confirmed closure; stale-false can lose work.
+// That asymmetry follows [DB.AdvanceWatermark]'s never-rewind rule.
 //
 // Clearing a session that is not flagged is not an error; the row still
 // matches. A session that does not exist is [ErrNotFound].
@@ -384,12 +382,10 @@ func (db *DB) setSessionNeedsPoll(ctx context.Context, sessionID int64, needsPol
 // and — unlike the forge listings it is unioned with — costs no API quota at
 // all.
 //
-// It returns sessions, not issues. The caller fetches the forge issue for a
-// backlogged session lazily, only once the dispatcher has actually selected it
-// to run, which caps the extra API cost at max_concurrent_runs issue fetches
-// per tick however deep the backlog has grown. Fetching eagerly for every row
-// this returns would make that cost grow with backlog depth, which is the
-// shape this bound exists to rule out.
+// It returns sessions, not issues. The caller fetches the forge issue lazily
+// after admission guards accept a candidate. Skips and errors release admission
+// for subsequent candidates, so worker concurrency does not cap issue reads per
+// tick. This query itself performs no forge reads.
 func (db *DB) ListBacklogSessions(ctx context.Context) ([]Session, error) {
 	rows, err := db.sql.QueryContext(ctx,
 		`SELECT `+sessionColumns+` FROM sessions WHERE needs_poll = 1 ORDER BY id`)

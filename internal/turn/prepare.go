@@ -343,6 +343,12 @@ func prepare(
 		PreviousFailed:    previousFailed,
 		PreviousReason:    previousReason,
 	}
+	if sync.Outcome == syncOutcomeDeferredDirty {
+		promptInput.DeferredSync = harness.DeferredSyncContext{
+			Deferred: true, Branch: sync.Branch, Base: sync.Base,
+			Behind: sync.Behind, Ahead: sync.Ahead,
+		}
+	}
 	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 		return nil, err
 	}
@@ -635,10 +641,11 @@ type confirmedApplyResult struct {
 type syncOutcome string
 
 const (
-	syncOutcomeUpToDate syncOutcome = "up_to_date"
-	syncOutcomeSynced   syncOutcome = "synced"
-	syncOutcomeBlocked  syncOutcome = "blocked"
-	syncOutcomeSkipped  syncOutcome = "skipped"
+	syncOutcomeUpToDate      syncOutcome = "up_to_date"
+	syncOutcomeSynced        syncOutcome = "synced"
+	syncOutcomeBlocked       syncOutcome = "blocked"
+	syncOutcomeSkipped       syncOutcome = "skipped"
+	syncOutcomeDeferredDirty syncOutcome = "deferred_dirty"
 	// syncOutcomeTooFarBehind is distance alone: further behind than
 	// [Options.AutoSyncMaxBehind] allows, so no merge was ever previewed.
 	// It refuses the run; see [syncRefusal.tooFarBehind].
@@ -653,11 +660,11 @@ const (
 // and Conflicts to render the comment, US-9 reads SyncCommitSHA to persist it,
 // and neither has to call back into internal/git to get there.
 type syncResult struct {
-	// Outcome is which of the four branches syncBase reached.
+	// Outcome is the synchronization decision syncBase reached.
 	Outcome syncOutcome
 	// Behind and Ahead are the [git.Divergence] syncBase measured before
 	// deciding. Behind is 0 exactly when Outcome is [syncOutcomeUpToDate];
-	// Ahead is independent of Outcome and may be nonzero on any of the four.
+	// Ahead is independent of Outcome and may be nonzero for any outcome.
 	Behind, Ahead int
 	// SyncCommitSHA is the merge commit [git.Worktree.MergeBase] produced,
 	// non-empty only when Outcome is [syncOutcomeSynced] and the merge
@@ -667,8 +674,8 @@ type syncResult struct {
 	// only when Outcome is [syncOutcomeBlocked].
 	Conflicts []string
 	// Reason is why sync did not complete, phrased to read directly after
-	// "because ", and set only on [syncOutcomeSkipped] and
-	// [syncOutcomeFailed]. US-3 renders it; AC-3.2 is why a skip records one
+	// "because ", and set on [syncOutcomeSkipped] and
+	// [syncOutcomeDeferredDirty]. US-3 renders it; AC-3.2 is why a skip records one
 	// at all, since a skip that cannot say why is the silent staleness this
 	// whole feature exists to prevent.
 	Reason string
@@ -806,6 +813,23 @@ func syncBase(
 		return syncResult{
 			Outcome: syncOutcomeTooFarBehind, Behind: divergence.Behind, Ahead: divergence.Ahead,
 			Branch: worktree.Branch(), Base: repo.BaseBranch,
+		}, nil
+	}
+
+	// Retained edits must be available to a recovery run even when the
+	// committed tips conflict (AC-171-1). Observe them before preview, but
+	// after explicit policy decisions; never stage or park them here.
+	changes, err := worktree.Status(ctx)
+	if err != nil {
+		return syncResult{}, failuref(err, "uncommitted changes on %s could not be inspected before base synchronization", worktree.Branch())
+	}
+	if len(changes) > 0 {
+		const reason = "uncommitted changes were preserved for this run to inspect and finish"
+		logger.Info("base sync: deferred to preserve uncommitted changes",
+			append(logFields, slog.String("outcome", string(syncOutcomeDeferredDirty)), slog.String("reason", reason))...)
+		return syncResult{
+			Outcome: syncOutcomeDeferredDirty, Behind: divergence.Behind, Ahead: divergence.Ahead,
+			Branch: worktree.Branch(), Base: baseRef, Reason: reason,
 		}, nil
 	}
 

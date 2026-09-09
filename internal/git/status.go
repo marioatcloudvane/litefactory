@@ -8,13 +8,15 @@ import (
 
 // statusArgs is the one status invocation this package makes.
 //
-// Every flag is load-bearing. --untracked-files=all lists the files inside a
+// Every flag is load-bearing. --no-optional-locks prevents status from
+// refreshing index metadata, preserving retained work during sync preparation
+// (AC-171-1). --untracked-files=all lists the files inside a
 // new directory rather than the directory itself, because a run that creates
 // internal/foo/ must report the files it wrote there. --ignored=no is git's
 // default and is spelled out anyway: a build directory or a .env inside the
 // worktree must never reach a commit or a report. -z is what makes the output
 // safe to parse — a path containing a newline or a quote cannot forge an entry.
-var statusArgs = []string{"status", "--porcelain", "-z", "--untracked-files=all", "--ignored=no"}
+var statusArgs = []string{"--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all", "--ignored=no"}
 
 // ChangeKind classifies what happened to one path. It is a string so that a
 // report can print it directly and a log can carry it without a lookup table.

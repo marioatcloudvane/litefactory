@@ -200,6 +200,10 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CONC-13** — Recovery MUST atomically persist semantic interruption and optional continuation before reporting, deduplicate by source run, and preserve context and original prerequisite identity. The root budget MUST count at most three automatic allocations; each MUST require fresh verified future-reset evidence. Suspended prerequisites MUST remain nonterminal until semantic settlement; only final success MUST release descendants, using final completion time.
 - **CONC-14** — Automatic admission MUST use existing capacity and task locks, explicit resume without cold fallback, and frozen managed scope. New owner work, reset, changed context, closure or loaded disable MUST durably cancel stale pending work, including future work. Observation failure MUST defer without advancing the watermark. Restart MUST requeue only unallocated reservations; allocated abandoned runs MUST remain terminal absent durable quota evidence.
 
+- **CONC-15 [enforced]** — Ordinary `needs_poll` backlog MUST clear after clean drain or confirmed explicit issue closure. Unknown states, lookup errors and failed clears MUST retain retry intent. Closure MUST preserve identity, state, watermarks and owed reports; skipped/error candidates MUST release admission without dispatch. Reopening MUST reuse normal discovery and retained watermarks. Worker capacity MUST NOT be described as a per-tick issue-read budget.
+- **CONC-16 [enforced]** — Normal dirty recovery MUST defer base synchronization after up-to-date, disabled and distance-cap decisions, before merge preview. Preparation MUST preserve HEAD, raw index and retained bytes/modes; status errors MUST retain their cause and prevent launch. Durable outcomes, all prompt paths and owner reports MUST disclose `deferred_dirty`, divergence and no sync SHA without claiming a merge or prior success.
+- **CONC-17 [enforced]** — Dirty confirmation MUST preserve work and the pending proposal without launching an agent, and MUST explain ordinary-comment recovery and fresh confirmation after revision changes. Merge MUST reject staged/tracked reserved-transport changes or branch/base reserved-path differences before mutation; ordinary untracked transport MAY coexist with safe synchronization.
+
 ## 5. Style and code shape (`STYLE`)
 
 - **STYLE-1** — Comments MUST explain why and remain true. When behavior changes, affected comments MUST be updated; use relevant decision/acceptance identifiers rather than restating code.
@@ -267,7 +271,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `store/runs_test.go` | Persisted success predicate (STYLE-10) |
 | `daemon/clock_test.go` | Only Tick reads the clock |
 | `turn/gate_test.go` | CloneGate acquisition sites and exclusion of model calls |
-| `daemon/gate_internal_test.go` | Bounded worker pool and per-clone exclusion (CONC-2) |
+| `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Bounded worker pool and per-clone exclusion (CONC-2) |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
@@ -276,7 +280,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `teamsource/render_test.go` | Shared-agent team membership union (SEC-17) |
 | `cli/cmd_team_status_test.go` | Domain versus precondition exits (STYLE-6) |
 | `cli/cmd_team_update_test.go` | Independent outcomes aggregate (STYLE-9) |
-| `turn/harvest_test.go` | Success-only save and story-index commits (CONC-8) |
+| `turn/harvest_test.go`, `turn/subissues_test.go`, `turn/plan_retry_transport_test.go` | Success-only save, publication failure and transport exclusion (CONC-8) |
 | `harness/prompt_previous_failed_test.go` | Untrusted failure-reason framing (SEC-19) |
 | `report/report_test.go` | One worktree location per failure (STYLE-11) |
 | `harness/approved_stories_test.go`, `plan_prompt_security_test.go`, `turn/approved_attempts_test.go` | Complete untrusted revision context across cold/resume/fallback (SEC-20) |
@@ -289,32 +293,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `agent/conflict_regions_test.go` | Identified-region coverage and output bounds (SEC-22) |
 | `git/worktree_regions_test.go` | Preservation, staged barriers and honest restoration (SEC-23) |
 | `report/conflict_preview_test.go` | Complete metadata and safe bounded preview (SEC-24) |
-| `git/exec_internal_test.go` | Environment/PATH; SEC-4, CFG-7 |
-| `github/surface_test.go` | Forge/redaction boundaries; SEC-6, TEST-5 |
-| `identity/policy_test.go` | SEC-9 |
-| `gittest/policy_test.go` | Test-only fixtures |
-| `repos/network_test.go` | Offline registration |
-| `config/template_test.go` | Template/default parity; CFG-3 |
-| `store/store_test.go` | SQLite, migration, replay and report atomicity |
-| `store/runs_test.go` | STYLE-10 |
-| `daemon/clock_test.go` | Only Tick reads the clock |
-| `turn/gate_test.go` | Clone-gate call sites and agent exclusion |
-| `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Pool and clone exclusion; CONC-2 |
-| `repos/collision_test.go` | Worktree-root uniqueness |
-| `daemon/record_test.go` | Concurrency/evidence identifiers |
-| `turn/execute_test.go` | Running-state transition; CONC-7 |
-| `team/write_test.go` | Safe batch writes; SEC-12–15 |
-| `team/marker_test.go` | Marker-span hash; SEC-16 |
-| `teamsource/render_test.go` | Shared-team union; SEC-17 |
-| `cli/cmd_team_status_test.go` | STYLE-6 |
-| `cli/cmd_team_update_test.go` | STYLE-9 |
-| `turn/harvest_test.go`, `turn/subissues_test.go` | Success-only save; CONC-8 |
-| `harness/prompt_previous_failed_test.go` | SEC-19 |
-| `report/report_test.go` | STYLE-11 |
-| `harness/approved_stories_test.go`, `plan_prompt_security_test.go`, `turn/approved_attempts_test.go` | Untrusted approved context; SEC-20 |
-| `turn/plan_index_test.go`, `agent/story_progress_contract_test.go`, `planbrief/acceptance_test.go` | SEC-21 |
-| `store/approved_stories_test.go`, `turn/managed_scope_test.go`, `daemon/story_refinements_test.go` | CONC-9 |
-| `store/story_progress_lock_test.go`, `turn/story_progress_test.go`, `story_ack_recovery_test.go` | CONC-10 |
-| `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | CONC-11 |
-| `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | CONC-12 |
 | `codex/quota_test.go`, `harness/quota_test.go` | EXT-3 |
+| `daemon/backlog_closure_test.go`, `daemon/backlog_test.go` | Durable closure retirement, retry retention, admission release, report preservation and reopening (CONC-15) |
+| `turn/deferred_dirty_test.go`, `store/deferred_sync_test.go`, `harness/deferred_sync_test.go`, `codex/deferred_sync_test.go` | Preserved dirty recovery, policy precedence, persistence and all-path disclosure (CONC-15) |
+| `turn/dirty_confirmation_recovery_test.go`, `git/reserved_sync_test.go` | Pending confirmation recovery and read-only transport collision refusal (CONC-16) |
