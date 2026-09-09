@@ -312,6 +312,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	startLocation := machineLocation()
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("codex did not start: %w", err)
@@ -332,6 +333,12 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		Stderr: stderr.String(), StreamError: stream.err, StartedAt: started, FinishedAt: finished,
 		Duration: finished.Sub(started)}
 	classifyOutcome(result, stream, ctx.Err(), runCtx.Err(), r.timeout)
+	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
+		result.Interruption = quotaInterruption(stream.quotaMessage, started, finished, startLocation, machineLocation())
+		if result.Interruption != nil {
+			result.Outcome, result.Reason, result.HasResult = agent.OutcomeInterrupted, "session quota limit reached", true
+		}
+	}
 	r.logger.Info("coding agent finished", "agent", "codex", "outcome", result.Outcome.String(), "events", result.Events, "log_path", logPath)
 	if req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
 		return result, fmt.Errorf("%w: codex thread %s", agent.ErrSessionNotResumable, req.Session.Resume)
@@ -405,6 +412,7 @@ func (r *Runner) InstructionIdentity() string { return r.model }
 
 type streamState struct {
 	threadID, text, failureDetail  string
+	quotaMessage                   string
 	events, malformed, longest     int
 	turnStarted, completed, failed bool
 	err                            error
@@ -456,6 +464,9 @@ func (s *streamState) consumeLine(line []byte) {
 				s.failureDetail = message
 			}
 		}
+		// A quota refusal emits this alongside a generic error notice carrying
+		// the same text; taking it here keeps recoverable notices inert.
+		s.quotaMessage = s.failureDetail
 		return
 	}
 	var e struct {
@@ -481,6 +492,7 @@ func (s *streamState) consumeLine(line []byte) {
 			}
 		case "turn.completed":
 			s.completed = true
+			s.quotaMessage = ""
 		case "error":
 			// Generic notices can recover; the raw log retains diagnostics.
 		}

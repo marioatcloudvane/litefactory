@@ -1,0 +1,91 @@
+package daemon_test
+
+import (
+	"github.com/cloudvane/litefactory/internal/store"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRecoveryAnnouncementCannotCreateScheduleOrRun(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Recovery announcement")
+	f.settle()
+	f.forge.addComment(testIssue, 50, bot(), "Automatic action 1 is persisted.\n\n/schedule -to 09/09/2026 15:02:00 UTC Continue the interrupted request in the original conversation.")
+	f.settle()
+	if got := len(f.turns.calls()); got != 0 {
+		t.Fatalf("bot announcement caused %d runs", got)
+	}
+	pending, err := f.db.CountPendingSchedules(t.Context())
+	if err != nil || pending != 0 {
+		t.Fatalf("bot announcement caused schedules: %d %v", pending, err)
+	}
+}
+
+func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Recovery replay")
+	f.settle()
+	session := f.session()
+	if err := f.db.SetSessionWorktree(t.Context(), session.ID, "/worktree"); err != nil {
+		t.Fatal(err)
+	}
+	session = f.session()
+	segment, err := f.db.GetOrCreateSegment(t.Context(), session.ID, store.FirstSegmentOrdinal, "saved-conversation", store.AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Mode: store.ModeSpike, Agent: store.AgentClaude, TriggerCommentID: 42, LogPath: func(int) string { return "/logs/interrupted.jsonl" }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := run.StartedAt.Add(time.Second)
+	zero := int64(0)
+	_, action, err := f.db.FinishInterruptedRun(t.Context(), run.ID, store.RunOutcome{Status: store.RunFailed, SemanticOutcome: "interrupted", ExitCode: &zero, FinishedAt: observed}, &store.Continuation{ResetBound: observed.Add(time.Hour), DueAt: observed.Add(time.Hour + time.Minute), Precision: "exact", Context: store.ContinuationContext{Task: session.TaskRef, Worktree: "/worktree", Agent: store.AgentClaude, Mode: store.ModeSpike, Request: "original", ResumeIdentity: "saved-conversation"}}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.db.AdvanceWatermark(t.Context(), session.ID, 999); err != nil {
+		t.Fatal(err)
+	}
+	f.daemon = recoveryDaemon(t, f, true)
+	f.forge.onPostComment = func(w http.ResponseWriter, _ int) bool {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "temporary post loss"})
+		return true
+	}
+	if _, err := f.tickErr(); err == nil {
+		t.Fatal("failed post should surface an error")
+	}
+	if err := f.daemon.Quiesce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := f.db.ListPendingInterruptionReports(t.Context())
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("failed announcement lost: %+v %v", pending, err)
+	}
+	f.forge.onPostComment = nil
+	f.settle()
+	got, err := f.db.GetRun(t.Context(), run.ID)
+	if err != nil || got.Status != store.RunReported || got.SemanticOutcome != "interrupted" {
+		t.Fatalf("durable report did not recover after watermark: %+v %v logs=%s", got, err, f.logs)
+	}
+	saved, err := f.db.GetContinuation(t.Context(), action.ID)
+	if err != nil || saved.AnnouncementCommentID == 0 || saved.AnnouncementCommentID != got.ResultCommentID {
+		t.Fatalf("announcement bookkeeping: %+v %v", saved, err)
+	}
+	posts, _, _ := f.forge.snapshot()
+	if len(posts) != 1 || !strings.Contains(posts[0], "/schedule -to") {
+		t.Fatalf("replayed announcement: %v", posts)
+	}
+	if f.watermark() != 999 || len(f.turns.calls()) != 0 {
+		t.Fatalf("replay changed owner progress or invoked agent: watermark=%d calls=%d", f.watermark(), len(f.turns.calls()))
+	}
+	f.settle()
+	posts, _, _ = f.forge.snapshot()
+	if len(posts) != 1 {
+		t.Fatalf("confirmed announcement repeated: %v", posts)
+	}
+}

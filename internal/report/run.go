@@ -58,6 +58,7 @@ const (
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	Recovery         *Recovery
 	SourceStoryIssue int
 	SourceCommentID  int64
 	// Ref is the task this run belongs to. It appears in the marker, so it must
@@ -487,6 +488,9 @@ func describeRunOutcome(run Run) outcomeView {
 	case agent.OutcomeSucceeded:
 		return outcomeView{word: "succeeded", succeed: true}
 
+	case agent.OutcomeInterrupted:
+		return outcomeView{word: "interrupted by session limit", alert: "WARNING", lead: fmt.Sprintf("Run %d was interrupted by the coding agent session limit. The feature is not complete.", n)}
+
 	case agent.OutcomeFailed:
 		lead := fmt.Sprintf("Run %d failed: `%s` exited with status %d.", n, tool, res.ExitCode)
 		if res.ExitCode == agent.SignalExitCode {
@@ -548,6 +552,10 @@ func fixedSection(run Run, view outcomeView) string {
 	b.WriteString(metadataList(run, view))
 	b.WriteString(sectionGap)
 	b.WriteString(ReplyPlainlyNotice)
+	if text := recoverySection(run.Recovery); text != "" {
+		b.WriteString(sectionGap)
+		b.WriteString(text)
+	}
 	return b.String()
 }
 

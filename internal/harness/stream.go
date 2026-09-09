@@ -63,6 +63,7 @@ type initEvent struct {
 // true, so branching on it silently reports failed runs as successful (SD-3).
 // The only trustworthy field is .is_error.
 type resultEvent struct {
+	SessionID    string  `json:"session_id"`
 	IsError      bool    `json:"is_error"`
 	Result       string  `json:"result"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
@@ -84,6 +85,7 @@ type eventStream struct {
 	tools     []string
 	sessionID string
 	result    *resultEvent
+	quota     quotaEvidence
 
 	writeErr error
 }
@@ -158,6 +160,25 @@ func (s *eventStream) observe(line []byte) {
 	s.events++
 
 	switch {
+	case envelope.Type == "rate_limit_event":
+		var event struct {
+			Info quotaInfo `json:"rate_limit_info"`
+		}
+		if err := json.Unmarshal(trimmed, &event); err != nil {
+			var status struct {
+				Info struct {
+					Status string `json:"status"`
+				} `json:"rate_limit_info"`
+			}
+			if json.Unmarshal(trimmed, &status) == nil {
+				// Top-level admission remains authoritative even when optional
+				// window metadata is unsupported. A malformed rejection has no
+				// usable reset, so observe records it conservatively.
+				s.quota.observe(quotaInfo{Status: status.Info.Status})
+			}
+			return
+		}
+		s.quota.observe(event.Info)
 	case envelope.Type == eventTypeSystem && envelope.Subtype == subtypeInit:
 		var event initEvent
 		if err := json.Unmarshal(trimmed, &event); err != nil {
@@ -183,6 +204,9 @@ func (s *eventStream) observe(line []byte) {
 		// Keep the last one. There is normally exactly one; if claude ever
 		// emits more, the terminal event is the one that describes the run.
 		s.result = &event
+		if event.SessionID != "" {
+			s.sessionID = event.SessionID
+		}
 	}
 }
 

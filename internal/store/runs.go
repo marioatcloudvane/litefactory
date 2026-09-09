@@ -89,6 +89,8 @@ const (
 // ordinal safe: a run that crashes still owns its number, so NNNN.jsonl files
 // never collide (S-1).
 type Run struct {
+	SemanticOutcome string
+	RecoveryReason  string
 	// ID is the surrogate key.
 	ID int64
 	// SessionID and SegmentID are the task and conversation this run belongs
@@ -181,6 +183,9 @@ func (r Run) Duration() (time.Duration, bool) {
 // they answer the same English question from different evidence with
 // different lifetimes.
 func (r Run) Succeeded() bool {
+	if r.SemanticOutcome != "" {
+		return r.SemanticOutcome == "succeeded"
+	}
 	switch r.Status {
 	case RunSucceeded:
 		return true
@@ -262,6 +267,11 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if IsAutomaticTrigger(params.TriggerCommentID) {
+			if err := validateAutomaticAllocation(ctx, tx, params); err != nil {
+				return err
+			}
+		}
 		var ordinal int
 		err := tx.QueryRowContext(ctx,
 			`SELECT COALESCE(MAX(ordinal), 0) + 1 FROM runs WHERE session_id = ?`,
@@ -286,6 +296,9 @@ RETURNING `+runColumns,
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
 		}
+		if err == nil && IsAutomaticTrigger(params.TriggerCommentID) {
+			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
+		}
 		return err
 	})
 	if err != nil {
@@ -297,6 +310,8 @@ RETURNING `+runColumns,
 
 // RunOutcome is how a run ended. It is applied by [DB.FinishRun].
 type RunOutcome struct {
+	SemanticOutcome string
+	RecoveryReason  string
 	// Status must be [RunSucceeded] or [RunFailed]; [RunReported] is reached
 	// only through [DB.CompleteRunReport].
 	Status RunStatus
@@ -333,33 +348,42 @@ func (db *DB) FinishRun(ctx context.Context, runID int64, outcome RunOutcome) (R
 
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		current, err := scanRun(tx.QueryRowContext(ctx,
-			`SELECT `+runColumns+` FROM runs WHERE id = ?`, runID))
+		var err error
+		run, err = finishRunTx(ctx, tx, runID, outcome, finishedAt)
 		if err != nil {
 			return err
 		}
-		durationMS := finishedAt.Sub(current.StartedAt).Milliseconds()
-		if durationMS < 0 {
-			// A clock that went backwards must not produce a negative
-			// duration in a report.
-			durationMS = 0
-		}
-
-		run, err = scanRun(tx.QueryRowContext(ctx, `
-UPDATE runs
-SET status = ?, exit_code = ?, error = ?, finished_at = ?, duration_ms = ?,
-    cost_usd = ?, commit_sha = COALESCE(?, commit_sha)
-WHERE id = ?
-RETURNING `+runColumns,
-			string(outcome.Status), outcome.ExitCode, nullString(outcome.Error),
-			FormatTime(finishedAt), durationMS, outcome.CostUSD,
-			nullString(outcome.CommitSHA), runID))
-		return err
+		return settleContinuationRun(ctx, tx, run)
 	})
 	if err != nil {
 		return Run{}, fmt.Errorf("store: finish run %d: %w", runID, err)
 	}
 	return run, nil
+}
+
+func finishRunTx(ctx context.Context, tx *sql.Tx, runID int64, outcome RunOutcome, finishedAt time.Time) (Run, error) {
+	current, err := scanRun(tx.QueryRowContext(ctx,
+		`SELECT `+runColumns+` FROM runs WHERE id = ?`, runID))
+	if err != nil {
+		return Run{}, err
+	}
+	durationMS := finishedAt.Sub(current.StartedAt).Milliseconds()
+	if durationMS < 0 {
+		// A clock that went backwards must not produce a negative
+		// duration in a report.
+		durationMS = 0
+	}
+
+	run, err := scanRun(tx.QueryRowContext(ctx, `
+UPDATE runs
+SET status = ?, exit_code = ?, error = ?, finished_at = ?, duration_ms = ?,
+    cost_usd = ?, commit_sha = COALESCE(?, commit_sha), semantic_outcome = ?, recovery_reason = ?
+WHERE id = ?
+RETURNING `+runColumns,
+		string(outcome.Status), outcome.ExitCode, nullString(outcome.Error),
+		FormatTime(finishedAt), durationMS, outcome.CostUSD,
+		nullString(outcome.CommitSHA), outcome.SemanticOutcome, outcome.RecoveryReason, runID))
+	return run, err
 }
 
 // SetRunCommit records the commit a run produced, for the case where the
@@ -477,6 +501,9 @@ RETURNING `+runColumns,
 		if err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET announcement_comment_id = ? WHERE source_run_id = ?`, resultCommentID, runID); err != nil {
+			return err
+		}
 		// Factory-private schedule triggers had their source comments consumed
 		// when scheduling was acknowledged, so advancing a
 		// watermark with one would be both meaningless and unsafe.
@@ -484,7 +511,7 @@ RETURNING `+runColumns,
 		if err != nil {
 			return fmt.Errorf("consume story refinement: %w", err)
 		}
-		if !refinement && !IsScheduleTrigger(run.TriggerCommentID) {
+		if !refinement && !IsScheduleTrigger(run.TriggerCommentID) && !IsAutomaticTrigger(run.TriggerCommentID) {
 			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
 				return fmt.Errorf("advance watermark: %w", err)
 			}
@@ -639,6 +666,10 @@ RETURNING `+runColumns,
 			}
 		}
 
+		if err := reconcileContinuations(ctx, tx); err != nil {
+			return err
+		}
+
 		// A schedule reservation precedes turn allocation. After a crash, a
 		// running schedule with no run never reached an agent and is safe to
 		// retry; one with a run inherits that run's durable terminal outcome.
@@ -671,11 +702,11 @@ RETURNING `+runColumns,
 				return fmt.Errorf("read scheduled run %d: %w", item.ID, runErr)
 			}
 			status := ScheduleFailed
-			if run.ExitCode != nil && *run.ExitCode == 0 {
+			if run.Succeeded() {
 				status = ScheduleSucceeded
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, run_id = ?, finished_at = ?, updated_at = ? WHERE id = ? AND status = ?`,
-				string(status), run.ID, FormatTime(now), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
+				string(status), run.ID, FormatTime(run.FinishedAt), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
 				return fmt.Errorf("finish abandoned schedule %d: %w", item.ID, err)
 			}
 			if status == ScheduleFailed {
@@ -784,7 +815,7 @@ const runColumns = `
     id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
-    sync_ahead, sync_commit_sha`
+    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason`
 
 func scanRun(s scanner) (Run, error) {
 	var (
@@ -804,7 +835,7 @@ func scanRun(s scanner) (Run, error) {
 	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
-		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA)
+		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound

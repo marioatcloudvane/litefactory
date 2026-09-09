@@ -44,6 +44,9 @@ settings:
   attachment_max_document_bytes: %d # valid range: %d..%d
   attachment_max_total_bytes: %d # valid range: %d..%d
   attachment_max_count: %d # valid range: %d..%d
+  # Opt into bounded recovery for verified Claude Code and Codex quota limits.
+  # Configuration is loaded at startup; changes require a daemon restart.
+  auto_resume_on_session_limit: %t
   # Auto-sync keeps a feature branch caught up with its base without being
   # asked. It is on by default because staying behind quietly is the problem
   # this feature exists to fix, and blocking on conflict is on by default
@@ -121,6 +124,7 @@ tool_profiles:
 		d.Settings.AttachmentMaxDocumentBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount,
+		d.Settings.AutoResumeOnSessionLimit,
 		d.Settings.AutoSyncBase, d.Settings.AutoSyncMaxBehind, d.Settings.AutoSyncMaxBehind, d.Settings.BlockRunOnConflict,
 		d.Settings.SuggestConflictResolution,
 		d.Settings.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours,
