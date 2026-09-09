@@ -79,6 +79,9 @@ const SignalExitCode = -1
 // comes back as a Go error, because every run that actually happened has to
 // be reported, logged and have its metadata written.
 type RunResult struct {
+	// Usage is independent of process success; nil means no collection evidence.
+	Usage *UsageCoverage
+
 	// Outcome is how the run ended.
 	Outcome Outcome
 
@@ -190,6 +193,10 @@ func (r *RunResult) Clone() *RunResult {
 		return nil
 	}
 	out := *r
+	if r.Usage != nil {
+		v := r.Usage.Clone()
+		out.Usage = &v
+	}
 	if r.Interruption != nil {
 		interruption := *r.Interruption
 		out.Interruption = &interruption

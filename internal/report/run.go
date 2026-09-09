@@ -58,6 +58,8 @@ const (
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	// Meter contains prepared frozen metering values, independent of legacy cost.
+	Meter            *MeterSummary
 	Recovery         *Recovery
 	SourceStoryIssue int
 	SourceCommentID  int64
@@ -573,6 +575,7 @@ func fixedSection(run Run, view outcomeView) string {
 	}
 	b.WriteString(sectionGap)
 	b.WriteString(metadataList(run, view))
+	b.WriteString(meterMetadata(run.Meter))
 	b.WriteString(sectionGap)
 	b.WriteString(ReplyPlainlyNotice)
 	if text := recoverySection(run.Recovery); text != "" {
@@ -677,7 +680,11 @@ func metadataList(run Run, view outcomeView) string {
 	if res := run.Result; res != nil {
 		switch {
 		case res.HasCost:
-			add("Cost", fmt.Sprintf("$%.4f", res.CostUSD))
+			label := "Cost"
+			if run.Meter != nil {
+				label = "Legacy reported cost"
+			}
+			add(label, fmt.Sprintf("$%.4f", res.CostUSD))
 		default:
 			add("Cost", "unknown")
 		}
