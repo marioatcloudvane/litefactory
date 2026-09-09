@@ -23,6 +23,7 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	meterDB    *store.DB
 	resumeOnly bool
 
 	validateScope func(context.Context) (string, error)

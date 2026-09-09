@@ -19,9 +19,11 @@
 //  1. Ask each registered repository for the issues touched since the cursor —
 //     one bounded, logged query per repo, pull requests filtered out (D-A,
 //     AC-2.8).
-//  2. Union that with the sessions the store says still need a poll, which
-//     costs no API quota and is what finds work the listings can no longer
-//     reach (RD-2, [store.DB.ListBacklogSessions]).
+//  2. Union that with registered managed parents and sessions the store says
+//     still need a poll (RD-2, [store.DB.ListBacklogSessions]). Registry and
+//     backlog enrollment costs no API quota; workers may make forge reads.
+//     Managed parents are reconsidered without a pending flag or timestamp
+//     change, so child input remains discoverable, including closed children.
 //  3. For each, find or create the task and name it. Nothing has been acted on
 //     yet: what discovery produces is a set of candidates.
 //
@@ -43,8 +45,33 @@
 // At most max_concurrent_runs workers run at once, and every one of them is
 // joined by the one named termination condition, [Daemon.Quiesce]. A session
 // is entered in the daemon's in-memory in-flight set before it is dispatched
-// and left only once its report has posted, so two turns for one session can
-// never overlap however many are in flight for other sessions.
+// and left after its worker body and cleanup return. Each worker finishes its
+// reporting attempts before that release; failed delivery retains retry intent.
+//
+// # Activity diagnostics
+//
+// INFO tick summaries preserve dispatched, in_flight and issues, with equal
+// aliases workers_dispatched, workers_in_flight and forge_issues. The issue count
+// covers forge discovery only, excluding local registry and backlog enrollment.
+// The in-flight count is sampled at the end of dispatch, not after worker joins:
+// it says nothing about the next instant. Routine managed-parent polling can
+// keep worker counts positive with no forge discoveries or agent execution.
+//
+// DEBUG worker dispatched identifies repository, canonical task, session and
+// dispatch_sources, plus applicable schedule_id or continuation_id. Sources are
+// enrollment evidence, not proof of useful work; tick_at groups admission events.
+// DEBUG worker finished retains that context and adds elapsed duration, bounded
+// status (completed, deferred, failed, cancelled) and execution_requests. Requests
+// count executor invocations, including failed calls and lock refusals, rather
+// than prepared runs, process launches or successes. Zero requests can include
+// useful control work. Worker status describes its disposition, not agent success.
+//
+// A terminal worker event follows body cleanup and in-flight release but precedes
+// final pool release; it does not promise a free slot. Quiesce joins the diagnostic.
+// Normal and cancellation returns are covered; panic and process death are not.
+// Existing turn complete is per trigger, and a worker can process several
+// triggers. INFO run prepared proves preparation, not process launch, completion
+// or success. These distinctions change no polling or admission policy.
 //
 // # The dispatch policy: two-level round-robin
 //

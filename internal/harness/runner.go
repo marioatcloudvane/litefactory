@@ -623,6 +623,9 @@ func (r *Runner) args(req agent.Request) []string {
 	if req.Delivery != nil {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
 	}
+	if req.Usage != nil {
+		args = append(args, "--forward-subagent-text")
+	}
 	return append(args, "--strict-mcp-config")
 }
 
@@ -726,6 +729,10 @@ func (r *Runner) exec(
 	cmd.Stdout = stdoutW
 	cmd.Stderr = stderrW
 
+	usage := newUsageCollector(runCtx, req)
+	if usage != nil {
+		usage.prepareTranscripts(r.claudeConfigDir, req.WorktreePath)
+	}
 	startedAt := time.Now()
 	if err := cmd.Start(); err != nil {
 		closeAll(stdoutR, stdoutW, stderrR, stderrW)
@@ -757,7 +764,7 @@ func (r *Runner) exec(
 	// reader. Both are joined below before anything they wrote is read, and
 	// neither can outlive this call — if a survivor holds a pipe open past
 	// ioGrace the read ends are closed from here and both return at once.
-	stream := &eventStream{sink: sink, logger: logger}
+	stream := &eventStream{sink: sink, logger: logger, usage: usage}
 	stderrTail := &tailWriter{limit: stderrTailBytes}
 	stdoutDone := make(chan error, 1)
 	stderrDone := make(chan error, 1)
@@ -802,6 +809,7 @@ func (r *Runner) exec(
 		LongestLine: stream.longest,
 		Stderr:      stderrTail.String(),
 		StreamError: firstError(stream.err(), stdoutErr, stderrErr),
+		Usage:       stream.usage.finish(),
 		StartedAt:   startedAt,
 		FinishedAt:  finishedAt,
 		Duration:    finishedAt.Sub(startedAt),

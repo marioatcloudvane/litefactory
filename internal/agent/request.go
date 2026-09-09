@@ -51,6 +51,10 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 type Request struct {
 	// RetainedValidation restricts managed review to supplied source/check evidence.
 	RetainedValidation bool
+
+	// Usage optionally receives incremental accounting. Nil preserves legacy callers.
+	Usage *UsageCapture
+
 	// Delivery is nil for catalog-free operations and unassigned repositories.
 	Delivery *Delivery
 	// PlanProposalPath is trusted transient transport, delivered only through the prompt.
@@ -108,6 +112,10 @@ func (req Request) Validate() error {
 	if req.RetainedValidation && req.Mode != "validate" {
 		return invalidRequest("retained validation requires Validate mode")
 	}
+	if req.Usage != nil && (req.Usage.AttemptID == "" || req.Usage.Sink == nil) {
+		return invalidRequest("usage capture requires attempt and sink")
+	}
+
 	if req.Delivery != nil {
 		if err := req.Delivery.validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)

@@ -204,6 +204,10 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CONC-16 [enforced]** — Normal dirty recovery MUST defer base synchronization after up-to-date, disabled and distance-cap decisions, before merge preview. Preparation MUST preserve HEAD, raw index and retained bytes/modes; status errors MUST retain their cause and prevent launch. Durable outcomes, all prompt paths and owner reports MUST disclose `deferred_dirty`, divergence and no sync SHA without claiming a merge or prior success.
 - **CONC-17 [enforced]** — Dirty confirmation MUST preserve work and the pending proposal without launching an agent, and MUST explain ordinary-comment recovery and fresh confirmation after revision changes. Merge MUST reject staged/tracked reserved-transport changes or branch/base reserved-path differences before mutation; ordinary untracked transport MAY coexist with safe synchronization.
 
+- **CONC-18** — Every managed subprocess MUST receive a distinct durable attempt with its catalog pinned before launch, including refused resume/fallback. Observations, checkpoints, measurements and matching frozen valuations MUST update atomically; replay identities MUST deduplicate without merging distinct attempts. SQL transactions MUST NOT span subprocess or output I/O.
+- **CONC-19** — Meter exports MUST snapshot selected attempts, coverage and matching measurement/valuation revisions before output, retaining the single SQLite connection pool. Preparation MUST enforce 1,000,000 rows, 256 MiB encoded CSV and 30 seconds (or earlier caller deadline), with bounded paging and cleanup on cancellation/error. No transaction or cursor MAY survive an output write.
+- **CONC-20** — Price edits MUST publish immutable full catalogs and MUST NOT reprice existing attempts. Valuations MUST use exact decimal arithmetic and half-even rounding to 12 USD places per billable dimension; cache-duration and reasoning subsets MUST NOT be counted twice. Unknown quantities/rates MUST remain distinguishable from measured zero. Public all-in estimates MUST remain absent unless both pricing and collection are complete; observed subtotals MAY remain visible.
+
 ## 5. Style and code shape (`STYLE`)
 
 - **STYLE-1** — Comments MUST explain why and remain true. When behavior changes, affected comments MUST be updated; use relevant decision/acceptance identifiers rather than restating code.
@@ -256,6 +260,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 ---
 
+- **EXT-5** — Provider collection MUST preserve process outcomes and diagnose unknown actual models, unverified resume baselines and missing descendants. Configured models and inclusive totals MUST NOT substitute for exclusive source-proven attribution. Authentic versioned captures MAY be deferred by explicit owner instruction; deferred evidence MUST NOT certify complete provider support. Automated tests MUST NOT launch paid providers.
+
 ## Enforcement
 
 | Test | What it pins |
@@ -299,3 +305,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `daemon/backlog_closure_test.go`, `daemon/backlog_test.go` | Durable closure retirement, retry retention, admission release, report preservation and reopening (CONC-15) |
 | `turn/deferred_dirty_test.go`, `store/deferred_sync_test.go`, `harness/deferred_sync_test.go`, `codex/deferred_sync_test.go` | Preserved dirty recovery, policy precedence, persistence and all-path disclosure (CONC-15) |
 | `turn/dirty_confirmation_recovery_test.go`, `git/reserved_sync_test.go` | Pending confirmation recovery and read-only transport collision refusal (CONC-16) |
+| `agent/usage_test.go`, `meter/tokens_test.go`, `meter/reconcile_test.go` | Usage ownership, nullable dimensions and replay semantics |
+| `store/meter_test.go`, `meter_prices_test.go`, `turn/meter_test.go`, `meter_price_test.go` | Attempt durability, pinned catalogs and frozen valuations (CONC-18–20) |
+| `cli/meter_test.go`, `meter_endtoend_test.go`, `report/meter_test.go` | Coherent export, cancellation, uncertainty and exact observed subtotals (CONC-19–20) |
+| `harness/usage_test.go`, `codex/usage_test.go` | Conservative synthetic collector behavior, not authentic provider certification (EXT-5) |

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -38,7 +39,11 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if err != nil {
 			return err
 		}
-		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: d.log.With(slog.Int64("continuation_id", c.ID)), tickAt: at, continuation: &c}
+		t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, session: session, ref: ref, log: d.log.With(
+			slog.String("repo", repo.Owner+"/"+repo.Name),
+			slog.String("task", ref.String()),
+			slog.Int64("session_id", session.ID),
+			slog.Int64("continuation_id", c.ID)), tickAt: at, continuation: &c}
 		ready, err := d.observeContinuation(ctx, t, c)
 		if err != nil {
 			d.rateLimited(ctx, t.log, at, err)
@@ -52,6 +57,7 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 			continue
 		}
 		if !d.inflight.enter(session.ID) {
+			t.log.DebugContext(ctx, "automatic recovery waits for this task's in-flight turn")
 			continue
 		}
 		if !d.pool.try() {
@@ -69,9 +75,11 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 			continue
 		}
 		t.continuation = &reserved
+		t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"automatic_continuation"}), slog.Time("tick_at", at))
+		t.workerLog.DebugContext(ctx, "worker dispatched")
 		// This worker belongs to the same bounded pool and Quiesce lifetime as
 		// ordinary and manually scheduled turns.
-		go func() { defer d.pool.done(); defer d.inflight.leave(t.session.ID); d.runContinuation(ctx, t, reserved) }()
+		go d.runWorker(ctx, t, func() { d.runContinuation(ctx, t, reserved) })
 		result.Dispatched++
 	}
 	return nil
@@ -145,8 +153,13 @@ func (d *Daemon) runContinuation(ctx context.Context, t *task, c store.Continuat
 	ready, err := d.observeContinuation(ctx, t, c)
 	if err != nil || !ready {
 		if err != nil {
+			t.recordWorkerStatus(workerDeferred)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				t.recordWorkerStatus(workerCancelled)
+			}
 			t.log.ErrorContext(ctx, "final recovery observation failed", slog.Any("error", err))
 			if e := d.db.RequeueContinuation(ctx, c.ID); e != nil {
+				t.recordWorkerError(e)
 				t.log.ErrorContext(ctx, "requeue recovery", slog.Any("error", e))
 			}
 		}
@@ -155,18 +168,25 @@ func (d *Daemon) runContinuation(ctx context.Context, t *task, c store.Continuat
 	trigger := turn.Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: d.filter.Identities().OwnerHandle}
 	command := turn.Command{Kind: turn.KindFreeText, Text: c.Context.Request}
 	err = d.run(ctx, t, trigger, command, t.log)
+	if err != nil {
+		t.recordWorkerError(err)
+	}
 	_, exists, lookupErr := d.db.GetRunByTrigger(ctx, c.SessionID, c.TriggerID())
 	if lookupErr != nil {
+		t.recordWorkerError(lookupErr)
 		t.log.ErrorContext(ctx, "read automatic outcome", slog.Any("error", lookupErr))
 		return
 	}
 	if !exists {
 		if err == nil && t.continuationLocked {
+			t.recordWorkerStatus(workerDeferred)
 			err = d.db.RequeueContinuation(ctx, c.ID)
 		} else {
+			t.recordWorkerStatus(workerFailed)
 			err = d.db.CancelContinuation(ctx, c.ID, fmt.Sprintf("automatic recovery could not start; resume manually: %v", err), t.tickAt)
 		}
 		if err != nil {
+			t.recordWorkerError(err)
 			t.log.ErrorContext(ctx, "record automatic admission outcome", slog.Any("error", err))
 		}
 	}

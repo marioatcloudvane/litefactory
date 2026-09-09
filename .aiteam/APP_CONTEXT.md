@@ -30,18 +30,19 @@ config, naming, store, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule → leaves
 
 agent         → naming
+meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
 
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
-codex         →  agent, config, naming
-harness       →  agent, config, naming
+codex         →  agent, config, meter, naming
+harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  agent, attach, codex, config, git, github, harness, naming, planbrief, redact, report, store
+turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
 daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
-cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store, team, teamsource
+cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource
 cmd/litefactory → cli, config, logging
 ```
 
@@ -78,6 +79,17 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
 | prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
 | run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
+| express runner usage | `internal/agent/usage.go` | `TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit`; cloned nullable counters and identities feed `turn/meter.go` |
+| normalize/reconcile counters | `internal/meter` | `Normalize`, `Validate`, `Add`, `Delta`, `Total`, `Reconcile`; checked arithmetic, subsets, replay identities and baselines |
+| qualify provider support | `meter.CapabilityEvidence.Coverage` | Unsupported/missing/complete evidence diagnostics; authentic full-hierarchy certification remains pending |
+| collect Claude invocation usage | `harness/usage.go`, `usage_transcripts.go` | Forwarded child stream plus associated root/subagent transcripts; message/model baselines exclude replay, tool links recover ancestry; bounded 2s final drain |
+| collect Codex invocation usage | `codex/usage.go`, `usage_rollout.go` | Associated rollouts: prelaunch byte/inode baselines, metadata ancestry, turn-context model and exclusive response records; response-ID/hash dedup; bounded 2s final drain |
+| read associated provider sources safely | `harness/usage_transcripts.go`, `codex/usage_rollout.go` | Rooted read-only sources, paged discovery, byte/file limits, nofollow/nonblocking descriptors and replacement checks |
+| persist usage and pinned prices | `store/meter.go`, `meter_prices.go`; migrations `0019`, `0020` | `StartMeterAttempt`, `ApplyMeterObservation`, `SetMeterPrices`; durable attempts, evidence, checkpoints, measurements and immutable prices/valuations |
+| value token quantities | `meter.CanonicalRate`, `Value` (`meter/pricing.go`) | Exact USD/million, duration fallback and half-even dimension rounding |
+| export a coherent usage snapshot | `store.NewMeterSnapshot`, `MeterSnapshot.Next/Close` | Attempt-scoped `MeterFilter`, TEMP projection, bounded pages, current frozen valuations; serializer supplies exact byte accounting |
+| inspect metering commands and CSV fields | `cli/cmd_meter.go`, `cmd_meter_prices.go`, `meter_csv.go`; `docs/meter.md` | Summary scopes/filters/details, price list/set and required-project export; reversible spreadsheet text escaping |
+| prepare completion metering | `turn/meter_report.go`, `report.MeterSummary.Add` | Stored totals, observed subtotals, legacy reported cost and helper exclusions |
 | parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
@@ -114,7 +126,7 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | approve a linked follow-up | `turn/followups.go`, `store/followups.go`, `github/followups.go` | Concrete proposal, separate creation/attachment controls and uncertain-response reconciliation |
 | deliver accepted work to main | `turn/feature_delivery.go`, `store/delivery.go`, `github/delivery.go` | All-child readiness, retained full reports, explicit PR/head approval, confirmed integration then parent closure; `docs/workflow/delivery.md` |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
-| decide *when* work happens | `internal/daemon` | `Tick` dispatches asynchronously; tests use `Daemon.Quiesce` or fixture `settle` to await dispatched turns |
+| dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |

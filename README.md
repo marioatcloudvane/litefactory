@@ -151,3 +151,40 @@ conversation reset, changed agent/mode/segment, or observed issue closure cancel
 stale recovery permanently. Schedule controls alone do not supersede unrelated
 work. After resolving a report-only failure, the owner can issue a new instruction
 or manually schedule work on the issue.
+
+## Reading polling diagnostics
+
+The INFO tick summary counts workers and forge discovery, using these explicit
+names alongside compatible legacy aliases:
+
+| Field | Legacy alias | Meaning |
+|---|---|---|
+| `workers_dispatched` | `dispatched` | Worker handoffs during this tick, including routine polling. |
+| `workers_in_flight` | `in_flight` | Workers held in the in-flight set when the tick finished dispatching. |
+| `forge_issues` | `issues` | Issues discovered through forge issue/comment listings; excludes local managed registry and backlog enrollment. |
+
+Each alias has exactly the same value as its explicit counterpart. In-flight
+counts are snapshots, not promises about the next instant or counts of prepared
+agent runs. Two eligible open managed parents can produce two workers on every
+tick even with `forge_issues=0` and no pending backlog: registered parents are
+polled so new child input is detected without a parent timestamp change.
+
+At DEBUG, `worker dispatched` names `repo`, canonical `task`, `session_id`, and
+`dispatch_sources`: `forge_discovery`, `managed_registry`, `backlog`,
+`due_schedule`, or `automatic_continuation`. Sources describe enrollment, not
+proof of actionable work. Scheduled and continuation workers also carry their
+durable `schedule_id` or `continuation_id`; `tick_at` groups events for the tick.
+
+Each admitted worker normally ends with DEBUG `worker finished`, carrying the
+same context, elapsed `duration`, `status`, and `execution_requests`. The latter
+counts calls to the executor, including failed calls and lock refusals; it is
+not a prepared-run, process-launch, or success count. Zero requests can still
+include useful control work such as replies or scheduling. Worker status is
+`completed`, `deferred`, `failed`, or `cancelled`, independent of agent success.
+The event follows worker body cleanup and in-flight release; pool release comes
+after it, so it does not promise a free pool slot. Quiesce joins this diagnostic.
+Panics and process death are outside the normal-return guarantee.
+
+`turn complete` remains a per-trigger event: a worker can handle multiple
+triggers before it finishes. INFO `run prepared` establishes that a run was
+prepared; it does not establish process launch, completion, or success.

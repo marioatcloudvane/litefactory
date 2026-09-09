@@ -107,11 +107,9 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		return true
 	}
 	t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, issue: issue, session: session, ref: ref, log: log, tickAt: tickAt}
-	go func(ctx context.Context, t *task, scheduled store.Schedule) {
-		defer d.pool.done()
-		defer d.inflight.leave(t.session.ID)
-		d.runScheduled(ctx, t, scheduled)
-	}(ctx, t, reserved)
+	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
+	t.workerLog.DebugContext(ctx, "worker dispatched")
+	go d.runWorker(ctx, t, func() { d.runScheduled(ctx, t, reserved) })
 	result.Dispatched++
 	return true
 }
@@ -123,8 +121,12 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 	command := turn.ParseCommand(scheduled.Payload)
 	trigger := turn.Trigger{CommentID: scheduled.TriggerID(), Body: scheduled.Payload, Author: scheduled.OwnerHandle}
 	err := d.run(ctx, t, trigger, command, t.log)
+	if err != nil {
+		t.recordWorkerError(err)
+	}
 	run, exists, lookupErr := d.db.GetRunByTrigger(ctx, t.session.ID, scheduled.TriggerID())
 	if lookupErr != nil {
+		t.recordWorkerError(lookupErr)
 		t.log.ErrorContext(ctx, "could not read the scheduled work outcome", slog.Any("error", lookupErr))
 		return
 	}
@@ -134,7 +136,9 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		// error is terminal: no agent has run, but silently retrying a malformed
 		// payload forever would make the durable queue permanently stuck.
 		if err == nil {
+			t.recordWorkerStatus(workerDeferred)
 			if _, requeueErr := d.db.RequeueSchedule(ctx, scheduled.ID, t.tickAt.UTC()); requeueErr != nil {
+				t.recordWorkerError(requeueErr)
 				t.log.ErrorContext(ctx, "could not return lock-contended scheduled work to pending", slog.Any("error", requeueErr))
 			}
 			return
@@ -145,10 +149,12 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 	// A quota chain retains the original prerequisite until its final outcome.
 	current, lookupErr := d.db.GetSchedule(ctx, scheduled.ID)
 	if lookupErr != nil {
+		t.recordWorkerError(lookupErr)
 		t.log.ErrorContext(ctx, "read scheduled recovery state", slog.Any("error", lookupErr))
 		return
 	}
 	if current.Status == "suspended" {
+		t.recordWorkerStatus(workerDeferred)
 		return
 	}
 	status := store.ScheduleFailed
@@ -162,6 +168,7 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 
 func (d *Daemon) finishScheduled(ctx context.Context, t *task, scheduled store.Schedule, status store.ScheduleStatus, runID int64) {
 	if _, err := d.db.FinishSchedule(ctx, scheduled.ID, status, runID, t.tickAt.UTC()); err != nil && !errors.Is(err, store.ErrNotFound) {
+		t.recordWorkerError(err)
 		t.log.ErrorContext(ctx, "could not record the terminal outcome of scheduled work", slog.Any("error", err))
 		return
 	}
@@ -174,6 +181,7 @@ func (d *Daemon) finishScheduled(ctx context.Context, t *task, scheduled store.S
 func (d *Daemon) replyBlockedSchedules(ctx context.Context, t *task, failedID int64) {
 	blocked, err := d.db.ListUnreportedBlockedDescendants(ctx, failedID)
 	if err != nil {
+		t.recordWorkerError(err)
 		t.log.ErrorContext(ctx, "could not list schedules blocked by failed work", slog.Any("error", err))
 		return
 	}
@@ -183,6 +191,7 @@ func (d *Daemon) replyBlockedSchedules(ctx context.Context, t *task, failedID in
 			ScheduleKind: report.ReplyScheduleBlocked, Schedule: report.ScheduleReply{ID: dependent.ID},
 		})
 		if postErr != nil {
+			t.recordWorkerError(postErr)
 			t.log.ErrorContext(ctx, "could not report blocked scheduled work; a later failure path retries it",
 				slog.Int64("blocked_schedule_id", dependent.ID), slog.Any("error", postErr))
 			continue
@@ -191,6 +200,7 @@ func (d *Daemon) replyBlockedSchedules(ctx context.Context, t *task, failedID in
 			continue
 		}
 		if err := d.db.MarkScheduleBlockedReply(ctx, dependent.ID, t.tickAt.UTC()); err != nil {
+			t.recordWorkerError(err)
 			t.log.ErrorContext(ctx, "blocked scheduled work reply was posted but not recorded; it may be posted again",
 				slog.Int64("blocked_schedule_id", dependent.ID), slog.Any("error", err))
 		}
