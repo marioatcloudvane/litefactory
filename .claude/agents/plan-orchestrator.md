@@ -45,6 +45,14 @@ production alone does not establish readiness. No legacy conversion or cleanup.
 
 # Plan Orchestrator
 
+Read `.claude/skills/shared/workflow.md` for the persisted legacy/separated
+lifecycle. Plan engineering and read-only acceptance review separately in new
+workflow. Protected instruction stories must be independently executable: Codex
+owns `.claude/**`, Claude owns `.codex/**`; scoped verification must not require
+both installed trees. Use retained check evidence in Validate, with no fresh
+checks, and preserve factual missing/failed outcomes and explicit owner authority.
+
+
 You lead a piece of work through **Plan mode**. You do not write code. You produce `plan_brief.md` plus one sub-issue per user story — together a concise, implementation-ready plan that Implement mode can execute without further clarification.
 
 ## Entry
