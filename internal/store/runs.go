@@ -71,7 +71,7 @@ const ReasonAbandoned = "abandoned"
 // leave that package match the values this one persists without translation.
 type SyncOutcome string
 
-// The five sync outcomes [DB.RecordRunSync] accepts. SyncFailed exists for
+// The sync outcomes [DB.RecordRunSync] accepts. SyncFailed exists for
 // completeness of the persisted vocabulary; nothing in this tree writes it
 // today, because a sync that could not even be attempted fails the turn
 // before a runs row exists to record it against (internal/turn.syncBase).
@@ -81,6 +81,8 @@ const (
 	SyncBlocked  SyncOutcome = "blocked"
 	SyncSkipped  SyncOutcome = "skipped"
 	SyncFailed   SyncOutcome = "failed"
+	// SyncDeferredDirty preserves uncommitted changes and lets recovery run before merging.
+	SyncDeferredDirty SyncOutcome = "deferred_dirty"
 )
 
 // Run is one claude invocation.
@@ -406,7 +408,7 @@ func (db *DB) SetRunCommit(ctx context.Context, runID int64, commitSHA string) e
 // divergence it was measured from, and the merge commit when one was
 // produced.
 type RunSyncOutcome struct {
-	// Outcome must be one of the five [SyncOutcome] values.
+	// Outcome must be one of the [SyncOutcome] values.
 	Outcome SyncOutcome
 	// Behind and Ahead are the divergence syncBase measured before deciding.
 	Behind, Ahead int
@@ -427,7 +429,7 @@ type RunSyncOutcome struct {
 // back the row exactly as stored.
 func (db *DB) RecordRunSync(ctx context.Context, runID int64, outcome RunSyncOutcome) (Run, error) {
 	switch outcome.Outcome {
-	case SyncUpToDate, SyncSynced, SyncBlocked, SyncSkipped, SyncFailed:
+	case SyncUpToDate, SyncSynced, SyncBlocked, SyncSkipped, SyncFailed, SyncDeferredDirty:
 	default:
 		return Run{}, fmt.Errorf("store: record run sync on run %d: %q is not a recognised sync outcome",
 			runID, outcome.Outcome)

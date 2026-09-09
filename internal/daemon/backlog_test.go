@@ -20,9 +20,10 @@ import (
 // later tick re-lists it, finds nothing above its watermark and clears it. A
 // flag cleared on a session that *did* still have work is silence on the
 // thread, which AC-4.1 forbids by name. So every abnormal exit must leave it
-// set, and only a fully drained, error-free turn may clear it.
+// set unless an authoritative closed-issue observation retires ordinary retry
+// intent. A fully drained, error-free turn clears ordinary open backlog.
 
-// TestACleanDrainClearsTheBacklogFlag is the one path that may clear it: a
+// TestACleanDrainClearsTheBacklogFlag covers ordinary open backlog clearing: a
 // comment that ran, reported and was consumed, with nothing left behind.
 func TestACleanDrainClearsTheBacklogFlag(t *testing.T) {
 	f := newFixture(t)
@@ -39,7 +40,7 @@ func TestACleanDrainClearsTheBacklogFlag(t *testing.T) {
 	}
 	if session := f.session(); session.NeedsPoll {
 		t.Errorf("needs_poll is set after a drain that reached the end of the queue; "+
-			"the clean path is the one path that clears it\nlogs:\n%s", f.logs)
+			"the clean path must clear it\nlogs:\n%s", f.logs)
 	}
 }
 

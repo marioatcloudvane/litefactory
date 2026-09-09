@@ -171,10 +171,21 @@ type HistoryEntry struct {
 	At time.Time
 }
 
+// DeferredSyncContext is the factory's synchronization decision, not agent
+// output. It is a value so resume fallback retains the same bounded context.
+// Ref names are quoted and capped when rendered; the explanation is fixed text.
+type DeferredSyncContext struct {
+	Deferred      bool
+	Branch, Base  string
+	Behind, Ahead int
+}
+
 // PromptInput is everything [BuildPrompt] needs. Every string field is copied
 // into the prompt; the ones documented as untrusted are neutralised and capped
 // first.
 type PromptInput struct {
+	// DeferredSync discloses preserved edits on cold, resumed and fallback runs.
+	DeferredSync DeferredSyncContext
 	// ApprovedStories is copied before rendering; it is explicit on all execution paths.
 	ApprovedStories *agent.ApprovedBundle
 	// RefinementStory is the complete current child specification, independently bounded.
@@ -409,6 +420,16 @@ func BuildPrompt(in PromptInput) (string, error) {
 		writeResumeHeader(&b, in, ordinal)
 	} else {
 		writeHeader(&b, in, ordinal)
+	}
+
+	if sync := in.DeferredSync; sync.Deferred {
+		b.WriteString("\n## Base synchronization deferred\n\n")
+		fmt.Fprintf(&b, "litefactory preserved uncommitted changes for this run to inspect and finish. "+
+			"Synchronization of branch %q with base %q was deferred: %d commit(s) behind and %d ahead. "+
+			"The base was not merged; work continues on the current task base. "+
+			"Retained work is not evidence that a previous run succeeded. "+
+			"Synchronization will be reconsidered on the next eligible clean run.\n",
+			capText(sync.Branch, 256), capText(sync.Base, 256), sync.Behind, sync.Ahead)
 	}
 
 	b.WriteString("\n## Instruction\n\n")

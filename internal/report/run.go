@@ -773,7 +773,7 @@ func codeList(names []string) string {
 	return strings.Join(spans, ", ")
 }
 
-// SyncOutcome is which of the five outcomes litefactory's automatic branch
+// SyncOutcome is which of the outcomes litefactory's automatic branch
 // sync reached for one run's task branch, before the run itself started
 // (US-2).
 //
@@ -810,6 +810,10 @@ const (
 	// silently (AC-3.2).
 	SyncSkipped SyncOutcome = "skipped"
 
+	// SyncDeferredDirty means retained edits prevented synchronization; the run
+	// proceeded on the current branch without modifying them during sync.
+	SyncDeferredDirty SyncOutcome = "deferred_dirty"
+
 	// SyncFailed means litefactory tried to sync and the attempt itself
 	// broke — as distinct from [SyncBlocked], where nothing was attempted
 	// because the conflict was foreseen ahead of time.
@@ -820,7 +824,7 @@ const (
 // branch, before the run itself started. See [Run.Sync] for how a nil or
 // up-to-date value renders.
 type Sync struct {
-	// Outcome is which of the five outcomes sync reached.
+	// Outcome is the synchronization decision reached.
 	Outcome SyncOutcome
 
 	// Behind and Ahead are the divergence from Base that was measured before
@@ -897,6 +901,12 @@ func syncSection(run Run) string {
 		}
 		lead = fmt.Sprintf("litefactory skipped syncing this branch%s (%d commit(s) behind): %s.",
 			withBase, sync.Behind, reason)
+
+	case SyncDeferredDirty:
+		lead = fmt.Sprintf("litefactory deferred syncing this branch%s to preserve uncommitted changes "+
+			"for this run to inspect and finish (%d commit(s) behind, %d ahead). "+
+			"The base was not merged; this run proceeded on the current task base. "+
+			"Synchronization will be reconsidered on the next eligible clean run.", withBase, sync.Behind, sync.Ahead)
 
 	case SyncFailed:
 		reason := oneLine(sanitize(sync.Reason))
