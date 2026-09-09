@@ -22,3 +22,5 @@
   - ok   github.com/cloudvane/litefactory/internal/planbrief 1.593s coverage: 90.1% of statements
   - ok   github.com/cloudvane/litefactory/internal/store 47.470s coverage: 65.3% of statements
   - ok   github.com/cloudvane/litefactory/internal/turn 432.088s coverage: 79.6% of statements
+
+- Run 0004 correction: prior reports said US-001–003 were verified, but only local checks and event submission succeeded. Actual factory logs show every verified event rejected because the 346-byte Evidence contract paragraph was parsed as an acceptance criterion despite the 256-byte evidence-name cap. All supplied states are blocked. Successful implementation/save does not imply accepted completion; closure also does not modify body checkboxes/TODO tables. Current run records explicit blocked events and COMPLETION_DIAGNOSIS.md. No production changes or test rerun.
