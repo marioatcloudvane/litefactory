@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Outcome is how a run ended. There are five, and the distinctions matter: a
+// Outcome is how a run ended. There are six, and the distinctions matter: a
 // timeout, an abandonment and a plain non-zero exit are recorded as
 // different things, and the no-result stall is reachable in practice rather
 // than theoretical (the Claude implementation measured it — a stale
@@ -37,6 +37,9 @@ const (
 	// produced by a stale credential: about ten internal retries, then
 	// silence.
 	OutcomeNoResult
+
+	// OutcomeInterrupted means verified terminal quota exhaustion.
+	OutcomeInterrupted
 )
 
 // String renders the outcome for logs, metadata and test failures. The
@@ -52,6 +55,8 @@ func (o Outcome) String() string {
 		return "timed_out"
 	case OutcomeAbandoned:
 		return "abandoned"
+	case OutcomeInterrupted:
+		return "interrupted"
 	case OutcomeNoResult:
 		return "no_result"
 	default:
@@ -76,6 +81,9 @@ const SignalExitCode = -1
 type RunResult struct {
 	// Outcome is how the run ended.
 	Outcome Outcome
+
+	// Interruption carries verified quota evidence, including report-only resets.
+	Interruption *Interruption
 
 	// Reason explains a non-success outcome in one line, suitable for the
 	// failure comment and for the runs row. Empty when the run succeeded.
@@ -177,6 +185,10 @@ func (r *RunResult) Clone() *RunResult {
 		return nil
 	}
 	out := *r
+	if r.Interruption != nil {
+		interruption := *r.Interruption
+		out.Interruption = &interruption
+	}
 	out.Tools = slices.Clone(r.Tools)
 	out.Command = slices.Clone(r.Command)
 	return &out

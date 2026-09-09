@@ -23,6 +23,8 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	resumeOnly bool
+
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
 	repo          store.Repo
@@ -104,6 +106,9 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (*preparation, error) {
+	if err := validateContinuation(ctx, opts, req, session); err != nil {
+		return nil, failuref(err, "automatic recovery requires manual intervention")
+	}
 	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
@@ -155,9 +160,11 @@ func prepare(
 		return nil, &syncRefusal{
 			conflicts: append([]string(nil), sync.Conflicts...),
 			branch:    sync.Branch, base: sync.Base,
-			files:    sync.ConflictFiles,
-			excluded: sync.ConflictExcluded,
-			baseSHA:  sync.BaseSHA, branchSHA: sync.BranchSHA,
+			files:            sync.ConflictFiles,
+			snapshots:        sync.ConflictSnapshots,
+			collectionReason: sync.ConflictCollectionReason,
+			excluded:         sync.ConflictExcluded,
+			baseSHA:          sync.BaseSHA, branchSHA: sync.BranchSHA,
 		}
 	}
 	if session.WorktreePath != worktree.Path() {
@@ -242,6 +249,13 @@ func prepare(
 	// the resume decision stays correct even if the two checks are ever
 	// reordered or one of them is reused on its own.
 	resume := resumeDecision(found, segment, resolvedKind)
+	if req.Continuation != nil {
+		if segment.ID != req.Continuation.SegmentID {
+			return nil, failuref(nil, "automatic recovery conversation changed; resume manually")
+		}
+		resume = true
+		segment.ResumeToken = req.Continuation.Context.ResumeIdentity
+	}
 
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
 	if err != nil {
@@ -404,6 +418,7 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
+		resumeOnly:  req.Continuation != nil,
 		repo:        repo,
 		session:     session,
 		ref:         ref,
@@ -571,7 +586,7 @@ func prepareClone(
 
 	files := make([]git.ResolvedFile, 0, len(stored.Files))
 	for _, f := range stored.Files {
-		files = append(files, git.ResolvedFile{Path: f.Path, Resolution: f.Resolution})
+		files = append(files, appliedRegionFile(stored, f, opts.ConflictContentMaxBytes))
 	}
 	if err := worktree.WriteResolvedFiles(ctx, baseRef, files); err != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
@@ -581,7 +596,7 @@ func prepareClone(
 	}
 	mergeResult, err := worktree.CompleteMerge(ctx, git.CompleteMergeOptions{
 		Task: ref.String(), Mode: "confirm", Author: author,
-		ProposalID: stored.ID, ConfirmedBy: confirmed.confirmedBy, Model: stored.Model,
+		Files: files, ProposalID: stored.ID, ConfirmedBy: confirmed.confirmedBy, Model: stored.Model,
 	})
 	if err != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
@@ -674,8 +689,10 @@ type syncResult struct {
 	// acquisition (US-11, S-10), non-nil only when
 	// [Options.SuggestConflictResolution] was true and Outcome reached
 	// [syncOutcomeBlocked].
-	ConflictFiles    []agent.ConflictFileContent
-	ConflictExcluded []string
+	ConflictCollectionReason string
+	ConflictSnapshots        []git.ConflictSnapshot
+	ConflictFiles            []agent.ConflictFileContent
+	ConflictExcluded         []string
 }
 
 // syncEnabled resolves whether auto-sync runs for this turn: a non-nil
@@ -826,8 +843,15 @@ func syncBase(
 		// issue body (which draws no reply at all, AC-2.16c), must not
 		// spend the extra git reads this loop costs (AC-11.3).
 		if opts.SuggestConflictResolution && req.Trigger.CommentID != 0 {
-			blocked.ConflictFiles, blocked.ConflictExcluded = collectConflictContent(
-				ctx, worktree, preview.TreeSHA, preview.Conflicts, opts.ConflictContentMaxBytes)
+			snapshots, collectionErr := worktree.CollectConflictSnapshots(ctx, preview.TreeSHA, branchSHA, baseSHA, preview.Conflicts, opts.ConflictContentMaxBytes)
+			if collectionErr != nil {
+				blocked.ConflictCollectionReason = collectionErr.Error()
+				blocked.ConflictExcluded = append([]string(nil), preview.Conflicts...)
+				logger.Warn("conflict collection refused", slog.Any("error", collectionErr))
+			} else {
+				blocked.ConflictSnapshots = snapshots
+				blocked.ConflictFiles = conflictAdvisorFiles(snapshots)
+			}
 		}
 		return blocked, nil
 	}
