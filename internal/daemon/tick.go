@@ -243,6 +243,9 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		slog.Int("issues", result.Issues),
 		slog.Int("dispatched", result.Dispatched),
 		slog.Int("in_flight", result.InFlight),
+		slog.Int("workers_dispatched", result.Dispatched),
+		slog.Int("workers_in_flight", result.InFlight),
+		slog.Int("forge_issues", result.Issues),
 		slog.Int("deferred_sessions", result.Deferred),
 		slog.Int("scheduled", result.Scheduled),
 		slog.Time("cursor", startedAt.UTC()),
@@ -319,7 +322,7 @@ func (d *Daemon) discover(
 
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
-	seen := make(map[int64]bool)
+	seen := make(map[int64]*candidate)
 
 	for _, repo := range repos {
 		if err := ctx.Err(); err != nil {
@@ -372,10 +375,15 @@ func (d *Daemon) discover(
 			if err != nil {
 				return nil, err
 			}
-			if c == nil || seen[c.session.ID] {
+			if c == nil {
 				continue
 			}
-			seen[c.session.ID] = true
+			if existing := seen[c.session.ID]; existing != nil {
+				existing.addSource("forge_discovery")
+				continue
+			}
+			c.addSource("forge_discovery")
+			seen[c.session.ID] = c
 			q.candidates = append(q.candidates, c)
 		}
 	}
@@ -399,8 +407,8 @@ func (d *Daemon) discover(
 	return queues, nil
 }
 
-// backlog adds the sessions the store says are still owed a look and that the
-// forge listings did not already return (RD-2).
+// backlog adds sessions the store says are still owed a look, or records that
+// source on candidates already discovered elsewhere (RD-2).
 //
 // This is the local half of discovery and it costs no API quota at all: one
 // indexed query over the sessions carrying needs_poll. It is what replaces
@@ -417,13 +425,14 @@ func (d *Daemon) discover(
 // A session whose repository is not registered any more, or is on a forge this
 // build does not support, is left alone: there is nothing that could be done
 // with it, and its flag is harmless where it stands.
-func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]bool) error {
+func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen map[int64]*candidate) error {
 	sessions, err := d.db.ListBacklogSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("list the sessions that still need a poll: %w", err)
 	}
 	for _, session := range sessions {
-		if seen[session.ID] {
+		if existing := seen[session.ID]; existing != nil {
+			existing.addSource("backlog")
 			continue
 		}
 		q := byRepo[session.RepoID]
@@ -438,8 +447,10 @@ func (d *Daemon) backlog(ctx context.Context, byRepo map[int64]*repoQueue, seen 
 		if err != nil {
 			return fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
 		}
-		seen[session.ID] = true
-		q.candidates = append(q.candidates, q.candidate(session, ref))
+		c := q.candidate(session, ref)
+		c.addSource("backlog")
+		seen[session.ID] = c
+		q.candidates = append(q.candidates, c)
 	}
 	return nil
 }
@@ -501,6 +512,8 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 // been fetched yet: a session reached only through the backlog has no
 // [github.Issue] until [Daemon.materialise] reads one for it.
 type candidate struct {
+	// sources are ordered discovery evidence, not proof of actionable work.
+	sources   []string
 	repo      store.Repo
 	forgeRepo github.Repo
 	session   store.Session
@@ -517,6 +530,13 @@ type candidate struct {
 	// through the backlog does not, and [Daemon.materialise] is what fills it in.
 	issue    github.Issue
 	resolved bool
+}
+
+// addSource keeps the first-seen source order without changing candidate order.
+func (c *candidate) addSource(source string) {
+	if !slices.Contains(c.sources, source) {
+		c.sources = append(c.sources, source)
+	}
 }
 
 // repoQueue is one repository's eligible sessions plus the rotation state used
@@ -638,10 +658,14 @@ func (d *Daemon) commentedIssues(
 // task is one issue's context for the duration of a turn.
 //
 // It is built on the Tick goroutine, by [Daemon.materialise], and then handed to
-// exactly one worker. Nothing on it is shared with another goroutine and nothing
-// on it is written after the `go`, which is what makes it safe to pass by
-// pointer with no lock anywhere near it.
+// exactly one worker. Admission context stays immutable; subsequent state is
+// owned by that worker, including sequential refinement copies. Nothing is
+// shared with another worker, so no lock is needed.
 type task struct {
+	// workerLog holds immutable admission context for worker lifetime events.
+	workerLog *slog.Logger
+	worker    *workerState
+
 	continuation       *store.Continuation
 	continuationLocked bool
 
@@ -873,13 +897,13 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 	// this dispatch loop is still running, and a tick that had only checked at
 	// the top would carry on starting runs into a forge that is refusing them.
 	//
-	// # It is the last statement before the `go`, not the first in this function
+	// # It is the last admission check before the `go`
 	//
 	// The materialise above may read an issue from the forge, which is the
 	// widest window in the whole dispatch path for a hold to arm inside. A check
 	// placed at the top of this function would leave exactly that window open,
 	// and the invariant would then be "no `go` unless the backoff was clear a
-	// network round trip ago". Here it is the statement above the dispatch
+	// network round trip ago". Here it is the final check above the dispatch
 	// point, so the invariant is the plain one: no `go` while a hold stands.
 	//
 	// It costs at most one GetIssue per tick, because the first held check ends
@@ -918,22 +942,11 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		return offerHeld
 	}
 
-	// The dispatch point. ctx is passed in as an argument rather than captured,
-	// so that what the worker holds is unmistakably the daemon's long-lived
-	// context and not something a later edit could narrow to the tick's.
-	go func(ctx context.Context, t *task) {
-		// First, so that it runs last: every other defer this worker registers
-		// has to have finished before the slot is given back, or a join that
-		// returned would not mean what it says.
-		defer d.pool.done()
-		// RD-3: the session is left after the report has posted, not after the
-		// turn has run. The watermark for a comment advances inside
-		// CompleteRunReport, so leaving at Execute's return would put the session
-		// momentarily unlocked and unconsumed — which is exactly the state
-		// discovery reads as eligible.
-		defer d.inflight.leave(t.session.ID)
-		d.work(ctx, t)
-	}(ctx, t)
+	t.workerLog.DebugContext(ctx, "worker dispatched")
+
+	// The dispatch point uses the daemon's long-lived context. runWorker owns
+	// the shared pool and in-flight lifetime through terminal diagnostics.
+	go d.runWorker(ctx, t, func() { d.work(ctx, t) })
 
 	result.Dispatched++
 	return offerDispatched
@@ -1000,6 +1013,7 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		ref:       c.ref,
 		log:       c.log,
 		tickAt:    tickAt,
+		workerLog: c.log.With(slog.Any("dispatch_sources", slices.Clone(c.sources)), slog.Time("tick_at", tickAt)),
 	}, nil
 }
 
@@ -1021,6 +1035,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
 	} else if deferred {
+		t.recordWorkerStatus(workerDeferred)
 		return
 	}
 	watermark, exists, err := d.db.GetWatermark(ctx, t.session.ID)
@@ -1038,6 +1053,9 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	if err != nil {
 		d.stopped(ctx, t, "this task's turn could not be completed", err)
 		return
+	}
+	if deferred {
+		t.recordWorkerStatus(workerDeferred)
 	}
 	if !deferred {
 		// The clean-drain clear site, deliberately a statement on the success path
@@ -1058,6 +1076,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 // Either way the session keeps its backlog flag, which is what brings the next
 // tick back to it.
 func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
+	t.recordWorkerError(err)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		t.log.DebugContext(ctx, "shutdown ended this task's turn; it still needs a poll, so "+
 			"the next start comes back to it")
@@ -1350,6 +1369,7 @@ func (d *Daemon) markBacklog(ctx context.Context, log *slog.Logger, sessionID in
 // it standing would buy the next tick a listing that finds nothing.
 func (d *Daemon) clearBacklog(ctx context.Context, t *task) {
 	if err := d.db.ClearSessionNeedsPoll(ctx, t.session.ID); err != nil {
+		t.recordWorkerError(err)
 		t.log.WarnContext(ctx, "could not clear this task's backlog flag after a clean drain; "+
 			"a later tick re-lists it, finds nothing above its watermark and clears it then",
 			slog.Any("error", err))
@@ -1690,6 +1710,9 @@ func (d *Daemon) run(
 		syncOverride = &value
 	}
 
+	if t.worker != nil {
+		t.worker.executionRequests++
+	}
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
 		Continuation: t.continuation,
 		Mode:         mode,
@@ -1716,11 +1739,15 @@ func (d *Daemon) run(
 		AttachmentsAllowed: attachmentsAllowed,
 		SyncOverride:       syncOverride,
 	})
+	if turnResult.Outcome == agent.OutcomeAbandoned {
+		t.recordWorkerStatus(workerCancelled)
+	}
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be conducted", err)
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
+		t.recordWorkerStatus(workerDeferred)
 		t.continuationLocked = t.continuation != nil
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
@@ -1906,6 +1933,7 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	if err == nil {
 		return nil
 	}
+	t.recordWorkerError(err)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		// Shutdown, not a failure of this comment. Ending the tick is what the
 		// signal asked for.
