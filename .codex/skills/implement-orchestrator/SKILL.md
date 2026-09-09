@@ -1,6 +1,6 @@
 ---
 name: implement-orchestrator
-description: Orchestrates Implement mode. Use when an implementation plan has been approved and is ready to be built. Drives four sequential phases — development, code review gate, environment setup, testing, bug loop — with two gates and a 2-cycle bug loop. All sub-agents are drawn from the agent roster at runtime.
+description: Orchestrate versioned engineering and executed tests; retain legacy review gates and leave separated acceptance to Validate.
 ---
 
 > **Codex copy of `.claude/agents/implement-orchestrator.md`.** Both tools read the same
@@ -22,6 +22,56 @@ description: Orchestrates Implement mode. Use when an implementation plan has be
 # Implement Orchestrator
 
 You lead a piece of work through **Implement mode**. You execute the plan that Plan mode produced. You do not change scope, redesign architecture, or re-derive requirements — if any of those are genuinely needed, that is a severe blocker, so stop and escalate per *Escalating*.
+
+## Select the persisted workflow before execution
+
+Read `.codex/skills/workflow/SKILL.md`. The factory's supplied persisted
+workflow version decides the path; do not infer it from issue state or date.
+Frozen approved scope and completed read-only dependencies are authoritative on
+cold, resumed and fallback attempts. Pass each selected story inline with its
+numeric identity, revision and dependencies. Missing scope blocks that story.
+
+### Separated workflow
+
+Use this path instead of the legacy procedure below. Dispatch the rostered
+implementation engineer per independently ready story, serializing overlapping
+writers. Engineering owns coding, environment setup, test writing/execution and
+fixes. Invoke the unit-test engineer when each implementation is ready and the
+integration-test engineer only for relevant real boundaries using the existing
+repository test conventions and safe targets. Missing checks remain missing;
+failed checks remain failed. Do not commission code, architecture, acceptance or
+approved-plan review as an Implement completion prerequisite.
+
+Publish the factory-supplied engineering event immediately after scoped tests
+and engineering self-checks pass. Bind frozen identity/revision, immutable file
+snapshot/digest and factual executed check outcomes to its exact supplied schema.
+Coordinate later writes and replace stale engineering evidence through the supplied
+protocol; never reinterpret that as reopening historical acceptance. Engineering
+completion releases dependent implementation work with acceptance boxes/issues
+still open. Do not send legacy `verified` acceptance evidence for this workflow.
+
+Run required aggregate build/format/vet/test and engineering gates; diagnose and
+fix failures with the responsible engineer and test specialist (at most two
+fix/retest cycles, then report failures). Use safe existing environment setup,
+never incidental administration of external infrastructure. Normal completion
+requires all selected engineering and executed tests passing plus aggregate gates.
+Leave successful save/commit/push confirmation to the factory. Suggest Validate
+only when complete engineering/test and successful save evidence is available;
+never automatically dispatch it. Review/follow-up/exception/delivery decisions
+follow the shared workflow and belong to the factory and explicit owner controls.
+
+Write current-session TEST_REPORT.md, notes.md and DRIFT_REPORT.md; update its
+MANIFEST.md with honest completed/partial status. Do not alter completed stories.
+Instruction maintenance follows isolated ownership: Codex edits `.claude/**`,
+Claude edits `.codex/**`; unavailable harnesses are explicit handoffs and do not
+block independent ready work. Shared context updates require assigned scope.
+Return one report. Do not enter the legacy procedure after this path finishes.
+
+## Legacy workflow procedure only
+
+All remaining acceptance, scoped review, closure, invalidation, phase and artifact
+instructions in this file apply only to the persisted legacy workflow. Active
+legacy features, their replans and pending effects retain that behavior.
 
 ## Inputs
 
@@ -148,7 +198,7 @@ Immediately after reading `plan_brief.md` and each story's `$session/US-<n>.md`,
 ## Output
 
 - Code committed to the working branch.
-- `$session/CODE_REVIEW.md` — produced by the code reviewer in Phase 1.5.
+- `$session/CODE_REVIEW.md` — recorded by this orchestrator from inline reviewer findings in Phase 1.5.
 - `$session/notes.md` — blockers, detour findings, decisions, advisory review findings.
 - `$session/DRIFT_REPORT.md` — plan vs. delivery comparison, written in the Exit phase.
 - Green tests, or `$session/BUG_ESCALATION.md` if the bug loop exhausted its 2 cycles.
@@ -272,7 +322,7 @@ Invoke **`go-code-reviewer`** with:
 - `$session/plan_brief.md` (for shared decisions and cross-story constraints) plus each story's `$session/US-<n>.md` content, passed inline — not as file paths the reviewer must open itself (AC-E1.4).
 - The session path `$session/`.
 
-The reviewer reads all committed files, checks cross-story consistency, error handling, concurrency safety, security, and performance. It writes `$session/CODE_REVIEW.md` and routes back with a verdict: `BLOCKING`, `ADVISORY_ONLY`, or `CLEAN`.
+The reviewer reads all committed files, checks cross-story consistency, error handling, concurrency safety, security, and performance. It returns read-only inline findings; record them in `$session/CODE_REVIEW.md` with its verdict: `BLOCKING`, `ADVISORY_ONLY`, or `CLEAN`.
 
 **Handle the verdict:**
 
@@ -284,7 +334,7 @@ The reviewer reads all committed files, checks cross-story consistency, error ha
 **`BLOCKING`:**
 - For each BLOCKING finding in `CODE_REVIEW.md`, identify the responsible engineer from the story/task reference.
 - Invoke `go-implementation-engineer` — one per distinct file set — with the specific finding(s) they must fix. Pass only the relevant CR-B-XXX finding blocks, not the full review.
-- After engineers report fixes, invoke the code reviewer again in **re-review mode**: pass only the previously BLOCKING files (not the full file list). The reviewer checks those files only and updates `CODE_REVIEW.md`.
+- After engineers report fixes, invoke the code reviewer again in **re-review mode**: pass only the previously BLOCKING files (not the full file list). The reviewer checks those files only and returns inline findings; update `CODE_REVIEW.md` here.
 - Repeat until no BLOCKING findings remain (maximum 2 cycles — treat exhausted cycles the same as the bug loop escalation: an immovable gate, escalated per *Escalating*).
 - Once clear: append advisories to `notes.md`, mark `"Phase 1.5: Code review"` as `completed`, proceed to Phase 2.
 
