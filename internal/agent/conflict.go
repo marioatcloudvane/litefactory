@@ -162,12 +162,19 @@ func (r ConflictResolutionRequest) validateRegions() error {
 			ids[region.ID] = true
 			size += len(region.Content)
 		}
-		if size > 4096 {
-			return invalidRequest("conflict file exceeds 4096 bytes")
+		if size > maxConflictFileBytes {
+			return invalidRequest("conflict file exceeds %d bytes", maxConflictFileBytes)
 		}
 	}
 	return nil
 }
+
+// maxConflictFileBytes bounds one conflicting file's total region content in a
+// resolution request. internal/git enforces the same ceiling when it collects
+// the snapshot (git.MaxConflictRegionBytes); the value is duplicated rather
+// than shared because this package takes no dependency on internal/git. Keep
+// the two in step.
+const maxConflictFileBytes = 8192
 
 // ParseRegionConflictResolution strictly decodes and checks complete identified-region coverage.
 func ParseRegionConflictResolution(text string, request ConflictResolutionRequest) (ConflictResolution, error) {

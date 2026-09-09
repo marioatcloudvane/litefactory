@@ -42,7 +42,7 @@ func TestCollectConflictSnapshotsBoundsAndCoverage(t *testing.T) {
 }
 
 func TestCollectConflictSnapshotsOriginalAndRegionBounds(t *testing.T) {
-	for _, tc := range []struct{ name, body string }{{"region", strings.Repeat("x", 4096)}, {"original", strings.Repeat("x", git.MaxConflictOriginalBytes)}} {
+	for _, tc := range []struct{ name, body string }{{"region", strings.Repeat("x", git.MaxConflictRegionBytes)}, {"original", strings.Repeat("x", git.MaxConflictOriginalBytes)}} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := gittest.New(t)
 			w, dir := newTaskWorktree(t, repo, 92, "bounded")

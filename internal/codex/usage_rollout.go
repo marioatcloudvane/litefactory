@@ -296,7 +296,11 @@ func (c *usageCollector) collectRollouts(final bool) {
 			return fmt.Errorf("rollout byte limit")
 		}
 		var record rolloutRecord
-		if json.Unmarshal(line, &record) != nil || record.Type != "session_meta" {
+		// A line this collector cannot decode, or that is not session metadata,
+		// is skipped rather than failed: its usage stays unknown, which is not
+		// the same as measured zero.
+		decoded := json.Unmarshal(line, &record) == nil
+		if !decoded || record.Type != "session_meta" {
 			return nil
 		}
 		var meta rolloutMeta
@@ -308,7 +312,8 @@ func (c *usageCollector) collectRollouts(final bool) {
 				Version string `json:"cli_version"`
 				Fork    string `json:"forked_from_id"`
 			}
-			if json.Unmarshal(record.Payload, &base) != nil {
+			// Neither shape decodes: skip the record, leaving usage unknown.
+			if decoded := json.Unmarshal(record.Payload, &base) == nil; !decoded {
 				return nil
 			}
 			meta.ID, meta.Parent, meta.Version, meta.Fork = base.ID, base.Parent, base.Version, base.Fork
