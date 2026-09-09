@@ -812,6 +812,13 @@ func (r *Runner) exec(
 		result.NumTurns = event.NumTurns
 	}
 
+	if !abandoned && !timedOut {
+		result.Interruption = stream.quota.interruption(stream.result, finishedAt)
+		if result.Interruption != nil {
+			result.Outcome, result.Reason = agent.OutcomeInterrupted, "session quota limit reached"
+			result.ResumeToken = stream.sessionID
+		}
+	}
 	r.logCompletion(logger, result)
 
 	if resumeRefused(req.Path.Resuming(), result) {

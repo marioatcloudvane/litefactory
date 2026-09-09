@@ -126,6 +126,17 @@ type TickResult struct {
 // with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
+	if !d.autoResumeOnSessionLimit {
+		pending, err := d.db.ListPendingContinuations(ctx, 0)
+		if err != nil {
+			return TickResult{StartedAt: startedAt}, err
+		}
+		for _, c := range pending {
+			if err := d.db.CancelContinuation(ctx, c.ID, "automatic recovery disabled; resume manually", startedAt); err != nil {
+				return TickResult{StartedAt: startedAt}, err
+			}
+		}
+	}
 
 	if retryAt, held := d.backoff.hold(startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
@@ -167,6 +178,14 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 
 	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor}
 
+	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+		return result, d.observe(ctx, startedAt, err)
+	}
+	if err := d.replayInterruptionReports(ctx, repos); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, d.observe(ctx, startedAt, err)
+	}
+
 	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
 	if err != nil {
 		result.Duration = d.now().Sub(startedAt)
@@ -184,9 +203,15 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	for _, repo := range repos {
 		reposByID[repo.ID] = repo
 	}
+	if err := d.dispatchContinuations(ctx, reposByID, startedAt, &result); err != nil {
+		return result, err
+	}
 	if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, err
+	}
+	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+		return result, d.observe(ctx, startedAt, err)
 	}
 	d.dispatch(ctx, queues, startedAt, &result)
 	result.InFlight = d.inflight.size()
@@ -616,6 +641,9 @@ func (d *Daemon) commentedIssues(
 // on it is written after the `go`, which is what makes it safe to pass by
 // pointer with no lock anywhere near it.
 type task struct {
+	continuation       *store.Continuation
+	continuationLocked bool
+
 	refining  bool
 	repo      store.Repo
 	forgeRepo github.Repo
@@ -1524,7 +1552,7 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	workflowEnabled := len(d.classifiers) > 0 && !t.refining
+	workflowEnabled := len(d.classifiers) > 0 && !t.refining && t.continuation == nil
 	selection := store.ModeSelection{}
 	selectionErr := store.ErrNotFound
 	if workflowEnabled {
@@ -1541,6 +1569,8 @@ func (d *Daemon) run(
 	}
 	managedFrozen := featureErr == nil && feature.State != "planning" && !t.refining
 	switch {
+	case t.continuation != nil:
+		mode, labelled = agent.Mode(t.continuation.Context.Mode), true
 	case managedFrozen:
 		mode, labelled = agent.ModeImplement, true
 		if turn.ManagedReplan(command) {
@@ -1595,7 +1625,7 @@ func (d *Daemon) run(
 		}
 	}
 	labels, canLabel := d.forge.(labelForge)
-	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining
+	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining && t.continuation == nil
 	if mode.Valid() && !labelled && canLabel {
 		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
 			return d.leave(ctx, t, log, "could not apply the selected mode label", err)
@@ -1653,8 +1683,9 @@ func (d *Daemon) run(
 	}
 
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
-		Mode:      mode,
-		SessionID: t.session.ID,
+		Continuation: t.continuation,
+		Mode:         mode,
+		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
 			Title:  t.issue.Title,
@@ -1682,6 +1713,7 @@ func (d *Daemon) run(
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
+		t.continuationLocked = t.continuation != nil
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -1715,6 +1747,9 @@ func (d *Daemon) run(
 		if err := d.db.DeleteModeSelection(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
 		}
+	}
+	if t.continuation != nil && turnResult.Run.ID == 0 {
+		return fmt.Errorf("automatic recovery could not prepare; manual recovery required: %s", turnResult.Disposition)
 	}
 	log.InfoContext(ctx, "turn complete",
 		slog.String("disposition", turnResult.Disposition.String()),

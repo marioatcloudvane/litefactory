@@ -170,6 +170,10 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
+	// False disables automatic recovery without affecting manual schedules.
+	AutoResumeOnSessionLimit bool
+
 	DefaultAgent agent.Kind
 	Classifiers  map[agent.Kind]agent.Classifier
 	// DB is the open, migrated database. Required.
@@ -334,6 +338,8 @@ type Daemon struct {
 	confirmer           ConfirmApplier
 	conflictProposalTTL time.Duration
 	instanceID          string
+	// Loaded once at startup, shared by dispatch and pending recovery cancellation.
+	autoResumeOnSessionLimit bool
 	// toolProfiles and toolCeiling are the operator's tool configuration as it
 	// stood at startup. Read-only after New; see [Options.ToolProfiles].
 	toolProfiles map[string]config.ToolProfile
@@ -408,15 +414,16 @@ func New(opts Options) (*Daemon, error) {
 	}
 
 	return &Daemon{
-		db:                  opts.DB,
-		forge:               opts.Forge,
-		filter:              opts.Filter,
-		turn:                opts.Turn,
-		reporter:            opts.Reporter,
-		proposals:           opts.ProposalGenerator,
-		confirmer:           opts.Confirmer,
-		conflictProposalTTL: opts.ConflictProposalTTL,
-		instanceID:          opts.InstanceID,
+		db:                       opts.DB,
+		forge:                    opts.Forge,
+		filter:                   opts.Filter,
+		turn:                     opts.Turn,
+		reporter:                 opts.Reporter,
+		proposals:                opts.ProposalGenerator,
+		confirmer:                opts.Confirmer,
+		conflictProposalTTL:      opts.ConflictProposalTTL,
+		instanceID:               opts.InstanceID,
+		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may
 		// reach back into the configuration the process is running on.
