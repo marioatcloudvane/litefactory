@@ -257,10 +257,11 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		return nil, Startup{}, err
 	}
 	turnOpts := turn.Options{
-		StoryProgress: storyProgress,
-		DB:            s.DB,
-		Git:           gitBinary,
-		Runners:       runners,
+		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
+		StoryProgress:            storyProgress,
+		DB:                       s.DB,
+		Git:                      gitBinary,
+		Runners:                  runners,
 		// One registry for the process, built here because this is the
 		// only place a turn's dependencies are bound. turn.Options
 		// validates it as required, so this line going missing is a
@@ -307,9 +308,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 
 	daemon, err := New(Options{
-		DB:     s.DB,
-		Forge:  client,
-		Filter: filter,
+		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
+		DB:                       s.DB,
+		Forge:                    client,
+		Filter:                   filter,
 		// Schedule proposals are a separate, tool-free advisory call. They
 		// deliberately do not travel through turn.Execute, so no run is
 		// allocated and no worktree is created before owner acceptance.

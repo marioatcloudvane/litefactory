@@ -26,21 +26,11 @@ dispatch, exit code).
 Arrows point at what a package imports (litefactory packages only).
 
 ```
-config        →  (nothing)          leaf. everything may depend on it.
-naming        →  (nothing)          leaf. pure functions, zero third-party imports.
-store         →  (nothing)          leaf. SQLite + every SQL statement in the tree.
-git           →  (nothing)          leaf. the only gateway to the git CLI.
-secrets       →  (nothing)          leaf. keychain / env token resolution.
-identity      →  (nothing)          leaf. the only package that execs `gh`.
-launchd       →  (nothing)          leaf. the macOS LaunchAgent.
-logging       →  (nothing)          leaf. slog construction + file sink.
-render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
-gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
-planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies; strict versioned transient Plan proposals.
-attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
-schedule      →  (nothing)          leaf. parses factory-owned /schedule controls with injected time and location.
+config, naming, store, git, secrets, identity, launchd, logging, render,
+gittest, planbrief, attach, schedule → leaves
 
-agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
+agent         → naming
+
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
@@ -85,9 +75,13 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | run `claude` or the OpenAI Codex CLI | `internal/harness` / `internal/codex` | Each implements `agent.Runner`; `harness` is the only place that execs `claude`, `codex` the only one that execs the Codex CLI |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
+| classify terminal quota refusal | `agent.Interruption`; `codex/quota.go`, `harness/quota.go` | Neutral reset bound, precision and due time; adapter-owned diagnostic parsing |
+| recover an interrupted run | `store.FinishInterruptedRun`, `continuations.go`, `continuation_settlement.go` | Atomic evidence/intent, source-run deduplication, bounded chain and original prerequisite settlement |
+| admit or cancel automatic recovery | `daemon/continuation_dispatch.go`, `turn/continuation_dispatch.go` | Saved context, current-intent observation, UTC eligibility and explicit resume |
+| replay recovery announcements | `ListPendingInterruptionReports`, `daemon/continuation_cancellations.go`, `report/recovery.go` | Durable notice debt independent of owner watermarks |
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
-| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` — see below |
+| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | Uses durable semantic outcome when present, preserving interruption across reporting; legacy status/error fallback |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer`, `Register`/`Lookup`; Claude/OpenCode produce a standalone file plus a root marker section; Codex produces `.codex/skills/<agent>/SKILL.md` |
 | install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root, renders)` validates the batch, writes atomically under a repo flock, and compares recorded hashes with actual file/marker bytes |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
@@ -112,11 +106,3 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
-
-Store entry points are `store.Open(ctx, path)` and explicit `Migrate(ctx)`.
-The driver is pure-Go `modernc.org/sqlite`, with one connection and embedded
-numbered SQL migrations. `store/store.go` documents the transaction/pragmas.
-
-`agent.RunResult.Succeeded()` describes live subprocess evidence;
-`store.Run.Succeeded()` describes persisted outcomes. `turn.save` gates saving
-on the live result, and `report.run` renders the resulting delivery status.

@@ -23,6 +23,8 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	resumeOnly bool
+
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
 	repo          store.Repo
@@ -104,6 +106,9 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (*preparation, error) {
+	if err := validateContinuation(ctx, opts, req, session); err != nil {
+		return nil, failuref(err, "automatic recovery requires manual intervention")
+	}
 	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
@@ -242,6 +247,13 @@ func prepare(
 	// the resume decision stays correct even if the two checks are ever
 	// reordered or one of them is reused on its own.
 	resume := resumeDecision(found, segment, resolvedKind)
+	if req.Continuation != nil {
+		if segment.ID != req.Continuation.SegmentID {
+			return nil, failuref(nil, "automatic recovery conversation changed; resume manually")
+		}
+		resume = true
+		segment.ResumeToken = req.Continuation.Context.ResumeIdentity
+	}
 
 	run, err := allocateRun(ctx, opts, req, session, segment, ref)
 	if err != nil {
@@ -404,6 +416,7 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
+		resumeOnly:  req.Continuation != nil,
 		repo:        repo,
 		session:     session,
 		ref:         ref,

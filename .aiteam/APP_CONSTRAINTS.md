@@ -132,6 +132,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   `$LF_HOME`; a new path MUST become a method on `config.Paths` (`ConfigPath
   DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath`).
 
+- **CFG-9** — `settings.auto_resume_on_session_limit` MUST default to false and use the loaded configuration; enabling it MUST NOT change manual scheduling or introduce hot reload.
+
 ---
 
 ## 3. Testing (`TEST`)
@@ -182,8 +184,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   condition is `Daemon.Quiesce` — not a shutdown `select`, not a sleep.
 - **CONC-3** — An attempted operation that failed MUST return a result describing its outcome. Errors are reserved for operations that could not be conducted or recorded; reportable failures MUST NOT become silence.
 
-- **CONC-4** — Post first, then commit. Every reporting path MUST render,
-  post, and only then write to the database in one transaction.
+- **CONC-4** — Reporting MUST render and post before acknowledging delivery or advancing watermarks. Execution outcome and recovery intent MUST be durable before announcement; delivery failure MUST NOT erase them.
 - **CONC-5** — Every store accessor and every git method MUST take `ctx` first.
 - **CONC-6** — Retries and sleeps MUST NOT appear below the daemon:
   `internal/github` retries nothing and sleeps nowhere; backoff is
@@ -205,6 +206,9 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **CONC-12 [enforced]** — GitHub title/body MUST be the sole editable managed story source. Plan publication MUST preserve the complete contract, validate current bases, and persist a link-only index before readiness. Implement MUST use the frozen generation on cold, resumed and fallback attempts; live edits, history and local story files MUST NOT replace it. New managed plans MUST NOT create per-story Markdown files; legacy conversion is outside this workflow.
 
+- **CONC-13** — Recovery MUST atomically persist semantic interruption and optional continuation before reporting, deduplicate by source run, and preserve context and original prerequisite identity. The root budget MUST count at most three automatic allocations; each MUST require fresh verified future-reset evidence. Suspended prerequisites MUST remain nonterminal until semantic settlement; only final success MUST release descendants, using final completion time.
+- **CONC-14** — Automatic admission MUST use existing capacity and task locks, explicit resume without cold fallback, and frozen managed scope. New owner work, reset, changed context, closure or loaded disable MUST durably cancel stale pending work, including future work. Observation failure MUST defer without advancing the watermark. Restart MUST requeue only unallocated reservations; allocated abandoned runs MUST remain terminal absent durable quota evidence.
+
 ## 5. Style and code shape (`STYLE`)
 
 - **STYLE-1** — Comments MUST explain why and remain true. When behavior changes, affected comments MUST be updated; use relevant decision/acceptance identifiers rather than restating code.
@@ -224,9 +228,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **STYLE-6 [enforced]** — CLI handlers MUST capture bound flag values in `Command.New` closures instead of rereading flag sets. They receive positional arguments and `cli.Env`. Usage/precondition errors are reserved for invocation failures; domain findings (including drift) MUST use ordinary errors.
 
-- **STYLE-7** — Read the `doc.go` for the package you are about to touch
-  before you touch it — its prose is that package's real specification (18
-  packages carry one).
+- **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
 - **STYLE-8** — `internal/harness/prompt.go`'s `"- Mode: %s\n"` header line
   and `CLAUDE.md`'s `## Classify` trust of that literal MUST change together,
   in the same commit. No test catches the `CLAUDE.md` side drifting —
@@ -249,10 +251,9 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   on; their behaviour MUST be probed read-only, in a scratch directory
   outside the repo, and written up. A test spawning a real `claude` MUST NOT
   be committed: slow, quota-consuming, flaky, and ungated.
-- **EXT-2** — A write-up MUST state the exact binary version verified
-  against and how to re-verify after an upgrade. Two exist; a change to how
-  litefactory invokes `claude` SHOULD extend one rather than starting a
-  third: the `--session-id`/`--resume` contract, and the tool-surface probe.
+- **EXT-2** — A probe write-up MUST state the verified binary version and re-verification steps. Claude invocation changes SHOULD extend the existing session/resume or tool-surface probe.
+
+- **EXT-3 [enforced]** — Quota classification MUST use provider-owned terminal refusal evidence, never generated prose or warnings. Every known blocking reset MUST be usable and future; the latest bound wins. Claude Unix seconds MUST use reset+60 elapsed seconds; Codex machine-local displayed minutes MUST use the next-minute boundary+60 seconds without changing the child timezone. Ambiguous dates, DST gaps/folds or inconsistent local context MUST remain report-only.
 
 ---
 
@@ -260,35 +261,35 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 | Test | What it pins |
 |---|---|
-| `config/purity_test.go` | Configuration import purity and permission policy (SEC-1) |
-| `git/surface_test.go` | Clone read-only API and valid construction (SEC-7) |
+| `config/purity_test.go` | Config purity; SEC-1 |
+| `git/surface_test.go` | Read-only clone API; SEC-7 |
 | `git/construction_internal_test.go` | `Worktree` is built in exactly one place |
-| `git/exec_internal_test.go` | Deadlines, allowlisted child environment and PATH fallback (SEC-4, CFG-7) |
-| `github/surface_test.go` | Redacted mutations, pinned API inventory, consumer interfaces and token boundary (SEC-6, TEST-5) |
-| `identity/policy_test.go` | Identity-only gh execution (SEC-9) |
-| `gittest/policy_test.go` | no non-test file imports `internal/gittest` |
-| `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
-| `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` (CFG-3) |
-| `store/store_test.go` | Foreign keys, idempotent migration, watermarks, replay refusal and report transaction |
-| `store/runs_test.go` | Persisted success predicate (STYLE-10) |
+| `git/exec_internal_test.go` | Environment/PATH; SEC-4, CFG-7 |
+| `github/surface_test.go` | Forge/redaction boundaries; SEC-6, TEST-5 |
+| `identity/policy_test.go` | SEC-9 |
+| `gittest/policy_test.go` | Test-only fixtures |
+| `repos/network_test.go` | Offline registration |
+| `config/template_test.go` | Template/default parity; CFG-3 |
+| `store/store_test.go` | SQLite, migration, replay and report atomicity |
+| `store/runs_test.go` | STYLE-10 |
 | `daemon/clock_test.go` | Only Tick reads the clock |
-| `turn/gate_test.go` | `prepareClone`, `commitAndPush`, `commitStoryIndex` are the only call sites of `CloneGate.Acquire`, one each; the claude run itself is never inside a critical section |
-| `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Bounded worker pool and per-clone exclusion (CONC-2) |
-| `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
-| `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
-| `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
-| `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
-| `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
-| `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
-| `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |
-| `cli/cmd_team_status_test.go` | Domain versus precondition exits (STYLE-6) |
-| `cli/cmd_team_update_test.go` | Independent outcomes aggregate (STYLE-9) |
-| `turn/harvest_test.go`, `turn/subissues_test.go` (`TestSaveOnlyCommitsASucceededRun` and siblings) | `save` and `fileStoryIssues` commit/push only a genuinely succeeded run (CONC-8) |
-| `harness/prompt_previous_failed_test.go` | Untrusted failure-reason framing (SEC-19) |
-| `report/report_test.go` | One worktree location per failure (STYLE-11) |
-| `harness/approved_stories_test.go`, `plan_prompt_security_test.go`, `turn/approved_attempts_test.go` | Complete untrusted revision context across cold/resume/fallback (SEC-20) |
-| `turn/plan_index_test.go`, `agent/story_progress_contract_test.go`, `planbrief/acceptance_test.go` | Rooted artifact safety and complete immutable evidence obligations (SEC-21) |
-| `store/approved_stories_test.go`, `turn/managed_scope_test.go`, `daemon/story_refinements_test.go` | Atomic approval, child policy and independent consumption (CONC-9) |
-| `store/story_progress_lock_test.go`, `turn/story_progress_test.go`, `story_ack_recovery_test.go` | Cross-process ownership, uncertain-response recovery and ordered invalidation (CONC-10) |
-| `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | Immediate child progress plus separate recoverable parent completion (CONC-11) |
-| `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | Complete publication, link-only index and frozen execution source (CONC-12) |
+| `turn/gate_test.go` | Clone-gate call sites and agent exclusion |
+| `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Pool and clone exclusion; CONC-2 |
+| `repos/collision_test.go` | Worktree-root uniqueness |
+| `daemon/record_test.go` | Concurrency/evidence identifiers |
+| `turn/execute_test.go` | Running-state transition; CONC-7 |
+| `team/write_test.go` | Safe batch writes; SEC-12–15 |
+| `team/marker_test.go` | Marker-span hash; SEC-16 |
+| `teamsource/render_test.go` | Shared-team union; SEC-17 |
+| `cli/cmd_team_status_test.go` | STYLE-6 |
+| `cli/cmd_team_update_test.go` | STYLE-9 |
+| `turn/harvest_test.go`, `turn/subissues_test.go` | Success-only save; CONC-8 |
+| `harness/prompt_previous_failed_test.go` | SEC-19 |
+| `report/report_test.go` | STYLE-11 |
+| `harness/approved_stories_test.go`, `plan_prompt_security_test.go`, `turn/approved_attempts_test.go` | Untrusted approved context; SEC-20 |
+| `turn/plan_index_test.go`, `agent/story_progress_contract_test.go`, `planbrief/acceptance_test.go` | SEC-21 |
+| `store/approved_stories_test.go`, `turn/managed_scope_test.go`, `daemon/story_refinements_test.go` | CONC-9 |
+| `store/story_progress_lock_test.go`, `turn/story_progress_test.go`, `story_ack_recovery_test.go` | CONC-10 |
+| `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | CONC-11 |
+| `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | CONC-12 |
+| `codex/quota_test.go`, `harness/quota_test.go` | EXT-3 |

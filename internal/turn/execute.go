@@ -80,6 +80,10 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
+	// False disables automatic recovery without affecting manual schedules.
+	AutoResumeOnSessionLimit bool
+
 	// StoryProgress is shared with daemon ticks for live checkpoints and final drain.
 	StoryProgress *StoryProgress
 
@@ -324,6 +328,9 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
+	// Continuation is factory-owned saved context, never supplied by a comment.
+	Continuation *store.Continuation
+
 	// Mode is the concrete workflow mode selected before this turn starts.
 	Mode agent.Mode
 	// SessionID is the task, from store.GetOrCreateSession.

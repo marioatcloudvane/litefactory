@@ -79,3 +79,46 @@ verified it, while other stories can still be running. If later work invalidates
 that evidence, the affected story reopens. Final feature checks remain required.
 Comment `replan` or `/plan <instruction>` on the parent while no run is active
 to reopen unfinished scope. Existing legacy story files are not migrated or converted.
+
+## Automatic recovery after session limits
+
+Automatic quota recovery is disabled by default. To opt in for both Claude Code
+and Codex, set the following global option in your litefactory configuration:
+
+```yaml
+settings:
+  auto_resume_on_session_limit: true
+```
+
+Configuration is loaded when the daemon starts; there is no hot reload. Restart
+the daemon after changing the setting. Omitting the key or setting it to `false`
+disables automatic recovery and leaves manual `/schedule` commands available.
+Loading `false` permanently cancels pending automatic recoveries; enabling it
+again does not revive them.
+
+Only a verified terminal provider quota refusal with a usable conversation
+identity and a reliable future reset time can schedule recovery. The factory
+persists the continuation before announcing its absolute UTC `/schedule` time.
+That comment describes the saved action; it does not create a second schedule.
+Recovery resumes the same conversation, request and worktree. Interrupted partial
+work remains uncommitted under the ordinary failure policy.
+
+Claude's exact reset timestamp gets an extra 60 elapsed seconds. Codex's displayed
+local minute is interpreted in the machine's local timezone, rounded to its next
+minute boundary, then given another 60 elapsed seconds: a displayed 15:00 reset
+is eligible at 15:02. Agent timezones are not overridden. Ambiguous dates or DST
+times, contradictory timezone information, and missing, malformed or stale reset
+times are reported for manual recovery. Persisted UTC deadlines remain unchanged
+if the machine's timezone later changes; capacity and normal backoff can delay
+launch beyond the deadline.
+
+A recovery chain permits at most **three actual automatic invocations** after the
+original interruption. Each further retry needs newly verified quota/reset
+evidence; reservation and report-delivery retries do not consume attempts. When
+the budget is exhausted, the conversation identity is unusable, or the failure is
+not a supported quota refusal, the report requests manual recovery. Automatic
+recovery never silently starts a new conversation. New admitted owner work,
+conversation reset, changed agent/mode/segment, or observed issue closure cancels
+stale recovery permanently. Schedule controls alone do not supersede unrelated
+work. After resolving a report-only failure, the owner can issue a new instruction
+or manually schedule work on the issue.

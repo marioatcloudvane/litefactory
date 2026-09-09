@@ -142,13 +142,22 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 		d.finishScheduled(ctx, t, scheduled, store.ScheduleFailed, 0)
 		return
 	}
+	// A quota chain retains the original prerequisite until its final outcome.
+	current, lookupErr := d.db.GetSchedule(ctx, scheduled.ID)
+	if lookupErr != nil {
+		t.log.ErrorContext(ctx, "read scheduled recovery state", slog.Any("error", lookupErr))
+		return
+	}
+	if current.Status == "suspended" {
+		return
+	}
 	status := store.ScheduleFailed
-	// Reporting turns a successful or failed run into RunReported, so the
-	// durable exit code is the remaining outcome signal after ReportTurn.
-	if run.ExitCode != nil && *run.ExitCode == 0 {
+	if run.Succeeded() {
 		status = store.ScheduleSucceeded
 	}
-	d.finishScheduled(ctx, t, scheduled, status, run.ID)
+	completed := *t
+	completed.tickAt = run.FinishedAt
+	d.finishScheduled(ctx, &completed, scheduled, status, run.ID)
 }
 
 func (d *Daemon) finishScheduled(ctx context.Context, t *task, scheduled store.Schedule, status store.ScheduleStatus, runID int64) {

@@ -5,7 +5,7 @@
 ## Modes
 - [x] **Research** — `RESEARCH_BRIEF.md` (imported prior research supplied by owner)
 - [x] **Plan** — `plan_brief.md` + managed JSON story proposal (complete; awaiting factory publication)
-- [ ] **Implement** — code + tests (not started)
+- [x] **Implement** — code + tests (complete, run 230)
 - [ ] **Spike** — `SPIKE.md` (not started)
 
 ## History
@@ -17,3 +17,5 @@
 - Headless Plan run; no questions or approval pauses. Factory alone publishes new story issues.
 
 - Validation: proposal schema/sections/AC identities/dependency graph/index checks and `git diff --check` passed. `make check` passed (format, vet, pinned lint, race-enabled suite); lint emitted nonfatal sandbox cache-write warnings.
+
+- 2026-09-08 — Implement run230 completed all five frozen generation1 stories. Final build, make check (29 passing race-test packages), independent aggregate review, scoped race/coverage checks and diff check passed. All five latest evidence snapshots match final worktree bytes; 13 append-only events include necessary invalidations/reverification. No commit/push. See VALIDATION.md and DRIFT_REPORT.md.

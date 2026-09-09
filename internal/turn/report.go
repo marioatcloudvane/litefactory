@@ -560,6 +560,10 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 		return Posted{Skipped: true, Run: existing}, nil
 	}
 
+	if err := r.attachRecoveryReport(ctx, &rep); err != nil {
+		return Posted{}, err
+	}
+
 	body, err := r.renderer.RenderRun(ctx, rep.Run)
 	if err != nil {
 		// AC-4.9: nothing is posted, the run stays un-reported and the watermark

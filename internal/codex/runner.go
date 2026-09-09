@@ -309,6 +309,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	startLocation := machineLocation()
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("codex did not start: %w", err)
@@ -339,6 +340,12 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		result.Outcome, result.Reason = agent.OutcomeNoResult, "coding agent exited 0 without a terminal result event"
 	default:
 		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", exitCode)
+	}
+	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
+		result.Interruption = quotaInterruption(stream.quotaMessage, started, finished, startLocation, machineLocation())
+		if result.Interruption != nil {
+			result.Outcome, result.Reason, result.HasResult = agent.OutcomeInterrupted, "session quota limit reached", true
+		}
 	}
 	r.logger.Info("coding agent finished", "agent", "codex", "outcome", result.Outcome.String(), "events", result.Events, "log_path", logPath)
 	if req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
@@ -391,6 +398,7 @@ func (r *Runner) InstructionIdentity() string { return r.model }
 
 type streamState struct {
 	threadID, text                 string
+	quotaMessage                   string
 	events, malformed, longest     int
 	turnStarted, completed, failed bool
 	err                            error
@@ -413,7 +421,10 @@ func consume(src io.Reader, sink io.Writer) streamState {
 				Type     string `json:"type"`
 				ThreadID string `json:"thread_id"`
 				Message  string `json:"message"`
-				Item     struct {
+				Error    struct {
+					Message string `json:"message"`
+				} `json:"error"`
+				Item struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"item"`
@@ -432,8 +443,14 @@ func consume(src io.Reader, sink io.Writer) streamState {
 					}
 				case "turn.completed":
 					s.completed = true
+					s.quotaMessage = ""
 				case "turn.failed", "error":
 					s.failed = true
+					if e.Type == "turn.failed" {
+						s.completed = false
+						e.Message = e.Error.Message
+					}
+					s.quotaMessage = e.Message
 					if e.Message != "" {
 						s.text = e.Message
 					}
