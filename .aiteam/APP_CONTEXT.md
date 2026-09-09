@@ -30,7 +30,7 @@ config, naming, store, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule → leaves
 
 agent         → naming
-meter         → agent              pure token normalization, reconciliation and capability diagnostics
+meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
 
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
@@ -39,10 +39,10 @@ codex         →  agent, config, naming
 harness       →  agent, config, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  agent, attach, codex, config, git, github, harness, naming, planbrief, redact, report, store
+turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
 daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
-cli           →  config, daemon, git, github, identity, launchd, naming, repos, secrets, store, team, teamsource
+cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource
 cmd/litefactory → cli, config, logging
 ```
 
@@ -79,9 +79,15 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
 | prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
 | run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
-| express token observations across the runner boundary | `agent.TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit` (`internal/agent/usage.go`) | Optional `Request.Usage` sink and `RunResult.Usage` coverage; cloned ownership, nullable counters, explicit scope/identity. Collection adapters are not wired yet |
+| express token observations across the runner boundary | `agent.TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit` (`internal/agent/usage.go`) | `Request.Usage` / `RunResult.Usage`; cloned nullable counters and explicit identities; synchronous adapters feed `turn/meter.go` |
 | normalize and reconcile token counters | `internal/meter` | `Normalize`, `Validate`, `Add`, `Delta`, `Total`, `Reconcile`; checked arithmetic, subset handling, replay identities and scope-bound baselines; caller owns durable state |
-| qualify a provider collection capability | `meter.CapabilityEvidence.Coverage` | Distinguishes unsupported sources, missing authentic evidence and complete capability; caller verifies provenance. No provider allowlist or authentic full-hierarchy fixtures shipped yet |
+| qualify a provider collection capability | `meter.CapabilityEvidence.Coverage` | Unsupported/missing/complete evidence diagnostics; no certified provider versions or authentic full-hierarchy fixtures yet |
+| inspect collected provider coverage | `harness/usage.go`, `codex/usage.go` | Claude cold assistant messages can be additive; resumed evidence and Codex lifetime totals are non-additive. Codex actual models remain unknown; full provider certification is pending |
+| persist attempt usage and pinned prices | `store/meter.go`, `meter_prices.go`; migrations `0019_meter_usage.sql`, `0020_meter_prices.sql` | Attempts, invocations, observations, checkpoints, measurements, catalog revisions/rates and valuation snapshots; `StartMeterAttempt`, `ApplyMeterObservation`, `SetMeterPrices` |
+| value disjoint token quantities exactly | `meter.CanonicalRate`, `Value` (`internal/meter/pricing.go`) | USD/million decimal rates, duration fallback, half-even dimension rounding; frozen valuation DTOs owned by store |
+| export a coherent usage snapshot | `store.NewMeterSnapshot`, `MeterSnapshot.Next/Close` | Attempt-scoped `MeterFilter`, TEMP projection, bounded pages, current frozen valuations; serializer supplies exact byte accounting |
+| inspect metering commands and CSV fields | `cli/cmd_meter.go`, `cmd_meter_prices.go`, `meter_csv.go`; `docs/meter.md` | Summary scopes/filters/details, price list/set and required-project export; reversible spreadsheet text escaping |
+| prepare metering for completion reports | `turn/meter_report.go`, `report.MeterSummary.Add` | Run-scoped stored values; complete totals separated from observed subtotals, legacy reported cost and excluded helper overhead |
 | parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |

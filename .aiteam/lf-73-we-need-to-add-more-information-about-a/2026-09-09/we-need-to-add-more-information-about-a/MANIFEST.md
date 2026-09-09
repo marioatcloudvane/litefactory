@@ -6,7 +6,7 @@
 
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not run in this session)*
 - [x] **Plan** — `plan_brief.md` and managed JSON proposal *(authored; factory publication pending)*
-- [ ] **Implement** — run 0015 delivers partial US-1 contract and normalization; AC-1.4 external provider fixtures still missing; dependent feature work incomplete
+- [ ] **Implement** — run 0017 delivers durable metering, pricing and CLI/export; full provider descendant collection/certification remains deferred or incomplete; automated aggregate validation passed
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
@@ -60,3 +60,18 @@ Explicit managed Plan retry authorizes regenerating the handoff in this session.
 - go test -race ./...: internal/daemon and internal/turn exceeded the default 10-minute package timeout, failing after 605.286s and 606.989s respectively. Daemon was running TestTheFirstEverTickDoesNotReachBack during fixture migration; turn had multiple ApplyConfirmedResolution and other tests active. This output does not establish one test as the root cause. Other reported packages passed, including cli, codex, harness and store.
 - No production or test source changed; these are baseline results, not feature acceptance. No repeated full suite or unrelated repair was attempted after the required provider capability gate was found blocked.
 - Scoped review: CODE_REVIEW.md is BLOCKING (CR-B-001, missing mandatory provider capability evidence). No acceptance completion was claimed.
+
+## Run 0017 authorized continuation
+
+- Owner explicitly deferred manual provider capture testing and authorized other stories to proceed. Frozen story revisions remain unchanged; no fabricated provider compatibility acceptance.
+- Implemented stream collector subsets, nine-table durable accounting/pricing schema, attempt/fallback/cancellation wiring, immutable exact catalogs/valuations, prepared reporting, metering/prices commands and bounded project CSV export.
+- Independent scoped review and targeted automated tests completed, with final story events/aggregate gates recorded below when finished.
+- Updated APP_CONTEXT.md and APP_CONSTRAINTS.md with actual APIs and conservative provider limitations. See DRIFT_REPORT.md and CODE_REVIEW_RUN17_SCOPED.md.
+- No forge access, commits/pushes, live runtime state edits, dist writes, historical-log importer or permission changes.
+
+- Run0017 incremental verification: US-4/5/6 verified events000006–000008 with 52-file digest0998046f467105890c43ad251d9f0e897051645b42b006ef1e941a1c0b0614ab; root independently validated snapshot/evidence integrity. US-1/2/3/7 remain blocked with explicit owner-manual/provider limitation reasons, not fabricated passes. Independent integrated race suite passed store265.760s turn37.971s meter1.770s cli211.001s report2.495s. Aggregate gates pending.
+- Run0017 aggregate independent code review: CODE_REVIEW_RUN17_AGGREGATE.md records no additional production findings, ownership/dependency audit, context consistency, synthetic transport distinction and verified event integrity. Provider certification limitations remain explicit.
+- Run0017 aggregate attempt1: fmt/vet passed; pinned lint found report test max identifier shadowing. Invalidated prior verified snapshots before mechanical rename (events10–12), focused report test passed0.528s, independent mechanical re-review clean. Refreshed US4/5/6 verified events13–15 share digest28b760b6687af8df7c3a5d98c8bafbe1a292ed68471bd6a3bf8f0c201b8efa9f; aggregate retry running.
+
+- Run0017 FINAL: serial make check exited0 (fmt/vet/pinned lint0issues/full race all passed; turn326.808s); safe GOFLAGS=-p=1 go build ./... exited0. TEST_REPORT_RUN17.md and IMPLEMENT_REPORT_RUN17.md record delivery and exact limits.
+- US4/5/6 complete and verified; US1/2/3/7 remain incomplete for authentic provider support/evidence, explicitly deferred/qualified by owner instruction. Implement overall remains unchecked because complete descendant functionality/certification is not delivered. No source changes after final verified snapshots.

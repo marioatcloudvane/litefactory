@@ -50,6 +50,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		}
 	}
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
+	prep.meterDB = opts.DB
 	runResult, runErr := runClaude(ctx, prep, logger)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
 		if err := opts.StoryProgress.Finish(bookkeeping, prep.run.ID, "Parent attempt finished; this story has no accepted scoped verification and remains unfinished."); err != nil {
@@ -150,7 +151,7 @@ func runClaude(
 	if err := checkAttemptScope(ctx, prep); err != nil {
 		return nil, err
 	}
-	result, err := prep.runner.Run(ctx, prep.request)
+	result, err := runMetered(ctx, prep, logger)
 	if prep.resumeOnly && errors.Is(err, agent.ErrSessionNotResumable) {
 		return result, fmt.Errorf("automatic recovery conversation is unusable; resume manually: %w", err)
 	}
@@ -188,7 +189,7 @@ func runClaude(
 	if err := checkAttemptScope(ctx, prep); err != nil {
 		return nil, err
 	}
-	result, err = prep.runner.Run(ctx, prep.request)
+	result, err = runMetered(ctx, prep, logger)
 	if errors.Is(err, agent.ErrSessionNotResumable) {
 		// Unreachable against a real claude: a cold run is never classified as a
 		// refusal, because it is not asking to resume anything. If it happens

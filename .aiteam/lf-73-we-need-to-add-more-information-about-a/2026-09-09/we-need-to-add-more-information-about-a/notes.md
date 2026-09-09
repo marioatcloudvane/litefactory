@@ -49,3 +49,13 @@ Safe go build ./... passed. Baseline make check terminal result is recorded belo
 - go test -race ./...: internal/daemon and internal/turn exceeded the default 10-minute package timeout, failing after 605.286s and 606.989s respectively. Daemon was running TestTheFirstEverTickDoesNotReachBack during fixture migration; turn had multiple ApplyConfirmedResolution and other tests active. This output does not establish one test as the root cause. Other reported packages passed, including cli, codex, harness and store.
 - No production or test source changed; these are baseline results, not feature acceptance. No repeated full suite or unrelated repair was attempted after the required provider capability gate was found blocked.
 - Scoped review: CODE_REVIEW.md is BLOCKING (CR-B-001, missing mandatory provider capability evidence). No acceptance completion was claimed.
+
+## Run 0017 — user-authorized continuation
+
+The owner explicitly deferred real-provider manual capture testing and instructed implementation of the other stories. This authorizes continuing US-2 through US-7 using the existing shared US-1 contract despite its unverified AC-1.4. It does not turn synthetic fixtures into real-execution provenance or authorize claims of complete provider compatibility. Provider certification remains owner-manual-deferred; automated accounting, persistence, pricing, CLI/export and regression checks remain required. Frozen story bodies and revision identities remain unchanged.
+
+Initial ownership: US-2 engineer owns internal/harness; US-4 engineer owns internal/store meter files/migrations and internal/turn wiring. Subsequent pricing edits follow storage completion; provider certification has no fabricated passing evidence.
+
+## Run 0017 provider implementation limitations
+
+The stream collectors are functional conservative subsets, not certified full descendant implementations. Claude fresh-session assistant observations can produce exclusive measurements when message/model evidence exists; resumed assistant observations remain nonadditive without a verified baseline. Child forwarding through the current CLI stream has not been established. Codex child topology follows the upstream collab_tool_call shape, but turn.completed usage is copied from cumulative thread totals in upstream processing; without verified baseline and model attribution it is retained as nonadditive reconciliation evidence. No per-child associated-session reader was invented. Consequently Codex token measurements can remain unknown in public totals even though summary evidence is retained. These are explicit functionality/evidence gaps, not merely skipped unit tests, and must be closed using owner captures before full provider support is claimed.

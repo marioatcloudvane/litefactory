@@ -745,7 +745,7 @@ func (r *Runner) exec(
 	// reader. Both are joined below before anything they wrote is read, and
 	// neither can outlive this call — if a survivor holds a pipe open past
 	// ioGrace the read ends are closed from here and both return at once.
-	stream := &eventStream{sink: sink, logger: logger}
+	stream := &eventStream{sink: sink, logger: logger, usage: newUsageCollector(runCtx, req)}
 	stderrTail := &tailWriter{limit: stderrTailBytes}
 	stdoutDone := make(chan error, 1)
 	stderrDone := make(chan error, 1)
@@ -790,6 +790,7 @@ func (r *Runner) exec(
 		LongestLine: stream.longest,
 		Stderr:      stderrTail.String(),
 		StreamError: firstError(stream.err(), stdoutErr, stderrErr),
+		Usage:       stream.usage.finish(),
 		StartedAt:   startedAt,
 		FinishedAt:  finishedAt,
 		Duration:    finishedAt.Sub(startedAt),

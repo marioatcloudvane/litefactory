@@ -1,22 +1,31 @@
 # Drift Report — Token and Model Metering
-# Run: 0015 | Date: 2026-09-09
+# Branch: lf/73-we-need-to-add-more-information-about-a | Run: 0017
 
 ## Delivered as planned
 
-Implemented the independent US-1 shared usage contract and pure normalization/reconciliation work. The existing agent boundary now carries optional cloned usage events and coverage; internal/meter provides checked nullable token arithmetic, explicit inclusive/exclusive and incremental/cumulative semantics, replay identities and baseline transitions. Independent tests and scoped code review cover this partial implementation. No selected story is complete.
+- Reused the existing vendor-neutral agent usage contract and checked accounting primitives.
+- Added migrations 0019/0020 for attempts, invocation ancestry, immutable evidence/checkpoints, exclusive measurements, pinned complete price catalogs and frozen dimensional valuations.
+- Wired each execution/fallback attempt to durable usage capture, cancellation/failure finalization and prepared completion reports.
+- Added exact user-editable local pricing with immutable revisions and per-attempt pins, including absence of prices. Historical/in-flight price edits do not revalue previous quantities.
+- Added global/repository/issue metering, model/mode/agent filters, JSON/details, price list/set, and required-project CSV export with all five filters, fixed columns, reversible text escaping, bounded coherent snapshots and released database ownership during output.
+- Added automated tests for accounting, persistence, migration/reopen, concurrency, immutable pricing, export and synthetic provider transport; scoped independent review corrected identified issues.
 
 ## Added scope
 
-None. Additional acceptance tests exercise the approved ownership, counter and replay requirements. App context describes only the delivered contract, not future collectors or reports.
+No product scope added. Review hardening and explicit partial-coverage diagnostics implement the approved accounting rules.
 
 ## Dropped or deferred
 
-US-1 AC-1.4 remains incomplete: no authentic version-pinned full root/parallel/nested provider capture fixtures with provenance were found. Existing quota-authentic fixtures intentionally omit conversation handles and do not prove hierarchy/model attribution. US-2 through US-7 remain unstarted because they depend on US-1. No provider collector integration, migration, pricing, CLI or CSV export is delivered.
+The owner explicitly deferred manual real-provider captures and authorized continuation of dependent stories. Authentic exact-version root/parallel/nested/failed-child/model-switch proof remains deferred; no passing evidence is fabricated for AC-1.4 or related provider release criteria.
+
+US-2/US-3 collectors are implemented conservative subsets, not full provider support. Claude fresh assistant events can produce exclusive usage; resumed events remain nonadditive without a verified freshness/baseline. Current stream child forwarding is not proven and no associated-child transcript collector is present. Codex observes documented child topology and normalized summary quantities, but cumulative totals and unknown model attribution remain nonadditive; per-child quantities are unresolved. Therefore full descendant consumption is not yet delivered, beyond the manual test deferral itself. Public reports retain unknown/partial coverage rather than claiming complete totals.
+
+US-7 authentic provider certification remains deferred; synthetic executable tests prove local transport/accounting boundaries only. The owner capture guide in docs/meter.md describes the required handoff.
 
 ## Architectural deviations
 
-No scope or architecture change. Revised selected US-1 revision 5f9601901d81707a291188df53dbab44dc139f6d81e4d92c51e7659331a0e794 explicitly permits externally captured evidence and does not require nested execution in this run. Independent contract work was implemented while the evidence obligation remains outstanding. Synthetic tests are never represented as provider captures, and no supported-provider allowlist or root-only implementation is claimed.
+Provider implementation relies on current stream-only observation and conservatively declines unsafe inferred deltas. It does not claim that the approved complete provider surface has been established. SQL/store ownership, single connection, explicit migrations, immutable exact pricing, pure accounting and report dependency direction are preserved.
 
 ## Verdict
 
-DRIFTED — useful partial US-1 implementation is delivered, but mandatory external provider evidence and all dependent feature work remain incomplete. Resume with version-pinned sanitized full hierarchy/model fixtures and recorded provenance. This run does not assert that the earlier Codex startup error persists; no in-run nested probe was required or attempted.
+DRIFTED — durable metering/pricing/report/export functionality is implemented, while complete provider descendant/model collection and real-execution certification remain unresolved. The owner authorized continuing this work without waiting for those captures; full feature release must still disclose these gaps. Final aggregate gate results are recorded in the run manifest.

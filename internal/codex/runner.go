@@ -319,7 +319,8 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
 		"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
-	stream := consume(stdout, logFile)
+	collector := newUsageCollector(runCtx, req)
+	stream := consumeUsage(stdout, logFile, collector)
 	waitErr := cmd.Wait()
 	finished := time.Now()
 	exitCode := agent.SignalExitCode
@@ -331,7 +332,7 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		ResultText: stream.text, IsError: stream.failed, HasResult: stream.completed,
 		Events: stream.events, Malformed: stream.malformed, LongestLine: stream.longest,
 		Stderr: stderr.String(), StreamError: stream.err, StartedAt: started, FinishedAt: finished,
-		Duration: finished.Sub(started)}
+		Duration: finished.Sub(started), Usage: collector.finish()}
 	classifyOutcome(result, stream, ctx.Err(), runCtx.Err(), r.timeout)
 	if ctx.Err() == nil && runCtx.Err() == nil && stream.failed && !stream.completed {
 		result.Interruption = quotaInterruption(stream.quotaMessage, started, finished, startLocation, machineLocation())
@@ -438,7 +439,9 @@ type streamState struct {
 	err                            error
 }
 
-func consume(src io.Reader, sink io.Writer) streamState {
+func consume(src io.Reader, sink io.Writer) streamState { return consumeUsage(src, sink, nil) }
+
+func consumeUsage(src io.Reader, sink io.Writer, collector *usageCollector) streamState {
 	var s streamState
 	reader := bufio.NewReader(src)
 	for {
@@ -451,6 +454,7 @@ func consume(src io.Reader, sink io.Writer) streamState {
 			if _, werr := sink.Write(line); werr != nil && s.err == nil {
 				s.err = werr
 			}
+			collector.observe(line)
 			s.consumeLine(line)
 		}
 		if err != nil {
