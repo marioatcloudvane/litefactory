@@ -1,0 +1,3 @@
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1788806400,"rateLimitType":"five_hour","overageStatus":"rejected","overageDisabledReason":"org_level_disabled","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":1,"resetsAt":1788806400},"seven_day":{"utilization":0.69,"resetsAt":1789102800}}}}
+{"type":"assistant","error":"rate_limit","message":{"content":[{"type":"text","text":"You've hit your session limit · resets 8:40pm (Europe/Vienna)"}]}}
+{"type":"result","subtype":"success","is_error":true,"result":"You've hit your session limit · resets 8:40pm (Europe/Vienna)"}

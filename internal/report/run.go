@@ -58,6 +58,7 @@ const (
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
+	Recovery         *Recovery
 	SourceStoryIssue int
 	SourceCommentID  int64
 	// Ref is the task this run belongs to. It appears in the marker, so it must
@@ -330,6 +331,23 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	//    ref; Apply's hard-truncate is the backstop below this.
 	sections[secFiles] = filesHeading + sectionGap + "_Omitted to fit the comment size limit._"
 	c.filesDropped = true
+	// Supplemental guidance must not push mandatory metadata (especially the
+	// sole worktree location) into Apply's hard truncation. Rebudget with shorter
+	// guidance when even the reduced report cannot fit. Clone keeps rendering
+	// pure; each retry removes at least the overflow plus literal markup room,
+	// and guidance too short to be useful is omitted altogether.
+	if len(join(sections[:])) > r.budget && run.Result != nil &&
+		run.Result.Outcome == agent.OutcomeFailed && run.Result.Diagnostic != "" {
+		run.Result = run.Result.Clone()
+		diagnostic := oneLine(run.Result.Diagnostic)
+		room := min(len(diagnostic), 1024) - (len(join(sections[:])) - r.budget) - 32
+		if room < 64 {
+			run.Result.Diagnostic = ""
+		} else {
+			run.Result.Diagnostic, _ = truncateEnd(diagnostic, "…", room)
+		}
+		return r.runBody(run)
+	}
 	return join(sections[:]), c
 }
 
@@ -487,10 +505,19 @@ func describeRunOutcome(run Run) outcomeView {
 	case agent.OutcomeSucceeded:
 		return outcomeView{word: "succeeded", succeed: true}
 
+	case agent.OutcomeInterrupted:
+		return outcomeView{word: "interrupted by session limit", alert: "WARNING", lead: fmt.Sprintf("Run %d was interrupted by the coding agent session limit. The feature is not complete.", n)}
+
 	case agent.OutcomeFailed:
 		lead := fmt.Sprintf("Run %d failed: `%s` exited with status %d.", n, tool, res.ExitCode)
 		if res.ExitCode == agent.SignalExitCode {
 			lead = fmt.Sprintf("Run %d failed without an exit status of its own.", n)
+		}
+		// Guidance is a neutral adapter value, not arbitrary Reason content.
+		// Quote it literally and cap it before it enters the fixed report budget.
+		if diagnostic := oneLine(res.Diagnostic); diagnostic != "" {
+			diagnostic, _ = truncateEnd(diagnostic, "…", 1024)
+			lead += "\n\nDiagnostic: " + codeSpan(diagnostic)
 		}
 		return outcomeView{word: "failed", alert: "CAUTION", lead: lead}
 
@@ -548,6 +575,10 @@ func fixedSection(run Run, view outcomeView) string {
 	b.WriteString(metadataList(run, view))
 	b.WriteString(sectionGap)
 	b.WriteString(ReplyPlainlyNotice)
+	if text := recoverySection(run.Recovery); text != "" {
+		b.WriteString(sectionGap)
+		b.WriteString(text)
+	}
 	return b.String()
 }
 
@@ -765,7 +796,7 @@ func codeList(names []string) string {
 	return strings.Join(spans, ", ")
 }
 
-// SyncOutcome is which of the five outcomes litefactory's automatic branch
+// SyncOutcome is which of the outcomes litefactory's automatic branch
 // sync reached for one run's task branch, before the run itself started
 // (US-2).
 //
@@ -802,6 +833,10 @@ const (
 	// silently (AC-3.2).
 	SyncSkipped SyncOutcome = "skipped"
 
+	// SyncDeferredDirty means retained edits prevented synchronization; the run
+	// proceeded on the current branch without modifying them during sync.
+	SyncDeferredDirty SyncOutcome = "deferred_dirty"
+
 	// SyncFailed means litefactory tried to sync and the attempt itself
 	// broke — as distinct from [SyncBlocked], where nothing was attempted
 	// because the conflict was foreseen ahead of time.
@@ -812,7 +847,7 @@ const (
 // branch, before the run itself started. See [Run.Sync] for how a nil or
 // up-to-date value renders.
 type Sync struct {
-	// Outcome is which of the five outcomes sync reached.
+	// Outcome is the synchronization decision reached.
 	Outcome SyncOutcome
 
 	// Behind and Ahead are the divergence from Base that was measured before
@@ -889,6 +924,12 @@ func syncSection(run Run) string {
 		}
 		lead = fmt.Sprintf("litefactory skipped syncing this branch%s (%d commit(s) behind): %s.",
 			withBase, sync.Behind, reason)
+
+	case SyncDeferredDirty:
+		lead = fmt.Sprintf("litefactory deferred syncing this branch%s to preserve uncommitted changes "+
+			"for this run to inspect and finish (%d commit(s) behind, %d ahead). "+
+			"The base was not merged; this run proceeded on the current task base. "+
+			"Synchronization will be reconsidered on the next eligible clean run.", withBase, sync.Behind, sync.Ahead)
 
 	case SyncFailed:
 		reason := oneLine(sanitize(sync.Reason))

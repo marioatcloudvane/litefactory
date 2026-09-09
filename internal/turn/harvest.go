@@ -98,7 +98,13 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		prep.segment.ResumeToken = runResult.ResumeToken
 	}
 
-	run, err := opts.DB.FinishRun(bookkeeping, prep.run.ID, runOutcome(runResult))
+	var run store.Run
+	var err error
+	if runResult.Outcome == agent.OutcomeInterrupted {
+		run, err = finishInterruption(bookkeeping, opts, prep, runResult)
+	} else {
+		run, err = opts.DB.FinishRun(bookkeeping, prep.run.ID, runOutcome(runResult))
+	}
 	if err != nil {
 		return result, fmt.Errorf("finish run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
 	}
@@ -145,6 +151,9 @@ func runClaude(
 		return nil, err
 	}
 	result, err := prep.runner.Run(ctx, prep.request)
+	if prep.resumeOnly && errors.Is(err, agent.ErrSessionNotResumable) {
+		return result, fmt.Errorf("automatic recovery conversation is unusable; resume manually: %w", err)
+	}
 	if !errors.Is(err, agent.ErrSessionNotResumable) {
 		return result, err
 	}
@@ -245,10 +254,11 @@ func turnMeta(prep *preparation, result *harness.RunResult) harness.Meta {
 func runOutcome(result *harness.RunResult) store.RunOutcome {
 	exitCode := int64(result.ExitCode)
 	outcome := store.RunOutcome{
-		Status:     store.RunFailed,
-		ExitCode:   &exitCode,
-		Error:      result.Reason,
-		FinishedAt: result.FinishedAt,
+		Status:          store.RunFailed,
+		ExitCode:        &exitCode,
+		Error:           result.Reason,
+		FinishedAt:      result.FinishedAt,
+		SemanticOutcome: result.Outcome.String(),
 	}
 	if result.Succeeded() {
 		outcome.Status = store.RunSucceeded

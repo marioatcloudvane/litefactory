@@ -26,6 +26,9 @@ func (r *Reporter) refinementDestination(ctx context.Context, sessionID, comment
 	return ref, &refinement, nil
 }
 func (r *Reporter) consumeSource(ctx context.Context, sessionID, commentID int64) error {
+	if store.IsAutomaticTrigger(commentID) {
+		return nil
+	}
 	_, err := r.db.GetStoryRefinement(ctx, sessionID, commentID)
 	if errors.Is(err, store.ErrNotFound) {
 		_, err := r.db.AdvanceWatermark(ctx, sessionID, commentID)

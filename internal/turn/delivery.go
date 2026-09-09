@@ -293,6 +293,28 @@ func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
 // The task lock owns this read/create sequence. Vendor switches remain refusals;
 // only changes in effective instructions start another same-vendor segment.
 func prepareDeliverySegment(ctx context.Context, opts Options, req Request, session store.Session, ref naming.Ref, firstRef string, p *deliveryPlan) (store.Segment, *agent.Delivery, error) {
+	if req.Continuation != nil {
+		segment, err := opts.DB.GetSegment(ctx, req.Continuation.SegmentID)
+		if err != nil {
+			return store.Segment{}, nil, err
+		}
+		segment.DeliveryIdentity, segment.DeliveryRoot, err = opts.DB.SegmentDelivery(ctx, segment.ID)
+		if err != nil {
+			return store.Segment{}, nil, err
+		}
+		identity := ""
+		if p != nil {
+			identity = p.identity
+		}
+		if identity != segment.DeliveryIdentity {
+			return store.Segment{}, nil, fmt.Errorf("automatic recovery instruction bundle changed; resume manually")
+		}
+		if p == nil {
+			return segment, nil, nil
+		}
+		delivery, err := verifyDelivery(segment.DeliveryRoot, p)
+		return segment, delivery, err
+	}
 	if p == nil {
 		hadDelivery, err := opts.DB.HasSessionDelivery(ctx, session.ID)
 		if err != nil {

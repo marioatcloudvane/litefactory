@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/git"
 )
 
 // The two conditions [Execute] reports through its error return.
@@ -118,9 +119,11 @@ type syncRefusal struct {
 	// suggested-resolution advisor for it after the gate has been released.
 	// files and excluded are both nil unless [Options.SuggestConflictResolution]
 	// was true for this turn (S-10).
-	branch, base string
-	files        []agent.ConflictFileContent
-	excluded     []string
+	branch, base     string
+	collectionReason string
+	snapshots        []git.ConflictSnapshot
+	files            []agent.ConflictFileContent
+	excluded         []string
 
 	// baseSHA and branchSHA are US-12's addition: the base and branch tips
 	// [git.Worktree.MergePreview] was evaluated against, read while still

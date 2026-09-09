@@ -103,6 +103,10 @@ type Settings struct {
 	AttachmentMaxTotalBytes    int64  `yaml:"attachment_max_total_bytes"`
 	AttachmentMaxCount         int    `yaml:"attachment_max_count"`
 
+	// AutoResumeOnSessionLimit opts into bounded recovery after verified provider
+	// quota interruptions. The zero value keeps unattended retries disabled.
+	AutoResumeOnSessionLimit bool `yaml:"auto_resume_on_session_limit"`
+
 	// AutoSyncBase controls whether a later story's auto-sync step runs at
 	// all. Defaults to true: staying behind the base branch quietly, without
 	// anyone noticing, is the failure mode the sync feature exists to
@@ -442,6 +446,7 @@ func Defaults() Config {
 			AttachmentMaxDocumentBytes: DefaultAttachmentMaxDocumentBytes,
 			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
 			AttachmentMaxCount:         DefaultAttachmentMaxCount,
+			AutoResumeOnSessionLimit:   false,
 			AutoSyncBase:               true,
 			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
 			BlockRunOnConflict:         true,

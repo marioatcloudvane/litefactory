@@ -251,6 +251,7 @@ type Result struct {
 	// revalidation. [Reporter.ReportTurn] renders exactly one added line for
 	// it. It is always false when suggestions were disabled (AC-11.3).
 	ConflictSuggestionFailed bool
+	ConflictSuggestionReason string
 }
 
 // Reportable reports whether this turn owes the issue a comment. Every

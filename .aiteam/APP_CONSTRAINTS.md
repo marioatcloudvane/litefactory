@@ -48,21 +48,13 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   diagnostic can print the boundary.
 - **SEC-5** — Report renderers MUST revalidate echoed input locally. `profileNamePattern` and `commandSpan` remain renderer-owned; `commandSpan` MUST stop at the first disallowed rune. Tool-refusal types without label fields MUST retain that boundary.
 
-- **SEC-6** — Redaction MUST be treated as hygiene, not a boundary
-  (`internal/redact/doc.go`) — not giving the subprocess the secret is the
-  boundary. The ordering is enforced by type: renderers return `redact.Body`,
-  which only `redact.Redactor.Apply` constructs and outbound GitHub comment/issue
-  mutation methods consume. `Body.String()` exists for those consumers; callers
-  MUST NOT bypass the redacted-body mutation signatures. Outbound
-  bodies MUST be redacted; the local `$LF_HOME/logs` copy MUST NOT be.
+- **SEC-6** — Redaction MUST remain hygiene, not the subprocess secret boundary. Outbound bodies MUST use `redact.Redactor.Apply` and typed `redact.Body` mutation signatures; callers MUST NOT bypass them. Local `$LF_HOME/logs` copies MUST NOT be redacted.
 - **SEC-7 [enforced]** — litefactory MUST NOT write inside a registered clone.
   `git.Clone`'s method set *is* the S-6 allowlist (`Fetch WorktreeAdd
   WorktreeList WorktreeRemove RevParse RemoteURL ConfigGet ShowRef` + `Path`).
   There MUST be no `Commit`, `Checkout`, `Reset`, `Merge` or `Pull` on it, so
   mutating a registered clone stays a compile error.
-- **SEC-8** — Identity MUST be compared numerically, never by handle
-  (`internal/github/doc.go`, D-I). Logins are renameable and a fine-grained
-  PAT on a machine user reports type `"User"`.
+- **SEC-8** — Identity MUST be compared numerically, never by renameable handle (`internal/github/doc.go`, D-I).
 - **SEC-9 [enforced]** — `gh` MUST be used for identity discovery only, reached
   only by `litefactory init`, with `GITHUB_TOKEN`/`GH_TOKEN` stripped from its
   child environment (`internal/identity`).
@@ -91,17 +83,16 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **SEC-18** — `internal/team` MUST NOT import `internal/render` or
   `internal/teamsource`, preserving the `cli → teamsource → (team, render)`
   direction.
-- **SEC-19** — `PromptInput.PreviousReason` (`internal/harness/prompt.go`), the
-  previous run's stored failure reason, MUST NOT reach a resumed run's prompt
-  raw — it can be agent-authored text. `writePreviousFailedNote` MUST route it
-  through `capText`/`neutraliseNoteTags` and frame it in a `<note>` element
-  like any other third-party text, so a forged `</note>` or `- Mode:` line
-  cannot reach the header as structure.
+- **SEC-19** — Agent-authored `PromptInput.PreviousReason` MUST NOT enter resumed prompts raw. `writePreviousFailedNote` MUST apply `capText`/`neutraliseNoteTags` and `<note>` framing so prior failures cannot become prompt structure.
 
 ---
 
 - **SEC-20 [enforced]** — Current and approved GitHub story text MUST remain untrusted delimited data on every cold/resumed/fallback prompt. Framing tags MUST be neutralized or JSON-escaped without truncating the complete approved contract; story text MUST NOT select paths, forge targets, credentials or permissions. Forge reads and mutations MUST remain factory-owned; runner context MUST NOT carry forge credentials.
 - **SEC-21 [enforced]** — Proposal/index and evidence access MUST be rooted in the supplied worktree with symlink-component refusal and stable descriptor/content checks. Plan targets MUST be validated before forge effects. Verification MUST bind every accepted criterion plus passing scoped review/tests to immutable snapshot bytes and their implementation digest; ambiguous or empty obligations MUST NOT verify.
+
+- **SEC-22** — Conflict advisors MUST return complete identified-region coverage, with missing/null resolutions refused and explicit empty text distinguished. Factory byte spans MUST preserve outside bytes. Collection MUST refuse excluded siblings, unsupported text/types/modes, over 100 files, over 4096 conflict bytes/file, configured total overflow or originals over 1 MiB. Original reads and aggregate 1 MiB advisor output MUST be bounded before allocation.
+- **SEC-23** — Generation and apply MUST validate reconstructed text, Go syntax and raw digests/statistics, refusing results strictly below half baseline bytes OR logical lines; exact-half and empty baselines alone MUST NOT trigger shrinkage refusal. Legacy/unknown formats MUST refuse. Apply MUST match fresh canonical bytes and actual merges except ordinary marker labels, validate all candidates before writes, recheck containment and exact staged bytes/modes, and report failed raw-byte restoration honestly. Postcommit push failure MUST NOT undo the commit.
+- **SEC-24** — Stored conflict data MUST contain regions/identities/metrics and at most bounded sanitized preview, not new raw originals. Preview MUST reserve baseline SHA, every raw metric row and omission notice before diffs, refusing generation if metadata cannot fit. Display MUST state sanitization and Go-only parsing limits; display text MUST NOT replace raw apply bytes.
 
 ## 2. Configuration (`CFG`) — `internal/config`
 
@@ -131,6 +122,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CFG-8** — Nothing outside `internal/config` MAY join a path against
   `$LF_HOME`; a new path MUST become a method on `config.Paths` (`ConfigPath
   DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath`).
+
+- **CFG-9** — `settings.auto_resume_on_session_limit` MUST default to false and use the loaded configuration; enabling it MUST NOT change manual scheduling or introduce hot reload.
 
 ---
 
@@ -182,8 +175,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   condition is `Daemon.Quiesce` — not a shutdown `select`, not a sleep.
 - **CONC-3** — An attempted operation that failed MUST return a result describing its outcome. Errors are reserved for operations that could not be conducted or recorded; reportable failures MUST NOT become silence.
 
-- **CONC-4** — Post first, then commit. Every reporting path MUST render,
-  post, and only then write to the database in one transaction.
+- **CONC-4** — Reporting MUST render and post before acknowledging delivery or advancing watermarks. Execution outcome and recovery intent MUST be durable before announcement; delivery failure MUST NOT erase them.
 - **CONC-5** — Every store accessor and every git method MUST take `ctx` first.
 - **CONC-6** — Retries and sleeps MUST NOT appear below the daemon:
   `internal/github` retries nothing and sleeps nowhere; backoff is
@@ -205,6 +197,13 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **CONC-12 [enforced]** — GitHub title/body MUST be the sole editable managed story source. Plan publication MUST preserve the complete contract, validate current bases, and persist a link-only index before readiness. Implement MUST use the frozen generation on cold, resumed and fallback attempts; live edits, history and local story files MUST NOT replace it. New managed plans MUST NOT create per-story Markdown files; legacy conversion is outside this workflow.
 
+- **CONC-13** — Recovery MUST atomically persist semantic interruption and optional continuation before reporting, deduplicate by source run, and preserve context and original prerequisite identity. The root budget MUST count at most three automatic allocations; each MUST require fresh verified future-reset evidence. Suspended prerequisites MUST remain nonterminal until semantic settlement; only final success MUST release descendants, using final completion time.
+- **CONC-14** — Automatic admission MUST use existing capacity and task locks, explicit resume without cold fallback, and frozen managed scope. New owner work, reset, changed context, closure or loaded disable MUST durably cancel stale pending work, including future work. Observation failure MUST defer without advancing the watermark. Restart MUST requeue only unallocated reservations; allocated abandoned runs MUST remain terminal absent durable quota evidence.
+
+- **CONC-15 [enforced]** — Ordinary `needs_poll` backlog MUST clear after clean drain or confirmed explicit issue closure. Unknown states, lookup errors and failed clears MUST retain retry intent. Closure MUST preserve identity, state, watermarks and owed reports; skipped/error candidates MUST release admission without dispatch. Reopening MUST reuse normal discovery and retained watermarks. Worker capacity MUST NOT be described as a per-tick issue-read budget.
+- **CONC-16 [enforced]** — Normal dirty recovery MUST defer base synchronization after up-to-date, disabled and distance-cap decisions, before merge preview. Preparation MUST preserve HEAD, raw index and retained bytes/modes; status errors MUST retain their cause and prevent launch. Durable outcomes, all prompt paths and owner reports MUST disclose `deferred_dirty`, divergence and no sync SHA without claiming a merge or prior success.
+- **CONC-17 [enforced]** — Dirty confirmation MUST preserve work and the pending proposal without launching an agent, and MUST explain ordinary-comment recovery and fresh confirmation after revision changes. Merge MUST reject staged/tracked reserved-transport changes or branch/base reserved-path differences before mutation; ordinary untracked transport MAY coexist with safe synchronization.
+
 ## 5. Style and code shape (`STYLE`)
 
 - **STYLE-1** — Comments MUST explain why and remain true. When behavior changes, affected comments MUST be updated; use relevant decision/acceptance identifiers rather than restating code.
@@ -224,9 +223,7 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **STYLE-6 [enforced]** — CLI handlers MUST capture bound flag values in `Command.New` closures instead of rereading flag sets. They receive positional arguments and `cli.Env`. Usage/precondition errors are reserved for invocation failures; domain findings (including drift) MUST use ordinary errors.
 
-- **STYLE-7** — Read the `doc.go` for the package you are about to touch
-  before you touch it — its prose is that package's real specification (18
-  packages carry one).
+- **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
 - **STYLE-8** — `internal/harness/prompt.go`'s `"- Mode: %s\n"` header line
   and `CLAUDE.md`'s `## Classify` trust of that literal MUST change together,
   in the same commit. No test catches the `CLAUDE.md` side drifting —
@@ -249,10 +246,13 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   on; their behaviour MUST be probed read-only, in a scratch directory
   outside the repo, and written up. A test spawning a real `claude` MUST NOT
   be committed: slow, quota-consuming, flaky, and ungated.
-- **EXT-2** — A write-up MUST state the exact binary version verified
-  against and how to re-verify after an upgrade. Two exist; a change to how
-  litefactory invokes `claude` SHOULD extend one rather than starting a
-  third: the `--session-id`/`--resume` contract, and the tool-surface probe.
+- **EXT-2** — A probe write-up MUST state the verified binary version and re-verification steps. Claude invocation changes SHOULD extend the existing session/resume or tool-surface probe.
+
+- **EXT-3 [enforced]** — Quota classification MUST use provider-owned terminal refusal evidence, never generated prose or warnings. Every known blocking reset MUST be usable and future; the latest bound wins. Claude Unix seconds MUST use reset+60 elapsed seconds; Codex machine-local displayed minutes MUST use the next-minute boundary+60 seconds without changing the child timezone. Ambiguous dates, DST gaps/folds or inconsistent local context MUST remain report-only.
+
+- **EXT-3 [enforced]** — Codex generic `error` notices MUST remain raw-log diagnostics, separate from final agent content. Success MUST require exit zero, `turn.completed` and no explicit `turn.failed`; explicit failure MUST stay sticky regardless of terminal ordering or malformed optional detail. Zero-exit failure reasons MUST describe the stream evidence, not a failed process exit.
+
+- **EXT-4** — Before acceptance criteria freeze, planners MUST apply the [nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) and inventory each affected criterion’s proof method, source availability, version/context bounds and missing prerequisite. Unsupported in-run nested Codex observation MUST NOT be required under the current boundary. Missing authentic evidence MUST remain an unsatisfied obligation, never dropped scope or a success claim; frozen contract changes MUST use factory-mediated replanning.
 
 ---
 
@@ -260,30 +260,29 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 | Test | What it pins |
 |---|---|
-| `config/purity_test.go` | Configuration import purity and permission policy (SEC-1) |
-| `git/surface_test.go` | Clone read-only API and valid construction (SEC-7) |
+| `config/purity_test.go` | Config purity; SEC-1 |
+| `git/surface_test.go` | Read-only clone API; SEC-7 |
 | `git/construction_internal_test.go` | `Worktree` is built in exactly one place |
 | `git/exec_internal_test.go` | Deadlines, allowlisted child environment and PATH fallback (SEC-4, CFG-7) |
 | `github/surface_test.go` | Redacted mutations, pinned API inventory, consumer interfaces and token boundary (SEC-6, TEST-5) |
 | `identity/policy_test.go` | Identity-only gh execution (SEC-9) |
 | `gittest/policy_test.go` | no non-test file imports `internal/gittest` |
-| `repos/network_test.go` | registration makes no network call — `repo add` must work on a plane |
-| `config/template_test.go` | the shipped `config.yaml` template decodes back to `Defaults()` (CFG-3) |
-| `store/store_test.go` | Foreign keys, idempotent migration, watermarks, replay refusal and report transaction |
+| `repos/network_test.go` | Offline repository registration |
+| `config/template_test.go` | Template decodes to Defaults (CFG-3) |
+| `store/store_test.go` | Migration, replay and report transaction invariants |
 | `store/runs_test.go` | Persisted success predicate (STYLE-10) |
 | `daemon/clock_test.go` | Only Tick reads the clock |
-| `turn/gate_test.go` | `prepareClone`, `commitAndPush`, `commitStoryIndex` are the only call sites of `CloneGate.Acquire`, one each; the claude run itself is never inside a critical section |
+| `turn/gate_test.go` | CloneGate acquisition sites and exclusion of model calls |
 | `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Bounded worker pool and per-clone exclusion (CONC-2) |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
-| `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
 | `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
 | `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
-| `teamsource/render_test.go` | shared-agent `Teams` is unioned into `team.ExistingTeams`, never overwritten (SEC-17) |
+| `teamsource/render_test.go` | Shared-agent team membership union (SEC-17) |
 | `cli/cmd_team_status_test.go` | Domain versus precondition exits (STYLE-6) |
 | `cli/cmd_team_update_test.go` | Independent outcomes aggregate (STYLE-9) |
-| `turn/harvest_test.go`, `turn/subissues_test.go` (`TestSaveOnlyCommitsASucceededRun` and siblings) | `save` and `fileStoryIssues` commit/push only a genuinely succeeded run (CONC-8) |
+| `turn/harvest_test.go`, `turn/subissues_test.go`, `turn/plan_retry_transport_test.go` | Success-only save, publication failure and transport exclusion (CONC-8) |
 | `harness/prompt_previous_failed_test.go` | Untrusted failure-reason framing (SEC-19) |
 | `report/report_test.go` | One worktree location per failure (STYLE-11) |
 | `harness/approved_stories_test.go`, `plan_prompt_security_test.go`, `turn/approved_attempts_test.go` | Complete untrusted revision context across cold/resume/fallback (SEC-20) |
@@ -292,3 +291,11 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `store/story_progress_lock_test.go`, `turn/story_progress_test.go`, `story_ack_recovery_test.go` | Cross-process ownership, uncertain-response recovery and ordered invalidation (CONC-10) |
 | `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | Immediate child progress plus separate recoverable parent completion (CONC-11) |
 | `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | Complete publication, link-only index and frozen execution source (CONC-12) |
+| `codex/recovery_test.go` | Recoverable diagnostics, sticky terminal failure, final content and process/context precedence (EXT-3) |
+| `agent/conflict_regions_test.go` | Identified-region coverage and output bounds (SEC-22) |
+| `git/worktree_regions_test.go` | Preservation, staged barriers and honest restoration (SEC-23) |
+| `report/conflict_preview_test.go` | Complete metadata and safe bounded preview (SEC-24) |
+| `codex/quota_test.go`, `harness/quota_test.go` | EXT-3 |
+| `daemon/backlog_closure_test.go`, `daemon/backlog_test.go` | Durable closure retirement, retry retention, admission release, report preservation and reopening (CONC-15) |
+| `turn/deferred_dirty_test.go`, `store/deferred_sync_test.go`, `harness/deferred_sync_test.go`, `codex/deferred_sync_test.go` | Preserved dirty recovery, policy precedence, persistence and all-path disclosure (CONC-15) |
+| `turn/dirty_confirmation_recovery_test.go`, `git/reserved_sync_test.go` | Pending confirmation recovery and read-only transport collision refusal (CONC-16) |

@@ -54,3 +54,6 @@ go.work.sum
 
 # Factory-owned incremental story evidence transport.
 /.litefactory-story-events/
+
+# Factory-owned managed Plan proposal transport; never commit.
+/.litefactory-plan-proposal.json

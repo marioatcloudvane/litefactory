@@ -277,6 +277,7 @@ type ReplyRequest struct {
 	// [Result.ConflictSuggestionFailed].
 	ConflictProposal         *report.ConflictProposal
 	ConflictSuggestionFailed bool
+	ConflictSuggestionReason string
 
 	// ScheduleKind and Schedule describe a factory-owned scheduling response.
 	// They never carry the scheduled payload, so agent input is not echoed into
@@ -500,21 +501,26 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 		req.ConflictProposal = conflictProposalReply(*result.ConflictProposal)
 	case result.ConflictSuggestionFailed:
 		req.ConflictSuggestionFailed = true
+		req.ConflictSuggestionReason = result.ConflictSuggestionReason
 	}
 	return r.ReportReply(ctx, req)
 }
 
-// conflictProposalReply converts a persisted [store.ConflictProposal] into
-// the plain data [report.ConflictProposal] renders (US-11). It carries
-// forward only the paths and the model's own resolution text; the raw
-// conflicting content shown to the model was never on the store row to
-// begin with (S-9, S-10).
+// conflictProposalReply maps stored raw metrics and sanitized preview values;
+// no statistics are derived from displayed or redacted text.
 func conflictProposalReply(proposal store.ConflictProposal) *report.ConflictProposal {
 	files := make([]report.ConflictProposalFile, 0, len(proposal.Files))
 	for _, f := range proposal.Files {
-		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: f.Resolution})
+		resolution := f.Resolution
+		if proposal.Format == store.ConflictRegionFormat {
+			resolution = ""
+			for _, r := range f.Details.Regions {
+				resolution += r.Resolution
+			}
+		}
+		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: resolution, Diff: f.Details.Diff, Metrics: report.ConflictPreviewMetrics(f.Details.Metrics)})
 	}
-	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files}
+	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files, Format: proposal.Format, BranchSHA: proposal.BranchSHA}
 }
 
 // ReportRun posts one run's report, records the result comment id, advances the
@@ -558,6 +564,10 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 			slog.Int64("run_id", rep.RunID),
 			slog.Int64("result_comment_id", existing.ResultCommentID))
 		return Posted{Skipped: true, Run: existing}, nil
+	}
+
+	if err := r.attachRecoveryReport(ctx, &rep); err != nil {
+		return Posted{}, err
 	}
 
 	body, err := r.renderer.RenderRun(ctx, rep.Run)
@@ -672,6 +682,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		ConflictPaths:            req.ConflictPaths,
 		ConflictProposal:         req.ConflictProposal,
 		ConflictSuggestionFailed: req.ConflictSuggestionFailed,
+		ConflictSuggestionReason: req.ConflictSuggestionReason,
 		Schedule:                 req.Schedule,
 		Confirm:                  req.Confirm,
 	})

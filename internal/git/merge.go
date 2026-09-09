@@ -360,6 +360,29 @@ func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions
 		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s before merge: %w", w.branch, err)
 	}
 
+	// Status intentionally hides factory transport from ordinary task work.
+	// Raw Git still inspects those paths and can refresh the index even when
+	// it refuses a merge. Refuse tracked/staged transport changes read-only,
+	// while allowing the usual untracked proposal/event files (AC-171-7).
+	reservedArgs := append(append([]string{}, statusArgs...), "--untracked-files=no", "--", ".litefactory-plan-proposal.json", ".litefactory-story-events")
+	reserved, err := w.runner.run(ctx, readTimeout, reservedArgs...)
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("inspect reserved transport before merging %s: %w", base, err)
+	}
+	if reserved != "" {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: reserved factory transport has staged or tracked changes: %w", base, w.branch, ErrWorktreeUncommittedChanges)
+	}
+	// A reserved path from the base must not overwrite retained transport or
+	// enter the task's synchronization commit. Identical legacy tree entries
+	// are harmless; changing them requires explicit operator reconciliation.
+	reserved, err = w.runner.run(ctx, readTimeout, "diff", "--name-only", "-z", before, base, "--", ".litefactory-plan-proposal.json", ".litefactory-story-events")
+	if err != nil {
+		return MergeResult{}, fmt.Errorf("inspect incoming reserved transport from %s: %w", base, err)
+	}
+	if reserved != "" {
+		return MergeResult{}, fmt.Errorf("merge %s into %s: reserved factory transport differs between branch and base; retained content was preserved: %w", base, w.branch, ErrInvalidArgument)
+	}
+
 	args := []string{
 		"-c", "user.name=" + opts.Author.Name,
 		"-c", "user.email=" + opts.Author.Email,

@@ -7,6 +7,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/confirm"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -46,7 +47,11 @@ func (d *Daemon) handleConfirm(ctx context.Context, t *task, c github.Comment, c
 		return d.leave(ctx, t, log, "could not validate a conflict-resolution confirmation", err)
 	}
 	if kind, refused := confirmationRefusalReply(refusal); refused {
-		return d.replyConfirm(ctx, t, c, kind, report.ConfirmReply{ProposalID: request.ProposalID}, log)
+		reason := ""
+		if refusal == turn.ConfirmationUnsupportedFormat {
+			reason = "Legacy or unknown proposal format; request regeneration and confirm the new proposal number."
+		}
+		return d.replyConfirm(ctx, t, c, kind, report.ConfirmReply{ProposalID: request.ProposalID, Reason: reason}, log)
 	}
 
 	if d.confirmer == nil {
@@ -71,7 +76,14 @@ func (d *Daemon) handleConfirm(ctx context.Context, t *task, c github.Comment, c
 	case turn.ApplyOutcomeApplied:
 		files := make([]report.ConflictProposalFile, 0, len(result.Proposal.Files))
 		for _, f := range result.Proposal.Files {
-			files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: f.Resolution})
+			resolution := f.Resolution
+			if result.Proposal.Format == store.ConflictRegionFormat {
+				resolution = ""
+				for _, region := range f.Details.Regions {
+					resolution += region.Resolution
+				}
+			}
+			files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: resolution})
 		}
 		return d.replyConfirm(ctx, t, c, report.ReplyAppliesResolution, report.ConfirmReply{
 			ProposalID:  result.Proposal.ID,
@@ -87,7 +99,7 @@ func (d *Daemon) handleConfirm(ctx context.Context, t *task, c github.Comment, c
 		log.WarnContext(ctx, "could not apply a confirmed conflict-resolution proposal",
 			slog.Int64("proposal_id", result.Proposal.ID), slog.String("reason", result.Reason))
 		return d.replyConfirm(ctx, t, c, report.ReplyConfirmFailed,
-			report.ConfirmReply{ProposalID: result.Proposal.ID}, log)
+			report.ConfirmReply{ProposalID: result.Proposal.ID, Reason: result.Reason}, log)
 	}
 }
 
@@ -104,6 +116,8 @@ func confirmationRefusalReply(refusal turn.ConfirmationRefusal) (kind report.Rep
 		return report.ReplyConfirmAlreadyApplied, true
 	case turn.ConfirmationSuperseded:
 		return report.ReplyConfirmSupersededProposal, true
+	case turn.ConfirmationUnsupportedFormat:
+		return report.ReplyConfirmFailed, true
 	case turn.ConfirmationExpired:
 		return report.ReplyConfirmExpiredProposal, true
 	default:

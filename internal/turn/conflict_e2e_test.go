@@ -17,10 +17,17 @@ import (
 // conflictSuggestion is the answer a stubbed advisor returns for the
 // README.md conflict [conflictBaseAndBranch] produces in every test in this
 // file: the one conflicting path, resolved, with no conflict markers left.
-func conflictSuggestion(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
-	return agent.ConflictResolution{Files: []agent.ConflictResolutionFile{
-		{Path: "README.md", Resolution: "# fixture\nresolved by the advisor\n"},
-	}}, nil
+func conflictSuggestion(_ context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+	result := agent.ConflictResolution{Version: 1}
+	for _, f := range req.Files {
+		out := agent.ConflictResolutionFile{Path: f.Path}
+		for _, r := range f.Regions {
+			text := "resolved by the advisor\n"
+			out.Regions = append(out.Regions, agent.ConflictRegionResolution{ID: r.ID, Resolution: &text})
+		}
+		result.Files = append(result.Files, out)
+	}
+	return result, nil
 }
 
 // TestExecuteSuggestsAResolutionOnABlockedRun is AC-11.1 end to end: a
@@ -265,11 +272,11 @@ func TestConflictAdvisorNeverCalledWhileCloneGateIsHeld(t *testing.T) {
 		stubRunner: newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
 			return nil, errors.New("must not be reached")
 		}),
-		propose: func(context.Context, agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
+		propose: func(ctx context.Context, req agent.ConflictResolutionRequest) (agent.ConflictResolution, error) {
 			if gate.held() {
 				adviseCalledWhileHeld = true
 			}
-			return conflictSuggestion(context.Background(), agent.ConflictResolutionRequest{})
+			return conflictSuggestion(ctx, req)
 		},
 	}
 	f := newFixture(t, runner)
@@ -291,21 +298,8 @@ func TestConflictAdvisorNeverCalledWhileCloneGateIsHeld(t *testing.T) {
 	}
 }
 
-// TestExecuteAcceptsASuggestionNamingAnExcludedFile is a regression test for
-// CR-A-006, a non-blocking code-review advisory: validateConflictResolution
-// checks a model-returned path against the full [git.MergePreview.Conflicts]
-// list (sr.conflicts) rather than the narrower set of files
-// [collectConflictContent] actually collected and sent to the advisor
-// (sr.files). huge.txt conflicts — its path is in sr.conflicts — but is
-// excluded whole for exceeding the per-file byte budget (AC-11.5), so it is
-// never one of the files the advisor is shown. A response naming only
-// huge.txt still passes today's validation and is persisted.
-//
-// This documents the current behaviour so a future change does not alter it
-// silently; it is not an endorsement of the gap. If validation is narrowed to
-// check against sr.files instead, this test's assertions are expected to
-// flip and should be rewritten for the corrected behaviour.
-func TestExecuteAcceptsASuggestionNamingAnExcludedFile(t *testing.T) {
+// Any excluded sibling refuses the whole proposal before advisor invocation.
+func TestExecuteRefusesSuggestionWithAnExcludedSibling(t *testing.T) {
 	t.Parallel()
 
 	runner := &stubConflictRunner{
@@ -335,14 +329,13 @@ func TestExecuteAcceptsASuggestionNamingAnExcludedFile(t *testing.T) {
 		t.Fatalf("SyncConflicts = %v, want both README.md and huge.txt listed as conflicting", result.SyncConflicts)
 	}
 
-	// CR-A-006: current behaviour accepts this response, though huge.txt's
-	// content was never sent to the advisor.
-	if result.ConflictProposal == nil {
-		t.Fatalf("ConflictProposal is nil; today's validation accepts an excluded file's path (CR-A-006)\nlogs:\n%s", f.logs)
+	if result.ConflictProposal != nil || !result.ConflictSuggestionFailed {
+		t.Fatal("excluded sibling produced a proposal")
 	}
-	if len(result.ConflictProposal.Files) != 1 || result.ConflictProposal.Files[0].Path != "huge.txt" {
-		t.Errorf("stored proposal files = %+v, want exactly huge.txt", result.ConflictProposal.Files)
+	if runner.proposeCallCount() != 0 {
+		t.Fatal("advisor saw an incomplete file set")
 	}
+
 }
 
 // TestConflictSuggestionReachesATerminalStateAfterPosting is AC-11.6: once

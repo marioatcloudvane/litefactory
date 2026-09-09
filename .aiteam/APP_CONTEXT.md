@@ -26,21 +26,11 @@ dispatch, exit code).
 Arrows point at what a package imports (litefactory packages only).
 
 ```
-config        →  (nothing)          leaf. everything may depend on it.
-naming        →  (nothing)          leaf. pure functions, zero third-party imports.
-store         →  (nothing)          leaf. SQLite + every SQL statement in the tree.
-git           →  (nothing)          leaf. the only gateway to the git CLI.
-secrets       →  (nothing)          leaf. keychain / env token resolution.
-identity      →  (nothing)          leaf. the only package that execs `gh`.
-launchd       →  (nothing)          leaf. the macOS LaunchAgent.
-logging       →  (nothing)          leaf. slog construction + file sink.
-render        →  (nothing)          leaf. per-harness renderer registry (claude/codex/opencode).
-gittest       →  (nothing)          real package (not _test.go) — git fixtures for tests.
-planbrief     →  (nothing)          leaf. parses/rewrites plan_brief.md's Story Index + sub-issue bodies; strict versioned transient Plan proposals.
-attach        →  (nothing)          leaf. attachment-rejection vocabulary (Rejection, RejectionReason).
-schedule      →  (nothing)          leaf. parses factory-owned /schedule controls with injected time and location.
+config, naming, store, git, secrets, identity, launchd, logging, render,
+gittest, planbrief, attach, schedule → leaves
 
-agent         →  naming             vendor-neutral Runner/Request/RunResult contract; zero vendor naming (purity_test.go).
+agent         → naming
+
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
@@ -70,24 +60,34 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 
 | I need to… | Use | Notes |
 |---|---|---|
+| plan proof for coding-agent behavior | [Nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) | Evidence inventory, external capture route and historical claim limits |
 | resolve `$LF_HOME` or any path under it | `config.Locate()` → `config.Paths` | `ConfigPath DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath` |
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
 | run any SQL | `internal/store` | `Open(ctx, path)` then **`Migrate(ctx)` explicitly** — `Open` does not migrate. Accessors are one file per entity |
-| run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError` |
+| run any git command | `internal/git` | `Resolve(ctx)` → `Binary.Open(ctx, dir)` → `Clone` (reads) / `Worktree` (mutates). `EnsureWorktree`, `ParseRemoteURL`, `*CommandError`; `Status` preserves raw index; `MergeBase` guards staged/tracked or divergent reserved transport |
 | serialise git ops across concurrent turns on one registered clone | `internal/daemon`'s `cloneGate`, via `turn.Options.CloneGate` | Unexported in `daemon`; `internal/turn` only sees the `turn.CloneGate` interface it declares (`internal/turn/execute.go`). `nil` is refused, never treated as a no-op |
 | refuse two registered repos from sharing one worktree directory | `internal/repos` | `ValidateWorktreeRoots(existing)` at daemon startup, `ValidateNewWorktreeRoot(reg, existing)` at `repo add`, both before any row is written (AC-PAR-4.8) |
-| mark/clear/list a session that still owes the daemon a look | `internal/store` | `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions` in `store/sessions.go`; durable `sessions.needs_poll` backlog |
+| mark/clear/list a session that still owes the daemon a look | `internal/store` | `store/sessions.go`: `SetSessionNeedsPoll`, `ClearSessionNeedsPoll`, `ListBacklogSessions`; `daemon/tick.go:materialise` retires confirmed closed backlog |
 | build a git fixture in a test | `internal/gittest` | `New(tb)` gives a clone + local bare origin + tracking, offline. `AssertUnchanged` / `Capture`+`Snapshot.Diff` prove read-only behaviour |
 | call the GitHub API | `internal/github` | Concrete `*Client` backed by go-github/v90; the method inventory is pinned in `internal/github/surface_test.go`. `RateLimitError.RetryAfter` is what the daemon's backoff reads |
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
-| build a comment body | `internal/report` | Renders only; reaches no network and no database |
-| run `claude` or the OpenAI Codex CLI | `internal/harness` / `internal/codex` | Each implements `agent.Runner`; `harness` is the only place that execs `claude`, `codex` the only one that execs the Codex CLI |
+| build a comment body | `internal/report` | Pure rendering; failed-run `agent.RunResult.Diagnostic` is sanitized, literal and bounded |
+| resolve bounded conflict regions | `agent.ParseRegionConflictResolution`; `git.CollectConflictSnapshots`, `ValidateConflict` | Identified spans, complete reconstruction, raw digests/statistics and Go syntax/shrinkage checks |
+| persist and confirm conflict proposals | `store/conflict_proposals.go`; `turn/conflict_values.go`; `git/worktree_apply.go` | Versioned regions and fresh revision/merge checks; dirty confirmation stays pending with owner-comment recovery guidance |
+| recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
+| prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
+| run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
+| parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
+| classify terminal quota refusal | `agent.Interruption`; `codex/quota.go`, `harness/quota.go` | Neutral reset bound, precision and due time; adapter-owned diagnostic parsing |
+| recover an interrupted run | `store.FinishInterruptedRun`, `continuations.go`, `continuation_settlement.go` | Atomic evidence/intent, source-run deduplication, bounded chain and original prerequisite settlement |
+| admit or cancel automatic recovery | `daemon/continuation_dispatch.go`, `turn/continuation_dispatch.go` | Saved context, current-intent observation, UTC eligibility and explicit resume |
+| replay recovery announcements | `ListPendingInterruptionReports`, `daemon/continuation_cancellations.go`, `report/recovery.go` | Durable notice debt independent of owner watermarks |
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
-| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` — see below |
+| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | Uses durable semantic outcome when present, preserving interruption across reporting; legacy status/error fallback |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer`, `Register`/`Lookup`; Claude/OpenCode produce a standalone file plus a root marker section; Codex produces `.codex/skills/<agent>/SKILL.md` |
 | install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root, renders)` validates the batch, writes atomically under a repo flock, and compares recorded hashes with actual file/marker bytes |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
@@ -112,11 +112,3 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
-
-Store entry points are `store.Open(ctx, path)` and explicit `Migrate(ctx)`.
-The driver is pure-Go `modernc.org/sqlite`, with one connection and embedded
-numbered SQL migrations. `store/store.go` documents the transaction/pragmas.
-
-`agent.RunResult.Succeeded()` describes live subprocess evidence;
-`store.Run.Succeeded()` describes persisted outcomes. `turn.save` gates saving
-on the live result, and `report.run` renders the resulting delivery status.

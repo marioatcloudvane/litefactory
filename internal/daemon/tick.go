@@ -66,8 +66,9 @@ type TickResult struct {
 	// That listing stopped being the whole per-tick API cost some time ago:
 	// [Daemon.commentedIssues] adds a second one per repository, plus an issue
 	// read for each number only it returns, and [Daemon.backlog] adds a third
-	// source that costs no quota to discover and at most max_concurrent_runs
-	// issue reads to act on, however deep it has grown. See "AC-2.8 — a tick's
+	// source that costs no quota to discover. Backlog issue reads occur after
+	// admission guards accept a candidate; released slots can admit further
+	// reads, so worker concurrency is not a request budget. See "AC-2.8 — a tick's
 	// API cost is no longer one listing per repository" in
 	// .aiteam/AC_AMENDMENTS.md.
 	Repos int
@@ -126,6 +127,17 @@ type TickResult struct {
 // with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
+	if !d.autoResumeOnSessionLimit {
+		pending, err := d.db.ListPendingContinuations(ctx, 0)
+		if err != nil {
+			return TickResult{StartedAt: startedAt}, err
+		}
+		for _, c := range pending {
+			if err := d.db.CancelContinuation(ctx, c.ID, "automatic recovery disabled; resume manually", startedAt); err != nil {
+				return TickResult{StartedAt: startedAt}, err
+			}
+		}
+	}
 
 	if retryAt, held := d.backoff.hold(startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
@@ -167,6 +179,14 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 
 	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor}
 
+	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+		return result, d.observe(ctx, startedAt, err)
+	}
+	if err := d.replayInterruptionReports(ctx, repos); err != nil {
+		result.Duration = d.now().Sub(startedAt)
+		return result, d.observe(ctx, startedAt, err)
+	}
+
 	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
 	if err != nil {
 		result.Duration = d.now().Sub(startedAt)
@@ -184,9 +204,15 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	for _, repo := range repos {
 		reposByID[repo.ID] = repo
 	}
+	if err := d.dispatchContinuations(ctx, reposByID, startedAt, &result); err != nil {
+		return result, err
+	}
 	if err := d.dispatchSchedules(ctx, reposByID, startedAt, &result); err != nil {
 		result.Duration = d.now().Sub(startedAt)
 		return result, err
+	}
+	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
+		return result, d.observe(ctx, startedAt, err)
 	}
 	d.dispatch(ctx, queues, startedAt, &result)
 	result.InFlight = d.inflight.size()
@@ -384,9 +410,9 @@ func (d *Daemon) discover(
 //
 // A backlogged session arrives here without its [github.Issue], and stays that
 // way: the fetch happens in [Daemon.materialise], only for a session the
-// dispatcher has actually taken a slot for. That is what bounds the extra API
-// cost at max_concurrent_runs issue reads per tick however deep the backlog has
-// grown, instead of one per flagged row.
+// dispatcher has actually taken a slot for. This avoids reads for candidates
+// already in flight or refused capacity. Skips and errors release that slot,
+// so concurrency does not bound the number of issue reads in a tick.
 //
 // A session whose repository is not registered any more, or is on a forge this
 // build does not support, is left alone: there is nothing that could be done
@@ -616,6 +642,9 @@ func (d *Daemon) commentedIssues(
 // on it is written after the `go`, which is what makes it safe to pass by
 // pointer with no lock anywhere near it.
 type task struct {
+	continuation       *store.Continuation
+	continuationLocked bool
+
 	refining  bool
 	repo      store.Repo
 	forgeRepo github.Repo
@@ -786,11 +815,10 @@ const (
 // path.
 //
 // The issue read for a backlogged session comes last, after the slot is held,
-// and that placement is what makes the bound exact: at most max_concurrent_runs
-// GetIssue calls per tick, however deep the backlog is. Reading it before the
-// slot check would add one for the candidate that found the pool full, and
-// reading it before the in-flight check would add one per tick per session
-// already running — which is the cost the in-flight set exists to avoid.
+// avoiding a read for a candidate that finds the pool full or is already in
+// flight. A skipped candidate or materialisation error releases the slot
+// synchronously, and a worker can finish during dispatch, so the worker limit
+// is not a per-tick issue-read budget.
 //
 // A third guard sits below both of them and below the issue read, immediately
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
@@ -826,13 +854,14 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// The one release that is not a worker's defer. It is exactly the undo
 		// of the [pool.try] above — the slot goes back and the join's count comes
 		// down — and it is here rather than inside a goroutine because there is
-		// no turn to run: the issue was closed, or the forge would not say.
+		// no turn to run: the issue is not open, the forge would not say, or
+		// retiring its backlog flag failed.
 		d.pool.done()
 		d.inflight.leave(c.session.ID)
 		if err != nil {
 			d.rateLimited(ctx, c.log, tickAt, err)
-			c.log.ErrorContext(ctx, "could not read the issue behind a task that still needs a "+
-				"poll; it keeps its backlog flag and the next tick tries again",
+			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
+				"it keeps its backlog flag and the next tick tries again",
 				slog.Any("error", err))
 		}
 		return offerSkipped
@@ -931,9 +960,10 @@ func (d *Daemon) deferRest(ctx context.Context, queues []*repoQueue, result *Tic
 // issue behind it if discovery did not already have one.
 //
 // A nil task with a nil error means there is nothing to run: the issue has been
-// closed since it was flagged, which is how litefactory is told to stop working
-// on it (AC-2.22). The session keeps its backlog flag, and the next tick's
-// listing — or this same check — clears it by draining an empty queue.
+// observed as non-open. Confirmed closure durably retires ordinary backlog
+// without consuming comments or reports (US-1 AC-1, AC-5). An unknown state
+// retains the flag for a later observation; only explicit closure is terminal.
+// Reopening is found through normal discovery using the retained session.
 //
 // It runs on the Tick goroutine, so [naming.ParseRef] and the whole of task
 // construction stay where a test can count them, and no worker has to work out
@@ -949,6 +979,12 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 		issue = fetched
+	}
+	if issue.State == "closed" {
+		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
+			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
+				c.forgeRepo, c.session.IssueNumber, err)
+		}
 	}
 	if issue.State != github.StateOpen {
 		c.log.DebugContext(ctx, "a task that still needs a poll is no longer open; nothing runs",
@@ -1004,7 +1040,7 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		return
 	}
 	if !deferred {
-		// The one clear site, and deliberately a statement on the success path
+		// The clean-drain clear site, deliberately a statement on the success path
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
@@ -1254,14 +1290,12 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // markBacklog records that a session still owes the daemon a look, whatever the
 // forge's listings can still see (RD-2).
 //
-//	Protocol — one write site, one clear rule. The tick sets needs_poll = 1
-//	for every session it takes out of the eligible set, before the worker
-//	starts. The worker clears it only on a fully drained, error-free
-//	drain/bootstrap. Stale-true is safe and self-healing (the next tick
-//	re-lists, finds nothing above the watermark, clears). Stale-false is
-//	impossible. That asymmetry is the same posture as AdvanceWatermark's
-//	never-rewind: a bad outcome leaves the record pointing at *more* work,
-//	never less.
+//	Protocol — the tick sets needs_poll = 1 for every session it takes out
+//	of the eligible set, before the worker starts. A fully drained, error-free
+//	drain/bootstrap clears it, as does an explicit closed observation during
+//	materialisation (US-1 AC-7). Other exits retain retry intent. Stale-true
+//	is recoverable after a clean drain or confirmed closure; stale-false can
+//	lose work. That asymmetry follows AdvanceWatermark's never-rewind rule.
 //
 // It takes a session id and the logger the caller has already decorated,
 // because it is called before there is a task: a candidate the dispatcher
@@ -1272,7 +1306,8 @@ func (d *Daemon) consumed(ctx context.Context, sessionID, commentID int64) (bool
 // row read this tick already said needs_poll. Between that read and this write a
 // worker from an earlier tick can have finished and cleared the flag, and
 // declining to set it then is the stale-false the protocol forbids. One
-// idempotent UPDATE is the cheaper mistake.
+// repeated UPDATE preserves retry intent and refreshes updated_at even if
+// the flag was already true.
 //
 // A store failure is logged and goes no further. The flag is a re-discovery
 // hint rather than the work, so failing the turn over one would trade
@@ -1298,14 +1333,15 @@ func (d *Daemon) markBacklog(ctx context.Context, log *slog.Logger, sessionID in
 }
 
 // clearBacklog takes the flag back off a session whose work reached the end
-// without an error. It is the only place that clears it.
+// without an error. Terminal closure clears separately in [Daemon.materialise],
+// where persistence errors must propagate through admission error handling.
 //
 // The asymmetry with [Daemon.markBacklog] runs all the way down to the log
-// level: losing a clear leaves a stale-true flag, which the next tick heals by
-// re-listing the session, finding nothing above its watermark and clearing it
-// then. That costs one listing rather than a comment, so it is a warning and
-// not an error, and it needs no shutdown branch — every path that reaches here
-// has already returned the context's error rather than calling this.
+// level: losing a clear leaves a stale-true flag, recoverable when a later
+// tick can complete a clean drain or confirm closure. That retries observation
+// rather than losing a comment, so a failed clean-drain clear is a warning.
+// It needs no shutdown branch — every path that reaches here has already
+// returned the context's error rather than calling this.
 //
 // A bootstrap counts as drained when it returns no error, including one whose
 // issue-body run was swallowed by [Daemon.leave]. That is not a stale-false:
@@ -1524,7 +1560,7 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	workflowEnabled := len(d.classifiers) > 0 && !t.refining
+	workflowEnabled := len(d.classifiers) > 0 && !t.refining && t.continuation == nil
 	selection := store.ModeSelection{}
 	selectionErr := store.ErrNotFound
 	if workflowEnabled {
@@ -1541,6 +1577,8 @@ func (d *Daemon) run(
 	}
 	managedFrozen := featureErr == nil && feature.State != "planning" && !t.refining
 	switch {
+	case t.continuation != nil:
+		mode, labelled = agent.Mode(t.continuation.Context.Mode), true
 	case managedFrozen:
 		mode, labelled = agent.ModeImplement, true
 		if turn.ManagedReplan(command) {
@@ -1595,7 +1633,7 @@ func (d *Daemon) run(
 		}
 	}
 	labels, canLabel := d.forge.(labelForge)
-	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining
+	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining && t.continuation == nil
 	if mode.Valid() && !labelled && canLabel {
 		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
 			return d.leave(ctx, t, log, "could not apply the selected mode label", err)
@@ -1653,8 +1691,9 @@ func (d *Daemon) run(
 	}
 
 	turnResult, err := d.turn.Execute(ctx, turn.Request{
-		Mode:      mode,
-		SessionID: t.session.ID,
+		Continuation: t.continuation,
+		Mode:         mode,
+		SessionID:    t.session.ID,
 		Issue: turn.Issue{
 			Number: t.issue.Number,
 			Title:  t.issue.Title,
@@ -1682,6 +1721,7 @@ func (d *Daemon) run(
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
+		t.continuationLocked = t.continuation != nil
 		// RD-4: a lock lost to a second process is promoted from a drop to a
 		// marker-set. The dispatch above has already set the flag and the drain's
 		// deferral keeps it, but this is the one disposition whose entire meaning
@@ -1715,6 +1755,9 @@ func (d *Daemon) run(
 		if err := d.db.DeleteModeSelection(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
 		}
+	}
+	if t.continuation != nil && turnResult.Run.ID == 0 {
+		return fmt.Errorf("automatic recovery could not prepare; manual recovery required: %s", turnResult.Disposition)
 	}
 	log.InfoContext(ctx, "turn complete",
 		slog.String("disposition", turnResult.Disposition.String()),
