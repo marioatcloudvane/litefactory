@@ -254,6 +254,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
   litefactory invokes `claude` SHOULD extend one rather than starting a
   third: the `--session-id`/`--resume` contract, and the tool-surface probe.
 
+- **EXT-3 [enforced]** — Codex generic `error` notices MUST remain raw-log diagnostics, separate from final agent content. Success MUST require exit zero, `turn.completed` and no explicit `turn.failed`; explicit failure MUST stay sticky regardless of terminal ordering or malformed optional detail. Zero-exit failure reasons MUST describe the stream evidence, not a failed process exit.
+
 ---
 
 ## Enforcement
@@ -276,7 +278,6 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `daemon/gate_internal_test.go`, `pool_internal_test.go`, `inflight_internal_test.go` | Bounded worker pool and per-clone exclusion (CONC-2) |
 | `repos/collision_test.go` | two registered repos may not resolve the same worktree directory |
 | `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
-| `daemon/record_test.go` | Concurrency and acceptance-identifier invariants |
 | `turn/execute_test.go` (three new tests) | the running write is visible for the whole dispatch window; a refusal touches no session state and clears no failure (CONC-7) |
 | `team/write_test.go` | batch validation, atomic write, symlink refusal, owned-path checks (SEC-12–15) |
 | `team/marker_test.go` | root-file hash covers only the marker span (SEC-16) |
@@ -292,3 +293,4 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `store/story_progress_lock_test.go`, `turn/story_progress_test.go`, `story_ack_recovery_test.go` | Cross-process ownership, uncertain-response recovery and ordered invalidation (CONC-10) |
 | `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | Immediate child progress plus separate recoverable parent completion (CONC-11) |
 | `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | Complete publication, link-only index and frozen execution source (CONC-12) |
+| `codex/recovery_test.go` | Recoverable diagnostics, sticky terminal failure, final content and process/context precedence (EXT-3) |
