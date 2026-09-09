@@ -17,6 +17,8 @@ asked for; nothing here licenses starting the next one.
 - 2026-09-09 — session created; Research requested for issue #187.
 - 2026-09-09 — Research completed: audited all five admission sites; no missing release located in current source. Documented finish-message/count ambiguities, unsafe lock-only reconciliation, diagnostic gaps, and unresolved incident evidence in `RESEARCH_BRIEF.md`. No implementation or test execution.
 
+- 2026-09-09 — Run 0002 Research completed: applied the owner’s withdrawal of the leak diagnosis; identified unconditional managed-parent registry discovery as the concrete source-compatible explanation for repeated no-run workers. Rewrote `RESEARCH_BRIEF.md` around polling cost, admission diagnostics and metric semantics; production parent identities and deployed revision equivalence remain unverified. No implementation or test execution.
+
 ## Notes
 
 - Headless run: proceed without questions or confirmation; no commits or pushes.

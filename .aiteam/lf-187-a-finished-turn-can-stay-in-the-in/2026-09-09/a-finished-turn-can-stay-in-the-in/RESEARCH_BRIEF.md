@@ -2,121 +2,123 @@
 
 ## Request
 
-[O] Issue #187, “A finished turn can stay in the in-flight set, silently disabling that session until restart,” asks for research into a suspected in-memory dispatch reservation leak, distinct from the persistent `needs_poll` defect reported fixed in #169. The triggering instruction was “research this!”
+[O] Run 0002 corrects issue #187: withdraw the original in-flight residue diagnosis and investigate why every tick dispatches two workers with `issues=0`, while no agent run is prepared. The requested outcome is to identify the recurring work and improve the interpretation of activity counters, with a session-and-reason dispatch diagnostic suggested by the owner.
 
-[O] The owner reports a fresh daemon at revision `fbc4b02`, two prepared turns (#183 and #73), successful completion and report publication for #73, and later `in_flight=2` despite only one observed database session lock. The owner reports #73 idle with `needs_poll=0`, and an empty `automatic_continuations` table. These are supplied observations, not live runtime evidence independently captured in this run.
+[O] The owner reports a clean restart on `03d0481` followed by repeated `dispatched=2 in_flight=2`, including ticks with `issues=0`. The supplied database checks exclude sessions with `needs_poll=1`, running sessions, pending schedules, automatic continuations, active story progress runs and unconsumed refinements. These observations were supplied to this run; production data and logs were not independently read.
 
-The research scope is acquisition/release control flow, whether the reported evidence uniquely establishes a leak, dispatch diagnostics, and the safety of reconciling in-memory reservations against database locks. This run produces research only; “find and close” in the issue is treated as the eventual product objective, not authorization to move this run into Implement mode.
+**Finding:** [V, inference] Persistent managed-feature registration is the overlooked dispatch source. Every registered managed parent becomes a candidate on every tick, independently of all the supplied exclusions. Two eligible open managed parents can produce exactly the reported pattern: two polling workers, no new agent runs, clean idle sessions between ticks. The mechanism is verified in the worktree; the identities and count of the production managed parents remain unverified.
 
-Provenance: **[V]** verified from current repository source this run; **[O]** reported in the supplied issue/comment; **[W]** second-hand and unverified; **[R0]** carried forward from an earlier run. Inferences from verified source are explicitly described as such. Repository citations refer to this worktree; no previous session artifacts or live runtime state were consulted.
+Suggested issue title: **“Managed parents dispatch polling workers every tick, obscuring whether any agent work occurred.”** This is a recommendation only; no forge state was changed.
+
+Provenance: **[V]** verified from repository source in run 0002; **[O]** supplied owner evidence; **[W]** second-hand, unverified information; **[R0]** carried forward from run 0001 without a fresh audit. Inferences are labelled explicitly. This brief replaces the earlier diagnosis while preserving relevant prior findings below. Research only: no production edits, runtime-state access, tests, commits or pushes.
 
 ## Codebase Context
 
-### Repository and relevant ownership
+### Repository boundaries and revision limits
 
-[V] The repository is a single Go 1.26 module with command wiring in `cmd/litefactory`, implementation in `internal/`, and colocated tests (`go.mod:1`). The relevant boundaries are `daemon.Tick` for discovery/admission, worker `work` for bootstrap or comment draining, `turn.Execute` for a single agent run, and reporting for publication and durable consumption updates. SQL belongs to `internal/store`; SQLite has a one-connection limit (`internal/store/store.go:132`).
+[V] This is a single Go module with command wiring under `cmd/litefactory`, implementation and colocated tests under `internal/`. `daemon` owns discovery, polling, admission and time; `store` owns SQL and durable managed-feature/session state; `turn` owns actual execution; `github` owns forge access.
 
-[V] Ordinary work follows `Tick → discover → dispatch → offer → materialise → work → bootstrap/drain → handleComment → run → Execute → report`, then returns through the remaining worker bookkeeping. A dispatched worker can bootstrap, find no new comments, ignore comments, or process controls without preparing any agent run (`internal/daemon/tick.go:1033`, `:1082`, `:1383`, `:1410`). Counting prepared turns is therefore not equivalent to counting admitted workers.
+[V] The read-only worktree HEAD reflog inspected by the tour ends at merge `225e8bd620c234cd966ab278515bfb4d5ef08204`. The tour did not establish equivalence of the relevant files to deployed revision `03d0481`. All current-run source citations below refer to the supplied worktree, not a verified historical deployment snapshot. [R0] Run 0001 similarly did not establish equivalence to its reported deployed revision `fbc4b02`.
 
-[V] In-memory session exclusion and concurrent-worker capacity have different owners: `inflight` holds a mutex-protected set of session IDs, while `pool` uses a bounded channel (`internal/daemon/inflight.go:40`; `internal/daemon/pool.go:44`, `:96`). Neither is identical to the durable execution lock.
+### All discovery and dispatch sources
 
-### Acquisition/release audit
+[V] `Tick` discovers ordinary candidates, dispatches automatic continuations and schedules, then dispatches ordinary candidates without joining their workers (`internal/daemon/tick.go:190`, `:207`, `:210`, `:217`). Only ordinary offers, scheduled offers and automatic continuation dispatch increment `Dispatched` (`internal/daemon/tick.go:938`; `internal/daemon/schedules.go:115`; `internal/daemon/continuation_dispatch.go:75`). Announcement replays do not increment it.
 
-[V] The specialist inspected all five production entry sites in the current source. Every successful acquisition has visible synchronous cleanup or an installed defer. **No concrete enter-without-leave path was located.** This is a source audit finding, not proof that the reported running process had no defect or blocked worker.
-
-| Admission path | Entry | Synchronous cleanup | Asynchronous or deferred cleanup |
-|---|---|---|---|
-| Ordinary offer | `internal/daemon/tick.go:827` | Pool full `:845`; materialisation error/nil `:860`; backoff `:912` | Worker defer `:934` |
-| Scheduled offer | `internal/daemon/schedules.go:69` | Pool full `:74`; issue unavailable/not open `:82`; backoff `:93`; reserve error `:100`; reservation lost `:106` | Worker defer `:112` |
-| Automatic continuation | `internal/daemon/continuation_dispatch.go:54` | Pool full `:58`; reserve failure/loss `:65` | Worker defer `:74` |
-| Continuation report replay | `internal/daemon/continuation_reports.go:52` | All subsequent returns covered by immediate defer | Defer `:55` |
-| Continuation cancellation replay | `internal/daemon/continuation_cancellations.go:44` | All subsequent returns covered by immediate defer | Defer `:47` |
-
-[V] Continuation readiness, due time, repository/reference validity, and backoff checks occur before acquisition. Replay helpers install their cleanup before attempting durable lock acquisition, so a lock failure still releases their in-memory ownership (`internal/daemon/continuation_reports.go:55`–`:60`; `internal/daemon/continuation_cancellations.go:47`).
-
-[V] Ordinary materialisation copies the candidate session into the task (`internal/daemon/tick.go:999`). The scheduled and continuation workers likewise clean up the session they acquired. The inspected production references contain no later assignment replacing the task session or its ID; no wrong-key release was found.
-
-[V] `enter`, `leave`, and `size` use the same map and mutex (`internal/daemon/inflight.go:53`, `:74`, `:82`). Normal worker defer ordering releases in-memory ownership before returning the pool token (`internal/daemon/tick.go:928`, `:934`). A double leave does not explain a remaining map entry. No unowned stale-release path was found either; introducing one through recovery logic would create a separate exclusion risk.
-
-### Existing diagnostics and tests
-
-[V] Ordinary duplicate admission already emits a debug log using the candidate's logger (`internal/daemon/tick.go:832`). Scheduled duplicate refusal also logs (`internal/daemon/schedules.go:70`). Automatic continuation admission and both replay duplicate paths return silently (`internal/daemon/continuation_dispatch.go:54`; `internal/daemon/continuation_reports.go:52`; `internal/daemon/continuation_cancellations.go:44`). The issue's proposed logging improvement is thus partly present, with specific remaining gaps.
-
-[V] The set records session IDs and its peak count, without admission-instance identity, start time, worker phase, or release history (`internal/daemon/inflight.go:40`). There is no production per-worker completion event at the actual release boundary. Existing logs cannot establish that a particular admission survived its own worker return.
-
-| Inspected coverage | Evidence and limit |
+| Source | Relationship to the reported exclusions |
 |---|---|
-| Set mechanics and concurrency | Duplicate refusal, leave/readmission, size, peak, and concurrent access: `internal/daemon/inflight_internal_test.go:13`, `:48`, `:79`. |
-| Same-session exclusion and recovery | Blocks a turn, checks duplicate refusal and identifying logging, releases it, then permits subsequent same-session work: `internal/daemon/crossrepo_test.go:281`. |
-| Capacity refill | Another worker starts after a sibling finishes: `internal/daemon/refill_test.go:63`. The file explicitly describes post-report SQLite work before worker completion (`:16`). |
-| Admission cleanup | Backoff and closed-backlog coverage: `internal/daemon/dispatch_test.go:59`; `internal/daemon/backlog_closure_test.go:114`. |
-| Continuation duplication | Behavioral duplicate automatic admission coverage: `internal/daemon/continuation_admission_test.go:149`. |
-| Lifecycle diagnostic gaps | No dedicated inspected test links the “turn complete” message to the distinct release boundary or distinguishes equal counts with different admission identities. No explicitly named blocked-report/watermark exclusion test was located; the existing exclusion cases mostly block in the executor. This is a scoped search finding, not a claim that all indirect coverage is absent. |
+| Forge-listed and comment-discovered issues | Ordinary discovery counts forge-discovered issues; this is what `issues=0` describes (`internal/daemon/tick.go:75`, `:363`, `:368`). |
+| Stored managed-feature parents | Added independently after forge discovery and before backlog. Not excluded by any supplied database observation (`internal/daemon/tick.go:383`; `internal/daemon/story_refinements.go:26`). |
+| Ordinary session backlog | Added after managed parents (`internal/daemon/tick.go:386`). [O] No flagged or running sessions were observed. |
+| Due schedules | Separate dispatch source. [O] All supplied schedule rows were already successful. |
+| Automatic continuations | Separate dispatch source. [O] The table was empty. |
+| Pending refinements and active story progress | Their absence does not remove managed parents from discovery. Managed registration is enumerated first, before refinement readiness is inspected. |
 
-[V] Tests use temporary real SQLite/filesystem fixtures and fake external services. Channel rendezvous is an established concurrency-test pattern. `make check` includes formatting, vet, pinned lint, and race tests (`Makefile:22`). **Tests were inspected but not executed**; no passing runtime verification is claimed.
+[V] Managed-parent enumeration calls `ListManagedFeatures`, resolves each feature's parent session, requires a registered/pollable repository and avoids same-tick duplicate candidates. It does not require pending work (`internal/daemon/story_refinements.go:26`–`:45`). `ListManagedFeatures` selects every row in `managed_features`, without a state, readiness, active-run or pending-refinement predicate (`internal/store/story_refinements.go:109`–`:124`). An ordinary idle session is not automatically enrolled merely because it exists; **its managed-feature registration** is the decisive additional condition identified here.
 
-The tour ran its testing scanner. `.aiteam/rulebook.md` was absent, so that scanner applied generic testing principles. Architecture and security scanners were skipped because the question concerns the existing ownership lifecycle and does not propose package restructuring or trust-boundary changes. No web research was needed for these repository-local findings. Unrelated package details and additional tests with the same fixture patterns were omitted from the specialist's return.
+### The recurring no-run worker lifecycle
+
+[V] The following path explains why a clean database snapshot between ticks can coexist with recurring dispatch:
+
+1. Each tick adds registered managed parents as candidates, even with an empty incremental forge listing (`internal/daemon/tick.go:383`; `internal/daemon/story_refinements.go:26`).
+2. Ordinary admission enters the in-memory set, marks backlog, tries to acquire a pool slot and resolves the parent issue if needed (`internal/daemon/tick.go:827`, `:842`, `:844`, `:971`–`:981`).
+3. An explicitly closed parent clears backlog and is skipped without incrementing the dispatch count (`internal/daemon/tick.go:983`–`:992`, `:851`–`:867`). Persistent registration can still rediscover it next tick. Thus the proposed explanation for **two counted dispatches** requires eligible open parents, not merely two registry rows.
+4. An eligible open parent starts a worker and increments `Dispatched` (`internal/daemon/tick.go:924`–`:938`).
+5. The worker calls `refineStories` before draining parent comments (`internal/daemon/tick.go:1019`–`:1025`). This polls up to 16 children using persisted rotation, before inspecting pending refinements (`internal/daemon/story_refinements.go:65`–`:101`).
+6. With no pending refinement, it returns `false, nil` and the worker proceeds to ordinary parent comment draining (`internal/daemon/story_refinements.go:95`–`:101`; `internal/daemon/tick.go:1026`–`:1046`). An empty comment result never reaches comment handling or run preparation (`internal/daemon/tick.go:1241`–`:1247`).
+7. A clean drain clears backlog; worker return releases its in-memory admission (`internal/daemon/tick.go:1042`–`:1046`, `:934`). Persistent managed registration remains, so discovery repeats next tick.
+
+[V, inference] Two eligible open managed parents, with empty child and parent work, therefore produce two worker handoffs without an agent run and leave sessions idle/unflagged between ticks. Whether both workers remain in the set at the end-of-dispatch sample depends on timing; the reported `in_flight=2` is fully compatible with this path. Neither the supplied aggregate logs nor this source trace identifies which production sessions they are.
+
+### Why the polling exists and what it costs
+
+[V] The source explicitly explains that child changes need independent discovery because they may not update the parent timestamp, and closed children must also be inspected (`internal/daemon/story_refinements.go:23`–`:25`). Current-generation story enumeration includes completed stories (`internal/store/managed_stories.go:106`–`:108`). After promotion, child requests still receive a visible lock refusal (`internal/daemon/story_refinements.go:129`–`:136`). This is deliberate discovery behavior, not evidence of an unbalanced admission.
+
+[V] Each polled child ordinarily incurs issue, parent-relationship and comment reads (`internal/daemon/story_refinements.go:65`–`:99`, `:157`–`:174`), and the persisted rotation is updated per child (`:88`).
+
+[V, inference] For an open managed parent with no new work, the ordinary path can entail approximately two parent requests (issue and comments), plus three API operations for each of up to 16 children. Actual request totals depend on child count, failures, pagination and client behavior. These estimates describe source-level operations, not measured production traffic. The worker also sets and clears backlog. Consequently “no agent run” does not mean “no resource cost”: repeated discovery consumes API access, database writes and worker capacity. Whether that cost is acceptable for this deployment remains unresolved.
+
+### Metrics and logging
+
+| Field | Verified meaning | Implication |
+|---|---|---|
+| `Issues` | Forge-discovered issues (`internal/daemon/tick.go:75`–`:78`, `:368`). Managed registration does not increment it. | Zero does not mean the complete candidate set is empty. |
+| `Dispatched` | Worker handoffs, not run preparation or execution success (`internal/daemon/tick.go:79`–`:85`). | Poll-only work legitimately increments it. |
+| `InFlight` | Outstanding workers sampled after dispatch (`internal/daemon/tick.go:86`–`:90`, `:218`). | A short-lived polling worker can appear in the count and leave immediately afterward. |
+
+[V] Candidates carry task/session-decorated loggers but do not retain a discovery-source field (`internal/daemon/tick.go:540`–`:550`). Ordinary successful admission lacks a reason-bearing dispatch log. Empty refinement and parent-drain paths lack an affirmative “no actionable work” outcome message. Existing duplicate refusal already logs identity (`internal/daemon/tick.go:832`), and GitHub comment reads log at debug (`internal/github/comments.go:101`); these can provide clues but do not give a single causal admission record. Discovery documentation omits managed registry enrollment (`internal/daemon/doc.go:19`–`:27`).
+
+[V, inference] The metric implementation matches its documented contract. The operational problem is that the displayed aggregate fields do not distinguish discovery effort from productive agent work. Renaming or adding fields requires an explicit decision about what operators should interpret as activity; merely moving the in-flight sample would not explain the two workers or remove their cost.
+
+### Test evidence and gaps
+
+[V] Existing managed refinement tests cover child refinement, failed delivery and post-promotion refusal (`internal/daemon/story_refinements_test.go:45`, `:74`, `:97`). The fixture uses a local HTTP forge and real SQLite, replacing relationship lookup (`:16`–`:41`). No dedicated test was found that repeats empty-listing ticks for managed parents and asserts worker counts alongside zero agent runs. This is a scoped coverage finding, not a claim that no indirect coverage exists.
+
+[V] Backlog tests check clean drain/bootstrap clearing (`internal/daemon/backlog_test.go:28`, `:49`). Logging tests check identity on emitted messages rather than guaranteeing admission-reason or empty-worker outcome messages (`internal/daemon/logging_test.go:23`). Inflight tests cover exclusion, peak and concurrency (`internal/daemon/inflight_internal_test.go:13`, `:48`, `:79`). These fixtures support meaningful future behavior checks without inventing integration build tags.
+
+[V] The tour used its testing scanner. `.aiteam/rulebook.md` was absent, so its fallback was interpreted alongside project fixture conventions. Architecture and security scanners were skipped because no structural or authentication change was being researched. No web research was needed. Tests were inspected, not executed; no reproduction or passing test result is claimed. Future implementation remains subject to `make check` (formatting, vet, pinned lint and race tests; `Makefile:21`, `:26`, `:42`).
 
 ## Domain / Problem Space
 
-### The finish message does not establish worker completion
+### Correction to run 0001
 
-[V] **“turn complete” is emitted by `run`, not by the worker goroutine at exit** (`internal/daemon/tick.go:1762`). The owner's explanation that this is the last worker line immediately before the inflight defer is inconsistent with the current source.
+[O] The owner withdraws the original leak interpretation: the earlier `dispatched=1 in_flight=2` represented a long-running implement worker plus a freshly dispatched worker, and the completed #73 worker released. The newer repeat-dispatch series prompted the corrected investigation. The active research question is recurring polling activity, not repairing a demonstrated stale entry.
 
-[V] After an ordinary comment's run returns, control passes through `handleComment` (`internal/daemon/tick.go:1422`), reads consumption state (`:1255`, `:1283`), can continue to later comments or stop for one-shot classifier handling (`:1247`, `:1268`), and on a clean drain clears backlog (`:1042`, `:1352`). Only return from `work` executes the admission and pool defers (`:934`, `:928`). Scheduled work also reads the outcome and settles the schedule after `run` returns (`internal/daemon/schedules.go:122` onward).
+[R0] Run 0001 audited all five admission sites and found visible cleanup at every successful entry. It also established that the “turn complete” message precedes actual worker return and that successive equal counts need not have equal membership. Those earlier findings support the reframing; they are not presented here as a new full lifecycle audit.
 
-[V, inference] A worker paused or blocked in this later work can legitimately remain admitted after a successful turn and report. The existing refill test's description independently acknowledges this interval (`internal/daemon/refill_test.go:16`). The source identifies a plausible category of explanation; it does **not** establish that such blocking occurred in the reported incident or identify a blocking call.
+[V, inference] Aggregate dispatch counts alone do not mathematically rule out an unrelated leaked session elsewhere, since they do not identify membership. That logical limit is not a reason to retain the withdrawn incident diagnosis. There is no supplied evidence requiring a leak repair in this scope, and the current source provides a concrete recurring discovery mechanism compatible with all reported exclusions.
 
-### A constant count does not establish constant membership
+### Preserve ownership while improving interpretation
 
-[V] `Tick` samples the live map size after dispatch (`internal/daemon/tick.go:217`–`:218`). The metric is a real snapshot, as the owner states, but contains no membership or admission-generation evidence.
+[R0] In-memory worker ownership spans more than the durable execution lock: reporting and consumption can continue after execution unlocks (`internal/daemon/inflight.go:17`–`:27`; `internal/turn/execute.go:541`, `:565`; `internal/daemon/tick.go:929`). Pool capacity uses a separate channel, not set cardinality (`internal/daemon/pool.go:96`). Therefore per-tick deletion of entries solely because `sessions.lock_owner` is empty would allow overlapping legitimate work; an orphan set entry alone would not establish that a pool token was also retained.
 
-[O] The quoted `13:17:12` count precedes the reported `13:17:17` finish. The quoted `13:19:10` line reports `dispatched=1`. [V, inference] A sequence consistent with the supplied lines is that the old worker exits and a later polling worker enters, restoring the count to two. Such a worker need not emit “run prepared,” because admission can end with no executable comment (`internal/daemon/tick.go:1033`, `:1082`, `:1383`). The samples therefore do not uniquely distinguish a leaked member, an unfinished worker, and replacement membership. This alternative explanation does not disprove the owner's broader observation that subsequent comments stopped being serviced.
-
-### Three distinct lifetimes must remain distinct
-
-| State | What it represents | Why it cannot replace the other states |
-|---|---|---|
-| In-memory admission | A session worker or replay has ownership of its wider dispatch/publication interval | It begins before execution and can remain after execution ends. |
-| Durable session lock | Ownership of `turn.Execute` | Its defer releases the lock while reporting and comment-drain work can still remain. |
-| Pool token | A bounded concurrent worker slot | Capacity is controlled by channel admission, not by map cardinality. |
-
-[V] Execution acquires and releases its durable lock within `Execute` (`internal/turn/execute.go:541`, `:565`). The wider inflight interval deliberately spans publication and watermark processing (`internal/daemon/inflight.go:17`–`:27`; `internal/daemon/tick.go:929`). Replay also enters before it attempts the durable lock (`internal/daemon/continuation_reports.go:55`–`:60`).
-
-[V, inference] **An empty `sessions.lock_owner` is insufficient evidence of an orphaned inflight entry.** Erasing such entries on every tick would admit another worker during legitimate pre-execution or post-execution work. A recovery mechanism based only on that predicate would weaken exclusion precisely where publication and consumption still need protection.
-
-[V] Pool capacity is enforced by `pool.try`'s buffered channel (`internal/daemon/pool.go:96`), not `inflight.size()`. [V, inference] A hypothetical orphan map entry alone would prevent that session's redispatch but would not independently consume a pool slot. A still-blocked worker could retain both. The issue's broad capacity consequence requires distinguishing these failure modes rather than assuming that count inflation automatically means capacity loss.
+This prior safety conclusion remains relevant only as a boundary: do not carry the original lock-reconciliation proposal into a polling-observability change. No new evidence in run 0002 motivates reservation recovery.
 
 ## Constraints & Risks
 
-1. **Incident attribution remains unresolved.** [O] The reported daemon revision is `fbc4b02`. [V] This run audited current worktree source, without comparing that deployed revision or inspecting the running daemon. The source finding cannot be promoted to a historical incident diagnosis.
-2. **Do not repair a reservation merely because the execution lock is absent.** [V, inference] The two intervals differ by design, including real publication and consumption work (`internal/daemon/inflight.go:17`; `internal/turn/execute.go:565`). False recovery can cause overlapping workers and repeated or inconsistent processing.
-3. **Do not equate elapsed time with loss of ownership.** [V, inference] Duration or a successful run message does not prove that the worker returned. Any future recovery design needs evidence about the actual worker/admission lifetime and protection against a stale cleanup affecting a newer admission.
-4. **Preserve package boundaries and runtime safety.** The supplied project rules place SQL and database ownership in `internal/store`, time and tick/backoff policy in `internal/daemon`, and individual execution in `internal/turn`. This run did not modify runtime state, touch `dist/`, restart a daemon, obtain forge credentials, or commit/push.
-5. **Preserve normal low-activity behavior.** [V] A worker with no prepared turn can still be valid work (`internal/daemon/tick.go:1082`). Diagnostic interpretation must distinguish no executable comments from refused admission and a worker still finishing.
-6. **Tests are evidence of intended behavior, not an incident reproduction.** [V] Coverage exists for cleanup and readmission, but this run performed no execution and found no reproduction. Claiming a confirmed leak or a proven fix would exceed the evidence.
-7. **Silence is only partly addressed today.** [V] Ordinary and scheduled duplicate admission already log at debug; three continuation-related sites do not. More diagnostic detail must tie refusal to a specific session and active admission, rather than add another aggregate count with the same ambiguity.
+1. **Runtime attribution is still conditional.** [V, inference] Managed parents explain the pattern precisely, but production registration rows and parent identities were not supplied. Deployed revision equivalence is also unverified. Do not report the two sessions as identified or this deployment's cause as conclusively reproduced.
+2. **Suppressing polling can suppress discovery.** [V] Pending refinements are created by child polling; gating discovery on their prior existence is circular. Parent timestamps may not change, and closed/completed children and post-promotion requests have observable behavior that must remain supported (`internal/daemon/story_refinements.go:23`, `:129`).
+3. **Polling has a real cost even when benign.** [V, inference] API reads, rotation writes and temporary worker slots remain in use. Child counts and cadence matter when judging the operational impact.
+4. **Changing counter meaning can hide useful information.** [V, inference] Worker demand and concurrency remain useful independent of agent execution. Distinguish both concepts rather than making worker measurements silently represent prepared runs.
+5. **Keep diagnostics causal and bounded.** [V, inference] Source, session identity and worker outcome answer this incident more directly than another aggregate count. Multiple discovery sources can deduplicate into one candidate, so any reason vocabulary must specify whether it represents the first source or all contributing sources.
+6. **Preserve established ownership and safety boundaries.** SQL stays in `store`, tick policy in `daemon`, individual execution in `turn`. Research did not modify runtime state, write to `dist/`, restart a daemon or change forge state. The existing single-connection SQLite and external-binary rules remain applicable.
 
 ## Open Questions
 
-These are recorded for subsequent investigation, not questions requiring a response before this headless research run can finish.
+These are recorded for subsequent engineering work, not requests for a reply during this headless run.
 
-1. **Does the deployed source match the audited lifecycle?** A subsequent engineering investigation should compare the relevant paths against `fbc4b02` before attributing this incident to current code.
-2. **Which session and which admission accounted for the second member?** Subsequent diagnostic evidence needs membership and admission identity around both refusal and release. The supplied aggregate count cannot answer this.
-3. **Did the reported worker return?** Engineering needs an actual worker-release observation or a captured worker stack/phase to distinguish an orphan map entry from ongoing post-execution work. A run-finish message is insufficient.
-4. **What did the later `dispatched=1` worker do?** The incident evidence does not identify whether it was a polling-only worker or which session it admitted.
-5. **Were database state and counts sampled contemporaneously for the same admission?** An idle row and cleared backlog could describe an earlier completed drain; timestamped evidence must tie them to the claimed remaining member.
-6. **If a worker is blocked, where and why?** The audit locates post-run database/bookkeeping steps but does not establish deadlock, starvation, a held connection, or any other concrete cause. The one-connection database constraint is context, not proof of a store defect.
-7. **What proves safe recovery?** Plan/engineering must establish a reliable worker-liveness/ownership invariant before considering self-healing. Lock absence alone is ruled out by the current lifecycle; whether another recovery mechanism is necessary remains open.
+1. **Production identity:** engineering needs a read-only observation of the managed registry joined to parent sessions/repositories, or a causal dispatch log, to confirm whether exactly two open managed parents account for these workers. Include feature state/readiness and child counts. The supplied exclusions omit this registry.
+2. **Revision match:** engineering should compare the relevant discovery, refinement, dispatch and store enumeration paths at deployed `03d0481` with the audited worktree before declaring historical incident attribution complete.
+3. **Cost and polling policy:** operators and product owners need to decide what discovery latency and cost are acceptable, especially for promoted features, completed children and registered parents with no current children. The source trace establishes repeated work, not that every instance is unnecessary.
+4. **Activity semantics:** product/engineering should decide how to expose discovery polls, workers finding no actionable work and actual prepared agent runs while preserving useful concurrency visibility. Which existing log consumers rely on the current field meanings is unknown.
+5. **Behavioral preservation:** if later scope changes eligibility or cadence, engineering must show how unchanged-parent child updates, closed-child inspection, visible post-promotion refusal and persisted rotation continue to work.
 
 ## Recommended scope for Plan mode
 
-The following is a scope recommendation, not an implementation plan or a transition into another mode.
+- Center the work on managed-parent discovery and observable polling outcomes. First confirm the production parent identities and source-revision match; do not reopen a generic leak hunt without new evidence.
+- Define a diagnostic record for successful admission that names the session and discovery reason, and an outcome that distinguishes no actionable work from actual agent execution. Preserve existing useful identity and refusal logging; account for same-tick source deduplication.
+- Clarify displayed metrics and discovery documentation so zero forge results plus polling workers does not imply hidden agent activity. Keep worker concurrency visible as a separate operational concern.
+- Use existing SQLite/HTTP fixtures to cover repeated empty forge listings with open managed parents, zero prepared runs, clean backlog/readmission and the documented count semantics. Any polling reduction also needs checks for child changes without parent timestamp changes and closed/post-promotion child handling.
+- Consider eligibility or cadence changes only after measuring/confirming the relevant managed parents and deciding the discovery guarantee. This research does not prescribe a particular scheduler redesign or assert that polling is dispensable.
+- Exclude lock-based inflight reconciliation, unrelated continuation rewrites and implementation in this run.
 
-- Establish enough lifecycle evidence to distinguish refused dispatch, an active worker after run completion, an actually released worker, and a later admission of the same session. Keep the existing useful debug messages and consider the silent continuation paths.
-- Cover the real exclusion boundary in regression checks, especially reporting/consumption after durable lock release, cleanup/readmission following admission failures, and the difference between map size and pool capacity. Existing tests provide relevant fixtures; they are not replaced by another test that only mirrors map insertion/deletion.
-- Compare the incident revision and pursue a reproducible admission that survives actual worker completion. If a missing release is established, scope its correction to the demonstrated path and verify that exact behavior. If the worker is still alive, investigate its blocked phase instead.
-- Preserve ownership across pre-execution and post-execution intervals. Do not adopt per-tick clearing based solely on `sessions.lock_owner`, and do not present set cardinality as the capacity semaphore.
-- Keep this separate from the previously reported persistent `needs_poll` defect unless new evidence establishes a link. Avoid a broad scheduler or continuation redesign without a demonstrated cause.
-
-Research is complete with a narrowed diagnosis: the supplied observations do not prove a leaked admission, every current acquisition has visible cleanup, and the requested lock-based reconciliation would be unsafe. The actual incident cause remains unconfirmed. The assumption for this headless run was to complete research and document these uncertainties without asking questions or implementing changes.
+Research is complete: the overlooked managed-feature registry provides a concrete explanation for recurring no-run workers, while exact production attribution remains open. The headless assumption was to apply the owner's correction, finish research without confirmation and recommend a reframed title without editing the issue.
