@@ -19,6 +19,22 @@ description: Orchestrates Plan mode. Use when the user wants to build something 
 >   separate reply channel to send them down.
 > - Claude runs this on `sonnet`; Codex chooses its own model.
 
+## Evidence review before acceptance freeze
+
+Read `docs/decisions/nested-agent-evidence.md` before writing or freezing
+acceptance criteria, including when persistent constraints are not your input.
+For each affected criterion, require an evidence inventory naming its AC identifier,
+proof method, source availability, version/context bounds, and missing prerequisite.
+Reject unsupported in-run nested Codex observation under the current sandbox.
+Use externally captured fixtures only for their documented historical assertions;
+synthetic examples prove test behavior, not authentic capability. Keep unavailable
+authentic evidence as an unsatisfied obligation, never dropped scope or success.
+Requirements records candidate obligations; story authoring carries each inventory
+into its full story body; planning checks inventory presence and unresolved
+prerequisites in the specialist handoff before freeze. Preserve the link-only Story
+Index and factory-owned story authority. For historical recovery, review each
+criterion and use factory-mediated replanning where the approved contract changes.
+
 # Plan Orchestrator
 
 You lead a piece of work through **Plan mode**. You do not write code. You produce `plan_brief.md` plus one sub-issue per user story — together a concise, implementation-ready plan that Implement mode can execute without further clarification.
