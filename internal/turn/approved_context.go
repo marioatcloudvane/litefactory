@@ -17,6 +17,9 @@ import (
 
 // prepareApprovedContext reads persisted approval, never a live replacement body.
 func prepareApprovedContext(ctx context.Context, opts Options, in *harness.PromptInput, runID int64) error {
+	if in.Mode == "validate" {
+		return prepareValidationContext(ctx, opts, in)
+	}
 	if in.Mode != "implement" {
 		return nil
 	}
@@ -34,13 +37,13 @@ func prepareApprovedContext(ctx context.Context, opts Options, in *harness.Promp
 	if err != nil {
 		return fmt.Errorf("read approved stories: %w", err)
 	}
-	bundle := &agent.ApprovedBundle{ParentTitle: in.IssueTitle, ParentBody: in.IssueBody, Parent: feature.ParentTask, RunID: runID, RunOrdinal: in.RunOrdinal, Generation: feature.Generation}
+	bundle := &agent.ApprovedBundle{WorkflowVersion: feature.WorkflowVersion, ParentTitle: in.IssueTitle, ParentBody: in.IssueBody, Parent: feature.ParentTask, RunID: runID, RunOrdinal: in.RunOrdinal, Generation: feature.Generation}
 	for _, r := range revisions {
-		bundle.Stories = append(bundle.Stories, agent.ApprovedStory{State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: fmt.Sprintf("https://github.com/%s/%s/issues/%d", in.Ref.Owner, in.Ref.Repo, r.IssueNumber), Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)})
+		bundle.Stories = append(bundle.Stories, agent.ApprovedStory{EngineeringComplete: r.EngineeringComplete, State: r.State, Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID, ParentID: r.ParentID, Source: fmt.Sprintf("https://github.com/%s/%s/issues/%d", in.Ref.Owner, in.Ref.Repo, r.IssueNumber), Title: r.Title, Body: r.Body, Revision: r.Hash, FetchedAt: r.FetchedAt.UTC().Format(time.RFC3339Nano), Dependencies: slices.Clone(r.Dependencies)})
 	}
 	selected := 0
 	for _, story := range bundle.Stories {
-		if story.State != "completed" {
+		if story.State != "completed" && !story.EngineeringComplete {
 			selected++
 		}
 	}
@@ -58,7 +61,7 @@ func prepareApprovedContext(ctx context.Context, opts Options, in *harness.Promp
 		return fmt.Errorf("read completed dependency identities: %w", err)
 	}
 	for _, story := range all {
-		if story.State == "completed" {
+		if story.State == "completed" || story.EngineeringComplete {
 			bundle.CompletedDependencies = append(bundle.CompletedDependencies, agent.CompletedStory{Key: story.Key, IssueNumber: story.IssueNumber, IssueID: story.IssueID})
 		}
 	}

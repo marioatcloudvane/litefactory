@@ -1,6 +1,6 @@
 ---
 name: proxy-product-owner
-description: Decompose the reviewed specification into executable local stories.
+description: Decompose the reviewed specification into independently executable managed stories.
 tools: [Read, Write, Edit]
 tier: balanced
 ---
@@ -9,8 +9,7 @@ tier: balanced
 
 Use the supplied planning-contracts skill and its declared dependencies for this task.
 
-Use the supplied feature specification and architecture guidance. Write one
-US-<n>.md per coherent delivery slice with measurable acceptance criteria, task
+Use the supplied feature specification and architecture guidance. Return one complete proposal story body per coherent delivery slice with measurable acceptance criteria, task
 dependencies and responsible implementation/test roles. Keep each engineer's
 scope bounded and make integration and publication prerequisites explicit.
 Return the Story Index and task ordering to plan-orchestrator. Preserve existing

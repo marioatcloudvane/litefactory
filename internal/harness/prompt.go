@@ -188,6 +188,7 @@ type PromptInput struct {
 	DeferredSync DeferredSyncContext
 	// ApprovedStories is copied before rendering; it is explicit on all execution paths.
 	ApprovedStories *agent.ApprovedBundle
+	Validation      *agent.ValidationContext
 	// RefinementStory is the complete current child specification, independently bounded.
 	RefinementStory  string
 	RefinementSource string
@@ -441,6 +442,9 @@ func BuildPrompt(in PromptInput) (string, error) {
 	// below, because a resumed run's trigger comment can carry attachments
 	// the conversation has never seen.
 	writeAttachments(&b, in)
+	if err := writeValidation(&b, in); err != nil {
+		return "", err
+	}
 	if err := writeApprovedStories(&b, in); err != nil {
 		return "", err
 	}
