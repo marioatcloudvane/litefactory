@@ -197,10 +197,15 @@ func TestStructuredConsumersRecoverableDiagnostics(t *testing.T) {
 			}
 			return err
 		}},
-		{"ProposeConflictResolution", `{"files":[{"path":"a.go","resolution":"package a\n"}]}`, func(t *testing.T, r *Runner) error {
-			got, err := r.ProposeConflictResolution(t.Context(), agent.ConflictResolutionRequest{Branch: "feature", Base: "main", Files: []agent.ConflictFileContent{{Path: "a.go", Content: "conflicting content"}}})
-			if err == nil && (len(got.Files) != 1 || got.Files[0].Path != "a.go" || got.Files[0].Resolution != "package a\n") {
-				t.Fatalf("resolution = %+v", got)
+		{"ProposeConflictResolution", `{"version":1,"files":[{"path":"a.go","regions":[{"id":"a-1","resolution":"package a\n"}]}]}`, func(t *testing.T, r *Runner) error {
+			got, err := r.ProposeConflictResolution(t.Context(), agent.ConflictResolutionRequest{Branch: "feature", Base: "main", Files: []agent.ConflictFileContent{{Path: "a.go", Content: "conflicting content", Regions: []agent.ConflictRegionContent{{ID: "a-1", Content: "conflicting content"}}}}})
+			if err == nil {
+				if len(got.Files) != 1 || got.Files[0].Path != "a.go" || len(got.Files[0].Regions) != 1 {
+					t.Fatalf("resolution = %+v", got)
+				}
+				if r := got.Files[0].Regions[0].Resolution; r == nil || *r != "package a\n" {
+					t.Fatalf("region resolution = %v", r)
+				}
 			}
 			return err
 		}},
