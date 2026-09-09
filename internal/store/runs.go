@@ -660,6 +660,9 @@ RETURNING `+runColumns,
 				return fmt.Errorf("abandon run %d: %w", orphan.ID, err)
 			}
 			result.AbandonedRuns = append(result.AbandonedRuns, failed)
+			if err := abandonMeterAttempts(ctx, tx, orphan.ID, now); err != nil {
+				return fmt.Errorf("abandon meter attempts: %w", err)
+			}
 
 			_, err = tx.ExecContext(ctx, `UPDATE sessions SET state = ?, updated_at = ? WHERE id = ?`,
 				string(SessionFailed), FormatTime(now), failed.SessionID)

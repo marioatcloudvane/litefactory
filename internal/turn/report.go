@@ -815,7 +815,12 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		ordinal = next
 	}
 
+	metering, err := r.meterRunSummary(ctx, result.Run.ID)
+	if err != nil {
+		return report.Run{}, err
+	}
 	return report.Run{
+		Meter:   metering,
 		Ref:     result.Ref,
 		Ordinal: ordinal,
 		// result.Run.Agent is the segment's own value (store.AgentClaude for
