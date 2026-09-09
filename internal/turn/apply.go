@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -353,5 +354,17 @@ func ExecuteApplyResolution(ctx context.Context, opts Options, req ApplyRequest)
 // this run does not retry itself, and a fresh confirmation is what a later,
 // independently terminal run would be).
 func applyFailed(proposal store.ConflictProposal, err error) ApplyResult {
+	if errors.Is(err, git.ErrWorktreeUncommittedChanges) {
+		// Confirmation must not overwrite unfinished work. An ordinary run can
+		// now defer synchronization and let the owner recover it (AC-171-5).
+		return ApplyResult{
+			Outcome: ApplyOutcomeFailed, Proposal: proposal,
+			Reason: "The confirmed resolution was not applied because the worktree has uncommitted changes. " +
+				"Your work is preserved and the proposal remains pending. " +
+				"Post an ordinary owner comment asking the agent to finish the retained work; an eligible recovery run can proceed with base synchronization deferred. " +
+				"After recovery is saved, request another normal run to synchronize the clean branch. " +
+				"If the branch or base revision changes, this confirmation becomes stale; any new conflict proposal requires a fresh confirmation.",
+		}
+	}
 	return ApplyResult{Outcome: ApplyOutcomeFailed, Proposal: proposal, Reason: err.Error()}
 }
