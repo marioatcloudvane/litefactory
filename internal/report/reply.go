@@ -438,6 +438,7 @@ type Reply struct {
 	// which is what keeps that path's rendering byte-identical to the
 	// no-suggestion behaviour (AC-11.3).
 	ConflictSuggestionFailed bool
+	ConflictSuggestionReason string
 
 	// Schedule carries the safe, structured facts of a scheduling reply. It is
 	// set only for ReplyScheduleInvalid and ReplyScheduleConfirmed.
@@ -452,6 +453,8 @@ type Reply struct {
 // (US-12). ProposalID is set on every confirmation reply; the rest are set
 // only where the specific kind needs them — see each field's own comment.
 type ConfirmReply struct {
+	// Reason is an actionable failure disclosure, sanitized and fenced locally.
+	Reason string
 	// ProposalID is the proposal the confirmation named. Set whenever it is
 	// known, which is every kind except [ReplyConfirmInvalid] (a grammar
 	// failure may have no id to name at all).
@@ -476,24 +479,27 @@ type ConfirmReply struct {
 	CommitSHA string
 }
 
-// ConflictProposal is a suggested resolution for a blocked merge, read by
-// [ReplySuggestsResolution] alone (US-11). It carries only what the advisor
-// suggested — a proposal id, the model name, and per-file resolution text —
-// never the raw conflicting content that was shown to the model: that
-// content does not reach this package, the same boundary [store.ConflictProposal]
-// draws at the persistence layer (S-9, S-10).
+// ConflictProposal carries raw statistics and sanitized prepared diffs for a
+// region proposal. Legacy values remain displayable but cannot be confirmed.
 type ConflictProposal struct {
-	ID    int64
-	Model string
-	Files []ConflictProposalFile
+	Format    int
+	BranchSHA string
+	ID        int64
+	Model     string
+	Files     []ConflictProposalFile
 }
 
-// ConflictProposalFile is one conflicting path and the model's suggested,
-// fully resolved replacement content for it.
+// ConflictProposalFile carries one path's raw statistics and prepared diff.
+// Resolution is retained only for displaying legacy proposals.
 type ConflictProposalFile struct {
+	Diff       string
+	Metrics    ConflictPreviewMetrics
 	Path       string
 	Resolution string
 }
+
+// ConflictPreviewMetrics are raw factory-derived values, never display-derived.
+type ConflictPreviewMetrics struct{ BeforeBytes, AfterBytes, BeforeLines, AfterLines, Additions, Deletions int }
 
 // ScheduleReply is the factory-owned information rendered for a scheduling
 // control. It deliberately carries no payload: an instruction is agent input,
@@ -814,6 +820,11 @@ func (r Reply) body() string {
 		if r.ConflictSuggestionFailed {
 			b.WriteString(sectionGap)
 			b.WriteString(conflictSuggestionFailedSentence)
+			if r.ConflictSuggestionReason != "" {
+				reason := sanitize(r.ConflictSuggestionReason)
+				fence := fenceFor(reason)
+				b.WriteString("\n" + fence + "\n" + reason + "\n" + fence)
+			}
 		}
 		b.WriteString(sectionGap)
 		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
@@ -836,7 +847,7 @@ func (r Reply) body() string {
 		b.WriteString(sectionGap)
 		b.WriteString(conflictProposalConfirmationSentence)
 		if r.ConflictProposal != nil {
-			fmt.Fprintf(&b, " To apply it exactly as shown, comment `/confirm %d apply this resolution`.", r.ConflictProposal.ID)
+			b.WriteString(" This legacy proposal cannot be confirmed. Request regeneration and confirm the new proposal number.")
 		}
 		b.WriteString(sectionGap)
 		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
@@ -924,10 +935,13 @@ func (r Reply) body() string {
 		fmt.Fprintf(&b, "Proposal `%d` was already applied. Nothing more was done.", r.Confirm.ProposalID)
 
 	case ReplyConfirmFailed:
-		fmt.Fprintf(&b, "I could not apply proposal `%d`. Nothing was written: this task's branch, index and "+
-			"commits are unchanged.", r.Confirm.ProposalID)
+		fmt.Fprintf(&b, "I could not complete application of proposal `%d`.", r.Confirm.ProposalID)
+		if reason := sanitize(r.Confirm.Reason); reason != "" {
+			fence := fenceFor(reason)
+			b.WriteString("\n" + fence + "\n" + reason + "\n" + fence)
+		}
 		b.WriteString(sectionGap)
-		b.WriteString("Comment again once the underlying issue is resolved.")
+		b.WriteString("Resolve the reported issue manually or request regeneration and confirm the new proposal number. A failed cleanup or push can leave local changes; the reported failure describes the outcome.")
 
 	case ReplyAppliesResolution:
 		fmt.Fprintf(&b, "Applied proposal `%d`.", r.Confirm.ProposalID)

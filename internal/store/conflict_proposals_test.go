@@ -316,6 +316,6 @@ func TestConflictProposalsSchemaHasNoContentColumn(t *testing.T) {
 	}
 
 	assertColumns("conflict_proposals", []string{"id", "session_id", "trigger_comment_id", "model", "status", "created_at", "resolved_at",
-		"base_sha", "branch_sha", "confirmed_by", "confirmed_comment_id", "applied_commit_sha", "applied_at"})
-	assertColumns("conflict_proposal_files", []string{"id", "proposal_id", "ordinal", "path", "resolution"})
+		"base_sha", "branch_sha", "confirmed_by", "confirmed_comment_id", "applied_commit_sha", "applied_at", "format"})
+	assertColumns("conflict_proposal_files", []string{"id", "proposal_id", "ordinal", "path", "resolution", "details"})
 }

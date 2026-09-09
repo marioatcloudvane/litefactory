@@ -135,6 +135,9 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 		reply.ConflictProposal.ID <= 0 || reply.ConflictProposal.Model == "") {
 		return redact.Body{}, fmt.Errorf("report: %w: incomplete conflict resolution suggestion", ErrInvalidArgument)
 	}
+	if reply.Kind == ReplySuggestsResolution && reply.ConflictProposal.Format == 1 {
+		return r.renderConflictPreview(ctx, reply)
+	}
 	return r.apply(ctx, reply.body())
 }
 

@@ -274,8 +274,9 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// closing CR-B-001): the same forge client and the same renderer
 		// already built above for posting the run's own report, reused rather
 		// than built twice.
-		SubIssueCreator:  client,
-		SubIssueRenderer: renderer,
+		SubIssueCreator:   client,
+		SubIssueRenderer:  renderer,
+		ConflictPreviewer: renderer,
 		// Attachment ingestion (US-3). The same forge client again: it
 		// is the only thing holding the installation token, which is
 		// what a private-repo attachment fetch needs, and keeping the

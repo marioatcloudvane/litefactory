@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/git"
+	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -142,6 +146,11 @@ func conflictAdvisorFor(kind agent.Kind, runners RunnerSet) (ConflictAdvisor, bo
 	return advisor, ok
 }
 
+// ConflictPreviewer prepares a reviewable sanitized preview before persistence.
+type ConflictPreviewer interface {
+	PrepareConflictPreview(context.Context, naming.Ref, report.ConflictProposal) (report.ConflictProposal, error)
+}
+
 // validateConflictResolution re-checks a model's answer locally before
 // anything is persisted or posted (T-11.8): every path must be one of the
 // paths that actually conflicted, every path may appear at most once, and no
@@ -220,7 +229,8 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 		// nothing is sent to a model, and nothing is persisted for it.
 		return result
 	}
-	if len(sr.files) == 0 {
+	if len(sr.files) == 0 || len(sr.excluded) != 0 {
+		result.ConflictSuggestionReason = sr.collectionReason
 		logger.Info("conflict-resolution suggestion: nothing usable was collected to send",
 			slog.Int("excluded", len(sr.excluded)))
 		result.ConflictSuggestionFailed = true
@@ -235,14 +245,15 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	}
 
 	resolution, err := advisor.ProposeConflictResolution(ctx, agent.ConflictResolutionRequest{
-		Branch: sr.branch, Base: sr.base, Files: sr.files,
+		Branch: sr.branch, Base: sr.base, Files: conflictAdvisorFiles(sr.snapshots),
 	})
 	if err != nil {
 		logger.Warn("conflict-resolution advisor failed", slog.Any("error", err))
 		result.ConflictSuggestionFailed = true
 		return result
 	}
-	if err := validateConflictResolution(resolution, sr.conflicts); err != nil {
+	if err := agent.ValidateRegionConflictResolution(resolution, agent.ConflictResolutionRequest{Branch: sr.branch, Base: sr.base, Files: sr.files}); err != nil {
+		result.ConflictSuggestionReason = err.Error()
 		logger.Warn("conflict-resolution advisor produced an unusable response", slog.Any("error", err))
 		result.ConflictSuggestionFailed = true
 		return result
@@ -257,13 +268,35 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 		}
 	}
 
-	storeFiles := make([]store.ConflictProposalFile, 0, len(resolution.Files))
-	for _, f := range resolution.Files {
-		storeFiles = append(storeFiles, store.ConflictProposalFile{Path: f.Path, Resolution: f.Resolution})
+	validated, err := validateCollectedConflictResolution(sr.snapshots, resolution)
+	if err != nil {
+		result.ConflictSuggestionReason = err.Error()
+		logger.Warn("conflict content refused", slog.Any("error", err))
+		result.ConflictSuggestionFailed = true
+		return result
+	}
+	if opts.ConflictPreviewer == nil {
+		result.ConflictSuggestionFailed = true
+		result.ConflictSuggestionReason = "preview renderer unavailable; resolve manually or regenerate"
+		return result
+	}
+
+	preview, previewErr := opts.ConflictPreviewer.PrepareConflictPreview(ctx, result.Ref, rawConflictPreview(validated, string(req.Agent), sr.branchSHA))
+	if previewErr != nil {
+		result.ConflictSuggestionFailed = true
+		result.ConflictSuggestionReason = previewErr.Error()
+		return result
+	}
+
+	storeFiles := make([]store.ConflictProposalFile, 0, len(validated))
+	for i, f := range validated {
+		file := storedRegionFile(f)
+		file.Details.Diff = preview.Files[i].Diff
+		storeFiles = append(storeFiles, file)
 	}
 	proposal, _, err := opts.DB.CreateOrGetConflictProposal(ctx, store.CreateConflictProposalParams{
 		SessionID: result.SessionID, TriggerCommentID: result.TriggerCommentID,
-		Model: string(req.Agent), Files: storeFiles,
+		Model: string(req.Agent), Files: storeFiles, Format: store.ConflictRegionFormat,
 		BaseSHA: sr.baseSHA, BranchSHA: sr.branchSHA,
 	})
 	if err != nil {
@@ -273,4 +306,52 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	}
 	result.ConflictProposal = &proposal
 	return result
+}
+
+func conflictAdvisorFiles(snapshots []git.ConflictSnapshot) []agent.ConflictFileContent {
+	files := make([]agent.ConflictFileContent, 0, len(snapshots))
+	for _, s := range snapshots {
+		f := agent.ConflictFileContent{Path: s.Path}
+		for _, r := range s.Regions {
+			f.Regions = append(f.Regions, agent.ConflictRegionContent{ID: r.ID, Content: r.Content})
+		}
+		files = append(files, f)
+	}
+	return files
+}
+func validateCollectedConflictResolution(snapshots []git.ConflictSnapshot, response agent.ConflictResolution) ([]git.ValidatedConflict, error) {
+	if len(snapshots) == 0 || len(snapshots) != len(response.Files) {
+		return nil, fmt.Errorf("incomplete original snapshots")
+	}
+	byPath := map[string]agent.ConflictResolutionFile{}
+	for _, f := range response.Files {
+		byPath[f.Path] = f
+	}
+	var validated []git.ValidatedConflict
+	var faults []error
+	for _, s := range snapshots {
+		f, ok := byPath[s.Path]
+		if !ok {
+			faults = append(faults, fmt.Errorf("missing path %q", s.Path))
+			continue
+		}
+		var regions []git.RegionResolution
+		for _, r := range f.Regions {
+			if r.Resolution == nil {
+				faults = append(faults, fmt.Errorf("missing resolution for %q", s.Path))
+				continue
+			}
+			regions = append(regions, git.RegionResolution{ID: r.ID, Resolution: *r.Resolution})
+		}
+		v, err := git.ValidateConflict(s, regions)
+		if err != nil {
+			faults = append(faults, err)
+			continue
+		}
+		validated = append(validated, v)
+	}
+	if err := errors.Join(faults...); err != nil {
+		return nil, err
+	}
+	return validated, nil
 }

@@ -79,3 +79,33 @@ verified it, while other stories can still be running. If later work invalidates
 that evidence, the affected story reopens. Final feature checks remain required.
 Comment `replan` or `/plan <instruction>` on the parent while no run is active
 to reopen unfinished scope. Existing legacy story files are not migrated or converted.
+
+### Confirming conflict resolutions
+
+Conflict suggestions resolve factory-identified regions. Litefactory preserves
+the surrounding file bytes and validates every reconstructed file before storing
+a proposal and again before applying an owner's numeric confirmation. Legacy
+whole-file proposals cannot be applied: request a new suggestion, review it, and
+confirm its new proposal number.
+
+The preview names the task-branch baseline SHA and shows every file's raw
+before/after byte counts, logical lines, and additions/deletions. Its diff is
+sanitized and may be incomplete; omission never removes the statistics. If the
+complete metadata cannot fit the comment limit, no confirmable proposal is
+created.
+
+A result strictly below half the baseline bytes **or** half its logical lines is
+refused. Exactly half is allowed; an empty baseline alone does not trigger this
+check. Go files must parse as complete source, but this is not type checking.
+Other languages receive content checks, not language-specific parsing. Invalid
+UTF-8, NUL, remaining markers, unsupported conflict types, and incomplete region
+coverage require manual resolution or regeneration; there is no unsafe-confirm
+override.
+
+Collection accepts at most 100 files, 4,096 bytes of complete conflict content
+per file and the configured total content budget. Original files are read within
+a 1 MiB bound, and aggregate advisor output is bounded to 1 MiB. Entire proposals
+are refused when a bound or supported-content requirement fails. Confirmation
+rechecks raw digests, statistics, file modes, and written/staged bytes before
+committing. Failed restoration is reported explicitly; a push failure after
+commit can leave the local merge commit in place.

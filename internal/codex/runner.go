@@ -225,16 +225,19 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 		}
 		return nil
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := agent.ConflictOutputBuffers()
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w", err)
+	}
+	if stdout.Exceeded || stderr.Exceeded {
+		return agent.ConflictResolution{}, errors.New("conflict advisor output exceeds 1 MiB")
 	}
 	stream := consume(bytes.NewReader(stdout.Bytes()), io.Discard)
 	if !stream.completed || stream.failed {
 		return agent.ConflictResolution{}, errors.New("conflict advisor returned no successful terminal result")
 	}
-	resolution, err := agent.ParseConflictResolution(stream.text)
+	resolution, err := agent.ParseRegionConflictResolution(stream.text, req)
 	if err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor returned invalid resolution: %w", err)
 	}
@@ -328,24 +331,35 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 		Events: stream.events, Malformed: stream.malformed, LongestLine: stream.longest,
 		Stderr: stderr.String(), StreamError: stream.err, StartedAt: started, FinishedAt: finished,
 		Duration: finished.Sub(started)}
-	switch {
-	case exitCode == 0 && stream.completed && !stream.failed:
-		result.Outcome = agent.OutcomeSucceeded
-	case ctx.Err() != nil:
-		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeAbandoned, "abandoned: caller cancelled the run", agent.SignalExitCode
-	case errors.Is(runCtx.Err(), context.DeadlineExceeded):
-		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeTimedOut, fmt.Sprintf("timed out after %s", r.timeout), agent.SignalExitCode
-	case exitCode == 0 && !stream.completed:
-		result.Outcome, result.Reason = agent.OutcomeNoResult, "coding agent exited 0 without a terminal result event"
-	default:
-		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", exitCode)
-	}
+	classifyOutcome(result, stream, ctx.Err(), runCtx.Err(), r.timeout)
 	r.logger.Info("coding agent finished", "agent", "codex", "outcome", result.Outcome.String(), "events", result.Events, "log_path", logPath)
 	if req.Path.Resuming() && result.Outcome == agent.OutcomeFailed && !stream.turnStarted && exitCode > 0 {
 		return result, fmt.Errorf("%w: codex thread %s", agent.ErrSessionNotResumable, req.Session.Resume)
 	}
 	_ = waitErr // ProcessState and stream provide the stable classification.
 	return result, nil
+}
+
+// classifyOutcome keeps process/context precedence separate from JSONL parsing so
+// completion racing with cancellation can be checked without timing a subprocess.
+func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, runErr error, timeout time.Duration) {
+	switch {
+	case result.ExitCode == 0 && stream.completed && !stream.failed:
+		result.Outcome = agent.OutcomeSucceeded
+	case callerErr != nil:
+		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeAbandoned, "abandoned: caller cancelled the run", agent.SignalExitCode
+	case errors.Is(runErr, context.DeadlineExceeded):
+		result.Outcome, result.Reason, result.ExitCode = agent.OutcomeTimedOut, fmt.Sprintf("timed out after %s", timeout), agent.SignalExitCode
+	case result.ExitCode == 0 && stream.failed:
+		result.Outcome, result.Reason = agent.OutcomeFailed, "coding agent reported turn.failed"
+		if stream.failureDetail != "" {
+			result.Reason += ": " + stream.failureDetail
+		}
+	case result.ExitCode == 0:
+		result.Outcome, result.Reason = agent.OutcomeNoResult, "coding agent exited 0 without a turn.completed event"
+	default:
+		result.Outcome, result.Reason = agent.OutcomeFailed, fmt.Sprintf("coding agent exited with status %d", result.ExitCode)
+	}
 }
 
 func (r *Runner) args(req agent.Request, sandbox string) []string {
@@ -390,7 +404,7 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 func (r *Runner) InstructionIdentity() string { return r.model }
 
 type streamState struct {
-	threadID, text                 string
+	threadID, text, failureDetail  string
 	events, malformed, longest     int
 	turnStarted, completed, failed bool
 	err                            error
@@ -409,36 +423,7 @@ func consume(src io.Reader, sink io.Writer) streamState {
 			if _, werr := sink.Write(line); werr != nil && s.err == nil {
 				s.err = werr
 			}
-			var e struct {
-				Type     string `json:"type"`
-				ThreadID string `json:"thread_id"`
-				Message  string `json:"message"`
-				Item     struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"item"`
-			}
-			if json.Unmarshal(bytes.TrimSpace(line), &e) != nil {
-				s.malformed++
-			} else {
-				switch e.Type {
-				case "thread.started":
-					s.threadID = e.ThreadID
-				case "turn.started":
-					s.turnStarted = true
-				case "item.completed":
-					if e.Item.Type == "agent_message" {
-						s.text = e.Item.Text
-					}
-				case "turn.completed":
-					s.completed = true
-				case "turn.failed", "error":
-					s.failed = true
-					if e.Message != "" {
-						s.text = e.Message
-					}
-				}
-			}
+			s.consumeLine(line)
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
@@ -448,6 +433,58 @@ func consume(src io.Reader, sink io.Writer) streamState {
 		}
 	}
 	return s
+}
+
+// consumeLine recognizes explicit failure independently of optional provider
+// detail. Other events retain their existing typed-decoding behavior.
+func (s *streamState) consumeLine(line []byte) {
+	var terminal struct {
+		Type    string          `json:"type"`
+		Message json.RawMessage `json:"message"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(line), &terminal) == nil && terminal.Type == "turn.failed" {
+		s.failed = true
+		var detail struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(terminal.Error, &detail) == nil && strings.TrimSpace(detail.Message) != "" {
+			s.failureDetail = detail.Message
+		} else {
+			var message string
+			if json.Unmarshal(terminal.Message, &message) == nil && strings.TrimSpace(message) != "" {
+				s.failureDetail = message
+			}
+		}
+		return
+	}
+	var e struct {
+		Type     string `json:"type"`
+		ThreadID string `json:"thread_id"`
+		Message  string `json:"message"`
+		Item     struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"item"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(line), &e) != nil {
+		s.malformed++
+	} else {
+		switch e.Type {
+		case "thread.started":
+			s.threadID = e.ThreadID
+		case "turn.started":
+			s.turnStarted = true
+		case "item.completed":
+			if e.Item.Type == "agent_message" {
+				s.text = e.Item.Text
+			}
+		case "turn.completed":
+			s.completed = true
+		case "error":
+			// Generic notices can recover; the raw log retains diagnostics.
+		}
+	}
 }
 
 func codexEnv(parent []string) []string {
