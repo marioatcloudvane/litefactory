@@ -156,10 +156,13 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 		}
 		return killSubtree(context.WithoutCancel(ctx), cmd.Process.Pid, r.logger)
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	stdout, stderr := agent.ConflictOutputBuffers()
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := cmd.Run(); err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor failed: %w: %s", err, excerpt(stderr.String()))
+	}
+	if stdout.Exceeded || stderr.Exceeded {
+		return agent.ConflictResolution{}, errors.New("conflict advisor output exceeds 1 MiB")
 	}
 	stream := eventStream{logger: r.logger}
 	if err := stream.consume(bytes.NewReader(stdout.Bytes())); err != nil || stream.result == nil || stream.result.IsError {
@@ -168,7 +171,7 @@ func (r *Runner) ProposeConflictResolution(ctx context.Context, req agent.Confli
 	if len(stream.tools) != 0 {
 		return agent.ConflictResolution{}, errors.New("conflict advisor exposed tools")
 	}
-	resolution, err := agent.ParseConflictResolution(stream.result.Result)
+	resolution, err := agent.ParseRegionConflictResolution(stream.result.Result, req)
 	if err != nil {
 		return agent.ConflictResolution{}, fmt.Errorf("conflict advisor returned invalid resolution: %w", err)
 	}

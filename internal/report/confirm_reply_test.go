@@ -178,10 +178,10 @@ func TestReplyConfirmAlreadyAppliedNamesTheIDAsANoOp(t *testing.T) {
 	)
 }
 
-// TestReplyConfirmFailedDisclosesNothingWasWritten is AC-12.6: a failed
+// TestReplyConfirmFailedDisclosesOutcomeWithoutClaimingRestoration is AC-12.6: a failed
 // application discloses that the branch, index and commits are unchanged and
 // invites a retry.
-func TestReplyConfirmFailedDisclosesNothingWasWritten(t *testing.T) {
+func TestReplyConfirmFailedDisclosesOutcomeWithoutClaimingRestoration(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
 
@@ -193,10 +193,10 @@ func TestReplyConfirmFailedDisclosesNothingWasWritten(t *testing.T) {
 		t.Fatalf("RenderReply: %v", err)
 	}
 	containsAll(t, "the failed-application reply", body.String(),
-		"I could not apply proposal `15`",
-		"branch, index and",
-		"commits are unchanged",
-		"Comment again once the underlying issue is resolved",
+		"I could not complete application of proposal `15`",
+		"Resolve the reported issue manually",
+		"failed cleanup or push can leave local changes",
+		"confirm the new proposal number",
 	)
 }
 

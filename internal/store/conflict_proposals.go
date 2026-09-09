@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -55,6 +56,7 @@ type ConflictProposal struct {
 	Status                ConflictProposalStatus
 	CreatedAt, ResolvedAt time.Time
 	Files                 []ConflictProposalFile
+	Format                int
 
 	// BaseSHA and BranchSHA are the base and branch tips this proposal's
 	// suggestion was computed against (US-12, S-15): captured once, at
@@ -82,7 +84,25 @@ type ConflictProposalFile struct {
 	Ordinal        int
 	Path           string
 	Resolution     string
+	Details        ConflictFileDetails
 }
+
+// ConflictRegionFormat identifies region-only proposals. Zero is legacy.
+const ConflictRegionFormat = 1
+
+// ConflictFileDetails contains generated regions and identities, never raw originals.
+type ConflictFileDetails struct {
+	OriginalDigest, ResultDigest, Mode string
+	Regions                            []ConflictRegionResolution
+	Metrics                            ConflictFileMetrics
+	Diff                               string
+}
+
+// ConflictRegionResolution binds generated text to one canonical region identity.
+type ConflictRegionResolution struct{ ID, Resolution string }
+
+// ConflictFileMetrics records raw baseline-relative sizes and line changes.
+type ConflictFileMetrics struct{ BeforeBytes, AfterBytes, BeforeLines, AfterLines, Additions, Deletions int }
 
 // CreateConflictProposalParams identifies the blocked run's triggering
 // comment and the validated resolution the advisor suggested.
@@ -90,6 +110,7 @@ type CreateConflictProposalParams struct {
 	SessionID, TriggerCommentID int64
 	Model                       string
 	Files                       []ConflictProposalFile
+	Format                      int
 	// BaseSHA and BranchSHA are the base and branch tips the suggestion was
 	// computed against (US-12, S-15). Both are required: a proposal with no
 	// stored starting point can never be confirmed, since nothing could
@@ -124,17 +145,21 @@ func (db *DB) CreateOrGetConflictProposal(ctx context.Context, params CreateConf
 			return getErr
 		}
 		proposal, getErr = scanConflictProposal(tx.QueryRowContext(ctx, `
-INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at, base_sha, branch_sha)
-VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
+INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at, base_sha, branch_sha, format)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
 			params.SessionID, params.TriggerCommentID, params.Model, string(ConflictProposalPending), FormatTime(now),
-			params.BaseSHA, params.BranchSHA))
+			params.BaseSHA, params.BranchSHA, params.Format))
 		if getErr != nil {
 			return getErr
 		}
 		for i, file := range params.Files {
+			details, marshalErr := json.Marshal(file.Details)
+			if marshalErr != nil {
+				return marshalErr
+			}
 			stored, fileErr := scanConflictProposalFile(tx.QueryRowContext(ctx, `
-INSERT INTO conflict_proposal_files (proposal_id, ordinal, path, resolution) VALUES (?, ?, ?, ?) RETURNING `+conflictProposalFileColumns,
-				proposal.ID, i+1, file.Path, file.Resolution))
+INSERT INTO conflict_proposal_files (proposal_id, ordinal, path, resolution, details) VALUES (?, ?, ?, ?, ?) RETURNING `+conflictProposalFileColumns,
+				proposal.ID, i+1, file.Path, file.Resolution, string(details)))
 			if fileErr != nil {
 				return fileErr
 			}
@@ -266,7 +291,10 @@ func validateConflictProposalParams(p CreateConflictProposalParams) error {
 			len(p.Files), MaxConflictProposalFiles)
 	}
 	for _, file := range p.Files {
-		if file.Path == "" || file.Resolution == "" {
+		if p.Format == ConflictRegionFormat && (file.Resolution != "" || len(file.Details.Regions) == 0 || file.Details.OriginalDigest == "" || file.Details.ResultDigest == "") {
+			return errors.New("store: region proposal requires identities and regions, without whole-file resolution")
+		}
+		if file.Path == "" || (p.Format == 0 && file.Resolution == "") {
 			return errors.New("store: create conflict proposal: every file requires a path and a resolution")
 		}
 	}
@@ -278,8 +306,8 @@ func getConflictProposalBySource(ctx context.Context, q querier, sessionID, trig
 }
 
 const conflictProposalColumns = `id, session_id, trigger_comment_id, model, status, created_at, resolved_at,
-	base_sha, branch_sha, confirmed_by, confirmed_comment_id, applied_commit_sha, applied_at`
-const conflictProposalFileColumns = `id, proposal_id, ordinal, path, resolution`
+	base_sha, branch_sha, confirmed_by, confirmed_comment_id, applied_commit_sha, applied_at, format`
+const conflictProposalFileColumns = `id, proposal_id, ordinal, path, resolution, details`
 
 func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	var p ConflictProposal
@@ -288,7 +316,7 @@ func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	var confirmedBy, appliedCommitSHA sql.NullString
 	var confirmedCommentID sql.NullInt64
 	if err := s.Scan(&p.ID, &p.SessionID, &p.TriggerCommentID, &p.Model, &status, &created, &resolved,
-		&p.BaseSHA, &p.BranchSHA, &confirmedBy, &confirmedCommentID, &appliedCommitSHA, &appliedAt); err != nil {
+		&p.BaseSHA, &p.BranchSHA, &confirmedBy, &confirmedCommentID, &appliedCommitSHA, &appliedAt, &p.Format); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConflictProposal{}, ErrNotFound
 		}
@@ -313,8 +341,12 @@ func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 
 func scanConflictProposalFile(s scheduleScanner) (ConflictProposalFile, error) {
 	var f ConflictProposalFile
-	if err := s.Scan(&f.ID, &f.ProposalID, &f.Ordinal, &f.Path, &f.Resolution); err != nil {
+	var details string
+	if err := s.Scan(&f.ID, &f.ProposalID, &f.Ordinal, &f.Path, &f.Resolution, &details); err != nil {
 		return ConflictProposalFile{}, err
+	}
+	if err := json.Unmarshal([]byte(details), &f.Details); err != nil {
+		return ConflictProposalFile{}, fmt.Errorf("decode conflict details: %w", err)
 	}
 	return f, nil
 }

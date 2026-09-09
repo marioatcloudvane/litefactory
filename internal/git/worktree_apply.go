@@ -23,7 +23,12 @@ type ResolvedFile struct {
 	// exactly as the proposal recorded it.
 	Path string
 	// Resolution is the confirmed replacement content for Path.
-	Resolution string
+	Resolution         string
+	Format             int
+	BranchSHA, BaseSHA string
+	ContentLimit       int
+	Validated          ValidatedConflict
+	beforeContent      *string
 }
 
 // ErrConflictMismatch reports that the paths git actually finds conflicted do
@@ -104,36 +109,91 @@ func (w *Worktree) WriteResolvedFiles(ctx context.Context, base string, files []
 		return fmt.Errorf("resolve HEAD on branch %s before applying a confirmed resolution: %w", w.branch, err)
 	}
 
+	snapshots, candidates, validationErr := w.validateRegionProposal(ctx, base, before, files)
+	if validationErr != nil {
+		return validationErr
+	}
+
+	var snapshotFaults []error
+	for i, f := range files {
+		content, readErr := readActualConflict(w.path, f, files, MaxConflictOriginalBytes)
+		if readErr != nil {
+			snapshotFaults = append(snapshotFaults, readErr)
+			continue
+		}
+		files[i].beforeContent = &content
+	}
+
+	if err := errors.Join(snapshotFaults...); err != nil {
+		return err
+	}
 	_, exitCode, err := w.runner.runAllowingExit(ctx, mergeTimeout, []int{0, 1},
 		"merge", "--no-commit", "--no-ff", "--end-of-options", base)
 	if err != nil {
+		if _, headErr := revParse(ctx, w.runner, "MERGE_HEAD", RevParseOptions{}); headErr == nil {
+			return w.abortResolvedMerge(ctx, before, files, err)
+		}
 		return classify(err, ErrRevisionNotFound, 128)
 	}
 	if exitCode == 0 {
-		if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
-			return fmt.Errorf("%w: merge of %s into %s produced no conflicts, and undoing it failed: %w",
-				ErrConflictMismatch, base, w.branch, abortErr)
-		}
-		return fmt.Errorf("%w: merge of %s into %s produced no conflicts", ErrConflictMismatch, base, w.branch)
+		return w.abortResolvedMerge(ctx, before, files, fmt.Errorf("%w: merge of %s into %s produced no conflicts", ErrConflictMismatch, base, w.branch))
 	}
 
 	unmerged, statusErr := w.unmergedPaths(ctx)
 	if statusErr != nil {
-		return w.abortInProgressMerge(ctx, before,
+		return w.abortResolvedMerge(ctx, before, files,
 			fmt.Errorf("read conflicted paths after merging %s into %s: %w", base, w.branch, statusErr))
 	}
 	if mismatchErr := conflictSetMismatch(unmerged, files); mismatchErr != nil {
-		return w.abortInProgressMerge(ctx, before, mismatchErr)
+		return w.abortResolvedMerge(ctx, before, files, mismatchErr)
+	}
+
+	// Validate every actual merge file before the first replacement write.
+	var validationFaults []error
+	for i, snapshot := range snapshots {
+		actual, readErr := readActualConflict(w.path, files[i], files, MaxConflictOriginalBytes)
+		if readErr != nil {
+			validationFaults = append(validationFaults, readErr)
+			continue
+		}
+		if matchErr := EquivalentConflictOriginals(snapshot.Path, snapshot.Original, actual); matchErr != nil {
+			validationFaults = append(validationFaults, matchErr)
+			continue
+		}
+		regions, parseErr := ParseConflictRegions(snapshot.Path, actual)
+		if parseErr != nil {
+			validationFaults = append(validationFaults, parseErr)
+			continue
+		}
+		resolutions := make([]RegionResolution, len(regions))
+		for j, r := range regions {
+			resolutions[j] = RegionResolution{ID: r.ID, Resolution: candidates[i].Regions[j].Resolution}
+		}
+		snapshot.Original = actual
+		output, outputErr := ValidateConflict(snapshot, resolutions)
+		if outputErr != nil {
+			validationFaults = append(validationFaults, outputErr)
+			continue
+		}
+		if output.ResultDigest != candidates[i].ResultDigest {
+			validationFaults = append(validationFaults, refuse(snapshot.Path, "actual reconstruction differs; regenerate"))
+			continue
+		}
+		files[i].Resolution = output.Result
+	}
+
+	if err := errors.Join(validationFaults...); err != nil {
+		return w.abortResolvedMerge(ctx, before, files, err)
 	}
 
 	for _, f := range files {
 		target, containErr := containedResolvedPath(w.path, f.Path, files)
 		if containErr != nil {
-			return w.abortInProgressMerge(ctx, before, containErr)
+			return w.abortResolvedMerge(ctx, before, files, containErr)
 		}
 		// #nosec G306 -- SEC-10 umask 077 narrows newly created files; existing worktree modes are preserved.
 		if err := os.WriteFile(target, []byte(f.Resolution), 0o644); err != nil {
-			return w.abortInProgressMerge(ctx, before, fmt.Errorf("write resolved content for %s: %w", f.Path, err))
+			return w.abortResolvedMerge(ctx, before, files, fmt.Errorf("write resolved content for %s: %w", f.Path, err))
 		}
 	}
 	return nil
@@ -168,12 +228,25 @@ func (w *Worktree) StageResolvedFiles(ctx context.Context, files []ResolvedFile)
 	}
 	for _, f := range files {
 		if _, containErr := containedResolvedPath(w.path, f.Path, files); containErr != nil {
-			return w.abortInProgressMerge(ctx, before, containErr)
+			return w.abortResolvedMerge(ctx, before, files, containErr)
 		}
 	}
+	var formatFaults []error
+	for _, f := range files {
+		if f.Format != 1 || f.Validated.ResultDigest == "" {
+			formatFaults = append(formatFaults, refuse(f.Path, "missing supported region evidence; regenerate"))
+		}
+	}
+	if err := errors.Join(formatFaults...); err != nil {
+		return w.abortResolvedMerge(ctx, before, files, err)
+	}
+
 	args := append([]string{"add", "--"}, resolvedPaths(files)...)
 	if _, err := w.runner.run(ctx, commitTimeout, args...); err != nil {
-		return w.abortInProgressMerge(ctx, before, fmt.Errorf("stage confirmed resolution in %s: %w", w.path, err))
+		return w.abortResolvedMerge(ctx, before, files, fmt.Errorf("stage confirmed resolution in %s: %w", w.path, err))
+	}
+	if err := w.verifyResolvedBytes(ctx, files); err != nil {
+		return w.abortResolvedMerge(ctx, before, files, err)
 	}
 	return nil
 }
@@ -193,6 +266,7 @@ type CompleteMergeOptions struct {
 	// ProposalID, ConfirmedBy and Model are litefactory-controlled values —
 	// never model output — that become this story's three new trailers
 	// (S-16): TrailerConflictProposal, TrailerConfirmedBy and TrailerModel.
+	Files       []ResolvedFile
 	ProposalID  int64
 	ConfirmedBy string
 	Model       string
@@ -248,20 +322,28 @@ func (w *Worktree) CompleteMerge(ctx context.Context, opts CompleteMergeOptions)
 		return MergeResult{}, fmt.Errorf("resolve HEAD on branch %s before completing a confirmed merge: %w", w.branch, err)
 	}
 	if err := opts.validate(); err != nil {
-		return MergeResult{}, w.abortInProgressMerge(ctx, before, err)
+		return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files, err)
 	}
 
 	unmerged, err := w.unmergedPaths(ctx)
 	if err != nil {
-		return MergeResult{}, w.abortInProgressMerge(ctx, before,
+		return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files,
 			fmt.Errorf("read conflicted paths before completing a confirmed merge on %s: %w", w.branch, err))
 	}
 	if len(unmerged) > 0 {
 		paths := sortedKeys(unmerged)
-		return MergeResult{}, w.abortInProgressMerge(ctx, before,
+		return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files,
 			fmt.Errorf("%w: %v still conflicted", ErrConflictMismatch, paths))
 	}
 
+	if len(opts.Files) == 0 {
+		return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files, refuse("", "missing validated region files"))
+	}
+	if len(opts.Files) > 0 {
+		if err := w.verifyResolvedBytes(ctx, opts.Files); err != nil {
+			return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files, err)
+		}
+	}
 	message := completeMergeMessage(opts)
 	args := []string{
 		"-c", "user.name=" + opts.Author.Name,
@@ -270,7 +352,7 @@ func (w *Worktree) CompleteMerge(ctx context.Context, opts CompleteMergeOptions)
 		"commit", "--quiet", "--message", message,
 	}
 	if _, err := w.runner.run(ctx, commitTimeout, args...); err != nil {
-		return MergeResult{}, w.abortInProgressMerge(ctx, before, fmt.Errorf("complete confirmed merge on %s: %w", w.branch, err))
+		return MergeResult{}, w.abortResolvedMerge(ctx, before, opts.Files, fmt.Errorf("complete confirmed merge on %s: %w", w.branch, err))
 	}
 
 	head, err := revParse(ctx, w.runner, "HEAD", RevParseOptions{})
@@ -307,7 +389,7 @@ func completeMergeMessage(opts CompleteMergeOptions) string {
 // success, so the caller sees exactly what actually went wrong; a failed
 // abort or a branch tip that did not come back to before are reported as
 // their own, more urgent failure instead.
-func (w *Worktree) abortInProgressMerge(ctx context.Context, before string, cause error) error {
+func (w *Worktree) abortInProgressMerge(ctx context.Context, before string, cause error, snapshots ...[]ResolvedFile) error {
 	if _, abortErr := w.runner.run(ctx, mergeTimeout, "merge", "--abort"); abortErr != nil {
 		return fmt.Errorf("%w (aborting the in-progress merge also failed: %w)", cause, abortErr)
 	}
@@ -318,6 +400,21 @@ func (w *Worktree) abortInProgressMerge(ctx context.Context, before string, caus
 	if after != before {
 		return fmt.Errorf("apply confirmed resolution to %s: branch tip moved from %s to %s while aborting (original error: %w)",
 			w.branch, before, after, cause)
+	}
+	var restorationFaults []error
+	for _, files := range snapshots {
+		for _, f := range files {
+			if f.beforeContent == nil {
+				continue
+			}
+			restored, err := readActualConflict(w.path, f, files, len(*f.beforeContent))
+			if err != nil || restored != *f.beforeContent {
+				restorationFaults = append(restorationFaults, fmt.Errorf("tracked bytes for %q differ from before the merge", f.Path))
+			}
+		}
+	}
+	if err := errors.Join(restorationFaults...); err != nil {
+		return fmt.Errorf("%w (restoration failed: %w)", cause, err)
 	}
 	return cause
 }
@@ -475,4 +572,10 @@ func containedResolvedPath(root, path string, allowed []ResolvedFile) (string, e
 	}
 
 	return target, nil
+}
+
+// abortResolvedMerge also verifies the raw pre-merge candidate bytes; Git
+// filters can make merge --abort succeed while checkout changes those bytes.
+func (w *Worktree) abortResolvedMerge(ctx context.Context, before string, files []ResolvedFile, cause error) error {
+	return w.abortInProgressMerge(ctx, before, cause, files)
 }

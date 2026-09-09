@@ -55,6 +55,7 @@ func TestWorktreeApplyResolvedConflictHappyPath(t *testing.T) {
 	}
 
 	files := []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved together\n"}}
+	files = regionFiles(t, worktree, base, files)
 	if err := worktree.WriteResolvedFiles(t.Context(), base, files); err != nil {
 		t.Fatalf("WriteResolvedFiles: %v", err)
 	}
@@ -64,7 +65,9 @@ func TestWorktreeApplyResolvedConflictHappyPath(t *testing.T) {
 	if err := worktree.StageResolvedFiles(t.Context(), files); err != nil {
 		t.Fatalf("StageResolvedFiles: %v", err)
 	}
-	result, err := worktree.CompleteMerge(t.Context(), completeMergeOptions(7))
+	opts := completeMergeOptions(7)
+	opts.Files = files
+	result, err := worktree.CompleteMerge(t.Context(), opts)
 	if err != nil {
 		t.Fatalf("CompleteMerge: %v", err)
 	}
@@ -163,6 +166,7 @@ func TestWorktreeWriteResolvedFilesRefusesConflictSetMismatch(t *testing.T) {
 		{Path: "README.md", Resolution: "# fixture\nresolved\n"},
 		{Path: "NOTES.md", Resolution: "not actually conflicted\n"},
 	}
+	files = regionFiles(t, worktree, base, files)
 	if err := worktree.WriteResolvedFiles(t.Context(), base, files); !errors.Is(err, git.ErrConflictMismatch) {
 		t.Errorf("error = %v, want ErrConflictMismatch", err)
 	}
@@ -229,6 +233,7 @@ func TestWorktreeApplyRollsBackOnPartialFileList(t *testing.T) {
 	var applyErr error
 	gittest.AssertUnchanged(t, dir, func() {
 		files := []git.ResolvedFile{{Path: "README.md", Resolution: "# fixture\nresolved\n"}}
+		files = regionFiles(t, worktree, base, files)
 		applyErr = worktree.WriteResolvedFiles(t.Context(), base, files)
 	})
 	if applyErr == nil {
@@ -250,6 +255,12 @@ func TestWorktreeCompleteMergeRefusesRemainingConflicts(t *testing.T) {
 	t.Parallel()
 
 	repo := gittest.New(t)
+	if err := os.WriteFile(filepath.Join(repo.Dir, "NOTES.md"), []byte("initial notes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	repo.Git("add", "NOTES.md")
+	repo.Git("commit", "-m", "seed notes")
+	repo.Git("push", "origin", gittest.DefaultBranch)
 	worktree, dir := newTaskWorktree(t, repo, 103, "Remaining conflicts")
 	base := "origin/" + gittest.DefaultBranch
 	conflictOnSharedFile(t, repo, dir)
@@ -264,6 +275,7 @@ func TestWorktreeCompleteMergeRefusesRemainingConflicts(t *testing.T) {
 		{Path: "README.md", Resolution: "# fixture\nresolved\n"},
 		{Path: "NOTES.md", Resolution: "resolved notes\n"},
 	}
+	files = regionFiles(t, worktree, base, files)
 	if err := worktree.WriteResolvedFiles(t.Context(), base, files); err != nil {
 		t.Fatalf("WriteResolvedFiles: %v", err)
 	}
@@ -352,4 +364,53 @@ func writeAndCommitBoth(t *testing.T, repo *gittest.Repo, dir, name, baseContent
 	}
 	repo.GitIn(dir, "add", "--all")
 	repo.GitIn(dir, "commit", "--quiet", "--message", "branch edits "+name)
+}
+
+// regionFiles turns fixture intent into the same canonical region proposal used
+// by generation; malformed file-set fixtures receive identities only.
+func regionFiles(t *testing.T, w *git.Worktree, base string, files []git.ResolvedFile) []git.ResolvedFile {
+	t.Helper()
+	branchSHA, err := w.RevParse(t.Context(), "HEAD", git.RevParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseSHA, err := w.RevParse(t.Context(), base, git.RevParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := w.MergePreview(t.Context(), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range files {
+		files[i].Format = 1
+		files[i].BranchSHA = branchSHA
+		files[i].BaseSHA = baseSHA
+		files[i].ContentLimit = 1 << 16
+	}
+	if len(preview.Conflicts) != len(files) {
+		return files
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	snapshots, err := w.CollectConflictSnapshots(t.Context(), preview.TreeSHA, branchSHA, baseSHA, paths, 1<<16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range snapshots {
+		if len(s.Regions) != 1 {
+			t.Fatal("fixture helper requires one region")
+		}
+		r := s.Regions[0]
+		resolution := strings.TrimPrefix(files[i].Resolution, s.Original[:r.Start])
+		resolution = strings.TrimSuffix(resolution, s.Original[r.End:])
+		v, err := git.ValidateConflict(s, []git.RegionResolution{{ID: r.ID, Resolution: resolution}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[i].Validated = v
+	}
+	return files
 }

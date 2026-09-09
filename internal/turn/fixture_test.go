@@ -19,6 +19,8 @@ import (
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -115,6 +117,10 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 		t.Fatalf("resolve git: %v", err)
 	}
 
+	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
+	if err != nil {
+		t.Fatal(err)
+	}
 	logs := &bytes.Buffer{}
 	return &fixture{
 		t:         t,
@@ -125,11 +131,12 @@ func newFixture(t *testing.T, runner Runner) *fixture {
 		session:   session,
 		logs:      logs,
 		opts: Options{
-			DB:         db,
-			Git:        binary,
-			Runners:    runnerSet(runner),
-			Paths:      paths,
-			InstanceID: testInstance,
+			ConflictPreviewer: renderer,
+			DB:                db,
+			Git:               binary,
+			Runners:           runnerSet(runner),
+			Paths:             paths,
+			InstanceID:        testInstance,
 			// Set explicitly so the tests do not depend on the developer's
 			// global git identity. resolveAuthor's fallback has its own test.
 			Author: git.Author{Name: "Mario Meir-Huber", Email: "mario@example.invalid"},

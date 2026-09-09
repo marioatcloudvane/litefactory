@@ -212,6 +212,12 @@ type runner struct {
 // trailing newline removed. stdout and stderr are captured separately so a
 // failure can report the command's diagnostics without the data it printed.
 func (r runner) run(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
+	out, err := r.runRaw(ctx, timeout, args...)
+	return strings.TrimRight(out, "\n"), err
+}
+
+// runRaw preserves exact blob bytes, including all trailing newlines.
+func (r runner) runRaw(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
 	if r.binary == "" || r.dir == "" {
 		return "", ErrUninitialized
 	}
@@ -235,7 +241,7 @@ func (r runner) run(ctx context.Context, timeout time.Duration, args ...string) 
 
 	err := cmd.Run()
 	if err == nil {
-		return strings.TrimRight(stdout.String(), "\n"), nil
+		return stdout.String(), nil
 	}
 	return "", classifyRunError(ctx, cmdCtx, timeout, r, args, stderr.String(), err)
 }

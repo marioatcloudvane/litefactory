@@ -82,13 +82,16 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | resolve the bot token | `internal/secrets` | `Resolver{Keychain, LookupEnv}` → `Token`. Resolved **once at process start**, never per request |
 | strip credential shapes from outbound text | `internal/redact` | `Redactor.Apply(ctx, text, limit) → Body` |
 | build a comment body | `internal/report` | Renders only; reaches no network and no database |
+| resolve bounded conflict regions | `agent.ParseRegionConflictResolution`; `git.CollectConflictSnapshots`, `ValidateConflict` | Identified spans, complete reconstruction, raw digests/statistics and Go syntax/shrinkage checks |
+| persist and confirm conflict proposals | `store/conflict_proposals.go`; `turn/conflict_values.go`; `git/worktree_apply.go` | Versioned region details, fresh canonical/actual merge matching, staged verification and raw restoration checks |
+| prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
 | run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
 | parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |
 | parse a `/schedule` control | `internal/schedule.Parse` | pure parser; caller supplies receipt time and default timezone, and receives a resolved UTC due time or validated dependency delay |
 | classify why an attachment was declined | `internal/attach` | `Rejection` / `RejectionReason` (5 reasons); a value, not an error; not routed through `report`'s ReplyKind/Reply |
-| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` — see below |
+| tell whether a *stored* run genuinely succeeded (not a live result) | `store.Run.Succeeded()` (`internal/store/runs.go`) | true for `RunSucceeded`; true for `RunReported` only when `Error==""`. Distinct from `agent.RunResult.Succeeded()` |
 | turn an agent's frontmatter+body into a harness's native output file | `internal/render` | `Renderer`, `Register`/`Lookup`; Claude/OpenCode produce a standalone file plus a root marker section; Codex produces `.codex/skills/<agent>/SKILL.md` |
 | install rendered agent artifacts into a target repo, atomically, with provenance | `internal/team` | `Add(root, renders)` validates the batch, writes atomically under a repo flock, and compares recorded hashes with actual file/marker bytes |
 | decode/validate the agent team index (teams, shared agents, source/dest) | `internal/team` | `Decode([]byte) (*Index, error)` — strict two-pass JSON, `KeyPattern` for keys/names, faults aggregated |
@@ -113,11 +116,3 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
-
-Store entry points are `store.Open(ctx, path)` and explicit `Migrate(ctx)`.
-The driver is pure-Go `modernc.org/sqlite`, with one connection and embedded
-numbered SQL migrations. `store/store.go` documents the transaction/pragmas.
-
-`agent.RunResult.Succeeded()` describes live subprocess evidence;
-`store.Run.Succeeded()` describes persisted outcomes. `turn.save` gates saving
-on the live result, and `report.run` renders the resulting delivery status.
