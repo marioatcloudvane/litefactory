@@ -4,7 +4,7 @@
 # Parent issue: https://github.com/marioatcloudvane/litefactory/issues/170
 # Citation base: 83cce6b22d7f2a43b1cc8e2a93b5088c5ec6d40a
 # Research brief: [RESEARCH_BRIEF.md](RESEARCH_BRIEF.md)
-# Status: Plan artifact complete; factory publication pending
+# Status: Generation 2 editorial revision prepared; factory publication pending
 
 ## Shared Decisions
 - Selected canonical issue labels persist until owner replacement/removal. Agents recommend executable owner actions; they never change modes through prose or access forge credentials. One run has one effective mode and returns one final report.
@@ -50,8 +50,10 @@
 
 ## Provenance
 - Scope: [feature-spec.md](feature-spec.md); architecture and task guidance: [ARCH_REVIEW.md](ARCH_REVIEW.md); prior investigation: [RESEARCH_BRIEF.md](RESEARCH_BRIEF.md).
-- Parent github:marioatcloudvane/litefactory#170; factory run 0002; proposal generation 1. Current citation base 83cce6b22d7f2a43b1cc8e2a93b5088c5ec6d40a is the retained worktree; synchronization was deferred and the branch is reported 31 commits behind origin/main.
+- Parent github:marioatcloudvane/litefactory#170; factory run 0010; proposal generation 2. The header citation base records the original planning investigation, not the current implementation revision.
 - Before implementation, re-pin affected mode admission/recovery, managed handoff/readiness, session discovery and prompt seams against the factory-supplied implementation base and frozen stories. Do not substitute current live story edits or locally reconstructed stories.
-- No existing child identities or base revisions were supplied. All four proposal records are creates with numeric issue_number/issue_id 0 and empty expected_base. The factory alone reads GitHub, assigns identities, verifies bases and publishes. No per-story Markdown files are used.
+- The factory supplied current planning stories US-001–004 as existing issues #188–191, with numeric identities and expected-base digests. All four generation-2 proposal records use intent update and those exact bases. The only story-body change removes the Evidence contract paragraph from Acceptance Criteria; all AC identifiers, requirements, tasks, architecture and dependencies remain intact. The factory alone reads GitHub, verifies bases and publishes. No per-story Markdown files are used.
+- Existing implementation is preserved. Prior implementation/test reports do not establish factory-accepted completion; renewed Implement must inspect retained work, resolve outstanding gaps and publish fresh criterion-named evidence against the newly selected revisions. Evidence publication obligations remain in the factory handoff and shared workflow above.
+- This editorial revision does not change the acceptance parser or approved-revision policy, apply protected Codex skill updates, or claim any story completed. The known Codex source/copy synchronization obligation remains for implementation.
 - Assumptions resolved from the issue/research: owners control transitions; supported explicit commands replace one valid selected mode; clearing labels returns normal routing; Plan discussion is explicitly successful but unready; unfinished context survives date changes.
 - Headless instruction authorized completing this proposal without questions. This is approval to produce planning artifacts, not approval to implement or a claim that publication has succeeded.
