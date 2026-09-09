@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + managed JSON proposal for factory-published stories *(done)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -16,6 +16,8 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-09 — session created for issue #171, run 0001; Research started.
 - 2026-09-09 — Research completed for run 0001; verified conditional dirty-work retry loop and confirmed-conflict refusal, recorded current transport filtering and disabled-sync escape hatch, and wrote cited research brief. No implementation or tests executed.
+
+- 2026-09-09 — Plan completed for run 0002: feature spec, architecture review, shared plan brief and generation-1 managed proposal with three create stories. Selected nonmutating dirty-sync deferral; factory publication/index links remain pending. No implementation, commits or forge operations.
 
 ## Notes
 
