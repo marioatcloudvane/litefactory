@@ -200,6 +200,8 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **CONC-13** — Recovery MUST atomically persist semantic interruption and optional continuation before reporting, deduplicate by source run, and preserve context and original prerequisite identity. The root budget MUST count at most three automatic allocations; each MUST require fresh verified future-reset evidence. Suspended prerequisites MUST remain nonterminal until semantic settlement; only final success MUST release descendants, using final completion time.
 - **CONC-14** — Automatic admission MUST use existing capacity and task locks, explicit resume without cold fallback, and frozen managed scope. New owner work, reset, changed context, closure or loaded disable MUST durably cancel stale pending work, including future work. Observation failure MUST defer without advancing the watermark. Restart MUST requeue only unallocated reservations; allocated abandoned runs MUST remain terminal absent durable quota evidence.
 
+- **CONC-15 [enforced]** — Ordinary `needs_poll` backlog MUST clear after clean drain or confirmed explicit issue closure. Unknown states, lookup errors and failed clears MUST retain retry intent. Closure MUST preserve identity, state, watermarks and owed reports; skipped/error candidates MUST release admission without dispatch. Reopening MUST reuse normal discovery and retained watermarks. Worker capacity MUST NOT be described as a per-tick issue-read budget.
+
 ## 5. Style and code shape (`STYLE`)
 
 - **STYLE-1** — Comments MUST explain why and remain true. When behavior changes, affected comments MUST be updated; use relevant decision/acceptance identifiers rather than restating code.
@@ -318,3 +320,4 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 | `turn/story_parent_recovery_test.go`, `managed_lifecycle_test.go` | CONC-11 |
 | `turn/plan_publication_test.go`, `plan_index_test.go`, `approved_attempts_test.go` | CONC-12 |
 | `codex/quota_test.go`, `harness/quota_test.go` | EXT-3 |
+| `daemon/backlog_closure_test.go`, `daemon/backlog_test.go` | Durable closure retirement, retry retention, admission release, report preservation and reopening (CONC-15) |
