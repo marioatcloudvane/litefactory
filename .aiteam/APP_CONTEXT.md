@@ -30,6 +30,7 @@ config, naming, store, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule → leaves
 
 agent         → naming
+meter         → agent              pure token normalization, reconciliation and capability diagnostics
 
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
@@ -78,6 +79,9 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
 | prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
 | run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
+| express token observations across the runner boundary | `agent.TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit` (`internal/agent/usage.go`) | Optional `Request.Usage` sink and `RunResult.Usage` coverage; cloned ownership, nullable counters, explicit scope/identity. Collection adapters are not wired yet |
+| normalize and reconcile token counters | `internal/meter` | `Normalize`, `Validate`, `Add`, `Delta`, `Total`, `Reconcile`; checked arithmetic, subset handling, replay identities and scope-bound baselines; caller owns durable state |
+| qualify a provider collection capability | `meter.CapabilityEvidence.Coverage` | Distinguishes unsupported sources, missing authentic evidence and complete capability; caller verifies provenance. No provider allowlist or authentic full-hierarchy fixtures shipped yet |
 | parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |

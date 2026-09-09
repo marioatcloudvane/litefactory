@@ -2,32 +2,39 @@
 
 Feature: we-need-to-add-more-information-about-a  
 Reviewed by: go-code-reviewer  
-Date: 2026-09-09  
-Status: BLOCKING — acceptance prerequisite unresolved; no production implementation reviewed.
+Date: 2026-09-09, run 0015  
+Status: CLEAN (partial US-1 code only; story and release remain blocked)
 
 ## Scope
 
-Narrow review of CAPABILITY_REPORT.md against the supplied frozen US-1 issue #172, database identity 5396812119, revision `3a37dbaea3f505cf001954c1c861bc0294da62c3d24ddeb7d084cbb12d05b3b2`, dependencies none. Inspected worktree status and staged/unstaged diff statistics. Both tracked diffs were empty; CAPABILITY_REPORT.md was the only untracked file reported at review time. Spot-checked existing runner argument construction and environment allowlists against the report's stated invocation boundary. No production files or tests were changed by this review.
+Selected US-1, issue #172, database ID 5396812119, revision `5f9601901d81707a291188df53dbab44dc139f6d81e4d92c51e7659331a0e794`, dependencies none. The inline frozen body and shared plan brief supplied the requirements; no live forge or local story specifications were used.
 
-## Blocking finding
+Reviewed `internal/agent/request.go`, `result.go`, `usage.go`, `usage_test.go`, `usage_acceptance_test.go`, and all seven Go files currently under `internal/meter`. This covers the optional shared boundary, pure token operations, identity/reconciliation, capability diagnostics and the supplied independent tests. Writers were stopped for review.
 
-### CR-B-001: Required complete provider capability evidence is absent
+## Blocking code findings
 
-**Story:** US-1 / AC-1.4, capability probe task US-1-T3.  
-**Category:** Acceptance prerequisite.  
-**Finding:** The report records partial Claude delegation evidence and Codex initialization failure before any model response. Neither establishes the required complete two-provider actual-model and descendant linkage contract. This is an unfinished acceptance prerequisite, not a discovered production-code defect. AC-1.1–AC-1.3 and AC-1.5 have no implementation/test evidence in this reviewed snapshot and are not verified either.  
-**Required resolution:** A managed environment in which the standard Codex CLI can initialize, followed by version-pinned root/parallel/nested probes for both providers and source evidence sufficient to choose collection surfaces. Downstream failed-child/model-change, replay and resume evidence remains required by its own approved criteria. Do not replace missing real-execution provenance with generated fixtures or root-only support.
+None in the submitted partial implementation.
 
-## Report accuracy and security observations
+## Advisory findings
 
-The report correctly labels Claude evidence partial: task identities and summary totals are not asserted to prove exclusive per-child input/output/cache quantities or every child's actual model. It also correctly labels the Codex result an environment execution blocker, not evidence that Codex inherently lacks metering capability. Reported successful authentication does not imply subprocess initialization must succeed.
+None.
 
-The published document contains controlled command arguments, version/model identifiers and diagnostic text, with no visible credential, identity-account field, raw prompt transcript or secret value. Existing Codex argument construction includes the stated JSON/config/rules/read-only options; both runner environment allowlists support the stated baseline names. No permission bypass, runtime-state mutation or dist write appears in the worktree changes inspected. This is a review of repository artifacts, not an independent audit of all scratch-process side effects.
+## Accounting and ownership assessment
 
-## Limitations
+The existing request/result boundary is extended without making usage mandatory for legacy callers. Callback payloads and returned usage coverage clone mutable counters, model pointers and diagnostic slices. Capture is synchronous, checks context and attempt ownership, rejects ambiguous events and propagates sink errors without introducing process outcome classification.
 
-The reviewer did not rerun paid provider probes or independently inspect raw scratch stdout/stderr. Detailed execution counts and authentication results are attributed to the engineer's capability report, not independently re-established here. No source-code implementation exists to assess for concurrency, SQL, normalization, resource ownership or cross-story integration. This review is not passing story acceptance evidence and cannot support a verified event or feature release. Aggregate repository checks, if run separately, establish baseline health only.
+Token operations distinguish unknown from measured zero, validate negative and subset-invalid quantities, check arithmetic overflow/regression, and avoid summing cache-duration/reasoning subsets into total tokens. Cumulative reconciliation requires an explicitly supplied matching baseline; tuple identities partition attempts, sources, invocations, models, scopes and epochs. Previously accepted event digests identify replay before comparing newer counter state, while new incremental event identities remain additive. Inclusive records never yield additive usage.
+
+The new meter package owns no database, subprocess, network, clock or goroutines. Its documented caller contract correctly reserves transactional ledger/checkpoint persistence and concurrency serialization for future consumers. No provider collectors or durable consumers are implemented in this scope, so this review cannot establish their integration correctness.
+
+## Validation
+
+Reviewer independently ran `go test -race ./internal/agent ./internal/meter`: both packages passed (agent 1.921s; meter 1.565s). Tests include clone isolation, cancellation and payload ambiguity, malformed counters, known zero/unknown, overflow, subset bounds, resume/replay, conflicting evidence, genuinely repeated work and cross-scope baseline rejection.
+
+## Unfulfilled acceptance and release gate
+
+AC-1.4 remains unsatisfied: there is no reviewed external authentic fixture/provenance set establishing both exact provider versions with root, parallel and nested child/model linkage. Synthetic capability-flag tests verify diagnostic behavior only; they do not prove provider capability. Existing quota-oriented fixtures do not replace this evidence. No US-1 verified event should be emitted on the strength of this code review.
 
 ## Verdict
 
-The blocker is accurately and conservatively described; no additional document correction is required. US-1 and the feature remain unfinished. Resolve CR-B-001 and implement/test the approved contract before requesting a full scoped implementation review.
+CLEAN for the submitted partial US-1 code. This is neither full US-1 acceptance nor release approval. Provider evidence, dependent stories and aggregate gates remain outstanding.

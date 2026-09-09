@@ -6,7 +6,7 @@
 
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not run in this session)*
 - [x] **Plan** — `plan_brief.md` and managed JSON proposal *(authored; factory publication pending)*
-- [ ] **Implement** — run 0012 blocked at US-1 AC-1.4; no production implementation
+- [ ] **Implement** — run 0015 delivers partial US-1 contract and normalization; AC-1.4 external provider fixtures still missing; dependent feature work incomplete
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 ## History
@@ -44,7 +44,16 @@ Explicit managed Plan retry authorizes regenerating the handoff in this session.
 - Safe go build ./... passed. Aggregate make check failed as recorded below; baseline checks do not validate the unimplemented feature.
 - Implement remains unchecked. No commit/push, runtime edits, permission bypass, historical-log importer or dist writes.
 
-## Final baseline validation result
+## Run 0015 partial implementation
+
+- Consumed selected US-1 revision `5f9601901d81707a291188df53dbab44dc139f6d81e4d92c51e7659331a0e794`; external real-capture fixtures are accepted and nested execution inside this run is not required. No stale startup failure was asserted or used as the gate.
+- Delivered neutral optional usage capture and copied coverage in internal/agent; added pure checked token normalization, counter baselines, replay reconciliation and capability diagnostics in internal/meter. Added independent acceptance tests; no collector wiring, migrations, pricing, CLI or export yet.
+- Scoped code review CLEAN; independent `go test -race -cover ./internal/agent ./internal/meter` passed (81.6% agent, 89.9% meter). Fixed three exported constant-block documentation lint issues without functional changes.
+- `go build ./...` passed. `GOLANGCI_LINT_CACHE=/tmp/lf73-run253-golangci-cache GOFLAGS=-p=1 make check` passed: fmt, vet, pinned lint (0 issues), full race suite. Serial package scheduling preserves every test and avoids previous package contention; daemon 127.436s, store 34.890s, turn 294.227s.
+- AC-1.4 remains blocked: existing authentic quota fixtures lack required full hierarchy/model capture and provenance. Synthetic tests do not establish provider support. US-2–US-7 remain unstarted dependencies. Root published seven atomic blocked events in `.litefactory-story-events/253` sequences 000001–000007; no verified story claim.
+- Updated current notes, CODE_REVIEW.md, DRIFT_REPORT.md and APP_CONTEXT.md to reflect partial code and the exact remaining gap. APP_CONSTRAINTS.md unchanged. Implement stays unchecked; no commit/push, forge access, runtime edits or dist writes.
+
+## Historical run 0012 final baseline validation result
 
 - go build ./...: passed, exit 0.
 - make check: failed, exit 2. Format and go vet passed; pinned golangci-lint v2.13.1 reported 0 issues (default cache-write permission warnings).
