@@ -52,7 +52,15 @@ type Request struct {
 	// Delivery is nil for catalog-free operations and unassigned repositories.
 	Delivery *Delivery
 	// PlanProposalPath is trusted transient transport, delivered only through the prompt.
-	PlanProposalPath string
+	PlanProposalPath   string
+	PlanOutcomePath    string
+	PlanGeneration     int
+	PlanRunID          int64
+	PlanAttempt        string
+	PlanContextPath    string
+	PlanWorkingContext string
+	MayAsk             bool
+	PreviousMayAsk     bool
 
 	// Ref identifies the task. It fixes the run log path and names the task
 	// on every log line the run emits.

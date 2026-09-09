@@ -161,7 +161,7 @@ func SafeStoryPath(p string) bool {
 		return false
 	}
 	for _, c := range strings.Split(p, "/") {
-		if c == ".git" || c == StoryEventsDirectory || c == ".litefactory-plan-proposal.json" {
+		if c == ".git" || c == StoryEventsDirectory || c == ".litefactory-plan-proposal.json" || c == ".litefactory-plan-outcome.json" {
 			return false
 		}
 	}

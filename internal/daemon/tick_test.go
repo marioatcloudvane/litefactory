@@ -932,7 +932,7 @@ func TestThirdPartyCommentIsRecordedAndTriggersNothing(t *testing.T) {
 
 // unreactiveForge is the real client with its acknowledgement broken.
 type unreactiveForge struct {
-	daemon.Forge
+	labelFixtureForge
 	err error
 }
 
@@ -949,7 +949,7 @@ func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.daemon = f.newDaemon(daemon.Options{
-		Forge: unreactiveForge{Forge: f.client, err: errors.New("reactions are disabled on this issue")},
+		Forge: unreactiveForge{labelFixtureForge: f.client, err: errors.New("reactions are disabled on this issue")},
 	})
 	f.settle()
 
@@ -1251,7 +1251,7 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 // relied on the fake forge alone would be asserting the query rather than the
 // guard.
 type closedListingForge struct {
-	daemon.Forge
+	labelFixtureForge
 	issue github.Issue
 }
 
@@ -1306,7 +1306,7 @@ func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 			Author:    github.User{ID: strangerID, Login: strangerLogin},
 			UpdatedAt: f.clock.Now(),
 		}
-		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{Forge: f.client, issue: closed}})
+		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{labelFixtureForge: f.client, issue: closed}})
 
 		_, commentListingsBefore, _, _ := f.forge.counts()
 		result := f.settle()

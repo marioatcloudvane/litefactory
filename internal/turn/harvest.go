@@ -171,6 +171,9 @@ func runClaude(
 	// gains over a resumed one is assembled in exactly one place, in prepare.
 	cold := prep.promptInput
 	cold.Resume = false
+	if err := preparePlanAttempt(prep.worktree.Path(), prep.session.Branch, prep.run, &cold, logger); err != nil {
+		return nil, err
+	}
 	prompt, err := harness.BuildPrompt(cold)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the cold prompt for run %d of task %s: %w",
@@ -183,6 +186,8 @@ func runClaude(
 	prep.promptInput = cold
 	prep.prompt = prompt
 	prep.request.Prompt = prompt
+	prep.request.PlanAttempt = cold.PlanAttempt
+	prep.request.PlanWorkingContext = cold.PlanWorkingContext
 	prep.request.Path = agent.PathColdAfterResumeRefused
 
 	if err := checkAttemptScope(ctx, prep); err != nil {

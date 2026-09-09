@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + managed JSON proposal *(artifact complete; factory publication pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — code + tests *(blocked: US-004 protected Codex-copy synchronization)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -25,3 +25,7 @@ asked for; nothing here licenses starting the next one.
 - Headless run: do not ask questions or wait for approval; record reasonable assumptions and unresolved decisions.
 - Working interpretation: selected mode persists between runs, agents may recommend transitions, and owners control changing modes unless Plan explicitly defines factory-validated agent requests.
 - Main follow-up decisions: explicit transitions against retained labels; iterative asking permissions; discussion-only Plan outcome and readiness; old cleanup-row recovery; managed-scope label alignment.
+
+- 2026-09-09 — Run 0003 begins Implement from four factory-selected frozen revisions; per-story gates and evidence precede dependent work. Base is now synchronized at 592131d.
+
+- 2026-09-09 — Run 0003: US-001/002/003 implemented, independently reviewed, acceptance-tested and verified (latest events 000010/000011/000012). US-004 runtime tests pass, but AC-004-4/5 remain blocked by read-only .codex; event 000013 and CODEX_SKILLS.patch retain the exact remaining work. Build, make check and full race/coverage gates passed after reducing concurrency and increasing test timeout. Implement is not marked complete. No commits or pushes.

@@ -6,7 +6,7 @@ already know their own artifacts do not need it at all.
 
 ## Deriving the path
 
-All artifacts live under `.aiteam/<branch>/<date>/<feature>/`.
+All artifacts live under `.aiteam/<branch>/<date>/<feature>/`. Reuse the factory-supplied session path first, including the directory containing its identity-bound `PLAN_CONTEXT.json`. That unfinished context is sufficient to continue Plan without a completed brief. A date change or cold/fallback attempt never creates a new session by itself. Only a new task without a supplied prior session derives a new path below.
 
 ```
 branch=$(git rev-parse --abbrev-ref HEAD | tr '/' '-' | tr '[:upper:]' '[:lower:]')
@@ -16,7 +16,7 @@ session=".aiteam/$branch/$date/$feature"
 ```
 
 - `<branch>` — current git branch, slashes → hyphens, lowercased.
-- `<date>` — today, `YYYY-MM-DD`.
+- `<date>` — the date the session began, `YYYY-MM-DD`; today only for a new session.
 - `<feature>` — the slug the user gave, lowercased, spaces and special characters
   → hyphens, max 40 characters.
 
@@ -40,6 +40,7 @@ On a new piece of work, write `$session/MANIFEST.md` before invoking anything:
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not started)*
 - [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
+- [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -82,6 +83,23 @@ is history, and history is what `git log` is for.
 
 **"Has this been done before?" is not a reason to cross the boundary.** Ask the
 user, or say in your report that you could not tell. Do not go looking.
+
+## Plan discussions and completion
+
+Plan remains selected across successful, failed and discussion iterations. Owner
+commands or canonical label replacement select another mode; label removal returns
+new triggers to command/classifier routing. Agent recommendations never change it.
+Plan permits material asynchronous questions unless explicitly prohibited for this
+run; Research stays opt-in. Finish one final report and never wait for an answer.
+
+An unfinished iteration writes the supplied `PLAN_CONTEXT.json` with identity,
+scope, decisions, assumptions and unresolved questions, plus a current-bound
+`discussion` outcome. It must not write a proposal or claim readiness. A completed
+iteration writes the version-1 proposal, current-bound `completed` outcome and
+shared brief. Exact transport and context fields are in `docs/plan-outcome.md` and
+the factory prompt. Transport is never committed. Only successful factory
+publication, link replacement and save establish readiness. Recommend
+`/implement <instruction>` after completion and leave Plan selected.
 
 ## Plan mode's output: `plan_brief.md` + per-story sub-issues
 

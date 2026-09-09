@@ -15,7 +15,11 @@ func TestResolveModeLabel(t *testing.T) {
 		found, wantErr bool
 	}{
 		{"absent", []string{"bug"}, "", false, false},
-		{"canonical", []string{"bug", "Mode: Plan"}, agent.ModePlan, true, false},
+		{"research", []string{"bug", "Mode: Research"}, agent.ModeResearch, true, false},
+		{"plan", []string{"bug", "Mode: Plan"}, agent.ModePlan, true, false},
+		{"implement", []string{"bug", "Mode: Implement"}, agent.ModeImplement, true, false},
+		{"validate", []string{"bug", "Mode: Validate"}, agent.ModeValidate, true, false},
+		{"spike", []string{"bug", "Mode: Spike"}, agent.ModeSpike, true, false},
 		{"miscased", []string{"mode: Plan"}, "", false, true},
 		{"unknown", []string{"Mode: Deploy"}, "", false, true},
 		{"ambiguous", []string{"Mode: Plan", "Mode: Spike"}, "", false, true},

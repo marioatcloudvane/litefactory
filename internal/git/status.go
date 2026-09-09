@@ -92,7 +92,7 @@ func (w *Worktree) Status(ctx context.Context) ([]FileChange, error) {
 	}
 	filtered := files[:0]
 	for _, f := range files {
-		if f.Path == ".litefactory-plan-proposal.json" || f.Path == ".litefactory-story-events" || strings.HasPrefix(f.Path, ".litefactory-story-events/") {
+		if f.Path == ".litefactory-plan-proposal.json" || f.Path == ".litefactory-plan-outcome.json" || f.Path == ".litefactory-story-events" || strings.HasPrefix(f.Path, ".litefactory-story-events/") {
 			continue
 		}
 		filtered = append(filtered, f)
