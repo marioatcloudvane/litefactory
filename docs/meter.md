@@ -97,11 +97,14 @@ Shell redirection owns filenames; no output-file option exists.
 
 Manual authentic captures for supported Claude/Codex versions remain deferred to
 the operator. Synthetic parser tests do not certify complete subagent collection.
-Current collectors explicitly report missing capability evidence. Codex lifetime
-summaries and Claude resumed usage with unverified baselines are non-additive;
-coverage remains visible rather than inventing zero consumption. These limitations
-must be resolved before claiming full provider support. No historical-log recovery
-script is part of this repository.
+Collectors combine process streams with bounded associated source reads. Claude
+uses message/model resume baselines and parent Agent/Task links; Codex uses rollout
+response records and turn-context models, with prelaunch boundaries excluding
+historical work. Inclusive summaries and evidence lacking trustworthy baselines
+remain non-additive. Missing source/model/descendant evidence remains diagnosed as
+partial or unknown. See [provider sources](meter-provider-sources.md) for inspected
+source versions; authentic execution certification remains pending. No
+historical-log recovery script is part of this repository.
 
 ## Exact pricing arithmetic
 

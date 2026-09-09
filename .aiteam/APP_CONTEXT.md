@@ -35,8 +35,8 @@ meter         → agent              pure normalization, reconciliation, capabil
 redact        →  secrets
 team          →  config             write engine, index decode/validate, drift classifier (Status/Classify), per-repo overrides (team.overrides.json)
 github        →  naming, redact, secrets
-codex         →  agent, config, naming
-harness       →  agent, config, naming
+codex         →  agent, config, meter, naming
+harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
 turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
@@ -79,15 +79,17 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | recover retained edits before base synchronization | `turn.syncBase`; `harness.DeferredSyncContext` | Dirty normal runs within policy gates use durable/report `deferred_dirty`, with divergence and no sync SHA; both adapters disclose it on every prompt path |
 | prepare a reviewable conflict preview | `report.Reporter.PrepareConflictPreview` | Configured redaction, complete metric budgeting and bounded sanitized diff; injected through `turn.Options.ConflictPreviewer` |
 | run `claude` or Codex | `internal/harness` / `internal/codex` | Implement `agent.Runner`; each owns its CLI subprocess |
-| express token observations across the runner boundary | `agent.TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit` (`internal/agent/usage.go`) | `Request.Usage` / `RunResult.Usage`; cloned nullable counters and explicit identities; synchronous adapters feed `turn/meter.go` |
-| normalize and reconcile token counters | `internal/meter` | `Normalize`, `Validate`, `Add`, `Delta`, `Total`, `Reconcile`; checked arithmetic, subset handling, replay identities and scope-bound baselines; caller owns durable state |
-| qualify a provider collection capability | `meter.CapabilityEvidence.Coverage` | Unsupported/missing/complete evidence diagnostics; no certified provider versions or authentic full-hierarchy fixtures yet |
-| inspect collected provider coverage | `harness/usage.go`, `codex/usage.go` | Claude cold assistant messages can be additive; resumed evidence and Codex lifetime totals are non-additive. Codex actual models remain unknown; full provider certification is pending |
-| persist attempt usage and pinned prices | `store/meter.go`, `meter_prices.go`; migrations `0019_meter_usage.sql`, `0020_meter_prices.sql` | Attempts, invocations, observations, checkpoints, measurements, catalog revisions/rates and valuation snapshots; `StartMeterAttempt`, `ApplyMeterObservation`, `SetMeterPrices` |
-| value disjoint token quantities exactly | `meter.CanonicalRate`, `Value` (`internal/meter/pricing.go`) | USD/million decimal rates, duration fallback, half-even dimension rounding; frozen valuation DTOs owned by store |
+| express runner usage | `internal/agent/usage.go` | `TokenUsage`, `UsageObservation`, `UsageInvocation`, `UsageCapture.Emit`; cloned nullable counters and identities feed `turn/meter.go` |
+| normalize/reconcile counters | `internal/meter` | `Normalize`, `Validate`, `Add`, `Delta`, `Total`, `Reconcile`; checked arithmetic, subsets, replay identities and baselines |
+| qualify provider support | `meter.CapabilityEvidence.Coverage` | Unsupported/missing/complete evidence diagnostics; authentic full-hierarchy certification remains pending |
+| collect Claude invocation usage | `harness/usage.go`, `usage_transcripts.go` | Forwarded child stream plus associated root/subagent transcripts; message/model baselines exclude replay, tool links recover ancestry; bounded 2s final drain |
+| collect Codex invocation usage | `codex/usage.go`, `usage_rollout.go` | Associated rollouts: prelaunch byte/inode baselines, metadata ancestry, turn-context model and exclusive response records; response-ID/hash dedup; bounded 2s final drain |
+| read associated provider sources safely | `harness/usage_transcripts.go`, `codex/usage_rollout.go` | Rooted read-only sources, paged discovery, byte/file limits, nofollow/nonblocking descriptors and replacement checks |
+| persist usage and pinned prices | `store/meter.go`, `meter_prices.go`; migrations `0019`, `0020` | `StartMeterAttempt`, `ApplyMeterObservation`, `SetMeterPrices`; durable attempts, evidence, checkpoints, measurements and immutable prices/valuations |
+| value token quantities | `meter.CanonicalRate`, `Value` (`meter/pricing.go`) | Exact USD/million, duration fallback and half-even dimension rounding |
 | export a coherent usage snapshot | `store.NewMeterSnapshot`, `MeterSnapshot.Next/Close` | Attempt-scoped `MeterFilter`, TEMP projection, bounded pages, current frozen valuations; serializer supplies exact byte accounting |
 | inspect metering commands and CSV fields | `cli/cmd_meter.go`, `cmd_meter_prices.go`, `meter_csv.go`; `docs/meter.md` | Summary scopes/filters/details, price list/set and required-project export; reversible spreadsheet text escaping |
-| prepare metering for completion reports | `turn/meter_report.go`, `report.MeterSummary.Add` | Run-scoped stored values; complete totals separated from observed subtotals, legacy reported cost and excluded helper overhead |
+| prepare completion metering | `turn/meter_report.go`, `report.MeterSummary.Add` | Stored totals, observed subtotals, legacy reported cost and helper exclusions |
 | parse Codex JSONL for runs and structured proposals | `internal/codex/runner.go` | Shared `consume`; private `classifyOutcome` handles process/context evidence |
 | add a new coding-agent-tool implementation | `internal/agent`'s `Runner` interface | Zero vendor-naming allowed in any exported identifier (enforced: `purity_test.go`) |
 | parse or rewrite plan_brief.md's Story Index or a sub-issue body | `internal/planbrief` | pure text in, struct/rewritten bytes out — no I/O, no git, no forge; `internal/turn` owns the file access |

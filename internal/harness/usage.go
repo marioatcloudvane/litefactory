@@ -12,23 +12,33 @@ import (
 	"github.com/cloudvane/litefactory/internal/meter"
 )
 
-// usageCollector observes only the process-owned stream. It never discovers
-// unrelated transcripts or treats the configured root model as child evidence.
+// usageCollector combines the process-owned stream with its associated session
+// transcripts. Configured models are never used as actual-model evidence.
 // Until external captures establish completeness, every total is qualified.
 type usageCollector struct {
-	ctx          context.Context
-	capture      agent.UsageCapture
-	session      string
-	coverage     agent.UsageCoverage
-	invocations  map[string]string
-	messages     map[string]agent.TokenUsage
-	seen         map[string]bool
-	pending      [][]byte
-	pendingBytes int
-	resumed      bool
-	terminal     bool
-	observed     bool
-	failedSink   bool
+	ctx             context.Context
+	capture         agent.UsageCapture
+	session         string
+	coverage        agent.UsageCoverage
+	invocations     map[string]string
+	messages        map[string]agent.TokenUsage
+	seen            map[string]bool
+	baselineSeen    map[string]bool
+	pending         [][]byte
+	pendingBytes    int
+	resumed         bool
+	baselineReady   bool
+	baselineInvalid bool
+	baselining      bool
+	transcripts     *usageTranscripts
+	agents          map[string]string
+	measured        map[string]bool
+	completed       map[string]bool
+	totals          map[string]agent.TokenUsage
+	summaries       map[string]agent.TokenUsage
+	terminal        bool
+	observed        bool
+	failedSink      bool
 }
 
 const maxUsageIdentities = 100000
@@ -54,15 +64,18 @@ func newUsageCollector(ctx context.Context, req agent.Request) *usageCollector {
 	}
 	collector := &usageCollector{ctx: ctx, capture: *req.Usage, session: req.Session.Ref,
 		coverage:    agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "stream-json", Diagnostics: []string{"capability_evidence_missing"}},
-		invocations: make(map[string]string), messages: make(map[string]agent.TokenUsage), seen: make(map[string]bool)}
+		invocations: make(map[string]string), messages: make(map[string]agent.TokenUsage), seen: make(map[string]bool), agents: make(map[string]string), measured: make(map[string]bool), completed: make(map[string]bool), totals: make(map[string]agent.TokenUsage), summaries: make(map[string]agent.TokenUsage)}
 	if req.Path.Resuming() {
 		collector.resumed = true
-		collector.diagnostic("resume_baseline_unverified")
 	}
 	return collector
 }
 
 func (c *usageCollector) diagnostic(code string) {
+	if c.baselining && (strings.Contains(code, "invalid") || strings.Contains(code, "malformed") || strings.Contains(code, "regress") || strings.Contains(code, "limit") || strings.Contains(code, "unassociated") || strings.Contains(code, "unsafe") || strings.Contains(code, "incomplete")) {
+		c.baselineInvalid = true
+	}
+
 	if !slices.Contains(c.coverage.Diagnostics, code) {
 		c.coverage.Diagnostics = append(c.coverage.Diagnostics, code)
 		slices.Sort(c.coverage.Diagnostics)
@@ -70,7 +83,7 @@ func (c *usageCollector) diagnostic(code string) {
 }
 
 func (c *usageCollector) emit(e agent.UsageEvent) {
-	if c.failedSink {
+	if c.baselining || c.failedSink {
 		return
 	}
 	if err := c.capture.Emit(c.ctx, e); err != nil {
@@ -124,25 +137,45 @@ func (c *usageCollector) process(line []byte) {
 		return
 	}
 	var e struct {
-		Type    string `json:"type"`
-		Subtype string `json:"subtype"`
-		Session string `json:"session_id"`
-		Parent  string `json:"parent_tool_use_id"`
-		UUID    string `json:"uuid"`
-		Message struct {
-			ID      string        `json:"id"`
-			Model   string        `json:"model"`
-			Usage   *messageUsage `json:"usage"`
-			Content []struct {
-				Type string `json:"type"`
-				Name string `json:"name"`
-				ID   string `json:"id"`
-			} `json:"content"`
+		Type       string          `json:"type"`
+		Subtype    string          `json:"subtype"`
+		Session    string          `json:"session_id"`
+		Parent     string          `json:"parent_tool_use_id"`
+		UUID       string          `json:"uuid"`
+		Version    string          `json:"claude_code_version"`
+		ToolResult json.RawMessage `json:"tool_use_result"`
+		Message    struct {
+			ID      string          `json:"id"`
+			Model   string          `json:"model"`
+			Usage   *messageUsage   `json:"usage"`
+			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(line, &e); err != nil {
 		c.diagnostic("malformed_usage_event")
 		return
+	}
+	var content []struct {
+		Type      string `json:"type"`
+		Name      string `json:"name"`
+		ID        string `json:"id"`
+		ToolUseID string `json:"tool_use_id"`
+		IsError   bool   `json:"is_error"`
+	}
+	if len(e.Message.Content) > 0 && e.Message.Content[0] == '[' {
+		if json.Unmarshal(e.Message.Content, &content) != nil {
+			c.diagnostic("malformed_usage_event")
+			return
+		}
+	}
+	var toolResult struct {
+		AgentID string `json:"agentId"`
+	}
+	if len(e.ToolResult) > 0 && e.ToolResult[0] == '{' {
+		if json.Unmarshal(e.ToolResult, &toolResult) != nil {
+			c.diagnostic("malformed_tool_result")
+			return
+		}
 	}
 	if !usageIdentity(c.session) {
 		c.diagnostic("missing_session_identity")
@@ -152,16 +185,31 @@ func (c *usageCollector) process(line []byte) {
 		c.diagnostic("unassociated_session")
 		return
 	}
+	// Replayed history is filtered before creating attempt-local ancestry rows.
+	if e.Type == "assistant" && e.Message.Usage != nil {
+		model := e.Message.Model
+		if !usageIdentity(model) {
+			model = ""
+		}
+		identity, _ := json.Marshal([]string{e.Message.ID, model})
+		encoded, _ := json.Marshal(e.Message.Usage.tokens())
+		digest := sha256.Sum256(encoded)
+		if !c.baselining && c.baselineSeen[string(identity)+":"+hex.EncodeToString(digest[:])] {
+			return
+		}
+	}
 	if !c.invocation("root", "") {
 		return
+	}
+	if usageIdentity(e.Version) {
+		c.coverage.Version = e.Version
 	}
 	if e.Type == "result" {
 		c.terminal = true
 		c.summary(line)
-		c.diagnostic("inclusive_summary_not_reconciled")
 		return
 	}
-	if e.Type != "assistant" {
+	if e.Type != "assistant" && e.Type != "user" {
 		return
 	}
 	invocation := "root"
@@ -171,7 +219,7 @@ func (c *usageCollector) process(line []byte) {
 			return
 		}
 		invocation = "tool:" + e.Parent
-		if _, ok := c.invocations[invocation]; !ok {
+		if _, ok := c.invocations[invocation]; !ok && !c.restoreInvocation(invocation, 0) {
 			if c.pendingBytes+len(line) > 8<<20 {
 				c.diagnostic("pending_usage_limit")
 				return
@@ -181,7 +229,25 @@ func (c *usageCollector) process(line []byte) {
 			return
 		}
 	}
-	for _, part := range e.Message.Content {
+	if e.Type == "user" {
+		for _, part := range content {
+			if part.Type == "tool_result" {
+				if _, ok := c.invocations["tool:"+part.ToolUseID]; ok {
+					c.completed["tool:"+part.ToolUseID] = true
+				}
+			}
+			if part.Type == "tool_result" && part.IsError {
+				if _, ok := c.invocations["tool:"+part.ToolUseID]; ok {
+					c.diagnostic("descendant_failed")
+				}
+			}
+			if part.Type == "tool_result" && usageIdentity(part.ToolUseID) && transcriptAgentID(toolResult.AgentID) {
+				c.associateAgent(toolResult.AgentID, "tool:"+part.ToolUseID, invocation)
+			}
+		}
+		return
+	}
+	for _, part := range content {
 		if part.Type == "tool_use" && (part.Name == "Agent" || part.Name == "Task") && usageIdentity(part.ID) {
 			c.invocation("tool:"+part.ID, invocation)
 		}
@@ -204,7 +270,7 @@ func (c *usageCollector) process(line []byte) {
 	if !usageIdentity(modelID) {
 		modelID = ""
 	}
-	identity, _ := json.Marshal([]string{invocation, e.Message.ID, modelID})
+	identity, _ := json.Marshal([]string{e.Message.ID, modelID})
 	key := string(identity)
 	encoded, _ := json.Marshal(tokens)
 	digest := sha256.Sum256(encoded)
@@ -227,6 +293,7 @@ func (c *usageCollector) process(line []byte) {
 		}
 	}
 	c.messages[key] = tokens.Clone()
+	c.measured[invocation] = true
 	c.observed = true
 	c.coverage.Status = agent.CollectionPartial
 	var model *string
@@ -238,15 +305,49 @@ func (c *usageCollector) process(line []byte) {
 		c.diagnostic("unknown_actual_model")
 	}
 	scope := agent.UsageExclusive
-	if c.resumed {
+	if c.resumed && !c.baselineReady {
 		scope = agent.UsageInclusive
 	} // Unverified replay cannot become a new charge.
+	if !c.baselining && scope == agent.UsageExclusive {
+		if old, ok := c.totals[modelID]; ok {
+			if sum, err := meter.Add(old, delta); err == nil {
+				c.totals[modelID] = sum
+			} else {
+				c.diagnostic("invalid_usage_counters")
+			}
+		} else {
+			c.totals[modelID] = delta.Clone()
+		}
+	}
 	c.emit(agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: c.capture.AttemptID, SourceID: c.session, EventKey: eventKey, InvocationID: invocation, ActualModel: model, ModelProvenance: provenance, Mode: agent.CounterIncremental, Scope: scope, Tokens: delta, Coverage: c.coverage.Clone()}})
 }
 
 func (c *usageCollector) finish() *agent.UsageCoverage {
 	if c == nil {
 		return nil
+	}
+	c.finalizeTranscripts()
+	for invocation := range c.invocations {
+		if invocation != "root" && !c.completed[invocation] {
+			c.diagnostic("descendant_finalization_incomplete")
+		}
+		if invocation != "root" && !c.measured[invocation] {
+			c.diagnostic("missing_descendant_usage")
+		}
+	}
+	for model, summary := range c.summaries {
+		total, ok := c.totals[model]
+		if !ok {
+			c.diagnostic("inclusive_summary_mismatch")
+			continue
+		}
+		if !sameSummary(total, summary) {
+			c.diagnostic("inclusive_summary_mismatch")
+		}
+	}
+
+	if c.resumed && !c.baselineReady {
+		c.diagnostic("resume_baseline_unverified")
 	}
 	if len(c.pending) > 0 {
 		c.diagnostic("unresolved_parent")
@@ -299,8 +400,23 @@ func (c *usageCollector) summary(line []byte) {
 			c.diagnostic("invalid_usage_counters")
 			continue
 		}
+		c.summaries[model] = tokens.Clone()
 		encoded, _ := json.Marshal(tokens)
 		sum := sha256.Sum256(encoded)
 		c.emit(agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: c.capture.AttemptID, SourceID: c.session, EventKey: "summary:" + model + ":" + hex.EncodeToString(sum[:]), ActualModel: &model, ModelProvenance: "result_model_usage", Mode: agent.CounterIncremental, Scope: agent.UsageInclusive, Tokens: tokens, Coverage: c.coverage.Clone()}})
 	}
+}
+
+// A summary validates only dimensions which both sources measured. Missing
+// dimensions cannot certify completeness, which remains capability-qualified.
+func sameSummary(a, b agent.TokenUsage) bool {
+	for _, pair := range [][2]*int64{{a.InputUncached, b.InputUncached}, {a.CacheRead, b.CacheRead}, {a.CacheWrite, b.CacheWrite}, {a.Output, b.Output}} {
+		if pair[0] == nil || pair[1] == nil {
+			return false
+		}
+		if *pair[0] != *pair[1] {
+			return false
+		}
+	}
+	return true
 }

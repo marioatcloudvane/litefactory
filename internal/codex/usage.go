@@ -7,15 +7,16 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/meter"
 )
 
-// usageCollector consumes the existing exec JSONL transport only. The upstream
-// exec processor emits lifetime total usage, despite the event's turn name.
-// Without a verified initial baseline and model evidence it is reconciliation
-// evidence only; never silently charge a resumed conversation again.
+// usageCollector retains exec totals as reconciliation evidence and collects
+// exclusive response records from associated rollouts. Runtime model context
+// and prelaunch byte boundaries prevent configured-model guesses and resume
+// recharging. Provider certification remains separate from observed subtotals.
 type usageCollector struct {
 	ctx        context.Context
 	capture    agent.UsageCapture
@@ -24,13 +25,14 @@ type usageCollector struct {
 	coverage   agent.UsageCoverage
 	sinkFailed bool
 	terminal   bool
+	rollouts   *rolloutUsage
 }
 
 func newUsageCollector(ctx context.Context, req agent.Request) *usageCollector {
 	if req.Usage == nil {
 		return nil
 	}
-	return &usageCollector{ctx: ctx, capture: *req.Usage, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl", Diagnostics: []string{"capability_evidence_missing", "model_attribution_unavailable", "usage_baseline_unverified"}}}
+	return &usageCollector{ctx: ctx, capture: *req.Usage, parents: make(map[string]string), coverage: agent.UsageCoverage{Status: agent.CollectionUnknown, SourceFormat: "exec-jsonl", Diagnostics: []string{"capability_evidence_missing"}}}
 }
 func (c *usageCollector) diagnostic(code string) {
 	if !slices.Contains(c.coverage.Diagnostics, code) {
@@ -68,6 +70,7 @@ func (c *usageCollector) observe(line []byte) {
 	if c == nil {
 		return
 	}
+	defer c.collectRollouts(false)
 	var event struct {
 		Type   string `json:"type"`
 		Thread string `json:"thread_id"`
@@ -122,7 +125,6 @@ func (c *usageCollector) observe(line []byte) {
 				c.diagnostic("invalid_child_identity")
 			}
 		}
-		c.diagnostic("descendant_usage_unavailable")
 	}
 	if event.Type == "turn.failed" {
 		c.terminal = true
@@ -150,6 +152,40 @@ func (c *usageCollector) observe(line []byte) {
 func (c *usageCollector) finish() *agent.UsageCoverage {
 	if c == nil {
 		return nil
+	}
+	cancelled := c.ctx.Err() != nil
+	if cancelled {
+		c.diagnostic("collection_cancelled")
+	}
+	// After process exit, allow at most two seconds to drain already persisted
+	// records. This is bounded finalization, never a new provider execution.
+	drain, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 2*time.Second)
+	defer cancel()
+	previousContext := c.ctx
+	c.ctx = drain
+	defer func() { c.ctx = previousContext }()
+	// Bound delayed child flush collection by the drain deadline. This timer
+	// belongs to finalization only, not subprocess retry scheduling.
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		c.collectRollouts(true)
+		if c.rolloutsFinalized() || drain.Err() != nil {
+			break
+		}
+		select {
+		case <-drain.Done():
+		case <-ticker.C:
+		}
+	}
+	c.diagnoseRollouts()
+	if c.rollouts == nil {
+		c.diagnostic("usage_source_unavailable")
+	}
+	if c.rollouts != nil && c.rollouts.root != nil {
+		if err := c.rollouts.root.Close(); err != nil {
+			c.diagnostic("usage_source_close_failed")
+		}
 	}
 	if !c.terminal {
 		c.diagnostic("missing_terminal_usage")

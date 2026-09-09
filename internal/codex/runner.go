@@ -314,12 +314,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	cmd.Stderr = &stderr
 	startLocation := machineLocation()
 	started := time.Now()
+	collector := newUsageCollector(runCtx, req)
+	collector.prepareRollouts(cmd.Env)
 	if err := cmd.Start(); err != nil {
+		collector.finish()
 		return nil, fmt.Errorf("codex did not start: %w", err)
 	}
 	r.logger.Info("coding agent started", "agent", "codex", "task", req.Ref.String(), "run", req.RunOrdinal,
 		"binary", r.binary.Path, "sandbox", sandbox, "tool_profile", req.Permissions.Profile)
-	collector := newUsageCollector(runCtx, req)
 	stream := consumeUsage(stdout, logFile, collector)
 	waitErr := cmd.Wait()
 	finished := time.Now()
