@@ -4,12 +4,12 @@
 
 Research issue `github:marioatcloudvane/litefactory#207`: replace agent-authored Markdown that the factory subsequently interprets as acceptance obligations with explicit structured items and factory-owned rendering. Include the triggering comment's scope extension: the factory should construct story-progress identity envelopes from its existing frozen context while the agent supplies the outcome and evidence. The follow-up prioritizes factory construction of the identity envelope and independently useful live field/type feedback. Investigate serial error discovery across costly reruns and whether comprehensive preflight plus acknowledged correction can resolve it within one run.
 
-This is Research run 0004 (2026-09-10), continuing runs 0001–0003 on branch `lf/207-acceptance-criteria-should-be-structured`. The owner answers the decision register and requests a full structure sketch for validation before moving on, equivalent evidence-format examples, and suggested criterion-ID rules. The existing 2026-09-09 session is reused. This run saves the owner decisions and a conceptual contract sketch; it does not implement, repair runtime state, commit, push, change mode, or wait for confirmation.
+This is Research run 0005 (2026-09-10), continuing runs 0001–0004 on branch `lf/207-acceptance-criteria-should-be-structured`. The owner approves the full structure, evidence Option B, criterion-ID rules, and feedback/compatibility direction. The amendment is to recommend commenting desired changes on each story so litefactory infers and applies the update, while preserving direct inline edits. The existing 2026-09-09 session is reused. This run records those approvals and a concrete story-footer proposal; it does not implement, repair runtime state, commit, push, change mode, or wait for confirmation.
 
 ### Provenance and boundaries
 
 - `[V]` means instructions inspected in the named run or explicitly cited bounded run 0004 findings, not validation of the proposed design. Production-code findings outside the explicitly identified run 0004 reinspection are `[R0]`, carried forward from runs 0001 and 0002, including their historical citations; run 0002 subsections identify the findings then reverified by its delegated codebase tour. `[O]` means owner-supplied incident evidence, not independently reproduced; `[W]` denotes other unverified second-hand material. Recommendations and inferences are not verification claims.
-- Recommendations and inferences below are explicitly identified; they are not existing behavior or approved requirements.
+- Recommendations and inferences below are explicitly identified and are not existing behavior. Owner approvals are recorded separately under run 0005; those approvals supersede earlier pending-review wording without making the proposed protocol current code. No fresh code inspection was performed in run 0005; named earlier-run findings and citations retain their original provenance.
 - Run 0001 covered the Plan proposal/publication/freeze path, story-event contracts and ingestion, and their relevant tests and constraints. Run 0002 targeted per-event error reporting, live ingestion versus author feedback, runner channels, and same-run correction semantics; original Plan findings are retained below. It did not inspect runtime databases, daemon logs, live GitHub content, or other research sessions. There were no external factual dependencies, so no web research was needed.
 - No production files were changed and no tests were executed. Source inspection verifies the failure mechanisms, not the cited historical runs or a proposed fix.
 
@@ -150,13 +150,36 @@ This is Research run 0004 (2026-09-10), continuing runs 0001–0003 on branch `l
 
 [R0] The repository's aggregate gate is `make check` (format, vet, pinned lint, race tests; `Makefile:25`). No tests were run because this run only produced research artifacts. Runtime remediation and reproducing the historical incidents remain outside this investigation.
 
-## Run 0004 — owner decisions and proposed contract sketch
+## Run 0005 — approved direction and comment-preferred editing
+
+[O] The owner explicitly approves the run 0004 structure (all five story sections), evidence **Option B** (typed lists of result explanations), the suggested criterion-ID rules, and both feedback stages with the stated compatibility policy. All four owner-review items previously listed are now settled. The content shapes below are approved research direction for Plan, not an implemented schema or a completed implementation specification.
+
+[O] The owner amends the editing experience: **recommend comments as the preferred way to request changes, while continuing to support inline issue editing**. Each story should end with a short factory-rendered note encouraging the owner to describe the desired change and let litefactory infer and apply the corresponding structured update. This reduces opportunities for conflicting revisions; it cannot guarantee conflict-free updates. GitHub issues remain the authoritative story source.
+
+### Concrete footer proposal
+
+> Want to change this story? Comment with the requested change and litefactory will update it. Direct edits are supported, but comments help avoid conflicting revisions.
+
+This wording is a proposed rendering detail implementing the approved requirement; no further owner confirmation is needed before Plan. Put it at the bottom of each newly rendered story in a dedicated **Editing this story** section, outside Acceptance Criteria, Tasks, Architecture, Dependencies and User Story. The renderer and readers must explicitly classify it as guidance, never an obligation, dependency or evidence requirement. Appending it to the final parsed section without a boundary would repeat the original accidental-prose defect. Do not bulk-rewrite legacy stories or implicitly upgrade their contract to insert the footer. Plan should specify safe footer handling for legacy publication without changing legacy interpretation or migration policy.
+
+### Comment-driven reconciliation requirements
+
+- [O] Commenting a requested change is the preferred interaction; direct edits remain supported without JSON or local-artifact requirements. Litefactory proposes/derives typed changes from ordinary language and performs the authorized issue update. This is an approved new requirement, not a claim that existing comment processing already implements this feature.
+- The factory authenticates the owner and checks authorization before treating a comment as a requested mutation. Quoted content and arbitrary third-party comments remain untrusted evidence. Neither story prose nor a comment author impersonation may grant tools, permissions, scope approval or mode changes.
+- Bind each inferred update to the current authoritative issue revision and recheck the expected revision before applying it. If another comment or inline edit changes the issue in between, preserve the current issue and reconcile against it; never silently overwrite it with an older inferred update. Keep the originating comment and before/after revision association available for explaining the change and deduplicating retries. A projection or local research/Plan artifact is not an independent source of authority.
+- A comment saying that a string must now be `y` instead of `x` is a requested semantic change, even when it names the same criterion label. Apply the approved identity rule: materially replacing an obligation receives a new criterion ID; a clarification may retain its ID. The factory must not interpret label reuse as proof that the approved obligation is unchanged. Ambiguous intent or conflicting changes remain saved and receive a plain-language explanation.
+- Reflect clear changes in the GitHub issue with an understandable change summary, preserving unrelated owner edits. The issue as updated is the editable story source; the comment is the authenticated request and audit context, not a competing obligation set. Approval and frozen snapshots remain explicit, revision-bound workflow state.
+- Requested or inline edits must not silently alter an active run’s frozen scope, automatically reopen accepted historical work, select another workflow/mode, or bypass managed replan/approval gates. Accepted historical scope remains immutable; follow-up work follows the shared lifecycle rules. A preference for comments is an editing aid, not an approval shortcut.
+
+**Residual risk:** comments reduce direct structural edits but still require semantic interpretation and concurrency control. Two comments can conflict, as can a comment and an inline edit. Expected-revision detection, preserved owner content, explicit unresolved status and actionable feedback remain necessary. Plan owns the mechanics, including comment ordering/deduplication, authorization, revision checks, approval integration and footer exclusion tests.
+
+## Run 0004 — retained structure sketch, approved in run 0005
 
 ### Status and accepted direction
 
-[O] The owner requests a structure sketch to inspect **before moving on**. This run remains Research; the examples below are design proposals, not a valid current proposal/event, approved specification, implementation plan, or invocation of a mode. No machine-consumed proposal or outcome file is written. “All” is interpreted as all five story sections, with explicit structure at every agent-to-factory machine-consumed boundary; free text still belongs inside typed narrative fields. It does not mean forcing ordinary owner comments into JSON.
+[O, run 0004] The owner requested a structure sketch to inspect **before moving on**. Run 0005 approves its direction as recorded above. The examples below remain illustrative, not valid current proposals/events, a completed implementation specification, an implementation plan, or an invocation of a mode. No machine-consumed proposal or outcome file is written. “All” is interpreted as all five story sections, with explicit structure at every agent-to-factory machine-consumed boundary; free text still belongs inside typed narrative fields. It does not mean forcing ordinary owner comments into JSON.
 
-[O] The owner supersedes the run 0003 defaults as follows:
+[O, run 0004] The owner superseded the run 0003 defaults as follows. This historical decision table is retained for provenance; run 0005 above settles its pending structure, evidence and ID reviews and amends editing guidance:
 
 | Prior question | Recorded decision |
 |---|---|
@@ -301,7 +324,7 @@ This is an **engineering shape example**, not a new substitute for existing snap
 
 The selector is agent-chosen, not authoritative. Stale, unknown or unauthorized selection still fails. Mutable prefilled JSON would not establish ownership; a bounded publisher must build the envelope without accepting agent overrides. Mode-specific outcomes remain explicit: separated Implement reports engineering state; Validate reports retained-evidence findings; legacy scoped verification retains legacy effects. A generic agent `verified` claim must not imply acceptance or closure in separated workflow.
 
-A separate Validate contribution can follow this same ownership rule: select the authorized story; return every frozen criterion finding and the required code/architecture/plan reviews. The factory supplies issue/revision/snapshot attribution from its retained review bundle. Illustrative fragment using Option A:
+A separate Validate contribution can follow this same ownership rule: select the authorized story; return every frozen criterion finding and the required code/architecture/plan reviews. The factory supplies issue/revision/snapshot attribution from its retained review bundle. Historical illustrative fragment using Option A (retained to explain the contrast; run 0005 selects Option B for the new contract):
 
 ```json
 {
@@ -384,7 +407,7 @@ This keeps the evidence text close to the current string contract. Multiple resu
 
 This lets the factory display, validate and attribute each supporting result separately. It adds object fields and bounds to the contract. An array of arbitrary sentences would still be invalid because entries must be objects with `check_ids` and `summary`. Lists prevent the exact array-versus-string confusion only when the chosen schema is actually enforced; they do not eliminate author errors on their own.
 
-**Proposed recommendation, awaiting the requested owner validation:** choose Option B for the new contract. Multiple supporting results are naturally plural, and the full structured boundary is already in scope. Keep the existing string type in legacy events. There must be exactly one accepted representation per contract version, never a permissive string-or-list union. Option A is a valid alternative if minimal evidence-format change is preferred. The evidence alternatives describe criterion findings for Validate (or legacy verified evidence), not an acceptance group added to separated engineering events.
+**Approved by the owner in run 0005:** choose Option B for the new contract. Multiple supporting results are naturally plural, and the full structured boundary is already in scope. Keep the existing string type in legacy events. There must be exactly one accepted representation per contract version, never a permissive string-or-list union. Option A is retained here only for comparison and the unchanged legacy contract; it is not an unresolved alternative for the new contract. The evidence alternatives describe criterion findings for Validate (or legacy verified evidence), not an acceptance group added to separated engineering events.
 
 ### D. Live preflight and authoritative response
 
@@ -432,18 +455,18 @@ Success at this stage cannot imply Validate acceptance, successful remote effect
 The proposed separation is between **agent authoring** and **owner editing**, not between two authoritative story sources:
 
 1. The agent fills typed fields; the factory renders an ordinary readable GitHub issue. No JSON editing, secondary Markdown file or hidden structured blob becomes an owner obligation.
-2. The owner can edit the title, paragraphs, checklists, task rows, architecture and dependencies directly in GitHub. Preserve those bytes and unrelated edits. Checkbox ticks remain presentation and do not assert accepted evidence.
+2. Prefer an authenticated owner comment describing the desired change, with litefactory deriving and applying a revision-checked structured update as recorded in run 0005. The owner can still edit the title, paragraphs, checklists, task rows, architecture and dependencies directly in GitHub. Preserve those bytes and unrelated edits. Checkbox ticks remain presentation and do not assert accepted evidence.
 3. Derive a validated structure from the current issue revision. This is a cache/projection bound to the exact issue body/title revision, not a competing editable source. Recheck the issue revision before publication, reconciliation or freeze; concurrent changes trigger reconciliation instead of overwrite.
 4. Recognize explicit criterion items as items, never every nonempty line. Existing short `AC-001` labels preserve identity; an ordinary newly added checklist item can receive the next unused label from the factory. Multiline continuation belongs to the item. Section prose stays narrative. A note such as “Evidence contract: …” never silently becomes a new criterion.
 5. Reflect clear changes in the derived structure and display a human-readable change summary. Owner wording remains intact; factory-added identifiers or status projection must be narrow, revision-checked edits. Reordering does not renumber; dependency edits update the validated dependency projection rather than retaining stale hidden edges.
 6. If IDs are removed/duplicated, criterion boundaries conflict, a dependency is unclear, or prose could be a requirement addition/removal that cannot be safely classified, preserve the edit and report the exact ambiguity in normal language. Do not silently discard it, rewrite it to fit the schema, approve guessed obligations, or require the user to hand-author JSON. Resolution can be an ordinary edit or owner instruction identifying the intended items.
 7. Requirement changes are available to the next explicitly approved scope; active runs continue using their frozen revision. Accepted historical snapshots remain accepted under separated workflow. Permission to edit does not grant automatic scope approval or replacement of frozen work. Harmless narrative edits should not force requirement reapproval if the validated obligations and other approved semantics are unchanged; uncertainty remains pending rather than guessed.
 
-**Fundamental limitation:** arbitrary free prose cannot be mapped perfectly to deterministic semantics. The initial agent path stops requiring prose reconstruction. The owner-edit path still needs a reconciliation policy and observable ambiguity handling. Normal checklists and short labels make common edits automatic; unusual free-form edits remain saved and visible but can block approval until their intended meaning is resolved. This is the proposed UX consequence to validate, not a promise of flawless semantic extraction. Supporting all five sections means reconciling all their structured content too; “no changed AC” does not prove a task, architecture or dependency edit is harmless.
+**Fundamental limitation:** arbitrary free prose cannot be mapped perfectly to deterministic semantics. The initial agent path stops requiring prose reconstruction. The owner-edit path still needs a reconciliation policy and observable ambiguity handling. Normal checklists and short labels make common edits automatic; unusual free-form edits remain saved and visible but can block approval until their intended meaning is resolved. The owner has approved the editing direction with the run 0005 preference for comments; it is not a promise of flawless semantic extraction. Supporting all five sections means reconciling all their structured content too; “no changed AC” does not prove a task, architecture or dependency edit is harmless.
 
 ### F. Suggested criterion identity and size rules
 
-**Proposed, not approved or currently implemented:**
+**Approved research direction in run 0005, not currently implemented; final shared transport budgets remain Plan-owned:**
 
 - Canonical ASCII format `AC-` followed by **3–6 decimal digits**, e.g. `AC-001`, `AC-027`, `AC-1000`. Prefix uppercase, no spaces or alternative separators; suffix must represent a positive number and use `max(3, decimal digit count)` digits. Thus `AC-000`, `ac-001`, `AC-01`, `AC-0001`, and semantic suffixes are invalid. Length is 6–9 ASCII bytes, comfortably below the carried-forward 256-byte evidence name ceiling.
 - Uniqueness is **within one story**; evidence resolves the criterion within its authorized story/revision. Different stories may both contain `AC-001`. IDs are never re-used for another obligation during that story's history.
@@ -475,21 +498,26 @@ These are current-code findings only, not validation of the proposed schemas or 
 
 ## Open Questions
 
-The previous 14-question register is superseded by the decisions above. No repeat confirmation is needed for both feedback stages, Plan preflight, envelope/counter ownership, complete safe diagnostics, stage-specific truth, same-run correction/recovery, rollout checks, or GitHub authority.
+All owner-review decisions from run 0004 are settled by run 0005. Do not ask again whether to structure all sections, choose evidence A/B, adopt the suggested criterion IDs, support inline edits, retain GitHub authority, provide both feedback stages/Plan preflight, or preserve explicit CLI-only legacy upgrades. The new comment preference and bottom-of-story guidance are approved requirements.
 
-Only owner validation explicitly requested in this run remains:
+Plan must resolve these engineering details within that direction:
 
-1. **Full structure:** validate the proposed fields and organization for all story sections and the agent-versus-factory ownership boundary. The sketch is intentionally reviewable before Plan; field details remain proposed.
-2. **Evidence representation:** choose single text (A) or the recommended explicit list of result objects (B), using the equivalent samples above.
-3. **Suggested ID rules:** validate the short numeric `AC-001` convention, per-story stability and 256 active-criterion ceiling; the concrete proposal responds to “suggest.”
-4. **Edit reconciliation consequence:** validate that owners freely save normal issue edits, common checklist/text edits reconcile automatically, and genuinely ambiguous requirement changes stay saved pending a plain-language resolution. This preserves authority and ease of editing without falsely promising arbitrary prose has a unique machine meaning.
+1. Exact versioned contracts, author-callable transport and durable receipt/correction mechanics across both harnesses and workflow versions.
+2. Comment ingestion authorization, order and retry deduplication; revision-bound inference/publication and safe handling of conflicting comments or inline edits; understandable change summaries and ambiguity feedback.
+3. Reconciliation and identity-history implementation across all five sections, explicit handling of semantic replacement versus clarification, and integration with frozen-scope/approval and historical-acceptance rules.
+4. Renderer boundaries for the guidance footer, ensuring no consumer interprets it as an obligation or dependency, including safe handling of legacy rendering without implicit upgrades.
+5. Compatible total proposal/rendered-issue/evidence budgets, retained-check/snapshot reference capacity, and exact bounds/diagnostics so valid requirements remain expressible as valid evidence.
+6. Explicit CLI contract upgrade capability and version dispatch for cold, resumed, fallback and replay paths, preserving active frozen revisions and historical acceptance.
+7. Cross-boundary verification of multiple-error reporting, authoritative acknowledgments, correction in one run, pending states, crash/finish races, unauthorized or stale submissions, and editing/reconciliation conflicts.
 
-Plan still determines exact transport/schema version numbers, durable receipt mechanics, reconciliation implementation, bounded payload/reference capacity and the CLI upgrade capability under the accepted requirements. Those are engineering design details, not fourteen fresh product questions. Run 14's unknown historical outcome remains an incident-evidence gap and not a prerequisite. This run ends after delivering the sketch; it does not ask a headless process to wait or advance modes automatically.
+These are Plan/architecture obligations, not fresh product approval questions. Run 14's unknown historical outcome remains an incident-evidence gap and not a prerequisite. This Research run saves the decisions and ends without starting Plan or waiting for another confirmation.
 
 ## Recommended scope for Plan mode
 
-Use the owner decisions in run 0004, superseding earlier criteria-first and structured-owner-edit defaults. All five story sections use an explicit typed agent authoring contract and deterministic factory rendering. GitHub issues stay the authoritative editable source, with version-bound derived projections and plain-language ambiguity resolution; no text artifact or hidden structured copy overrides live issue edits. Existing stories keep their legacy contract until explicit CLI upgrade.
+Use the owner decisions in runs 0004 and 0005, superseding earlier criteria-first, structured-owner-edit and evidence-A defaults. All five story sections use the approved typed agent authoring shape and deterministic factory rendering. GitHub issues stay the authoritative editable source. Prefer authenticated owner comments requesting changes, let litefactory infer and apply revision-checked updates, keep direct editing supported, and render the short editing guidance at each story's bottom in its own non-obligation section. No text artifact or hidden structured copy overrides live issue edits. Preserve exact-revision conflict detection, unrelated owner changes, plain-language ambiguity handling and the existing approval/frozen-scope boundaries.
+
+Choose typed evidence lists (Option B) for the new contract, with short stable criterion IDs and the approved per-story limits. Existing stories retain their legacy contract until explicit CLI upgrade; republication or comment editing alone must not upgrade them. Include the new CLI capability with historical acceptance and active frozen-scope preservation.
 
 Include factory-owned envelope/counters, stage-specific outcome content, both comprehensive preflight and authoritative durable receipts, Plan preflight and observable same-run correction for both harnesses. Preserve authorization, actual check and snapshot provenance, frozen scope, workflow-version behavior and historical acceptance. The owner has accepted the ordering and consistency/recovery/testing direction; Plan should settle implementations rather than reopen that direction.
 
-The full structure and evidence alternatives above are a review sketch only. No production protocol changes, plan proposal, migrations, runtime repair or mode transition are authorized by writing this Research artifact. Proceed to Plan only on a subsequent owner mode instruction, carrying the validated structure and remaining concrete decisions forward.
+The reviewed structure is sufficient research evidence for an explicit owner handoff to Plan. Recommend `/plan` with an instruction to build the plan from these approved decisions; do not infer a mode change from these approvals or start Plan automatically. No production protocol changes, plan proposal, migrations, runtime repair or mode transition are performed by this Research artifact.

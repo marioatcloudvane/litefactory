@@ -24,6 +24,8 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-10 — Research completed for run 0004: recorded owner decisions, expanded scope to all five story sections, preserved free GitHub editing and explicit CLI-only legacy upgrades, and saved an illustrative typed story/submission/receipt sketch with equivalent evidence alternatives, proposed IDs and reconciliation limits. No production changes, runtime edits, tests, approval wait, commit or push.
 
+- 2026-09-10 — Research completed for run 0005: recorded owner approval of the full structure, evidence Option B, criterion-ID rules and feedback/compatibility direction. Added comment-preferred editing with inline edits retained, concrete bottom-of-story guidance outside parsed content, authenticated owner input, revision conflict detection, and preservation of issue authority, frozen scope and accepted history. All owner review choices are settled; remaining engineering questions belong to Plan. No production changes, tests, operational access, confirmation wait, commit, push or mode transition.
+
 ## Notes
 
-- Headless run: never wait for answers or confirmation. Run 0004 requests a full structured contract sketch, evidence-format examples and suggested IDs before moving on. Recorded owner decisions supersede earlier defaults; the sketch remains proposed for owner validation. No automatic mode transition or confirmation wait.
+- Headless run: never wait for answers or confirmation. Run 0005 approves the structured contract direction, evidence Option B, ID rules and feedback/compatibility, with comments preferred for requesting updates and direct issue edits still supported. The research brief records the approved direction and remaining Plan-owned mechanics. Research remains selected; an explicit owner `/plan` instruction is required to start Plan. No automatic mode transition or confirmation wait.
