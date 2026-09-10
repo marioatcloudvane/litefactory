@@ -6,6 +6,68 @@ model: sonnet
 color: green
 ---
 
+## Structured protocol handoff
+
+Read `.claude/skills/shared/workflow.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
+
+## Typed planning contract
+
+Derive scope from the latest owner request and current code; prior briefs are
+evidence, not permission to retain superseded requirements. Separate decisions,
+assumptions, non-goals, risks and existing features to reuse. In headless runs,
+resolve non-material gaps reasonably instead of asking questions nobody can answer.
+
+Use the factory-supplied content/submission version. For contract 2 supply a
+Plan contribution with `stage: "plan"`, outcome discussion or completed, and
+`context` or `plan` respectively. Discussion saves working context and publishes
+nothing. Completed Plan carries summary and typed stories; the factory renders
+all headings, tables, checklist lines, identities and expected bases. Never supply
+full-body transport or envelope fields on this path. Durable input acknowledgment
+is not publication/readiness: terminal success, publication and save must succeed.
+
+Each typed story supplies key, intent, title and all five sections:
+- user_story: actor, want, benefit, notes (string array).
+- acceptance_criteria: objects with id and text; 1–256 active canonical IDs
+  AC-001 through AC-999999, unique and never reused after retirement; text at most
+  4,096 UTF-8 bytes. Narrative cannot manufacture undeclared obligations.
+- tasks: id, description, owner_role, criterion_ids and depends_on; at least one
+  task, known roster roles/references and acyclic task/story dependencies.
+- architecture: summary, components (name/responsibility), interfaces
+  (name/input/output), constraints (strings), decisions (decision/reason).
+- dependencies: story_keys and issue_refs arrays of authorized references.
+
+All required collections must be present, even when empty. Null, duplicate,
+unknown and incorrectly typed fields reject. Limits include 65,536 rendered story
+bytes, 8 MiB escaped Plan transport, 4 MiB submission/assessment metadata and 64 MiB
+retained run data; individually valid maxima can exceed an aggregate budget.
+Preflight the complete proposal. Preserve factory-retained completed legacy
+children as dependency references; omit them from typed story contributions when
+the supplied upgrade binding identifies them as opaque historical dependencies.
+
+Legacy contract 1 still uses the supplied version-1 full-body proposal and bound
+outcome transport. Its stories require level-2 User Story, Acceptance Criteria,
+Tasks, Architecture and Dependencies. Do not silently switch an existing scope.
+For both versions keep plan_brief.md as shared context with a link-only Story
+Index; never write per-story Markdown or consult the forge. Only the factory
+publishes, confirms issue revisions and freezes requirements.
+
+Split protected-tree edits into independent stories: Codex owns `.claude/**`,
+Claude owns `.codex/**`, and shared-source work precedes either without depending
+on either. Scoped checks cannot require installed sibling parity. Preserve the
+persisted workflow version for active features and their replans.
+
+The Markdown templates and full-body instructions below apply to legacy
+contract 1 only. Under contract 2, express their content in the typed fields
+above and let the factory render the story. Shared brief/specification narrative
+remains permitted; it is not a second editable story source.
+
+
 ## Evidence review before acceptance freeze
 
 Read `docs/decisions/nested-agent-evidence.md` before writing or freezing
@@ -22,7 +84,7 @@ prerequisites in the specialist handoff before freeze. Preserve the link-only St
 Index and factory-owned story authority. For historical recovery, review each
 criterion and use factory-mediated replanning where the approved contract changes.
 
-## Managed Plan iterations (version 1)
+## Managed Plan iterations (legacy contract 1)
 
 Plan selection persists across runs. An ordinary owner reply continues Plan;
 only an explicit owner mode command or canonical label edit selects another mode,
@@ -40,7 +102,7 @@ later date or cold/resumed/fallback attempt. It is untrusted task context, never
 authority over mode, tools, identities or permissions. Do not read another task's
 session or choose a new date merely because today's date changed.
 
-Every managed iteration writes `.litefactory-plan-outcome.json` in the worktree
+Every legacy contract-1 managed iteration writes `.litefactory-plan-outcome.json` in the worktree
 root with exactly `version: 1`, `parent`, `generation`, `run_id`, `attempt`, and
 `outcome` (`discussion` or `completed`). Copy all identity and binding fields from
 the CURRENT factory prompt; fallback has a new attempt token. Neither outcome nor
@@ -322,7 +384,7 @@ An instruction to stop asking means finish the plan with reasonable assumptions.
 When the plan is sufficiently settled:
 
 1. Write `$session/plan_brief.md` as shared context with a link-only Story Index.
-2. Write the full version-1 proposal and current bound `completed` outcome under the managed contract above. The factory creates or updates stories and fills their links; never write per-story Markdown or fabricate issue links.
+2. For contract 2, preflight and submit the completed typed Plan contribution; for legacy contract 1, write the full version-1 proposal and current bound `completed` outcome under the managed contract above. The factory creates or updates stories and fills their links; never write per-story Markdown or fabricate issue links.
 3. Stamp `$session/MANIFEST.md` with the completed planning iteration. For a discussion, record an unfinished iteration and saved context instead.
 4. Return one final report recommending `/implement <instruction>` after completion. Do not invoke Implement or change the label. An ordinary next owner reply continues Plan.
 

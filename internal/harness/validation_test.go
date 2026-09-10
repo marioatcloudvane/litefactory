@@ -60,16 +60,24 @@ func TestValidationPromptWithholdsSnapshotBodies(t *testing.T) {
 			EvidenceStatus: "published",
 		}},
 	}
-	var b strings.Builder
-	if err := writeValidation(&b, PromptInput{Validation: context}); err != nil {
-		t.Fatal(err)
-	}
-	prompt := b.String()
-	if strings.Contains(prompt, base64.StdEncoding.EncodeToString(body)) {
-		t.Fatalf("prompt inlines the retained body; %d bytes", len(prompt))
-	}
-	if len(prompt) > 4000 {
-		t.Fatalf("prompt carries the body some other way: %d bytes", len(prompt))
+	// Both contract versions describe the same retained snapshots, so neither
+	// may carry their bodies.
+	var prompt string
+	for _, submission := range []int{0, 2} {
+		var b strings.Builder
+		if err := writeValidation(&b, PromptInput{Validation: context, SubmissionVersion: submission}); err != nil {
+			t.Fatal(err)
+		}
+		prompt = b.String()
+		if strings.Contains(prompt, base64.StdEncoding.EncodeToString(body)) {
+			t.Fatalf("submission %d inlines the retained body; %d bytes", submission, len(prompt))
+		}
+		if len(prompt) > 4000 {
+			t.Fatalf("submission %d carries the body some other way: %d bytes", submission, len(prompt))
+		}
+		if !strings.Contains(prompt, "sha256") {
+			t.Fatalf("submission %d dropped the hashes the reviewer verifies against", submission)
+		}
 	}
 	// What the reviewer needs to check integrity itself must survive.
 	for _, want := range []string{"internal/turn/managed_scope.go", "abc123", "def456", "snapshot-digest", "AC-001-1", "go test ./...", "sha256"} {

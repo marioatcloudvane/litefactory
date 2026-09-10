@@ -119,81 +119,82 @@ func (db *DB) GetStoryProgressEvent(ctx context.Context, runID int64, sequence i
 // any network I/O. Invalidation cancels all older effects on this story, across
 // runs, so reconciliation cannot replay a stale close after reopening it.
 func (db *DB) AcceptStoryProgress(ctx context.Context, e StoryProgressEvent, f StoryProgressEffect) error {
-	return db.withTx(ctx, func(tx *sql.Tx) error {
-		var existing string
-		err := tx.QueryRowContext(ctx, `SELECT digest FROM story_progress_events WHERE run_id=? AND sequence=?`, e.RunID, e.Sequence).Scan(&existing)
-		if err == nil {
-			if existing == e.Digest {
-				return nil
-			}
-			return fmt.Errorf("store: conflicting story event replay")
+	return db.withTx(ctx, func(tx *sql.Tx) error { return acceptStoryProgressTx(ctx, tx, e, f) })
+}
+func acceptStoryProgressTx(ctx context.Context, tx *sql.Tx, e StoryProgressEvent, f StoryProgressEffect) error {
+	var existing string
+	err := tx.QueryRowContext(ctx, `SELECT digest FROM story_progress_events WHERE run_id=? AND sequence=?`, e.RunID, e.Sequence).Scan(&existing)
+	if err == nil {
+		if existing == e.Digest {
+			return nil
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-
-		var active bool
-		var last int
-		var parent string
-		var generation int
-		if err := tx.QueryRowContext(ctx, `SELECT active,last_sequence,parent_task,generation FROM story_progress_runs WHERE run_id=?`, e.RunID).Scan(&active, &last, &parent, &generation); err != nil {
-			return err
-		}
-		if !active || last+1 != e.Sequence || parent != f.Parent || generation != f.Generation {
-			return fmt.Errorf("store: story event is not next in active run")
-		}
-		var attempt int
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt),0) FROM story_progress_events WHERE run_id=? AND story_key=?`, e.RunID, e.Story).Scan(&attempt); err != nil {
-			return err
-		}
-		if e.Attempt < attempt || e.Attempt > attempt+1 {
-			return fmt.Errorf("store: invalid story attempt sequence")
-		}
-		var hash, state string
-		var version int
-		var engineered bool
-		if err := tx.QueryRowContext(ctx, `SELECT a.digest,s.state,m.workflow_version,s.engineering_complete FROM approved_story_revisions a JOIN managed_stories s USING(parent_task,generation,story_key) JOIN story_progress_scope p ON p.story_key=s.story_key AND p.run_id=? JOIN managed_features m ON m.parent_task=s.parent_task AND m.generation=s.generation WHERE s.parent_task=? AND s.generation=? AND s.story_key=? AND s.issue_id=? AND s.issue_number=? AND a.parent_id=? AND m.state='implementing'`, e.RunID, f.Parent, f.Generation, e.Story, f.IssueID, f.IssueNumber, f.ParentID).Scan(&hash, &state, &version, &engineered); err != nil {
-			return err
-		}
-		if (version == WorkflowSeparated && (e.Kind == "verified" || state == "completed")) || (version != WorkflowSeparated && e.Kind == "engineering_complete") || (engineered && e.Kind != "invalidated") {
-			return fmt.Errorf("store: event conflicts with retained workflow or engineering state")
-		}
-		if hash != f.Revision || (e.Kind == "verified" && state == "completed") || (e.Kind == "blocked" && (state == "verified" || state == "completed")) {
-			return fmt.Errorf("store: story revision or completed scope mismatch")
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO story_progress_events(run_id,sequence,story_key,attempt,kind,digest,payload) VALUES(?,?,?,?,?,?,?)`, e.RunID, e.Sequence, e.Story, e.Attempt, e.Kind, e.Digest, e.Payload); err != nil {
-			return err
-		}
-		if e.Kind == "engineering_complete" {
-			if _, err := tx.ExecContext(ctx, `UPDATE managed_stories SET engineering_complete=1,state='frozen' WHERE parent_task=? AND generation=? AND story_key=?`, f.Parent, f.Generation, e.Story); err != nil {
-				return err
-			}
-		} else {
-			nextState := "blocked"
-			if e.Kind == "verified" {
-				nextState = "verified"
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE managed_stories SET state=?,engineering_complete=0 WHERE parent_task=? AND generation=? AND story_key=?`, nextState, f.Parent, f.Generation, e.Story); err != nil {
-				return err
-			}
-		}
-		if e.Kind == "invalidated" {
-			if _, err := tx.ExecContext(ctx, `UPDATE managed_features SET engineering_succeeded=0 WHERE parent_task=?`, f.Parent); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE story_progress_effects SET superseded=1 WHERE parent_task=? AND generation=? AND story_key=? AND delivered=0 AND kind!='started'`, f.Parent, f.Generation, e.Story); err != nil {
-				return err
-			}
-		}
-		if version == WorkflowSeparated && e.Kind == "invalidated" {
-			f.Kind = "blocked"
-		}
-		if err := insertStoryEffect(ctx, tx, f); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE story_progress_runs SET last_sequence=? WHERE run_id=?`, e.Sequence, e.RunID)
+		return fmt.Errorf("store: conflicting story event replay")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
 		return err
-	})
+	}
+
+	var active bool
+	var last int
+	var parent string
+	var generation int
+	if err := tx.QueryRowContext(ctx, `SELECT active,last_sequence,parent_task,generation FROM story_progress_runs WHERE run_id=?`, e.RunID).Scan(&active, &last, &parent, &generation); err != nil {
+		return err
+	}
+	if !active || last+1 != e.Sequence || parent != f.Parent || generation != f.Generation {
+		return fmt.Errorf("store: story event is not next in active run")
+	}
+	var attempt int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(attempt),0) FROM story_progress_events WHERE run_id=? AND story_key=?`, e.RunID, e.Story).Scan(&attempt); err != nil {
+		return err
+	}
+	if e.Attempt < attempt || e.Attempt > attempt+1 {
+		return fmt.Errorf("store: invalid story attempt sequence")
+	}
+	var hash, state string
+	var version int
+	var engineered bool
+	if err := tx.QueryRowContext(ctx, `SELECT a.digest,s.state,m.workflow_version,s.engineering_complete FROM approved_story_revisions a JOIN managed_stories s USING(parent_task,generation,story_key) JOIN story_progress_scope p ON p.story_key=s.story_key AND p.run_id=? JOIN managed_features m ON m.parent_task=s.parent_task AND m.generation=s.generation WHERE s.parent_task=? AND s.generation=? AND s.story_key=? AND s.issue_id=? AND s.issue_number=? AND a.parent_id=? AND m.state='implementing'`, e.RunID, f.Parent, f.Generation, e.Story, f.IssueID, f.IssueNumber, f.ParentID).Scan(&hash, &state, &version, &engineered); err != nil {
+		return err
+	}
+	if (version == WorkflowSeparated && (e.Kind == "verified" || state == "completed")) || (version != WorkflowSeparated && e.Kind == "engineering_complete") || (engineered && e.Kind != "invalidated") {
+		return fmt.Errorf("store: event conflicts with retained workflow or engineering state")
+	}
+	if hash != f.Revision || (e.Kind == "verified" && state == "completed") || (e.Kind == "blocked" && (state == "verified" || state == "completed")) {
+		return fmt.Errorf("store: story revision or completed scope mismatch")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO story_progress_events(run_id,sequence,story_key,attempt,kind,digest,payload) VALUES(?,?,?,?,?,?,?)`, e.RunID, e.Sequence, e.Story, e.Attempt, e.Kind, e.Digest, e.Payload); err != nil {
+		return err
+	}
+	if e.Kind == "engineering_complete" {
+		if _, err := tx.ExecContext(ctx, `UPDATE managed_stories SET engineering_complete=1,state='frozen' WHERE parent_task=? AND generation=? AND story_key=?`, f.Parent, f.Generation, e.Story); err != nil {
+			return err
+		}
+	} else {
+		nextState := "blocked"
+		if e.Kind == "verified" {
+			nextState = "verified"
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE managed_stories SET state=?,engineering_complete=0 WHERE parent_task=? AND generation=? AND story_key=?`, nextState, f.Parent, f.Generation, e.Story); err != nil {
+			return err
+		}
+	}
+	if e.Kind == "invalidated" {
+		if _, err := tx.ExecContext(ctx, `UPDATE managed_features SET engineering_succeeded=0 WHERE parent_task=?`, f.Parent); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE story_progress_effects SET superseded=1 WHERE parent_task=? AND generation=? AND story_key=? AND delivered=0 AND kind!='started'`, f.Parent, f.Generation, e.Story); err != nil {
+			return err
+		}
+	}
+	if version == WorkflowSeparated && e.Kind == "invalidated" {
+		f.Kind = "blocked"
+	}
+	if err := insertStoryEffect(ctx, tx, f); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE story_progress_runs SET last_sequence=? WHERE run_id=?`, e.Sequence, e.RunID)
+	return err
 }
 func insertStoryEffect(ctx context.Context, tx *sql.Tx, f StoryProgressEffect) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO story_progress_effects(run_id,sequence,parent_task,generation,story_key,issue_number,issue_id,parent_id,revision,kind,detail,implementation_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, f.RunID, f.Sequence, f.Parent, f.Generation, f.Story, f.IssueNumber, f.IssueID, f.ParentID, f.Revision, f.Kind, f.Detail, f.ImplementationDigest)

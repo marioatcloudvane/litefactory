@@ -145,11 +145,28 @@ func readScopeForApproval(ctx context.Context, o Options, ref naming.Ref, f stor
 			continue
 		}
 		if planbrief.StoryHash(issue.Title, issue.Body) != s.BodyHash {
-			faults = append(faults, fmt.Errorf("story %s changed on GitHub since Plan publication; refresh and publish the parent Plan against the current issue before promotion so dependency metadata is approved with the body", s.Key))
-			continue
+			contract, err := o.DB.GetGenerationContract(ctx, ref.String(), f.Generation)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				faults = append(faults, err)
+				continue
+			}
+			if contract.ContentVersion != 2 {
+				faults = append(faults, fmt.Errorf("story %s changed on GitHub since Plan publication; refresh and publish the parent Plan against the current issue before promotion so dependency metadata is approved with the body", s.Key))
+				continue
+			}
+			issue, err = reconcilePresentationIssue(ctx, o.DB, forge, ref, s, issue)
+			if err != nil {
+				faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
+				continue
+			}
+			s.BodyHash = planbrief.StoryHash(issue.Title, issue.Body)
 		}
 		if issue.State != github.StateOpen || strings.TrimSpace(issue.Title) == "" || len(issue.Title) > 256 {
 			faults = append(faults, fmt.Errorf("unfinished story %s is not a valid open issue", s.Key))
+			continue
+		}
+		if _, err := storyCriterionIDs(ctx, o.DB, ref.String(), f.Generation, s.Key, planbrief.StoryHash(issue.Title, issue.Body), issue.Body); err != nil {
+			faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
 			continue
 		}
 		if err := planbrief.ValidateStoryBody(issue.Body); err != nil {
@@ -158,6 +175,24 @@ func readScopeForApproval(ctx context.Context, o Options, ref naming.Ref, f stor
 		}
 		total += len(issue.Title) + len(issue.Body)
 		out = append(out, store.ApprovedStoryRevision{ManagedStory: s, ParentID: parent.ID, Title: issue.Title, Body: issue.Body, Hash: planbrief.StoryHash(issue.Title, issue.Body), FetchedAt: time.Now().UTC()})
+	}
+	contract, contractErr := o.DB.GetGenerationContract(ctx, ref.String(), f.Generation)
+	if contractErr != nil && !errors.Is(contractErr, store.ErrNotFound) {
+		faults = append(faults, contractErr)
+	}
+	if contractErr == nil && contract.ContentVersion == 2 {
+		// Confirm the exact observed bytes again at the approval boundary. The
+		// forge offers no atomic compare-and-swap across this read and storage.
+		for _, revision := range out {
+			current, err := forge.GetIssue(ctx, repo, revision.IssueNumber)
+			if err != nil {
+				faults = append(faults, err)
+				continue
+			}
+			if current.ID != revision.IssueID || current.Title != revision.Title || current.Body != revision.Body {
+				faults = append(faults, fmt.Errorf("story %s changed before typed approval", revision.Key))
+			}
+		}
 	}
 	if total > planbrief.MaxProposalBytes {
 		faults = append(faults, fmt.Errorf("approved scope exceeds context limits"))

@@ -19,8 +19,10 @@ build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/$(BINARY) ./cmd/litefactory
 
 ## test: run the test suite with the race detector
+# The package deadline is shared by its real git/SQLite race tests; allow
+# bounded headroom beyond Go's default ten minutes when packages run together.
 test:
-	$(GO) test -race $(PKGS)
+	$(GO) test -race -timeout=20m $(PKGS)
 
 ## check: everything CI enforces — formatting, vet, lint, race tests
 check: fmt vet lint test
