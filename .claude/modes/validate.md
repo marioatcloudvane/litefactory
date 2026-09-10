@@ -9,7 +9,8 @@ Consume the supplied frozen identities/revisions, retained implementation
 snapshots, executed check outcomes and read-only dependency context on cold,
 resumed and fallback attempts. Never fetch current issue bodies or substitute
 local story files. Return the factory's versioned structured result through
-runner output, exactly one outcome per criterion and code/architecture/plan
+the supplied attempt helper for submission contract 2, or runner output for
+legacy contract 1, exactly one outcome per criterion and code/architecture/plan
 review findings with proof references and blocking/advisory classification.
 
 Do not edit source or session/context files, scaffold or tick MANIFEST.md,
@@ -26,3 +27,10 @@ separate concrete PR/current-head/main merge approval and confirmed integration
 before parent closure. Never switch modes or perform forge effects yourself.
 Legacy managed scope keeps its existing admission and verification semantics;
 this instruction does not migrate it. Return one self-contained result and stop.
+
+For contract 2, use list-B evidence with retained check references and summaries;
+never supply identity envelopes or legacy string evidence. The orchestrator uses
+the explicitly supplied authorized submission interface; a read-only specialist
+returns findings for that handoff without widening its tool policy. Read input,
+engineering, acceptance and remote-effect receipt states independently; pending
+is not success. No helper invocation authorizes new tests or forge access.

@@ -8,6 +8,9 @@ package cli
 func Commands() []*Command {
 	return []*Command{
 		newInitCommand(),
+		newSubmissionCommand("preflight"),
+		newSubmissionCommand("submit"),
+		newSubmissionCommand("receipt"),
 		newRepoAddCommand(),
 		newRepoListCommand(),
 		newDaemonRunCommand(),
@@ -21,6 +24,7 @@ func Commands() []*Command {
 		newMeterPricesListCommand(),
 		newMeterPricesSetCommand(),
 		newTaskCleanCommand(),
+		newStoryContractUpgradeCommand(),
 		newTeamListCommand(),
 		newTeamShowCommand(),
 		newTeamAddCommand(),

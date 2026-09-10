@@ -52,6 +52,10 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
+	prep.planSubmission = func(c context.Context) (*PlanSubmissionCallbacks, error) {
+		return prepareTypedPlanSubmission(c, opts, prep)
+	}
+	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
 	runResult, runErr := runClaude(ctx, prep, logger)
 	runResult = harvestValidation(bookkeeping, opts, prep, runResult)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {

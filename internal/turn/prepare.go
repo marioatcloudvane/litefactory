@@ -23,9 +23,13 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
-	meterDB       *store.DB
-	resumeOnly    bool
-	planCompleted bool
+	typedPlan           *TypedPlanSubmission
+	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
+	submissionOptions   *SubmissionSessionOptions
+	submissionValidated bool
+	meterDB             *store.DB
+	resumeOnly          bool
+	planCompleted       bool
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
@@ -364,6 +368,11 @@ func prepare(
 	}
 	if err := prepareApprovedContext(ctx, opts, &promptInput, run.ID); err != nil {
 		return nil, err
+	}
+	if contract, contractErr := opts.DB.GetFeatureContract(ctx, ref.String()); contractErr == nil {
+		promptInput.SubmissionVersion = contract.SubmissionVersion
+	} else if !errors.Is(contractErr, store.ErrNotFound) {
+		return nil, contractErr
 	}
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {

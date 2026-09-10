@@ -11,7 +11,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -36,7 +35,7 @@ func prepareValidationContext(ctx context.Context, opts Options, in *harness.Pro
 			v.Dependencies = append(v.Dependencies, agent.CompletedStory{Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID})
 			continue
 		}
-		criteria, err := planbrief.AcceptanceCriteria(r.Body)
+		criteria, err := storyCriterionIDs(ctx, opts.DB, f.ParentTask, f.Generation, r.Key, r.Hash, r.Body)
 		if err != nil {
 			return fmt.Errorf("story %s criteria: %w", r.Key, err)
 		}
@@ -90,7 +89,7 @@ func attachValidationEvidence(s *agent.ValidationStory, retained store.StoryProg
 // harvestValidation is called before run success is persisted. No result file,
 // fresh checks, GitHub reads or mutation occurs on this boundary.
 func harvestValidation(ctx context.Context, opts Options, prep *preparation, result *agent.RunResult) *agent.RunResult {
-	if result == nil || !result.Succeeded() || prep.promptInput.Validation == nil {
+	if result == nil || !result.Succeeded() || prep.promptInput.Validation == nil || prep.submissionValidated {
 		return result
 	}
 	result = result.Clone()

@@ -38,7 +38,7 @@ func writeApprovedStories(b *strings.Builder, in PromptInput) error {
 	} else if bundle.ParentRecovery {
 		b.WriteString("\n## Parent completion recovery\n\nEvery selected story is already completed. This attempt is limited to read-only final aggregate checks and reporting their result so the factory can retry saving and pushing existing work. Do not edit implementation files, dispatch story implementation, reopen stories, or emit story verification events. Existing completed revisions remain dependency evidence. If aggregate checks fail, report the failure and stop; do not repair or reimplement completed scope. The factory alone performs save, push, and final reporting after a successful result.\n")
 	}
-	if bundle.EventDirectory != "" {
+	if bundle.EventDirectory != "" && in.SubmissionVersion != 2 {
 		if bundle.EventDirectory != fmt.Sprintf("%s/%d", agent.StoryEventsDirectory, bundle.RunID) {
 			return fmt.Errorf("%w: invalid story event directory", ErrInvalidPrompt)
 		}

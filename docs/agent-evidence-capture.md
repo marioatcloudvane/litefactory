@@ -137,3 +137,159 @@ Before recovery is claimed, review every actual criterion against available
 evidence, document remaining prerequisites, and use factory-mediated replanning
 where the frozen contract must change. This document does not read or mutate
 those issues and does not assert their current status.
+
+## Structured helper prerequisite (content/submission contract 2)
+
+Current availability: authentic dual-harness helper evidence is **unavailable**.
+Offline fake-runner, Unix-socket, SQLite and fake-forge tests establish synthetic
+mechanisms only. They do not demonstrate either actual agent invoking the helper
+inside its supported sandbox. US-012 retains this unsatisfied external prerequisite.
+
+A separately authorized operator-controlled capture must show, for EACH actual
+Claude and Codex: helper invocation, returned diagnostics, corrected contribution
+within the same run, and the correlated authoritative durable decision observed
+before agent exit. Record actual binary versions, host/sandbox, run/attempt,
+content/submission and workflow versions, request/receipt correlation, exact check
+and snapshot references, and final observation. Distinguish accepted input,
+recorded engineering, acceptance and remote-effect state. Preserve failure,
+disconnect, pending or missing observations as such; unknown versions stay unknown.
+Use the existing boundary and sanitize capabilities and credentials out of evidence.
+
+This is an operator handoff, not permission to launch a nested paid agent, add a
+fallback harness, widen permissions or mutate runtime state during engineering.
+Validate consumes supplied sanitized retained evidence without fresh checks. The
+missing obligation remains unverified unless a reasoned explicit numeric-owner
+exception records its exact scope while preserving the unavailable facts.
+
+### External capture procedure
+
+Perform this outside any managed litefactory engineering run (Research, Plan,
+Implement, Validate, Spike), using litefactory's ordinary top-level operating
+mode: the daemon polling a real registered repository and dispatching one actual
+`claude` or `codex` process for one comment turn, exactly as `internal/daemon`
+and `internal/harness`/`internal/codex` already do in production. Do not nest a
+second coding-agent invocation inside an engineering session to acquire this —
+that is the boundary [the nested-agent decision](decisions/nested-agent-evidence.md)
+already sets.
+
+1. Select one target story already on content/submission contract 2
+   (`internal/agent.SubmissionContractVersion`) and note the persisted workflow
+   version it exercises (`internal/turn/submissions.go`, `StartSubmissionSession`).
+   Run one turn with the harness configured to `claude`, and separately one turn
+   with the harness configured to `codex`. Each real turn allocates its own
+   descriptor, socket and capability (`internal/submission/broker.go`); do not
+   reuse or splice frames across attempts or harnesses.
+2. During each real turn the factory appends the actual absolute helper
+   executable path and the actual attempt descriptor path into the agent's own
+   prompt (`internal/turn/submission_runner.go:runSubmissionBound`) and instructs
+   it to call, on its own initiative, as ordinary shell tool use inside its own
+   sandboxed session:
+   ```sh
+   "$helper" submission preflight --descriptor "$descriptor" < contribution.json
+   "$helper" submission submit    --descriptor "$descriptor" < contribution.json
+   "$helper" submission receipt   --descriptor "$descriptor" < receipt-query.json
+   ```
+   The operator does not construct these calls. Never hand-craft or replay a
+   call outside the agent's own session and label the result authentic.
+3. After the turn completes, locate that attempt's already-recorded artifacts
+   without editing or replaying them:
+   - The run log and metadata at
+     `<LF_HOME>/logs/runs/<forge>/<owner>/<repo>/<issue>/NNNN.jsonl` and
+     `NNNN.meta.json` (`internal/naming.RunLogPath`, `RunMetaPath`).
+   - For Claude: the session transcript(s) under the isolated
+     `CLAUDE_CONFIG_DIR` that run used (`projects/<escaped cwd>/<session>.jsonl`;
+     see `internal/harness/usage_transcripts.go`), which record the shell
+     tool-use entries invoking `submission preflight`/`submit`/`receipt` and
+     their stdout.
+   - For Codex: the associated rollout JSONL under that attempt's `HOME`
+     (see `internal/codex/usage_rollout.go`), which records the equivalent
+     shell invocations and their output.
+   These sources already exist for usage accounting; this procedure reads them
+   for a second purpose, it does not add a new collection path.
+4. From those sources, extract only the request/response material AC-003 needs:
+   the JSON sent on stdin for a `preflight` call that returned
+   `ContributionDiagnostics` (`internal/agent/contribution.go`: `Path`, `Code`,
+   `Expected`, `Actual`, `complete`), the corrected JSON sent on a following
+   `preflight` or `submit` call for the same story/stage, the `submit` response's
+   `request_id`, and the later `receipt` response distinguishing input validity,
+   durable engineering record, acceptance decision and pending/failed remote
+   effects (`internal/submission/protocol.go`: `Response`). Preserve relative
+   order and which frames came from which harness's attempt.
+5. Sanitize following the "Acquisition and transfer" steps above: keep raw
+   material outside the repository, replace parent/child/session/thread/run
+   identities with stable per-identity substitutions, strip tokens, cookies,
+   private prompts, generated file contents and personal data, and keep the
+   sensitive mapping outside the repository. Preserve the request/receipt
+   correlation (matching `request_id` values), the stage/outcome fields and the
+   diagnostic path/code/expected/actual fields exactly — those relationships are
+   what the criterion needs.
+6. Complete one provenance record per harness using the template above, review
+   both sanitized candidates together with their provenance, compute SHA256 over
+   each final sanitized file, and hand the reviewed pair to the operator's normal
+   evidence transfer. Validate reads what was supplied; it does not run or
+   commission a fresh capture.
+
+### Provenance fields specific to this prerequisite
+
+In addition to the general template above, each of the two sanitized captures
+(one Claude, one Codex) must record:
+
+- Actual tool/model version observed for that attempt (the Claude Code CLI
+  version, or the Codex CLI version); unknown stays unknown, never assumed from
+  an unrelated install.
+- Host/sandbox identity: platform, whether the harness ran under the daemon's
+  ordinary top-level sandbox for that attempt, and any sandbox/allowlist facts
+  relevant to whether the helper's Unix socket was reachable.
+- Run/attempt identifiers: the run ordinal (`NNNN` from `RunLogPath`/
+  `RunMetaPath`) and which submission attempt (descriptor/socket generation) the
+  frames came from, sanitized to a stable substitute where the raw value is
+  sensitive.
+- The exercised content/submission contract version
+  (`agent.SubmissionContractVersion` at capture time) and the persisted workflow
+  version bound for that story.
+- Request/receipt correlation: the `request_id` values tying a `submit` call to
+  its later `receipt` call, and the story/stage/outcome the contribution
+  targeted.
+- The final observation: whether a durable engineering or acceptance record was
+  actually seen for that `request_id`, or whether the capture ended pending,
+  failed, or disconnected before a durable decision was observed — recorded as
+  that state, never rounded up to success.
+
+### Handoff disposition (AC-003 / AC-004)
+
+No such capture has been supplied to this engineering run, and none is
+performed by this documentation task: no `claude` or `codex` process was
+invoked from within this session, no descriptor/socket/capability was created or
+used, and no transcript or rollout was read for this purpose. This is the
+expected, honest state here — the story's own architecture note excludes
+capture from this task ("Capture unavailable now; leave actual two-harness
+invocation/correction/decision AC factually unverified").
+
+Consequently:
+
+- **AC-003 remains factually unverified.** The offline aggregate tests in
+  `internal/turn/aggregate_lifecycle_test.go` and
+  `internal/teamsource/aggregate_instruction_parity_test.go` (T-012.1) establish
+  synthetic mechanism coverage only; they are not, and do not claim to be,
+  evidence of an actual Claude or actual Codex process invoking this helper.
+- **AC-004 is satisfied by this documentation itself:** the missing observation
+  is recorded as unavailable, not silently marked satisfied, not fabricated and
+  not inferred from a synthetic or historical unrelated capture.
+- Only a separately authorized operator can supply the missing evidence, using
+  the procedure above, outside any managed engineering run. Nothing in Implement
+  or Validate may launch a nested paid agent, widen sandbox permissions, add a
+  fallback harness, or otherwise manufacture this observation to close the gap.
+- **Validate** is the only mode that reviews whatever capture an operator later
+  supplies. Validate reads retained snapshots, checks and captures; it never
+  runs or commissions a fresh check to produce this evidence, and it does not
+  treat a pending or partial capture as satisfying AC-003.
+- The only other route to treating AC-003 as satisfied without a genuine capture
+  is an explicit, reasoned, numeric-owner exception (`/waive`; see
+  `docs/workflow/owner-exceptions.md`) that names AC-003 exactly and records that
+  authentic evidence was absent at the time of the waiver. A waiver changes
+  disposition, not the underlying fact; its text must not imply the capture
+  happened.
+
+Given both constraints, this feature cannot pass AC-003 through captured
+evidence right now, and closing US-012 without either a genuine capture or an
+explicit owner exception leaves that criterion open.

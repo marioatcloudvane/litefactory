@@ -134,3 +134,16 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
+
+## Structured story contracts
+
+`planbrief` owns typed content, strict validation, legacy conversion and structural
+inline reconciliation; `report` renders deterministic issue bodies. `agent` owns
+stage contributions/diagnostics; `submission` owns the attempt-bound local broker
+and helper protocol. `store` retains generation contracts, projections, retired
+IDs, immutable check references, receipts and recoverable upgrade intent.
+`turn/story_contract_upgrade.go` coordinates revision checks; the owner CLI
+`story-contract upgrade` previews by default and requires `--apply` for the
+unfinished cohort. Completed legacy children remain opaque dependencies in typed
+Plans. These content/submission versions do not change workflow versions. See
+[operator protocol](../docs/story-contract.md) and [shared instruction manifest](../docs/story-contract-instruction-manifest.md).
