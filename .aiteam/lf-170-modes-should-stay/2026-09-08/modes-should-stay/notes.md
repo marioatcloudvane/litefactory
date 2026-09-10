@@ -24,3 +24,7 @@
   - ok   github.com/cloudvane/litefactory/internal/turn 432.088s coverage: 79.6% of statements
 
 - Run 0004 correction: prior reports said US-001–003 were verified, but only local checks and event submission succeeded. Actual factory logs show every verified event rejected because the 346-byte Evidence contract paragraph was parsed as an acceptance criterion despite the 256-byte evidence-name cap. All supplied states are blocked. Successful implementation/save does not imply accepted completion; closure also does not modify body checkboxes/TODO tables. Current run records explicit blocked events and COMPLETION_DIAGNOSIS.md. No production changes or test rerun.
+
+## Run 0014 decisions
+
+Followed the explicitly supplied verified-event protocol for this legacy feature; did not infer a switch to separated workflow from the merged main branch. Semantic instruction agreement satisfies AC-004-5; harness-specific workflow links need not match byte for byte. Corrected only the stale lookup wording, with no protected-tree writes. Completed dependencies were not reopened or reworked. All selected and aggregate gates passed; event ingestion and external delivery remain factory-owned.

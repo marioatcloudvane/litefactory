@@ -33,3 +33,7 @@ asked for; nothing here licenses starting the next one.
 ## Run 0013 — generation 2 implementation verification
 
 Current Implement status: BLOCKED on US-004 AC-004-4 and AC-004-5 (protected Codex instruction copies). US-001–003 passed fresh scoped gates and evidence events 000001–000003 were published; event 000004 records US-004 blocked. Four other US-004 criteria passed runtime verification. Added true empty-classifier retirement coverage only; no production edits. Aggregate build, make check and full race coverage passed. See RUN_0013_VERIFICATION.md and RUN_0013_CODE_REVIEW.md for this run's evidence and remaining repair. Historical entries above are not assertions of current completion.
+
+## Run 0014 — US-004 verification complete
+
+Generation 2, factory run 294, selected revision 3deeef28baf33a3a96fadea379a733ac93228e3ca4450b25b3859b7be5133154. All six criteria passed fresh scoped checks/review/tests. Verified event 000001.json published immediately; final snapshot audit matched. Aggregate build, make check and full race coverage passed. US-001–003 retained as completed dependencies. Previous protected-copy blocker resolved in the supplied merged branch; this run corrected one lookup sentence only. Current selected Implement verification is complete; factory save/push/projection and parent delivery are not claimed. Details: RUN_0014_VERIFICATION.md.

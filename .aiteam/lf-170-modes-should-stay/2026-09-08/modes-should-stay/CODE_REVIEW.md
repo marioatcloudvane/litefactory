@@ -51,3 +51,7 @@ Reviewed production surfaces: daemon mode admission/completion/startup; store mo
 ## Final verdict
 
 Aggregate delivery remains BLOCKING because the protected Codex skill updates are unapplied. US-001–003 production revalidation and US-004 runtime review are clean. No additional blocking runtime or advisory finding was identified. Final acceptance, scoped evidence revalidation and aggregate build/lint/race gates remain owned by the orchestrator and test specialist; this document does not substitute for their results.
+
+## Run 0014 — fresh US-004 scoped and aggregate review
+
+CLEAN, no blocking or advisory findings. Reviewed current question policy, task/branch/feature identity isolation, cold/resumed/fallback parity, Plan contracts and transition advice, root/source/copy agreement, migration 0027 and the engineering-event conversation fixture. Harness-specific workflow links intentionally differ. The final APP_CONTEXT correction is included. Reviewer consumed retained fresh scoped test results without executing tests or writing files. Aggregate executable gates were subsequently confirmed by the orchestrator. See RUN_0014_VERIFICATION.md for selected revision and evidence digest.

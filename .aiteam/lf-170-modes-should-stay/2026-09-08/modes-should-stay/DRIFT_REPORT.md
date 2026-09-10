@@ -1,19 +1,17 @@
-# Drift Report — modes-should-stay, run 0013
+# Drift Report — modes-should-stay, run 0014
 
-## Verified this run
+## Selected scope
 
-Generation-2 US-001, US-002 and US-003 passed fresh acceptance checks, independent scoped review and race tests. Their immutable evidence events were written immediately in dependency order. US-004 runtime criteria AC-004-1, 2, 3 and 6 passed fresh checks. Earlier run claims were treated as unverified.
+US-004 (#191), generation 2, revision 3deeef28baf33a3a96fadea379a733ac93228e3ca4450b25b3859b7be5133154. US-001–003 remain factory-supplied completed read-only dependencies; this run neither reworked them nor emitted outcomes for them.
 
-## Changes
+## Verified
 
-Added one test file, internal/daemon/mode_retirement_internal_test.go, covering actual classifier-free retirement with migrated SQLite. No production changes or new requirements.
+All six US-004 criteria passed fresh scoped checks, independent scoped/aggregate review and tests. Current Claude/Codex guidance agrees semantically on persistent modes, owner transitions and asynchronous Plan discussion; harness-specific workflow references intentionally differ. The merged fake conversation fixture exercises engineering evidence and StoryProgress without weakening readiness/frozen guards.
 
-## Remaining gap
+## Changes and deviations
 
-US-004 AC-004-4 and AC-004-5 remain blocked: three Codex skill copies still lack matching Plan discussion/continuation instructions, and .codex is read-only in this run. The existing CODEX_SKILLS.patch passes a fresh applicability check. No acceptance criterion was dropped or weakened.
+Corrected one stale APP_CONTEXT statement about byte equality. No production, test or protected-tree edits. No added, dropped or deferred story requirements. Earlier patch/merge changes were inspected rather than claimed as work authored in this run.
 
-## Aggregate gates and verdict
+## Verdict
 
-go build ./..., make check and full go test -race -cover ./... passed. Aggregate review is BLOCKING only for the protected source/copy parity gap. APP context and constraints remain semantically accurate without updates. All published verified snapshots still match.
-
-DRIFTED — implementation completion remains blocked on the two US-004 documentation criteria. Apply the prepared patch in an authorized writable environment, then reverify US-004. Factory event submission is confirmed; issue closure is not asserted by this report.
+CLEAN for selected US-004 scope. Build, make check and full race coverage passed; published event 000001.json remains bound to matching current bytes. Factory save/issue projection and final delivery are separate external outcomes, not asserted here. See RUN_0014_VERIFICATION.md.
