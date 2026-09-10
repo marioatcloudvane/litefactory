@@ -422,6 +422,15 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 	for _, root := range r.writable {
 		args = append(args, "--add-dir", root)
 	}
+	// The broker directory is litefactory's, not the operator's, and a
+	// workspace-write run cannot reach it without being told to: the helper
+	// this run is instructed to invoke writes its correlation journal and
+	// opens its socket there. Without this the run drafts its contribution and
+	// then fails at the hand-off with "writing outside of the project", ten
+	// minutes in and with nothing recorded.
+	if req.SubmissionRoot != "" {
+		args = append(args, "--add-dir", req.SubmissionRoot)
+	}
 	// -c rather than a flag of its own, because Codex exposes this only as a
 	// config override. It is emitted regardless of sandbox mode: the key is
 	// namespaced to workspace-write and is inert under read-only, so keeping

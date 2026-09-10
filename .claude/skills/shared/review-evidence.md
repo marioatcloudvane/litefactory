@@ -20,7 +20,10 @@ Do not hand off to implementation or perform fixes within this mode.
 For separated managed workflow, assess the factory's frozen identities/revisions,
 retained implementation snapshots and executed checks, never substitute live issue
 edits. Return exactly one structured outcome per criterion and code, architecture
-and approved-plan review findings through the versioned runner output contract.
+and approved-plan review findings using the persisted submission contract. For
+contract 2 supply assessment findings with list-B evidence for the authorized
+orchestrator/helper handoff; contract 1 keeps versioned runner output. This does
+not authorize shell commands, new checks or a wider specialist tool policy.
 Classify blocking defects separately from advisory improvements; advisory findings
 alone do not prevent acceptance. Include proof references and explicit unmet or
 unverified outcomes. Never propose a waiver as authority. Missing evidence remains

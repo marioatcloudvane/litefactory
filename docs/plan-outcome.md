@@ -1,6 +1,10 @@
 # Managed Plan iteration handoff
 
-Every managed Plan subprocess receives a factory-selected parent, generation,
+This section describes legacy content/submission contract 1. Contract 2 uses the
+[typed helper protocol](story-contract.md); do not write legacy outcome/proposal
+transport for a typed attempt. Workflow version is an independent selection.
+
+Every legacy managed Plan subprocess receives a factory-selected parent, generation,
 run database ID and fresh attempt token. Native resume and cold fallback receive
 the same contract; fallback gets a new token. Agents have no forge authority.
 

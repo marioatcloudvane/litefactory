@@ -146,13 +146,23 @@ func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, c
 	switch {
 	case t.refining:
 		mode = agent.ModePlan
+	// An explicit owner command outranks the managed pin below. It has to:
+	// once a feature leaves planning the pin answers "what does a plain
+	// comment continue in", and answering that for a commented mode as well
+	// makes Validate unreachable on exactly the features that have something
+	// to validate. prepareManagedScope is the gate, not this switch — it
+	// admits managed Validate only for an explicit /validate on a separated
+	// workflow in state implementing, and refuses every other non-implement
+	// mode while approved stories are locked.
+	case commanded:
+		mode = commandMode
 	case featureErr == nil && feature.State != "planning":
 		mode = agent.ModeImplement
+		// Bare `replan` reaches here as free text; `/plan` was already taken
+		// by the commanded case above, and ManagedReplan accepts both.
 		if turn.ManagedReplan(command) {
 			mode = agent.ModePlan
 		}
-	case commanded:
-		mode = commandMode
 	case !labelled:
 		mode, err = d.classifyMode(ctx, t, command.Text)
 		if err != nil && enabled {
