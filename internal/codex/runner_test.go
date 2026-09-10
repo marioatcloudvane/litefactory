@@ -219,3 +219,43 @@ func mustRead(t *testing.T, path string) []byte {
 	}
 	return b
 }
+
+// A typed contribution is handed back through a broker directory under LF_HOME,
+// outside the worktree a workspace-write run may write to. Codex rejects the
+// helper's journal write with "writing outside of the project" unless the
+// directory reaches argv, which on issue #208 turned a completed ten-minute
+// Plan into a run that recorded nothing.
+func TestSubmissionRootBecomesAddDirAndMustBeAbsolute(t *testing.T) {
+	broker := filepath.Join(t.TempDir(), "s", "d5868bf912d89279")
+	runner, argv := fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	req := request(t, agent.PathCold)
+	req.SubmissionRoot = broker
+	if _, err := runner.Run(context.Background(), req); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := string(mustRead(t, argv))
+	if !strings.Contains(got, "--add-dir "+broker) {
+		t.Errorf("argv %q missing the broker directory", got)
+	}
+	// The prompt argument stays last, as for the configured roots.
+	if !strings.HasSuffix(strings.TrimSpace(got), "-") {
+		t.Errorf("argv %q does not end with the stdin prompt argument", got)
+	}
+
+	// A run that submits nothing opens nothing.
+	runner, argv = fakeRunner(t, `printf '%s\n' '{"type":"turn.completed"}'`)
+	if _, err := runner.Run(context.Background(), request(t, agent.PathCold)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := string(mustRead(t, argv)); strings.Contains(got, "--add-dir") {
+		t.Errorf("argv %q opened a directory for a run with no submission", got)
+	}
+
+	// A relative root is a caller bug and must not be resolved against the
+	// worktree, where it would silently widen a different directory.
+	bad := request(t, agent.PathCold)
+	bad.SubmissionRoot = "s/d5868bf912d89279"
+	if err := bad.Validate(); err == nil {
+		t.Error("a relative submission root was accepted; want a validation error")
+	}
+}
