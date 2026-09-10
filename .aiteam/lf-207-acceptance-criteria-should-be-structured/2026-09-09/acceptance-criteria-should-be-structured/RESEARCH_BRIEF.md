@@ -4,11 +4,11 @@
 
 Research issue `github:marioatcloudvane/litefactory#207`: replace agent-authored Markdown that the factory subsequently interprets as acceptance obligations with explicit structured items and factory-owned rendering. Include the triggering comment's scope extension: the factory should construct story-progress identity envelopes from its existing frozen context while the agent supplies the outcome and evidence. The follow-up prioritizes factory construction of the identity envelope and independently useful live field/type feedback. Investigate serial error discovery across costly reruns and whether comprehensive preflight plus acknowledged correction can resolve it within one run.
 
-This is Research run 0003 (2026-09-10), consolidating the completed runs 0001 and 0002 on branch `lf/207-acceptance-criteria-should-be-structured`. The owner asks: “Ok, give me all open questions we need to answer before we move on.” The existing 2026-09-09 session is reused. This run inventories decisions; it does not implement, repair runtime state, commit, push, change mode, or seek confirmation before saving. Questions are delivered in the final report without waiting for an answer.
+This is Research run 0004 (2026-09-10), continuing runs 0001–0003 on branch `lf/207-acceptance-criteria-should-be-structured`. The owner answers the decision register and requests a full structure sketch for validation before moving on, equivalent evidence-format examples, and suggested criterion-ID rules. The existing 2026-09-09 session is reused. This run saves the owner decisions and a conceptual contract sketch; it does not implement, repair runtime state, commit, push, change mode, or wait for confirmation.
 
 ### Provenance and boundaries
 
-- `[V]` means instructions inspected in run 0003, not newly verified production behavior. All production-code findings below are `[R0]`, carried forward from runs 0001 and 0002, including their historical citations; run 0002 subsections identify the findings then reverified by its delegated codebase tour. `[O]` means owner-supplied incident evidence, not independently reproduced; `[W]` denotes other unverified second-hand material. Recommendations and inferences are not verification claims.
+- `[V]` means instructions inspected in the named run or explicitly cited bounded run 0004 findings, not validation of the proposed design. Production-code findings outside the explicitly identified run 0004 reinspection are `[R0]`, carried forward from runs 0001 and 0002, including their historical citations; run 0002 subsections identify the findings then reverified by its delegated codebase tour. `[O]` means owner-supplied incident evidence, not independently reproduced; `[W]` denotes other unverified second-hand material. Recommendations and inferences are not verification claims.
 - Recommendations and inferences below are explicitly identified; they are not existing behavior or approved requirements.
 - Run 0001 covered the Plan proposal/publication/freeze path, story-event contracts and ingestion, and their relevant tests and constraints. Run 0002 targeted per-event error reporting, live ingestion versus author feedback, runner channels, and same-run correction semantics; original Plan findings are retained below. It did not inspect runtime databases, daemon logs, live GitHub content, or other research sessions. There were no external factual dependencies, so no web research was needed.
 - No production files were changed and no tests were executed. Source inspection verifies the failure mechanisms, not the cited historical runs or a proposed fix.
@@ -150,56 +150,346 @@ This is Research run 0003 (2026-09-10), consolidating the completed runs 0001 an
 
 [R0] The repository's aggregate gate is `make check` (format, vet, pinned lint, race tests; `Makefile:25`). No tests were run because this run only produced research artifacts. Runtime remediation and reproducing the historical incidents remain outside this investigation.
 
+## Run 0004 — owner decisions and proposed contract sketch
+
+### Status and accepted direction
+
+[O] The owner requests a structure sketch to inspect **before moving on**. This run remains Research; the examples below are design proposals, not a valid current proposal/event, approved specification, implementation plan, or invocation of a mode. No machine-consumed proposal or outcome file is written. “All” is interpreted as all five story sections, with explicit structure at every agent-to-factory machine-consumed boundary; free text still belongs inside typed narrative fields. It does not mean forcing ordinary owner comments into JSON.
+
+[O] The owner supersedes the run 0003 defaults as follows:
+
+| Prior question | Recorded decision |
+|---|---|
+| 1 | Structure **all** story sections now: User Story, Acceptance Criteria, Tasks, Architecture, Dependencies. Present the sketch for owner validation first. |
+| 2 | Owners freely edit normal GitHub issues; prioritize natural, easy interaction. Do not require JSON edits or routine Plan refresh merely to edit a story. |
+| 3 | Existing stories retain the old contract. Upgrade only through explicit owner CLI action; do not silently migrate on republication. CLI availability is not assumed. |
+| 4 | Explain single evidence text versus a structured list using samples; the owner has not selected a representation. |
+| 5 | Include both preflight and authoritative receipts. |
+| 6 | Include author-visible Plan preflight. |
+| 7 | Accepted ordering: envelope plus usable feedback first, structured publication next; independently useful feedback can ship sooner if materially quicker. This is a priority, not an effort estimate. |
+| 8 | GitHub issues are authoritative; a local text artifact or independently editable structured copy cannot override them. |
+| 9 | Propose concrete ID rules for review. |
+| 10–14 | Accept the recommended ownership, diagnostics, stage distinctions, reliable feedback/recovery, explicit compatibility and cross-boundary verification direction. Plan resolves concrete mechanisms within these decisions; do not ask the owner to approve those directions again. |
+
+[V] The shared workflow inspected this run preserves the distinction between immutable historical acceptance and live editing, between engineering evidence and acceptance, and between explicit mode selection and a report suggesting another mode (`teams/source/skills/workflow/SKILL.md`). The new **content/event contract version** must not be conflated with the separately persisted **workflow version**.
+
+### A. Proposed full story content returned by an agent
+
+**Illustrative draft only.** This deliberately removes an agent-authored whole Markdown `body`. A factory-bound interface knows the protocol version and current parent/run/generation. It accepts content and a story selector; factory rendering owns the five headings, lists/tables, identity metadata, and status markers. This example defines the content shape, not an executable CLI, current v1 schema, or final transport. The bound interface must still authorize every selector.
+
+```json
+{
+  "summary": "Make validation feedback visible during the run.",
+  "stories": [
+    {
+      "key": "US-001",
+      "intent": "create",
+      "title": "Receive actionable submission feedback",
+      "user_story": {
+        "actor": "coding agent",
+        "want": "to receive all discoverable submission errors before finishing",
+        "benefit": "I can correct them within the same run",
+        "notes": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "A rejected submission reports each safely discoverable defect with its field path and expected type."
+        },
+        {
+          "id": "AC-002",
+          "text": "A corrected submission receives a factory receipt without starting another run."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Return correlated validation diagnostics to the submitting agent.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": ["AC-001", "AC-002"],
+          "depends_on": []
+        }
+      ],
+      "architecture": {
+        "summary": "Use a factory-bound submission interface shared by both runners.",
+        "components": [
+          {
+            "name": "submission boundary",
+            "responsibility": "Validate content and correlate receipts with the authorized run."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "submit story outcome",
+            "input": "Authorized story selector and typed outcome/evidence.",
+            "output": "Receipt or a deterministic list of actionable diagnostics."
+          }
+        ],
+        "constraints": ["Agents receive no forge credentials."],
+        "decisions": [
+          {
+            "decision": "The factory constructs identity fields and sequence counters.",
+            "reason": "These are known before publication and should not be copied by the agent."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [],
+        "issue_refs": []
+      }
+    }
+  ]
+}
+```
+
+All leaf narrative values shown are strings; `notes`, `criterion_ids`, `depends_on`, `constraints`, `story_keys`, and `issue_refs` are arrays of strings. `stories`, `acceptance_criteria`, `tasks`, `components`, `interfaces`, and `decisions` are arrays of the exact object shapes shown. Arrays exist even when empty; no string-or-list unions, inferred null defaults, or Markdown tables in place of objects. Required narrative strings must be nonblank. Each story has at least one criterion and task; an architecture summary is required, while its other arrays may be empty when inapplicable. Narrative fields may contain normal prose and line breaks, but are never scanned for undeclared criteria. Unknown or duplicate keys fail validation with precise diagnostics.
+
+`intent` is exactly `create`, `update`, or `unchanged`; `key` selects an existing story in an update or proposes a new story key on creation. The factory checks intent against its bound story set and preserves existing required no-op/update semantics. The factory retains any existing issue identity and current base revision in the bound Plan context; an agent must not invent numeric forge IDs, hashes, parent refs or generations. For legitimate external dependencies, `issue_refs` uses an explicit task-reference string; the factory resolves and authorizes it. `tasks.depends_on` names same-story task IDs; cross-story ordering belongs to `dependencies`. `owner_role` is validated against the supplied roster. Unknown references, dependency cycles and duplicate IDs are semantic errors. Changing dependency prose cannot quietly leave obsolete dependency metadata active.
+
+The shared `plan_brief.md` remains required Plan context under the existing workflow; its Story Index remains link-only. It is not the editable story source. In a future protocol, machine-consumed Plan completion/discussion and other stage outcomes must likewise be typed; this Research sketch does not replace today's strict managed Plan v1 outcome/proposal contract.
+
+### B. Agent contribution versus factory-owned envelope
+
+The same principle applies to story outcomes: agents choose one supplied story selector and provide stage-appropriate outcome/evidence. The following sketch uses a separate `submission` object so content cannot smuggle envelope fields. Snapshot contents and evidence are illustrative placeholders, not valid digests or proof of execution.
+
+```json
+{
+  "story": "US-001",
+  "submission": {
+    "outcome": "engineering_complete",
+    "evidence": {
+      "snapshot": {
+        "implementation_digest": "<digest of the scoped implementation>",
+        "files": [
+          {
+            "path": "internal/agent/story_progress.go",
+            "digest": "<digest of the captured file>"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "id": "check-01",
+          "kind": "test",
+          "name": "rejects numeric parent",
+          "result": "passed",
+          "summary": "A numeric parent produces an expected-string diagnostic."
+        },
+        {
+          "id": "check-02",
+          "kind": "test",
+          "name": "rejects evidence array under text contract",
+          "result": "passed",
+          "summary": "An evidence array produces an expected-string diagnostic."
+        }
+      ]
+    }
+  }
+}
+```
+
+This is an **engineering shape example**, not a new substitute for existing snapshot/check truth requirements and not acceptance proof. It intentionally has no acceptance/review findings: separated Implement submits engineering checks; Validate alone reviews retained evidence. The `checks` array here contains test-kind records; the final schema must preserve the exact stage-specific requirements. Full engineering/acceptance submission must enumerate whatever the persisted workflow and frozen scope require, retain actual captured file state and executable-check results with snapshot attribution, and explain failures/missing evidence. The final schema must retain existing detailed snapshot semantics, including deletion and scope, and reference retained check records with provenance; a short summary or a claimed `passed` field alone cannot establish a passed check. Factory helpers may capture actual bytes/digests, but they may not invent executed results.
+
+| Factory-owned property | Source and responsibility |
+|---|---|
+| Protocol/schema version | Factory-selected supported contract, fixed for the run |
+| Parent task reference | Bound parent context; always a string, never agent-entered |
+| Run ID, generation | Bound current run and approved generation |
+| Story issue ID, revision | Authorized selector resolved within the supplied frozen story bundle |
+| Sequence, attempt, submission/receipt IDs | Factory allocator with durable correlation, concurrency and retry semantics |
+| Persisted workflow version, permitted outcomes | Stored feature workflow and selected mode; never inferred from a model's text |
+
+The selector is agent-chosen, not authoritative. Stale, unknown or unauthorized selection still fails. Mutable prefilled JSON would not establish ownership; a bounded publisher must build the envelope without accepting agent overrides. Mode-specific outcomes remain explicit: separated Implement reports engineering state; Validate reports retained-evidence findings; legacy scoped verification retains legacy effects. A generic agent `verified` claim must not imply acceptance or closure in separated workflow.
+
+A separate Validate contribution can follow this same ownership rule: select the authorized story; return every frozen criterion finding and the required code/architecture/plan reviews. The factory supplies issue/revision/snapshot attribution from its retained review bundle. Illustrative fragment using Option A:
+
+```json
+{
+  "story": "US-001",
+  "submission": {
+    "outcome": "validation_complete",
+    "criteria": [
+      {
+        "id": "AC-001",
+        "status": "satisfied",
+        "check_ids": ["check-01", "check-02"],
+        "evidence": "Both retained type-validation results support this criterion."
+      },
+      {
+        "id": "AC-002",
+        "status": "unverified",
+        "check_ids": [],
+        "evidence": "No retained same-run correction and receipt result was supplied."
+      }
+    ],
+    "reviews": [
+      {
+        "name": "code",
+        "status": "unverified",
+        "classification": "blocking",
+        "evidence": "Review has not been performed in this illustrative example."
+      },
+      {
+        "name": "architecture",
+        "status": "unverified",
+        "classification": "blocking",
+        "evidence": "Review has not been performed in this illustrative example."
+      },
+      {
+        "name": "plan",
+        "status": "unverified",
+        "classification": "blocking",
+        "evidence": "Review has not been performed in this illustrative example."
+      }
+    ]
+  }
+}
+```
+
+The example deliberately shows unverified findings instead of fabricating completed reviews or checks. Criterion findings are blocking by contract; review classification permits blocking/advisory findings under the existing workflow rules. Option B changes evidence values into the same typed list consistently for criterion/review evidence, with empty `check_ids` allowed for a narrative explanation of missing evidence or a source-based review. No fresh checks are run during Validate. Factory scope/coverage admission is still required, and a validation-complete response can contain unmet or unverified findings; it does not promise acceptance.
+
+### C. Evidence question 4 — equivalent samples and tradeoff
+
+Both examples below express the **same two validation results**. Neither changes the fact that the frozen criterion ID is a string or that actual executed-check evidence must be retained.
+
+**Option A: one string, with references to both checks.**
+
+```json
+{
+  "id": "AC-001",
+  "check_ids": ["check-01", "check-02"],
+  "evidence": "The numeric-parent test passed and returned expected string. The evidence-array test passed and returned expected string."
+}
+```
+
+This keeps the evidence text close to the current string contract. Multiple results are combined into prose, optionally separated with newlines. A consumer treats it as one explanation; it cannot address or display each explanation independently without interpreting prose. Supplying an array here remains a type error, caught before submission.
+
+**Option B: an explicitly typed list of result explanations.**
+
+```json
+{
+  "id": "AC-001",
+  "evidence": [
+    {
+      "check_ids": ["check-01"],
+      "summary": "The numeric-parent test passed and returned expected string."
+    },
+    {
+      "check_ids": ["check-02"],
+      "summary": "The evidence-array test passed and returned expected string."
+    }
+  ]
+}
+```
+
+This lets the factory display, validate and attribute each supporting result separately. It adds object fields and bounds to the contract. An array of arbitrary sentences would still be invalid because entries must be objects with `check_ids` and `summary`. Lists prevent the exact array-versus-string confusion only when the chosen schema is actually enforced; they do not eliminate author errors on their own.
+
+**Proposed recommendation, awaiting the requested owner validation:** choose Option B for the new contract. Multiple supporting results are naturally plural, and the full structured boundary is already in scope. Keep the existing string type in legacy events. There must be exactly one accepted representation per contract version, never a permissive string-or-list union. Option A is a valid alternative if minimal evidence-format change is preferred. The evidence alternatives describe criterion findings for Validate (or legacy verified evidence), not an acceptance group added to separated engineering events.
+
+### D. Live preflight and authoritative response
+
+Preflight should return all safely discoverable independent errors from the same validator used at ingestion. Illustrative response to Option A being supplied a list instead of text:
+
+```json
+{
+  "receipt_id": "receipt-17",
+  "stage": "preflight",
+  "status": "rejected",
+  "errors": [
+    {
+      "path": "submission.criteria[0].evidence",
+      "code": "type_mismatch",
+      "expected": "string",
+      "actual": "array",
+      "message": "This contract requires one text value; combine the two result explanations into that string."
+    }
+  ],
+  "validation_complete": true,
+  "unchecked_paths": []
+}
+```
+
+For Option B the expected type at that location is `array`, with nested object/string checks at each indexed element. Diagnostics follow the bound contract, not the example chosen by the agent. `validation_complete` means all applicable input checks were performed; it does not mean evidence accepted. Invalid syntax or containers yield `validation_complete: false` and bounded, explicit unchecked paths where safe enumeration is possible. Never fabricate exhaustive results when dependent checks cannot run. Preflight does not allocate an event sequence or mutate accepted story state.
+
+A separate durable response must establish what the factory actually recorded:
+
+```json
+{
+  "receipt_id": "receipt-18",
+  "submission_id": "submission-9",
+  "stage": "engineering",
+  "status": "recorded",
+  "acceptance_status": "pending",
+  "issue_status": "open",
+  "errors": []
+}
+```
+
+Success at this stage cannot imply Validate acceptance, successful remote effects, issue closure or parent delivery. Responses must also express rejected and pending states; remote effect failure is distinct from valid recorded evidence. The agent receives errors while its submission call/receipt observation is still active, can correct and resubmit within the same run, and reports pending if a bounded wait ends without a decision. Durable correlation, idempotent retries, crashes, lost responses, daemon backoff and final-drain races remain engineering design obligations already accepted by the owner. Native first-error decoder wording alone does not meet this contract. Plan preflight must provide the equivalent feedback before publication; completed/discussion semantics and factory-only publication remain intact.
+
+### E. Freely editable GitHub issues, authoritative meaning, deterministic agent input
+
+The proposed separation is between **agent authoring** and **owner editing**, not between two authoritative story sources:
+
+1. The agent fills typed fields; the factory renders an ordinary readable GitHub issue. No JSON editing, secondary Markdown file or hidden structured blob becomes an owner obligation.
+2. The owner can edit the title, paragraphs, checklists, task rows, architecture and dependencies directly in GitHub. Preserve those bytes and unrelated edits. Checkbox ticks remain presentation and do not assert accepted evidence.
+3. Derive a validated structure from the current issue revision. This is a cache/projection bound to the exact issue body/title revision, not a competing editable source. Recheck the issue revision before publication, reconciliation or freeze; concurrent changes trigger reconciliation instead of overwrite.
+4. Recognize explicit criterion items as items, never every nonempty line. Existing short `AC-001` labels preserve identity; an ordinary newly added checklist item can receive the next unused label from the factory. Multiline continuation belongs to the item. Section prose stays narrative. A note such as “Evidence contract: …” never silently becomes a new criterion.
+5. Reflect clear changes in the derived structure and display a human-readable change summary. Owner wording remains intact; factory-added identifiers or status projection must be narrow, revision-checked edits. Reordering does not renumber; dependency edits update the validated dependency projection rather than retaining stale hidden edges.
+6. If IDs are removed/duplicated, criterion boundaries conflict, a dependency is unclear, or prose could be a requirement addition/removal that cannot be safely classified, preserve the edit and report the exact ambiguity in normal language. Do not silently discard it, rewrite it to fit the schema, approve guessed obligations, or require the user to hand-author JSON. Resolution can be an ordinary edit or owner instruction identifying the intended items.
+7. Requirement changes are available to the next explicitly approved scope; active runs continue using their frozen revision. Accepted historical snapshots remain accepted under separated workflow. Permission to edit does not grant automatic scope approval or replacement of frozen work. Harmless narrative edits should not force requirement reapproval if the validated obligations and other approved semantics are unchanged; uncertainty remains pending rather than guessed.
+
+**Fundamental limitation:** arbitrary free prose cannot be mapped perfectly to deterministic semantics. The initial agent path stops requiring prose reconstruction. The owner-edit path still needs a reconciliation policy and observable ambiguity handling. Normal checklists and short labels make common edits automatic; unusual free-form edits remain saved and visible but can block approval until their intended meaning is resolved. This is the proposed UX consequence to validate, not a promise of flawless semantic extraction. Supporting all five sections means reconciling all their structured content too; “no changed AC” does not prove a task, architecture or dependency edit is harmless.
+
+### F. Suggested criterion identity and size rules
+
+**Proposed, not approved or currently implemented:**
+
+- Canonical ASCII format `AC-` followed by **3–6 decimal digits**, e.g. `AC-001`, `AC-027`, `AC-1000`. Prefix uppercase, no spaces or alternative separators; suffix must represent a positive number and use `max(3, decimal digit count)` digits. Thus `AC-000`, `ac-001`, `AC-01`, `AC-0001`, and semantic suffixes are invalid. Length is 6–9 ASCII bytes, comfortably below the carried-forward 256-byte evidence name ceiling.
+- Uniqueness is **within one story**; evidence resolves the criterion within its authorized story/revision. Different stories may both contain `AC-001`. IDs are never re-used for another obligation during that story's history.
+- **1–256 active criteria per story**, preserving the carried-forward maximum of 256 checks per evidence group as a compatibility ceiling. IDs need not be consecutive and ordering is independent of identity. Factory assignment uses the next unused number, not list position; explicit IDs proposed by the planner are validated against existing issue history.
+- Reordering and wording clarification retain identity. A materially different obligation gets a new ID; uncertain meaning changes are reported for resolution, not guessed. Removing a criterion from a new revision does not remove it from older frozen evidence or erase historical acceptance.
+- Unknown criterion IDs in criterion coverage are rejected. Supplemental engineering checks use check IDs in the check collection, not fabricated acceptance criteria. Required criterion coverage is checked for the applicable workflow/stage; merely listing a criterion or passing a formatting check does not prove it.
+- Bound criterion text at **4,096 UTF-8 bytes**, one explanation at **8,192 UTF-8 bytes**, and **1–16 explanation items per criterion** for Option B. Independently enforce the total serialized and rendered document budget before accepting a proposal, and the total evidence payload budget before accepting a submission. Per-item maxima do not promise their Cartesian product fits a document.
+- The new evidence contract must support all **256 criterion records** with separate bounded supporting-check records; sharing checks through references avoids duplicating full snapshots/results per explanation. Validate total bytes jointly across proposal, rendered issue and evidence so a valid obligation set cannot be impossible to evidence purely because of inconsistent producer/consumer limits. Large real evidence can still exceed a payload budget and needs an explicit retained-record reference strategy; ID rules alone do not solve that.
+
+[R0] Historical limits cited above are the prior research's `internal/agent/story_progress.go:143` (256 checks/name bytes) and `internal/planbrief/proposal.go:15` (8 MiB proposal; 100 stories; 65,536-byte story body). Run 0004 reinspection below confirms the current limits, including additional snapshot and event budgets. New field/count/text limits require shared validation and precise error messages at authoring time; final numeric byte budgets and retained-evidence reference capacity are architectural work within the approved consistency requirement.
+
+### G. Legacy and upgrades
+
+[O] Existing stories remain on the old **content/event contract** until the owner explicitly upgrades through the CLI. Republishing alone is not permission to upgrade. New contracts must dispatch by persisted version across cold/resumed/fallback runs and event replay; content/event contract changes do not silently select a different workflow version. An upgrade must be an explicit factory operation with previewable affected scope, validated current issue content, and preservation of immutable past acceptance and active frozen revisions. Research does not execute an upgrade or infer authorization to repair #170/#204. [V] The current CLI registration has no managed-contract upgrade command (`internal/cli/commands.go:8–31`; task exposes only clean at `internal/cli/cmd_task.go:28–38`). Delivering explicit CLI upgrade is therefore additional capability needed to fulfill this policy; no executable syntax is proposed or invoked here.
+
+### H. Run 0004 bounded codebase reinspection
+
+[V] A delegated incremental `codebase-tour` inspected only the current proposal/event/Validate contracts and CLI surface; it wrote no files and ran no tests. Findings:
+
+- Current Plan v1 includes `version`, `parent`, `generation`, and stories with `key`, `intent`, `issue_number`, `issue_id`, `expected_base`, `title`, `body`, `dependencies` (`internal/planbrief/proposal.go:29–48`). All five headings remain body text (`:184`). Existing story updates have base-hash/identity checks; dependencies are known story keys and acyclic (`:100–154`). The draft external `issue_refs` support is a proposed expansion and must respect approved attached-child policy, not be mistaken for an existing capability.
+- Proposal transport is 8 MiB; body 65,536 bytes; title 256 bytes; 1–100 stories (`internal/planbrief/proposal.go:15–25`, `:80`, `:97`). Current key format is `^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$` (`:48`). The draft retains current permitted story keys; criterion IDs are a separate proposed stricter rule.
+- The criterion parser still has neither evidence-name length nor criterion-count bounds (`internal/planbrief/acceptance.go:71–86`). Check groups have 1–256 checks, unique names of at most 256 bytes, evidence **strings** up to 16,384 bytes, and per-check implementation-digest attribution (`internal/agent/story_progress.go:61`, `:161–170`). New proposed 8,192-byte explanations are stricter, not current behavior.
+- Snapshots have 1–256 sorted safe file paths with JSON-base64 content, SHA-256 and deletion state (`internal/agent/story_progress.go:53–59`, `:150–159`). Event cap is 4 MiB, 4,096 events/run and 64 MiB aggregate run transport (`:18–25`). These make joint payload validation and retained-reference design necessary; schematic file digests alone must not replace actual snapshots.
+- Approved bundles supply parent/run/generation/workflow/story issue ID/revision (`internal/agent/stories.go:6–21`). Event v1 still requires agents to repeat identities and counters (`internal/agent/story_progress.go:29`). `engineering_complete` requires tests and forbids nonempty acceptance/review groups (`:115–125`, `:141–147`); legacy `verified` requires all three groups. The examples above preserve the separation while proposing a new content boundary.
+- Validate currently repeats parent/generation plus story issue ID/revision/snapshot in output (`internal/agent/validation.go:65–83`). Findings have string evidence, status `satisfied`/`unmet`/`unverified`, blocking criteria and blocking/advisory reviews, including code/architecture/plan (`:109–169`). The owner’s “always” direction is interpreted to cover this output as well as Plan and progress; the explicit sketch above makes that scope visible.
+- No managed-story/contract upgrade CLI exists in the complete registration surface (`internal/cli/commands.go:8–31`; `internal/cli/cmd_task.go:28–38`). The owner's manual-upgrade policy requires new capability, not documentation of an available command.
+
+These are current-code findings only, not validation of the proposed schemas or historical incidents. New proposal/outcome contracts need explicit version dispatch; research examples cannot be sent to the existing strict v1 decoder.
+
 ## Open Questions
 
-### What is settled, and when answers are needed
+The previous 14-question register is superseded by the decisions above. No repeat confirmation is needed for both feedback stages, Plan preflight, envelope/counter ownership, complete safe diagnostics, stage-specific truth, same-run correction/recovery, rollout checks, or GitHub authority.
 
-[O] The owner has already requested structured acceptance criteria with explicit IDs/text and factory rendering, factory construction of the known event identity envelope, and field/type feedback that reaches the agent while it can still correct the submission. Factory envelope ownership is the stated first priority; feedback is independently valuable. These are the starting scope, not questions to ask again. Nothing here changes evidence truth requirements or grants agents forge authority.
+Only owner validation explicitly requested in this run remains:
 
-The numbered register below replaces the earlier overlapping question list. Every recommendation is **unapproved**. Questions 1–7 are owner-facing scope or product policy choices; they may be decided during Plan or by accepting its proposed defaults. Questions 8–14 belong to Plan/architecture and should not require the owner to design internals. The register must be resolved or explicitly bounded before implementing the affected behavior, **not before entering Plan**.
+1. **Full structure:** validate the proposed fields and organization for all story sections and the agent-versus-factory ownership boundary. The sketch is intentionally reviewable before Plan; field details remain proposed.
+2. **Evidence representation:** choose single text (A) or the recommended explicit list of result objects (B), using the equivalent samples above.
+3. **Suggested ID rules:** validate the short numeric `AC-001` convention, per-story stability and 256 active-criterion ceiling; the concrete proposal responds to “suggest.”
+4. **Edit reconciliation consequence:** validate that owners freely save normal issue edits, common checklist/text edits reconcile automatically, and genuinely ambiguous requirement changes stay saved pending a plain-language resolution. This preserves authority and ease of editing without falsely promising arbitrary prose has a unique machine meaning.
 
-### Owner-facing scope and product choices
-
-1. **How much of each story should become structured in the first release?** Acceptance criteria are settled. Should User Story, Tasks, Architecture and Dependencies also become typed items now? **Recommended default:** structure acceptance criteria first; render the already-structured dependency list consistently, and retain ordinary narrative for user story and architecture until there is a demonstrated need for stronger typing. **Tradeoff:** smaller scope directly addresses the observed obligation bug; broader typing removes more formatting ambiguity but requires more schema and migration work. Tasks are an explicit scope choice, not known to have the acceptance parser's behavior.
-
-2. **What should owners edit in GitHub, and how are hand edits adopted?** Should generated sections remain directly editable, or should owners edit a clearly identified structured section and let the factory regenerate the presentation? What happens to an edit that cannot be reconciled? **Recommended default:** GitHub stays the sole editable source; use an explicit structured representation with a readable rendering, and require Plan refresh/republication for requirement changes. Reject conflicting/invalid edits with actionable guidance; never silently discard edits or change frozen obligations. **Tradeoff:** this is predictable but makes some edits more deliberate. Seamless reconciliation is more convenient but needs clear conflict and authority rules. The exact representation is Question 8.
-
-3. **What happens to existing stories and historical blocked work?** Should unfinished legacy stories be converted automatically, only on explicit republication, or not at all? Is repairing #170/#204 part of this feature? **Recommended default:** use the new contract for new or explicitly republished unfinished stories, preserve frozen legacy meaning and accepted history, and keep specific historical repairs in separately authorized operational work. **Tradeoff:** coexistence requires compatibility support; automatic conversion risks changing obligations or prior acceptance. Persisted workflow-version behavior is a constraint, not a migration choice that this feature may silently override.
-
-4. **How should multiple results supporting one criterion be expressed?** Retain one evidence-text value containing multiple results, or deliberately support a structured list of results? **Recommended default:** retain one text value for compatibility and show how to include several results, backed by actionable validation. **Tradeoff:** lists may better fit the observed authoring instinct but enlarge the evidence contract and all its consumers. This choice must not weaken snapshot/check truth requirements or require freshly executed checks in Validate.
-
-5. **What must the first feedback release guarantee before the agent ends?** Is a schema preflight an acceptable intermediate delivery, or must the first release also confirm the factory's authoritative processing result? **Recommended default:** the target includes both preflight and authoritative acknowledgment; a separately shipped preflight-only increment is acceptable only if described as input validation, never completion acceptance. **Tradeoff:** preflight directly reduces schema guessing, while receipts also prevent reporting success before ingestion checks reject the evidence. In separated workflow, an engineering receipt cannot promise later Validate acceptance or issue closure.
-
-6. **Should the same author-visible preflight also cover Plan proposals now?** The original proposal authoring path can likewise fail after the agent exits. **Recommended default:** include validation of the new structured proposal before submission, sharing the authoritative contract and reporting all safely discoverable defects, alongside event feedback. **Tradeoff:** it closes the same authoring gap at both entry points but increases the first delivery's scope. It does not authorize publishing an incomplete/discussion Plan or altering the current managed proposal contract during this Research run.
-
-7. **If the work ships in increments, what order is acceptable?** The owner ranks factory-owned identities first and feedback as independently useful; how should that relate to structured story publication? **Recommended default:** prioritize envelope construction with usable validation/acknowledgment, then the structured-story publication path; allow an independently useful feedback increment sooner if Plan establishes it is materially quicker. **Tradeoff:** shipping the smallest proven improvement earlier reduces repeat-run cost, while coordinated delivery simplifies contract rollout. Relative effort has not been established by this research; the owner need not choose technical task order.
-
-### Decisions Plan and architecture should resolve
-
-8. **How is one authoritative criterion set represented, rendered and frozen?** Choose the issue-resident structure or validated projection, bind it to the approved revision/body hash, and define renderer/schema versioning, redaction/sanitization, dependencies and conflicts with readable prose. **Recommended default:** retain one explicitly versioned structured contract in the GitHub source and carry validated IDs/text into frozen revisions; render deterministically and never infer new obligations from unrelated prose. **Tradeoff:** this avoids competing sources of truth but needs a deliberate compatibility and edit design. The encoding remains open.
-
-9. **What exact criterion identity rules guarantee usable evidence?** Set allowed characters, byte length, count, per-story uniqueness, ordering and rules for text edits/reordering/meaning changes; decide handling of extra evidence names. **Recommended default:** validate explicit agent-proposed short IDs at proposal time, preserve IDs through reordering, require explicit replacement for changed obligations, and share producer/consumer limits. Decide extra-name handling explicitly without confusing supplementary checks with required criteria. **Tradeoff:** stricter new validation prevents impossible obligations but must not silently reinterpret legacy stories. Exact limits should be derived from current consumers, not independently invented.
-
-10. **What does the factory own beyond the five identity fields?** Define the safe selected-story selector, immutable envelope construction, sequence and attempt allocation, concurrent publication and retries; assess whether snapshots/digests need helper support. **Recommended default:** a bounded factory publisher constructs the envelope and allocates protocol counters, while the agent chooses an authorized story and supplies outcome/evidence. A mutable example/template alone does not meet the ownership goal. Independently verify selectors, revisions, bytes and evidence regardless of who assembles them. **Tradeoff:** a publisher removes more avoidable author errors than prefilling a file, but introduces a callable boundary requiring lifecycle and security design.
-
-11. **What complete diagnostic contract is promised?** Define stable indexed field paths, expected and actual types, semantic explanations and deterministic aggregation. **Recommended default:** return every safely discoverable independent defect together; explain when malformed syntax or a wrong container prevents further checks, rather than claiming an exhaustive result. Preserve fail-closed validation and strict unknown/duplicate-key handling. **Tradeoff:** passing through the first native decoder error is simpler but retains serial discovery and may omit array indices. Existing aggregation/order constraints apply; dependent checks cannot meaningfully run on invalid structure.
-
-12. **What result may an agent truthfully report as success?** Separate local validation, submission, factory ingestion/engineering acceptance, Validate acceptance and pending external effects under the persisted workflow version. **Recommended default:** a receipt identifies exactly which stage succeeded; only the factory can report authoritative acceptance/closure, and a final agent report must say pending or rejected when that is the actual state. **Tradeoff:** distinct stages add contract detail but prevent the current good-faith false completion report. Legacy close semantics and separated engineering readiness must both remain correct.
-
-13. **How does feedback reliably reach both agents before they finish?** Choose a callable helper/tool or explicit receipt transport, how submissions correlate without trusting malformed identities, persisted diagnostics, correction/republication, waiting and terminal pending behavior. Cover polling/backoff, crashes, lost responses and the final-drain/retirement race. **Recommended default:** a common bounded submission/validation interface with durable correlated outcomes, retry-safe correction, and explicit pending behavior when no authoritative result can be obtained; no claim that a log line or file write delivers feedback. **Tradeoff:** polling files may reuse transport; a callable interface gives immediate local errors, but both need delivery, permissions and recovery design. Plan must establish an implementable same-run feedback guarantee rather than assuming arbitrary waits solve it.
-
-14. **How will rollout preserve old runs and prove the whole behavior works?** Version new proposals/events, define coexistence across cold/resumed/fallback attempts, replay and concurrency, and honor legacy versus separated evidence/invalidation rules. Cover both harnesses and independently owned instruction changes. **Recommended default:** explicit version dispatch, no silent reinterpretation of frozen work, and cross-boundary tests for both reported type errors, multiple defects, stable IDs through publication/freeze/owner edits, stale selectors, same-run rejection/correction/acknowledgment, crash/finish races and truthful stage reporting. **Tradeoff:** compatibility and end-to-end checks cost more than unit tests around a decoder, but are needed to demonstrate that the correction reaches a live author and accepted evidence remains attributable. Engineering checks belong to Implement; Validate later reviews retained results without new execution.
-
-### Evidence gaps that are not decisions or prerequisites
-
-[O] Run 14 remains pending in the supplied account; the alleged third rejected field and the offline check's remaining defect were never identified. The run-label/database-ID mapping and historical costs/results were not independently inspected. These are incident-provenance gaps, not questions the owner must answer before entering Plan. The two diagnosed failures establish the design problem without operational forensics. This run neither infers the third outcome nor authorizes repairing historical runtime state.
+Plan still determines exact transport/schema version numbers, durable receipt mechanics, reconciliation implementation, bounded payload/reference capacity and the CLI upgrade capability under the accepted requirements. Those are engineering design details, not fourteen fresh product questions. Run 14's unknown historical outcome remains an incident-evidence gap and not a prerequisite. This run ends after delivering the sketch; it does not ask a headless process to wait or advance modes automatically.
 
 ## Recommended scope for Plan mode
 
-Treat structured acceptance contracts and factory-owned story-progress identities as two connected parts of this issue. Prefer removing factory-known fields from agent-authored payloads over merely substituting clearer example placeholders. Retain independent authorization, revision, evidence, and snapshot verification. Include timely field/type feedback and same-run correction as explicit scope alongside envelope ownership; prefilling identities alone does not handle other malformed evidence. Evaluate all-independent-errors preflight to avoid serial discovery, while distinguishing preflight validation from authoritative acceptance receipts. The owner ranks factory ownership first and feedback as independently valuable; this priority does not establish relative implementation effort.
+Use the owner decisions in run 0004, superseding earlier criteria-first and structured-owner-edit defaults. All five story sections use an explicit typed agent authoring contract and deterministic factory rendering. GitHub issues stay the authoritative editable source, with version-bound derived projections and plain-language ambiguity resolution; no text artifact or hidden structured copy overrides live issue edits. Existing stories keep their legacy contract until explicit CLI upgrade.
 
-Define criterion IDs and shared limits at proposal acceptance, deterministic story rendering, and propagation of canonical criteria through the approved frozen representation. Make the GitHub editing and legacy compatibility policies explicit before choosing the storage/serialization design. Consider the other required sections as a deliberate scope choice, with special attention to the already separate dependency array; avoid assuming they all have the acceptance parser's behavior.
+Include factory-owned envelope/counters, stage-specific outcome content, both comprehensive preflight and authoritative durable receipts, Plan preflight and observable same-run correction for both harnesses. Preserve authorization, actual check and snapshot provenance, frozen scope, workflow-version behavior and historical acceptance. The owner has accepted the ordering and consistency/recovery/testing direction; Plan should settle implementations rather than reopen that direction.
 
-Do not expand this work into changing evidence truth requirements, replacing GitHub as the editable source, giving agents forge authority, or silently repairing historical runtime state. Run 0002 assumes the owner wants the original structured Plan contract plus both event authoring and feedback improvements addressed in the next Plan; the third attempt is treated as pending, while preserving the existing frozen-run and owner-republication guarantees unless Plan explicitly revises them. This brief completes Research only; it does not approve an implementation plan.
-
-Run 0003 consolidates the open decisions above without approving their recommended defaults. The target remains the owner-requested structured criteria, factory-known envelopes and live corrective feedback. Existing source findings are historical research inputs; Plan should recheck the current versioned contracts before finalizing its design. The owner can move directly to Plan with unanswered product decisions recorded for discussion; no automatic mode transition follows this artifact.
+The full structure and evidence alternatives above are a review sketch only. No production protocol changes, plan proposal, migrations, runtime repair or mode transition are authorized by writing this Research artifact. Proceed to Plan only on a subsequent owner mode instruction, carrying the validated structure and remaining concrete decisions forward.

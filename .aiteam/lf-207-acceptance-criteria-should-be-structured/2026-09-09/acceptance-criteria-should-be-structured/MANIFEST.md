@@ -22,6 +22,8 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-10 — Research completed for run 0003: reused this session; consolidated all open questions into 7 owner-facing choices and 7 Plan/architecture decisions with explicitly unapproved defaults and tradeoffs. Preserved earlier research as carried-forward evidence, distinguished settled asks from questions, and added current legacy/separated workflow and instruction-ownership constraints. Historical run 14 remains unknown and is not a planning prerequisite. No implementation, tests, operational access, confirmation wait, commit or push.
 
+- 2026-09-10 — Research completed for run 0004: recorded owner decisions, expanded scope to all five story sections, preserved free GitHub editing and explicit CLI-only legacy upgrades, and saved an illustrative typed story/submission/receipt sketch with equivalent evidence alternatives, proposed IDs and reconciliation limits. No production changes, runtime edits, tests, approval wait, commit or push.
+
 ## Notes
 
-- Headless run: never wait for answers or confirmation. Run 0003 explicitly requests the open-question inventory; deliver it in the final report and end Research. Unanswered decisions do not block entering Plan; recommendations remain unapproved.
+- Headless run: never wait for answers or confirmation. Run 0004 requests a full structured contract sketch, evidence-format examples and suggested IDs before moving on. Recorded owner decisions supersede earlier defaults; the sketch remains proposed for owner validation. No automatic mode transition or confirmation wait.
