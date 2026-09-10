@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `feature-spec.md`, `ARCH_REVIEW.md`, `plan_brief.md` and completed typed contribution *(agent planning complete; factory publication/save pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — retained-evidence findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -21,6 +21,9 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 
 - 2026-09-10 — Research completed for issue #210, run 0003; recorded explicit owner approval of all six run 0002 recommendations in `RESEARCH_BRIEF.md`, preserving historical evidence gaps and unspecified implementation policy details. Reused the existing session; no new source research, implementation, tests, or mode transition. Plan is supported only as the next human-selected step.
 
+- 2026-09-10 — Plan run 0004 completed from the six owner-approved directions. Requirements and architecture produced three sequential stories, with per-criterion offline evidence inventories and no material owner questions. Typed preflight returned valid=true, complete=true, no diagnostics and no unchecked paths. Completed contribution submitted and receipt observed for request `3485b84bb73fbaf1af5a8ef9f1b5ee01`: InputState=valid; EngineeringState=not_applicable; AcceptanceState=not_applicable; EffectState=not_applicable; PlanState=pending. Publication, Story Index links, save and readiness remain factory-owned pending terminal processing. No implementation, tests, commits or pushes.
+
 ## Notes
 
-- Headless run: record assumptions and unresolved questions without asking for confirmation.
+- Current Plan run permitted material asynchronous questions; none were necessary. Defaults: same trigger-bound prelaunch allocation for transient preparation, retained exact redacted delivery body, conservative uncertainty, one-hour backoff cap and third-failed-recovery escalation.
+- Completed typed contribution is transient helper input, not a local editable story source. The factory owns authoritative story publication. The original historical interrupted-run discrepancy remains unexplained and separate.
