@@ -57,3 +57,6 @@ go.work.sum
 
 # Factory-owned managed Plan proposal transport; never commit.
 /.litefactory-plan-proposal.json
+
+# Per-attempt managed Plan outcome transport.
+/.litefactory-plan-outcome.json

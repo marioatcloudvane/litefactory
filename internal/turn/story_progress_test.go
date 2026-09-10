@@ -73,9 +73,13 @@ func (*progressForge) CreateSubIssues(context.Context, github.Repo, int, []githu
 	return nil, nil
 }
 func setupProgressScope(t *testing.T, f *fixture) (*progressForge, *report.Reporter) {
+	return setupVersionedProgressScope(t, f, store.WorkflowLegacy)
+}
+
+func setupVersionedProgressScope(t *testing.T, f *fixture, version int) (*progressForge, *report.Reporter) {
 	t.Helper()
 	ctx := t.Context()
-	mustProgress(t, f.db.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
+	mustProgress(t, f.db.PutManagedFeature(ctx, store.ManagedFeature{WorkflowVersion: version, ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
 	forge := &progressForge{children: map[int]github.Issue{}, comments: map[int][]github.Comment{}}
 	var revisions []store.ApprovedStoryRevision
 	for idx, key := range []string{"US-1", "US-2"} {

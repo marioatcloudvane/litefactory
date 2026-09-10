@@ -86,10 +86,17 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
-		"ListIssues",          // GET  /repos/{o}/{r}/issues?since=&state=open
-		"ListSubIssues",       // GET  /repos/{o}/{r}/issues/{n}/sub_issues
-		"PostComment",         // POST /repos/{o}/{r}/issues/{n}/comments
-		"RemoveIssueLabel",    // DELETE …/issues/{n}/labels/{name}
+		"GetDeliveryHead",
+		"ListDeliveryPRs",
+		"GetDeliveryPR",
+		"CreateDeliveryPR",
+		"MergeDeliveryPR",
+		"CloseDeliveredParent",
+		"ListFollowupIssues", // GET /repos/{o}/{r}/issues?state=all for reconciliation
+		"ListIssues",         // GET  /repos/{o}/{r}/issues?since=&state=open
+		"ListSubIssues",      // GET  /repos/{o}/{r}/issues/{n}/sub_issues
+		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments
+		"RemoveIssueLabel",   // DELETE …/issues/{n}/labels/{name}
 		// CreateSubIssues calls no endpoint of its own: it is ListSubIssues
 		// once, then CreateIssue and AddSubIssue per story that needs them.
 		// It is pinned all the same, because "file a plan on the forge" is a

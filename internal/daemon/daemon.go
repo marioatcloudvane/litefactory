@@ -521,6 +521,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 			result.Reported++
 		}
 	}
+	if err := d.db.RetireCompletedModeSelections(ctx); err != nil {
+		return result, fmt.Errorf("retire completed mode selections at startup: %w", err)
+	}
 	if result.AbandonedRuns > 0 || result.ReclaimedLocks > 0 {
 		d.log.InfoContext(ctx, "reconciled the state a previous daemon left behind",
 			slog.Int("abandoned_runs", result.AbandonedRuns),
@@ -578,8 +581,13 @@ func (d *Daemon) reportAbandoned(ctx context.Context, run store.Run) bool {
 			slog.Int64("comment_id", posted.CommentID), slog.Any("error", err))
 		return false
 	}
+	if err := d.retireModeSelections(ctx, run.SessionID); err != nil {
+		d.markBacklog(ctx, log, run.SessionID)
+		log.ErrorContext(ctx, "could not retire the reported run's mode selection",
+			slog.Any("error", err))
+	}
 	if posted.Skipped {
-		// Already reported by a previous start. Nothing to say and nothing to do.
+		// Already reported by a previous start. Nothing more to report.
 		return true
 	}
 

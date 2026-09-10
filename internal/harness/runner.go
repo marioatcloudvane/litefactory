@@ -413,6 +413,17 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // Tools does not already allow, so a rule outside the ceiling there cannot
 // widen this run past it.
 func (r *Runner) validateRequest(req agent.Request) error {
+	if req.Mode == "validate" {
+		ts := toolSurface(req)
+		if len(ts.Tools) == 0 {
+			return fmt.Errorf("%w: Validate requires explicit read-only tools", ErrInvalidRequest)
+		}
+		for _, tool := range ts.Tools {
+			if tool != "Read" && tool != "Glob" && tool != "Grep" && (tool != "Task" || req.RetainedValidation) {
+				return fmt.Errorf("%w: Validate cannot grant %s", ErrInvalidRequest, tool)
+			}
+		}
+	}
 	if err := req.Validate(); err != nil {
 		return err
 	}
@@ -468,6 +479,7 @@ func (r *Runner) validateRequest(req agent.Request) error {
 //     detection, because a stale credential makes claude retry internally and
 //     then hang emitting nothing at all (SD-3).
 func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error) {
+	req = retainedValidationRequest(req)
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
 	}
