@@ -1,0 +1,2 @@
+Command: go test -race -cover ./internal/turn -run '^TestReportReadinessRefusalPostsWithNoRunRow$' -timeout 120s
+ok  	github.com/cloudvane/litefactory/internal/turn	5.988s	coverage: 2.9% of statements

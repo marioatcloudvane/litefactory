@@ -1,0 +1,34 @@
+Preliminary engineering checks, not final passing story evidence.
+Initial go test ./internal/store ./internal/turn: store passed; turn interrupted to fix registration compatibility.
+ok  	github.com/cloudvane/litefactory/internal/store	9.192s
+
+Focused Execute checks before metadata-pointer fix and updated preparation-error expectations:
+--- FAIL: TestExecuteStatusInspectionErrorDoesNotStartAgent (4.65s)
+    deferred_dirty_test.go:280: Execute: uncommitted changes on lf/123-add-a-health-endpoint could not be inspected before base synchronization: /usr/bin/git --no-optional-locks status --porcelain -z --untracked-files=all --ignored=no: exit status 128: fatal: /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteStatusInspectionErrorDoesNotStartAgent2016725075/001/clone/.git/worktrees/task-123/index: index file smaller than expected
+        logs:
+        time=2026-09-10T21:41:44.507+02:00 level=DEBUG msg="fetched the registered clone" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 clone=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteStatusInspectionErrorDoesNotStartAgent2016725075/001/clone remote=origin
+        time=2026-09-10T21:41:44.617+02:00 level=INFO msg="worktree ready" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 worktree=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteStatusInspectionErrorDoesNotStartAgent2016725075/001/worktrees/task-123 branch=lf/123-add-a-health-endpoint branch_created=false branch_start="" worktree_created=false
+--- FAIL: TestExecuteFullTurnLeavesTheCloneUntouched (6.34s)
+    execute_test.go:93: meta shas = "52002ea0bb1571cc4088d8623f57520b0541471a"/"", want "52002ea0bb1571cc4088d8623f57520b0541471a"/"4f25763f6aa3d83a5922f9d16a89477431eca53f"
+--- FAIL: TestExecuteRefusesACorruptedFrozenSlug (2.98s)
+    execute_test.go:638: Execute: the feature slug "--not a slug--" is not usable: invalid feature slug: "--not a slug--" does not match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+        logs:
+        time=2026-09-10T21:41:54.489+02:00 level=DEBUG msg="fetched the registered clone" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 clone=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteRefusesACorruptedFrozenSlug78827515/001/clone remote=origin
+--- FAIL: TestExecuteRefusesAnOccupiedWorktreePath (2.76s)
+    execute_test.go:671: Execute: the worktree at /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteRefusesAnOccupiedWorktreePath1941233293/001/worktrees/task-123 is not available: worktree path /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteRefusesAnOccupiedWorktreePath1941233293/001/worktrees/task-123 holds a non-empty directory (1 entries) that is not a registered worktree, not a worktree on lf/123-add-a-health-endpoint; nothing was removed
+        logs:
+        time=2026-09-10T21:41:55.126+02:00 level=DEBUG msg="fetched the registered clone" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 clone=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteRefusesAnOccupiedWorktreePath1941233293/001/clone remote=origin
+--- FAIL: TestExecuteFetchFailureAbortsWithNoWorktree (3.35s)
+    execute_test.go:531: Execute: git fetch --prune origin failed in /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteFetchFailureAbortsWithNoWorktree1877459233/001/clone: /usr/bin/git fetch --prune -- origin: exit status 128: fatal: '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestExecuteFetchFailureAbortsWithNoWorktree1877459233/001/there-is-no-such-repository.git' does not appear to be a git repository
+        fatal: Could not read from remote repository.
+        
+        Please make sure you have the correct access rights
+        and the repository exists.
+        logs:
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	33.888s
+FAIL
+
+Final compile-only check follows:
+ok  	github.com/cloudvane/litefactory/internal/turn	0.451s [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/store	(cached) [no tests to run]

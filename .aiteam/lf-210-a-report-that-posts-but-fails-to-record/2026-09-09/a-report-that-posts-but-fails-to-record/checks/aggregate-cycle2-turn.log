@@ -1,0 +1,2 @@
+Command: ['go', 'test', '-race', '-cover', './internal/turn', '-run', '^TestInterruptionDurableBeforeAnnouncementAndReplay$', '-timeout', '180s']
+ok  	github.com/cloudvane/litefactory/internal/turn	10.570s	coverage: 12.4% of statements

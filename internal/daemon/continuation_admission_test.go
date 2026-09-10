@@ -212,18 +212,42 @@ func TestAutomaticCancellationNoticeRetriesUntilConfirmed(t *testing.T) {
 		t.Fatalf("failed notice lost: %+v %v", pending, err)
 	}
 	f.forge.onPostComment = nil
+	retained := restoreTrustedRecoveryComment(t, f, f.session().ID, c.TriggerID(), 900001)
+	// Model a crash after journal completion but before the separate cancellation
+	// acknowledgement: replay must use the confirmed receipt even when skipped.
+	delivery, found, err := f.db.FindPendingReportDelivery(t.Context(), f.session().ID, c.TriggerID())
+	if err != nil || !found {
+		t.Fatalf("pending cancellation: %+v %v", delivery, err)
+	}
+	if _, err := f.db.ConfirmReportDelivery(t.Context(), delivery.Key, 900001); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.CompleteReportDelivery(t.Context(), delivery.Key); err != nil {
+		t.Fatal(err)
+	}
+	// The confirmed remote comment may subsequently disappear; bookkeeping
+	// recovery must still use its saved receipt without another lookup or POST.
+	f.forge.mu.Lock()
+	state := f.forge.state(testOwnerName, testRepoName)
+	for i, comment := range state.comments {
+		if comment.ID == 900001 {
+			state.comments = append(state.comments[:i], state.comments[i+1:]...)
+			break
+		}
+	}
+	f.forge.mu.Unlock()
 	f.settle()
 	pending, err = f.db.ListUnreportedContinuationCancellations(t.Context())
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("confirmed notice remains pending: %+v %v", pending, err)
 	}
 	posts, _, _ = f.forge.snapshot()
-	if len(posts) != baseline+1 || !strings.Contains(strings.ToLower(posts[len(posts)-1]), "manual") {
+	if len(posts) != baseline || !strings.Contains(strings.ToLower(retained), "manual") {
 		t.Fatalf("missing manual-recovery notice: %v", posts)
 	}
 	f.settle()
 	posts, _, _ = f.forge.snapshot()
-	if len(posts) != baseline+1 || f.watermark() != before || len(f.turns.calls()) != 0 {
+	if len(posts) != baseline || f.watermark() != before || len(f.turns.calls()) != 0 {
 		t.Fatalf("notice duplicated work/progress: posts=%d watermark=%d calls=%d", len(posts), f.watermark(), len(f.turns.calls()))
 	}
 }

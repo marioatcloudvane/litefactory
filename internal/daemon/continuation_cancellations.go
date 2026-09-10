@@ -34,6 +34,9 @@ func (d *Daemon) replayContinuationCancellations(ctx context.Context, repos []st
 			continue
 		}
 		if err := d.replayContinuationCancellation(ctx, notice, session); err != nil {
+			if isRecoveryPending(err) {
+				continue
+			}
 			faults = append(faults, err)
 		}
 	}
@@ -41,6 +44,13 @@ func (d *Daemon) replayContinuationCancellations(ctx context.Context, repos []st
 }
 
 func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice store.Continuation, session store.Session) (err error) {
+	allowed, gateErr := d.recoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, notice.TriggerID()), SessionID: session.ID, TriggerID: notice.TriggerID()}, recoveryTime(ctx))
+	if gateErr != nil {
+		return gateErr
+	}
+	if !allowed {
+		return &recoveryPending{}
+	}
 	if !d.inflight.enter(session.ID) {
 		return nil
 	}
@@ -78,7 +88,7 @@ func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice stor
 		return err
 	}
 	reason := fmt.Sprintf("Automatic recovery action %d was cancelled: %s", notice.ID, notice.CancellationReason)
-	posted, err := d.reporter.ReportRun(ctx, turn.RunReport{
+	posted, err := d.reportRun(ctx, turn.RunReport{
 		SessionID: session.ID, CommentID: notice.TriggerID(),
 		Run: report.Run{Ref: ref, Ordinal: source.Ordinal, Agent: source.Agent, Branch: session.Branch, WorktreePath: notice.Context.Worktree, LogPath: source.LogPath,
 			Result:   &agent.RunResult{Outcome: agent.OutcomeInterrupted, ExitCode: agent.SignalExitCode, Reason: reason, StartedAt: source.StartedAt, FinishedAt: notice.FinishedAt},
@@ -87,7 +97,7 @@ func (d *Daemon) replayContinuationCancellation(ctx context.Context, notice stor
 	if err != nil {
 		return fmt.Errorf("report cancellation of automatic action %d: %w", notice.ID, err)
 	}
-	if posted.Skipped {
+	if posted.CommentID == 0 {
 		return nil
 	}
 	return d.db.MarkContinuationCancellationReported(context.WithoutCancel(ctx), notice.ID, posted.CommentID)

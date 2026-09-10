@@ -144,6 +144,7 @@ func TestRecoveryLifecycleBothRealCLIRunners(t *testing.T) {
 				t.Fatal(err)
 			}
 			f.forge.onPostComment = nil
+			restoreTrustedRecoveryComment(t, f, session.ID, 42, 900001)
 			f.daemon = buildDaemon()
 			if _, err := f.daemon.Start(t.Context()); err != nil {
 				t.Fatal(err)

@@ -277,10 +277,10 @@ func TestExecuteStatusInspectionErrorDoesNotStartAgent(t *testing.T) {
 	if err := os.WriteFile(indexPath, []byte("invalid index"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result := f.execute(f.request())
+	_, err := Execute(t.Context(), f.opts, f.request())
 	var cause *git.CommandError
-	if !errors.As(result.Err, &cause) {
-		t.Fatalf("inspection cause was lost: %+v", result)
+	if !errors.As(err, &cause) {
+		t.Fatalf("inspection cause was lost: %v", err)
 	}
 	if runner.callCount() != 0 {
 		t.Fatal("agent started despite inspection error")

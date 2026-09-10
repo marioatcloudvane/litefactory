@@ -127,6 +127,10 @@ type TickResult struct {
 // with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
+	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	d.refreshRecoveries(ctx, startedAt)
+	// Stopped execution debt is independent of discovery/storage availability.
+	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
 	if !d.autoResumeOnSessionLimit {
 		pending, err := d.db.ListPendingContinuations(ctx, 0)
 		if err != nil {
@@ -177,7 +181,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Cursor: cursor}, err
 	}
 
-	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor}
+	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
 	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
 		return result, d.observe(ctx, startedAt, err)
@@ -666,6 +670,7 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 
+	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
 
@@ -848,6 +853,9 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
+		return offerSkipped
+	}
 	if !d.inflight.enter(c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
 		// skipped, and skipping it posts nothing and moves no watermark. Its
@@ -1076,6 +1084,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 // Either way the session keeps its backlog flag, which is what brings the next
 // tick back to it.
 func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
+	if isRecoveryPending(err) {
+		t.recordWorkerStatus(workerDeferred)
+		return
+	}
 	t.recordWorkerError(err)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		t.log.DebugContext(ctx, "shutdown ended this task's turn; it still needs a poll, so "+
@@ -1280,7 +1292,7 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 			return false, fmt.Errorf("read the watermark of task %s: %w", t.ref, err)
 		}
 		if !consumed {
-			t.log.InfoContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
+			t.log.DebugContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
 				"later tick retries it. Processing the comments after it would advance the watermark past this one",
 				slog.Int64("comment_id", c.ID))
 			return true, nil
@@ -1407,6 +1419,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
+		return d.leave(ctx, t, log, "prior delivery remains pending", err)
+	}
 	command := turn.ParseCommand(c.Body)
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
@@ -1509,7 +1524,7 @@ func (d *Daemon) replySchedule(
 	scheduled report.ScheduleReply,
 	log *slog.Logger,
 ) error {
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:          t.ref,
 		SessionID:    t.session.ID,
 		CommentID:    c.ID,
@@ -1551,7 +1566,7 @@ func (d *Daemon) reply(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: c.ID,
@@ -1589,6 +1604,10 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
+	if pending, err := d.resumeReport(ctx, t, trigger.CommentID); pending || err != nil {
+		return d.leave(ctx, t, log, "prior delivery remains pending", err)
+	}
+
 	mode, err := d.admitMode(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
@@ -1674,6 +1693,14 @@ func (d *Daemon) run(
 		AttachmentsAllowed: attachmentsAllowed,
 		SyncOverride:       syncOverride,
 	})
+	if turnResult.Repair != nil {
+		d.retainStoppedResult(t, turnResult.Repair, trigger, mode)
+		source := store.ReportRecovery{Key: "stopped:" + recoveryKey(t.session.ID, trigger.CommentID), SessionID: t.session.ID, TriggerID: trigger.CommentID, Task: t.ref.String(), RunID: turnResult.Run.ID, State: "stopped"}
+		if err != nil {
+			d.recoveryFailure(ctx, source, t.tickAt, err)
+		}
+		return d.leave(ctx, t, log, "stopped outcome requires repair", &recoveryPending{err})
+	}
 	if turnResult.Outcome == agent.OutcomeAbandoned {
 		t.recordWorkerStatus(workerCancelled)
 	}
@@ -1702,7 +1729,11 @@ func (d *Daemon) run(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportTurn(ctx, turnResult)
+	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+}
+
+func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	posted, err := d.reportTurn(ctx, turnResult)
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
 	}
@@ -1773,7 +1804,7 @@ func (d *Daemon) refuseTools(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
@@ -1822,7 +1853,7 @@ func (d *Daemon) refuseAgent(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
@@ -1861,6 +1892,10 @@ func (d *Daemon) refuseAgent(
 // what stops the next tick either way. Two lines come out of it — the warning
 // naming the hold, and the line below saying what this comment lost.
 func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what string, err error) error {
+	if isRecoveryPending(err) {
+		t.recordWorkerStatus(workerDeferred)
+		return nil
+	}
 	if err == nil {
 		return nil
 	}
@@ -1876,22 +1911,8 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	return nil
 }
 
-// orphaned names the one failure that costs something: the comment reached
-// GitHub and the transaction that records it did not commit.
-//
-// [turn.Posted.CommentID] is set as soon as the post returns, so a non-zero id
-// alongside an error is not "nothing happened" — it is a comment on the issue
-// that litefactory does not know about. The comment stays unconsumed, so a
-// later tick posts a second one. That is the direction the trade has to fall:
-// the alternative, consuming before the post is recorded, turns a transient
-// database error into permanent silence, which AC-4.1 forbids.
-func (d *Daemon) orphaned(ctx context.Context, log *slog.Logger, posted turn.Posted, err error) error {
-	if err == nil || posted.CommentID == 0 {
-		return err
-	}
-	log.ErrorContext(ctx, "the comment was posted to the issue but litefactory could not record it; "+
-		"a later tick will post another one",
-		slog.Int64("posted_comment_id", posted.CommentID), slog.Any("error", err))
+// orphaned preserves the returned receipt; reportAttempt owns bounded diagnostics.
+func (d *Daemon) orphaned(_ context.Context, _ *slog.Logger, _ turn.Posted, err error) error {
 	return err
 }
 

@@ -1,0 +1,170 @@
+Command: go test -race -cover ./internal/turn -run '^TestReport' -count=1 -v
+=== RUN   TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== PAUSE TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== RUN   TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange
+--- PASS: TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange (2.44s)
+=== RUN   TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts
+=== RUN   TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/wrong_author
+=== RUN   TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/wrong_destination
+=== RUN   TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/conflicting_body
+=== RUN   TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/equivalent_duplicates
+--- PASS: TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts (10.50s)
+    --- PASS: TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/wrong_author (2.25s)
+    --- PASS: TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/wrong_destination (3.14s)
+    --- PASS: TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/conflicting_body (3.11s)
+    --- PASS: TestReportDeliveryHTTPRecoveryRejectsUntrustedReceipts/equivalent_duplicates (2.00s)
+=== RUN   TestReportDeliveryRedirectedReplyPreservesParentWatermark
+--- PASS: TestReportDeliveryRedirectedReplyPreservesParentWatermark (2.35s)
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/schedule
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/automatic
+--- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/schedule (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/automatic (0.00s)
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup
+--- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup (0.00s)
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content
+--- PASS: TestReportDeliveryLegacyRunlessAmbiguity (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content (0.00s)
+=== RUN   TestReportRunPostsThenCommitsAllThree
+=== PAUSE TestReportRunPostsThenCommitsAllThree
+=== RUN   TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== PAUSE TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== RUN   TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== PAUSE TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== RUN   TestReportUsesTheBotCredentialOnly
+--- PASS: TestReportUsesTheBotCredentialOnly (2.81s)
+=== RUN   TestReportReplyAdvancesWithoutARunRow
+=== PAUSE TestReportReplyAdvancesWithoutARunRow
+=== RUN   TestReportFailedRunStillPostsAndAdvances
+=== PAUSE TestReportFailedRunStillPostsAndAdvances
+=== RUN   TestReportReadinessRefusalPostsWithNoRunRow
+=== PAUSE TestReportReadinessRefusalPostsWithNoRunRow
+=== RUN   TestReportReplayOfAReportedRunIsANoOp
+=== PAUSE TestReportReplayOfAReportedRunIsANoOp
+=== RUN   TestReportRunTriggeredByTheIssueBody
+=== PAUSE TestReportRunTriggeredByTheIssueBody
+=== RUN   TestReportSkipsALockedTurn
+=== PAUSE TestReportSkipsALockedTurn
+=== RUN   TestReportConsumeAdvancesWithoutPosting
+=== PAUSE TestReportConsumeAdvancesWithoutPosting
+=== RUN   TestReportValidatesItsArguments
+=== PAUSE TestReportValidatesItsArguments
+=== RUN   TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== PAUSE TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== RUN   TestReporterPostsTheSyncSkipReason
+=== PAUSE TestReporterPostsTheSyncSkipReason
+=== RUN   TestReporterRefusesARunTooFarBehindTheBase
+=== PAUSE TestReporterRefusesARunTooFarBehindTheBase
+=== CONT  TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== CONT  TestReportSkipsALockedTurn
+=== CONT  TestReportReplayOfAReportedRunIsANoOp
+=== CONT  TestReportReplyAdvancesWithoutARunRow
+=== RUN   TestReportReplyAdvancesWithoutARunRow/retired_command
+=== CONT  TestReportRunPostsThenCommitsAllThree
+=== CONT  TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== CONT  TestReportReadinessRefusalPostsWithNoRunRow
+=== CONT  TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== CONT  TestReportFailedRunStillPostsAndAdvances
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/retired_command
+=== RUN   TestReportReplyAdvancesWithoutARunRow/unknown_command
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/unknown_command
+=== RUN   TestReportReplyAdvancesWithoutARunRow/empty_spike
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/empty_spike
+=== CONT  TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== CONT  TestReportValidatesItsArguments
+=== RUN   TestReportValidatesItsArguments/options
+=== PAUSE TestReportValidatesItsArguments/options
+=== RUN   TestReportValidatesItsArguments/run_reports
+=== PAUSE TestReportValidatesItsArguments/run_reports
+=== RUN   TestReportValidatesItsArguments/replies
+=== PAUSE TestReportValidatesItsArguments/replies
+=== RUN   TestReportValidatesItsArguments/consume
+=== PAUSE TestReportValidatesItsArguments/consume
+=== CONT  TestReportConsumeAdvancesWithoutPosting
+--- PASS: TestReportSkipsALockedTurn (10.29s)
+=== CONT  TestReportRunTriggeredByTheIssueBody
+--- PASS: TestReportReadinessRefusalPostsWithNoRunRow (11.96s)
+=== CONT  TestReporterRefusesARunTooFarBehindTheBase
+--- PASS: TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched (13.47s)
+=== CONT  TestReporterPostsTheSyncSkipReason
+--- PASS: TestReportRenderFailurePostsNothingAndAdvancesNothing (13.64s)
+=== CONT  TestReportReplyAdvancesWithoutARunRow/unknown_command
+--- PASS: TestReportFailedRunStillPostsAndAdvances (13.78s)
+=== CONT  TestReportReplyAdvancesWithoutARunRow/empty_spike
+--- PASS: TestReportReplayOfAReportedRunIsANoOp (13.99s)
+=== CONT  TestReportReplyAdvancesWithoutARunRow/retired_command
+--- PASS: TestReporterPostsReplyRefusesSyncWithConflictingPaths (13.98s)
+=== CONT  TestReportValidatesItsArguments/run_reports
+=== CONT  TestReportValidatesItsArguments/consume
+=== CONT  TestReportValidatesItsArguments/replies
+=== CONT  TestReportValidatesItsArguments/options
+--- PASS: TestReportValidatesItsArguments (9.95s)
+    --- PASS: TestReportValidatesItsArguments/run_reports (0.00s)
+    --- PASS: TestReportValidatesItsArguments/consume (0.00s)
+    --- PASS: TestReportValidatesItsArguments/replies (0.00s)
+    --- PASS: TestReportValidatesItsArguments/options (0.00s)
+--- PASS: TestReportRunPostsThenCommitsAllThree (14.48s)
+--- PASS: TestReporterDisclosesDeferredDirtyWithoutSuccessClaim (14.81s)
+--- PASS: TestReportConsumeAdvancesWithoutPosting (10.37s)
+--- PASS: TestReportReplyAdvancesWithoutARunRow (0.01s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/unknown_command (8.10s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/empty_spike (7.98s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/retired_command (8.05s)
+--- PASS: TestReportRunTriggeredByTheIssueBody (12.59s)
+--- PASS: TestReporterRefusesARunTooFarBehindTheBase (10.94s)
+--- PASS: TestReporterPostsTheSyncSkipReason (10.23s)
+PASS
+coverage: 16.7% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	43.589s	coverage: 16.7% of statements

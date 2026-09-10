@@ -47,7 +47,7 @@ func (db *DB) RegisterStoryProgress(ctx context.Context, r StoryProgressRun) err
 		return fmt.Errorf("store: invalid story progress run")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO story_progress_runs(run_id,parent_task,generation,worktree) SELECT ?,?,?,? FROM runs r JOIN sessions s ON s.id=r.session_id JOIN managed_features f ON f.parent_task=s.task_ref WHERE r.id=? AND r.status='running' AND r.mode='implement' AND s.task_ref=? AND f.generation=? AND f.state='implementing' ON CONFLICT(run_id) DO NOTHING`, r.RunID, r.Parent, r.Generation, r.Worktree, r.RunID, r.Parent, r.Generation)
+		res, err := tx.ExecContext(ctx, `INSERT INTO story_progress_runs(run_id,parent_task,generation,worktree) SELECT ?,?,?,? FROM runs r JOIN sessions s ON s.id=r.session_id JOIN managed_features f ON f.parent_task=s.task_ref WHERE r.id=? AND r.status IN ('prelaunch','running') AND r.mode='implement' AND s.task_ref=? AND f.generation=? AND f.state='implementing' ON CONFLICT(run_id) DO NOTHING`, r.RunID, r.Parent, r.Generation, r.Worktree, r.RunID, r.Parent, r.Generation)
 		if err != nil {
 			return err
 		}

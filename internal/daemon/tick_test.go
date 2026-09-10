@@ -337,16 +337,17 @@ func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	// point of AC-PAR-5.2: no change to UpdatedAt, and the comment is still
 	// found again.
 	f.forge.onPostComment = nil
+	f.restorePendingReport(11)
 	f.settle()
 	f.settle()
 	f.settle()
 	f.settle()
 
-	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 11, 12, 13}) {
-		t.Errorf("turns ran for %v, want [11 11 12 13]: 11 retried, then 12 and 13", got)
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 12, 13}) {
+		t.Errorf("turns ran for %v, want [11 12 13]: delivery 11 recovered without rerun, then 12 and 13", got)
 	}
-	if got := f.watermark(); got != 13 {
-		t.Errorf("watermark is %d after the retry, want 13", got)
+	if got := f.watermark(); got != 900011 {
+		t.Errorf("watermark is %d after the retry, want 900011 (the recovered receipt after all owner commands)", got)
 	}
 	if runs := f.runs(); len(runs) != 3 {
 		t.Errorf("allocated %d runs, want 3 — comment 11 must not run twice", len(runs))
@@ -418,8 +419,8 @@ func TestQueueStopsWhenAPostedReportWasNotRecorded(t *testing.T) {
 		t.Errorf("watermark is %d, want %d: nothing may be consumed past an unrecorded report",
 			got, bootstrapped)
 	}
-	if !strings.Contains(f.logs.String(), "posted to the issue but litefactory could not record it") {
-		t.Error("the orphaned comment was not logged; it is the one failure that costs a duplicate")
+	if !strings.Contains(f.logs.String(), "report recovery pending") {
+		t.Error("the failed bookkeeping was not surfaced as pending recovery")
 	}
 }
 

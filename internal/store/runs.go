@@ -22,7 +22,10 @@ type RunStatus string
 
 // The run statuses.
 const (
-	// RunRunning is set when the row is allocated, before the subprocess
+	// RunPrelaunch owns an ordinal but has not crossed the launch boundary.
+	RunPrelaunch RunStatus = "prelaunch"
+
+	// RunRunning marks the execution boundary (or legacy direct allocation), before the subprocess
 	// starts.
 	RunRunning RunStatus = "running"
 	// RunSucceeded means claude exited zero and emitted a terminal result
@@ -200,6 +203,9 @@ func (r Run) Succeeded() bool {
 
 // AllocateRunParams describes the run to allocate.
 type AllocateRunParams struct {
+	// Prelaunch makes allocation retryable until StartRun claims execution.
+	Prelaunch bool
+
 	// SessionID is the task.
 	SessionID int64
 	// SegmentID is the conversation, from [DB.GetOrCreateSegment].
@@ -267,6 +273,10 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		startedAt = nowUTC()
 	}
 
+	status := RunRunning
+	if params.Prelaunch {
+		status = RunPrelaunch
+	}
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if IsAutomaticTrigger(params.TriggerCommentID) {
@@ -294,11 +304,11 @@ INSERT INTO runs (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+runColumns,
 			params.SessionID, params.SegmentID, ordinal, params.Mode, params.Agent,
-			params.TriggerCommentID, string(RunRunning), FormatTime(startedAt), logPath))
+			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath))
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
 		}
-		if err == nil && IsAutomaticTrigger(params.TriggerCommentID) {
+		if err == nil && !params.Prelaunch && IsAutomaticTrigger(params.TriggerCommentID) {
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
 		}
 		return err
@@ -477,51 +487,40 @@ RETURNING `+runColumns,
 // and re-advances the watermark, which is what should happen if the post
 // succeeded but this transaction did not.
 func (db *DB) CompleteRunReport(ctx context.Context, runID, resultCommentID int64) (Run, error) {
-	if resultCommentID == 0 {
+	if resultCommentID <= 0 {
 		return Run{}, errors.New("store: complete run report: result comment id is required")
 	}
-
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		current, err := scanRun(tx.QueryRowContext(ctx,
-			`SELECT `+runColumns+` FROM runs WHERE id = ?`, runID))
-		if err != nil {
-			return err
-		}
-		switch current.Status {
-		case RunSucceeded, RunFailed, RunReported:
-		case RunRunning:
-			return errors.New("run has not finished: finish it before reporting it")
-		default:
-			return fmt.Errorf("run is in unknown status %q", current.Status)
-		}
-
-		run, err = scanRun(tx.QueryRowContext(ctx, `
-UPDATE runs SET status = ?, result_comment_id = ? WHERE id = ?
-RETURNING `+runColumns,
-			string(RunReported), resultCommentID, runID))
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET announcement_comment_id = ? WHERE source_run_id = ?`, resultCommentID, runID); err != nil {
-			return err
-		}
-		// Factory-private schedule triggers had their source comments consumed
-		// when scheduling was acknowledged, so advancing a
-		// watermark with one would be both meaningless and unsafe.
-		refinement, err := consumeRefinement(ctx, tx, run.SessionID, run.TriggerCommentID)
-		if err != nil {
-			return fmt.Errorf("consume story refinement: %w", err)
-		}
-		if !refinement && !IsScheduleTrigger(run.TriggerCommentID) && !IsAutomaticTrigger(run.TriggerCommentID) {
-			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
-				return fmt.Errorf("advance watermark: %w", err)
-			}
-		}
-		return nil
+		var err error
+		run, err = completeRunReportTx(ctx, tx, runID, resultCommentID)
+		return err
 	})
 	if err != nil {
 		return Run{}, fmt.Errorf("store: complete report for run %d: %w", runID, err)
+	}
+	return run, nil
+}
+
+// completeRunReportTx also participates in durable delivery completion, so all
+// acknowledgments share one transaction instead of nesting single-pool calls.
+func completeRunReportTx(ctx context.Context, tx *sql.Tx, runID, resultCommentID int64) (Run, error) {
+	current, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=?`, runID))
+	if err != nil {
+		return Run{}, err
+	}
+	if !current.Reportable() {
+		return Run{}, errors.New("run has not finished: finish it before reporting it")
+	}
+	run, err := scanRun(tx.QueryRowContext(ctx, `UPDATE runs SET status=?,result_comment_id=? WHERE id=? RETURNING `+runColumns, string(RunReported), resultCommentID, runID))
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET announcement_comment_id=? WHERE source_run_id=?`, resultCommentID, runID); err != nil {
+		return Run{}, err
+	}
+	if err := consumeReportSource(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
+		return Run{}, err
 	}
 	return run, nil
 }
@@ -696,7 +695,7 @@ RETURNING `+runColumns,
 		for _, item := range scheduled {
 			run, runErr := scanRun(tx.QueryRowContext(ctx,
 				`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND trigger_comment_id = ?`, item.SessionID, item.TriggerID()))
-			if errors.Is(runErr, ErrNotFound) {
+			if errors.Is(runErr, ErrNotFound) || (runErr == nil && run.Status == RunPrelaunch) {
 				if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, started_at = NULL, updated_at = ? WHERE id = ? AND status = ?`,
 					string(SchedulePending), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
 					return fmt.Errorf("requeue abandoned schedule %d: %w", item.ID, err)

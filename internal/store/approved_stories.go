@@ -31,7 +31,7 @@ func (db *DB) ApproveManagedStories(ctx context.Context, parent string, generati
 			return err
 		}
 		if n != 1 {
-			return fmt.Errorf("store: plan is not ready or has pending refinements")
+			return ErrPlanNotReady
 		}
 		var count int
 		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM managed_stories WHERE parent_task=? AND generation=? AND state!='completed'`, parent, generation).Scan(&count); err != nil {
@@ -157,4 +157,23 @@ func (db *DB) ReplanManagedFeature(ctx context.Context, parent string, generatio
 		_, err = tx.ExecContext(ctx, `INSERT INTO story_scope_notices(parent_task,generation,story_key,kind) SELECT parent_task,generation,story_key,'planning' FROM managed_stories WHERE parent_task=? AND generation=? AND state='planning'`, parent, generation+1)
 		return err
 	})
+}
+
+// ErrPlanNotReady is a final readiness refusal, not an infrastructure failure.
+var ErrPlanNotReady = errors.New("store: plan is not ready or has pending refinements")
+
+// CheckManagedReadiness is a cheap early check; approval still rechecks atomically.
+func (db *DB) CheckManagedReadiness(ctx context.Context, parent string) error {
+	var blocked bool
+	err := db.sql.QueryRowContext(ctx, `SELECT ready=0 OR EXISTS (SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0) FROM managed_features WHERE parent_task=? AND state='planning'`, parent, parent).Scan(&blocked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("store: check managed readiness: %w", err)
+	}
+	if blocked {
+		return ErrPlanNotReady
+	}
+	return nil
 }

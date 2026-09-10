@@ -22,12 +22,9 @@ func TestExternalTeamRefusesBeforeRunnerAndCloneChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	gittest.AssertUnchanged(t, f.repo.Dir, func() {
-		result := f.execute(f.request())
-		if result.Disposition != DispositionPrepareFailed {
-			t.Fatalf("got %s", result.Disposition)
-		}
-		if !strings.Contains(result.Reason, "external team") {
-			t.Fatalf("failure not actionable: %#v", result)
+		_, err := Execute(t.Context(), f.opts, f.request())
+		if err == nil || !strings.Contains(err.Error(), "external team") {
+			t.Fatalf("retryable failure not actionable: %v", err)
 		}
 	})
 	if len(f.runs()) != 0 {

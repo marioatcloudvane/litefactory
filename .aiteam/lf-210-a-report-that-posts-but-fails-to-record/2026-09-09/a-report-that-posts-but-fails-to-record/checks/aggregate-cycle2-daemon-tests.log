@@ -1,0 +1,2 @@
+Command: ['go', 'test', '-race', '-cover', './internal/daemon', '-run', 'TestMalformedAgentLabelReplyNeverEchoesInjectedText|TestAnUnconsumedCommentLeavesTheBacklogFlagSet|TestPersistentModeReportRetryAfterRestart|TestModeTransitionReportRetryPreservesOwnerEdit|TestQueueStopsAtTheFirstCommentWhoseReportFailed|TestQueueStopsWhenAPostedReportWasNotRecorded', '-timeout', '180s']
+ok  	github.com/cloudvane/litefactory/internal/daemon	17.978s	coverage: 33.7% of statements
