@@ -15,6 +15,7 @@
 
 - 2026-09-10 — session created for research run 0001, issue #208.
 - 2026-09-10 — Research completed: repository tour and official GitHub/SDK/HTTP documentation synthesized in RESEARCH_BRIEF.md; live request volume and endpoint-specific validator behavior remain explicit open questions. No implementation or runtime changes; no tests executed.
+- 2026-09-10 — Research run 0003 completed: answered all eight owner responses; measured a retained-log lower bound of 40 repository-list requests in 20 minutes, distinguished it from unmeasured total traffic, rechecked conditional/timestamp/HTTP documentation, and proposed cache, identity, fairness and quota defaults with explicit tradeoffs. Poll interval removed from unresolved feature decisions. Prior technical evidence retained as R0. No production/runtime changes or tests; commits and pushes remain factory-owned.
 
 ## Notes
 
