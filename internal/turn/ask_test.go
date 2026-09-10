@@ -285,11 +285,10 @@ func TestModeMayAsk(t *testing.T) {
 	}
 }
 
-// TestPermissionIsAConjunction walks the whole gate as prepare assembles it:
-// the tag on this run's own trigger AND a mode that may ask. Neither half is
-// sufficient, and that is the entire security property — a tagged implement run
-// gets the gag (AC-A1.6) and an untagged research run gets it too.
-func TestPermissionIsAConjunction(t *testing.T) {
+// TestPermissionHonorsModeAndOwnerControl covers the live permission policy:
+// Plan defaults to asynchronous questions; Research needs the explicit tag,
+// and other modes cannot acquire permission through tagging.
+func TestPermissionHonorsModeAndOwnerControl(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -311,7 +310,7 @@ func TestPermissionIsAConjunction(t *testing.T) {
 			t.Parallel()
 
 			command := ParseCommand(tc.body)
-			if got := command.Tagged && modeMayAsk(tc.mode); got != tc.want {
+			if got := questionPermission(tc.mode, command); got != tc.want {
 				t.Errorf("permission for %q in mode %q = %t, want %t", tc.body, tc.mode, got, tc.want)
 			}
 		})

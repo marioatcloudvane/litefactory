@@ -121,9 +121,8 @@ type Command struct {
 	//
 	// It is a fact about the body and nothing more. It is set on every kind,
 	// including the ones that spawn no run, because it says what the comment
-	// contained and not what was done about it. Permission is the conjunction of
-	// this and the mode — see [modeMayAsk] — and neither half is sufficient
-	// alone.
+	// contained and not what was done about it. [questionPermission] combines
+	// the mode default, this opt-in and explicit current no-question instructions.
 	Tagged bool
 }
 
