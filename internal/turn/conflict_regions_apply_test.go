@@ -27,7 +27,7 @@ func TestRegionConfirmationLegacyUnknownAndFreshAuthorization(t *testing.T) {
 		})
 	}
 	fresh, _, err := f.db.CreateOrGetConflictProposal(t.Context(), store.CreateConflictProposalParams{SessionID: f.session.ID, TriggerCommentID: 999, Model: "codex", Format: 1,
-		BaseSHA: supported.BaseSHA, BranchSHA: supported.BranchSHA, Files: supported.Files})
+		BaseSHA: supported.BaseSHA, BranchSHA: supported.BranchSHA, Inputs: supported.Inputs, Files: supported.Files})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestRegionConfirmationRechecksStoredPayload(t *testing.T) {
 			t.Parallel()
 			f, dir, proposal := blockedProposal(t)
 			tc.change(&proposal.Files[0])
-			changed, _, err := f.db.CreateOrGetConflictProposal(t.Context(), store.CreateConflictProposalParams{SessionID: f.session.ID, TriggerCommentID: 900, Model: "codex", Format: 1, BaseSHA: proposal.BaseSHA, BranchSHA: proposal.BranchSHA, Files: proposal.Files})
+			changed, _, err := f.db.CreateOrGetConflictProposal(t.Context(), store.CreateConflictProposalParams{SessionID: f.session.ID, TriggerCommentID: 900, Model: "codex", Format: 1, BaseSHA: proposal.BaseSHA, BranchSHA: proposal.BranchSHA, Inputs: proposal.Inputs, Files: proposal.Files})
 			if err != nil {
 				t.Fatal(err)
 			}

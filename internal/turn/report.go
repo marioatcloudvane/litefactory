@@ -257,6 +257,8 @@ type ReplyRequest struct {
 	// exceeded the cap, the ref it was measured against, and the cap.
 	SyncBehind    int
 	SyncBase      string
+	SyncDetail    string
+	SyncPhase     string
 	SyncMaxBehind int
 
 	// ConflictPaths belongs to [report.ReplyRefusesSync] alone (US-4): the
@@ -474,6 +476,8 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 			SyncBehind:    result.SyncBehind,
 			SyncBase:      result.SyncBase,
 			SyncMaxBehind: result.SyncMaxBehind,
+			SyncDetail:    result.SyncDetail,
+			SyncPhase:     result.SyncPhase,
 		})
 	}
 
@@ -490,6 +494,8 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 		CommentID:     result.TriggerCommentID,
 		Refusal:       report.ReplyRefusesSync,
 		ConflictPaths: result.SyncConflicts,
+		SyncDetail:    result.SyncDetail,
+		SyncPhase:     result.SyncPhase,
 	}
 	// US-11: a persisted suggestion draws its own reply kind; a suggestion
 	// that was attempted and failed still draws the plain refusal, plus its
@@ -520,7 +526,7 @@ func conflictProposalReply(proposal store.ConflictProposal) *report.ConflictProp
 		}
 		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: resolution, Diff: f.Details.Diff, Metrics: report.ConflictPreviewMetrics(f.Details.Metrics)})
 	}
-	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files, Format: proposal.Format, BranchSHA: proposal.BranchSHA}
+	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files, Format: proposal.Format, BranchSHA: proposal.BranchSHA, TargetPhase: proposal.Inputs.TargetPhase, TargetRef: proposal.Inputs.TargetRef, TargetSHA: proposal.BaseSHA, BaseRef: proposal.Inputs.BaseRef, BaseSHA: proposal.Inputs.BaseSHA, TaskRef: proposal.Inputs.TaskRef, TaskSHA: proposal.Inputs.TaskSHA}
 }
 
 // ReportRun posts one run's report, records the result comment id, advances the
@@ -678,6 +684,8 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		RequestedAgent:           req.RequestedAgent,
 		SyncBehind:               req.SyncBehind,
 		SyncBase:                 req.SyncBase,
+		SyncDetail:               req.SyncDetail,
+		SyncPhase:                req.SyncPhase,
 		SyncMaxBehind:            req.SyncMaxBehind,
 		ConflictPaths:            req.ConflictPaths,
 		ConflictProposal:         req.ConflictProposal,
@@ -803,6 +811,20 @@ func (r *Reporter) consumed(ctx context.Context, sessionID, commentID int64) (bo
 // says, and it lives here rather than in internal/report because that package
 // deliberately takes none of these types wholesale.
 func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, error) {
+	// Recovery reports reuse recorded observations without re-reading Git or
+	// inventing task freshness for historical base-only runs.
+	for _, s := range result.Run.SyncObservations {
+		value := &report.Sync{Phase: s.Phase, Base: s.Ref, LocalSHA: s.LocalSHA, RemoteSHA: s.RemoteSHA,
+			Outcome: report.SyncOutcome(s.Outcome), Behind: s.Behind, Ahead: s.Ahead,
+			CommitSHA: s.ResultSHA, Conflicts: append([]string(nil), s.Conflicts...), Reason: s.Reason}
+		if s.Phase == "task" && s.Outcome != "absent" && result.TaskSync == nil {
+			result.TaskSync = value
+		}
+		if s.Phase == "base" && result.Sync == nil {
+			result.Sync = value
+		}
+	}
+
 	ordinal := result.Run.Ordinal
 	if ordinal < 1 {
 		// A preparation failure never allocated a run row, and so never got an
@@ -837,11 +859,12 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// SHAAfter is where the branch ended up either way, and is what a
 		// permalink has to be pinned to or it renders blank on exactly that path
 		// (git.CommitResult.Head, AC-3.24).
-		SHAAfter: result.SHAAfter,
-		Pushed:   result.Pushed,
-		Files:    result.Changes,
-		LogPath:  result.LogPath,
-		Failure:  turnFailure(result),
+		SHAAfter:    result.SHAAfter,
+		Pushed:      result.Pushed,
+		Publication: result.Publication,
+		Files:       result.Changes,
+		LogPath:     result.LogPath,
+		Failure:     turnFailure(result),
 		// The requested surface and its provenance travel on the render input
 		// itself rather than on the harness result, because the report has to
 		// carry them for a run that produced no result at all — the run whose
@@ -852,7 +875,8 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// US-3. Nil for a branch that was already current (AC-3.1) and for a
 		// turn that never reached syncBase; every other outcome renders,
 		// including a skip, which has to say why (AC-3.2).
-		Sync: result.Sync,
+		Sync:     result.Sync,
+		TaskSync: result.TaskSync,
 		// Found by looking, not by deriving. internal/report does no I/O, and
 		// the session directory's date is knowable only from the filesystem —
 		// see report.Run.BriefPath for what deriving it used to get wrong.

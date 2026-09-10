@@ -333,6 +333,12 @@ func save(
 		return result
 	}
 	if !runResult.Succeeded() {
+		result.Publication = "Not published by this run; local edits and commits are retained."
+		if head, err := prep.worktree.RevParse(ctx, "HEAD", git.RevParseOptions{}); err == nil {
+			result.Publication += " Retained local commit: " + head + "."
+		} else {
+			result.Publication += " Local commit observation unavailable: " + err.Error()
+		}
 		logger.Warn("run did not succeed; leaving the work uncommitted in the worktree",
 			slog.String("worktree", prep.worktree.Path()),
 			slog.String("outcome", runResult.Outcome.String()))
@@ -418,30 +424,59 @@ func commitAndPush(
 	result.SHAAfter = commit.Head
 	result.CommitSHA = commit.SHA
 	result.Committed = commit.Committed
-	// The branch moving is the test, not the commit happening: a run holding
-	// the Bash tool may have committed for itself, leaving a clean worktree and
-	// work that still has to reach the remote (AC-3.24).
+	// Agent-change reporting remains relative to the prepared tree. Publication
+	// eligibility below is independent: preparation/prior-attempt commits may
+	// need publishing even when the agent made no changes.
 	result.Changed = commit.Head != prep.shaBefore
 
-	if !result.Changed {
-		// AC-3.23. A normal result, not an error — and the report says so
-		// explicitly rather than posting an empty success.
-		logger.Info("run produced no changes; nothing to commit or push",
-			slog.String("branch", prep.session.Branch))
+	result.Publication = "Local commit " + commit.Head + " retained; publication not confirmed."
+	remoteHead, err := prep.worktree.RemoteHead(ctx, opts.remote())
+	if err != nil {
+		result.Err = &git.PushError{Remote: opts.remote(), Branch: prep.worktree.Branch(), Worktree: prep.worktree.Path(), Err: fmt.Errorf("publication eligibility could not be observed; push was not attempted: %w", err)}
+		return result
+	}
+	if remoteHead == commit.Head {
+		result.Pushed = true
+		result.Publication = "Commit " + commit.Head + " is already present on the remote; no push needed."
+		return result
+	}
+	if remoteHead == "" && !result.Changed {
+		// A new task with no task-specific commits is still an ordinary no-op.
+		// Prior retained commits and preparation merges remain eligible for save.
+		divergence, err := prep.worktree.Divergence(ctx, opts.remote()+"/"+prep.repo.BaseBranch)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		if divergence.Ahead == 0 {
+			result.Publication = "No unpublished task commits; no push needed."
+			return result
+		}
+	}
+	if pushErr := prep.worktree.Push(ctx, opts.remote()); pushErr != nil {
+		observed, observeErr := prep.worktree.RemoteHead(ctx, opts.remote())
+		var pe *git.PushError
+		upstreamFailure := errors.As(pushErr, &pe) && pe.Published
+		if observeErr == nil && observed == commit.Head && !upstreamFailure {
+			result.Pushed = true
+			result.Publication = "Commit " + commit.Head + " is confirmed on the remote after publication raced; the verified tree was unchanged."
+			return result
+		}
+		result.Err = pushErr
+		switch {
+		case observeErr != nil:
+			result.Publication += " Remote observation failed: " + observeErr.Error()
+		case observed != remoteHead:
+			result.Publication += fmt.Sprintf(" Remote task tip changed from %s to %s during publication. Resolve the task branch through the existing proposed/manual recovery and request a newly verified run; no late merge was attempted.", displayRemoteHead(remoteHead), displayRemoteHead(observed))
+		case prep.sync.Task != nil && observed != prep.sync.Task.BaseSHA:
+			result.Publication += fmt.Sprintf(" Remote task tip changed since preparation to %s. Resolve the task branch through the existing proposed/manual recovery and request a newly verified run; no late merge was attempted.", displayRemoteHead(observed))
+		}
+		logger.Error("push the task branch", slog.String("branch", prep.session.Branch), slog.Any("error", pushErr))
 		return result
 	}
 
-	if err := prep.worktree.Push(ctx, opts.remote()); err != nil {
-		// The commit is not lost. *git.PushError names the worktree still
-		// holding it, which is what the report quotes (AC-3.24).
-		result.Err = err
-		logger.Error("push the task branch",
-			slog.String("branch", prep.session.Branch),
-			slog.String("worktree", prep.worktree.Path()),
-			slog.Any("error", err))
-		return result
-	}
 	result.Pushed = true
+	result.Publication = "Commit " + commit.Head + " published successfully."
 
 	logger.Info("run committed and pushed",
 		slog.String("branch", prep.session.Branch),
@@ -523,4 +558,11 @@ func finish(
 		slog.Bool("pushed", result.Pushed),
 		slog.String("session_state", string(state)))
 	return result, nil
+}
+
+func displayRemoteHead(sha string) string {
+	if sha == "" {
+		return "(absent)"
+	}
+	return sha
 }

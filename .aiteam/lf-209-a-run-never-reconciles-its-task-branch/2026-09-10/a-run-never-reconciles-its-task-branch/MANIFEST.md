@@ -6,12 +6,16 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `feature-spec.md`, `ARCH_REVIEW.md`, `plan_brief.md` + typed contribution *(run 0005 submitted; factory publication/readiness pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(run 0006 engineering, aggregate checks and final evidence recorded; factory save pending)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 **Validate** returns read-only structured findings through runner output.
 
+Run 0006 uses persisted workflow 2 and content/submission contract 2. Engineering and executed checks are submitted through the supplied attempt helper; acceptance remains pending explicit Validate. Successful repository save remains factory-owned.
+
 ## History
+
+- Run 0006 — Implement completed US-001 (#234), US-002 (#235), US-003 (#236) in frozen dependency order. Scoped engineering recorded before dependent work. Final `make check` passed formatting, vet, pinned lint and all 31 tested packages with race detection; `go build ./...` passed. `TEST_REPORT.md`, `notes.md`, `DRIFT_REPORT.md` retain scope and evidence. Final engineering refreshed and recorded for all three stories at source/test digest `304fcfff0479400e63200c001f473e043286b177860cecd9695887fae17c5b2d`; successful save remains factory-owned and pending. Acceptance remains pending explicit Validate.
 
 - 2026-09-10 — session created for issue #209, research run 0001.
 - 2026-09-10 — Research completed: confirmed existing-local-task upstream reconciliation gap; recorded preparation-path, reporting, save, and recovery decisions in RESEARCH_BRIEF.md. Static repository research only; incident history remains owner-reported. Headless instruction honored without confirmation; no next mode started.

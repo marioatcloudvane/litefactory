@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -151,10 +152,11 @@ type Run struct {
 	// or one no sync attempt was ever recorded against. SyncCommitSHA is ""
 	// unless SyncOutcome is [SyncSynced] and the merge actually moved the
 	// branch.
-	SyncOutcome   SyncOutcome
-	SyncBehind    int
-	SyncAhead     int
-	SyncCommitSHA string
+	SyncObservations []SyncObservation
+	SyncOutcome      SyncOutcome
+	SyncBehind       int
+	SyncAhead        int
+	SyncCommitSHA    string
 }
 
 // Duration returns the run's wall-clock duration, and false while it is still
@@ -820,32 +822,36 @@ const runColumns = `
     id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
-    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason`
+    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations`
 
 func scanRun(s scanner) (Run, error) {
 	var (
-		run             Run
-		status          string
-		exitCode        sql.NullInt64
-		reason          sql.NullString
-		startedAt       sql.NullString
-		finishedAt      sql.NullString
-		durationMS      sql.NullInt64
-		costUSD         sql.NullFloat64
-		commitSHA       sql.NullString
-		resultCommentID sql.NullInt64
-		syncOutcome     string
-		syncCommitSHA   sql.NullString
+		run              Run
+		status           string
+		exitCode         sql.NullInt64
+		reason           sql.NullString
+		startedAt        sql.NullString
+		finishedAt       sql.NullString
+		durationMS       sql.NullInt64
+		costUSD          sql.NullFloat64
+		commitSHA        sql.NullString
+		resultCommentID  sql.NullInt64
+		syncOutcome      string
+		syncObservations string
+		syncCommitSHA    sql.NullString
 	)
 	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
-		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason)
+		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound
 		}
 		return Run{}, err
+	}
+	if err := json.Unmarshal([]byte(syncObservations), &run.SyncObservations); err != nil {
+		return Run{}, fmt.Errorf("decode synchronization observations: %w", err)
 	}
 	run.Status = RunStatus(status)
 	run.ExitCode = scanInt(exitCode)

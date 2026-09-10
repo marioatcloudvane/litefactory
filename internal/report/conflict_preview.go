@@ -45,7 +45,14 @@ func conflictPreviewMetadata(reply Reply) (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString(ReplyMarker(reply.Ref) + "\n\n")
-	fmt.Fprintf(&b, "This task's branch conflicts with the base branch. Conflicting path(s) (%d).\n\nSuggested resolution from %s (proposal %d).\n", len(p.Files), strconv.Quote(oneLine(p.Model)), p.ID)
+	target := "base branch"
+	if p.TargetPhase == "task" {
+		target = "remote task branch"
+	}
+	fmt.Fprintf(&b, "This task's branch conflicts with the %s. Conflicting path(s) (%d).\n\nSuggested resolution from %s (proposal %d).\n", target, len(p.Files), strconv.Quote(oneLine(p.Model)), p.ID)
+	if p.TargetRef != "" {
+		fmt.Fprintf(&b, "Target: %s at %s.\nBase input: %s at %s.\nTask input: %s at %s.\n", strconv.Quote(oneLine(p.TargetRef)), strconv.Quote(oneLine(p.TargetSHA)), strconv.Quote(oneLine(p.BaseRef)), strconv.Quote(oneLine(p.BaseSHA)), strconv.Quote(oneLine(p.TaskRef)), strconv.Quote(oneLine(taskInputSHA(p.TaskSHA))))
+	}
 	b.WriteString("Task-branch baseline SHA: " + strconv.Quote(oneLine(p.BranchSHA)) + "\n\n")
 	fence := fenceFor(rows.String())
 	b.WriteString(fence + "\n" + rows.String() + fence + "\n\n")
@@ -94,4 +101,11 @@ func (r *Reporter) renderConflictPreview(ctx context.Context, reply Reply) (reda
 		diffs.WriteString(conflictDiffOmission)
 	}
 	return r.apply(ctx, metadata+diffs.String())
+}
+
+func taskInputSHA(sha string) string {
+	if sha == "" {
+		return "absent"
+	}
+	return sha
 }

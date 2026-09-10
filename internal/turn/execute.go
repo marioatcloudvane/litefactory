@@ -624,6 +624,7 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	// the only place a person sees it. Without this the outcome is written to
 	// the runs row (US-9) and never spoken aloud.
 	result.Sync = reportSync(prep.sync)
+	result.TaskSync = reportTaskSync(prep.sync.Task)
 
 	return runAndHarvest(ctx, opts, prep, result, logger)
 }
@@ -706,6 +707,13 @@ func agentSwitchRefused(result Result, refusal *agentSwitchRefusal, logger *slog
 func syncRefused(result Result, refusal *syncRefusal, logger *slog.Logger) Result {
 	result.Disposition = DispositionSyncRefused
 	result.SyncConflicts = append([]string(nil), refusal.conflicts...)
+	if refusal.observation != nil && refusal.observation.Phase == "base" {
+		result.TaskSync = reportTaskSync(refusal.observation.Task)
+	} else {
+		result.TaskSync = reportTaskSync(refusal.observation)
+	}
+	result.SyncDetail = taskRefusalDetail(refusal.observation)
+	result.SyncPhase = refusal.phase
 
 	if refusal.tooFarBehind {
 		result.SyncTooFarBehind = true
