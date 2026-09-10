@@ -113,7 +113,13 @@ func harvestValidation(ctx context.Context, opts Options, prep *preparation, res
 	if err != nil {
 		result.Outcome = agent.OutcomeFailed
 		result.Reason = "Validation output rejected: " + err.Error()
-		result.ResultText = result.Reason
+		// The reviewer's own text is kept rather than replaced by the
+		// rejection. Overwriting it put the parser's one-line error where the
+		// assessment should have been and left the report saying no output was
+		// captured, so a rejected run read as a run that did nothing — with the
+		// work it did do reachable only by opening the local NNNN.jsonl. Reason
+		// carries the error; the callout above the result already shows it.
+		result.Diagnostic = result.Reason
 		return result
 	}
 	var report strings.Builder

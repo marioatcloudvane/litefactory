@@ -163,3 +163,47 @@ func TestValidationConcreteBlockingFindingSuggestsAffectedScope(t *testing.T) {
 		}
 	}
 }
+
+func TestValidationAcceptsAWrappedObjectButNotASecondOne(t *testing.T) {
+	v, o := validationFixture()
+	object, _ := json.Marshal(o)
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{"bare, as the contract asks", string(object)},
+		{"leading and trailing whitespace", "\n\n  " + string(object) + "\n"},
+		{"the run 20 shape: prose then a fenced block",
+			"Based on direct inspection of the repository code against each story's frozen acceptance criteria, here is the structured validation result.\n\n```json\n" + string(object) + "\n```"},
+		{"an unlabelled fence", "```\n" + string(object) + "\n```"},
+		{"a trailing remark after the fence",
+			"```json\n" + string(object) + "\n```\n\nHappy to expand on any finding."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := ParseValidationOutput([]byte(tc.text), v)
+			if err != nil {
+				t.Fatalf("rejected a wrapped assessment: %v", err)
+			}
+			if out.Parent != v.Parent || len(out.Stories) != 1 || out.Stories[0].Key != "US-1" {
+				t.Fatalf("decoded the wrong object: %+v", out)
+			}
+		})
+	}
+	// Tolerating the envelope must not tolerate ambiguity about which object is
+	// the assessment, nor weaken any check applied to the object itself.
+	for _, tc := range []struct {
+		name string
+		text string
+	}{
+		{"two objects in one message", "Here it is:\n\n```json\n" + string(object) + "\n```\n\nAnd again:\n\n```json\n" + string(object) + "\n```"},
+		{"prose with no object at all", "I could not complete the review; the retained evidence was unreadable."},
+		{"an object that is not an assessment", "Result:\n\n```json\n{\"note\":\"unfinished\"}\n```"},
+		{"trailing data inside the fence", "```json\n" + string(object) + " {}\n```"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := ParseValidationOutput([]byte(tc.text), v); err == nil {
+				t.Fatal("accepted an ambiguous or invalid assessment")
+			}
+		})
+	}
+}
