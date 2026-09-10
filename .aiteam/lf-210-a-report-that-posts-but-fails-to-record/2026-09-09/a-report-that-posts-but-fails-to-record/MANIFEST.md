@@ -19,6 +19,8 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 
 - 2026-09-10 — Research completed for issue #210, run 0002; reused the existing session, reverified current source, retained all six open-question identities and expanded each with recommendations, rationale, alternatives, pros/cons and remaining evidence/policy gaps. No implementation or tests; recommendations remain unapproved.
 
+- 2026-09-10 — Research completed for issue #210, run 0003; recorded explicit owner approval of all six run 0002 recommendations in `RESEARCH_BRIEF.md`, preserving historical evidence gaps and unspecified implementation policy details. Reused the existing session; no new source research, implementation, tests, or mode transition. Plan is supported only as the next human-selected step.
+
 ## Notes
 
 - Headless run: record assumptions and unresolved questions without asking for confirmation.
