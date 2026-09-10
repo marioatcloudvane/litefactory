@@ -13,8 +13,8 @@
 | Spike | nobody — read `.claude/modes/spike.md` and do it here |
 
 Skills live at `.codex/skills/<name>/SKILL.md` and are listed to you
-automatically. `.claude/modes/` is Claude-specific in its directory name only;
-its session and mode rules apply here too.
+automatically. Session and mode rules are in `.claude/modes/`; the directory
+name is historical and its contents bind every harness.
 
 Outside Validate, scaffold `$session` per `.claude/modes/session.md` first, then
 pass the request, `$session` and any factory-supplied frozen stories inline.
