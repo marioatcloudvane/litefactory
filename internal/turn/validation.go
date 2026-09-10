@@ -11,7 +11,6 @@ import (
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/harness"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -36,7 +35,7 @@ func prepareValidationContext(ctx context.Context, opts Options, in *harness.Pro
 			v.Dependencies = append(v.Dependencies, agent.CompletedStory{Key: r.Key, IssueNumber: r.IssueNumber, IssueID: r.IssueID})
 			continue
 		}
-		criteria, err := planbrief.AcceptanceCriteria(r.Body)
+		criteria, err := storyCriterionIDs(ctx, opts.DB, f.ParentTask, f.Generation, r.Key, r.Hash, r.Body)
 		if err != nil {
 			return fmt.Errorf("story %s criteria: %w", r.Key, err)
 		}
@@ -90,7 +89,7 @@ func attachValidationEvidence(s *agent.ValidationStory, retained store.StoryProg
 // harvestValidation is called before run success is persisted. No result file,
 // fresh checks, GitHub reads or mutation occurs on this boundary.
 func harvestValidation(ctx context.Context, opts Options, prep *preparation, result *agent.RunResult) *agent.RunResult {
-	if result == nil || !result.Succeeded() || prep.promptInput.Validation == nil {
+	if result == nil || !result.Succeeded() || prep.promptInput.Validation == nil || prep.submissionValidated {
 		return result
 	}
 	result = result.Clone()
@@ -113,7 +112,13 @@ func harvestValidation(ctx context.Context, opts Options, prep *preparation, res
 	if err != nil {
 		result.Outcome = agent.OutcomeFailed
 		result.Reason = "Validation output rejected: " + err.Error()
-		result.ResultText = result.Reason
+		// The reviewer's own text is kept rather than replaced by the
+		// rejection. Overwriting it put the parser's one-line error where the
+		// assessment should have been and left the report saying no output was
+		// captured, so a rejected run read as a run that did nothing — with the
+		// work it did do reachable only by opening the local NNNN.jsonl. Reason
+		// carries the error; the callout above the result already shows it.
+		result.Diagnostic = result.Reason
 		return result
 	}
 	var report strings.Builder

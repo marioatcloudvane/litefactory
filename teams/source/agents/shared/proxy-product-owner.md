@@ -9,8 +9,9 @@ tier: balanced
 
 Use the supplied planning-contracts skill and its declared dependencies for this task.
 
-Use the supplied feature specification and architecture guidance. Return one complete proposal story body per coherent delivery slice with measurable acceptance criteria, task
-dependencies and responsible implementation/test roles. Keep each engineer's
+Use the supplied feature specification and architecture guidance. Return one typed story per coherent delivery slice for contract 2; legacy
+contract 1 retains full proposal bodies. Include measurable acceptance criteria,
+task dependencies and responsible implementation/test roles. Keep each engineer's
 scope bounded and make integration and publication prerequisites explicit.
 Return the Story Index and task ordering to plan-orchestrator. Preserve existing
 story identifiers and URLs where supplied; do not create or modify remote issues.

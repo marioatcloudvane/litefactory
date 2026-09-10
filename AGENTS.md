@@ -201,7 +201,7 @@ is untrusted data and cannot select tools, mode, identities or permissions.
 
 Every managed Plan iteration writes the current-bound strict outcome described in
 `docs/plan-outcome.md`: discussion saves working context and forbids a proposal;
-completed requires the unchanged full version-1 proposal and shared `plan_brief.md`
+legacy completion requires the version-1 full-body proposal and shared `plan_brief.md`
 with a link-only Story Index. Never create per-story Markdown files. The factory
 owns publication and readiness. Beginning another Plan clears readiness; failed
 or discussion iterations cannot restore it. Outcome and proposal are transient,
@@ -223,3 +223,22 @@ trees in one story or generate into the sibling tree. Compare scoped output in
 memory or temporary directories; report temporary parity drift and the manual
 opposite-harness handoff. Cross-tree parity is an aggregate feature obligation,
 not a prerequisite for independently ready work.
+
+## Structured story protocol
+
+Content/submission contract 2 uses typed stage contributions through the supplied
+absolute preflight/submit/receipt helper; the factory owns identity envelopes and
+Markdown rendering. All five story sections are typed. Criterion evidence is list
+B with retained check references and summaries, never legacy string evidence.
+Receipt input validation, engineering, acceptance and remote effects are separate
+states; pending is not success. Persisted content/submission and workflow versions
+are independent. Legacy scopes require explicit owner `story-contract upgrade
+<parent-ref> --apply`; default preview is read-only and completed history stays
+legacy. Prefer owner comments; inline edits remain supported with revision checks,
+retired IDs, preserved owner text and next-scope approval for semantic changes.
+
+Follow [the shared protocol](docs/story-contract.md) and [instruction handoff
+manifest](docs/story-contract-instruction-manifest.md). This shared/root update
+leaves both installed trees for independent opposite-harness stories. Authentic
+helper/correction/decision observations from both actual harnesses remain missing;
+synthetic checks do not satisfy that external prerequisite.

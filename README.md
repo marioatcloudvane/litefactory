@@ -188,3 +188,16 @@ Panics and process death are outside the normal-return guarantee.
 `turn complete` remains a per-trigger event: a worker can handle multiple
 triggers before it finishes. INFO `run prepared` establishes that a run was
 prepared; it does not establish process launch, completion, or success.
+
+## Structured story contracts
+
+[The operator protocol](docs/story-contract.md) describes typed Plan sections,
+helper feedback, evidence lists, editable issue reconciliation and explicit legacy
+upgrade. Preview an existing unfinished feature with
+`litefactory story-contract upgrade github:owner/repo#123`; only `--apply` changes
+its contract. Completed history and persisted workflow remain unchanged.
+
+[The instruction manifest](docs/story-contract-instruction-manifest.md) records
+shared-source targets, isolated rendering and the manual opposite-harness handoff.
+Authentic helper/correction/receipt evidence from both harnesses remains a separate
+operator prerequisite; synthetic checks do not establish that runtime capability.

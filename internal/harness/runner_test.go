@@ -1526,3 +1526,83 @@ func TestRunLogsAllowedToolsAndToolProfile(t *testing.T) {
 		})
 	}
 }
+
+func TestResumeUnusableRerunsColdOnlyWhenNothingHappened(t *testing.T) {
+	// The run 18 shape: claude loaded the conversation, declined it before the
+	// first turn, and billed nothing.
+	rejected := RunResult{
+		Outcome: OutcomeFailed, ExitCode: 1, Model: "claude-sonnet-5",
+		HasResult: true, IsError: true, NumTurns: 1,
+		HasCost: true, CostUSD: 0, ResultText: "Prompt is too long",
+	}
+	tests := []struct {
+		name     string
+		resuming bool
+		result   RunResult
+		want     bool
+	}{
+		{"a resumed conversation rejected before its first turn", true, rejected, true},
+		{"the same shape on a cold run", false, rejected, false},
+		{
+			name: "a resumed run that burned tokens before failing",
+			// Run 17: two turns and $0.46 of real work. Rerunning cold would
+			// discard a conversation that got somewhere.
+			resuming: true,
+			result: RunResult{
+				Outcome: OutcomeFailed, ExitCode: 1, Model: "claude-sonnet-5",
+				HasResult: true, IsError: true, NumTurns: 2,
+				HasCost: true, CostUSD: 0.46, ResultText: "Prompt is too long",
+			},
+		},
+		{
+			name:     "a resumed run with no terminal result at all",
+			resuming: true,
+			result:   RunResult{Outcome: OutcomeFailed, ExitCode: 1, Model: "claude-sonnet-5"},
+		},
+		{
+			name:     "a resumed run whose tool reports no cost, so zero proves nothing",
+			resuming: true,
+			result: RunResult{
+				Outcome: OutcomeFailed, ExitCode: 1, Model: "gpt-fake-1",
+				HasResult: true, IsError: true, NumTurns: 1, HasCost: false,
+			},
+		},
+		{
+			name:     "a resumed run killed by the timeout",
+			resuming: true,
+			result: RunResult{
+				Outcome: OutcomeTimedOut, ExitCode: SignalExitCode,
+				HasResult: true, IsError: true, NumTurns: 1, HasCost: true,
+			},
+		},
+		{
+			name:     "a resumed run killed by a signal",
+			resuming: true,
+			result: RunResult{
+				Outcome: OutcomeFailed, ExitCode: SignalExitCode,
+				HasResult: true, IsError: true, NumTurns: 1, HasCost: true,
+			},
+		},
+		{
+			name:     "a resumed run that succeeded",
+			resuming: true,
+			result: RunResult{
+				Outcome: OutcomeSucceeded, ExitCode: 0,
+				HasResult: true, NumTurns: 1, HasCost: true,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.result
+			got := resumeUnusable(tc.resuming, &result)
+			if got != tc.want {
+				t.Errorf("resumeUnusable = %t, want %t", got, tc.want)
+			}
+			// The two recovery predicates must not both claim the same run.
+			if resumeRefused(tc.resuming, &result) && got {
+				t.Error("both recovery predicates claimed this run")
+			}
+		})
+	}
+}

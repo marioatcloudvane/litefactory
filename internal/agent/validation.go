@@ -87,6 +87,36 @@ type ValidationFinding struct {
 	Evidence       string `json:"evidence"`
 }
 
+// validationEnvelope returns the JSON object inside a reviewer's final message,
+// discarding whatever it wrapped that object in.
+//
+// The contract asks for a bare object and no Markdown wrapper. A model that
+// leads with "Based on direct inspection…" and then fences the object has still
+// done the review; on issue #207 that cost a complete twelve-story assessment,
+// 24 turns and $1.32, thrown away on the "B" of "Based". Refusing an envelope
+// buys nothing — every check that matters is applied to the object itself, and
+// the identity checks below (parent, generation, story count, and per-story
+// issue id, revision and snapshot) are what make a wrong object impossible to
+// mistake for the right one. Strictness inside the object is unchanged:
+// unknown fields, duplicate stories and trailing data after it are still
+// rejected.
+//
+// The first "{" to the last "}" spans a fenced block and a prose preamble
+// alike, so neither is special-cased. Prose after the object that carries its
+// own brace overshoots and fails to parse, which is what happens today anyway.
+func validationEnvelope(data []byte) []byte {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		return trimmed
+	}
+	start := bytes.IndexByte(trimmed, '{')
+	end := bytes.LastIndexByte(trimmed, '}')
+	if start < 0 || end <= start {
+		return trimmed
+	}
+	return bytes.TrimSpace(trimmed[start : end+1])
+}
+
 // ParseValidationOutput accepts only one bounded exact JSON object and complete
 // criterion/review coverage. Evidence floors are enforced independently of prose.
 func ParseValidationOutput(data []byte, scope *ValidationContext) (ValidationOutput, error) {
@@ -94,6 +124,7 @@ func ParseValidationOutput(data []byte, scope *ValidationContext) (ValidationOut
 	if scope == nil || scope.Version != 1 || len(data) > MaxValidationBytes {
 		return out, fmt.Errorf("invalid validation scope or output size")
 	}
+	data = validationEnvelope(data)
 	if err := uniqueStoryJSON(json.NewDecoder(bytes.NewReader(data)), 0); err != nil {
 		return out, err
 	}
