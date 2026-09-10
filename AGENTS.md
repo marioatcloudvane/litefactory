@@ -1,9 +1,5 @@
 # litefactory — working rules for coding agents
 
-Codex reads this file; Claude reads `CLAUDE.md`. The routing half below is the
-same behaviour as `CLAUDE.md`'s, stated here directly. Never read that file to
-decide how to act.
-
 ## Routing
 
 `- Mode: X` in the prompt header is authoritative: never classify, never change it.
