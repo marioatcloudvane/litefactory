@@ -181,6 +181,8 @@ type DeferredSyncContext struct {
 // into the prompt; the ones documented as untrusted are neutralised and capped
 // first.
 type PromptInput struct {
+	// SubmissionVersion is the persisted factory content transport contract.
+	SubmissionVersion int
 	// DeferredSync discloses preserved edits on cold, resumed and fallback runs.
 	DeferredSync DeferredSyncContext
 	// ApprovedStories is copied before rendering; it is explicit on all execution paths.
@@ -396,7 +398,7 @@ func BuildPrompt(in PromptInput) (string, error) {
 	}
 
 	var b strings.Builder
-	if in.PlanProposalPath != "" {
+	if in.PlanProposalPath != "" && in.SubmissionVersion != 2 {
 		if in.Mode != "plan" || in.PlanProposalPath != ".litefactory-plan-proposal.json" || in.PlanGeneration < 1 {
 			return "", fmt.Errorf("%w: invalid plan handoff", ErrInvalidPrompt)
 		}

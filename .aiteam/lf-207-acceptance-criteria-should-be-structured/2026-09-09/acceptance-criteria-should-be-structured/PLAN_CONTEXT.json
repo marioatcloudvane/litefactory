@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "parent": "github:marioatcloudvane/litefactory#207",
+  "branch": "lf/207-acceptance-criteria-should-be-structured",
+  "feature": "acceptance-criteria-should-be-structured",
+  "scope": "All five structured story sections; factory-owned Plan and outcome identity envelopes; evidence list B; preflight and durable decision receipts; comment-preferred and inline GitHub editing; explicit CLI legacy upgrades; both harnesses and legacy/separated workflow compatibility.",
+  "decisions": "Owner approved full research sketch, evidence array of check_ids/summary objects, canonical AC IDs and count rules, all discoverable indexed diagnostics, both preflight and authoritative receipts. GitHub issues remain authoritative; footer recommends comments while inline edits work. Legacy contracts persist until explicit CLI upgrade. No automatic mode transition.",
+  "assumptions": "Current handoff creates 12 stories because no existing child identities supplied. Architecture selects feature-scoped content/submission version independently of workflow, local broker/helper, revision-keyed issue projections, and consistent aggregate budgets. Authentic same-run feedback/correction in both actual harnesses requires separately authorized external evidence and remains unverified until supplied. Protected instruction trees are independently scoped for opposite harnesses.",
+  "questions": "None. Owner-facing research choices are settled; engineering decisions are recorded in ARCH_REVIEW.md and the completed plan."
+}

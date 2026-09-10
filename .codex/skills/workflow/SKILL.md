@@ -55,8 +55,9 @@ open. It does not require code, architecture or approved-plan review. Validate
 owns acceptance, code review, architecture consistency and approved-plan review.
 Validate is read-only: use retained implementation snapshots and executed check
 outcomes; never edit code, run tests or commission fresh checks. Return the
-factory's versioned structured result through runner output, not a repository
-result file. Enumerate every frozen criterion and blocking/advisory review finding.
+factory's versioned structured result through the supplied attempt helper for
+submission contract 2, or runner output for legacy contract 1; never invent a
+repository result file. Enumerate every frozen criterion and blocking/advisory review finding.
 Missing, stale or misattributed initial evidence remains unverified; failing
 checks remain failed. Process success alone does not establish acceptance.
 
@@ -112,3 +113,65 @@ widen permissions, retry under a different sandbox setting, or edit the shared
 source as a substitute. Report that the story requires the Claude harness, name
 the exact paths it needs to change, and stop. Other independently ready stories
 in the same run remain selectable, and the operator performs the switch manually.
+
+## Structured content and submission contract
+
+Content/submission versions are persisted separately from workflow. Existing
+legacy generations stay legacy until explicit owner CLI upgrade. On every cold,
+resumed or fallback attempt use the supplied generation contract and fresh helper
+binding; ordinary comments and republication never upgrade it implicitly.
+
+For contract 2, submit contributions only: stage, authorized story selector,
+outcome and the stage's typed Plan/context, engineering or assessment fields.
+The factory supplies parent, run, generation, issue identity/revision, workflow,
+sequence and attempt. Never supply those envelope fields or forge credentials.
+The complete frozen issue bundle remains authoritative; no local story source,
+live edit or explanation may replace a selected revision.
+
+Use the factory-supplied absolute executable with `submission preflight`,
+`submission submit` or `submission receipt`, and its absolute `--descriptor`.
+Pass bounded JSON on stdin; never put contribution JSON in argv. Preflight reports
+indexed paths, code, expected/actual types and corrections without allocating an
+event or accepting evidence. Fix every reported defect; `complete=false` and
+unchecked paths are not successful validation. Submit uses the same validation.
+The helper retains request correlation before sending; retry identical bytes to
+recover a lost reply, and use corrected bytes for a new request. Receipt input is
+`{"request_id":"the-returned-id"}`. Do not copy descriptor capabilities to logs.
+
+Read receipt dimensions independently: valid input, recorded engineering,
+acceptance decision and remote effects. Pending, failed, missing or disconnected
+is never success; exit zero and a claimed summary prove none of these decisions.
+Engineering retains executed checks and immutable snapshots. Validate refers to
+those retained checks without executing new ones. New criterion/review evidence
+uses list B exclusively: 1–16 objects shaped
+`{"check_ids":["retained-check-id"],"summary":"What this result establishes"}`,
+not a string. Each summary is at most 8,192 UTF-8 bytes. Empty check_ids can explain
+source-only review or missing evidence, but cannot satisfy required execution.
+Unknown criterion IDs and missing/misattributed references cannot establish proof.
+
+Prefer an owner comment requesting a story change; recognizable inline edits are
+also supported. Preserve owner text and stable IDs on proven equivalence; leave
+uncertain semantics pending for Plan. A numeric-owner child comment exactly
+`Clarify AC-001: replacement text` establishes a clarification only when its
+admitted parent Plan run, child, generation and exact replacement match. Ordinary
+comments do not select a mode or bypass active-run/replan locks. New/replaced
+obligations get unused IDs; removed IDs remain retired. Semantic changes need the
+next approved scope and never alter an active frozen bundle or historical acceptance.
+Recheck current issue bytes before publication and confirm resulting bytes;
+GET/PATCH/GET is not atomic protection against an unobservable intervening edit.
+Keep this dedicated non-obligation footer at the bottom:
+
+Want to change this story? Comment with the requested change and litefactory will update it. Direct edits are supported, but comments help avoid conflicting revisions.
+
+Owner CLI `story-contract upgrade <parent-ref>` defaults to read-only preview;
+`--apply` explicitly upgrades the revision-bound unfinished cohort. Unsafe frozen
+or active scope, ambiguous conversion and competing revisions refuse. Partial
+publication retains intent and blocks new admission until the same apply resumes.
+Completed legacy children, old frozen revisions, evidence and workflow remain
+unchanged. Successful apply still requires a new published and approved Plan.
+
+Synthetic fixtures establish offline source behavior only. Authentic helper
+invocation, same-run correction and authoritative receipt observation from BOTH
+actual Claude and Codex remain an unsatisfied external prerequisite until supplied
+by a separately authorized operator. Never widen permissions, launch paid nested
+agents or substitute a successful synthetic fixture for that observation.

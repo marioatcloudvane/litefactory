@@ -41,6 +41,9 @@ func writeCompletedProposal(t *testing.T, req agent.Request) {
 }
 func setupOutcomeForge(t *testing.T, f *fixture) *lifecycleForge {
 	t.Helper()
+	// These runner fixtures author the legacy version-1 file handoff.
+	mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
+	mustProgress(t, f.db.BindFeatureContract(t.Context(), store.FeatureContract{Parent: f.session.TaskRef, Generation: 1, ContentVersion: 1, SubmissionVersion: 1}))
 	forge := &lifecycleForge{progressForge: progressForge{children: map[int]github.Issue{}, comments: map[int][]github.Comment{}}}
 	renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: github.CommentSizeLimit})
 	mustProgress(t, err)

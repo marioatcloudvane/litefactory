@@ -2,8 +2,10 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -34,12 +36,14 @@ type CompleteStoryRenderer interface {
 
 // PublicationOptions binds publication dependencies to a factory-selected parent and generation.
 type PublicationOptions struct {
-	DB         *store.DB
-	Forge      PlanForge
-	Renderer   CompleteStoryRenderer
-	Parent     naming.Ref
-	Generation int
-	BotID      int64
+	DB           *store.DB
+	Forge        PlanForge
+	Renderer     CompleteStoryRenderer
+	Parent       naming.Ref
+	Generation   int
+	BotID        int64
+	TypedContent map[string]planbrief.TypedStory
+	TypedScope   planbrief.ContentScope
 }
 
 // PublishPlan validates the entire batch before making changes. The returned
@@ -58,6 +62,47 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 	if p.Parent != o.Parent.String() || p.Generation != o.Generation {
 		return nil, fmt.Errorf("plan proposal does not match supplied parent/generation")
 	}
+	contract, contractErr := o.DB.GetGenerationContract(ctx, p.Parent, p.Generation)
+	historical, historyErr := historicalLegacyKeys(ctx, o.DB, p.Parent, p.Generation)
+	if historyErr != nil {
+		return nil, historyErr
+	}
+	if contractErr != nil && !errors.Is(contractErr, store.ErrNotFound) {
+		return nil, contractErr
+	}
+	if contractErr == nil && contract.ContentVersion == 2 {
+		if len(o.TypedContent)+len(historical) != len(p.Stories) {
+			return nil, fmt.Errorf("typed generation requires complete typed content")
+		}
+		for _, story := range p.Stories {
+			if old, ok := historical[story.Key]; ok {
+				if story.Intent != "unchanged" || story.IssueID != old.IssueID || story.IssueNumber != old.IssueNumber {
+					return nil, fmt.Errorf("completed legacy dependency must remain unchanged")
+				}
+				continue
+			}
+			typed, ok := o.TypedContent[story.Key]
+			if !ok {
+				return nil, fmt.Errorf("typed story content missing")
+			}
+			body, err := report.RenderTypedStory(typed, o.TypedScope)
+			if err != nil {
+				return nil, err
+			}
+			bodyMatches := body == story.Body
+			if story.Intent != "create" {
+				bodyMatches = planbrief.TypedStoryBodyMatches(typed, story.Body)
+			}
+			if story.Intent == "unchanged" {
+				bodyMatches = planbrief.TypedStoryBodyMatches(typed, story.Body)
+			}
+			if !bodyMatches || typed.Title != story.Title || typed.Intent != story.Intent {
+				return nil, fmt.Errorf("typed story transport differs from validated content")
+			}
+		}
+	} else if len(o.TypedContent) != 0 {
+		return nil, fmt.Errorf("legacy generation cannot implicitly upgrade typed content")
+	}
 	repo := github.RepoFromRef(o.Parent)
 	parent, err := o.Forge.GetIssue(ctx, repo, o.Parent.Issue)
 	if err != nil {
@@ -72,6 +117,11 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 		r, err := o.Renderer.RenderCompleteStory(ctx, report.Story{Ref: o.Parent, ID: s.Key, Title: s.Title, Excerpt: s.Body})
 		if err != nil {
 			faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
+		}
+		if typed, ok := o.TypedContent[s.Key]; ok {
+			if typed.Title != s.Title || r.Title.String() != s.Title || r.Body.String() != report.StoryMarker(o.Parent, s.Key)+"\n\n"+s.Body {
+				faults = append(faults, fmt.Errorf("story %s: rendered/redacted content differs from typed contract", s.Key))
+			}
 		}
 		rendered[i] = r
 	}
@@ -133,6 +183,10 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 				faults = append(faults, fmt.Errorf("story %s: %w", s.Key, err))
 				continue
 			}
+			if _, historical := historical[s.Key]; historical && (s.Title != issue.Title || s.Body != historicalBody(planbrief.StoryProposal{Key: s.Key, Body: issue.Body}, o.Parent.String())) {
+				faults = append(faults, fmt.Errorf("completed legacy dependency %s source differs", s.Key))
+				continue
+			}
 			if err := checkPublicationBase(ctx, o, parent, s, issue, planbrief.StoryHash(rendered[i].Title.String(), rendered[i].Body.String())); err != nil {
 				faults = append(faults, err)
 			}
@@ -151,6 +205,23 @@ func PublishPlan(ctx context.Context, o PublicationOptions, p planbrief.PlanProp
 		entry := store.ManagedStory{ParentTask: p.Parent, Generation: p.Generation, Key: s.Key, IssueNumber: issue.Number, IssueID: issue.ID, BodyHash: planbrief.StoryHash(issue.Title, issue.Body), Dependencies: s.Dependencies, State: "planning"}
 		if _, done := completed[s.Key]; !done {
 			if err := o.DB.PutManagedStory(ctx, entry); err != nil {
+				return nil, err
+			}
+		}
+		if typed, ok := o.TypedContent[s.Key]; ok {
+			if issue.Title != rendered[i].Title.String() || issue.Body != rendered[i].Body.String() {
+				return nil, fmt.Errorf("story %s: published source confirmation differs", s.Key)
+			}
+			content, err := json.Marshal(typed)
+			if err != nil {
+				return nil, err
+			}
+			criteria := make([]string, len(typed.AcceptanceCriteria))
+			for j, c := range typed.AcceptanceCriteria {
+				criteria[j] = c.ID
+			}
+			projection := store.SubmissionProjection{Parent: p.Parent, Generation: p.Generation, Story: s.Key, IssueID: issue.ID, Revision: entry.BodyHash, ContentVersion: 2, Title: issue.Title, Body: issue.Body, Content: content, Criteria: criteria}
+			if err := retainTypedPublicationProjection(ctx, o.DB, projection, typed); err != nil {
 				return nil, err
 			}
 		}
@@ -339,4 +410,42 @@ func exactStoryMarker(body, marker string) bool {
 
 func revisionOperationKey(o PublicationOptions, s planbrief.StoryProposal, desired string) string {
 	return planbrief.StoryHash(o.Parent.String(), fmt.Sprintf("%d/%s/%s/%s", o.Generation, s.Key, s.ExpectedBase, desired))
+}
+
+// Publication intent is transport metadata, not an issue requirement. Reusing
+// an exact projection leaves its historical bytes immutable across replanning.
+func retainTypedPublicationProjection(ctx context.Context, db *store.DB, projection store.SubmissionProjection, typed planbrief.TypedStory) error {
+	prior, err := db.GetSubmissionProjection(ctx, projection.Parent, projection.Generation, projection.Story, projection.Revision)
+	if errors.Is(err, store.ErrNotFound) {
+		history, err := db.ListCriterionHistory(ctx, projection.Parent, projection.Story)
+		if err != nil {
+			return err
+		}
+		active := map[string]bool{}
+		for _, id := range projection.Criteria {
+			active[id] = true
+		}
+		retired := map[string]bool{}
+		for _, id := range projection.RetiredCriteria {
+			retired[id] = true
+		}
+		for _, h := range history {
+			if h.RetiredRevision == "" && !active[h.ID] && !retired[h.ID] {
+				projection.RetiredCriteria = append(projection.RetiredCriteria, h.ID)
+			}
+		}
+		return db.PutSubmissionProjection(ctx, projection)
+	}
+	if err != nil {
+		return err
+	}
+	var original planbrief.TypedStory
+	if err := planbrief.DecodeTypedContent(prior.Content, &original); err != nil {
+		return err
+	}
+	original.Intent = typed.Intent
+	if prior.IssueID != projection.IssueID || prior.Title != projection.Title || prior.Body != projection.Body || !reflect.DeepEqual(original, typed) {
+		return fmt.Errorf("typed publication conflicts with immutable issue projection")
+	}
+	return nil
 }

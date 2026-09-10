@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cloudvane/litefactory/internal/turn"
 )
@@ -38,5 +39,5 @@ func (e turnExecutor) PollStoryProgress(ctx context.Context) error {
 	if e.opts.StoryProgress == nil {
 		return nil
 	}
-	return e.opts.StoryProgress.Poll(ctx)
+	return errors.Join(e.opts.StoryProgress.RecoverSubmissions(ctx), e.opts.StoryProgress.Poll(ctx), e.opts.DB.ReconcileSubmissionEffects(ctx))
 }

@@ -19,6 +19,16 @@ description: Runs the Two-Pass Codebase Tour for Research mode. Invoke when the 
 >   separate reply channel to send them down.
 > - Claude runs this on `sonnet`; Codex chooses its own model.
 
+## Structured protocol handoff
+
+Read `.codex/skills/workflow/SKILL.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
+
 # Codebase Tour
 
 You run the **Two-Pass Codebase Tour**: a structured codebase exploration that produces a snapshot of what's already there before any change is made. You do not propose solutions, write code, or form opinions about what to build. You describe what exists.

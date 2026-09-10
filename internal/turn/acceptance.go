@@ -10,7 +10,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
-	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -41,7 +40,7 @@ func retainAcceptance(ctx context.Context, db *store.DB, a store.ValidationAsses
 				break
 			}
 		}
-		names, err := planbrief.AcceptanceCriteria(source.Story.Body)
+		names, err := storyCriterionIDs(ctx, db, a.Parent, a.Generation, result.Key, result.Revision, source.Story.Body)
 		if err != nil {
 			return err
 		}
@@ -152,7 +151,7 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 			detail.WriteByte('\n')
 		}
 	}
-	projected, projectionErr := planbrief.ProjectAcceptance(d.FrozenBody, live.Body, checks)
+	projected, projectionErr := projectStoryAcceptance(ctx, p.db, d, live.Body, checks)
 	if projectionErr != nil {
 		fmt.Fprintf(&detail, "Projection blocked: %s. Resolve the conflicting live requirement before retry; approved scope is unchanged.\n", projectionErr)
 	}
@@ -212,7 +211,7 @@ func (p *StoryProgress) deliverAcceptanceOne(ctx context.Context, d store.Accept
 	if confirmed.ID != d.IssueID {
 		return fmt.Errorf("acceptance confirmation identity mismatch")
 	}
-	want, err := planbrief.ProjectAcceptance(d.FrozenBody, confirmed.Body, checks)
+	want, err := projectStoryAcceptance(ctx, p.db, d, confirmed.Body, checks)
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,17 @@ model: sonnet
 color: cyan
 ---
 
+## Structured protocol handoff
+
+Read `.claude/skills/shared/workflow.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
+
+
 # Web Researcher
 
 You answer questions the repository cannot answer. Everything inside the repo

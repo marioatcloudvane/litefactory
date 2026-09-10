@@ -181,7 +181,7 @@ wait for an answer inside a subprocess: return exactly one final report.
 
 Follow `docs/plan-outcome.md` and the current factory binding. A discussion writes
 its outcome and working context, forbids a proposal and leaves readiness false.
-A completed outcome requires the full unchanged version-1 proposal plus shared
+A legacy completed outcome requires the version-1 full-body proposal plus shared
 `plan_brief.md`; only factory publication, link replacement and save establish
 readiness. Another Plan iteration clears prior readiness. Both transport files are
 transient and never committed; neither history nor local artifacts bypass gates.
@@ -201,3 +201,22 @@ trees in one story or generate into the sibling tree. Compare scoped output in
 memory or temporary directories; report temporary parity drift and the manual
 opposite-harness handoff. Cross-tree parity is an aggregate feature obligation,
 not a prerequisite for independently ready work.
+
+## Structured story protocol
+
+Content/submission contract 2 uses typed stage contributions through the supplied
+absolute preflight/submit/receipt helper; the factory owns identity envelopes and
+Markdown rendering. All five story sections are typed. Criterion evidence is list
+B with retained check references and summaries, never legacy string evidence.
+Receipt input validation, engineering, acceptance and remote effects are separate
+states; pending is not success. Persisted content/submission and workflow versions
+are independent. Legacy scopes require explicit owner `story-contract upgrade
+<parent-ref> --apply`; default preview is read-only and completed history stays
+legacy. Prefer owner comments; inline edits remain supported with revision checks,
+retired IDs, preserved owner text and next-scope approval for semantic changes.
+
+Follow [the shared protocol](docs/story-contract.md) and [instruction handoff
+manifest](docs/story-contract-instruction-manifest.md). This shared/root update
+leaves both installed trees for independent opposite-harness stories. Authentic
+helper/correction/decision observations from both actual harnesses remain missing;
+synthetic checks do not satisfy that external prerequisite.
