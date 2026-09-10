@@ -3,6 +3,7 @@ package teamsource
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,5 +228,67 @@ func TestBothInstructionTrees_ComparisonIsReadOnly(t *testing.T) {
 	after := hashRepoFiles(t, claudePaths) + "|" + hashRepoFiles(t, codexPaths)
 	if before != after {
 		t.Fatal("comparing both installed trees against the shared manifest mutated a protected tree")
+	}
+}
+
+// rootRouting is the routing behaviour both root instruction files must state,
+// with %s standing for the one thing that legitimately differs: where each tree
+// keeps the shared lifecycle contract. Everything else — the authority of the
+// prompt header, the mode-to-agent table, scaffolding, invoke-once, and the git
+// rule — is tool-independent and must read the same in both.
+const rootRouting = "`- Mode: X` in the prompt header is authoritative: never classify, never change it." +
+	"\x00Research | `research-orchestrator`" +
+	"\x00Plan | `plan-orchestrator`" +
+	"\x00Implement | `implement-orchestrator`" +
+	"\x00Validate | `go-code-reviewer`, read-only contract" +
+	"\x00Spike | nobody — read `.claude/modes/spike.md` and do it here" +
+	"\x00Outside Validate, scaffold `$session` per `.claude/modes/session.md` first" +
+	"\x00Validate reuses the supplied session and frozen scope read-only." +
+	"\x00Do not scaffold a directory or MANIFEST, write artifacts, or require artifact existence to route or finish Validate." +
+	"\x00Validate finishes with structured runner findings, not an artifact" +
+	"\x00Invoke once, read the result once, check the artifact once. Never poll for status." +
+	"\x00Do not read source, search the repo or form a view on the design" +
+	"\x00Never `git add`, `commit`, `stash` or `push`" +
+	"\x00Lifecycle, managed stories, Plan continuation and the story protocol are in\n%s."
+
+// TestRootInstructionFilesShareRoutingBehaviour pins CLAUDE.md against
+// AGENTS.md.
+//
+// Nothing did, before this. bothTreeMapping covers the twelve specialist roles
+// and stops there, so the two root files were a hand-written pair that drifted
+// until AGENTS.md gave up and delegated — "classify the request into a mode
+// exactly as CLAUDE.md describes" — which made a Codex run shell out to read
+// Claude's file mid-run, and let the two contradict each other the moment
+// either changed alone.
+//
+// Claims are compared after whitespace normalization so reflowing a paragraph
+// is not a failure, and each is required verbatim in both files: a routing rule
+// that holds for one coding agent and not the other is a bug in whichever file
+// is wrong, not a difference worth expressing.
+func TestRootInstructionFilesShareRoutingBehaviour(t *testing.T) {
+	files := map[string]struct{ path, workflow string }{
+		"claude": {"CLAUDE.md", "`.claude/skills/shared/workflow.md`"},
+		"codex":  {"AGENTS.md", "`.codex/skills/workflow/SKILL.md`"},
+	}
+	for name, f := range files {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := normalizeWhitespace(readRepoFile(t, f.path))
+			for _, claim := range strings.Split(fmt.Sprintf(rootRouting, f.workflow), "\x00") {
+				if want := normalizeWhitespace(claim); !strings.Contains(body, want) {
+					t.Errorf("%s does not state: %s", f.path, want)
+				}
+			}
+		})
+	}
+
+	// The delegation this test exists to prevent. AGENTS.md may name CLAUDE.md
+	// to say which agent reads which file; it may not send a run there to
+	// decide how to behave.
+	codex := readRepoFile(t, "AGENTS.md")
+	for _, forbidden := range []string{"as `CLAUDE.md` describes", "exactly as `CLAUDE.md`"} {
+		if strings.Contains(codex, forbidden) {
+			t.Errorf("AGENTS.md delegates routing to CLAUDE.md: %q", forbidden)
+		}
 	}
 }

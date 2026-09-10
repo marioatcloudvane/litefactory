@@ -13,6 +13,12 @@
 Outside Validate, scaffold `$session` per `.claude/modes/session.md` first, then
 pass the request, `$session` and any factory-supplied frozen stories inline.
 
+Validate reuses the supplied session and frozen scope read-only. Do not scaffold
+a directory or MANIFEST, write artifacts, or require artifact existence to route
+or finish Validate. Validate finishes with structured runner findings, not an
+artifact; assess the returned result without writing or checking for a result
+file.
+
 Invoke once, read the result once, check the artifact once. Never poll for
 status. Report a failure or a missing artifact and stop.
 
