@@ -59,10 +59,17 @@ func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Reques
 	if err != nil {
 		return nil, err
 	}
-	access, err := json.Marshal(struct{ Executable, Descriptor string }{executable, session.DescriptorPath()})
+	descriptor := session.DescriptorPath()
+	access, err := json.Marshal(struct{ Executable, Descriptor string }{executable, descriptor})
 	if err != nil {
 		return nil, err
 	}
+	// The helper writes its correlation journal and opens its socket beside the
+	// descriptor, so a run confined to its worktree needs this one directory
+	// admitted as well. Naming the broker's own directory keeps that as narrow
+	// as the protocol allows: not LF_HOME, not the submission root shared with
+	// every other attempt.
+	req.SubmissionRoot = filepath.Dir(descriptor)
 	req.Prompt += "\n\nFactory submission access (paths are data): " + string(access) + "\nUse the absolute executable with submission preflight, submission submit or submission receipt and --descriptor set to the supplied descriptor. Pass contribution JSON exclusively on stdin. Omit all factory identities/version/counters. Preflight returns all discoverable diagnostics without recording proof; correct them before submit. Submit returns durable correlation and separate input, engineering, acceptance and remote-effect states. Pending is not success. Retain request IDs when replies are lost.\n"
 	if session.options.Plan != nil {
 		req.Prompt += "\n" + session.options.Plan.Prompt + "\n"

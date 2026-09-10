@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -110,6 +111,22 @@ type Request struct {
 	// which is a materially different thing to at least one implementation.
 	// See [Permissions] for why its payload is opaque here.
 	Permissions Permissions
+
+	// SubmissionRoot is the broker directory a typed contribution is submitted
+	// through, when this run has one. It is absolute and outside the worktree,
+	// under LF_HOME, and the helper the run is told to invoke both writes its
+	// correlation journal and connects to its socket there.
+	//
+	// It is on the request rather than left to configuration because it is
+	// litefactory's own directory, required by litefactory's own protocol: an
+	// implementation that confines a run to its worktree has to be told to
+	// admit this one path, and an operator cannot reasonably be expected to
+	// know that. Leaving it to agents.codex.writable_roots cost a ten-minute
+	// Plan run on #208, which drafted its stories and then could not hand any
+	// of them back.
+	//
+	// The empty value means this run submits nothing and no path is opened.
+	SubmissionRoot string
 }
 
 // Validate rejects a request that would produce an unusable run rather than
@@ -154,6 +171,9 @@ func (req Request) Validate() error {
 	}
 	if strings.TrimSpace(req.Prompt) == "" {
 		return invalidRequest("prompt is empty")
+	}
+	if req.SubmissionRoot != "" && !filepath.IsAbs(req.SubmissionRoot) {
+		return invalidRequest("submission root %q must be absolute", req.SubmissionRoot)
 	}
 	return nil
 }
