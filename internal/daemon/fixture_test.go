@@ -190,6 +190,8 @@ type forgeServer struct {
 	onListIssues   func(w http.ResponseWriter, call int) bool
 	onListComments func(w http.ResponseWriter, call int) bool
 	onPostComment  func(w http.ResponseWriter, call int) bool
+	onRemoveLabel  func(w http.ResponseWriter, r *http.Request) bool
+	onAddLabels    func(w http.ResponseWriter, r *http.Request) bool
 
 	// order records the sequence of externally visible actions, so that "the
 	// reaction happened before the run" is an assertion rather than a hope.
@@ -275,6 +277,9 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 }
 
 func (f *forgeServer) handleRemoveLabel(w http.ResponseWriter, r *http.Request) {
+	if f.onRemoveLabel != nil && f.onRemoveLabel(w, r) {
+		return
+	}
 	number, err := strconv.Atoi(r.PathValue("number"))
 	if err != nil {
 		http.Error(w, `{"message":"bad issue"}`, http.StatusBadRequest)
@@ -299,6 +304,9 @@ func (f *forgeServer) handleRemoveLabel(w http.ResponseWriter, r *http.Request) 
 }
 
 func (f *forgeServer) handleAddLabels(w http.ResponseWriter, r *http.Request) {
+	if f.onAddLabels != nil && f.onAddLabels(w, r) {
+		return
+	}
 	var labels []string
 	if err := json.NewDecoder(r.Body).Decode(&labels); err != nil {
 		http.Error(w, `{"message":"bad request"}`, http.StatusBadRequest)
@@ -314,7 +322,11 @@ func (f *forgeServer) handleAddLabels(w http.ResponseWriter, r *http.Request) {
 	var issue *fakeIssue
 	for i := range rs.issues {
 		if rs.issues[i].Number == number {
-			rs.issues[i].Labels = append(rs.issues[i].Labels, toFakeLabels(labels...)...)
+			for _, name := range labels {
+				if !slices.ContainsFunc(rs.issues[i].Labels, func(label fakeLabel) bool { return label.Name == name }) {
+					rs.issues[i].Labels = append(rs.issues[i].Labels, fakeLabel{Name: name})
+				}
+			}
 			issueCopy := rs.issues[i]
 			issue = &issueCopy
 			break
@@ -1479,4 +1491,12 @@ func fakeRunResult(run store.Run, outcome harness.Outcome) *harness.RunResult {
 		FinishedAt: run.StartedAt.Add(2 * time.Second),
 		Duration:   2 * time.Second,
 	}
+}
+
+// labelFixtureForge preserves real client mode effects when a test overrides
+// another narrow forge method.
+type labelFixtureForge interface {
+	daemon.Forge
+	AddIssueLabel(context.Context, github.Repo, int, string) error
+	RemoveIssueLabel(context.Context, github.Repo, int, string) error
 }

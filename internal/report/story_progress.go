@@ -34,6 +34,11 @@ func (r *Reporter) RenderStoryProgress(ctx context.Context, n StoryProgressNotic
 	switch n.Kind {
 	case "started":
 		state = "Admitted for launch (process start is not yet proven)."
+	case "engineering_complete":
+		if !scopeDigestPattern.MatchString(n.ImplementationDigest) {
+			return redact.Body{}, fmt.Errorf("report: missing implementation digest")
+		}
+		state = "Engineering and executed checks complete. Acceptance is pending Validate; this story remains open. Parent engineering checks and save remain pending."
 	case "verified":
 		if !scopeDigestPattern.MatchString(n.ImplementationDigest) {
 			return redact.Body{}, fmt.Errorf("report: missing implementation digest")

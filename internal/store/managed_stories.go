@@ -8,24 +8,34 @@ import (
 	"fmt"
 )
 
+// WorkflowLegacy preserves immediate acceptance/closure. WorkflowSeparated
+// records engineering independently and reserves acceptance for Validate.
+const (
+	WorkflowLegacy    = 1
+	WorkflowSeparated = 2
+)
+
 // ManagedFeature exists only for plans created through the managed-story protocol.
 type ManagedFeature struct {
-	ParentTask string
-	Generation int
-	State      string
-	Ready      bool
+	WorkflowVersion      int
+	EngineeringSucceeded bool
+	ParentTask           string
+	Generation           int
+	State                string
+	Ready                bool
 }
 
 // ManagedStory holds identity and execution metadata, never an editable specification.
 type ManagedStory struct {
-	ParentTask   string
-	Generation   int
-	Key          string
-	IssueNumber  int
-	IssueID      int64
-	BodyHash     string
-	Dependencies []string
-	State        string
+	EngineeringComplete bool
+	ParentTask          string
+	Generation          int
+	Key                 string
+	IssueNumber         int
+	IssueID             int64
+	BodyHash            string
+	Dependencies        []string
+	State               string
 }
 
 // StoryPublication is recorded before any network mutation. A pending operation
@@ -44,7 +54,7 @@ type StoryPublication struct {
 // GetManagedFeature loads the durable generation and lifecycle state for a parent.
 func (db *DB) GetManagedFeature(ctx context.Context, parent string) (ManagedFeature, error) {
 	var f ManagedFeature
-	err := db.sql.QueryRowContext(ctx, `SELECT parent_task,generation,state,ready FROM managed_features WHERE parent_task=?`, parent).Scan(&f.ParentTask, &f.Generation, &f.State, &f.Ready)
+	err := db.sql.QueryRowContext(ctx, `SELECT parent_task,generation,state,ready,workflow_version,engineering_succeeded FROM managed_features WHERE parent_task=?`, parent).Scan(&f.ParentTask, &f.Generation, &f.State, &f.Ready, &f.WorkflowVersion, &f.EngineeringSucceeded)
 	if errors.Is(err, sql.ErrNoRows) {
 		return f, ErrNotFound
 	}
@@ -60,7 +70,7 @@ func (db *DB) PutManagedFeature(ctx context.Context, f ManagedFeature) error {
 	if f.ParentTask == "" || f.Generation < 1 || f.State != "planning" {
 		return fmt.Errorf("store: invalid new managed feature")
 	}
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO managed_features(parent_task,generation,state) VALUES(?,?,?) ON CONFLICT(parent_task) DO NOTHING`, f.ParentTask, f.Generation, f.State)
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO managed_features(parent_task,generation,state,workflow_version) VALUES(?,?,?,?) ON CONFLICT(parent_task) DO NOTHING`, f.ParentTask, f.Generation, f.State, f.WorkflowVersion)
 	if err != nil {
 		return fmt.Errorf("store: create managed feature: %w", err)
 	}
@@ -105,7 +115,7 @@ func (db *DB) PutManagedStory(ctx context.Context, s ManagedStory) error {
 
 // ListManagedStories returns a generation in stable story-key order for reproducible execution.
 func (db *DB) ListManagedStories(ctx context.Context, parent string, generation int) ([]ManagedStory, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task,generation,story_key,issue_number,issue_id,body_hash,dependencies,state FROM managed_stories WHERE parent_task=? AND generation=? ORDER BY story_key`, parent, generation)
+	rows, err := db.sql.QueryContext(ctx, `SELECT parent_task,generation,story_key,issue_number,issue_id,body_hash,dependencies,state,engineering_complete FROM managed_stories WHERE parent_task=? AND generation=? ORDER BY story_key`, parent, generation)
 	if err != nil {
 		return nil, fmt.Errorf("store: list managed stories: %w", err)
 	}
@@ -114,7 +124,7 @@ func (db *DB) ListManagedStories(ctx context.Context, parent string, generation 
 	for rows.Next() {
 		var s ManagedStory
 		var deps string
-		if err := rows.Scan(&s.ParentTask, &s.Generation, &s.Key, &s.IssueNumber, &s.IssueID, &s.BodyHash, &deps, &s.State); err != nil {
+		if err := rows.Scan(&s.ParentTask, &s.Generation, &s.Key, &s.IssueNumber, &s.IssueID, &s.BodyHash, &deps, &s.State, &s.EngineeringComplete); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(deps), &s.Dependencies); err != nil {

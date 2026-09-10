@@ -98,7 +98,7 @@ const (
 	ReplyMalformedModeLabel
 	// ReplyAmbiguousModeLabels answers multiple competing Mode labels.
 	ReplyAmbiguousModeLabels
-	// ReplyConflictingModeSelection answers a command/label disagreement.
+	// ReplyConflictingModeSelection answers an owner edit conflicting with a pending transition.
 	ReplyConflictingModeSelection
 	// ReplyStoryLocked refuses edits to scope already promoted to implementation.
 	ReplyStoryLocked
@@ -776,9 +776,9 @@ func (r Reply) body() string {
 	case ReplyStoryPlanOnly:
 		b.WriteString("Story comments refine the parent plan only. Use the parent issue for workflow commands; nothing was run.")
 	case ReplyConflictingModeSelection:
-		b.WriteString("The slash command and the issue's `Mode: …` label select different modes, so nothing was run.")
+		b.WriteString("The issue's mode changed while its recorded mode transition was pending, so nothing was run.")
 		b.WriteString(sectionGap)
-		b.WriteString("Make the command and label agree, or remove one of them, and comment again.")
+		b.WriteString("Leave exactly one canonical Mode label for the stage you want, and comment again. A new explicit mode command can replace that selection.")
 
 	case ReplyUnknownAgent:
 		if name, named := agentSpan(r.Agent); named {

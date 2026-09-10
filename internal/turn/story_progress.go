@@ -125,6 +125,34 @@ func (p *StoryProgress) poll(ctx context.Context, finishID int64, reason string)
 	for _, f := range effects {
 		parents[f.Parent] = true
 	}
+	assessments, err := p.db.ListUnprojectedValidationAssessments(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range assessments {
+		parents[a.Parent] = true
+	}
+	decisions, err := p.db.ListPendingAcceptance(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range decisions {
+		parents[d.Parent] = true
+	}
+	followupParents, err := p.db.ListPendingFollowupParents(ctx)
+	if err != nil {
+		return err
+	}
+	for _, parent := range followupParents {
+		parents[parent] = true
+	}
+	deliveryParents, err := p.db.ListDeliveryParents(ctx)
+	if err != nil {
+		return err
+	}
+	for _, parent := range deliveryParents {
+		parents[parent] = true
+	}
 	completed, err := p.db.ListStoryAggregateParents(ctx)
 	if err != nil {
 		return err
@@ -185,6 +213,15 @@ func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID 
 		if err := p.deliverParent(ctx, parent); err != nil {
 			faults = append(faults, err)
 		}
+		if err := p.deliverAcceptance(ctx, parent); err != nil {
+			faults = append(faults, err)
+		}
+		if err := p.deliverFollowups(ctx, parent); err != nil {
+			faults = append(faults, err)
+		}
+		if err := p.pollDelivery(ctx, parent); err != nil {
+			faults = append(faults, err)
+		}
 		if err := p.db.CompleteManagedFeature(ctx, parent); err != nil {
 			faults = append(faults, err)
 		}
@@ -193,6 +230,10 @@ func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID 
 }
 
 func (p *StoryProgress) ingest(ctx context.Context, r store.StoryProgressRun) error {
+	feature, err := p.db.GetManagedFeature(ctx, r.Parent)
+	if err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(r.Worktree)
 	if err != nil {
 		return err
@@ -289,6 +330,9 @@ func (p *StoryProgress) ingest(ctx context.Context, r store.StoryProgressRun) er
 			}
 			if !authorized {
 				return fmt.Errorf("read-only dependency cannot publish outcomes")
+			}
+			if feature.WorkflowVersion == store.WorkflowSeparated && e.Kind == "verified" || feature.WorkflowVersion != store.WorkflowSeparated && e.Kind == "engineering_complete" {
+				return fmt.Errorf("story event kind does not match approved workflow")
 			}
 			if e.Kind == "verified" {
 				if err := storyAcceptanceCovered(s.Body, e.Evidence.Acceptance); err != nil {
@@ -469,7 +513,11 @@ func (p *StoryProgress) deliverOne(ctx context.Context, f store.StoryProgressEff
 			return err
 		}
 	}
-	if f.Kind == "verified" || f.Kind == "invalidated" {
+	feature, err := p.db.GetManagedFeature(ctx, f.Parent)
+	if err != nil {
+		return err
+	}
+	if feature.WorkflowVersion != store.WorkflowSeparated && (f.Kind == "verified" || f.Kind == "invalidated") {
 		desired := "open"
 		if f.Kind == "verified" {
 			desired = "closed"

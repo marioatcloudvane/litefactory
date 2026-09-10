@@ -26,7 +26,7 @@
       ]
     },
     "proxy-product-owner": {
-      "desc": "Decompose the reviewed specification into executable local stories.",
+      "desc": "Decompose the reviewed specification into independently executable managed stories.",
       "path": "agents/shared/proxy-product-owner.md",
       "tier": "balanced",
       "skills": [
@@ -50,7 +50,7 @@
       ]
     },
     "implement-orchestrator": {
-      "desc": "Sequence approved implementation and test work.",
+      "desc": "Sequence versioned engineering and test completion without new-workflow acceptance.",
       "path": "agents/shared/implement-orchestrator.md",
       "tier": "balanced",
       "skills": [
@@ -128,7 +128,7 @@
       "validate": [
         {
           "id": "go-code-reviewer",
-          "desc": "Return read-only Go code review findings in Validate.",
+          "desc": "Assess acceptance, code, architecture and approved plan from retained evidence.",
           "path": "agents/go-team/go-code-reviewer.md",
           "tier": "balanced",
           "skills": [
