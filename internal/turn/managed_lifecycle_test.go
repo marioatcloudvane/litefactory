@@ -53,6 +53,7 @@ func TestManagedPlanRefinementFreezeResumeLiveCompletionLifecycle(t *testing.T) 
 			runner := newStubRunner(func(_ context.Context, request agent.Request) (*agent.RunResult, error) {
 				if request.Mode == string(agent.ModePlan) {
 					planRuns++
+					writePlanOutcome(t, request, "completed")
 					proposal := planbrief.PlanProposal{Version: 1, Parent: request.Ref.String(), Generation: 1}
 					for idx := range 2 {
 						story := planbrief.StoryProposal{Key: fmt.Sprintf("US-%d", idx+1), Intent: "create", Title: fmt.Sprintf("Story %d", idx+1), Body: "## User Story\nOwner sees progress.\n## Acceptance Criteria\n- AC-1: the scoped result passes\n## Tasks\nImplement and verify.\n## Architecture\nUse existing package.\n## Dependencies\nNone.\n"}

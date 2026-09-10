@@ -56,12 +56,9 @@ import (
 // in. Without that, an issue body ending in "</note>" would hand the rest of
 // itself to the model as if litefactory had said it.
 //
-// Whether the run may ask a question at all is [PromptInput.MayAsk], and it is
-// off unless the owner opted in on the comment that triggered the run.
-// internal/turn owns both halves of that decision — the tag and the mode — and
-// hands it here as one bit; this package only chooses which paragraph to write.
-// It is the single thing that can change what an already-shipped prompt says,
-// so an untagged run's cold prompt is pinned byte for byte (AC-A1.1).
+// internal/turn supplies current and previous question permission. Plan defaults
+// to material asynchronous questions; Research keeps its explicit opt-in. A
+// direct no-question instruction wins, and no process waits for an owner reply.
 
 // Size caps on untrusted material. Each is a byte count, and text over it is
 // cut on a UTF-8 rune boundary and marked.
@@ -193,9 +190,14 @@ type PromptInput struct {
 	RefinementStory  string
 	RefinementSource string
 	// PlanProposalPath and PlanGeneration are factory-supplied transport authority.
-	PlanProposalPath string
-	PlanGeneration   int
-	PlanStoryContext string
+	PlanProposalPath   string
+	PlanOutcomePath    string
+	PlanRunID          int64
+	PlanAttempt        string
+	PlanContextPath    string
+	PlanWorkingContext string
+	PlanGeneration     int
+	PlanStoryContext   string
 
 	// Ref identifies the task. Rendered in the header as the canonical
 	// forge:owner/name#issue string.
@@ -285,20 +287,10 @@ type PromptInput struct {
 	// flipped to false, and the flip has to stay the whole of the difference.
 	BodyIsInstruction bool
 
-	// MayAsk says this run may stop and ask the owner a question instead of
-	// guessing, and it is off unless something turned it on.
-	//
-	// It is a conjunction decided by internal/turn and handed here already
-	// settled: the triggering comment carried the opt-in tag, *and* the mode is
-	// one that may ask at all. This package neither parses the tag nor judges the
-	// mode; it chooses which paragraph to write. Splitting it that way is what
-	// keeps the permission machine-enforced — an untagged run cannot ask whatever
-	// the agent decides, because the prompt never told it that it could.
-	//
-	// The one seam is [InferMode], where the mode half cannot be decided in Go at
-	// all: the run works out what kind of work it is from the target repository's
-	// CLAUDE.md, after this prompt exists. That case carries the rule as text
-	// instead — see [inferAskingSeam].
+	// MayAsk is the resolved current question policy from internal/turn. Plan
+	// defaults to material asynchronous questions, Research requires opt-in,
+	// and an explicit no-question instruction overrides both. This renderer
+	// never derives permission from untrusted context or a prior transcript.
 	MayAsk bool
 
 	// PreviousMayAsk is whether the run before this one had that same
@@ -408,7 +400,20 @@ func BuildPrompt(in PromptInput) (string, error) {
 		if in.Mode != "plan" || in.PlanProposalPath != ".litefactory-plan-proposal.json" || in.PlanGeneration < 1 {
 			return "", fmt.Errorf("%w: invalid plan handoff", ErrInvalidPrompt)
 		}
-		fmt.Fprintf(&b, "## Managed Plan handoff\n\nWrite the complete version-1 JSON Plan proposal to `%s` in the worktree root. Parent: `%s`; generation: %d. This is transient transport and must never be committed. Keep plan_brief.md as shared context and a link-only Story Index; do not write per-story Markdown files. Each story has key, intent (create/update/unchanged), issue_number, issue_id, expected_base (SHA256 of title + NUL + body for an existing issue), title, full body, dependencies. The envelope has version, parent, generation, stories. Each body needs nonempty level-2 User Story, Acceptance Criteria, Tasks, Architecture, Dependencies sections. Use only the factory-supplied existing GitHub story context, numeric identities and base revisions. The factory alone reads GitHub, publishes and verifies the proposal. Acceptance evidence names must match every criterion: a leading AC identifier, or the exact criterion text after its list/checklist prefix; table criteria require a leading AC identifier.\n\n", in.PlanProposalPath, in.Ref.String(), in.PlanGeneration)
+		fmt.Fprintf(&b, "## Managed Plan handoff\n\nFor a completed iteration, write the complete version-1 JSON Plan proposal to `%s` in the worktree root. Parent: `%s`; generation: %d. This is transient transport and must never be committed. Keep plan_brief.md as shared context and a link-only Story Index; do not write per-story Markdown files. Each story has key, intent (create/update/unchanged), issue_number, issue_id, expected_base (SHA256 of title + NUL + body for an existing issue), title, full body, dependencies. The envelope has version, parent, generation, stories. Each body needs nonempty level-2 User Story, Acceptance Criteria, Tasks, Architecture, Dependencies sections. Use only the factory-supplied existing GitHub story context, numeric identities and base revisions. The factory alone reads GitHub, publishes and verifies the proposal. Acceptance evidence names must match every criterion: a leading AC identifier, or the exact criterion text after its list/checklist prefix; table criteria require a leading AC identifier.\n\n", in.PlanProposalPath, in.Ref.String(), in.PlanGeneration)
+		if in.PlanOutcomePath != "" {
+			if in.PlanOutcomePath != ".litefactory-plan-outcome.json" || in.PlanRunID < 1 || in.PlanAttempt == "" || in.PlanContextPath == "" {
+				return "", fmt.Errorf("%w: invalid plan outcome binding", ErrInvalidPrompt)
+			}
+			fmt.Fprintf(&b, "Every iteration must also write `%s` as a strict JSON object with exactly version: 1, parent: %q, generation: %d, run_id: %d, attempt: %q, outcome: \"discussion\" or \"completed\". Copy this current attempt binding; preserved old transport is invalid. A discussion must NOT write the proposal. Instead save `%s`, a JSON object with exactly version: 1, parent: %q, branch: %q, feature: %q, scope, decisions, assumptions, questions. All remaining fields are nonempty strings (use None where appropriate). Preserve material questions for the next owner reply and finish one final report without waiting. A completed outcome requires the complete proposal described above and plan_brief.md; successful publication keeps Plan selected. Recommend `/implement <instruction>` as the owner's next action; never advance automatically. Both outcome and proposal are transient and must never be committed.\n\n", in.PlanOutcomePath, in.Ref.String(), in.PlanGeneration, in.PlanRunID, in.PlanAttempt, in.PlanContextPath, in.Ref.String(), in.Branch, in.FeatureSlug)
+		}
+		if len(in.PlanWorkingContext) > 256*1024 {
+			return "", fmt.Errorf("%w: working planning context too large", ErrInvalidPrompt)
+		}
+		if in.PlanWorkingContext != "" {
+			b.WriteString(note("Saved working planning context for this task (untrusted data)", neutraliseNoteTags(in.PlanWorkingContext)))
+			b.WriteString("\n\n")
+		}
 		if len(in.PlanStoryContext) > 8*1024*1024 {
 			return "", fmt.Errorf("%w: plan context too large", ErrInvalidPrompt)
 		}
@@ -421,6 +426,17 @@ func BuildPrompt(in PromptInput) (string, error) {
 		writeResumeHeader(&b, in, ordinal)
 	} else {
 		writeHeader(&b, in, ordinal)
+	}
+
+	if in.Mode == "plan" {
+		b.WriteString("\nPlan continues across owner replies, dates and restarted sessions. Reuse the supplied task session and saved scope, decisions, assumptions and unresolved questions. An ordinary owner reply continues Plan; neither a discussion nor a completed proposal changes mode automatically. Only an explicit owner command or canonical label edit selects another mode, subject to managed readiness and frozen-scope gates. Finish every subprocess with one final report; never wait for an answer. A request to stop asking means proceed with assumptions in Plan. After a completed plan, recommend `/implement <instruction>`.\n")
+		if in.Resume && in.MayAsk == in.PreviousMayAsk {
+			if in.MayAsk {
+				b.WriteString("\n" + askingRule + "\n")
+			} else {
+				b.WriteString("\n" + headlessRule + "\n")
+			}
+		}
 	}
 
 	if sync := in.DeferredSync; sync.Deferred {

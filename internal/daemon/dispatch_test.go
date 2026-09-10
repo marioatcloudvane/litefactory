@@ -64,7 +64,7 @@ func TestABackoffArmedMidTickStopsFurtherDispatch(t *testing.T) {
 		// Three, so that a refused dispatch is unambiguously the backoff and
 		// never the pool: every candidate in this test could have had a slot.
 		MaxConcurrentRuns: 3,
-		Forge:             gatedForge{Forge: f.client, number: gatedIssue, until: armed.ch},
+		Forge:             gatedForge{labelFixtureForge: f.client, number: gatedIssue, until: armed.ch},
 		Logger:            slog.New(newArmingHandler(f.logger.Handler(), armed)),
 	})
 
@@ -237,7 +237,7 @@ func (h *armingHandler) WithGroup(name string) slog.Handler {
 // are what say the interleaving happened, and a signal that never fires shows
 // up as a tick that never returns.
 type gatedForge struct {
-	daemon.Forge
+	labelFixtureForge
 	number int
 	until  <-chan struct{}
 }
@@ -250,5 +250,5 @@ func (g gatedForge) GetIssue(ctx context.Context, repo github.Repo, number int) 
 			return github.Issue{}, ctx.Err()
 		}
 	}
-	return g.Forge.GetIssue(ctx, repo, number)
+	return g.labelFixtureForge.GetIssue(ctx, repo, number)
 }

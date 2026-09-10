@@ -1258,6 +1258,10 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 // so the queue stops and a later tick retries, with no queue and no "busy"
 // reply (AC-3.1).
 func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, error) {
+	// Recovery must finish even when the watermark leaves no new comments.
+	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
+		return false, fmt.Errorf("retire completed mode selections: %w", err)
+	}
 	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, watermark)
 	if err != nil {
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
@@ -1281,9 +1285,9 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
-		// A mode label is one-shot. Stop after one actionable instruction so
-		// the next tick refreshes the issue and cannot reuse this tick's stale
-		// label snapshot for a second comment.
+		// Refresh after each actionable instruction so later owner label edits
+		// are observed before admitting another trigger. Persistent selection
+		// does not make this tick's issue snapshot authoritative forever.
 		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() {
 			return true, nil
 		}
@@ -1388,10 +1392,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
-	if err := d.cleanupModeLabel(ctx, t); err != nil {
-		return d.leave(ctx, t, log, "could not finish mode-label cleanup", err)
-	}
-
 	// The self-filter runs first and matches on numeric ids, never handles
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
@@ -1589,87 +1589,13 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	workflowEnabled := len(d.classifiers) > 0 && !t.refining && t.continuation == nil
-	selection := store.ModeSelection{}
-	selectionErr := store.ErrNotFound
-	if workflowEnabled {
-		selection, selectionErr = d.db.GetModeSelection(ctx, t.session.ID, trigger.CommentID)
-	}
-	haveSelection := selectionErr == nil
-	var mode agent.Mode
-	var labelled bool
-	var err error
-	// Durable approval wins over temporary labels and classifier history.
-	feature, featureErr := d.db.GetManagedFeature(ctx, t.ref.String())
-	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
-		return featureErr
-	}
-	managedFrozen := featureErr == nil && feature.State != "planning" && !t.refining
-	switch {
-	case t.continuation != nil:
-		mode, labelled = agent.Mode(t.continuation.Context.Mode), true
-	case managedFrozen:
-		mode, labelled = agent.ModeImplement, true
-		if turn.ManagedReplan(command) {
-			mode = agent.ModePlan
-		}
-	case selectionErr == nil:
-		mode, err = storedMode(selection)
-		labelled = selection.LabelApplied
-	case !errors.Is(selectionErr, store.ErrNotFound):
-		return selectionErr
-	default:
-		if t.refining {
-			mode = agent.ModePlan
-			labelled = true
-		} else {
-			mode, labelled, err = resolveModeLabel(t.issue.Labels)
-		}
-	}
+	mode, err := d.admitMode(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
-	}
-	commandMode, commanded := command.Mode()
-	if labelled && commanded && mode != commandMode {
-		return d.refuseMode(ctx, t, trigger, report.ReplyConflictingModeSelection)
-	}
-	if !labelled && commanded {
-		mode = commandMode
-	}
-	if !haveSelection && !labelled && !commanded {
-		mode, err = d.classifyMode(ctx, t, command.Text)
-		if err != nil {
-			// Compatibility for dependency-light daemon tests that predate the
-			// classifier seam. Production startup always supplies one.
-			if len(d.classifiers) == 0 {
-				mode = ""
-			} else {
-				return d.leave(ctx, t, log, "mode classification failed", err)
-			}
-		}
-	}
-	if workflowEnabled && mode.Valid() && !haveSelection {
-		_, err = d.db.GetOrCreateModeSelection(ctx, store.ModeSelection{
-			SessionID: t.session.ID, TriggerCommentID: trigger.CommentID,
-			Mode: string(mode), Label: mode.Label(),
-		})
-		if err != nil {
-			return err
-		}
-	}
-	labels, canLabel := d.forge.(labelForge)
-	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining && t.continuation == nil
-	if mode.Valid() && !labelled && canLabel {
-		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
-			return d.leave(ctx, t, log, "could not apply the selected mode label", err)
-		}
-		if err := d.db.MarkModeLabelApplied(ctx, t.session.ID, trigger.CommentID); err != nil {
-			return err
-		}
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
@@ -1780,13 +1706,9 @@ func (d *Daemon) run(
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
 	}
-	if mode.Valid() && canLabel {
+	if mode.Valid() && len(d.classifiers) > 0 && t.continuation == nil {
 		if err := d.db.MarkModeCleanupPending(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
-		}
-		if err := labels.RemoveIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
-			d.markBacklog(ctx, log, t.session.ID)
-			return fmt.Errorf("remove the consumed mode label: %w", err)
 		}
 		if err := d.db.DeleteModeSelection(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
