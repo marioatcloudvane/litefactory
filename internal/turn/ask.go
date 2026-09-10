@@ -9,10 +9,8 @@ import (
 // AskTag is the literal a comment carries to give the run it triggers
 // permission to stop and ask a question instead of guessing (Q3, AC-A1.4).
 //
-// Asking is opt-in and off by default: every run litefactory has ever started
-// was told not to ask, and this is the one thing that changes that. Go parses
-// the literal and enforces it, so an untagged run cannot ask whatever the agent
-// decides — the tag is the permission, not a hint that permission might exist.
+// Research remains opt-in. Plan permits material asynchronous questions by
+// default; an explicit current no-question instruction overrides both defaults.
 //
 // # It is not the self-marker, and merging the two would be a security bug
 //
@@ -110,30 +108,9 @@ func stripAskTag(body string) string {
 
 // modeMayAsk reports whether a run in this mode is allowed to ask at all.
 //
-// Permission is a conjunction — the tag AND the mode — and this is the mode
-// half (Q6). It takes a mode string rather than a [Request] because both sides
-// of the resume comparison need it: this run's mode comes off the request, and
-// the previous run's comes off its stored runs row, which is a string and
-// nothing more.
-//
-//   - research and plan may ask. That is Q6, and it is the whole of it: they are
-//     the two modes whose output is a document about what should be built, where
-//     a wrong assumption propagates into a brief, then a plan, then code.
-//   - implement may not, ever (AC-A1.6). Machine-enforced here rather than left
-//     to prompt text, so a tagged implement run gets the gag no matter what the
-//     comment said.
-//   - spike is excluded deliberately, and this is a reading of Q6 rather than an
-//     oversight: Q6 named Research and Plan and named nothing else. A spike is
-//     time-boxed and its recommendation is "hand back", which is the same
-//     conversation an asked question would open, one comment later.
-//   - infer may ask, and it has to be able to. When the mode is infer, Go does
-//     not yet know what the run will turn out to be — the agent classifies it
-//     from the target repository's CLAUDE.md after the prompt has been built —
-//     so this is the one place the Research-and-Plan-only rule is carried in
-//     prompt text instead (AC-A1.7, see the infer seam in internal/harness).
-//     Denying infer here would be stricter and cheaper and would also make the
-//     feature unreachable in practice: a comment naming no command is the common
-//     path, and every one of them is infer.
+// This is the mode boundary shared by current and previous request policy.
+// Research and legacy infer require the ask tag; Plan does not. Other modes
+// never gain question permission. All permitted questions are asynchronous.
 func modeMayAsk(mode string) bool {
 	switch strings.TrimSpace(mode) {
 	case researchMode, planMode, harness.InferMode:
@@ -141,4 +118,34 @@ func modeMayAsk(mode string) bool {
 	default:
 		return false
 	}
+}
+
+// questionPermission derives the same policy for live and previous requests.
+// Only the direct instruction can revoke permission; quoted history and issue
+// background are not consulted for a comment-triggered run.
+func questionPermission(mode string, command Command) bool {
+	if !modeMayAsk(mode) || forbidsQuestions(command.Text) {
+		return false
+	}
+	return strings.TrimSpace(mode) == planMode || command.Tagged
+}
+
+func forbidsQuestions(instruction string) bool {
+	fenced := false
+	for line := range strings.SplitSeq(instruction, "\n") {
+		line = strings.ToLower(strings.TrimSpace(line))
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced || strings.HasPrefix(line, ">") {
+			continue
+		}
+		for _, phrase := range []string{"do not ask", "don't ask", "don’t ask", "stop asking", "no questions", "no more questions", "no clarifying questions", "no further questions", "no follow-up questions", "without questions", "without asking"} {
+			if strings.Contains(line, phrase) {
+				return true
+			}
+		}
+	}
+	return false
 }

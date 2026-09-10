@@ -26,6 +26,14 @@ func TestFrozenScopeOverridesLabelsExceptExplicitParentPlan(t *testing.T) {
 			if len(calls) != 1 || calls[0].Mode != tc.want {
 				t.Fatalf("durable mode selection: %+v\n%s", calls, f.logs)
 			}
+			label := "Mode: Implement"
+			if tc.want == agent.ModePlan {
+				label = "Mode: Plan"
+			}
+			assertRetentionLabels(t, f, label)
+			if calls[0].ToolProfile != string(tc.want) {
+				t.Fatalf("effective permissions: %+v", calls[0])
+			}
 		})
 	}
 }

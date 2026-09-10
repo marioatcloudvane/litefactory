@@ -44,6 +44,7 @@ func managedRefinementFixture(t *testing.T) *fixture {
 
 func TestStoryRefinementUsesParentAndIndependentDelivery(t *testing.T) {
 	f := managedRefinementFixture(t)
+	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent feature", User: stranger(), Labels: toFakeLabels("Mode: Implement")})
 	renamed := owner()
 	renamed.Login = "renamed-owner"
 	f.forge.addComment(200, 50, stranger(), "do not admit this")
@@ -53,6 +54,10 @@ func TestStoryRefinementUsesParentAndIndependentDelivery(t *testing.T) {
 	calls := f.turns.calls()
 	if len(calls) != 1 || calls[0].Issue.Number != testIssue || calls[0].Mode != agent.ModePlan || calls[0].Trigger.CommentID != 60 {
 		t.Fatalf("parent planning call = %+v\n%s", calls, f.logs)
+	}
+	assertRetentionLabels(t, f, "Mode: Plan")
+	if calls[0].ToolProfile != "plan" {
+		t.Fatalf("child effective permissions: %+v", calls[0])
 	}
 	if f.watermark() != 0 {
 		t.Fatalf("child delivery advanced parent watermark to %d", f.watermark())

@@ -23,8 +23,9 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
-	meterDB    *store.DB
-	resumeOnly bool
+	meterDB       *store.DB
+	resumeOnly    bool
+	planCompleted bool
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
@@ -110,6 +111,13 @@ func prepare(
 	if err := validateContinuation(ctx, opts, req, session); err != nil {
 		return nil, failuref(err, "automatic recovery requires manual intervention")
 	}
+	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
+		return nil, err
+	}
+	if err := invalidatePlanReadiness(ctx, opts, ref, req.mode()); err != nil {
+		return nil, err
+	}
+
 	repo, err := opts.DB.GetRepo(ctx, session.RepoID)
 	if err != nil {
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
@@ -120,10 +128,6 @@ func prepare(
 		if err != nil {
 			return nil, failuref(err, "external team instructions could not be captured")
 		}
-	}
-
-	if err := prepareManagedReplan(ctx, opts, req, session, ref); err != nil {
-		return nil, err
 	}
 
 	clone, err := opts.Git.Open(ctx, repo.Path)
@@ -294,12 +298,8 @@ func prepare(
 	// harness does the rest of it.
 	bodyIsInstruction := req.Trigger.CommentID == 0
 
-	// Permission to ask is the conjunction, assembled here and handed to the
-	// harness already decided (AC-A1.6): the tag off this run's own trigger, and
-	// a mode that may ask at all. [ParseCommand] found the tag on whichever text
-	// started the run, so the comment path and the issue-body path are covered by
-	// the same call.
-	mayAsk := req.Command.Tagged && modeMayAsk(req.mode())
+	// Derive current and previous question permission with the same mode policy.
+	mayAsk := questionPermission(req.mode(), req.Command)
 
 	// Attachments are fetched here: after the worktree and the runs row
 	// exist — the landing directory is named for this run's ordinal — and
@@ -354,6 +354,9 @@ func prepare(
 		return nil, err
 	}
 	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+		return nil, err
+	}
+	if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
 		return nil, err
 	}
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
@@ -443,6 +446,14 @@ func prepare(
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,
 			PlanProposalPath:   promptInput.PlanProposalPath,
+			PlanOutcomePath:    promptInput.PlanOutcomePath,
+			PlanGeneration:     promptInput.PlanGeneration,
+			PlanRunID:          promptInput.PlanRunID,
+			PlanAttempt:        promptInput.PlanAttempt,
+			PlanContextPath:    promptInput.PlanContextPath,
+			PlanWorkingContext: promptInput.PlanWorkingContext,
+			MayAsk:             promptInput.MayAsk,
+			PreviousMayAsk:     promptInput.PreviousMayAsk,
 			Ref:                ref,
 			RunOrdinal:         run.Ordinal,
 			SegmentOrdinal:     segment.Ordinal,
@@ -1073,11 +1084,8 @@ func commentHistory(
 // triggered it and the mode it ran in, and the comment's body is in the list
 // [commentHistory] has just read.
 //
-// It is the same conjunction this run's own permission is, evaluated with the
-// *previous* run's mode. Using this run's mode would be the subtle bug: a spike
-// carrying the tag was never allowed to ask, and reading it as though it had
-// been would make the next run announce that permission has been withdrawn from
-// a conversation that never had it.
+// It uses the previous mode and instruction through the same policy function
+// as the current request, including Plan defaults and explicit revocation.
 //
 // Two cases where the comment is not where it usually is:
 //
@@ -1098,7 +1106,7 @@ func previousMayAsk(previous store.Run, resume bool, previousTriggerBody, issueB
 	if previous.TriggerCommentID == 0 {
 		body = issueBody
 	}
-	return HasAskTag(body) && modeMayAsk(previous.Mode)
+	return questionPermission(previous.Mode, ParseCommand(body))
 }
 
 // ingestAttachments fetches the attachments referenced by the run's trigger

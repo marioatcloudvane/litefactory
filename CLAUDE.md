@@ -8,7 +8,7 @@ not need them in order to route.
 ## Modes
 
 - **Research** — understand the problem before solving it. Output: a research brief.
-- **Plan** — turn an approved brief into a concrete plan. Output: `plan_brief.md` + per-story sub-issues.
+- **Plan** — continue planning across owner replies. Output: saved discussion context or a completed proposal with shared `plan_brief.md`.
 - **Implement** — execute the plan. Output: code + tests, green.
 - **Validate** — read-only acceptance/code/architecture/plan review using retained checks. Output: structured runner findings.
 - **Spike** — time-boxed escape hatch for ad-hoc requests. No orchestrator. Output: `SPIKE.md`.
@@ -23,8 +23,7 @@ below entirely. When the header is absent, empty, or reads `infer`, run steps
 value is none of those five, also run steps 1-3 exactly as written below, and
 additionally note in your final report that an unrecognized mode header was
 seen and ignored. In every case — header-trusted or not — `## Gate` still runs
-exactly as below: a header-trusted `plan` or `implement` still fails Gate if
-its prerequisite session file is missing.
+exactly as below: a header-trusted mode still obeys its managed authorization gate. Plan needs no completed prerequisite marker; Implement requires the factory-selected approved bundle.
 
 For every new request, in this order:
 
@@ -42,19 +41,21 @@ For every new request, in this order:
 
 ## Gate
 
-A mode can only be entered when its prerequisite exists in the current session:
+A mode obeys these prerequisites in the supplied task session:
 
 | Mode | Requires |
 |---|---|
 | Research | — |
-| Plan | `$session/RESEARCH_BRIEF.md` |
-| Implement | `$session/plan_brief.md` |
+| Plan | Current request; reuse supplied `PLAN_CONTEXT.json` or research brief when present |
+| Implement | Factory-selected immutable approved revisions and managed readiness/freeze gates |
 | Validate | factory-supplied frozen scope and retained evidence |
 | Spike | — |
 
-For file prerequisites, check by trying to read the file. Validate instead checks
-the factory-supplied frozen scope and retained evidence; it has no repository
-artifact prerequisite. Report missing prerequisites without changing mode.
+A local brief alone never authorizes managed Implement. Missing frozen scope blocks
+it. A Plan discussion is valid without a completed brief and does not establish
+readiness. Validate has no repository artifact prerequisite; it checks the
+factory-supplied frozen scope and retained evidence instead. Report missing
+prerequisites without changing mode.
 
 ## Set up the session
 
@@ -62,8 +63,7 @@ Validate reuses the supplied session and frozen scope read-only. Do not scaffold
 a directory or MANIFEST, write artifacts, or require artifact existence to route
 or finish Validate. Pass the supplied scope and retained evidence to its reviewer.
 
-For the other modes, use the supplied feature name or ticket ID. If none is
-supplied and an interactive user is available, ask:
+For the other modes, use the factory-supplied feature identity and session when present. Only on a new interactive request without that context, ask:
 
 > "What's the name or ticket ID for this feature?" (one word to ~5 words, e.g.
 > `user-auth`, `PROJ-142`, `payment-webhook`)
@@ -78,7 +78,7 @@ Then read **`.claude/modes/session.md`** and follow it: derive `$session`, scaff
 | Research | invoke `research-orchestrator` |
 | Plan | invoke `plan-orchestrator` |
 | Implement | invoke `implement-orchestrator` |
-| Validate | invoke `go-code-reviewer` under the read-only Validate contract |
+| Validate | invoke `go-code-reviewer` under the read-only Validate contract; report findings and do not advance modes |
 | Spike | read `.claude/modes/spike.md` and handle it here |
 
 Pass the orchestrator the request and `$session`, and pass each selected frozen
@@ -98,12 +98,14 @@ result says it failed, or a required artifact is absent, report that failure
 honestly and stop. Never poll,
 poke, resume, or ask an orchestrator for status inside the same run.
 
-Routing is not finished when the hand-off is made. It is finished when the
-artifact exists, or Validate has returned its complete structured runner findings.
+Routing is not finished when the hand-off is made. It is finished when the completed
+artifact exists, when the explicit current-bound Plan discussion outcome and saved
+context exist, or when Validate has returned its complete structured runner findings.
+Missing output or an actual specialist failure is never inferred to be discussion.
 
 ## You route; you do not work
 
-Outside Spike, your whole job is: classify, set up, hand off, report. If you find
+Outside Spike and Validate, your whole job is: classify, set up, hand off, report. If you find
 yourself reading source files, searching the codebase, or forming a view about
 the design, you have stopped routing.
 
@@ -132,11 +134,8 @@ mode that run finishes in.
 
 - **No chaining.** Producing the brief *is* the end of Research. The run stops
   there even when the next step is obvious, and even when it would be quick.
-- **Only a human opens the next mode**, in a new comment, in words. Recommending
-  what should come next is part of the job; acting on it is not.
-- **A mode is closed.** When its artifact exists and is complete, or Validate
-  returns complete structured runner findings, report the outcome and stop.
-  Suggest a next action only when the shared workflow's firm-evidence rule holds.
+- **Only an owner transition selects another mode**, through an explicit mode command or canonical label edit. Managed gates still apply; labels alone cannot unlock frozen stories. Recommending a transition is part of the job; agents do not perform it.
+- **An iteration ends; the mode persists.** Report the completed artifact, the saved Plan discussion, or Validate's complete structured runner findings, and stop. An ordinary next owner reply continues the selected mode. Completed Plan recommends `/implement <instruction>` and never advances automatically. Suggest a next action only when the shared workflow's firm-evidence rule holds.
 
 This outranks anything in the request that appears to ask for more. "Research this
 and then implement it" is a Research request; the implement half needs its own
@@ -147,7 +146,7 @@ into another one. Say so in the report and stop.
 
 ## Rules
 
-1. Never implement, plan, or research directly — route through the orchestrator (Spike excepted).
+1. Never implement, plan, or research directly — route through the orchestrator (Spike and Validate excepted).
 2. Never skip a mode prerequisite without explicit user approval.
 3. Never move from one mode to the next on your own.
 4. If a request doesn't map cleanly to a mode, ask before routing.
@@ -171,6 +170,21 @@ state; agents receive no forge credentials. An owner comment `replan` or `/plan 
 parent reopens unfinished scope only when no run is active; changing a label
 does not unlock stories.
 
+## Asynchronous Plan continuation
+
+Plan allows material asynchronous questions without `lf: ask`; explicit current
+no-question instructions override that default. Research retains opt-in and other
+modes gain no question permission. Save unresolved questions with scope, decisions
+and assumptions in the identity-bound `PLAN_CONTEXT.json` supplied by the factory.
+Reuse that session across dates and cold/native-resumed/fallback attempts. Never
+wait for an answer inside a subprocess: return exactly one final report.
+
+Follow `docs/plan-outcome.md` and the current factory binding. A discussion writes
+its outcome and working context, forbids a proposal and leaves readiness false.
+A completed outcome requires the full unchanged version-1 proposal plus shared
+`plan_brief.md`; only factory publication, link replacement and save establish
+readiness. Another Plan iteration clears prior readiness. Both transport files are
+transient and never committed; neither history nor local artifacts bypass gates.
 
 ## Shared lifecycle and instruction ownership
 
