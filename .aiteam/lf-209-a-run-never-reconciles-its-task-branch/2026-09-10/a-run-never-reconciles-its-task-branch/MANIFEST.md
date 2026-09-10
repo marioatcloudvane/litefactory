@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + factory transient story proposal *(not started)*
+- [x] **Plan** — `feature-spec.md`, `ARCH_REVIEW.md`, `plan_brief.md` + typed contribution *(run 0005 submitted; factory publication/readiness pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -20,4 +20,8 @@
 
 ## Notes
 
-Headless Research run. No questions or approval waits; no commits or pushes.
+Run 0005 — Plan completed requirements, architecture and typed story authoring at citation base `97c411a82a61302a1d6729d940f9910a2fb7c7a1`. Three sequential stories cover safe startup reconciliation and observations, existing owner-confirmed recovery, and successful publication of preparation-only work. Owner policy is settled; no further questions were required. Transient typed contribution is outside the repository at `/private/tmp/lf-209-plan-contribution.json`; the root dispatcher performs authorized preflight/submit. Factory input acknowledgment, publication and readiness are separate states; none is inferred from artifact authoring.
+
+Headless Plan run. No implementation or tests, questions or approval waits, commits or pushes. Plan remains selected; Implement requires an explicit owner command after factory publication/readiness.
+
+Run 0005 submission — Factory preflight returned valid=true, complete=true, no diagnostics and no unchecked paths. Completed Plan submitted and receipt confirmed under request `29ef42fe605e35ec2defadfd3185b88e`: InputState=valid; PlanState=pending; EngineeringState, AcceptanceState and EffectState=not_applicable. Publication, Story Index link replacement, successful save and readiness remain factory work after terminal success; no publication or readiness claimed by this run.
