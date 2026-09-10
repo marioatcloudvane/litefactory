@@ -1408,6 +1408,15 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	}
 
 	command := turn.ParseCommand(c.Body)
+	if command.Name == "/deliver" || command.Name == "/merge" {
+		return d.handleDelivery(ctx, t, c, log)
+	}
+	if command.Name == "/followup" {
+		return d.handleFollowup(ctx, t, c, log)
+	}
+	if command.Name == "/waive" {
+		return d.handleOwnerException(ctx, t, c, log)
+	}
 	if command.Kind == turn.KindNone {
 		// Nothing to act on. Recorded, ignored, consumed.
 		//

@@ -14,7 +14,8 @@ MANIFEST.md. Invoke requirements-engineer to produce feature-spec.md, then
 go-architect to review feasibility, reuse, boundaries and task-level architecture.
 Resolve ordinary gaps from evidence; record material blockers explicitly.
 Then invoke proxy-product-owner with the approved specification and architecture
-guidance to produce local US-<n>.md files and the story index. Compose
+guidance to produce complete JSON proposal stories and the link-only story index. Compose
 plan_brief.md with scope, shared decisions, dependency order and Story Index.
-Check every indexed local story exists before marking Plan done in MANIFEST.md.
+Check every proposal body and supplied identity/base revision before marking Plan
+done in MANIFEST.md; never write per-story Markdown.
 Stop after planning; no implementation or remote issue publication.

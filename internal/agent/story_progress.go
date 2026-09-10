@@ -113,6 +113,11 @@ func (e StoryEvent) Validate() error {
 		return fmt.Errorf("invalid story event identity")
 	}
 	switch e.Kind {
+	case "engineering_complete":
+		if e.Evidence == nil {
+			return fmt.Errorf("engineering completion needs immutable evidence")
+		}
+		return e.Evidence.ValidateEngineering()
 	case "verified":
 		if e.Evidence == nil {
 			return fmt.Errorf("verification needs immutable evidence")
@@ -130,6 +135,19 @@ func (e StoryEvent) Validate() error {
 
 // Validate requires every scoped check to pass against the same content manifest.
 func (e StoryEvidence) Validate() error {
+	return e.validate([][]StoryCheck{e.Acceptance, e.Review, e.Tests})
+}
+
+// ValidateEngineering requires executed passing tests and snapshot facts without
+// claiming acceptance or review. Those groups are forbidden, not ignored.
+func (e StoryEvidence) ValidateEngineering() error {
+	if len(e.Acceptance) != 0 || len(e.Review) != 0 {
+		return fmt.Errorf("engineering cannot claim acceptance or review")
+	}
+	return e.validate([][]StoryCheck{e.Tests})
+}
+
+func (e StoryEvidence) validate(groups [][]StoryCheck) error {
 	if len(e.Files) == 0 || len(e.Files) > 256 || !validStoryDigest(e.ImplementationDigest) || SnapshotDigest(e.Files) != e.ImplementationDigest {
 		return fmt.Errorf("invalid implementation manifest")
 	}
@@ -140,7 +158,7 @@ func (e StoryEvidence) Validate() error {
 		}
 		previous = f.Path
 	}
-	for _, group := range [][]StoryCheck{e.Acceptance, e.Review, e.Tests} {
+	for _, group := range groups {
 		if len(group) == 0 || len(group) > 256 {
 			return fmt.Errorf("missing or oversized acceptance, review or test checks")
 		}
@@ -219,3 +237,11 @@ func uniqueStoryJSON(d *json.Decoder, depth int) error {
 	_, err = d.Token()
 	return err
 }
+
+// EngineeringEventInstructions is the version-two execution checkpoint contract.
+// The envelope remains version one; workflow admission selects allowed kinds.
+const EngineeringEventInstructions = `Publish engineering progress immediately after each selected story's implementation and executed tests pass, before waiting for siblings or aggregate/save gates. Write atomic consecutive %06d.json files using temporary-file then rename; never replace published events. Use the supplied parent, run_id, generation, story, issue_id and frozen revision; attempt starts at 1 and advances on rework. The schema is:
+{"version":1,"parent":"supplied parent","run_id":1,"generation":1,"story":"US-1","issue_id":123,"revision":"frozen SHA256","attempt":1,"sequence":1,"kind":"engineering_complete","evidence":{"implementation_digest":"manifest SHA256","files":[{"path":"relative/file.go","content":"base64 bytes","sha256":"decoded SHA256","deleted":false}],"acceptance":[],"review":[],"tests":[{"name":"executed check","passed":true,"evidence":"actual passing result","implementation_digest":"same manifest SHA256"}]}}
+Acceptance and review must be empty. Every test result must be executed, passing and bound to the same retained snapshot. Include all implementation and test files, strictly sorted ascending; maximum 256 files, no traversal, symlinks or factory transport. For deletion use empty bytes and their SHA256. Manifest SHA256 hashes concatenated path + NUL + lowercase content SHA256 + NUL + lowercase deletion flag + newline records. Each event is at most 4 MiB, at most 4096 events and 64 MiB total. The factory compares actual worktree bytes and retains evidence durably.
+For unfinished work use kind:blocked with a nonempty reason and no evidence. Before acceptance, invalidated with reason can withdraw affected engineering evidence for rework; historical accepted/waived stories are permanent and later changes are new issues. Engineering releases dependent implementation work without acceptance checkboxes or closure. Aggregate engineering checks and successful save remain required. Never claim acceptance or review in engineering events. Never auto-dispatch Validate; the factory may suggest it only with complete engineering/test and save evidence. Transport is never committed or deleted by agents.
+`

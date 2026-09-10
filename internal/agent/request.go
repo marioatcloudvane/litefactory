@@ -49,6 +49,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// RetainedValidation restricts managed review to supplied source/check evidence.
+	RetainedValidation bool
+
 	// Usage optionally receives incremental accounting. Nil preserves legacy callers.
 	Usage *UsageCapture
 
@@ -114,6 +117,9 @@ type Request struct {
 // an implementation MAY check more (internal/harness re-checks Permissions
 // against its own configured ceiling, for one).
 func (req Request) Validate() error {
+	if req.RetainedValidation && req.Mode != "validate" {
+		return invalidRequest("retained validation requires Validate mode")
+	}
 	if req.Usage != nil && (req.Usage.AttemptID == "" || req.Usage.Sink == nil) {
 		return invalidRequest("usage capture requires attempt and sink")
 	}

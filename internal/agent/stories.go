@@ -4,21 +4,23 @@ import "slices"
 
 // ApprovedStory is an immutable execution revision, not an editable story source.
 type ApprovedStory struct {
-	State        string   `json:"state"`
-	Key          string   `json:"key"`
-	IssueNumber  int      `json:"issue_number"`
-	IssueID      int64    `json:"issue_id"`
-	ParentID     int64    `json:"parent_id"`
-	Source       string   `json:"source"`
-	Title        string   `json:"title"`
-	Body         string   `json:"body"`
-	Revision     string   `json:"revision"`
-	FetchedAt    string   `json:"fetched_at"`
-	Dependencies []string `json:"dependencies"`
+	EngineeringComplete bool     `json:"engineering_complete,omitempty"`
+	State               string   `json:"state"`
+	Key                 string   `json:"key"`
+	IssueNumber         int      `json:"issue_number"`
+	IssueID             int64    `json:"issue_id"`
+	ParentID            int64    `json:"parent_id"`
+	Source              string   `json:"source"`
+	Title               string   `json:"title"`
+	Body                string   `json:"body"`
+	Revision            string   `json:"revision"`
+	FetchedAt           string   `json:"fetched_at"`
+	Dependencies        []string `json:"dependencies"`
 }
 
 // ApprovedBundle repeats explicit scope even when a runner resumes history.
 type ApprovedBundle struct {
+	WorkflowVersion       int              `json:"workflow_version,omitempty"`
 	ParentRecovery        bool             `json:"parent_recovery,omitempty"`
 	EventDirectory        string           `json:"event_directory,omitempty"`
 	ParentTitle           string           `json:"parent_title"`

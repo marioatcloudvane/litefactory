@@ -22,7 +22,7 @@ type ApprovedStoryRevision struct {
 // that excludes pending admitted discussions. No partial approval is observable.
 func (db *DB) ApproveManagedStories(ctx context.Context, parent string, generation int, revisions []ApprovedStoryRevision) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE managed_features SET state='freezing',ready=0 WHERE parent_task=? AND generation=? AND state='planning' AND ready=1 AND NOT EXISTS (SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0)`, parent, generation, parent)
+		res, err := tx.ExecContext(ctx, `UPDATE managed_features SET state='freezing',ready=0,workflow_version=CASE WHEN workflow_version=0 THEN 2 ELSE workflow_version END WHERE parent_task=? AND generation=? AND state='planning' AND ready=1 AND NOT EXISTS (SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0)`, parent, generation, parent)
 		if err != nil {
 			return fmt.Errorf("store: approve scope: %w", err)
 		}
@@ -68,7 +68,7 @@ func (db *DB) ApproveManagedStories(ctx context.Context, parent string, generati
 
 // ListApprovedStoryRevisions loads frozen content in story-key order without consulting live forge edits.
 func (db *DB) ListApprovedStoryRevisions(ctx context.Context, parent string, generation int) ([]ApprovedStoryRevision, error) {
-	rows, err := db.sql.QueryContext(ctx, `SELECT s.parent_task,s.generation,s.story_key,s.issue_number,s.issue_id,s.body_hash,s.dependencies,s.state,r.parent_id,r.title,r.body,r.digest,r.fetched_at FROM managed_stories s JOIN approved_story_revisions r USING(parent_task,generation,story_key) WHERE s.parent_task=? AND s.generation=? ORDER BY s.story_key`, parent, generation)
+	rows, err := db.sql.QueryContext(ctx, `SELECT s.parent_task,s.generation,s.story_key,s.issue_number,s.issue_id,s.body_hash,s.dependencies,s.state,s.engineering_complete,r.parent_id,r.title,r.body,r.digest,r.fetched_at FROM managed_stories s JOIN approved_story_revisions r USING(parent_task,generation,story_key) WHERE s.parent_task=? AND s.generation=? ORDER BY s.story_key`, parent, generation)
 	if err != nil {
 		return nil, fmt.Errorf("store: read approved scope: %w", err)
 	}
@@ -77,7 +77,7 @@ func (db *DB) ListApprovedStoryRevisions(ctx context.Context, parent string, gen
 	for rows.Next() {
 		var r ApprovedStoryRevision
 		var deps, at string
-		if err := rows.Scan(&r.ParentTask, &r.Generation, &r.Key, &r.IssueNumber, &r.IssueID, &r.BodyHash, &deps, &r.State, &r.ParentID, &r.Title, &r.Body, &r.Hash, &at); err != nil {
+		if err := rows.Scan(&r.ParentTask, &r.Generation, &r.Key, &r.IssueNumber, &r.IssueID, &r.BodyHash, &deps, &r.State, &r.EngineeringComplete, &r.ParentID, &r.Title, &r.Body, &r.Hash, &at); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(deps), &r.Dependencies); err != nil {
@@ -139,7 +139,7 @@ func (db *DB) ActivateManagedScope(ctx context.Context, parent string, generatio
 // editable generation while all historical approvals remain immutable.
 func (db *DB) ReplanManagedFeature(ctx context.Context, parent string, generation int) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE managed_features SET generation=generation+1,state='planning',ready=0 WHERE parent_task=? AND generation=? AND state!='planning' AND NOT EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.active=1) AND NOT EXISTS(SELECT 1 FROM story_progress_effects e WHERE e.parent_task=managed_features.parent_task AND e.delivered=0 AND e.superseded=0) AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.task_ref=? AND (s.state='running' OR EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status='running'))) AND NOT EXISTS(SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0)`, parent, generation, parent, parent)
+		res, err := tx.ExecContext(ctx, `UPDATE managed_features SET generation=generation+1,state='planning',ready=0,engineering_succeeded=0 WHERE parent_task=? AND generation=? AND state!='planning' AND NOT EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.active=1) AND NOT EXISTS(SELECT 1 FROM story_progress_effects e WHERE e.parent_task=managed_features.parent_task AND e.delivered=0 AND e.superseded=0) AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.task_ref=? AND (s.state='running' OR EXISTS(SELECT 1 FROM runs r WHERE r.session_id=s.id AND r.status='running'))) AND NOT EXISTS(SELECT 1 FROM story_refinements r JOIN sessions s ON s.id=r.session_id WHERE s.task_ref=? AND r.consumed=0)`, parent, generation, parent, parent)
 		if err != nil {
 			return err
 		}

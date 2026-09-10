@@ -21,6 +21,13 @@ description: Use this agent when you have a complete feature-spec.md and need to
 
 ## Evidence review before acceptance freeze
 
+Read `.codex/skills/workflow/SKILL.md` for the persisted legacy/separated
+lifecycle. Plan engineering and read-only acceptance review separately in new
+workflow. Protected instruction stories must be independently executable: Codex
+owns `.claude/**`, Claude owns `.codex/**`; scoped verification must not require
+both installed trees. Use retained check evidence in Validate, with no fresh
+checks, and preserve factual missing/failed outcomes and explicit owner authority.
+
 Read `docs/decisions/nested-agent-evidence.md` before writing or freezing
 acceptance criteria, including when persistent constraints are not your input.
 For each affected criterion, require an evidence inventory naming its AC identifier,
@@ -182,8 +189,9 @@ Produce `plan_brief.md` plus one sub-issue per user story — see `plan-orchestr
 [Which stories/tasks block others]
 
 ## Definition of Done
-- [ ] All user stories DONE
-- [ ] All acceptance criteria verified by test engineers
+- [ ] All selected stories engineered and executed tests passing (separated Implement)
+- [ ] Acceptance/code/architecture/plan review from retained evidence signed off in Validate (separated workflow)
+- [ ] Legacy scope retains scoped acceptance/review/test verification and aggregate gates
 - [ ] No open STANDARD_CONFLICT flags
 ```
 

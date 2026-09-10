@@ -439,7 +439,7 @@ func (r Request) mode() string {
 	if r.Mode.Valid() {
 		return string(r.Mode)
 	}
-	if r.Command.Kind == KindFreeText {
+	if r.Command.Kind == KindFreeText || len(r.Command.Name) <= len("/") {
 		return harness.InferMode
 	}
 	return r.Command.Name[len("/"):]

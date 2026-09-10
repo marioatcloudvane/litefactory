@@ -61,6 +61,13 @@ func prepareManagedScope(ctx context.Context, o Options, req Request, ref naming
 	if err != nil {
 		return err
 	}
+	if req.mode() == "validate" && f.WorkflowVersion == store.WorkflowSeparated {
+		mode, explicit := req.Command.Mode()
+		if !explicit || mode != "validate" || f.State != "implementing" {
+			return fmt.Errorf("managed Validate requires explicit owner /validate and approved scope")
+		}
+		return nil
+	}
 	if f.State == "planning" && req.mode() != "implement" {
 		return deliverScopeNotices(ctx, o, ref, f, true)
 	}

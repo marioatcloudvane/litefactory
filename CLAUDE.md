@@ -10,7 +10,7 @@ not need them in order to route.
 - **Research** — understand the problem before solving it. Output: a research brief.
 - **Plan** — continue planning across owner replies. Output: saved discussion context or a completed proposal with shared `plan_brief.md`.
 - **Implement** — execute the plan. Output: code + tests, green.
-- **Validate** — verify the supplied work and report findings.
+- **Validate** — read-only acceptance/code/architecture/plan review using retained checks. Output: structured runner findings.
 - **Spike** — time-boxed escape hatch for ad-hoc requests. No orchestrator. Output: `SPIKE.md`.
 
 ## Classify
@@ -48,14 +48,22 @@ A mode obeys these prerequisites in the supplied task session:
 | Research | — |
 | Plan | Current request; reuse supplied `PLAN_CONTEXT.json` or research brief when present |
 | Implement | Factory-selected immutable approved revisions and managed readiness/freeze gates |
-| Validate | The supplied work and its applicable verification contract |
+| Validate | factory-supplied frozen scope and retained evidence |
 | Spike | — |
 
-A local brief alone never authorizes managed Implement. Missing frozen scope blocks it. A Plan discussion is valid without a completed brief and does not establish readiness.
+A local brief alone never authorizes managed Implement. Missing frozen scope blocks
+it. A Plan discussion is valid without a completed brief and does not establish
+readiness. Validate has no repository artifact prerequisite; it checks the
+factory-supplied frozen scope and retained evidence instead. Report missing
+prerequisites without changing mode.
 
 ## Set up the session
 
-Use the factory-supplied feature identity and session when present. Only on a new interactive request without that context, ask:
+Validate reuses the supplied session and frozen scope read-only. Do not scaffold
+a directory or MANIFEST, write artifacts, or require artifact existence to route
+or finish Validate. Pass the supplied scope and retained evidence to its reviewer.
+
+For the other modes, use the factory-supplied feature identity and session when present. Only on a new interactive request without that context, ask:
 
 > "What's the name or ticket ID for this feature?" (one word to ~5 words, e.g.
 > `user-auth`, `PROJ-142`, `payment-webhook`)
@@ -70,11 +78,12 @@ Then read **`.claude/modes/session.md`** and follow it: derive `$session`, scaff
 | Research | invoke `research-orchestrator` |
 | Plan | invoke `plan-orchestrator` |
 | Implement | invoke `implement-orchestrator` |
-| Validate | Run the requested validation against the supplied scope and report findings; do not advance modes |
+| Validate | invoke `go-code-reviewer` under the read-only Validate contract; report findings and do not advance modes |
 | Spike | read `.claude/modes/spike.md` and handle it here |
 
-Pass the orchestrator the request and `$session`. **Do not pass it file contents** —
-it reads what it needs. Never invoke a specialist sub-agent (`go-architect`,
+Pass the orchestrator the request and `$session`, and pass each selected frozen
+story inline with identity, revision and dependencies when the factory supplies
+managed scope. Except for the explicit read-only Validate route, never invoke a specialist sub-agent (`go-architect`,
 `go-implementation-engineer`, `codebase-tour`, `web-researcher`, …) from here; that
 is an orchestrator's job. An orchestrator returns either its artifact or a
 question, and you do not track what happened inside it.
@@ -82,11 +91,17 @@ question, and you do not track what happened inside it.
 **Then see it through.** litefactory forces subagents to run in the foreground.
 The orchestrator invocation therefore returns its terminal result directly; it is
 not a receipt and needs no wake-up message. Invoke it once, read that result once,
-and check the expected artifact once. If the result says it failed, or the artifact
-is absent after it returned, report that failure honestly and stop. Never poll,
+and check the expected artifact once for modes that write artifacts. Validate
+finishes with structured runner findings, not an artifact; assess its returned
+result for completeness without writing or checking for a result file. If the
+result says it failed, or a required artifact is absent, report that failure
+honestly and stop. Never poll,
 poke, resume, or ask an orchestrator for status inside the same run.
 
-Routing finishes when the completed artifact exists or the explicit current-bound Plan discussion outcome and saved context exist. Missing output or an actual specialist failure is never inferred to be discussion.
+Routing is not finished when the hand-off is made. It is finished when the completed
+artifact exists, when the explicit current-bound Plan discussion outcome and saved
+context exist, or when Validate has returned its complete structured runner findings.
+Missing output or an actual specialist failure is never inferred to be discussion.
 
 ## You route; you do not work
 
@@ -120,7 +135,7 @@ mode that run finishes in.
 - **No chaining.** Producing the brief *is* the end of Research. The run stops
   there even when the next step is obvious, and even when it would be quick.
 - **Only an owner transition selects another mode**, through an explicit mode command or canonical label edit. Managed gates still apply; labels alone cannot unlock frozen stories. Recommending a transition is part of the job; agents do not perform it.
-- **An iteration ends; the mode persists.** Report the completed artifact or saved Plan discussion and stop. An ordinary next owner reply continues the selected mode. Completed Plan recommends `/implement <instruction>` and never advances automatically.
+- **An iteration ends; the mode persists.** Report the completed artifact, the saved Plan discussion, or Validate's complete structured runner findings, and stop. An ordinary next owner reply continues the selected mode. Completed Plan recommends `/implement <instruction>` and never advances automatically. Suggest a next action only when the shared workflow's firm-evidence rule holds.
 
 This outranks anything in the request that appears to ask for more. "Research this
 and then implement it" is a Research request; the implement half needs its own
@@ -142,10 +157,15 @@ GitHub issues are the sole editable story source. Implement consumes the
 factory-supplied frozen revision bundle on cold, resumed and fallback attempts;
 pass each selected story inline with its issue identity and revision. Never
 substitute local story files, current live edits or conversation history.
-Verify each finished story immediately with its own acceptance checks, review
-and tests and publish the supplied per-run evidence event so the daemon can
-close it before siblings or the parent finish. Later invalidation reopens it.
-Final aggregate gates remain required. Only the factory reads or mutates forge
+Use the factory's persisted workflow version. Legacy features retain immediate
+scoped acceptance/review/test verification, closure and affected invalidation.
+For separated workflow, Implement verifies engineering and executed tests per
+story, publishes immutable engineering evidence and releases dependent work while
+acceptance boxes/issues stay open. Validate performs read-only acceptance, code,
+architecture and approved-plan review using retained checks, never fresh checks.
+Only the factory projects acceptance and closes each accepted/owner-waived story.
+Historical acceptance does not expire after later code/main changes; those belong
+to new issues. Final aggregate engineering/save gates remain required. Only the factory reads or mutates forge
 state; agents receive no forge credentials. An owner comment `replan` or `/plan <instruction>` on the
 parent reopens unfinished scope only when no run is active; changing a label
 does not unlock stories.
@@ -165,3 +185,19 @@ A completed outcome requires the full unchanged version-1 proposal plus shared
 `plan_brief.md`; only factory publication, link replacement and save establish
 readiness. Another Plan iteration clears prior readiness. Both transport files are
 transient and never committed; neither history nor local artifacts bypass gates.
+
+## Shared lifecycle and instruction ownership
+
+The versioned shared execution contract is
+`teams/source/skills/workflow/SKILL.md`; follow its firm-evidence-only suggestions,
+no automatic mode chain, reasoned explicit numeric-owner exceptions preserving
+factual evidence, all-attached-child readiness and approved linked follow-ups.
+Final delivery needs concrete PR/current-head/main approval and confirmed main
+integration before parent closure. Manual ticks or closure alone are not approval.
+
+Shared sources/root files may be updated independently. A Codex story owns only
+`.claude/**`; a Claude story owns only `.codex/**`. Never require both protected
+trees in one story or generate into the sibling tree. Compare scoped output in
+memory or temporary directories; report temporary parity drift and the manual
+opposite-harness handoff. Cross-tree parity is an aggregate feature obligation,
+not a prerequisite for independently ready work.

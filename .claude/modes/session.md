@@ -4,6 +4,13 @@ Read this before scaffolding a session, and when you need to know what an
 artifact is or where it belongs. The router reads it once per run; agents that
 already know their own artifacts do not need it at all.
 
+## Validate exception
+
+Validate reads `.claude/modes/validate.md` and the installed shared workflow.
+It does not scaffold a session, derive a path using shell commands, write or tick
+MANIFEST.md, or create review/result files. Existing context may be read when
+supplied, but artifacts are not prerequisites for returning structured findings.
+
 ## Deriving the path
 
 All artifacts live under `.aiteam/<branch>/<date>/<feature>/`. Reuse the factory-supplied session path first, including the directory containing its identity-bound `PLAN_CONTEXT.json`. That unfinished context is sufficient to continue Plan without a completed brief. A date change or cold/fallback attempt never creates a new session by itself. Only a new task without a supplied prior session derives a new path below.
@@ -28,7 +35,7 @@ running in parallel never collide.
 
 ## Scaffolding
 
-On a new piece of work, write `$session/MANIFEST.md` before invoking anything:
+For Research, Plan, Implement or Spike on a new piece of work, write `$session/MANIFEST.md` before invoking anything:
 
 ```markdown
 # Manifest
@@ -42,6 +49,9 @@ On a new piece of work, write `$session/MANIFEST.md` before invoking anything:
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
+
+**Validate** returns read-only structured findings through runner output; no
+manifest checkbox is written by a Validate run.
 
 Modes do not follow on from one another. A box is ticked by a run that a human
 asked for; nothing here licenses starting the next one.
@@ -121,11 +131,14 @@ cold, resumed and fallback execution. Implement requires that approved bundle,
 not just a brief's existence. Agents do not fetch live issues or use local story
 Markdown files as a fallback; the factory validates current relationships.
 
-Each selected story reaches review and tests when its own implementation is
-ready, before siblings finish. The orchestrator publishes the supplied per-run
-verification evidence so the daemon can close that issue immediately. Later
-invalidation reopens it, and final aggregate gates remain required. Completion
-is tied to a stable implementation digest and the approved issue revision.
+Follow the factory's persisted version and `.claude/skills/shared/workflow.md`.
+Legacy stories retain immediate scoped acceptance/review/test verification,
+closure and affected invalidation. Separated Implement publishes immutable
+engineering/check evidence, releases dependents and leaves boxes/issues open;
+Validate performs read-only acceptance/code/architecture/plan review from retained
+checks. Only the factory projects decisions and closes accepted/owner-waived
+stories. Historical acceptance never expires after later code/main changes.
+Final aggregate engineering/save gates remain required.
 
 **The single-file plan is retired.** Plan mode used to write one document holding
 every story in full. It no longer does. Sessions archived under `.aiteam/` before

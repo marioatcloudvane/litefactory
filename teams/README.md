@@ -199,3 +199,24 @@ total tokens and end-to-end latency. Explain the vendor's cached-token accountin
 to avoid double-counting. Missing counters remain null with an explicit explanation;
 failed or non-delegating runs are not performance wins. No paid comparison was run
 for these byte measurements.
+
+## Scoped instruction development
+
+`teams/source/` is the editable publishing source; `teams/releases/` is immutable
+published content, and `.claude/` and `.codex/` are separate installed copies.
+The shared versioned lifecycle contract lives in
+`source/skills/workflow/SKILL.md`. Publishing new content does not install it.
+
+For an isolated preview of this schema-v2 catalog, copy `teams/source/` to a
+temporary root and call `teamsource.CaptureRoot` for one mode, then `render.Native`
+for exactly one harness (`claude` or `codex`) with locally resolved model/tools.
+Capture validates metadata and captures transitive skills; native rendering returns
+in-memory files. Do not call `team.Add`, `team update`, or a mixed-tree generator.
+`go test ./internal/teamsource -run TestSharedWorkflow` exercises both flavors
+without reading or writing installed trees. The older `RenderCurrent` seam is for
+legacy renderer-compatible frontmatter, not this catalog's tiered native roles.
+
+Codex performs the `.claude/**` sibling and Claude performs `.codex/**`, with no
+mutual completion dependency. A blocked harness reports its manual switch while
+other ready stories remain selectable. Temporary installed-tree drift is expected;
+final cross-tree parity remains an aggregate gate after both siblings finish.

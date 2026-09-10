@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
@@ -52,9 +53,22 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
 	runResult, runErr := runClaude(ctx, prep, logger)
+	runResult = harvestValidation(bookkeeping, opts, prep, runResult)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
 		if err := opts.StoryProgress.Finish(bookkeeping, prep.run.ID, "Parent attempt finished; this story has no accepted scoped verification and remains unfinished."); err != nil {
 			logger.Error("story progress remains pending", slog.Any("error", err))
+		}
+	}
+	if runResult != nil && runResult.Succeeded() && prep.promptInput.ApprovedStories != nil && prep.promptInput.ApprovedStories.WorkflowVersion == store.WorkflowSeparated {
+		pending, err := opts.DB.PendingEngineering(bookkeeping, prep.ref.String(), prep.promptInput.ApprovedStories.Generation)
+		if err != nil || len(pending) > 0 {
+			runResult = runResult.Clone()
+			runResult.Outcome = agent.OutcomeFailed
+			runResult.Reason = "Engineering evidence remains incomplete: " + strings.Join(pending, ", ")
+			if err != nil {
+				runResult.Reason = "Cannot confirm engineering evidence: " + err.Error()
+			}
+			runResult.ResultText += "\n\n" + runResult.Reason
 		}
 	}
 	if runResult != nil && prep.promptInput.ApprovedStories != nil {
@@ -120,6 +134,16 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 			if err := opts.StoryProgress.Poll(bookkeeping); err != nil {
 				logger.Error("story completion remains pending", slog.Any("error", err))
 			}
+		}
+	}
+	if prep.promptInput.ApprovedStories != nil && prep.promptInput.ApprovedStories.WorkflowVersion == store.WorkflowSeparated && result.Succeeded() {
+		feature, err := opts.DB.GetManagedFeature(bookkeeping, prep.ref.String())
+		if err != nil {
+			result.Err = err
+		} else if feature.EngineeringSucceeded {
+			runResult = runResult.Clone()
+			runResult.ResultText += "\n\nFactory next action: all engineering and test evidence is complete and aggregate/save succeeded. You may explicitly request /validate to review acceptance. No mode transition was started."
+			result.Harness = runResult.Clone()
 		}
 	}
 	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
@@ -301,7 +325,7 @@ func save(
 	runResult *harness.RunResult,
 	logger *slog.Logger,
 ) Result {
-	if result.Err != nil {
+	if result.Err != nil || prep.promptInput.Validation != nil {
 		return result
 	}
 	if !runResult.Succeeded() {

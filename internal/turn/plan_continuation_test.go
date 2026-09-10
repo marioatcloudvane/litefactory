@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/planbrief"
+	"github.com/cloudvane/litefactory/internal/redact"
+	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -190,6 +193,11 @@ func TestPlanningConversationThroughOwnerImplementation(t *testing.T) {
 					if len(bundle.Stories) != 1 || bundle.Stories[0].State != "frozen" {
 						t.Fatalf("implementation lacks frozen scope: %+v", bundle.Stories)
 					}
+					// The separated workflow releases a story on engineering
+					// evidence, so the owner's implementation turn only
+					// succeeds once this run publishes it. Acceptance stays
+					// out of it: that is Validate's, not engineering's.
+					publishEngineeringEvidence(t, req, bundle)
 				}
 				r := succeeded(req, f.paths.Home())
 				r.ResumeToken = "plan-conversation"
@@ -200,6 +208,14 @@ func TestPlanningConversationThroughOwnerImplementation(t *testing.T) {
 			})
 			f = newFixture(t, runner)
 			forge := setupOutcomeForge(t, f)
+			// The owner's implementation phase is only released by ingested
+			// engineering evidence, so this conversation needs a live story
+			// progress service; setupOutcomeForge alone leaves it nil.
+			renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: github.CommentSizeLimit})
+			mustProgress(t, err)
+			progress, err := NewStoryProgress(f.db, forge, renderer, 9, filepath.Join(t.TempDir(), "plan-continuation-locks"))
+			mustProgress(t, err)
+			f.opts.StoryProgress = progress
 			f.opts.Runners = RunnerSet{kind: runner}
 			req := planRequest(f)
 			req.Agent = kind
@@ -239,6 +255,26 @@ func TestPlanningConversationThroughOwnerImplementation(t *testing.T) {
 			if feature.State != "implementing" {
 				t.Fatalf("owner implementation did not freeze state: %+v", feature)
 			}
+		})
+	}
+}
+
+// publishEngineeringEvidence writes one engineering_complete event for every
+// frozen story in the supplied bundle, bound to this run's identity and
+// revision, the way a real implementation run reports scoped completion.
+func publishEngineeringEvidence(t *testing.T, req agent.Request, bundle agent.ApprovedBundle) {
+	t.Helper()
+	content := []byte("package sample\n")
+	mustProgress(t, os.WriteFile(filepath.Join(req.WorktreePath, "sample.go"), content, 0o600))
+	files := []agent.StorySnapshotFile{{Path: "sample.go", Content: content, SHA256: agent.StoryDigest(content)}}
+	digest := agent.SnapshotDigest(files)
+	for i, story := range bundle.Stories {
+		check := agent.StoryCheck{Name: "AC-1", Passed: true, Evidence: "scoped check passed", ImplementationDigest: digest}
+		writeProgressEvent(t, req.WorktreePath, agent.StoryEvent{
+			Version: 1, Parent: req.Ref.String(), RunID: bundle.RunID, Generation: bundle.Generation,
+			Story: story.Key, IssueID: story.IssueID, Revision: story.Revision,
+			Attempt: 1, Sequence: i + 1, Kind: "engineering_complete",
+			Evidence: &agent.StoryEvidence{ImplementationDigest: digest, Files: files, Tests: []agent.StoryCheck{check}},
 		})
 	}
 }

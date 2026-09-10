@@ -13,9 +13,18 @@ func (db *DB) MarkStoryAggregateSucceeded(ctx context.Context, runID int64) erro
 // acknowledgements, independently of when each story was closed. Caller holds
 // the parent's progress lock so no concurrent ingestion can invalidate the gate.
 func (db *DB) CompleteManagedFeature(ctx context.Context, parent string) error {
-	_, err := db.sql.ExecContext(ctx, `UPDATE managed_features SET state='completed' WHERE parent_task=? AND state='implementing'
+	_, err := db.sql.ExecContext(ctx, `UPDATE managed_features SET state='completed' WHERE parent_task=? AND state='implementing' AND workflow_version=1
  AND EXISTS(SELECT 1 FROM managed_stories s WHERE s.parent_task=managed_features.parent_task AND s.generation=managed_features.generation)
  AND NOT EXISTS(SELECT 1 FROM managed_stories s WHERE s.parent_task=managed_features.parent_task AND s.generation=managed_features.generation AND s.state!='completed')
+ AND EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.generation=managed_features.generation AND p.aggregate_succeeded=1)
+ AND NOT EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.active=1)
+ AND NOT EXISTS(SELECT 1 FROM story_progress_effects e WHERE e.parent_task=managed_features.parent_task AND e.delivered=0 AND e.superseded=0)`, parent)
+	if err != nil {
+		return err
+	}
+	_, err = db.sql.ExecContext(ctx, `UPDATE managed_features SET engineering_succeeded=1 WHERE parent_task=? AND workflow_version=2 AND state='implementing'
+ AND EXISTS(SELECT 1 FROM managed_stories s WHERE s.parent_task=managed_features.parent_task AND s.generation=managed_features.generation)
+ AND NOT EXISTS(SELECT 1 FROM managed_stories s WHERE s.parent_task=managed_features.parent_task AND s.generation=managed_features.generation AND s.state!='completed' AND s.engineering_complete=0)
  AND EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.generation=managed_features.generation AND p.aggregate_succeeded=1)
  AND NOT EXISTS(SELECT 1 FROM story_progress_runs p WHERE p.parent_task=managed_features.parent_task AND p.active=1)
  AND NOT EXISTS(SELECT 1 FROM story_progress_effects e WHERE e.parent_task=managed_features.parent_task AND e.delivered=0 AND e.superseded=0)`, parent)

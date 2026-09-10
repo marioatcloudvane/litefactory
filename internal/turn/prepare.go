@@ -443,6 +443,7 @@ func prepare(
 		promptInput: promptInput,
 		sync:        sync,
 		request: agent.Request{
+			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,
 			PlanProposalPath:   promptInput.PlanProposalPath,
 			PlanOutcomePath:    promptInput.PlanOutcomePath,
@@ -784,6 +785,9 @@ func syncBase(
 	author git.Author,
 	logger *slog.Logger,
 ) (syncResult, error) {
+	if req.mode() == "validate" {
+		return syncResult{Outcome: syncOutcomeSkipped, Reason: "Validate reviews retained evidence without synchronizing code"}, nil
+	}
 	baseRef := opts.remote() + "/" + repo.BaseBranch
 
 	divergence, err := worktree.Divergence(ctx, baseRef)
