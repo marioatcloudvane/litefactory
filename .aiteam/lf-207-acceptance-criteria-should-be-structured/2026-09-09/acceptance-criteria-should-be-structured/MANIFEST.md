@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + managed GitHub story proposal *(run 0006 completed; factory publication/readiness pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — read-only retained-evidence findings *(not started; no artifact or manifest update from Validate)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -26,6 +26,8 @@ asked for; nothing here licenses starting the next one.
 
 - 2026-09-10 — Research completed for run 0005: recorded owner approval of the full structure, evidence Option B, criterion-ID rules and feedback/compatibility direction. Added comment-preferred editing with inline edits retained, concrete bottom-of-story guidance outside parsed content, authenticated owner input, revision conflict detection, and preservation of issue authority, frozen scope and accepted history. All owner review choices are settled; remaining engineering questions belong to Plan. No production changes, tests, operational access, confirmation wait, commit, push or mode transition.
 
+- 2026-09-10 — Plan completed for run 0006 / run database ID 301: requirements engineer captured approved scope in feature-spec.md, architect reviewed owners/lifecycle/transport and decomposed 12 stories in ARCH_REVIEW.md, and product owner authored the complete transient version-1 proposal plus shared plan_brief.md. Saved identity-bound PLAN_CONTEXT.json with no unresolved owner questions; exact current attempt-bound completed outcome supplied. All 12 creates use zero child identities and empty bases; 54 ACs have matching separate evidence-inventory rows. Root validated the current Go proposal/outcome/index parsers; architecture review identified and corrected an atomic GitHub edit-protection overclaim in US-007. Authentic dual-harness helper invocation/correction/receipt evidence remains explicitly unavailable and unsatisfied in US-012 AC-003. Protected-tree stories require independent Codex/Claude handoffs. No implementation, forge operations, broad tests, runtime edits, commit, push or automatic mode transition.
+
 ## Notes
 
-- Headless run: never wait for answers or confirmation. Run 0005 approves the structured contract direction, evidence Option B, ID rules and feedback/compatibility, with comments preferred for requesting updates and direct issue edits still supported. The research brief records the approved direction and remaining Plan-owned mechanics. Research remains selected; an explicit owner `/plan` instruction is required to start Plan. No automatic mode transition or confirmation wait.
+- Headless run: never wait for answers or confirmation. Run 0005 approves the structured contract direction, evidence Option B, ID rules and feedback/compatibility, with comments preferred for requesting updates and direct issue edits still supported. The research brief records the approved direction and remaining Plan-owned mechanics. Run 0006 explicitly selects Plan and requests completion from the approved research direction. Plan remains selected after publication; Implement requires a separate owner command. No automatic mode transition or confirmation wait.
