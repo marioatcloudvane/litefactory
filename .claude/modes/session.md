@@ -14,7 +14,7 @@ which is the only role that writes them, and in
 Validate reads `.claude/modes/validate.md` and the shared workflow. It does not
 scaffold a session, derive a path with shell commands, write or tick
 `MANIFEST.md`, or create review/result files. Supplied context may be read, but
-no artifact is a prerequisite for returning structured findings.
+artifacts are not prerequisites for returning structured findings.
 
 ## Deriving the path
 

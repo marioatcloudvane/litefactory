@@ -35,15 +35,15 @@ writing/execution and fixes.** Invoke the unit-test engineer when each
 implementation is ready, and the integration-test engineer only for real
 boundaries, using existing repository conventions and safe targets. Missing
 checks stay missing; failed checks stay failed. **Do not commission code,
-architecture, acceptance or approved-plan review as a completion prerequisite** —
-that is Validate's.
+architecture, acceptance or approved-plan review as an Implement completion
+prerequisite** — that is Validate's.
 
 Publish the factory-supplied engineering event immediately after scoped tests and
 self-checks pass, binding frozen identity/revision, immutable file
 snapshot/digest and factual executed outcomes to its exact schema. Coordinate
 later writes and replace stale evidence through the supplied protocol; that is
 never reopening historical acceptance. Engineering completion releases dependent
-work with issues and acceptance boxes still open. Never send legacy `verified`
+work with acceptance boxes/issues still open. Do not send legacy `verified`
 acceptance evidence on this path.
 
 Run the aggregate build/format/vet/test gates; diagnose and fix failures with the
@@ -61,10 +61,10 @@ Claude edits `.codex/**`; an unavailable harness is an explicit handoff and does
 not block independent ready work. Return one report, and **do not fall through
 into the legacy procedure afterwards.**
 
-## Legacy workflow only
+## Legacy workflow procedure only
 
 Everything below — acceptance, scoped review, closure, invalidation, the phases
-and their artifacts — applies only to the persisted legacy workflow.
+and their artifacts — apply only to the persisted legacy workflow.
 
 ### Approved story source
 
