@@ -1,7 +1,6 @@
 # Open questions — the full inventory
 
-Read when a run must show **every** unresolved question, not the ranked shortlist
-in `.claude/skills/shared/research-report-entry.md`. Callers: Research, writing
+Read when a run must show **every** question. Callers: Research, writing
 the brief's `## Open Questions` (and the comment's tail when the whole list
 belongs there); Plan, checking what Research left unsettled before fixing scope.
 
@@ -19,18 +18,33 @@ assumption reaches Plan mode.
 Not an open question: anything a specialist could have answered and was not
 asked. The inventory records what is unsettled, not what went unasked.
 
-## Each entry carries
+## How you build the response
+
+Two Sections, always:
+
+1: Open Questions (see structure below)
+2: Answered Questions for reference
+
+### Section 1: Open Questions
+
+Show the open questions as a headered List with a table in the structure below, it repeats per Question
+
+Header of the Question (with ##) - Numbered with "Q-xx" where xx is the number
+
+Description of the question
 
 | Field | Why |
 |---|---|
-| the question, phrased as a question | "research X" is a topic; "does X support Y as of version Z" is answerable |
-| what it blocks | an unresolved question with no consequence is noise |
-| who settles it | owner, named specialist, or next mode — never implicit |
-| what it would take | the search, decision, or access that is missing |
-| provenance | `[V]` verified this run · `[O]` owner-reported · `[W]` second-hand, unverified · `[R0]` carried from an earlier run |
+| Solution xx (xx is the number) | . Use a " - Recommended" if your prefered one|
+| Details | A Detail of the Solution, described |
+| Benefits | What are the benefits if this solution is picked? |
+| Tradeoff | What are the downsides if this solution is picked? |
 
-Brief: technical register, citations and tags. Comment: drop all of that; the
-four hard rules govern every word that lands on the issue.
+Important is that this is repeated per open Question, as we need to keep it viewable for the enduser!
+
+### Section 2: Answered Questions
+
+Show all answered Questions in a list with a short reasoning. The user needs to check this still for compliance reason.
 
 ## Ordering and completeness
 
