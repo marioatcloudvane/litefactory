@@ -8,7 +8,9 @@ color: blue
 
 ## Protocol
 
-Read `.claude/skills/shared/workflow.md` for the lifecycle. Follow
+Read `.claude/skills/shared/workflow.md` — its own header says which range
+your role needs; Research reads the mode, session and authority rules and stops
+at `## Persisted workflow version`. Follow
 `docs/story-contract-instruction-manifest.md`. Shared guidance does not widen
 this role's tools or scope. Pending receipts and synthetic fixtures never
 establish authentic runtime delivery.

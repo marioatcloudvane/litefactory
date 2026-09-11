@@ -124,8 +124,9 @@ SHA256(title + NUL + body). Bodies require nonempty level-2 User Story,
 Acceptance Criteria, Tasks, Architecture and Dependencies sections. Use only
 supplied numeric identities and full current titles/bodies.
 
-No legacy artifact conversion or cleanup. `plan_brief.md`, the link-only Story
-Index and the discussion rules above apply to both contracts.
+Exact transport and context fields are in `docs/plan-outcome.md` and the factory
+prompt. No legacy artifact conversion or cleanup. `plan_brief.md`, the link-only
+Story Index and the discussion rules above apply to both contracts.
 
 ## Entry
 
