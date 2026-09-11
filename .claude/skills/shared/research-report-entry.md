@@ -34,28 +34,12 @@ Nothing follows it.
 4. **Links the brief.** Every run. The link is what makes the plain register
    affordable.
 
-## Sections, in order
+## How you build the response: always in exactly this structure!
 
-1. **Link to the brief.**
+1. **What was found** — the first analysis, in plain language.
 2. **Problems and risks** — named, never implied. No empty case: if the run found
    none, write "no problems found". Silence is not a finding.
-3. **What was found** — the first analysis, in plain language.
-4. **What to work on next** — below.
-
-## What to work on next
-
-The report ends by offering the questions worth pursuing, so the owner's reply is
-enough to start the next run.
-
-- **Two or three, ranked.** Drawn from the full inventory; a list of everything
-  is not an offer.
-- Each says **what it unblocks** and **who settles it** — owner, specialist, or
-  next mode.
-- **Invite a choice explicitly.** The owner names one on the thread.
-- Where the full inventory is in the same comment, it goes after this shortlist.
-
-**A shortlist is an offer, not a plan.** Do not start on any of it. Only a human
-comment opens the next piece of work.
+4. **What to work on next** — say how many open questions there are and ask the user to work on them. Don't list the questions yet as the next cycle is thinking about them!
 
 ### The standing line
 
