@@ -128,7 +128,7 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-3. Read `.claude/skills/shared/research-brief.md` and write
+3. If available already, Read `.claude/skills/shared/research-brief.md` and write
    `$session/RESEARCH_BRIEF.md`.
 4. Present the brief to the user for confirmation.
 5. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
