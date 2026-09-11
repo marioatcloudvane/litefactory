@@ -232,9 +232,11 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 
 - **STYLE-7** — Before editing a package, agents MUST read its `doc.go` specification.
 - **STYLE-8** — `internal/harness/prompt.go`'s `"- Mode: %s\n"` header line
-  and `CLAUDE.md`'s `## Classify` trust of that literal MUST change together,
-  in the same commit. No test catches the `CLAUDE.md` side drifting —
-  `prompt_test.go`/`prompt_body_test.go` pin only the Go string.
+  and `CLAUDE.md`'s opening line, which declares that header authoritative,
+  MUST change together, in the same commit. No test catches the `CLAUDE.md`
+  side drifting — `prompt_test.go`/`prompt_body_test.go` pin only the Go
+  string. (Was `CLAUDE.md`'s `## Classify`; that section is gone, because
+  litefactory pins the mode before any agent reads the file.)
 - **STYLE-9** — Loops validating or writing independent items MUST aggregate every item’s failure with `errors.Join`/`joinSorted`, as in CFG-5 and SEC-12; one failure MUST NOT hide unrelated records.
 
 - **STYLE-10** — `agent.RunResult.Succeeded()` (live subprocess) and
