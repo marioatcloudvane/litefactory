@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + typed story contribution *(planning iteration complete; factory publication and save pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -23,4 +23,12 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 
 ## Notes
 
-- Research only; headless run, no questions, commits or pushes.
+- 2026-09-11 — Plan completed for issue #227, run 0003: adopted the three owner-approved recommendations, produced feature-spec.md, approved ARCH_REVIEW.md, and shared plan_brief.md with seven typed stories. Contribution awaits authorized factory preflight/submission, publication and save; local artifacts do not establish readiness.
+- No implementation, commits or pushes. Authentic feature-specific lifecycle evidence remains an unsatisfied external prerequisite in US-007; US-006 requires manual Claude execution for the protected Codex instruction tree.
+
+## Factory submission — run 0003
+
+- Preflight: valid and complete; no diagnostics or unchecked paths.
+- Submitted request: `c7b606e2cf950aff3498bcefc890b634`.
+- Receipt: input valid; Plan pending; engineering, acceptance and effects not applicable.
+- Publication, story links, save and readiness remain factory-owned and pending at subprocess completion.
