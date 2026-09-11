@@ -43,7 +43,8 @@ session's artifacts — see *It is a boundary, not just a location* in
 | Output | Register | Procedure |
 |---|---|---|
 | `$session/RESEARCH_BRIEF.md` | technical, full depth | `.claude/skills/shared/research-brief.md` |
-| The run's final message | business-readable, plain language | `.claude/skills/shared/research-report-entry.md` |
+| The run's final message, first run | business-readable, plain language | `.claude/skills/shared/research-report-entry.md` |
+| The run's final message, later runs | business-readable, plain language | `.claude/skills/shared/research-open-questions.md` |
 | `$session/MANIFEST.md` | Research marked done | `.claude/modes/session.md` |
 
 The report is an **addition, not a replacement**. Nothing is taken out of the
@@ -115,29 +116,52 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-   If it is the first run (there is no RESEARCH_BRIEF.md), by the end of the run you need to produce the research brief. Call the research-report-entry skill for that. Then, give a business summary as feedback back to the factory. This summary needs to be business focused, not technical. Don't overwhelm the user, explain in easy terms and without much prose. Don't expect the user to be a senior expert.
-4. If it is not the first run, Read `.claude/skills/shared/research-brief.md` and write
-   `$session/RESEARCH_BRIEF.md`. Use the "research-open-questions" skill to create the digest for the end of the run. Always list the full response from the agent to the user.
-5. Present the result to the user for confirmation.
-6. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
-7. Read `.claude/skills/shared/research-report-entry.md` and write the report as
-   your final message. It is required on every run, and it is the run's last
-   word: nothing follows it. Where the whole inventory of unresolved questions
-   belongs in that message, read
-   `.claude/skills/shared/research-open-questions.md` and put it after the
-   shortlist.
+3. Read `.claude/skills/shared/research-brief.md` and keep
+   `$session/RESEARCH_BRIEF.md` up to date. Read it first when it is present. On
+   a first run you create it; on a later run you update it. It is written on
+   every run.
+4. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
+5. Write your final message. **Which procedure you read depends on the run** —
+   the test is whether `$session/RESEARCH_BRIEF.md` existed when this run
+   started:
+
+   | | Read | The message is |
+   |---|---|---|
+   | **First run** — no brief yet | `.claude/skills/shared/research-report-entry.md` | easy to comprehend feedback that gets the user moving. It says how many open questions there are and asks them to work on them; it does not list them — the next cycle is for thinking about them. |
+   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | the full question digest, open and answered. Expect back-and-forth across several runs. |
+
+   **Never give up on a later run.** The back-and-forth is the work: you are
+   helping the user shape the feature they are building. You serve the user, and
+   you insist — be strict about getting the questions answered.
+
+   **You never assume, you work with the user.** You run headless, but litefactory
+   is above you and can ask the user; anything needing human judgment goes there,
+   not into a guess.
+
+   This message **is** how you present the result for confirmation — headless,
+   there is no mid-run confirmation to wait for. So it has to carry everything
+   the user needs in order to answer.
+
+   Either way the message is **business-focused, not technical**. Explain in easy
+   terms, without much prose. Do not overwhelm the reader and do not expect them
+   to be a senior expert. It is the run's last word: nothing follows it.
 
 The report you have just written *is* what routes back to the top-level
 dispatcher. Do not append a handoff note after it.
 
-## Detour rule
+## Asking the factory
 
-When you hit an unknown: **log it as an open question in the brief and
-continue.** Unknowns are the work of Research mode — do not pause for user input
-on facts you can capture as questions. This is the default and it stays the
-default.
+You run headless, but there is someone to ask — see *Important* above. **Anything
+needing human judgment goes to the factory.** Never assume it, and hand off early
+rather than at the end.
 
-Asking is a higher tier above this rule, reached only by a question that clears
-the bar and only on a run litefactory has given permission to ask. When you think
-a question clears it, read `.claude/skills/shared/asking.md`. Everything that
-does not clear it is logged here and the run continues.
+Route by what the question actually is:
+
+| The question | Where it goes |
+|---|---|
+| Needs human judgment — what gets built, a trade-off with no technical answer, scope | **The factory.** Read `.claude/skills/shared/asking.md` for how to put it and how to judge the reply. |
+| A fact someone could establish by looking | **A specialist.** Invoke `codebase-tour` or `web-researcher`; do not spend a human on it. |
+| Genuinely unresolvable right now | **The brief.** Log it as an open question and continue — unknowns are the work of Research mode. |
+
+The middle row is the common case and the one most often got wrong: reaching for
+a human is not diligence when a specialist has the tools to settle it.
