@@ -52,6 +52,16 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
+	prep.planSubmission = func(c context.Context) (*PlanSubmissionCallbacks, error) {
+		return prepareTypedPlanSubmission(c, opts, prep)
+	}
+	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
+	started, err := opts.DB.StartRun(ctx, prep.run.ID)
+	if err != nil {
+		return result, err
+	}
+	prep.run = started
+	result.Run = started
 	runResult, runErr := runClaude(ctx, prep, logger)
 	runResult = harvestValidation(bookkeeping, opts, prep, runResult)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
@@ -101,6 +111,26 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return finish(bookkeeping, opts, prep, result, nil, &meta, logger)
 	}
 
+	return harvestStopped(ctx, opts, prep, result, runResult, &meta, logger)
+}
+
+// harvestStopped resumes only persistence and harvest after observed completion.
+func harvestStopped(ctx context.Context, opts Options, prep *preparation, result Result, runResult *harness.RunResult, meta *harness.Meta, logger *slog.Logger) (out Result, outErr error) {
+	bookkeeping := context.WithoutCancel(ctx)
+	terminalSaved := false
+	defer func() {
+		if outErr != nil && !terminalSaved {
+			out.Repair = func(c context.Context) (Result, error) {
+				return harvestStopped(c, opts, prep, result, runResult, meta, logger)
+			}
+		}
+	}()
+	for len(prep.stoppedRepairs) > 0 {
+		if err := prep.stoppedRepairs[0](bookkeeping); err != nil {
+			return result, err
+		}
+		prep.stoppedRepairs = prep.stoppedRepairs[1:]
+	}
 	result.Disposition = DispositionRan
 	result.Harness = runResult.Clone()
 	result.Outcome = runResult.Outcome
@@ -124,6 +154,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return result, fmt.Errorf("finish run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
 	}
 	result.Run = run
+	terminalSaved = true
 
 	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
@@ -148,7 +179,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
 	result = fileStoryIssues(ctx, opts, prep, result, runResult, logger)
-	return finish(bookkeeping, opts, prep, result, runResult, &meta, logger)
+	return finish(bookkeeping, opts, prep, result, runResult, meta, logger)
 }
 
 // runClaude starts the subprocess, and reruns it once — cold, in this same
@@ -196,6 +227,9 @@ func runClaude(
 	// gains over a resumed one is assembled in exactly one place, in prepare.
 	cold := prep.promptInput
 	cold.Resume = false
+	if err := preparePlanAttempt(prep.worktree.Path(), prep.session.Branch, prep.run, &cold, logger); err != nil {
+		return nil, err
+	}
 	prompt, err := harness.BuildPrompt(cold)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the cold prompt for run %d of task %s: %w",
@@ -208,6 +242,8 @@ func runClaude(
 	prep.promptInput = cold
 	prep.prompt = prompt
 	prep.request.Prompt = prompt
+	prep.request.PlanAttempt = cold.PlanAttempt
+	prep.request.PlanWorkingContext = cold.PlanWorkingContext
 	prep.request.Path = agent.PathColdAfterResumeRefused
 
 	if err := checkAttemptScope(ctx, prep); err != nil {
@@ -324,6 +360,12 @@ func save(
 		return result
 	}
 	if !runResult.Succeeded() {
+		result.Publication = "Not published by this run; local edits and commits are retained."
+		if head, err := prep.worktree.RevParse(ctx, "HEAD", git.RevParseOptions{}); err == nil {
+			result.Publication += " Retained local commit: " + head + "."
+		} else {
+			result.Publication += " Local commit observation unavailable: " + err.Error()
+		}
 		logger.Warn("run did not succeed; leaving the work uncommitted in the worktree",
 			slog.String("worktree", prep.worktree.Path()),
 			slog.String("outcome", runResult.Outcome.String()))
@@ -409,30 +451,59 @@ func commitAndPush(
 	result.SHAAfter = commit.Head
 	result.CommitSHA = commit.SHA
 	result.Committed = commit.Committed
-	// The branch moving is the test, not the commit happening: a run holding
-	// the Bash tool may have committed for itself, leaving a clean worktree and
-	// work that still has to reach the remote (AC-3.24).
+	// Agent-change reporting remains relative to the prepared tree. Publication
+	// eligibility below is independent: preparation/prior-attempt commits may
+	// need publishing even when the agent made no changes.
 	result.Changed = commit.Head != prep.shaBefore
 
-	if !result.Changed {
-		// AC-3.23. A normal result, not an error — and the report says so
-		// explicitly rather than posting an empty success.
-		logger.Info("run produced no changes; nothing to commit or push",
-			slog.String("branch", prep.session.Branch))
+	result.Publication = "Local commit " + commit.Head + " retained; publication not confirmed."
+	remoteHead, err := prep.worktree.RemoteHead(ctx, opts.remote())
+	if err != nil {
+		result.Err = &git.PushError{Remote: opts.remote(), Branch: prep.worktree.Branch(), Worktree: prep.worktree.Path(), Err: fmt.Errorf("publication eligibility could not be observed; push was not attempted: %w", err)}
+		return result
+	}
+	if remoteHead == commit.Head {
+		result.Pushed = true
+		result.Publication = "Commit " + commit.Head + " is already present on the remote; no push needed."
+		return result
+	}
+	if remoteHead == "" && !result.Changed {
+		// A new task with no task-specific commits is still an ordinary no-op.
+		// Prior retained commits and preparation merges remain eligible for save.
+		divergence, err := prep.worktree.Divergence(ctx, opts.remote()+"/"+prep.repo.BaseBranch)
+		if err != nil {
+			result.Err = err
+			return result
+		}
+		if divergence.Ahead == 0 {
+			result.Publication = "No unpublished task commits; no push needed."
+			return result
+		}
+	}
+	if pushErr := prep.worktree.Push(ctx, opts.remote()); pushErr != nil {
+		observed, observeErr := prep.worktree.RemoteHead(ctx, opts.remote())
+		var pe *git.PushError
+		upstreamFailure := errors.As(pushErr, &pe) && pe.Published
+		if observeErr == nil && observed == commit.Head && !upstreamFailure {
+			result.Pushed = true
+			result.Publication = "Commit " + commit.Head + " is confirmed on the remote after publication raced; the verified tree was unchanged."
+			return result
+		}
+		result.Err = pushErr
+		switch {
+		case observeErr != nil:
+			result.Publication += " Remote observation failed: " + observeErr.Error()
+		case observed != remoteHead:
+			result.Publication += fmt.Sprintf(" Remote task tip changed from %s to %s during publication. Resolve the task branch through the existing proposed/manual recovery and request a newly verified run; no late merge was attempted.", displayRemoteHead(remoteHead), displayRemoteHead(observed))
+		case prep.sync.Task != nil && observed != prep.sync.Task.BaseSHA:
+			result.Publication += fmt.Sprintf(" Remote task tip changed since preparation to %s. Resolve the task branch through the existing proposed/manual recovery and request a newly verified run; no late merge was attempted.", displayRemoteHead(observed))
+		}
+		logger.Error("push the task branch", slog.String("branch", prep.session.Branch), slog.Any("error", pushErr))
 		return result
 	}
 
-	if err := prep.worktree.Push(ctx, opts.remote()); err != nil {
-		// The commit is not lost. *git.PushError names the worktree still
-		// holding it, which is what the report quotes (AC-3.24).
-		result.Err = err
-		logger.Error("push the task branch",
-			slog.String("branch", prep.session.Branch),
-			slog.String("worktree", prep.worktree.Path()),
-			slog.Any("error", err))
-		return result
-	}
 	result.Pushed = true
+	result.Publication = "Commit " + commit.Head + " published successfully."
 
 	logger.Info("run committed and pushed",
 		slog.String("branch", prep.session.Branch),
@@ -457,7 +528,20 @@ func finish(
 	runResult *harness.RunResult,
 	meta *harness.Meta,
 	logger *slog.Logger,
-) (Result, error) {
+) (out Result, outErr error) {
+	defer func() {
+		if outErr != nil {
+			out.Repair = func(c context.Context) (Result, error) {
+				return finish(context.WithoutCancel(c), opts, prep, result, runResult, meta, logger)
+			}
+		}
+	}()
+	for len(prep.stoppedRepairs) > 0 {
+		if err := prep.stoppedRepairs[0](ctx); err != nil {
+			return result, err
+		}
+		prep.stoppedRepairs = prep.stoppedRepairs[1:]
+	}
 	if runResult == nil {
 		// The subprocess never started, so there is no outcome to derive: the
 		// row is failed by hand with the signal exit code S-9 reserves for "no
@@ -479,6 +563,17 @@ func finish(
 			return result, fmt.Errorf("record the commit of run %d: %w", prep.run.Ordinal, err)
 		}
 		result.Run.CommitSHA = result.CommitSHA
+	}
+
+	// The push was verified once, here. A report whose post fails is rebuilt
+	// from the row on a later tick, so the answer has to be durable rather
+	// than re-derived against a remote that may have moved since.
+	if result.Publication != "" || result.Pushed {
+		if err := opts.DB.SetRunPublication(ctx, prep.run.ID, result.Pushed, result.Publication); err != nil {
+			return result, fmt.Errorf("record the publication of run %d: %w", prep.run.Ordinal, err)
+		}
+		result.Run.Published = result.Pushed
+		result.Run.Publication = result.Publication
 	}
 
 	meta.SHAAfter = result.SHAAfter
@@ -514,4 +609,11 @@ func finish(
 		slog.Bool("pushed", result.Pushed),
 		slog.String("session_state", string(state)))
 	return result, nil
+}
+
+func displayRemoteHead(sha string) string {
+	if sha == "" {
+		return "(absent)"
+	}
+	return sha
 }

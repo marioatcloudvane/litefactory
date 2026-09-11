@@ -184,7 +184,7 @@ func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID 
 	var faults []error
 	complete := true
 	for _, r := range runs {
-		if r.Parent != parent {
+		if r.Parent != parent || r.Status == store.RunPrelaunch {
 			continue
 		}
 		if err := p.ingest(ctx, r); err != nil {
@@ -335,7 +335,7 @@ func (p *StoryProgress) ingest(ctx context.Context, r store.StoryProgressRun) er
 				return fmt.Errorf("story event kind does not match approved workflow")
 			}
 			if e.Kind == "verified" {
-				if err := storyAcceptanceCovered(s.Body, e.Evidence.Acceptance); err != nil {
+				if err := storyAcceptanceCoveredFrozen(ctx, p.db, r.Parent, r.Generation, s.Key, s.Hash, s.Body, e.Evidence.Acceptance); err != nil {
 					return err
 				}
 				if err := verifyStorySnapshot(root, *e.Evidence); err != nil {

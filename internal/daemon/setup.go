@@ -325,6 +325,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Confirmer:           NewConfirmApplier(turnOpts),
 		ConflictProposalTTL: conflictProposalTTL,
 		Reporter:            reporter,
+		DiagnosticRedactor:  redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}),
 		// The same two keys the harness was built from above, so the profile a
 		// label selects and the ceiling that bounds it are one decision made in
 		// one place — internal/config resolved the ceiling before it validated

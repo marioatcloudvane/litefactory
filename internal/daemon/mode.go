@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -37,22 +38,40 @@ func resolveModeLabel(labels []string) (agent.Mode, bool, error) {
 	return mode, true, nil
 }
 
-func (d *Daemon) cleanupModeLabel(ctx context.Context, t *task) error {
-	if len(d.classifiers) == 0 {
-		return nil
+// retireModeSelections closes trigger recovery journals without changing the
+// owner's persistent selection. Legacy cleanup obligations are bookkeeping only.
+func (d *Daemon) retireModeSelections(ctx context.Context, sessionID int64) (retErr error) {
+	// A delivered report can outlive local mode-journal cleanup. Finish that
+	// scheduling debt here even when the consumed source is no longer polled.
+	defer func() {
+		d.recoveries.mu.Lock()
+		var cleanup []store.ReportRecovery
+		for _, row := range d.recoveries.items {
+			if row.SessionID == sessionID && row.State == "cleanup" {
+				cleanup = append(cleanup, row)
+			}
+		}
+		d.recoveries.mu.Unlock()
+		for _, row := range cleanup {
+			if retErr == nil {
+				d.recoverySucceeded(ctx, row.Key)
+			} else {
+				d.recoveryFailure(ctx, row, recoveryTime(ctx), &turn.DeliveryError{Key: row.DeliveryKey, State: "cleanup", Cause: retErr})
+			}
+		}
+		if retErr != nil && len(cleanup) != 0 {
+			retErr = &recoveryPending{retErr}
+		}
+	}()
+	for {
+		selection, found, err := d.db.PendingModeCleanup(ctx, sessionID)
+		if err != nil || !found {
+			return err
+		}
+		if err := d.db.DeleteModeSelection(ctx, selection.SessionID, selection.TriggerCommentID); err != nil {
+			return err
+		}
 	}
-	selection, found, err := d.db.PendingModeCleanup(ctx, t.session.ID)
-	if err != nil || !found {
-		return err
-	}
-	forge, ok := d.forge.(labelForge)
-	if !ok {
-		return fmt.Errorf("forge does not support mode labels")
-	}
-	if err := forge.RemoveIssueLabel(ctx, t.forgeRepo, t.issue.Number, selection.Label); err != nil {
-		return err
-	}
-	return d.db.DeleteModeSelection(ctx, selection.SessionID, selection.TriggerCommentID)
 }
 
 func storedMode(selection store.ModeSelection) (agent.Mode, error) {
@@ -102,8 +121,165 @@ func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, 
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
-	_, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	_, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref: t.ref, SessionID: t.session.ID, CommentID: trigger.CommentID, Refusal: kind,
 	})
 	return err
+}
+
+// admitMode pins the effective mode before effects. Confirmed journals never
+// consult labels again: later owner edits belong to the next trigger.
+func (d *Daemon) admitMode(ctx context.Context, t *task, trigger turn.Trigger, command turn.Command) (agent.Mode, error) {
+	if t.continuation != nil {
+		return agent.Mode(t.continuation.Context.Mode), nil
+	}
+	enabled := len(d.classifiers) > 0
+	if enabled {
+		selection, err := d.db.GetModeSelection(ctx, t.session.ID, trigger.CommentID)
+		if err == nil {
+			mode, err := storedMode(selection)
+			if err != nil {
+				return "", err
+			}
+			if err := d.confirmModeSelection(ctx, t, selection); err != nil {
+				return "", err
+			}
+			return mode, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return "", err
+		}
+		issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+		if err != nil {
+			return "", fmt.Errorf("read current mode selection: %w", err)
+		}
+		t.issue.Labels = issue.Labels
+	}
+	observed, labelled, err := resolveModeLabel(t.issue.Labels)
+	if err != nil {
+		return "", err
+	}
+	mode := observed
+	feature, featureErr := d.db.GetManagedFeature(ctx, t.ref.String())
+	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
+		return "", featureErr
+	}
+	commandMode, commanded := command.Mode()
+	switch {
+	case t.refining:
+		mode = agent.ModePlan
+	// An explicit owner command outranks the managed pin below. It has to:
+	// once a feature leaves planning the pin answers "what does a plain
+	// comment continue in", and answering that for a commented mode as well
+	// makes Validate unreachable on exactly the features that have something
+	// to validate. prepareManagedScope is the gate, not this switch — it
+	// admits managed Validate only for an explicit /validate on a separated
+	// workflow in state implementing, and refuses every other non-implement
+	// mode while approved stories are locked.
+	case commanded:
+		mode = commandMode
+	case featureErr == nil && feature.State != "planning":
+		mode = agent.ModeImplement
+		// Bare `replan` reaches here as free text; `/plan` was already taken
+		// by the commanded case above, and ManagedReplan accepts both.
+		if turn.ManagedReplan(command) {
+			mode = agent.ModePlan
+		}
+	case !labelled:
+		mode, err = d.classifyMode(ctx, t, command.Text)
+		if err != nil && enabled {
+			return "", err
+		}
+	}
+	if !enabled || !mode.Valid() {
+		return mode, nil
+	}
+	previous := ""
+	if labelled && observed != mode {
+		previous = observed.Label()
+	}
+	selection, err := d.db.GetOrCreateModeSelection(ctx, store.ModeSelection{
+		SessionID: t.session.ID, TriggerCommentID: trigger.CommentID,
+		Mode: string(mode), Label: mode.Label(), PreviousLabel: previous,
+		LabelApplied: labelled && observed == mode,
+	})
+	if err != nil {
+		return "", err
+	}
+	mode, err = storedMode(selection)
+	if err != nil {
+		return "", err
+	}
+	if err := d.confirmModeSelection(ctx, t, selection); err != nil {
+		return "", err
+	}
+	return mode, nil
+}
+
+// confirmModeSelection resumes only the recorded old-to-new transition. Every
+// effect is preceded by a fresh canonical-state check; no SQL transaction spans
+// forge I/O. Unrelated labels are never removed.
+func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection store.ModeSelection) error {
+	if selection.LabelApplied {
+		return nil
+	}
+	labels, ok := d.forge.(labelForge)
+	if !ok {
+		return fmt.Errorf("mode label transitions unavailable")
+	}
+	current, err := d.currentModeLabel(ctx, t)
+	if err != nil {
+		return err
+	}
+	if current == selection.Label {
+		return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
+	}
+	if current != "" && (current != selection.PreviousLabel || selection.PreviousLabelRemoved) {
+		return &modeRefusal{kind: report.ReplyConflictingModeSelection}
+	}
+	if current != "" {
+		if err := labels.RemoveIssueLabel(ctx, t.forgeRepo, t.issue.Number, current); err != nil {
+			return fmt.Errorf("remove previous mode label: %w", err)
+		}
+	}
+	if !selection.PreviousLabelRemoved {
+		if err := d.db.MarkPreviousModeLabelRemoved(ctx, selection.SessionID, selection.TriggerCommentID); err != nil {
+			return err
+		}
+	}
+	current, err = d.currentModeLabel(ctx, t)
+	if err != nil {
+		return err
+	}
+	if current != "" && current != selection.Label {
+		return &modeRefusal{kind: report.ReplyConflictingModeSelection}
+	}
+	if current == "" {
+		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, selection.Label); err != nil {
+			return fmt.Errorf("apply selected mode label: %w", err)
+		}
+	}
+	current, err = d.currentModeLabel(ctx, t)
+	if err != nil {
+		return err
+	}
+	if current != selection.Label {
+		return &modeRefusal{kind: report.ReplyConflictingModeSelection}
+	}
+	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
+}
+
+func (d *Daemon) currentModeLabel(ctx context.Context, t *task) (string, error) {
+	issue, err := d.forge.GetIssue(ctx, t.forgeRepo, t.issue.Number)
+	if err != nil {
+		return "", fmt.Errorf("verify mode transition: %w", err)
+	}
+	mode, present, err := resolveModeLabel(issue.Labels)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "", nil
+	}
+	return mode.Label(), nil
 }

@@ -58,7 +58,7 @@ type ConflictProposal struct {
 	Files                 []ConflictProposalFile
 	Format                int
 
-	// BaseSHA and BranchSHA are the base and branch tips this proposal's
+	// BaseSHA and BranchSHA are the merge-target and local tips this proposal's
 	// suggestion was computed against (US-12, S-15): captured once, at
 	// proposal time, and re-verified fresh inside the CloneGate immediately
 	// before a confirmation is applied. A mismatch means the branch or base
@@ -66,6 +66,7 @@ type ConflictProposal struct {
 	// superseded rather than applying content confirmed against code that
 	// no longer exists.
 	BaseSHA, BranchSHA string
+	Inputs             ConflictProposalInputs
 
 	// ConfirmedBy and ConfirmedCommentID record who confirmed this proposal
 	// and which comment did it, set only once a confirmation has passed
@@ -75,6 +76,18 @@ type ConflictProposal struct {
 	ConfirmedCommentID int64
 	AppliedCommitSHA   string
 	AppliedAt          time.Time
+}
+
+// ConflictProposalInputs binds both remote inputs observed under the clone gate.
+// Empty TaskSHA means confirmed absence; Observed distinguishes old unbound history.
+type ConflictProposalInputs struct {
+	TargetPhase string `json:"target_phase"`
+	TargetRef   string `json:"target_ref"`
+	BaseRef     string `json:"base_ref"`
+	BaseSHA     string `json:"base_sha"`
+	TaskRef     string `json:"task_ref"`
+	TaskSHA     string `json:"task_sha"`
+	Observed    bool   `json:"observed"`
 }
 
 // ConflictProposalFile is one conflicting path and its suggested
@@ -111,11 +124,12 @@ type CreateConflictProposalParams struct {
 	Model                       string
 	Files                       []ConflictProposalFile
 	Format                      int
-	// BaseSHA and BranchSHA are the base and branch tips the suggestion was
+	// BaseSHA and BranchSHA are the merge-target and local tips the suggestion was
 	// computed against (US-12, S-15). Both are required: a proposal with no
 	// stored starting point can never be confirmed, since nothing could
 	// ever compare equal to an empty sha.
 	BaseSHA, BranchSHA string
+	Inputs             ConflictProposalInputs
 }
 
 // CreateOrGetConflictProposal records a conflict-resolution proposal once.
@@ -144,11 +158,15 @@ func (db *DB) CreateOrGetConflictProposal(ctx context.Context, params CreateConf
 		if getErr = supersedePendingConflictProposals(ctx, tx, params.SessionID, now); getErr != nil {
 			return getErr
 		}
+		inputs, marshalErr := json.Marshal(params.Inputs)
+		if marshalErr != nil {
+			return marshalErr
+		}
 		proposal, getErr = scanConflictProposal(tx.QueryRowContext(ctx, `
-INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at, base_sha, branch_sha, format)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
+INSERT INTO conflict_proposals (session_id, trigger_comment_id, model, status, created_at, base_sha, branch_sha, format, inputs)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING `+conflictProposalColumns,
 			params.SessionID, params.TriggerCommentID, params.Model, string(ConflictProposalPending), FormatTime(now),
-			params.BaseSHA, params.BranchSHA, params.Format))
+			params.BaseSHA, params.BranchSHA, params.Format, string(inputs)))
 		if getErr != nil {
 			return getErr
 		}
@@ -274,6 +292,18 @@ WHERE session_id = ? AND status = ?`,
 }
 
 func validateConflictProposalParams(p CreateConflictProposalParams) error {
+	if p.Inputs.Observed {
+		i := p.Inputs
+		targetSHA := i.BaseSHA
+		targetRef := i.BaseRef
+		if i.TargetPhase == "task" {
+			targetSHA, targetRef = i.TaskSHA, i.TaskRef
+		}
+		if (i.TargetPhase != "base" && i.TargetPhase != "task") || i.TargetRef != targetRef || i.BaseRef == "" || i.BaseSHA == "" || i.TaskRef == "" || targetSHA == "" || targetSHA != p.BaseSHA {
+			return errors.New("store: inconsistent conflict proposal input binding")
+		}
+	}
+
 	if p.SessionID == 0 || p.Model == "" {
 		return errors.New("store: create conflict proposal: session and model are required")
 	}
@@ -306,17 +336,17 @@ func getConflictProposalBySource(ctx context.Context, q querier, sessionID, trig
 }
 
 const conflictProposalColumns = `id, session_id, trigger_comment_id, model, status, created_at, resolved_at,
-	base_sha, branch_sha, confirmed_by, confirmed_comment_id, applied_commit_sha, applied_at, format`
+	base_sha, branch_sha, confirmed_by, confirmed_comment_id, applied_commit_sha, applied_at, format, inputs`
 const conflictProposalFileColumns = `id, proposal_id, ordinal, path, resolution, details`
 
 func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	var p ConflictProposal
-	var status string
+	var status, inputs string
 	var created, resolved, appliedAt sql.NullString
 	var confirmedBy, appliedCommitSHA sql.NullString
 	var confirmedCommentID sql.NullInt64
 	if err := s.Scan(&p.ID, &p.SessionID, &p.TriggerCommentID, &p.Model, &status, &created, &resolved,
-		&p.BaseSHA, &p.BranchSHA, &confirmedBy, &confirmedCommentID, &appliedCommitSHA, &appliedAt, &p.Format); err != nil {
+		&p.BaseSHA, &p.BranchSHA, &confirmedBy, &confirmedCommentID, &appliedCommitSHA, &appliedAt, &p.Format, &inputs); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConflictProposal{}, ErrNotFound
 		}
@@ -331,6 +361,9 @@ func scanConflictProposal(s scheduleScanner) (ConflictProposal, error) {
 	}
 	if p.AppliedAt, err = scanTime(appliedAt); err != nil {
 		return ConflictProposal{}, err
+	}
+	if err := json.Unmarshal([]byte(inputs), &p.Inputs); err != nil {
+		return ConflictProposal{}, fmt.Errorf("decode conflict inputs: %w", err)
 	}
 	p.Status = ConflictProposalStatus(status)
 	p.ConfirmedBy = confirmedBy.String

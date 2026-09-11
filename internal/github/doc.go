@@ -57,6 +57,16 @@
 // list is TestClientMethodSetIsPinned's, which is the one that fails when it
 // stops being true.)
 //
+// # Polling revalidation
+//
+// A private bounded memory cache wraps a copy of the SDK HTTP client. Every
+// endpoint and page still originates in the SDK and every cached use still
+// reaches the existing transport for validation. Matching 304s reconstruct the
+// complete representation and pagination headers for SDK decoding; failures
+// never serve stale content. Quota observations and debug logs describe actual
+// network responses before reconstruction. Cache data is isolated per client,
+// never persisted, and evicted responses use ordinary GETs.
+//
 // # Sub-issues, and two identifiers that look alike
 //
 // C1 is what the SDK was adopted for: a plan ships as one GitHub issue per user

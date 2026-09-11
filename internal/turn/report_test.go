@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -113,32 +114,27 @@ func TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched(t *testing.T) {
 		t.Error("the watermark moved after a failed post, so the comment would never be reported again")
 	}
 
-	// The next tick sees the comment again. It must retry the post and nothing
-	// else: the run row still exists, so claude is not re-run (AC-3.4).
+	// A failed response is uncertain: an empty lookup cannot authorize another
+	// POST. Execution and source accounting remain blocked pending evidence.
 	forge.recover()
 	retry := f.execute(f.request())
-	if retry.Disposition != DispositionAlreadyRan {
-		t.Fatalf("disposition on retry = %s, want %s", retry.Disposition, DispositionAlreadyRan)
-	}
 	if runner.callCount() != 1 {
-		t.Errorf("claude ran %d times, want 1: a failed post must never cost a second run", runner.callCount())
+		t.Fatalf("executor relaunched %d times", runner.callCount())
 	}
-
-	posted, err := reporter.ReportTurn(t.Context(), retry)
-	if err != nil {
-		t.Fatalf("ReportTurn on retry: %v\nlogs:\n%s", err, f.logs)
+	if _, err := reporter.ReportTurn(t.Context(), retry); err == nil {
+		t.Fatal("empty lookup resolved uncertain delivery")
 	}
-	if attempts := forge.attemptCount(); attempts != 2 {
-		t.Errorf("forge saw %d requests, want 2: the failed post and the retry", attempts)
+	if attempts := forge.attemptCount(); attempts != 1 {
+		t.Fatalf("blind repost: %d attempts", attempts)
 	}
-	if posts := forge.all(); len(posts) != 1 {
-		t.Fatalf("forge accepted %d comments, want exactly 1 (AC-4.1)", len(posts))
+	if posts := forge.all(); len(posts) != 0 {
+		t.Fatalf("unexpected comments: %d", len(posts))
 	}
-	if posted.Run.Status != store.RunReported {
-		t.Errorf("run status after the retry = %q, want %q", posted.Run.Status, store.RunReported)
+	if run := f.runs()[0]; run.Status != store.RunSucceeded || run.ResultCommentID != 0 {
+		t.Fatalf("uncertainty completed run: %+v", run)
 	}
-	if wm := watermark(t, f); wm != testComment {
-		t.Errorf("watermark after the retry = %d, want %d", wm, testComment)
+	if watermark(t, f) != 0 {
+		t.Fatal("uncertainty consumed source")
 	}
 }
 
@@ -177,11 +173,11 @@ func TestReportRenderFailurePostsNothingAndAdvancesNothing(t *testing.T) {
 	} else if exists {
 		t.Error("the watermark advanced without a comment being posted")
 	}
-	// AC-4.9 asks for a loud line, because an unreported run is otherwise
-	// indistinguishable from a run nobody looked at.
-	if !strings.Contains(f.logs.String(), "level=ERROR") ||
-		!strings.Contains(f.logs.String(), "could not render the run report") {
-		t.Errorf("no loud log line explains the unreported run:\n%s", f.logs)
+	// US-003 owns bounded first-failure/escalation diagnostics. The reporting
+	// layer preserves the typed cause and identity without a per-attempt alert.
+	var delivery *DeliveryError
+	if !errors.As(err, &delivery) || delivery.Key == "" || !errors.Is(err, failed) {
+		t.Fatalf("render failure lost delivery identity or cause: %v", err)
 	}
 }
 
@@ -326,22 +322,27 @@ func TestReportFailedRunStillPostsAndAdvances(t *testing.T) {
 	}
 }
 
-// TestReportPrepareFailurePostsWithNoRunRow is the other half of AC-4.1: a turn
+// TestReportReadinessRefusalPostsWithNoRunRow is the other half of AC-4.1: a turn
 // that never reached claude allocated no run, and still owes the issue a
 // comment. The watermark advances on its own, because there is no run row to
 // carry it.
-func TestReportPrepareFailurePostsWithNoRunRow(t *testing.T) {
+func TestReportReadinessRefusalPostsWithNoRunRow(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture(t, newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
 		t.Error("claude ran after preparation failed")
 		return nil, nil
 	}))
-	f.repo.SetOriginURL(filepath.Join(filepath.Dir(f.repo.Dir), "there-is-no-such-repository.git"))
+	if err := f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}); err != nil {
+		t.Fatal(err)
+	}
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, nil)
 
-	result := f.execute(f.request())
+	req := f.request()
+	req.Mode = "implement"
+	req.Command = ParseCommand("/implement work")
+	result := f.execute(req)
 	if result.Disposition != DispositionPrepareFailed {
 		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionPrepareFailed)
 	}
@@ -354,7 +355,7 @@ func TestReportPrepareFailurePostsWithNoRunRow(t *testing.T) {
 	switch {
 	case !strings.HasPrefix(post.body, report.StatusMarker(f.ref(), 1)):
 		t.Errorf("body does not carry the marker of the run that would have been:\n%s", post.body)
-	case !strings.Contains(post.body, "fetch"):
+	case !strings.Contains(post.body, "No agent launched"):
 		t.Errorf("body does not say what could not be done:\n%s", post.body)
 	case posted.Run.ID != 0:
 		t.Errorf("Posted.Run.ID = %d, want 0: no run row was ever allocated", posted.Run.ID)
@@ -654,10 +655,11 @@ func newReporter(t *testing.T, f *fixture, forge *fakeForge, renderer Renderer) 
 	}
 
 	reporter, err := NewReporter(ReporterOptions{
-		DB:       f.db,
-		Forge:    forge.client,
-		Renderer: renderer,
-		Logger:   f.opts.Logger,
+		BotUserID: 77,
+		DB:        f.db,
+		Forge:     forge.client,
+		Renderer:  renderer,
+		Logger:    f.opts.Logger,
 	})
 	if err != nil {
 		t.Fatalf("build the reporter: %v", err)
@@ -679,10 +681,12 @@ func watermark(t *testing.T, f *fixture) int64 {
 
 // forgePost is one request the fake forge received.
 type forgePost struct {
-	path string
-	auth string
-	body string
-	id   int64
+	path     string
+	auth     string
+	body     string
+	id       int64
+	authorID int64
+	htmlURL  string
 }
 
 // fakeForge is GitHub, over real HTTP, behind a real *github.Client.
@@ -694,11 +698,12 @@ type fakeForge struct {
 	server *httptest.Server
 	client *github.Client
 
-	mu       sync.Mutex
-	posts    []forgePost
-	attempts int
-	status   int
-	nextID   int64
+	mu        sync.Mutex
+	posts     []forgePost
+	attempts  int
+	status    int
+	nextID    int64
+	afterPost func()
 }
 
 func newFakeForge(t *testing.T) *fakeForge {
@@ -721,6 +726,22 @@ func newFakeForge(t *testing.T) *fakeForge {
 }
 
 func (f *fakeForge) handle(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		comments := make([]map[string]any, 0, len(f.posts))
+		for _, post := range f.posts {
+			if post.path != r.URL.Path {
+				continue
+			}
+			comments = append(comments, map[string]any{"id": post.id, "body": post.body, "user": map[string]any{"id": forgePostAuthor(post), "login": "litefactory-bot"}, "html_url": forgePostURL(post), "created_at": "2026-08-23T10:00:00Z", "updated_at": "2026-08-23T10:00:00Z"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(comments); err != nil {
+			return
+		}
+		return
+	}
 	var payload struct {
 		Body string `json:"body"`
 	}
@@ -739,6 +760,7 @@ func (f *fakeForge) handle(w http.ResponseWriter, r *http.Request) {
 		id:   f.nextID,
 	}
 	status := f.status
+	afterPost := f.afterPost
 	if status == 0 {
 		f.posts = append(f.posts, post)
 	}
@@ -748,12 +770,29 @@ func (f *fakeForge) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"the forge is unwell"}`, status)
 		return
 	}
+	if afterPost != nil {
+		afterPost()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, `{"id":%d,"body":%s,"user":{"id":77,"login":"litefactory-bot","type":"User"},`+
-		`"html_url":"https://github.test/c/%d","created_at":"2026-08-23T10:00:00Z",`+
+		`"html_url":%s,"created_at":"2026-08-23T10:00:00Z",`+
 		`"updated_at":"2026-08-23T10:00:00Z"}`,
-		post.id, strconv.Quote(payload.Body), post.id)
+		post.id, strconv.Quote(payload.Body), strconv.Quote(forgePostURL(post)))
+}
+
+func forgePostAuthor(post forgePost) int64 {
+	if post.authorID != 0 {
+		return post.authorID
+	}
+	return 77
+}
+
+func forgePostURL(post forgePost) string {
+	if post.htmlURL != "" {
+		return post.htmlURL
+	}
+	return "https://github.com/" + strings.TrimSuffix(strings.TrimPrefix(post.path, "/repos/"), "/comments") + "#issuecomment-" + strconv.FormatInt(post.id, 10)
 }
 
 // failWith makes every subsequent post fail with status. The request is still
@@ -810,6 +849,16 @@ func (s stubRenderer) RenderRun(ctx context.Context, _ report.Run) (redact.Body,
 
 func (s stubRenderer) RenderReply(ctx context.Context, _ report.Reply) (redact.Body, error) {
 	return s.body(ctx)
+}
+
+func (s stubRenderer) RenderReportDelivery(ctx context.Context, body, marker string) (redact.Body, error) {
+	if s.err != nil {
+		return redact.Body{}, s.err
+	}
+	if marker != "" {
+		body += "\n\n" + marker
+	}
+	return redact.New(redact.Options{Environ: []string{}}).Apply(ctx, body, github.CommentSizeLimit)
 }
 
 func (s stubRenderer) body(ctx context.Context) (redact.Body, error) {

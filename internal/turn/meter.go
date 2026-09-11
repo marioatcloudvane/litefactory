@@ -18,7 +18,7 @@ import (
 // have distinct durable attempts even when their raw log path is shared.
 func runMetered(ctx context.Context, prep *preparation, logger *slog.Logger) (*agent.RunResult, error) {
 	if prep.meterDB == nil {
-		return prep.runner.Run(ctx, prep.request)
+		return runSubmissionBound(ctx, prep, prep.request)
 	}
 	attempt, err := prep.meterDB.StartMeterAttempt(ctx, prep.run.ID, prep.segment.Agent)
 	if err != nil {
@@ -33,7 +33,7 @@ func runMetered(ctx context.Context, prep *preparation, logger *slog.Logger) (*a
 		}
 		return err
 	}}
-	result, runErr := prep.runner.Run(ctx, req)
+	result, runErr := runSubmissionBound(ctx, prep, req)
 	outcome, status, version, format := "failure", "unknown", "", ""
 	codes := []string{"missing_evidence"}
 	if result != nil {
@@ -60,6 +60,9 @@ func runMetered(ctx context.Context, prep *preparation, logger *slog.Logger) (*a
 	}
 	finish := context.WithoutCancel(ctx)
 	if err := prep.meterDB.FinishMeterAttempt(finish, attempt.ID, outcome, status, version, format, codes); err != nil {
+		prep.stoppedRepairs = append(prep.stoppedRepairs, func(c context.Context) error {
+			return prep.meterDB.FinishMeterAttempt(c, attempt.ID, outcome, status, version, format, codes)
+		})
 		logger.Error("meter attempt finalization failed", slog.String("attempt_id", attempt.ID), slog.Any("error", err))
 		if result != nil {
 			result = result.Clone()

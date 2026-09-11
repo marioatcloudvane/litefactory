@@ -1,0 +1,2 @@
+Command: go test -race -cover ./internal/store -run '^TestRunLifecycleStorageBoundaries$' -timeout 120s
+ok  	github.com/cloudvane/litefactory/internal/store	24.046s	coverage: 12.1% of statements

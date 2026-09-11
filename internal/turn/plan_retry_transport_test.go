@@ -41,6 +41,9 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 				calls++
 				result := succeeded(req, f.paths.Home())
 				if phase == 0 {
+					if req.PlanOutcomePath != "" {
+						writePlanOutcome(t, req, "completed")
+					}
 					head = f.repo.GitIn(req.WorktreePath, "rev-parse", "HEAD")
 					p := planbrief.PlanProposal{Version: 1, Parent: req.Ref.String(), Generation: 1, Stories: []planbrief.StoryProposal{{Key: "US-1", Intent: "create", Title: "Recover planning", Body: "## User Story\nRecover work.\n## Acceptance Criteria\n- AC-1: preserve work\n## Tasks\nVerify recovery.\n## Architecture\nExisting packages.\n## Dependencies\nNone.\n"}}}
 					var err error
@@ -78,6 +81,8 @@ func TestPlanFailureRetainsTransportForRetry(t *testing.T) {
 				return result, nil
 			})
 			f = newFixture(t, runner)
+			mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning"}))
+			mustProgress(t, f.db.BindFeatureContract(t.Context(), store.FeatureContract{Parent: f.session.TaskRef, Generation: 1, ContentVersion: 1, SubmissionVersion: 1}))
 			f.opts.AutoSyncBase = true
 			if publicationFailure {
 				renderer, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: github.CommentSizeLimit})

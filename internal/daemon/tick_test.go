@@ -337,16 +337,17 @@ func TestQueueStopsAtTheFirstCommentWhoseReportFailed(t *testing.T) {
 	// point of AC-PAR-5.2: no change to UpdatedAt, and the comment is still
 	// found again.
 	f.forge.onPostComment = nil
+	f.restorePendingReport(11)
 	f.settle()
 	f.settle()
 	f.settle()
 	f.settle()
 
-	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 11, 12, 13}) {
-		t.Errorf("turns ran for %v, want [11 11 12 13]: 11 retried, then 12 and 13", got)
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{11, 12, 13}) {
+		t.Errorf("turns ran for %v, want [11 12 13]: delivery 11 recovered without rerun, then 12 and 13", got)
 	}
-	if got := f.watermark(); got != 13 {
-		t.Errorf("watermark is %d after the retry, want 13", got)
+	if got := f.watermark(); got != 900011 {
+		t.Errorf("watermark is %d after the retry, want 900011 (the recovered receipt after all owner commands)", got)
 	}
 	if runs := f.runs(); len(runs) != 3 {
 		t.Errorf("allocated %d runs, want 3 — comment 11 must not run twice", len(runs))
@@ -418,8 +419,8 @@ func TestQueueStopsWhenAPostedReportWasNotRecorded(t *testing.T) {
 		t.Errorf("watermark is %d, want %d: nothing may be consumed past an unrecorded report",
 			got, bootstrapped)
 	}
-	if !strings.Contains(f.logs.String(), "posted to the issue but litefactory could not record it") {
-		t.Error("the orphaned comment was not logged; it is the one failure that costs a duplicate")
+	if !strings.Contains(f.logs.String(), "report recovery pending") {
+		t.Error("the failed bookkeeping was not surfaced as pending recovery")
 	}
 }
 
@@ -932,7 +933,7 @@ func TestThirdPartyCommentIsRecordedAndTriggersNothing(t *testing.T) {
 
 // unreactiveForge is the real client with its acknowledgement broken.
 type unreactiveForge struct {
-	daemon.Forge
+	labelFixtureForge
 	err error
 }
 
@@ -949,7 +950,7 @@ func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.daemon = f.newDaemon(daemon.Options{
-		Forge: unreactiveForge{Forge: f.client, err: errors.New("reactions are disabled on this issue")},
+		Forge: unreactiveForge{labelFixtureForge: f.client, err: errors.New("reactions are disabled on this issue")},
 	})
 	f.settle()
 
@@ -973,6 +974,10 @@ func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 // TestRateLimitBacksOffAndResumes is AC-2.12.
 func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	f := newFixture(t)
+	const retryAfter = 45 * time.Second
+	// The fixture's actual primary window expires during this refusal. A
+	// Retry-After alone does not authorize spending a still-exhausted window.
+	f.forge.quotaReset = f.clock.Now().Add(retryAfter).Unix()
 	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addComment(testIssue, 111, owner(), "/spike after the limit clears")
@@ -980,7 +985,6 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	cursorBefore := f.cursor()
 	issuesBefore, _, _, _ := f.forge.counts()
 
-	const retryAfter = 45 * time.Second
 	f.forge.onListIssues = func(w http.ResponseWriter, call int) bool {
 		if call != issuesBefore+1 {
 			return false
@@ -1025,10 +1029,21 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 
 	// Past the backoff, polling resumes on its own with nothing lost.
 	f.clock.advance(retryAfter + time.Second)
+	f.forge.mu.Lock()
+	f.forge.quotaReset = f.clock.Now().Add(time.Hour).Unix()
+	f.forge.mu.Unlock()
 	resumed := f.settle()
 	if resumed.Skipped {
 		t.Fatal("the daemon did not resume after the backoff expired")
 	}
+	// The remote hold ended, but fresh quota still requires the independently
+	// bounded scalar observation. Its one-minute cadence cannot be bypassed
+	// merely because the server supplied a shorter Retry-After.
+	if resumed.Dispatched != 0 {
+		t.Fatalf("dispatched %d before the next quota observation, want 0", resumed.Dispatched)
+	}
+	f.clock.advance(time.Minute)
+	resumed = f.settle()
 	if resumed.Dispatched != 1 {
 		t.Errorf("dispatched %d tasks on resuming, want 1", resumed.Dispatched)
 	}
@@ -1251,7 +1266,7 @@ func TestACommentFoundOnlyByTheCommentListingStillRuns(t *testing.T) {
 // relied on the fake forge alone would be asserting the query rather than the
 // guard.
 type closedListingForge struct {
-	daemon.Forge
+	labelFixtureForge
 	issue github.Issue
 }
 
@@ -1306,7 +1321,7 @@ func TestAClosedIssueStartsNothingOnEitherDiscoveryPath(t *testing.T) {
 			Author:    github.User{ID: strangerID, Login: strangerLogin},
 			UpdatedAt: f.clock.Now(),
 		}
-		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{Forge: f.client, issue: closed}})
+		f.daemon = f.newDaemon(daemon.Options{Forge: closedListingForge{labelFixtureForge: f.client, issue: closed}})
 
 		_, commentListingsBefore, _, _ := f.forge.counts()
 		result := f.settle()

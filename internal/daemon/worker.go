@@ -57,7 +57,8 @@ func (t *task) recordWorkerError(err error) {
 }
 
 // runWorker owns admission until the body and its cleanup return. The terminal
-// diagnostic observes released in-flight ownership, but not a free pool slot:
+// diagnostic observes released in-flight ownership unless stopped-result repair
+// debt retains it, but not a free pool slot:
 // pool.done stays last, so Quiesce also joins the diagnostic. Panics unwind
 // admission through the defers but are not represented as normal completion.
 func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
@@ -65,7 +66,11 @@ func (d *Daemon) runWorker(ctx context.Context, t *task, body func()) {
 	started := time.Now() // Private monotonic diagnostic timer, never scheduling time.
 	t.worker = &workerState{}
 	func() {
-		defer d.inflight.leave(t.session.ID)
+		defer func() {
+			if !d.stoppedDebt.releaseWorker(t.session.ID) {
+				d.inflight.leave(t.session.ID)
+			}
+		}()
 		body()
 	}()
 	if ctx.Err() != nil {

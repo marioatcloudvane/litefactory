@@ -336,7 +336,23 @@ func TestMeterPopulatedMigrationAndReopenReplay(t *testing.T) {
 	}
 	applyMigrationsThrough(t, db, 18)
 	session := testSession(t, db, 73)
-	run := testRun(t, db, session.ID, 123)
+	// Seed the actual version-18 schema without calling a latest-schema run
+	// accessor: newer additive run columns must not be required by this fixture.
+	segment, err := db.GetOrCreateSegment(ctx, session.ID, FirstSegmentOrdinal, "migration-session", AgentClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inserted, err := db.sql.ExecContext(ctx, `INSERT INTO runs
+		(session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status, started_at, log_path)
+		VALUES (?, ?, 1, 'research', 'claude', 123, 'running', ?, 'migration.log')`, session.ID, segment.ID, FormatTime(time.Now()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, err := inserted.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := Run{ID: runID}
 	if err := db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

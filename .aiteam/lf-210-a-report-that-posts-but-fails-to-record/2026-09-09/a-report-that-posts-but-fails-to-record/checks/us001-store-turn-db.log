@@ -1,0 +1,4 @@
+Command: go test -race -cover ./internal/store ./internal/turn -timeout 15m
+Compiled US-001 snapshot before later story production changes.
+ok  	github.com/cloudvane/litefactory/internal/store	166.923s	coverage: 61.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	843.570s	coverage: 78.7% of statements

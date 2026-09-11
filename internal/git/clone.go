@@ -124,11 +124,13 @@ func (c *Clone) Path() string {
 // This is the one method here that talks to the network, and it carries a 60
 // second deadline: without it a passphrase-protected key produces a hung tick
 // rather than an error, and a hung daemon looks alive.
+// Explicit branch coverage makes successful fetch authoritative even when the
+// clone has a restrictive configured fetch refspec. Pruning covers this namespace.
 func (c *Clone) Fetch(ctx context.Context, remote string) error {
 	if err := checkName("remote", remote); err != nil {
 		return err
 	}
-	_, err := c.runner.run(ctx, fetchTimeout, "fetch", "--prune", "--", remote)
+	_, err := c.runner.run(ctx, fetchTimeout, "fetch", "--prune", "--", remote, "+refs/heads/*:refs/remotes/"+remote+"/*")
 	return err
 }
 
@@ -436,13 +438,18 @@ func (c *Clone) ShowRef(ctx context.Context, ref string) (string, error) {
 	}
 	out, err := c.runner.run(ctx, readTimeout, "show-ref", "--verify", "--", ref)
 	if err != nil {
-		// --verify exits 1 for a missing ref and 128 for a name it will not
-		// even look up; both mean "there is no such ref here".
-		return "", classify(err, ErrRefNotFound, 1, 128)
+		// Non-quiet verification uses fatal exit 128 for an absent ref too.
+		// Confirm absence with quiet verification (exit 1), preserving the
+		// original command diagnostics while refusing real repository failures.
+		_, verifyErr := c.runner.run(ctx, readTimeout, "show-ref", "--verify", "--quiet", "--", ref)
+		if errors.Is(classify(verifyErr, ErrRefNotFound, 1), ErrRefNotFound) {
+			return "", classify(err, ErrRefNotFound, 1, 128)
+		}
+		return "", err
 	}
 	id, _, ok := strings.Cut(out, " ")
 	if !ok || id == "" {
-		return "", fmt.Errorf("ref %q: %w", ref, ErrRefNotFound)
+		return "", fmt.Errorf("invalid observation of ref %q", ref)
 	}
 	return id, nil
 }

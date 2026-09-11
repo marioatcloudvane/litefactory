@@ -127,6 +127,15 @@ type TickResult struct {
 // with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
+	d.discovery.tick(startedAt)
+	ctx = d.discoveryContext(ctx)
+	counts := &discoveryCounts{}
+	ctx = github.WithRequestObserver(ctx, counts.observe)
+	defer d.discoverySummary(ctx, "tick", counts)
+	ctx = context.WithValue(ctx, recoveryTickKey{}, startedAt)
+	d.refreshRecoveries(ctx, startedAt)
+	// Stopped execution debt is independent of discovery/storage availability.
+	stoppedDispatched := d.retryStoppedResults(ctx, startedAt)
 	if !d.autoResumeOnSessionLimit {
 		pending, err := d.db.ListPendingContinuations(ctx, 0)
 		if err != nil {
@@ -177,7 +186,7 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Cursor: cursor}, err
 	}
 
-	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor}
+	result := TickResult{StartedAt: startedAt, Repos: len(repos), Cursor: cursor, Dispatched: stoppedDispatched}
 
 	if err := d.replayContinuationCancellations(ctx, repos); err != nil {
 		return result, d.observe(ctx, startedAt, err)
@@ -188,7 +197,8 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	}
 
 	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
-	if err != nil {
+	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
+	if err != nil && !discoveryDeferred {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
@@ -230,6 +240,10 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// other. sessions.needs_poll is that local record, and [Daemon.discover]
 	// unions it with the listings, so re-discovery no longer needs the cursor's
 	// help. See [store.DB.ListBacklogSessions].
+	if discoveryDeferred {
+		result.Duration = d.now().Sub(startedAt)
+		return result, nil
+	}
 	persisted := store.PollCursor{TasksUpdatedSince: startedAt, LastTickAt: d.now()}
 	if err := d.db.SetPollCursor(ctx, persisted); err != nil {
 		result.Duration = d.now().Sub(startedAt)
@@ -319,6 +333,7 @@ func (d *Daemon) discover(
 	// which is what makes an unguarded bool the right thing here — and which is
 	// also why [backoff.clear] is called from here and nowhere below.
 	cleared := false
+	deferred := false
 
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
@@ -348,12 +363,17 @@ func (d *Daemon) discover(
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
-		issues, err := d.forge.ListIssues(ctx, forgeRepo, since)
-		if err != nil {
+		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
+			return nil, err
+		}
+		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			deferred = true
+		} else if err != nil {
 			return nil, fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
 		}
-		if !cleared {
+		if err == nil && !cleared {
 			// Evidence that the forge is answering again, which is the only thing
 			// that ends a run of refusals. See [backoff.clear] for why this is
 			// here rather than at the end of the tick.
@@ -364,7 +384,9 @@ func (d *Daemon) discover(
 			}
 		}
 		commented, err := d.commentedIssues(ctx, repoLog, forgeRepo, since, issues)
-		if err != nil {
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			deferred = true
+		} else if err != nil {
 			return nil, err
 		}
 		issues = append(issues, commented...)
@@ -403,6 +425,9 @@ func (d *Daemon) discover(
 		slices.SortFunc(q.candidates, func(a, b *candidate) int {
 			return cmp.Compare(a.session.ID, b.session.ID)
 		})
+	}
+	if deferred {
+		return queues, ErrDiscoveryDeferred
 	}
 	return queues, nil
 }
@@ -618,7 +643,7 @@ func (d *Daemon) commentedIssues(
 	since time.Time,
 	listed []github.Issue,
 ) ([]github.Issue, error) {
-	numbers, err := d.forge.ListCommentedIssues(ctx, repo, since)
+	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.forge.ListCommentedIssues(ctx, repo, since) })
 	if err != nil {
 		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
 			repo, since.UTC().Format(time.RFC3339), err)
@@ -637,7 +662,7 @@ func (d *Daemon) commentedIssues(
 		if already[number] {
 			continue
 		}
-		issue, err := d.forge.GetIssue(ctx, repo, number)
+		issue, err := d.discoveryIssue(ctx, repo, number)
 		if err != nil {
 			// Every pull request is an issue, so pull request comments arrive
 			// in that listing too and the payload cannot tell them apart. The
@@ -666,6 +691,7 @@ type task struct {
 	workerLog *slog.Logger
 	worker    *workerState
 
+	scheduled          *store.Schedule
 	continuation       *store.Continuation
 	continuationLocked bool
 
@@ -848,6 +874,9 @@ const (
 // above the `go`: the rate-limit backoff (AC-PAR-4.4). It is last rather than
 // first on purpose — see the comment at the check itself.
 func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, result *TickResult) offerResult {
+	if d.sessionRecoveryHeld(c.session.ID, tickAt) {
+		return offerSkipped
+	}
 	if !d.inflight.enter(c.session.ID) {
 		// AC-PAR-5.3: a session this daemon is already running a turn for is
 		// skipped, and skipping it posts nothing and moves no watermark. Its
@@ -882,6 +911,10 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// retiring its backlog flag failed.
 		d.pool.done()
 		d.inflight.leave(c.session.ID)
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			result.Deferred++
+			return offerSkipped
+		}
 		if err != nil {
 			d.rateLimited(ctx, c.log, tickAt, err)
 			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
@@ -986,7 +1019,16 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	if !c.resolved {
 		// Lazily, and only now that a slot is held: see [Daemon.offer] for why
 		// this is the last thing that happens rather than the first.
-		fetched, err := d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		pending, err := d.db.ListPendingStoryRefinements(ctx, c.session.ID)
+		if err != nil {
+			return nil, err
+		}
+		var fetched github.Issue
+		if len(pending) > 0 {
+			fetched, err = d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		} else {
+			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read %s#%d, which still needs a poll: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
@@ -1031,6 +1073,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
 func (d *Daemon) work(ctx context.Context, t *task) {
+	counts := &discoveryCounts{}
+	ctx = github.WithRequestObserver(ctx, counts.observe)
+	defer d.discoverySummary(ctx, "worker", counts)
 	if deferred, err := d.refineStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
@@ -1062,6 +1107,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
+		// Consecutive-failure counting ends where the backlog flag does: this
+		// task has just made progress, so whatever it was failing at is no
+		// longer failing.
+		d.prepFailures.clear(t.session.ID)
 	}
 }
 
@@ -1076,6 +1125,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 // Either way the session keeps its backlog flag, which is what brings the next
 // tick back to it.
 func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
+	if isRecoveryPending(err) || errors.Is(err, ErrDiscoveryDeferred) {
+		t.recordWorkerStatus(workerDeferred)
+		return
+	}
 	t.recordWorkerError(err)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		t.log.DebugContext(ctx, "shutdown ended this task's turn; it still needs a poll, so "+
@@ -1085,6 +1138,35 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 	d.rateLimited(ctx, t.log, t.tickAt, err)
 	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
 		slog.Any("error", err))
+	d.prepareFailed(ctx, t, err)
+}
+
+// prepareFailed counts a turn that ended without consuming its trigger, and
+// says so once when a task stops looking like it is between attempts and
+// starts looking stuck.
+//
+// The retry itself is deliberate and is not changed here: the comment stays
+// unconsumed so the work is not lost to a blip. What is added is the
+// difference between a blip and an origin that is never coming back, which
+// otherwise reads identically in the log — the same error line, every tick,
+// with nothing that counts them.
+func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+	reason := err.Error()
+	if sanitizer := d.diagnosticRedactor; sanitizer != nil {
+		if body, redactErr := sanitizer.Apply(ctx, reason, 1024); redactErr == nil {
+			reason = body.String()
+		}
+	}
+	state, announce := d.prepFailures.record(t.session.ID, reason)
+	if !announce || state.Attempts < prepareEscalationAttempts {
+		return
+	}
+	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
+		"the trigger is still unconsumed and the next tick will try again, but nothing "+
+		"will stop retrying on its own",
+		slog.Int("consecutive_failures", state.Attempts),
+		slog.Bool("escalated", state.Escalated),
+		slog.String("reason", reason))
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
@@ -1099,7 +1181,7 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
 // (AC-2.16) was reversed. Existing comments are still never replayed.
 func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
+	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, 0)
 	if err != nil {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
@@ -1258,7 +1340,11 @@ func (d *Daemon) runIssueBody(ctx context.Context, t *task, comments []github.Co
 // so the queue stops and a later tick retries, with no queue and no "busy"
 // reply (AC-3.1).
 func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, error) {
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, watermark)
+	// Recovery must finish even when the watermark leaves no new comments.
+	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
+		return false, fmt.Errorf("retire completed mode selections: %w", err)
+	}
+	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, watermark)
 	if err != nil {
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
 	}
@@ -1276,14 +1362,14 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 			return false, fmt.Errorf("read the watermark of task %s: %w", t.ref, err)
 		}
 		if !consumed {
-			t.log.InfoContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
+			t.log.DebugContext(ctx, "comment was not consumed; stopping this task's queue here so a "+
 				"later tick retries it. Processing the comments after it would advance the watermark past this one",
 				slog.Int64("comment_id", c.ID))
 			return true, nil
 		}
-		// A mode label is one-shot. Stop after one actionable instruction so
-		// the next tick refreshes the issue and cannot reuse this tick's stale
-		// label snapshot for a second comment.
+		// Refresh after each actionable instruction so later owner label edits
+		// are observed before admitting another trigger. Persistent selection
+		// does not make this tick's issue snapshot authoritative forever.
 		if len(d.classifiers) > 0 && turn.ParseCommand(c.Body).Spawns() {
 			return true, nil
 		}
@@ -1388,10 +1474,6 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		slog.Int64("comment_id", c.ID),
 		slog.Int64("author_user_id", c.Author.ID),
 		slog.String("author", c.Author.Login))
-	if err := d.cleanupModeLabel(ctx, t); err != nil {
-		return d.leave(ctx, t, log, "could not finish mode-label cleanup", err)
-	}
-
 	// The self-filter runs first and matches on numeric ids, never handles
 	// (D-I, AC-2.14). Everything is recorded, including litefactory's own
 	// comments: a dropped comment that left no trace cannot be told from one
@@ -1407,6 +1489,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 		return d.leave(ctx, t, log, "could not consume a comment litefactory does not act on", err)
 	}
 
+	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
+		return d.leave(ctx, t, log, "prior delivery remains pending", err)
+	}
 	command := turn.ParseCommand(c.Body)
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
@@ -1509,7 +1594,7 @@ func (d *Daemon) replySchedule(
 	scheduled report.ScheduleReply,
 	log *slog.Logger,
 ) error {
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:          t.ref,
 		SessionID:    t.session.ID,
 		CommentID:    c.ID,
@@ -1551,7 +1636,7 @@ func (d *Daemon) reply(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: c.ID,
@@ -1589,87 +1674,17 @@ func (d *Daemon) run(
 	command turn.Command,
 	log *slog.Logger,
 ) error {
-	workflowEnabled := len(d.classifiers) > 0 && !t.refining && t.continuation == nil
-	selection := store.ModeSelection{}
-	selectionErr := store.ErrNotFound
-	if workflowEnabled {
-		selection, selectionErr = d.db.GetModeSelection(ctx, t.session.ID, trigger.CommentID)
+	if pending, err := d.resumeReport(ctx, t, trigger.CommentID); pending || err != nil {
+		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
-	haveSelection := selectionErr == nil
-	var mode agent.Mode
-	var labelled bool
-	var err error
-	// Durable approval wins over temporary labels and classifier history.
-	feature, featureErr := d.db.GetManagedFeature(ctx, t.ref.String())
-	if featureErr != nil && !errors.Is(featureErr, store.ErrNotFound) {
-		return featureErr
-	}
-	managedFrozen := featureErr == nil && feature.State != "planning" && !t.refining
-	switch {
-	case t.continuation != nil:
-		mode, labelled = agent.Mode(t.continuation.Context.Mode), true
-	case managedFrozen:
-		mode, labelled = agent.ModeImplement, true
-		if turn.ManagedReplan(command) {
-			mode = agent.ModePlan
-		}
-	case selectionErr == nil:
-		mode, err = storedMode(selection)
-		labelled = selection.LabelApplied
-	case !errors.Is(selectionErr, store.ErrNotFound):
-		return selectionErr
-	default:
-		if t.refining {
-			mode = agent.ModePlan
-			labelled = true
-		} else {
-			mode, labelled, err = resolveModeLabel(t.issue.Labels)
-		}
-	}
+
+	mode, err := d.admitMode(ctx, t, trigger, command)
 	if err != nil {
 		var refusal *modeRefusal
 		if errors.As(err, &refusal) {
 			return d.refuseMode(ctx, t, trigger, refusal.kind)
 		}
 		return d.leave(ctx, t, log, "mode selection was refused", err)
-	}
-	commandMode, commanded := command.Mode()
-	if labelled && commanded && mode != commandMode {
-		return d.refuseMode(ctx, t, trigger, report.ReplyConflictingModeSelection)
-	}
-	if !labelled && commanded {
-		mode = commandMode
-	}
-	if !haveSelection && !labelled && !commanded {
-		mode, err = d.classifyMode(ctx, t, command.Text)
-		if err != nil {
-			// Compatibility for dependency-light daemon tests that predate the
-			// classifier seam. Production startup always supplies one.
-			if len(d.classifiers) == 0 {
-				mode = ""
-			} else {
-				return d.leave(ctx, t, log, "mode classification failed", err)
-			}
-		}
-	}
-	if workflowEnabled && mode.Valid() && !haveSelection {
-		_, err = d.db.GetOrCreateModeSelection(ctx, store.ModeSelection{
-			SessionID: t.session.ID, TriggerCommentID: trigger.CommentID,
-			Mode: string(mode), Label: mode.Label(),
-		})
-		if err != nil {
-			return err
-		}
-	}
-	labels, canLabel := d.forge.(labelForge)
-	canLabel = canLabel && len(d.classifiers) > 0 && !t.refining && t.continuation == nil
-	if mode.Valid() && !labelled && canLabel {
-		if err := labels.AddIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
-			return d.leave(ctx, t, log, "could not apply the selected mode label", err)
-		}
-		if err := d.db.MarkModeLabelApplied(ctx, t.session.ID, trigger.CommentID); err != nil {
-			return err
-		}
 	}
 	// Resolve the agent-selection label before checking for an obsolete
 	// permission label and before anything is locked, fetched, or written.
@@ -1748,6 +1763,14 @@ func (d *Daemon) run(
 		AttachmentsAllowed: attachmentsAllowed,
 		SyncOverride:       syncOverride,
 	})
+	if turnResult.Repair != nil {
+		d.retainStoppedResult(t, turnResult.Repair, trigger, mode)
+		source := store.ReportRecovery{Key: "stopped:" + recoveryKey(t.session.ID, trigger.CommentID), SessionID: t.session.ID, TriggerID: trigger.CommentID, Task: t.ref.String(), RunID: turnResult.Run.ID, State: "stopped"}
+		if err != nil {
+			d.recoveryFailure(ctx, source, t.tickAt, err)
+		}
+		return d.leave(ctx, t, log, "stopped outcome requires repair", &recoveryPending{err})
+	}
 	if turnResult.Outcome == agent.OutcomeAbandoned {
 		t.recordWorkerStatus(workerCancelled)
 	}
@@ -1776,17 +1799,17 @@ func (d *Daemon) run(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportTurn(ctx, turnResult)
+	return d.completeTurn(ctx, t, trigger, mode, turnResult, log)
+}
+
+func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	posted, err := d.reportTurn(ctx, turnResult)
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))
 	}
-	if mode.Valid() && canLabel {
+	if mode.Valid() && len(d.classifiers) > 0 && t.continuation == nil {
 		if err := d.db.MarkModeCleanupPending(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
-		}
-		if err := labels.RemoveIssueLabel(ctx, t.forgeRepo, t.issue.Number, mode.Label()); err != nil {
-			d.markBacklog(ctx, log, t.session.ID)
-			return fmt.Errorf("remove the consumed mode label: %w", err)
 		}
 		if err := d.db.DeleteModeSelection(ctx, t.session.ID, trigger.CommentID); err != nil {
 			return err
@@ -1851,7 +1874,7 @@ func (d *Daemon) refuseTools(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
@@ -1900,7 +1923,7 @@ func (d *Daemon) refuseAgent(
 		return nil
 	}
 
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref:       t.ref,
 		SessionID: t.session.ID,
 		CommentID: trigger.CommentID,
@@ -1939,6 +1962,10 @@ func (d *Daemon) refuseAgent(
 // what stops the next tick either way. Two lines come out of it — the warning
 // naming the hold, and the line below saying what this comment lost.
 func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what string, err error) error {
+	if isRecoveryPending(err) {
+		t.recordWorkerStatus(workerDeferred)
+		return nil
+	}
 	if err == nil {
 		return nil
 	}
@@ -1954,22 +1981,8 @@ func (d *Daemon) leave(ctx context.Context, t *task, log *slog.Logger, what stri
 	return nil
 }
 
-// orphaned names the one failure that costs something: the comment reached
-// GitHub and the transaction that records it did not commit.
-//
-// [turn.Posted.CommentID] is set as soon as the post returns, so a non-zero id
-// alongside an error is not "nothing happened" — it is a comment on the issue
-// that litefactory does not know about. The comment stays unconsumed, so a
-// later tick posts a second one. That is the direction the trade has to fall:
-// the alternative, consuming before the post is recorded, turns a transient
-// database error into permanent silence, which AC-4.1 forbids.
-func (d *Daemon) orphaned(ctx context.Context, log *slog.Logger, posted turn.Posted, err error) error {
-	if err == nil || posted.CommentID == 0 {
-		return err
-	}
-	log.ErrorContext(ctx, "the comment was posted to the issue but litefactory could not record it; "+
-		"a later tick will post another one",
-		slog.Int64("posted_comment_id", posted.CommentID), slog.Any("error", err))
+// orphaned preserves the returned receipt; reportAttempt owns bounded diagnostics.
+func (d *Daemon) orphaned(_ context.Context, _ *slog.Logger, _ turn.Posted, err error) error {
 	return err
 }
 

@@ -1,0 +1,2 @@
+Command: ['go', 'test', '-race', '-cover', './internal/daemon', '-run', 'TestReportRecoverySQLite|TestStoppedResultSQLite|TestStoppedResultStartup|TestStoppedResultScheduled|TestStoppedResultContinuation', '-timeout', '180s']
+ok  	github.com/cloudvane/litefactory/internal/daemon	12.992s	coverage: 44.1% of statements

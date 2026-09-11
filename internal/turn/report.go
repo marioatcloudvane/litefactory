@@ -38,6 +38,7 @@ type Poster interface {
 type Renderer interface {
 	RenderRun(ctx context.Context, run report.Run) (redact.Body, error)
 	RenderReply(ctx context.Context, reply report.Reply) (redact.Body, error)
+	RenderReportDelivery(ctx context.Context, body, marker string) (redact.Body, error)
 }
 
 // ReporterOptions are the dependencies of a [Reporter].
@@ -78,6 +79,8 @@ func (o ReporterOptions) validate() error {
 		return invalidOptions("a body renderer is required")
 	case o.Logger == nil:
 		return invalidOptions("a logger is required")
+	case o.BotUserID <= 0:
+		return invalidOptions("a numeric bot identity is required for report recovery")
 	default:
 		return nil
 	}
@@ -90,24 +93,9 @@ func (o ReporterOptions) validate() error {
 // posted. The two are separate types in separate packages because rendering
 // reaches nothing and can be asserted from literals, while this cannot.
 //
-// # The order is the whole design
-//
-// Post first, then commit. Every method here renders, posts, and only then
-// writes to the database:
-//
-//   - A render failure — the fail-closed [redact] path of AC-4.9 — posts
-//     nothing and writes nothing.
-//   - A post failure leaves the watermark and the run status exactly as they
-//     were. The comment stays unconsumed, so a later tick sees it again; the
-//     run row still exists and is found by [store.DB.GetRunByTrigger], so that
-//     tick reports it instead of running claude a second time (AC-3.4,
-//     AC-4.10). Retrying a post is free; re-running claude is not.
-//   - A database failure after a successful post is the one case that costs
-//     something: the comment is on the issue and litefactory does not know it,
-//     so a later tick posts a second one. That is the direction the trade has
-//     to fall, because the alternative — advancing the watermark before the
-//     post — turns a transient forge error into permanent silence, which
-//     AC-4.1 forbids.
+// A durable intent precedes dispatch. Once dispatch may have happened, retries
+// recover a trustworthy receipt or wait; they never infer non-delivery from an
+// empty lookup. Confirmed receipts permit local atomic completion only.
 //
 // A Reporter is immutable after construction and safe for concurrent use.
 type Reporter struct {
@@ -257,6 +245,8 @@ type ReplyRequest struct {
 	// exceeded the cap, the ref it was measured against, and the cap.
 	SyncBehind    int
 	SyncBase      string
+	SyncDetail    string
+	SyncPhase     string
 	SyncMaxBehind int
 
 	// ConflictPaths belongs to [report.ReplyRefusesSync] alone (US-4): the
@@ -370,6 +360,9 @@ func (req ReplyRequest) validate() error {
 // Everything else is reported, including a turn that never reached claude
 // (AC-4.1). See [Reporter] for what happens when a step fails.
 func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error) {
+	if posted, pending, err := r.ReportPending(ctx, result.SessionID, result.TriggerCommentID); pending || err != nil {
+		return posted, err
+	}
 	if !result.Reportable() {
 		r.log.DebugContext(ctx, "turn owes the issue no comment",
 			slog.Int64("session_id", result.SessionID),
@@ -474,6 +467,8 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 			SyncBehind:    result.SyncBehind,
 			SyncBase:      result.SyncBase,
 			SyncMaxBehind: result.SyncMaxBehind,
+			SyncDetail:    result.SyncDetail,
+			SyncPhase:     result.SyncPhase,
 		})
 	}
 
@@ -490,6 +485,8 @@ func (r *Reporter) reportSyncRefusal(ctx context.Context, result Result) (Posted
 		CommentID:     result.TriggerCommentID,
 		Refusal:       report.ReplyRefusesSync,
 		ConflictPaths: result.SyncConflicts,
+		SyncDetail:    result.SyncDetail,
+		SyncPhase:     result.SyncPhase,
 	}
 	// US-11: a persisted suggestion draws its own reply kind; a suggestion
 	// that was attempted and failed still draws the plain refusal, plus its
@@ -520,7 +517,7 @@ func conflictProposalReply(proposal store.ConflictProposal) *report.ConflictProp
 		}
 		files = append(files, report.ConflictProposalFile{Path: f.Path, Resolution: resolution, Diff: f.Details.Diff, Metrics: report.ConflictPreviewMetrics(f.Details.Metrics)})
 	}
-	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files, Format: proposal.Format, BranchSHA: proposal.BranchSHA}
+	return &report.ConflictProposal{ID: proposal.ID, Model: proposal.Model, Files: files, Format: proposal.Format, BranchSHA: proposal.BranchSHA, TargetPhase: proposal.Inputs.TargetPhase, TargetRef: proposal.Inputs.TargetRef, TargetSHA: proposal.BaseSHA, BaseRef: proposal.Inputs.BaseRef, BaseSHA: proposal.Inputs.BaseSHA, TaskRef: proposal.Inputs.TaskRef, TaskSHA: proposal.Inputs.TaskSHA}
 }
 
 // ReportRun posts one run's report, records the result comment id, advances the
@@ -566,57 +563,17 @@ func (r *Reporter) ReportRun(ctx context.Context, rep RunReport) (Posted, error)
 		return Posted{Skipped: true, Run: existing}, nil
 	}
 
-	if err := r.attachRecoveryReport(ctx, &rep); err != nil {
-		return Posted{}, err
+	if rep.RunID != 0 && !existing.Reportable() {
+		return Posted{}, fmt.Errorf("run %d is not finished; defer reporting", rep.RunID)
 	}
 
-	body, err := r.renderer.RenderRun(ctx, rep.Run)
-	if err != nil {
-		// AC-4.9: nothing is posted, the run stays un-reported and the watermark
-		// does not move. internal/redact has already logged the panic itself;
-		// this line is the one that names the consequence.
-		log.ErrorContext(ctx, "could not render the run report; nothing was posted, "+
-			"the run stays unreported and the comment stays unconsumed",
-			slog.Any("error", err))
-		return Posted{}, fmt.Errorf("render the report for run %d of task %s: %w", rep.Run.Ordinal, ref, err)
-	}
-
-	comment, err := r.post(ctx, destination, body, log)
-	if err != nil {
-		return Posted{}, err
-	}
-	posted := Posted{CommentID: comment.ID}
-
-	// The comment exists now. The writes that record it are not allowed to be
-	// skipped because the daemon happens to be shutting down: a cancelled
-	// context here would cost a duplicate comment on the next start.
-	commit := context.WithoutCancel(ctx)
-	if rep.RunID == 0 {
-		// No run row was ever allocated (a preparation failure), so there is no
-		// status to move and the watermark advances on its own.
-		if err := r.consumeSource(commit, rep.SessionID, rep.CommentID); err != nil {
-			log.ErrorContext(ctx, "posted the report but could not consume the comment; "+
-				"a later tick will report it again",
-				slog.Int64("comment_id", comment.ID), slog.Any("error", err))
-			return posted, fmt.Errorf("consume comment %d of task %s: %w", rep.CommentID, ref, err)
+	intent := r.deliveryIntent(ref, destination, rep.SessionID, rep.CommentID, rep.RunID, "run-report")
+	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		if err := r.attachRecoveryReport(ctx, &rep); err != nil {
+			return redact.Body{}, err
 		}
-	} else {
-		run, err := r.db.CompleteRunReport(commit, rep.RunID, comment.ID)
-		if err != nil {
-			log.ErrorContext(ctx, "posted the report but could not record it; "+
-				"the run stays unreported and a later tick will report it again",
-				slog.Int64("comment_id", comment.ID), slog.Any("error", err))
-			return posted, fmt.Errorf("record the report of run %d of task %s: %w", rep.Run.Ordinal, ref, err)
-		}
-		posted.Run = run
-	}
-
-	log.InfoContext(ctx, "posted the run report",
-		slog.Int64("comment_id", comment.ID),
-		slog.Int("bytes", body.Len()),
-		slog.Bool("truncated", body.Truncated()),
-		slog.Any("redactions", body.Counts()))
-	return posted, nil
+		return r.renderer.RenderRun(ctx, rep.Run)
+	})
 }
 
 // ReportReply posts a run-less reply and consumes the comment it answers.
@@ -667,47 +624,30 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		return Posted{Skipped: true}, nil
 	}
 
-	body, err := r.renderer.RenderReply(ctx, report.Reply{
-		Ref:                      req.Ref,
-		SourceStoryIssue:         sourceStory,
-		SourceCommentID:          sourceComment,
-		Kind:                     kind,
-		Command:                  req.Command.Name,
-		Agent:                    req.Agent,
-		OwningAgent:              req.OwningAgent,
-		RequestedAgent:           req.RequestedAgent,
-		SyncBehind:               req.SyncBehind,
-		SyncBase:                 req.SyncBase,
-		SyncMaxBehind:            req.SyncMaxBehind,
-		ConflictPaths:            req.ConflictPaths,
-		ConflictProposal:         req.ConflictProposal,
-		ConflictSuggestionFailed: req.ConflictSuggestionFailed,
-		ConflictSuggestionReason: req.ConflictSuggestionReason,
-		Schedule:                 req.Schedule,
-		Confirm:                  req.Confirm,
+	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, fmt.Sprintf("reply:%s:schedule:%d:proposal:%d:confirmation:%d", kind, req.Schedule.ID, req.Schedule.ProposalID, req.Confirm.ProposalID))
+	return r.deliver(ctx, intent, func() (redact.Body, error) {
+		return r.renderer.RenderReply(ctx, report.Reply{
+			Ref:                      req.Ref,
+			SourceStoryIssue:         sourceStory,
+			SourceCommentID:          sourceComment,
+			Kind:                     kind,
+			Command:                  req.Command.Name,
+			Agent:                    req.Agent,
+			OwningAgent:              req.OwningAgent,
+			RequestedAgent:           req.RequestedAgent,
+			SyncBehind:               req.SyncBehind,
+			SyncBase:                 req.SyncBase,
+			SyncDetail:               req.SyncDetail,
+			SyncPhase:                req.SyncPhase,
+			SyncMaxBehind:            req.SyncMaxBehind,
+			ConflictPaths:            req.ConflictPaths,
+			ConflictProposal:         req.ConflictProposal,
+			ConflictSuggestionFailed: req.ConflictSuggestionFailed,
+			ConflictSuggestionReason: req.ConflictSuggestionReason,
+			Schedule:                 req.Schedule,
+			Confirm:                  req.Confirm,
+		})
 	})
-	if err != nil {
-		log.ErrorContext(ctx, "could not render the reply; nothing was posted and "+
-			"the comment stays unconsumed", slog.Any("error", err))
-		return Posted{}, fmt.Errorf("render the %s reply for task %s: %w", kind, req.Ref, err)
-	}
-
-	comment, err := r.post(ctx, destination, body, log)
-	if err != nil {
-		return Posted{}, err
-	}
-	posted := Posted{CommentID: comment.ID}
-
-	if err := r.consumeSource(context.WithoutCancel(ctx), req.SessionID, req.CommentID); err != nil {
-		log.ErrorContext(ctx, "posted the reply but could not consume the comment; "+
-			"a later tick will reply again",
-			slog.Int64("comment_id", comment.ID), slog.Any("error", err))
-		return posted, fmt.Errorf("consume comment %d of task %s: %w", req.CommentID, req.Ref, err)
-	}
-
-	log.InfoContext(ctx, "posted the reply",
-		slog.Int64("comment_id", comment.ID), slog.Int("bytes", body.Len()))
-	return posted, nil
 }
 
 // Consume advances the watermark past a comment that is answered with silence:
@@ -743,15 +683,10 @@ func (r *Reporter) Consume(ctx context.Context, sessionID, commentID int64) (sto
 // The repository and issue come from the task ref rather than from a separate
 // parameter, so a report cannot be posted onto an issue other than the one whose
 // marker it carries.
-func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, log *slog.Logger) (github.Comment, error) {
+func (r *Reporter) post(ctx context.Context, ref naming.Ref, body redact.Body, _ *slog.Logger) (github.Comment, error) {
 	comment, err := r.forge.PostComment(ctx, github.RepoFromRef(ref), ref.Issue, body)
 	if err != nil {
-		// AC-4.10: this is the failure that must change nothing. Everything
-		// below this line in the calling method is a database write, and none of
-		// them has run.
-		log.ErrorContext(ctx, "could not post the comment; the watermark and the run are untouched, "+
-			"so a later tick retries the post without running claude again",
-			slog.Int("bytes", body.Len()), slog.Any("error", err))
+
 		return github.Comment{}, fmt.Errorf("post the comment on task %s: %w", ref, err)
 	}
 	if comment.ID == 0 {
@@ -803,6 +738,20 @@ func (r *Reporter) consumed(ctx context.Context, sessionID, commentID int64) (bo
 // says, and it lives here rather than in internal/report because that package
 // deliberately takes none of these types wholesale.
 func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, error) {
+	// Recovery reports reuse recorded observations without re-reading Git or
+	// inventing task freshness for historical base-only runs.
+	for _, s := range result.Run.SyncObservations {
+		value := &report.Sync{Phase: s.Phase, Base: s.Ref, LocalSHA: s.LocalSHA, RemoteSHA: s.RemoteSHA,
+			Outcome: report.SyncOutcome(s.Outcome), Behind: s.Behind, Ahead: s.Ahead,
+			CommitSHA: s.ResultSHA, Conflicts: append([]string(nil), s.Conflicts...), Reason: s.Reason}
+		if s.Phase == "task" && s.Outcome != "absent" && result.TaskSync == nil {
+			result.TaskSync = value
+		}
+		if s.Phase == "base" && result.Sync == nil {
+			result.Sync = value
+		}
+	}
+
 	ordinal := result.Run.Ordinal
 	if ordinal < 1 {
 		// A preparation failure never allocated a run row, and so never got an
@@ -837,11 +786,12 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// SHAAfter is where the branch ended up either way, and is what a
 		// permalink has to be pinned to or it renders blank on exactly that path
 		// (git.CommitResult.Head, AC-3.24).
-		SHAAfter: result.SHAAfter,
-		Pushed:   result.Pushed,
-		Files:    result.Changes,
-		LogPath:  result.LogPath,
-		Failure:  turnFailure(result),
+		SHAAfter:    result.SHAAfter,
+		Pushed:      result.Pushed,
+		Publication: result.Publication,
+		Files:       result.Changes,
+		LogPath:     result.LogPath,
+		Failure:     turnFailure(result),
 		// The requested surface and its provenance travel on the render input
 		// itself rather than on the harness result, because the report has to
 		// carry them for a run that produced no result at all — the run whose
@@ -852,7 +802,8 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// US-3. Nil for a branch that was already current (AC-3.1) and for a
 		// turn that never reached syncBase; every other outcome renders,
 		// including a skip, which has to say why (AC-3.2).
-		Sync: result.Sync,
+		Sync:     result.Sync,
+		TaskSync: result.TaskSync,
 		// Found by looking, not by deriving. internal/report does no I/O, and
 		// the session directory's date is knowable only from the filesystem —
 		// see report.Run.BriefPath for what deriving it used to get wrong.

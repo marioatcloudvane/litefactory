@@ -1,0 +1,66 @@
+Command: go test -race -cover ./internal/turn -run '^TestReportDelivery(Identity|Recovery|Legacy)' -count=1 -v
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/schedule
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/automatic
+--- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages (0.02s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless (0.01s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger (0.01s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/schedule (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/automatic (0.00s)
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup
+--- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence (0.01s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup (0.00s)
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content
+--- PASS: TestReportDeliveryLegacyRunlessAmbiguity (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content (0.00s)
+PASS
+coverage: 0.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	2.009s	coverage: 0.8% of statements

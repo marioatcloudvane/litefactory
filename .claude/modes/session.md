@@ -13,7 +13,7 @@ supplied, but artifacts are not prerequisites for returning structured findings.
 
 ## Deriving the path
 
-All artifacts live under `.aiteam/<branch>/<date>/<feature>/`.
+All artifacts live under `.aiteam/<branch>/<date>/<feature>/`. Reuse the factory-supplied session path first, including the directory containing its identity-bound `PLAN_CONTEXT.json`. That unfinished context is sufficient to continue Plan without a completed brief. A date change or cold/fallback attempt never creates a new session by itself. Only a new task without a supplied prior session derives a new path below.
 
 ```
 branch=$(git rev-parse --abbrev-ref HEAD | tr '/' '-' | tr '[:upper:]' '[:lower:]')
@@ -23,7 +23,7 @@ session=".aiteam/$branch/$date/$feature"
 ```
 
 - `<branch>` — current git branch, slashes → hyphens, lowercased.
-- `<date>` — today, `YYYY-MM-DD`.
+- `<date>` — the date the session began, `YYYY-MM-DD`; today only for a new session.
 - `<feature>` — the slug the user gave, lowercased, spaces and special characters
   → hyphens, max 40 characters.
 
@@ -47,9 +47,10 @@ For Research, Plan, Implement or Spike on a new piece of work, write `$session/M
 - [ ] **Research** — `RESEARCH_BRIEF.md` *(not started)*
 - [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
 - [ ] **Implement** — code + tests *(not started)*
+- [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
-**Validate** returns read-only structured findings through runner output; no
+**Validate** returns read-only structured findings through the supplied contract; no
 manifest checkbox is written by a Validate run.
 
 Modes do not follow on from one another. A box is ticked by a run that a human
@@ -92,6 +93,73 @@ is history, and history is what `git log` is for.
 
 **"Has this been done before?" is not a reason to cross the boundary.** Ask the
 user, or say in your report that you could not tell. Do not go looking.
+
+## Plan discussions and completion
+
+Plan remains selected across successful, failed and discussion iterations. Owner
+commands or canonical label replacement select another mode; label removal returns
+new triggers to command/classifier routing. Agent recommendations never change it.
+Plan permits material asynchronous questions unless explicitly prohibited for this
+run; Research stays opt-in. Finish one final report and never wait for an answer.
+
+For legacy contract 1, an unfinished iteration writes the supplied `PLAN_CONTEXT.json` with identity,
+scope, decisions, assumptions and unresolved questions, plus a current-bound
+`discussion` outcome. It must not write a proposal or claim readiness. A completed
+iteration writes the version-1 proposal, current-bound `completed` outcome and
+shared brief. Exact transport and context fields are in `docs/plan-outcome.md` and
+the factory prompt. Transport is never committed. Only successful factory
+publication, link replacement and save establish readiness. Recommend
+`/implement <instruction>` after completion and leave Plan selected.
+
+## Typed Plan submissions (contract 2)
+
+Derive scope from the latest owner request and current code; prior briefs are
+evidence, not permission to retain superseded requirements. Separate decisions,
+assumptions, non-goals, risks and existing features to reuse. In headless runs,
+resolve non-material gaps reasonably instead of asking questions nobody can answer.
+
+Use the factory-supplied content/submission version. For contract 2 supply a
+Plan contribution with `stage: "plan"`, outcome discussion or completed, and
+`context` or `plan` respectively. Discussion saves working context and publishes
+nothing. Completed Plan carries summary and typed stories; the factory renders
+all headings, tables, checklist lines, identities and expected bases. Never supply
+full-body transport or envelope fields on this path. Durable input acknowledgment
+is not publication/readiness: terminal success, publication and save must succeed.
+
+Each typed story supplies key, intent, title and all five sections:
+- user_story: actor, want, benefit, notes (string array).
+- acceptance_criteria: objects with id and text; 1–256 active canonical IDs
+  AC-001 through AC-999999, unique and never reused after retirement; text at most
+  4,096 UTF-8 bytes. Narrative cannot manufacture undeclared obligations.
+- tasks: id, description, owner_role, criterion_ids and depends_on; at least one
+  task, known roster roles/references and acyclic task/story dependencies.
+- architecture: summary, components (name/responsibility), interfaces
+  (name/input/output), constraints (strings), decisions (decision/reason).
+- dependencies: story_keys and issue_refs arrays of authorized references.
+
+All required collections must be present, even when empty. Null, duplicate,
+unknown and incorrectly typed fields reject. Limits include 65,536 rendered story
+bytes, 8 MiB escaped Plan transport, 4 MiB submission/assessment metadata and 64 MiB
+retained run data; individually valid maxima can exceed an aggregate budget.
+Preflight the complete proposal. Preserve factory-retained completed legacy
+children as dependency references; omit them from typed story contributions when
+the supplied upgrade binding identifies them as opaque historical dependencies.
+
+Legacy contract 1 still uses the supplied version-1 full-body proposal and bound
+outcome transport. Its stories require level-2 User Story, Acceptance Criteria,
+Tasks, Architecture and Dependencies. Do not silently switch an existing scope.
+For both versions keep plan_brief.md as shared context with a link-only Story
+Index; never write per-story Markdown or consult the forge. Only the factory
+publishes, confirms issue revisions and freezes requirements.
+
+Split protected-tree edits into independent stories: Codex owns `.claude/**`,
+Claude owns `.codex/**`, and shared-source work precedes either without depending
+on either. Scoped checks cannot require installed sibling parity. Preserve the
+persisted workflow version for active features and their replans.
+
+Read `.claude/skills/shared/workflow.md` for helper request correlation, independent
+receipt dimensions, list-B evidence and explicit upgrade. Contract-2 submission
+replaces legacy outcome/proposal transport above; the factory owns identity fields.
 
 ## Plan mode's output: `plan_brief.md` + per-story sub-issues
 

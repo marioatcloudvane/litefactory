@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,17 +16,26 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
-// These reads occur on the tick goroutine. Tests change the hook only after
-// Quiesce, and move all issues/comments outside discovery's listing window.
+// Backlog reads run on the tick goroutine; mode confirmation reads run on
+// workers. Tests inspect reads and change the hook only after Quiesce, and move
+// all issues/comments outside discovery's listing window.
 type closureForge struct {
-	daemon.Forge
+	labelFixtureForge
+	mu    sync.Mutex
 	reads []int
 	after func(context.Context, int, github.Issue, error) (github.Issue, error)
 }
 
 func (g *closureForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	// Quota observation is an independent real HTTP read, not a backlog
+	// candidate and must not invoke candidate-specific cancellation/errors.
+	if number == 1 {
+		return g.labelFixtureForge.GetIssue(ctx, repo, number)
+	}
+	g.mu.Lock()
 	g.reads = append(g.reads, number)
-	issue, err := g.Forge.GetIssue(ctx, repo, number)
+	g.mu.Unlock()
+	issue, err := g.labelFixtureForge.GetIssue(ctx, repo, number)
 	if g.after != nil {
 		return g.after(ctx, number, issue, err)
 	}
@@ -42,7 +52,7 @@ func closedBacklogFixture(t *testing.T) (*fixture, *closureForge) {
 	f.settle() // advance the stored cursor beyond the initial listing
 	f.forge.closeIssue(testIssue)
 	f.needsPoll(testIssue)
-	g := &closureForge{Forge: f.client}
+	g := &closureForge{labelFixtureForge: f.client}
 	f.daemon = f.newDaemon(daemon.Options{MaxConcurrentRuns: 1, Forge: g})
 	return f, g
 }
@@ -117,7 +127,7 @@ func TestClosedBacklogReleasesAdmissionForOpenWork(t *testing.T) {
 	for _, n := range []int{testIssue, 124, 125, 126} {
 		f.forge.addIssue(fakeIssue{Number: n, Title: "Task", User: stranger()})
 	}
-	f.settle()
+	f.bootstrapIssues(f.repo, testIssue, 124, 125, 126)
 	f.clock.advance(pastListing)
 	f.settle()
 	for _, n := range []int{testIssue, 124, 125} {
@@ -125,7 +135,7 @@ func TestClosedBacklogReleasesAdmissionForOpenWork(t *testing.T) {
 		f.needsPoll(n)
 	}
 	f.forge.addComment(126, 301, owner(), "/spike open work")
-	g := &closureForge{Forge: f.client}
+	g := &closureForge{labelFixtureForge: f.client}
 	f.daemon = f.newDaemon(daemon.Options{MaxConcurrentRuns: 1, Forge: g})
 	result := f.settle()
 	if result.Dispatched != 1 || result.Deferred != 0 {
@@ -139,8 +149,15 @@ func TestClosedBacklogReleasesAdmissionForOpenWork(t *testing.T) {
 			t.Errorf("issue %d still flagged", n)
 		}
 	}
-	if !slices.Equal(g.reads, []int{testIssue, 124, 125}) {
+	// Closed backlog candidates are read once each. Subsequent reads belong
+	// to the open issue's durable mode admission and confirmation.
+	if len(g.reads) < 3 || !slices.Equal(g.reads[:3], []int{testIssue, 124, 125}) {
 		t.Fatalf("backlog reads = %v", g.reads)
+	}
+	for _, number := range g.reads[3:] {
+		if number != 126 {
+			t.Fatalf("closed issue reread during admission: %v", g.reads)
+		}
 	}
 }
 
@@ -242,7 +259,7 @@ func TestRetiredBacklogReopensWithoutReplayingConsumedComments(t *testing.T) {
 	f.clock.advance(pastListing)
 	f.settle()
 	f.needsPoll(testIssue)
-	g := &closureForge{Forge: f.client}
+	g := &closureForge{labelFixtureForge: f.client}
 	f.daemon = f.newDaemon(daemon.Options{Forge: g})
 	f.settle()
 	if f.session().NeedsPoll || f.watermark() != 401 {
@@ -261,8 +278,9 @@ func TestRetiredBacklogReopensWithoutReplayingConsumedComments(t *testing.T) {
 	if f.session().ID != original.ID || f.watermark() != 402 || !slices.Equal(f.turns.triggers(), []int64{401, 402}) {
 		t.Fatalf("reopening lost/replayed work: session=%+v watermark=%d triggers=%v", f.session(), f.watermark(), f.turns.triggers())
 	}
-	if !slices.Equal(g.reads, []int{testIssue}) {
-		t.Fatalf("reopening needed a backlog GET instead of normal discovery: %v", g.reads)
+	// The second read confirms the retained mode for the newly admitted trigger.
+	if !slices.Equal(g.reads, []int{testIssue, testIssue}) {
+		t.Fatalf("closure retirement and fresh mode confirmation reads: %v", g.reads)
 	}
 }
 

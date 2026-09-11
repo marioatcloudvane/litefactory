@@ -125,8 +125,25 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 | authorize a reasoned exception | `turn/owner_exceptions.go`, `store/owner_exceptions.go` | Numeric-owner `/waive`, exact immutable expansion and original evidence; grammar in `docs/workflow/owner-exceptions.md` |
 | approve a linked follow-up | `turn/followups.go`, `store/followups.go`, `github/followups.go` | Concrete proposal, separate creation/attachment controls and uncertain-response reconciliation |
 | deliver accepted work to main | `turn/feature_delivery.go`, `store/delivery.go`, `github/delivery.go` | All-child readiness, retained full reports, explicit PR/head approval, confirmed integration then parent closure; `docs/workflow/delivery.md` |
+| continue or complete a managed Plan | `turn/plan_attempt.go`, `turn/plan_context.go`, `turn/plan_handoff.go`, `planbrief/outcome.go` | Strict per-attempt discussion/completed outcome; identity-bound `PLAN_CONTEXT.json` supports dates/resume/fallback; completed proposal v1 publishes and saves a link-only index before readiness; exact fields in `docs/plan-outcome.md` |
+| derive asynchronous question permission | `turn/ask.go:questionPermission`, shared `harness.BuildPrompt` and `agent.Request` | Plan defaults on, Research stays tagged, recognized direct no-question instructions win; current/previous policies and framed saved context reach both runners |
+| retain and switch the selected mode | `daemon/mode.go`, `store/modes.go` | Canonical labels persist through runs/recovery; explicit owner commands replace a valid selection through durable confirmed transitions; journal retirement preserves labels and uses independent child consumption |
+| locate agent workflow instructions | `.claude/agents/`, `.claude/modes/`, `.codex/skills/` | Claude sources and Codex skill copies agree on persistent Plan discussion; harness-specific workflow references remain distinct |
 | do one comment's worth of work | `internal/turn` | `ParseCommand` is the front door; `Execute` is everything after |
 | dispatch, diagnose and join polling workers | `daemon/tick.go`, `daemon/worker.go` | `Tick` admission sources and worker/forge counter aliases; `runWorker` lifetime diagnostics and executor-request count; `Quiesce` joins cleanup and diagnostics |
 | add a CLI command | `internal/cli` | One constructor in a `cmd_<group>.go` + one line in `Commands()`. No switch, no mutable registry |
 | install/remove the LaunchAgent | `internal/launchd` | LaunchAgent in `gui/$UID` only — never a LaunchDaemon (SD-8) |
 | build a logger | `internal/logging` | No package-level logger and no `slog.SetDefault`; it is a struct field passed around |
+
+## Structured story contracts
+
+`planbrief` owns typed content, strict validation, legacy conversion and structural
+inline reconciliation; `report` renders deterministic issue bodies. `agent` owns
+stage contributions/diagnostics; `submission` owns the attempt-bound local broker
+and helper protocol. `store` retains generation contracts, projections, retired
+IDs, immutable check references, receipts and recoverable upgrade intent.
+`turn/story_contract_upgrade.go` coordinates revision checks; the owner CLI
+`story-contract upgrade` previews by default and requires `--apply` for the
+unfinished cohort. Completed legacy children remain opaque dependencies in typed
+Plans. These content/submission versions do not change workflow versions. See
+[operator protocol](../docs/story-contract.md) and [shared instruction manifest](../docs/story-contract-instruction-manifest.md).

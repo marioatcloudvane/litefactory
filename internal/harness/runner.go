@@ -847,6 +847,13 @@ func (r *Runner) exec(
 		return result, fmt.Errorf("%w: no conversation to resume for session id %s (exit %d)",
 			ErrSessionNotResumable, req.Session.Ref, result.ExitCode)
 	}
+	if resumeUnusable(req.Path.Resuming(), result) {
+		logger.Warn("the resumed conversation no longer fits; rerunning this run cold",
+			slog.Int("num_turns", result.NumTurns),
+			slog.String("result", excerpt(result.ResultText)))
+		return result, fmt.Errorf("%w: conversation %s failed before its first turn (exit %d)",
+			ErrSessionNotResumable, req.Session.Ref, result.ExitCode)
+	}
 	return result, nil
 }
 
@@ -879,6 +886,40 @@ func resumeRefused(resuming bool, result *RunResult) bool {
 		result.Outcome == OutcomeFailed &&
 		result.Model == "" &&
 		result.ExitCode > 0
+}
+
+// resumeUnusable reports whether a resumed conversation was rejected before it
+// could do any work, which the caller answers by rerunning cold exactly as it
+// answers [resumeRefused].
+//
+// The condition this was written for: a conversation grew past the model's
+// context window across earlier runs, so claude declines it up front rather
+// than at the API. On issue #207 that ended run 18 in five seconds with one
+// turn, no tokens and "Prompt is too long" — after the prompt itself had been
+// cut from 2.8MB to 125KB, so the prompt was no longer the problem and the
+// history was.
+//
+// It is decided structurally, and deliberately not by matching the message.
+// "Prompt is too long" is prose from another project's binary, and its
+// terminal_reason is a vocabulary that project can extend; neither is a
+// contract. What is load-bearing is that nothing happened:
+//
+//   - resume only, and OutcomeFailed, for the reasons [resumeRefused] gives.
+//   - a terminal error result. A run killed or timed out says nothing about
+//     whether its conversation is usable.
+//   - at most one turn, and a reported cost of exactly zero. Together these
+//     are the claim that no work was done and no tokens were spent, which is
+//     what makes rerunning cold safe: [resumeRefused] must not throw away a
+//     conversation that got somewhere, and neither must this. A resumed run
+//     that burned tokens and then failed is a different problem and is
+//     reported, not retried.
+func resumeUnusable(resuming bool, result *RunResult) bool {
+	return resuming &&
+		result.Outcome == OutcomeFailed &&
+		result.HasResult && result.IsError &&
+		result.ExitCode > 0 &&
+		result.NumTurns <= 1 &&
+		result.HasCost && result.CostUSD == 0
 }
 
 // join waits for both readers, closing their pipes if they outstay ioGrace.

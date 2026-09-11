@@ -39,7 +39,10 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 			agents := turn.RunnerSet{agent.Kind(store.AgentClaude): nil, agent.Kind(store.AgentCodex): nil}
 			f.daemon = f.newDaemon(daemon.Options{Agents: agents})
 			f.plantCursor()
-			var labels []string
+			labels := []string{"Mode: Implement"}
+			if tt.mode == agent.ModeImplement {
+				labels = []string{"Mode: Plan"}
+			}
 			if tt.kind == agent.Kind(store.AgentCodex) {
 				labels = append(labels, "Coding Agent: Codex")
 			}
@@ -53,6 +56,12 @@ func TestModesSelectCanonicalPermissionsForBothAgents(t *testing.T) {
 				t.Fatalf("executor calls = %d, want 1\nlogs:\n%s", len(calls), f.logs)
 			}
 			req := calls[0]
+			selected := "Mode: " + strings.ToUpper(string(tt.mode[:1])) + string(tt.mode[1:])
+			if tt.kind == agent.Kind(store.AgentCodex) {
+				assertRetentionLabels(t, f, selected, "Coding Agent: Codex")
+			} else {
+				assertRetentionLabels(t, f, selected)
+			}
 			if req.Mode != tt.mode || req.Agent != tt.kind || req.ToolProfile != tt.profile || req.AttachmentsAllowed != tt.attachments {
 				t.Fatalf("routing = mode %q agent %q profile %q attachments %t", req.Mode, req.Agent, req.ToolProfile, req.AttachmentsAllowed)
 			}

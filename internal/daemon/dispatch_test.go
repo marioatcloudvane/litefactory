@@ -64,7 +64,7 @@ func TestABackoffArmedMidTickStopsFurtherDispatch(t *testing.T) {
 		// Three, so that a refused dispatch is unambiguously the backoff and
 		// never the pool: every candidate in this test could have had a slot.
 		MaxConcurrentRuns: 3,
-		Forge:             gatedForge{Forge: f.client, number: gatedIssue, until: armed.ch},
+		Forge:             gatedForge{labelFixtureForge: f.client, number: gatedIssue, until: armed.ch, t: t},
 		Logger:            slog.New(newArmingHandler(f.logger.Handler(), armed)),
 	})
 
@@ -233,22 +233,26 @@ func (h *armingHandler) WithGroup(name string) slog.Handler {
 //
 // The context is honoured rather than ignored, so a gate that is never opened
 // unblocks when the test's own context is cancelled instead of parking a
-// goroutine for the life of the run. It is not a deadline: the assertions above
-// are what say the interleaving happened, and a signal that never fires shows
-// up as a tick that never returns.
+// goroutine for the life of the run. The timeout is a failure guard only: the
+// channel still establishes the interleaving, and a missing signal fails with
+// the rendezvous named rather than hanging the entire package.
 type gatedForge struct {
-	daemon.Forge
+	labelFixtureForge
 	number int
 	until  <-chan struct{}
+	t      *testing.T
 }
 
 func (g gatedForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
 	if number == g.number {
+		wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
 		select {
 		case <-g.until:
-		case <-ctx.Done():
-			return github.Issue{}, ctx.Err()
+		case <-wait.Done():
+			g.t.Errorf("waiting for backoff-armed signal before reading issue %d: %v", number, wait.Err())
+			return github.Issue{}, wait.Err()
 		}
 	}
-	return g.Forge.GetIssue(ctx, repo, number)
+	return g.labelFixtureForge.GetIssue(ctx, repo, number)
 }

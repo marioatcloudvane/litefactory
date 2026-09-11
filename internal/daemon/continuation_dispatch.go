@@ -31,6 +31,9 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		if err != nil {
 			return err
 		}
+		if d.sessionRecoveryHeld(session.ID, at) {
+			continue
+		}
 		repo, ok := repos[session.RepoID]
 		if !ok || repo.Forge != store.ForgeGitHub {
 			continue
@@ -171,10 +174,18 @@ func (d *Daemon) runContinuation(ctx context.Context, t *task, c store.Continuat
 	if err != nil {
 		t.recordWorkerError(err)
 	}
-	_, exists, lookupErr := d.db.GetRunByTrigger(ctx, c.SessionID, c.TriggerID())
+	run, exists, lookupErr := d.db.GetRunByTrigger(ctx, c.SessionID, c.TriggerID())
 	if lookupErr != nil {
 		t.recordWorkerError(lookupErr)
 		t.log.ErrorContext(ctx, "read automatic outcome", slog.Any("error", lookupErr))
+		return
+	}
+	if exists && run.Status == store.RunPrelaunch {
+		t.recordWorkerStatus(workerDeferred)
+		if requeueErr := d.db.RequeueContinuation(ctx, c.ID); requeueErr != nil {
+			t.recordWorkerError(requeueErr)
+			t.log.ErrorContext(ctx, "requeue prelaunch recovery", slog.Any("error", requeueErr))
+		}
 		return
 	}
 	if !exists {
