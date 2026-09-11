@@ -128,7 +128,21 @@ nothing else — never a note or a placeholder.
    | | Read | The message is |
    |---|---|---|
    | **First run** — no brief yet | `.claude/skills/shared/research-report-entry.md` | easy to comprehend feedback that gets the user moving. It says how many open questions there are and asks them to work on them; it does not list them — the next cycle is for thinking about them. |
-   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | the full question digest, open and answered. Expect back-and-forth across several runs. |
+   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | every question laid out one at a time, open then answered. Expect back-and-forth across several runs. |
+
+   **On a later run the layout is the deliverable.** Follow the procedure file
+   literally: **one `##` block per open question, each with its own table of
+   competing solutions** — Solution / Details / Benefits / Tradeoff, one row
+   Recommended, never fewer than two. **Never collapse them into a single
+   table**: rows of questions leave one cell for the answer, so the alternatives
+   disappear and the owner gets a verdict to nod at. The options are the point.
+
+   **Every run ends by saying what to work on next**, with the standing
+   invitation to reply *"move to the next phase."*
+
+   **Never link or name the brief** — litefactory's run header links it, and your
+   only view of it is a worktree path. Likewise no completion line, no title, no
+   note on which artifacts were written. Open on the first content section.
 
    **Never give up on a later run.** The back-and-forth is the work: you are
    helping the user shape the feature they are building. You serve the user, and

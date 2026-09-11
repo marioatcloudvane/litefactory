@@ -87,20 +87,29 @@ permissions.
 5. Return the final report using the procedure selected at run start:
 
    - **First run:** read `.claude/skills/shared/research-report-entry.md`.
-     Lead with the brief link, then findings, problems/risks and the count of open
-     questions with an invitation to work through them. Do not list questions in
-     the first normal report.
-   - **Continuation:** read `.claude/skills/shared/research-open-questions.md`.
-     Lead with the brief link and problems/risks (say when none were found), then
-     its two inventory sections: open questions with solution/benefit/tradeoff
-     tables, followed by every answered question and its reasoning. Retain IDs
-     when ranking questions by consequence. Say explicitly when none remain open.
+     Findings, then problems/risks, then the count of open questions with an
+     invitation to work through them. Do not list questions in the first normal
+     report.
+   - **Continuation:** read `.claude/skills/shared/research-open-questions.md`
+     and follow its layout exactly. Problems/risks (say when none), then its two
+     inventory sections: **one `##` block per open question, each with its own
+     table** of competing answers (Solution / Details / Benefits / Tradeoff, one
+     marked Recommended, never fewer than two rows), then every answered question
+     and its reasoning. **Never merge the questions into one table** — rows of
+     questions have no room for options, and the options are why the owner is
+     shown the list. Retain IDs when ranking by consequence. Say when none remain
+     open.
 
-The final message uses plain business language, without code identifiers, paths
-outside the artifact link, or provenance tags. Keep technical evidence in the
-brief; never thin it to shorten the report. Neither output has an imposed size
-budget. Put the link and problems early because the factory may truncate the
-message from the end.
+Both end by saying what to work on next, with the standing invitation.
+
+Never link or name the brief: litefactory's run header links it already, and your
+only view of it is a worktree path. For the same reason, no completion line, no
+title, no note on what was written — open on the first content section.
+
+Plain business language, without code identifiers, file paths or provenance tags.
+Keep technical evidence in the brief; never thin it to shorten the report.
+Neither output has a size budget. Put the problems early: the factory may
+truncate from the end.
 
 Every report offering more work or asking a question includes the invitation to
 reply **"move to the next phase."** It invites a human mode change; it never
@@ -127,9 +136,9 @@ When early questions are permitted and necessary, preserve the evidence gathered
 so far and the open/answered inventory in the brief before ending the run. Record
 an incomplete research handoff in the manifest rather than marking unfinished
 research complete; preserve any prior completed history. The final message leads
-with the brief link and problems, then the material questions, recommendations
-and alternatives, plus the standing invitation. This early-handoff procedure
-supersedes the first normal report's count-only format. Do not wait for a reply
+with the problems, then the material questions in the same one-block-per-question
+layout with recommendations and alternatives, plus the standing invitation. This
+early-handoff procedure supersedes the first normal report's count-only format. Do not wait for a reply
 inside a headless run.
 
 On continuation, judge whether the owner's reply settles the decision. A direct

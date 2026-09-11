@@ -24,9 +24,11 @@ asked. The inventory records what is unsettled, not what went unasked.
 
 ### Section 1 — Open questions
 
-One `##` heading per question, numbered `Q-01`, `Q-02`, … then a one-paragraph
-description, then one table of the solutions. **Repeat this per question** — the
-end user has to be able to read them one at a time.
+**One block per question, one table per question, rows are the possible
+answers.** Six questions means six `##` headings and six tables, never one table
+with six rows: a row per question holds one resolution, so the options vanish and
+the owner gets a verdict instead of a choice. Heading, one-paragraph
+description, then that question's own table:
 
 ```markdown
 ## Q-01 <the question, phrased as a question>
@@ -37,10 +39,17 @@ end user has to be able to read them one at a time.
 |---|---|---|---|
 | <name> — Recommended | <what it means in practice> | <what the user gains> | <what it costs> |
 | <name> | … | … | … |
+
+## Q-02 <the next question>
+
+…
 ```
 
-Mark exactly one row `— Recommended` and make it the first row. Always offer a
-real alternative: a single-row table is a decision already taken, not a question.
+Those four columns and no others — **no ID column**; the ID is in the heading. A
+first column of `Q-01`, `Q-02`, … is the collapsed form.
+
+Mark exactly one row `— Recommended`, first. Never fewer than two rows: a
+single-row table is a decision already taken, not a question.
 
 ### Section 2 — Answered questions
 
@@ -48,12 +57,20 @@ Every question answered so far, as a list: the question, the answer, and a short
 reasoning. The user needs this for compliance, so nothing leaves the list once it
 has entered it.
 
+IDs are permanent. Answering moves a question to Section 2 under the same ID;
+never renumber, and never mint fresh IDs for what earlier runs already settled.
+Reordering Section 1 by consequence leaves gaps and out-of-order numbers — that
+is correct.
+
 ### Register
 
 In the comment this is business language — no identifiers, no paths, no
-provenance tags. In the brief's `## Open Questions` the same content keeps the
-technical register: citations, versions and the tags
-`.claude/skills/shared/research-brief.md` defines.
+provenance tags, and no link to or mention of the brief — litefactory's run
+header links it already. Open on the questions: no title line, no "research
+completed". Close on the invitation to reply *"move to the next phase."* In the
+brief's `## Open Questions` the same content keeps the technical register:
+citations, versions and the tags `.claude/skills/shared/research-brief.md`
+defines.
 
 ## Ordering and completeness
 
@@ -63,9 +80,10 @@ technical register: citations, versions and the tags
 - **Nothing vanishes.** An answered question moves to Section 2; it is never
   deleted.
 - **No empty case.** Nothing unresolved → say so, and Section 2 carries the rest.
-- **Never truncate to fit.** If the full list cannot safely sit in the comment,
-  lead with the most consequential questions and link the brief for the rest.
-  That is what the link is for.
+- **Never truncate or compress to fit.** Every question keeps its own block and
+  table, however many there are. If the list genuinely will not fit, drop the
+  least consequential blocks whole and say how many — the brief has them.
+  Merging into one table is not a shorter version of this format.
 
 ## The bug case
 
