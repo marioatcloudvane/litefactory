@@ -23,3 +23,17 @@ No additional product scope, protected instruction maintenance, policy switches,
 ## Current gate status
 
 All final engineering submissions recorded against exact final source/test snapshots. Final aggregate `make check` and `go build ./...` passed after two style-only gocritic corrections. No additional product scope or dropped engineering tasks were reported by implementation/test specialists. Factory save and acceptance remain separate pending stages. Engineering inventory verdict: delivered within the frozen scope; no reported engineering deviation.
+
+
+## Run 0008 aggregate recovery — 2026-09-11
+
+Status: aggregate engineering blocked; completed US-001, US-002 and US-003 engineering remains unchanged. No source changes, new story events, acceptance review or mode transition.
+
+- `GOLANGCI_LINT_CACHE=/private/tmp/lf209-recovery-lint-cache make check`: exit 2. Format and vet passed; pinned golangci-lint v2.13.1 reported `0 issues.` Race suite failed.
+- `internal/teamsource`: `TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/research-orchestrator` failed at `aggregate_instruction_parity_test.go:127`: `.claude/agents/research-orchestrator.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md`.
+- `internal/turn`: `panic: test timed out after 20m0s`; package ended failed at 1201.153s. Root cause not established; timeout is not a passing check.
+- `go build ./...`: exit 0, no output.
+
+Actual full command output is retained in [run-0008-make-check.log](run-0008-make-check.log) and [run-0008-build.log](run-0008-build.log). Earlier retained passing evidence is preserved and does not replace this attempt's failures.
+
+This run was authorized only for aggregate recovery; no completed implementation or protected instruction source was changed to repair these failures. A successful aggregate gate and factory save remain prerequisites before recommending Validate. The previous Validate result was unverified because source bodies could not be read, not an observed defect; the future Validate profile needs usable read-only snapshot access. Current Implement tools do not prove that future capability. Save, push and acceptance remain factory-owned and unconfirmed.

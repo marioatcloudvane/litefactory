@@ -61,3 +61,17 @@ Fourteen final cases passed, zero failed: `go test ./internal/turn ./internal/re
 AC-009 covers preparation-only/prior-retained publication and no-op/equal/FF behavior. AC-010 covers failed-run local preservation/recovery and truthful rejected publication. AC-011 covers deterministic actual second-writer movement during execution and during push, identical-tip completion without changing checked tree, generic push rejection versus verified movement and report propagation.
 
 Initial fixture failures (duplicate trigger identities, disabled base synchronization, inherited Git hook environment) were corrected; original failed logs remain retained. Dedicated criterion tests required no production fixes.
+
+
+## Run 0008 aggregate recovery — 2026-09-11
+
+Status: aggregate engineering blocked; completed US-001, US-002 and US-003 engineering remains unchanged. No source changes, new story events, acceptance review or mode transition.
+
+- `GOLANGCI_LINT_CACHE=/private/tmp/lf209-recovery-lint-cache make check`: exit 2. Format and vet passed; pinned golangci-lint v2.13.1 reported `0 issues.` Race suite failed.
+- `internal/teamsource`: `TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/research-orchestrator` failed at `aggregate_instruction_parity_test.go:127`: `.claude/agents/research-orchestrator.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md`.
+- `internal/turn`: `panic: test timed out after 20m0s`; package ended failed at 1201.153s. Root cause not established; timeout is not a passing check.
+- `go build ./...`: exit 0, no output.
+
+Actual full command output is retained in [run-0008-make-check.log](run-0008-make-check.log) and [run-0008-build.log](run-0008-build.log). Earlier retained passing evidence is preserved and does not replace this attempt's failures.
+
+This run was authorized only for aggregate recovery; no completed implementation or protected instruction source was changed to repair these failures. A successful aggregate gate and factory save remain prerequisites before recommending Validate. The previous Validate result was unverified because source bodies could not be read, not an observed defect; the future Validate profile needs usable read-only snapshot access. Current Implement tools do not prove that future capability. Save, push and acceptance remain factory-owned and unconfirmed.
