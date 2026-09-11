@@ -365,6 +365,7 @@ type Daemon struct {
 	inflight           inflight
 	stoppedDebt        stoppedResults
 	recoveries         reportRecoveryCache
+	prepFailures       prepareFailures
 	diagnosticRedactor *redact.Redactor
 	pool               *pool
 

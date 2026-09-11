@@ -334,9 +334,15 @@ func TestExecuteTaskFetchErrorDoesNotTrustStaleTrackingRef(t *testing.T) {
 	f.repo.GitIn(dir, "push", "origin", "HEAD:refs/heads/"+testBranch)
 	before := f.repo.GitIn(dir, "rev-parse", "HEAD")
 	f.repo.Git("remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing-origin"))
-	result := f.execute(f.request())
-	if result.Run.ID != 0 || runner.callCount() != 0 || result.Reason == "" {
+	// An unreachable origin is infrastructure, not an answer: the turn refuses
+	// with an error and the trigger stays unconsumed for a later tick, rather
+	// than being spent on a report (#210 US-001 AC-002).
+	result, err := f.executeRefused(f.request())
+	if result.Run.ID != 0 || runner.callCount() != 0 {
 		t.Fatalf("unknown remote was treated as safe: %+v", result)
+	}
+	if !strings.Contains(err.Error(), "fetch") {
+		t.Fatalf("refusal does not name the fetch: %v", err)
 	}
 	if f.repo.GitIn(dir, "rev-parse", "HEAD") != before {
 		t.Fatal("fetch refusal changed retained branch")

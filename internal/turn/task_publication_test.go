@@ -2,7 +2,6 @@ package turn
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,11 +212,11 @@ func TestTaskPublicationReportInput(t *testing.T) {
 	}
 }
 
-// The push is verified once, inside the turn that made it. A report whose post
-// fails is rebuilt from the runs row on a later tick, so publication has to
-// survive in the row: a commit confirmed on the remote must not come back as
-// "in the local worktree only".
-func TestTaskPublicationSurvivesReportPostFailure(t *testing.T) {
+// The push is verified once, inside the turn that made it. A trigger that is
+// replayed — the run exists, the report did not follow — is rebuilt from the
+// runs row, so publication has to survive in the row: a commit confirmed on
+// the remote must not come back as "in the local worktree only".
+func TestTaskPublicationSurvivesAReplayedTrigger(t *testing.T) {
 	t.Parallel()
 	var f *fixture
 	f = newFixture(t, newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
@@ -238,15 +237,9 @@ func TestTaskPublicationSurvivesReportPostFailure(t *testing.T) {
 		t.Fatalf("setup: local=%s remote=%s", local, remote)
 	}
 
-	forge.failWith(http.StatusInternalServerError)
-	if _, err := reporter.ReportTurn(t.Context(), first); err == nil {
-		t.Fatal("post failure ignored")
-	}
-	forge.recover()
-
 	replay := f.execute(req)
 	if replay.Disposition != DispositionAlreadyRan {
-		t.Fatalf("replay disposition = %v", replay.Disposition)
+		t.Fatalf("replay disposition = %v (%s)", replay.Disposition, replay.Reason)
 	}
 	if !replay.Pushed || replay.Publication != first.Publication {
 		t.Fatalf("replay lost publication: pushed=%v publication=%q, want true and %q",

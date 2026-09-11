@@ -1107,6 +1107,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		// rather than a defer: a defer would fire on the error returns above too,
 		// which is exactly the stale-false the protocol forbids.
 		d.clearBacklog(ctx, t)
+		// Consecutive-failure counting ends where the backlog flag does: this
+		// task has just made progress, so whatever it was failing at is no
+		// longer failing.
+		d.prepFailures.clear(t.session.ID)
 	}
 }
 
@@ -1134,6 +1138,35 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 	d.rateLimited(ctx, t.log, t.tickAt, err)
 	t.log.ErrorContext(ctx, what+"; it still needs a poll, so a later tick comes back to it",
 		slog.Any("error", err))
+	d.prepareFailed(ctx, t, err)
+}
+
+// prepareFailed counts a turn that ended without consuming its trigger, and
+// says so once when a task stops looking like it is between attempts and
+// starts looking stuck.
+//
+// The retry itself is deliberate and is not changed here: the comment stays
+// unconsumed so the work is not lost to a blip. What is added is the
+// difference between a blip and an origin that is never coming back, which
+// otherwise reads identically in the log — the same error line, every tick,
+// with nothing that counts them.
+func (d *Daemon) prepareFailed(ctx context.Context, t *task, err error) {
+	reason := err.Error()
+	if sanitizer := d.diagnosticRedactor; sanitizer != nil {
+		if body, redactErr := sanitizer.Apply(ctx, reason, 1024); redactErr == nil {
+			reason = body.String()
+		}
+	}
+	state, announce := d.prepFailures.record(t.session.ID, reason)
+	if !announce || state.Attempts < prepareEscalationAttempts {
+		return
+	}
+	t.log.ErrorContext(ctx, "this task has failed every turn since it last made progress; "+
+		"the trigger is still unconsumed and the next tick will try again, but nothing "+
+		"will stop retrying on its own",
+		slog.Int("consecutive_failures", state.Attempts),
+		slog.Bool("escalated", state.Escalated),
+		slog.String("reason", reason))
 }
 
 // bootstrap plants the watermark of a task seen for the first time at the
