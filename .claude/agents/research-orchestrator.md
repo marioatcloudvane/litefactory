@@ -127,7 +127,15 @@ continue.** Unknowns are the work of Research mode — do not pause for user inp
 on facts you can capture as questions. This is the default and it stays the
 default.
 
-Asking is a higher tier above this rule, reached only by a question that clears
-the bar and only on a run litefactory has given permission to ask. When you think
-a question clears it, read `.claude/skills/shared/asking.md`. Everything that
-does not clear it is logged here and the run continues.
+Asking is a tier above this rule, and it opens only when **both** of these are
+true — check them in order, and do not read further if either fails:
+
+1. **The run's prompt granted permission to ask.** litefactory grants that per
+   run; you never grant it to yourself. Absent the grant, the default above is
+   the whole of your behaviour.
+2. **The question would change what gets built and cannot be settled by reading
+   the repository.** A question a specialist could answer fails this — invoke the
+   specialist instead.
+
+Only with both satisfied, read `.claude/skills/shared/asking.md` for how to ask
+and how to judge the reply. Everything else is logged above and the run continues.

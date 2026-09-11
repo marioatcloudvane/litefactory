@@ -1,71 +1,50 @@
 # Open questions — the full inventory
 
-Read this when a run has to show **every** unresolved question, rather than the
-ranked shortlist the entry report offers. Two callers use it today:
+Read when a run must show **every** unresolved question, not the ranked shortlist
+in `.claude/skills/shared/research-report-entry.md`. Callers: Research, writing
+the brief's `## Open Questions` (and the comment's tail when the whole list
+belongs there); Plan, checking what Research left unsettled before fixing scope.
 
-- **Research**, writing the `## Open Questions` section of `RESEARCH_BRIEF.md`,
-  and — where the whole inventory belongs in the comment — the tail of the final
-  message, after the shortlist that `.claude/skills/shared/research-report-entry.md`
-  governs.
-- **Plan**, picking up a brief and needing to see what Research left unsettled
-  before it commits to scope.
+## What qualifies
 
-The entry report carries the two or three questions worth acting on. This file
-carries all of them. Neither replaces the other.
+- A fact the run could not establish — repo silent, web unsettled, specialist
+  reported it unresolved.
+- A decision that is the owner's, not yours.
+- An unexplained surprise from the tour: unexpected dependency, a pattern
+  contradicting the stated architecture, a path with no owner.
 
-## What counts as an open question
+**Carry uncertainty forward.** A confident sentence covering a gap is how a wrong
+assumption reaches Plan mode.
 
-- A fact the run could not establish — the repository does not say, the web did
-  not settle it, the specialist reported it unresolved.
-- A decision that is the owner's to make, not yours.
-- A surprise the tour turned up that nobody has explained yet — an unexpected
-  dependency, a pattern that contradicts the stated architecture, a path with no
-  obvious owner.
-- A question a specialist handed back explicitly, including one `web-researcher`
-  reported as *not settled*.
+Not an open question: anything a specialist could have answered and was not
+asked. The inventory records what is unsettled, not what went unasked.
 
-**Carry uncertainty forward rather than smoothing it over.** An open question is
-a legitimate, expected part of a research brief. A confident sentence covering a
-gap is how a wrong assumption reaches Plan mode.
-
-What does **not** belong here: anything you could have answered by invoking a
-specialist and did not. The inventory records what is genuinely unsettled, not
-what went unasked.
-
-## What each entry carries
+## Each entry carries
 
 | Field | Why |
 |---|---|
-| **The question**, stated as a question | "Research X" is a topic; "does X support Y as of version Z" is answerable |
-| **What it blocks** | An unresolved question with no consequence is noise |
-| **Who can settle it** | The owner, a named specialist, or the next mode — never left implicit |
-| **What it would take** | The search, the decision, or the access that is missing |
-| **Provenance** | `[V]` verified this run / `[O]` reported by the owner / `[W]` second-hand, unverified / `[R0]` carried forward from an earlier run |
+| the question, phrased as a question | "research X" is a topic; "does X support Y as of version Z" is answerable |
+| what it blocks | an unresolved question with no consequence is noise |
+| who settles it | owner, named specialist, or next mode — never implicit |
+| what it would take | the search, decision, or access that is missing |
+| provenance | `[V]` verified this run · `[O]` owner-reported · `[W]` second-hand, unverified · `[R0]` carried from an earlier run |
 
-In the brief, keep the technical register — citations, tags, identifiers. In a
-comment, drop all of that and name each thing by what it *does*; the four hard
-rules in `.claude/skills/shared/research-report-entry.md` apply to every word
-that lands on the issue.
+Brief: technical register, citations and tags. Comment: drop all of that; the
+four hard rules govern every word that lands on the issue.
 
 ## Ordering and completeness
 
-- **Most consequential first.** The list is read from the top and, in a comment,
-  cut from the end.
-- **Carry forward.** Questions from an earlier run that are still unresolved stay
-  in the inventory, tagged `[R0]`. Dropping one silently reads as "answered".
-- **Mark what closed.** A question the run settled leaves the inventory with a
-  one-line statement of the answer, not by vanishing.
-- **No empty case.** If nothing is unresolved, say *"nothing unresolved"* in as
-  many words. Silence is not a finding.
-- **Never truncate the inventory to fit.** There is no size limit here. If the
-  whole list cannot safely sit in a comment's tail, the comment carries the
-  shortlist and the link, and the full inventory lives in the brief — which is
-  exactly what the link is for.
+- **Most consequential first** — read from the top, cut from the end.
+- **Carry forward** still-unresolved questions as `[R0]`. Dropping one silently
+  reads as answered.
+- **Mark what closed** with a one-line answer, rather than letting it vanish.
+- **No empty case.** Nothing unresolved → write "nothing unresolved".
+- **Never truncate to fit.** If the list cannot safely sit in a comment's tail,
+  the comment carries the shortlist and the link; the full list lives in the
+  brief. That is what the link is for.
 
 ## The bug case
 
-A specialist that reports a blocker **without having attempted the call** is a
-bug, not an open question. Do not write it into the inventory as unresolved —
-send the specialist back once (see the dispatch rules in the invoking
-orchestrator). Only a blocker the specialist can name a refused call for becomes
-an entry here, and then the entry says which capability was missing.
+A specialist reporting a blocker **without having attempted the call** is a bug,
+not an open question. Send it back once. Only a blocker naming a refused call
+becomes an entry, and that entry names the missing capability.
