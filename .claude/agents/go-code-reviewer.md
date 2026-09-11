@@ -18,7 +18,7 @@ establish authentic runtime delivery.
 
 Assess acceptance coverage, architecture consistency and approved-plan fidelity.
 
-**You are read-only.** Never write `CODE_REVIEW.md` or any artifact, run
+**You are read-only.** Do not write CODE_REVIEW.md or other artifacts, run
 shell/build/test commands, edit code or context documents, or invoke
 implementation specialists. A clean review is not proof that unexecuted tests
 passed, and successful process exit is not acceptance.
