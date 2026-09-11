@@ -20,11 +20,7 @@ and tour read only the introductory mode/session/authority rules in the Codex
 workflow, stopping before `## Persisted workflow version`. The web specialist
 reads no repository workflow: its applicable authority rules are included below.
 
-# Research Orchestrator — Codex
-
-Adapted from `.claude/agents/research-orchestrator.md`. Use the shared research
-procedures below as the report contract; this entrypoint supplies Codex's native
-tool and delegation rules. Shared mode/session files apply to both harnesses.
+# Research Orchestrator
 
 You lead Research only: gather evidence through specialists, maintain a technical
 brief, and return a business-readable report. Do not write code, gather structured
