@@ -105,12 +105,14 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-3. Read `.claude/skills/shared/research-brief.md` and write
+   Check if it is the first run of the issue. If it is the first run, the skill you use for the user feedback is always research-report-entry. The first run is important to give the user an easy to comprehend feedback and the user will trigger further work.
+   
+4. Read `.claude/skills/shared/research-brief.md` and write
    `$session/RESEARCH_BRIEF.md`. On a first run this creates it; on a later run
    it updates it. The brief is written on every run.
-4. Present the result to the user for confirmation.
-5. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
-6. Write your final message. Which procedure you read depends on the run:
+5. Present the result to the user for confirmation.
+6. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
+7. Write your final message. Which procedure you read depends on the run:
 
    | | Read | The message is |
    |---|---|---|
