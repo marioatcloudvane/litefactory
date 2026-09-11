@@ -42,5 +42,25 @@ asked for; nothing here licenses starting the next one.
   Git history for the original refusal decision could not be retrieved (no
   shell/`git` access in this run's sub-agent roster) — flagged as a residual
   gap, not blocking.
+- 2026-09-11 — Third Research run, triggered by the owner changing this
+  issue's `Coding Agent:` label as a live smoke test of the very routing
+  mechanism this issue is about ("re-run the research, since i updated the
+  agent... I want to see if it works as designed"). Re-verified all five
+  load-bearing claims from the prior run against current repository state
+  (`internal/turn/prepare.go`, `internal/store`, `switch-agent.sh`, label
+  polling in `internal/daemon`): zero drift, all citations still accurate,
+  with a few additional identifiers recorded (a second refusal comparison
+  point at `prepare.go:1004`, the `agentSwitchRefusal`/
+  `DispositionAgentSwitchRefused` type chain, the `RunnerSet`/`agent.Runner`
+  shape). Also checked, as requested, whether the repository itself can show
+  which agent handled this particular research run — it cannot: the
+  `segments`/`runs` tables prove which tool handled a litefactory-dispatched
+  coding turn, but this research pass is outside that dispatch machinery
+  entirely, and no in-repo artifact records researcher/model identity for a
+  research run. Recorded as a stated limitation, not a defect. Updated
+  `RESEARCH_BRIEF.md` in place. Open Questions 5–8 (mutate-in-place vs.
+  rotate, mid-flight subprocess kill, bare-label-edit trigger model, fate of
+  `switch-agent.sh`) remain unresolved — this run was a verification pass,
+  not a scope conversation, so they were not asked about or answered.
 
 ## Notes
