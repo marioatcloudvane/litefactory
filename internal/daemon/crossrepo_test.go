@@ -35,26 +35,34 @@ func TestTwoIssuesInTwoReposRunConcurrently(t *testing.T) {
 	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addIssueIn(other.Owner, other.Name, fakeIssue{Number: otherIssue, Title: "Repo B's task", User: stranger()})
-	f.settle()
+	f.bootstrapIssues(f.repo, testIssue)
+	f.bootstrapIssues(other, otherIssue)
 
-	f.forge.addComment(testIssue, 81, owner(), "/spike in repo A")
-	f.forge.addCommentTo(other.Owner, other.Name, otherIssue, 82, owner(), "/spike in repo B")
-
-	result := f.tick()
-	if result.Dispatched != 2 {
-		close(proceed)
-		_ = f.daemon.Quiesce(f.t.Context())
-		t.Fatalf("dispatched %d turns, want 2\nlogs:\n%s", result.Dispatched, f.logs)
-	}
-
-	for i := 0; i < 2; i++ {
-		select {
-		case <-arrived:
-		case <-time.After(rendezvousTimeout):
+	// Admit each new command on subsequent ticks while the first execution
+	// stays blocked; the barrier still proves real overlap across repositories.
+	for i := range 2 {
+		if i == 0 {
+			f.forge.addComment(testIssue, 81, owner(), "/spike in repo A")
+		} else {
+			f.forge.addCommentTo(other.Owner, other.Name, otherIssue, 82, owner(), "/spike in repo B")
+		}
+		started := false
+		for range refillTicks {
+			f.clock.advance(testInterval)
+			f.tick()
+			select {
+			case <-arrived:
+				started = true
+			default:
+			}
+			if started {
+				break
+			}
+		}
+		if !started {
 			close(proceed)
 			_ = f.daemon.Quiesce(f.t.Context())
-			t.Fatalf("only %d of 2 turns reached Execute within %v; repositories are not running "+
-				"concurrently", i, rendezvousTimeout)
+			t.Fatalf("only %d of 2 turns reached Execute through admitted ticks\n%s", i, f.logs)
 		}
 	}
 	close(proceed)

@@ -360,6 +360,7 @@ type Daemon struct {
 	now          func() time.Time
 	ticks        <-chan time.Time
 
+	discovery          discoveryBudget
 	backoff            backoff
 	inflight           inflight
 	stoppedDebt        stoppedResults

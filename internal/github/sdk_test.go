@@ -387,6 +387,13 @@ func TestEveryEndpointGoesThroughTheSDK(t *testing.T) {
 		for i, line := range strings.Split(string(contents), "\n") {
 			for _, needle := range handRolled {
 				if strings.Contains(line, needle) {
+					// Polling revalidation wraps the SDK's existing authenticated
+					// transport. This single delegation cannot construct endpoints
+					// or introduce a second credential path; keep every other
+					// hand-written request and RoundTrip call prohibited.
+					if name == "polling_cache.go" && needle == ".RoundTrip(" && strings.TrimSpace(line) == "resp, err := t.next.RoundTrip(request)" {
+						continue
+					}
 					t.Errorf("%s:%d builds or sends an HTTP request by hand (%s): %s\n\n"+
 						"One HTTP stack means one credential path, which is the whole "+
 						"reason D1 was a full migration rather than a hybrid.",

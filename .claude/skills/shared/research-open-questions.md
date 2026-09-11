@@ -1,7 +1,6 @@
 # Open questions — the full inventory
 
-Read when a run must show **every** unresolved question, not the ranked shortlist
-in `.claude/skills/shared/research-report-entry.md`. Callers: Research, writing
+Read when a run must show **every** question. Callers: Research, writing
 the brief's `## Open Questions` (and the comment's tail when the whole list
 belongs there); Plan, checking what Research left unsettled before fixing scope.
 
@@ -19,29 +18,54 @@ assumption reaches Plan mode.
 Not an open question: anything a specialist could have answered and was not
 asked. The inventory records what is unsettled, not what went unasked.
 
-## Each entry carries
+## How you build the response
 
-| Field | Why |
-|---|---|
-| the question, phrased as a question | "research X" is a topic; "does X support Y as of version Z" is answerable |
-| what it blocks | an unresolved question with no consequence is noise |
-| who settles it | owner, named specialist, or next mode — never implicit |
-| what it would take | the search, decision, or access that is missing |
-| provenance | `[V]` verified this run · `[O]` owner-reported · `[W]` second-hand, unverified · `[R0]` carried from an earlier run |
+**Two sections, always.** Open questions first, answered questions after.
 
-Brief: technical register, citations and tags. Comment: drop all of that; the
-four hard rules govern every word that lands on the issue.
+### Section 1 — Open questions
+
+One `##` heading per question, numbered `Q-01`, `Q-02`, … then a one-paragraph
+description, then one table of the solutions. **Repeat this per question** — the
+end user has to be able to read them one at a time.
+
+```markdown
+## Q-01 <the question, phrased as a question>
+
+<what is actually unresolved, and what it blocks — one short paragraph>
+
+| Solution | Details | Benefits | Tradeoff |
+|---|---|---|---|
+| <name> — Recommended | <what it means in practice> | <what the user gains> | <what it costs> |
+| <name> | … | … | … |
+```
+
+Mark exactly one row `— Recommended` and make it the first row. Always offer a
+real alternative: a single-row table is a decision already taken, not a question.
+
+### Section 2 — Answered questions
+
+Every question answered so far, as a list: the question, the answer, and a short
+reasoning. The user needs this for compliance, so nothing leaves the list once it
+has entered it.
+
+### Register
+
+In the comment this is business language — no identifiers, no paths, no
+provenance tags. In the brief's `## Open Questions` the same content keeps the
+technical register: citations, versions and the tags
+`.claude/skills/shared/research-brief.md` defines.
 
 ## Ordering and completeness
 
 - **Most consequential first** — read from the top, cut from the end.
-- **Carry forward** still-unresolved questions as `[R0]`. Dropping one silently
-  reads as answered.
-- **Mark what closed** with a one-line answer, rather than letting it vanish.
-- **No empty case.** Nothing unresolved → write "nothing unresolved".
-- **Never truncate to fit.** If the list cannot safely sit in a comment's tail,
-  the comment carries the shortlist and the link; the full list lives in the
-  brief. That is what the link is for.
+- **Carry forward** every still-unresolved question. Dropping one silently reads
+  as answered.
+- **Nothing vanishes.** An answered question moves to Section 2; it is never
+  deleted.
+- **No empty case.** Nothing unresolved → say so, and Section 2 carries the rest.
+- **Never truncate to fit.** If the full list cannot safely sit in the comment,
+  lead with the most consequential questions and link the brief for the rest.
+  That is what the link is for.
 
 ## The bug case
 
