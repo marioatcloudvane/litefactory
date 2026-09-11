@@ -33,3 +33,12 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 
 - Current Plan run permitted material asynchronous questions; none were necessary. Defaults: same trigger-bound prelaunch allocation for transient preparation, retained exact redacted delivery body, conservative uncertainty, one-hour backoff cap and third-failed-recovery escalation.
 - Completed typed contribution is transient helper input, not a local editable story source. The factory owns authoritative story publication. The original historical interrupted-run discrepancy remains unexplained and separate.
+
+
+## Run 0006 aggregate recovery — 2026-09-11
+
+- Implement recovery: **blocked at aggregate gate** (`make check` exit 2; instruction-handoff test failure).
+- Safe build: passed (`go build ./...`, exit 0).
+- Existing US-001/002/003 engineering completion retained; no new events or acceptance assessment.
+- Current evidence: `TEST_REPORT.md`, `run0006-make-check.log`, `run0006-go-build.log`, corresponding `.exit` files.
+- Factory save/push: unconfirmed. No source or test files changed by this run.

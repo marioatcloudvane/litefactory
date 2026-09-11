@@ -25,3 +25,8 @@ Selected mode is Implement, persisted workflow version 2. Frozen US-001 (#237), 
 - Focused second-cycle daemon and interruption replay checks passed; outputs are in checks/aggregate-cycle2-*.log. Final aggregate make check is rerunning; no aggregate success is claimed yet. Earlier aggregate attempts remain checks/aggregate-make-check-attempt1.log and checks/aggregate-make-check-attempt2.log.
 - Final aggregate make check and safe build passed after the second fix cycle. All three final immutable engineering captures were submitted and receipt-queried successfully; details and exact request IDs are in TEST_REPORT.md. The helper demanded explicit engineering invalidation before refreshing earlier unaccepted US-001/US-002 snapshots; those events preserve prior evidence, and subsequent final captures are recorded. All final effects remain pending and acceptance is not applicable in this mode.
 - Ordinary ambiguity resolved within the approved scope: startup failures with no tick timestamp schedule their first eligible recovery from the first tick plus poll interval. Resolved diagnostic metadata is retained but inactive. No new settings, retry bypass, external framework or additional owner decision was introduced.
+
+
+## Run 0006 — aggregate recovery (2026-09-11)
+
+The header and explicit recovery contract select Implement despite the owner's acceptance wording. Ran aggregate checks only; preserved US-001/002/003 as completed engineering dependencies. `make check` failed in the teamsource research-orchestrator instruction-handoff test; `go build ./...` passed. See current TEST_REPORT.md and run0006 logs. No source/test fixes, story events, acceptance review, runtime-state edits, commits or pushes. Save is not confirmed.

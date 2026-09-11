@@ -44,3 +44,17 @@ The helper required explicit invalidation before replacing earlier unaccepted US
 ## Evidence boundaries
 
 Checks use temporary migrated SQLite, fake runners, fake HTTP and controlled clocks/git fixtures. They establish controlled application behavior, not live GitHub delivery guarantees, nested-agent behavior or historical incident reconstruction. No live daemon, runtime database or installed distribution was changed.
+
+
+## Run 0006 — aggregate engineering recovery (2026-09-11)
+
+Authoritative mode: Implement; workflow version 2. All three supplied frozen stories were already engineering-complete and remained read-only. No acceptance review or new story events were performed.
+
+- `make check`: **FAILED**, exit 2. Formatting and vet passed; pinned golangci-lint v2.13.1 reported `0 issues.`. The race suite ran with `go test -race -timeout=20m ./...`.
+- Failure: `internal/teamsource`, `TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/research-orchestrator`, `aggregate_instruction_parity_test.go:127`: `.claude/agents/research-orchestrator.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md`.
+- All other listed packages passed or had no test files; some passing results used Go's cache. `internal/turn` completed in 1035.194s.
+- `go build ./...`: **PASSED**, exit 0.
+
+Retained raw output: [make check](run0006-make-check.log), [build](run0006-go-build.log). Per-command exit codes are retained in `run0006-make-check.exit` and `run0006-go-build.exit`. Lint used an isolated writable temporary cache.
+
+Aggregate engineering gate remains failed. Per the supplied recovery instruction, no fixes were attempted. Acceptance is unassessed; save/push remains factory-owned and unconfirmed. This run does not replace or invalidate historical per-story engineering evidence.

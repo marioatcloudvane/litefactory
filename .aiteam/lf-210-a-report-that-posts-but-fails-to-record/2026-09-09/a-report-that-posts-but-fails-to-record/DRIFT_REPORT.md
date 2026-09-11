@@ -24,3 +24,8 @@ Historical deployed-incident reconstruction, duplicate cleanup, forced resend/sk
 ## Current gate status
 
 All scoped story tests and final aggregate format/vet/pinned lint/full race suite passed, as did the safe build. All three final immutable engineering captures are recorded; factory save and remote effects remain pending. No scope deferral or added feature scope was reported by the implementation/test specialists. Final review belongs to an explicitly requested Validate run; none was performed here.
+
+
+## Run 0006 — aggregate recovery (2026-09-11)
+
+No implementation or plan comparison was performed in this recovery-only run. Existing completed engineering was unchanged. The executed aggregate gate detected an instruction-handoff failure: `.claude/agents/research-orchestrator.md` lacks the exact expected `.claude/skills/shared/workflow.md` handoff according to `internal/teamsource/aggregate_instruction_parity_test.go:127`. No source inspection or correction was undertaken; this is an executed-test finding, not an acceptance or design assessment. See TEST_REPORT.md.
