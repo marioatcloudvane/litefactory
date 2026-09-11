@@ -19,6 +19,8 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - 2026-09-10 — session created for issue #227, run 0001.
 - 2026-09-10 — Research completed for issue #227, run 0001: documented configuration-dependent conversation resets, durable phase handoffs, context-loss risks and decisions for Plan. Headless instruction applied; no confirmation requested.
 
+- 2026-09-11 — Research completed for issue #227, run 0002: reverified reset and handoff source behavior, consolidated eight prior questions into three owner policy decisions with recommendations/tradeoffs, and documented independently answered facts and engineering defaults. Reused the existing session; no interactive questions or implementation.
+
 ## Notes
 
 - Research only; headless run, no questions, commits or pushes.
