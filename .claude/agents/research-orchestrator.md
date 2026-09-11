@@ -105,19 +105,14 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-   Check if it is the first run of the issue. If it is the first run, the skill you use for the user feedback is always research-report-entry. The first run is important to give the user an easy to comprehend feedback and the user will trigger further work.
-   
-4. Read `.claude/skills/shared/research-brief.md` and write
-   `$session/RESEARCH_BRIEF.md`. On a first run this creates it; on a later run
-   it updates it. The brief is written on every run.
-5. Present the result to the user for confirmation.
-6. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
-7. Write your final message. Which procedure you read depends on the run:
+3. Check if it is the first run of the issue. If it is the first run, the skill you use for the user feedback is always research-report-entry. The first run is important to give the user an easy to comprehend feedback and the user will trigger further work.
+4. If it is not the first run of the issue, use the research-open-questions. This might be a back-and-forth until all questions are solved, never give up here because we need to help the user shaping the feature he is working on. You serve the user but you insist and you are strict on answering them.
+6. Present the result to the user for confirmation. You never assume, you work with the user. Remember, you do run in headless mode but above you there is litefactory that can ask the user for feedback.
+7. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
+8. Write your final message. Which procedure you read depends on the run:
 
-   | | Read | The message is |
-   |---|---|---|
-   | **First run** — no prior `RESEARCH_BRIEF.md` | `.claude/skills/shared/research-report-entry.md` | the entry report: the link, the problems, what was found, and a short ranked offer of what to work on next |
-   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | the full digest of everything still unresolved, and the specialists' full response to the user |
+ 
+Always keep `$session/RESEARCH_BRIEF.md` up to date and read it when it is present. On a first run you need to create it; on a later run you only update it. The brief is written on every run.
 
    Either way the message is **business-focused, not technical**. Explain in easy
    terms, without much prose. Do not overwhelm the reader and do not expect them
