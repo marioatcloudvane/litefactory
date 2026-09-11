@@ -5,13 +5,15 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — draft reused and typed contribution durably acknowledged as valid; publication, Story Index replacement and save pending *(run 0006)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Plan** — factory supplied complete frozen US-001/#232 and US-002/#233 for run 0007
+- [ ] **Implement** — run 0007 partial: both implementations and focused checks retained; final aggregate daemon timeout remains (BUG_ESCALATION.md)
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 **Validate** returns read-only structured findings through runner output.
 
 ## History
+
+- 2026-09-10 — Implement run 0007 admitted with factory-supplied frozen US-001 (#232) and US-002 (#233), workflow version 2. Engineering and executed checks only; acceptance remains for explicit Validate. No commits, pushes or runtime administration are performed by this run.
 
 - 2026-09-10 — session created for research run 0001, issue #208.
 - 2026-09-10 — Research completed: repository tour and official GitHub/SDK/HTTP documentation synthesized in RESEARCH_BRIEF.md; live request volume and endpoint-specific validator behavior remain explicit open questions. No implementation or runtime changes; no tests executed.
@@ -24,3 +26,17 @@
 Run 0005 Plan produced two stories: bounded memory-only conditional caching; fair background discovery admission and request summaries. No owner questions. Timestamp narrowing, persistent cache, new settings and polling-interval changes are excluded. Proposed defaults reserve 80% primary quota and allow a separate 120 requests/minute token bucket with capacity 120. Architecture source revision: `c16fb64a76646f5744b659835238824fe9cbc51d`.
 
 The unchanged transient contribution `/private/tmp/lf-208-plan-run5.json` was submitted in run 0006; it is not a story source or committed artifact. Its durable request correlation is recorded above. No implementation or tests were performed; live endpoint support and production savings remain unverified. Base synchronization was deferred by the factory (one commit behind and four ahead); no merge was attempted and existing draft provenance is unchanged. Leave publication, Story Index link replacement, readiness, commits and pushes to litefactory.
+
+### Run 0007 scoped engineering
+
+US-001 scoped engineering recorded in request `836d505bdf15f79256b14c72e836fe30`: valid input, engineering recorded, remote effect pending. Snapshot `us001-run7-scoped`, digest `ac086ebcfb5fd0147ec54684485218280b193c063d88b0794a5bb567aa92047d`, seven GitHub package files. Retained checks `us001-race` and `us001-build` passed. This releases dependent US-002 engineering; it does not establish acceptance, aggregate completion or save.
+
+US-002 scoped engineering recorded in request `0b8136e8c99ec455a78d723b3cf291aa`: valid input, engineering recorded, remote effect pending. Snapshot `us002-run7-scoped`, digest `2c6afd43f0217ab9aa96639eb487f1e1487ac2d52c2408415225f756d0f0afb4`, nine daemon files. Retained specialist-executed checks `us002-scoped-race` and `us002-lint` passed. Final aggregate completion/save remains pending.
+
+US-002 aggregate checks found failing daemon scenarios. Invalidated contribution `8726a7b8df518875c89b6d8fa24e29ee` has valid input, EngineeringState rejected, remote effects pending. The earlier scoped capture is not final aggregate evidence. Second fix/retest cycle addresses fixture reset rollover, startup probe forwarding and reservation-aware multi-tick scheduling.
+
+US-002 corrected scoped engineering recorded in request `6ec04ea2aa6819f87064a00a1af15ee5`: input valid, engineering recorded, remote effects pending. Snapshot `us002-run7-cycle2`, digest `d3bdb9a1ccfa05a46041c99534fd274541286d9589b858770f84863bde560417`, twelve daemon files, passing focused HTTP race and build evidence. Aggregate rerun remains pending.
+
+### Run 0007 final status
+
+PARTIAL. Final full race gate timed out in `TestABackoffArmedMidTickStopsFurtherDispatch`; no final aggregate completion or successful save is claimed. Final US-002 invalidation request `8f8ee053ce704f340bd422b6ba142b60`: input valid, engineering rejected, acceptance not applicable, effects pending. Passing build and scoped evidence remain retained. See TEST_REPORT.md and BUG_ESCALATION.md. No acceptance/code/architecture/approved-plan review, commits, pushes or runtime administration performed.

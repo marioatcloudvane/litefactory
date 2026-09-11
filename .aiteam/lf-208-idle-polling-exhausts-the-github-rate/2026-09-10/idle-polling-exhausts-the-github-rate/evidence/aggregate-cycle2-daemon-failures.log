@@ -1,0 +1,140 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=20m ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.787s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	(cached)
+ok  	github.com/cloudvane/litefactory/internal/attach	(cached)
+ok  	github.com/cloudvane/litefactory/internal/cli	277.051s
+ok  	github.com/cloudvane/litefactory/internal/codex	(cached)
+ok  	github.com/cloudvane/litefactory/internal/config	2.796s
+ok  	github.com/cloudvane/litefactory/internal/confirm	(cached)
+--- FAIL: TestClosedBacklogRetirementSurvivesRestart (4.09s)
+    --- FAIL: TestClosedBacklogRetirementSurvivesRestart/idle (1.99s)
+        backlog_closure_test.go:80: backlog GETs = [1 123]
+    --- FAIL: TestClosedBacklogRetirementSurvivesRestart/failed (2.10s)
+        backlog_closure_test.go:80: backlog GETs = [1 123]
+--- FAIL: TestClosedBacklogReleasesAdmissionForOpenWork (1.21s)
+    backlog_closure_test.go:140: executed []
+--- FAIL: TestUncertainBacklogObservationRetainsRetry (4.82s)
+    --- FAIL: TestUncertainBacklogObservationRetainsRetry/unknown (0.97s)
+        backlog_closure_test.go:201: retry did not retire closure: reads=[1 123 123]
+    --- FAIL: TestUncertainBacklogObservationRetainsRetry/missing (1.02s)
+        backlog_closure_test.go:182: tick failed outside candidate error handling:  : 404 Not Found: missing
+    --- FAIL: TestUncertainBacklogObservationRetainsRetry/inaccessible (0.90s)
+        backlog_closure_test.go:182: tick failed outside candidate error handling:  : 403 Forbidden: inaccessible
+    --- FAIL: TestUncertainBacklogObservationRetainsRetry/transport (1.01s)
+        backlog_closure_test.go:182: tick failed outside candidate error handling: connection lost
+    --- FAIL: TestUncertainBacklogObservationRetainsRetry/rate_limited (0.92s)
+        backlog_closure_test.go:182: tick failed outside candidate error handling:  : 429 Too Many Requests: rate limited, retry after 1m30s
+--- FAIL: TestFailedClosureClearRetainsReadableRetry (0.99s)
+    backlog_closure_test.go:223: clear error not propagated: result={StartedAt:2026-08-24 09:10:10 +0000 UTC Duration:1s Skipped:false RetryAt:0001-01-01 00:00:00 +0000 UTC Repos:1 Issues:0 Dispatched:0 InFlight:0 Deferred:0 Scheduled:0 Cursor:{TasksUpdatedSince:2026-08-24 09:10:07 +0000 UTC LastTickAt:2026-08-24 09:10:08 +0000 UTC}} err=list the issues of acme/acme-api touched since 2026-08-24T09:05:07Z: github: list issues for acme/acme-api: context canceled
+--- FAIL: TestRetiredBacklogReopensWithoutReplayingConsumedComments (1.09s)
+    backlog_closure_test.go:278: closure retirement and fresh mode confirmation reads: [1 123 123]
+--- FAIL: TestClosureRetirementPreservesOwedAbandonedReport (1.99s)
+    backlog_closure_test.go:295: closure retirement altered owed run or failed to retire
+--- FAIL: TestHandleConfirmExpiredByTTLSweepReplies (2.13s)
+    confirm_test.go:128: posted 0 comments, want exactly one refusal
+        logs:
+        time=2026-09-10T21:49:02.329+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:64958/repos/acme/acme-api/issues/1 status=404 duration=1.960292ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.330+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:64958/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated&state=open" status=200 duration=733.958µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.330+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 issues=0 pull_requests_skipped=0
+        time=2026-09-10T21:49:02.332+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:64958/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated" status=200 duration=1.265375ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.333+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:02.345+02:00 level=INFO msg="tick complete" repos=1 issues=0 dispatched=0 in_flight=0 workers_dispatched=0 workers_in_flight=0 forge_issues=0 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:02.000Z duration=1s
+        time=2026-09-10T21:49:02.345+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:0 Unchanged:0 Other:1 Pages:0} repository_comments:{OK:1 Unchanged:0 Other:0 Pages:1} repository_issues:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=0 quota_remaining=4997 quota_reserve=4000 background_spent=3 outstanding_reserved=0 traffic_available=117 quota_fresh=true
+        time=2026-09-10T21:49:02.356+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:64958/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated&state=open" status=200 duration=1.121083ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.356+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 issues=1 pull_requests_skipped=0
+        time=2026-09-10T21:49:02.358+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:64958/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated" status=200 duration=1.156625ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.358+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:02.375+02:00 level=DEBUG msg="worker dispatched" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:05.000Z
+        time=2026-09-10T21:49:02.376+02:00 level=INFO msg="tick complete" repos=1 issues=1 dispatched=1 in_flight=1 workers_dispatched=1 workers_in_flight=1 forge_issues=1 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:05.000Z duration=1s
+        time=2026-09-10T21:49:02.376+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[repository_comments:{OK:1 Unchanged:0 Other:0 Pages:1} repository_issues:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=1 quota_remaining=4995 quota_reserve=4000 background_spent=5 outstanding_reserved=0 traffic_available=118 quota_fresh=true
+        time=2026-09-10T21:49:02.380+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:64958/repos/acme/acme-api/issues/123/comments?per_page=100" status=200 duration=1.212542ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.380+02:00 level=DEBUG msg="github: listed issue comments" repo=acme/acme-api issue=123 after_id=0 requests=1 comments=0
+        time=2026-09-10T21:49:02.383+02:00 level=INFO msg="first sight of a task; its existing comments are skipped" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=0 watermark=0 created=true
+        time=2026-09-10T21:49:02.383+02:00 level=DEBUG msg="not running the issue body on first sight; it is not assigned to the owner" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=0
+        time=2026-09-10T21:49:02.383+02:00 level=INFO msg="discovery request summary" scope=worker endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=1 quota_remaining=4994 quota_reserve=4000 background_spent=6 outstanding_reserved=0 traffic_available=117 quota_fresh=true
+        time=2026-09-10T21:49:02.384+02:00 level=DEBUG msg="worker finished" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:05.000Z status=completed duration=8.149792ms execution_requests=0
+        time=2026-09-10T21:49:02.405+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:64958/repos/acme/acme-api/issues/1 status=404 duration=453.5µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:02.412+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:0 Unchanged:0 Other:1 Pages:0}]" local_deferrals=3 quota_remaining=4993 quota_reserve=4000 background_spent=7 outstanding_reserved=0 traffic_available=119 quota_fresh=false
+--- FAIL: TestRecoveryLifecycleBothRealCLIRunners (6.46s)
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/claude (2.72s)
+        continuation_lifecycle_test.go:124: read the session for issue 123: store: read session github:acme/acme-api#123: store: not found
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/codex (2.26s)
+        continuation_lifecycle_test.go:124: read the session for issue 123: store: read session github:acme/acme-api#123: store: not found
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/three_automatic_limits (1.49s)
+        continuation_lifecycle_test.go:124: read the session for issue 123: store: read session github:acme/acme-api#123: store: not found
+--- FAIL: TestTwoIssuesInTwoReposRunConcurrently (2.00s)
+    crossrepo_test.go:47: dispatched 1 turns, want 2
+        logs:
+        time=2026-09-10T21:49:35.941+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:65008/repos/acme/acme-api/issues/1 status=404 duration=4.043125ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.943+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated&state=open" status=200 duration=1.141959ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.944+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 issues=0 pull_requests_skipped=0
+        time=2026-09-10T21:49:35.951+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated" status=200 duration=6.147166ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.951+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:35.956+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/other-api/issues?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated&state=open" status=200 duration=4.714625ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.956+02:00 level=INFO msg="github: listed repository issues" repo=acme/other-api since=2026-08-24T09:00:02.000Z requests=1 issues=0 pull_requests_skipped=0
+        time=2026-09-10T21:49:35.959+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/other-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated" status=200 duration=2.726416ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.960+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/other-api since=2026-08-24T09:00:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:35.987+02:00 level=INFO msg="tick complete" repos=2 issues=0 dispatched=0 in_flight=0 workers_dispatched=0 workers_in_flight=0 forge_issues=0 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:02.000Z duration=1s
+        time=2026-09-10T21:49:35.987+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:0 Unchanged:0 Other:1 Pages:0} repository_comments:{OK:2 Unchanged:0 Other:0 Pages:2} repository_issues:{OK:2 Unchanged:0 Other:0 Pages:2}]" local_deferrals=1 quota_remaining=4995 quota_reserve=4000 background_spent=5 outstanding_reserved=0 traffic_available=115 quota_fresh=true
+        time=2026-09-10T21:49:35.997+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated&state=open" status=200 duration=1.02725ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.997+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 issues=1 pull_requests_skipped=0
+        time=2026-09-10T21:49:35.998+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated" status=200 duration=610.209µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:35.998+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:36.010+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/other-api/issues?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated&state=open" status=200 duration=888.417µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:36.011+02:00 level=INFO msg="github: listed repository issues" repo=acme/other-api since=2026-08-24T08:55:02.000Z requests=1 issues=1 pull_requests_skipped=0
+        time=2026-09-10T21:49:36.011+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/other-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated" status=200 duration=599.25µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:36.012+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/other-api since=2026-08-24T08:55:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-10T21:49:36.037+02:00 level=DEBUG msg="worker dispatched" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z
+        time=2026-09-10T21:49:36.039+02:00 level=DEBUG msg="worker dispatched" repo=acme/other-api task=github:acme/other-api#200 session_id=2 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z
+        time=2026-09-10T21:49:36.052+02:00 level=INFO msg="discovery request summary" scope=worker endpoints=map[] local_deferrals=4 quota_remaining=4991 quota_reserve=4000 background_spent=9 outstanding_reserved=100 traffic_available=16 quota_fresh=true
+        time=2026-09-10T21:49:36.052+02:00 level=DEBUG msg="worker finished" repo=acme/other-api task=github:acme/other-api#200 session_id=2 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z status=deferred duration=12.824709ms execution_requests=0
+        time=2026-09-10T21:49:36.052+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/acme-api/issues/123/comments?per_page=100" status=200 duration=2.568375ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:36.052+02:00 level=DEBUG msg="github: listed issue comments" repo=acme/acme-api issue=123 after_id=0 requests=1 comments=0
+        time=2026-09-10T21:49:36.052+02:00 level=INFO msg="tick complete" repos=2 issues=2 dispatched=2 in_flight=2 workers_dispatched=2 workers_in_flight=2 forge_issues=2 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:06.000Z duration=1s
+        time=2026-09-10T21:49:36.052+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1} repository_comments:{OK:2 Unchanged:0 Other:0 Pages:2} repository_issues:{OK:2 Unchanged:0 Other:0 Pages:2}]" local_deferrals=4 quota_remaining=4990 quota_reserve=4000 background_spent=10 outstanding_reserved=0 traffic_available=115 quota_fresh=true
+        time=2026-09-10T21:49:36.054+02:00 level=INFO msg="first sight of a task; its existing comments are skipped" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=0 watermark=0 created=true
+        time=2026-09-10T21:49:36.054+02:00 level=DEBUG msg="not running the issue body on first sight; it is not assigned to the owner" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=0
+        time=2026-09-10T21:49:36.055+02:00 level=INFO msg="discovery request summary" scope=worker endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=4 quota_remaining=4990 quota_reserve=4000 background_spent=10 outstanding_reserved=0 traffic_available=115 quota_fresh=true
+        time=2026-09-10T21:49:36.055+02:00 level=DEBUG msg="worker finished" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z status=completed duration=16.973459ms execution_requests=0
+        time=2026-09-10T21:49:36.071+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:65008/repos/acme/other-api/issues/200 status=200 duration=1.093917ms rate_limit_remaining=4999
+        time=2026-09-10T21:49:36.072+02:00 level=DEBUG msg="worker dispatched" repo=acme/other-api task=github:acme/other-api#200 session_id=2 dispatch_sources=[backlog] tick_at=2026-08-24T09:00:10.000Z
+        time=2026-09-10T21:49:36.072+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:1 Unchanged:0 Other:0 Pages:0}]" local_deferrals=10 quota_remaining=4989 quota_reserve=4000 background_spent=11 outstanding_reserved=0 traffic_available=119 quota_fresh=true
+        time=2026-09-10T21:49:36.074+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:65008/repos/acme/other-api/issues/200/comments?per_page=100" status=200 duration=708.667µs rate_limit_remaining=4999
+        time=2026-09-10T21:49:36.075+02:00 level=DEBUG msg="github: listed issue comments" repo=acme/other-api issue=200 after_id=0 requests=1 comments=1
+        time=2026-09-10T21:49:36.076+02:00 level=INFO msg="first sight of a task; its existing comments are skipped" repo=acme/other-api task=github:acme/other-api#200 session_id=2 existing_comments=1 watermark=82 created=true
+        time=2026-09-10T21:49:36.076+02:00 level=DEBUG msg="not running the issue body on first sight; it is not assigned to the owner" repo=acme/other-api task=github:acme/other-api#200 session_id=2 existing_comments=1
+        time=2026-09-10T21:49:36.077+02:00 level=INFO msg="discovery request summary" scope=worker endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=10 quota_remaining=4988 quota_reserve=4000 background_spent=12 outstanding_reserved=0 traffic_available=118 quota_fresh=true
+        time=2026-09-10T21:49:36.077+02:00 level=DEBUG msg="worker finished" repo=acme/other-api task=github:acme/other-api#200 session_id=2 dispatch_sources=[backlog] tick_at=2026-08-24T09:00:10.000Z status=completed duration=5.063042ms execution_requests=0
+--- FAIL: TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete (11.64s)
+    refill_test.go:162: one of the first three turns never started within 10s
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	494.553s
+ok  	github.com/cloudvane/litefactory/internal/git	(cached)
+ok  	github.com/cloudvane/litefactory/internal/github	(cached)
+ok  	github.com/cloudvane/litefactory/internal/gittest	8.879s
+ok  	github.com/cloudvane/litefactory/internal/harness	(cached)
+ok  	github.com/cloudvane/litefactory/internal/identity	7.447s
+ok  	github.com/cloudvane/litefactory/internal/launchd	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logging	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/planbrief	(cached)
+ok  	github.com/cloudvane/litefactory/internal/redact	(cached)
+ok  	github.com/cloudvane/litefactory/internal/render	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)
+ok  	github.com/cloudvane/litefactory/internal/schedule	(cached)
+ok  	github.com/cloudvane/litefactory/internal/secrets	(cached)
+ok  	github.com/cloudvane/litefactory/internal/store	(cached)
+ok  	github.com/cloudvane/litefactory/internal/submission	(cached)
+ok  	github.com/cloudvane/litefactory/internal/team	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teampublish	2.723s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamsource	13.800s
+github.com/cloudvane/litefactory/internal/turn.test: /opt/homebrew/Cellar/go/1.27.0/libexec/pkg/tool/darwin_arm64/link: signal: interrupt
+make: *** [test] Error 1
