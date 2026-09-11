@@ -1,0 +1,2 @@
+Command: go test -race -cover ./internal/store -run '^TestReportDeliveryHTTPAndSQLiteFailureWindows$/^receipt$' -timeout 180s
+ok  	github.com/cloudvane/litefactory/internal/store	3.153s	coverage: 10.4% of statements

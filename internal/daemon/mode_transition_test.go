@@ -230,6 +230,7 @@ func TestModeTransitionReportRetryPreservesOwnerEdit(t *testing.T) {
 	f.settle()
 	f.issueWithLabels("Report edit", "Mode: Research", "bug")
 	f.forge.onPostComment = nil
+	f.restorePendingReport(501)
 	f.daemon = f.newDaemon(daemon.Options{})
 	if _, err := f.daemon.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -237,7 +238,10 @@ func TestModeTransitionReportRetryPreservesOwnerEdit(t *testing.T) {
 	f.settle()
 	assertRetentionLabels(t, f, "Mode: Research", "bug")
 	assertRetiredSelection(t, f, 501)
-	if f.watermark() != 501 {
+	if got := f.turns.triggers(); len(got) != 1 || got[0] != 501 {
+		t.Fatalf("report recovery changed execution history: %v", got)
+	}
+	if f.watermark() < 501 {
 		t.Fatalf("watermark=%d", f.watermark())
 	}
 }

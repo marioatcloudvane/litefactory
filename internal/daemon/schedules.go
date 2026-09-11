@@ -66,6 +66,9 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		slog.String("task", ref.String()),
 		slog.Int64("session_id", session.ID),
 		slog.Int64("schedule_id", scheduled.ID))
+	if d.sessionRecoveryHeld(session.ID, tickAt) {
+		return true
+	}
 	if !d.inflight.enter(session.ID) {
 		log.DebugContext(ctx, "scheduled work waits for this task's in-flight turn")
 		return true
@@ -106,7 +109,7 @@ func (d *Daemon) offerSchedule(ctx context.Context, repos map[int64]store.Repo, 
 		d.inflight.leave(session.ID)
 		return true
 	}
-	t := &task{repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, issue: issue, session: session, ref: ref, log: log, tickAt: tickAt}
+	t := &task{scheduled: &reserved, repo: repo, forgeRepo: github.Repo{Owner: repo.Owner, Name: repo.Name}, issue: issue, session: session, ref: ref, log: log, tickAt: tickAt}
 	t.workerLog = t.log.With(slog.Any("dispatch_sources", []string{"due_schedule"}), slog.Time("tick_at", tickAt))
 	t.workerLog.DebugContext(ctx, "worker dispatched")
 	go d.runWorker(ctx, t, func() { d.runScheduled(ctx, t, reserved) })
@@ -144,6 +147,16 @@ func (d *Daemon) runScheduled(ctx context.Context, t *task, scheduled store.Sche
 			return
 		}
 		d.finishScheduled(ctx, t, scheduled, store.ScheduleFailed, 0)
+		return
+	}
+	if !run.Reportable() {
+		t.recordWorkerStatus(workerDeferred)
+		if run.Status == store.RunPrelaunch {
+			if _, requeueErr := d.db.RequeueSchedule(ctx, scheduled.ID, t.tickAt.UTC()); requeueErr != nil {
+				t.recordWorkerError(requeueErr)
+				t.log.ErrorContext(ctx, "could not requeue prelaunch scheduled preparation", slog.Any("error", requeueErr))
+			}
+		}
 		return
 	}
 	// A quota chain retains the original prerequisite until its final outcome.
@@ -186,11 +199,15 @@ func (d *Daemon) replyBlockedSchedules(ctx context.Context, t *task, failedID in
 		return
 	}
 	for _, dependent := range blocked {
-		posted, postErr := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+		posted, postErr := d.reportReply(ctx, turn.ReplyRequest{
 			Ref: t.ref, SessionID: t.session.ID, CommentID: dependent.SourceCommentID,
 			ScheduleKind: report.ReplyScheduleBlocked, Schedule: report.ScheduleReply{ID: dependent.ID},
 		})
 		if postErr != nil {
+			if isRecoveryPending(postErr) {
+				t.recordWorkerStatus(workerDeferred)
+				continue
+			}
 			t.recordWorkerError(postErr)
 			t.log.ErrorContext(ctx, "could not report blocked scheduled work; a later failure path retries it",
 				slog.Int64("blocked_schedule_id", dependent.ID), slog.Any("error", postErr))

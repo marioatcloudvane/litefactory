@@ -146,7 +146,7 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 		refusal = report.ReplyStoryPlanOnly
 	}
 	if refusal != report.ReplyInvalid {
-		_, err = d.reporter.ReportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: r.CommentID, Refusal: refusal})
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: r.CommentID, Refusal: refusal})
 		return true, err
 	}
 	ack, ok := d.reporter.(interface {

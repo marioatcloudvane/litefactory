@@ -38,6 +38,9 @@ func (d *Daemon) replayInterruptionReports(ctx context.Context, repos []store.Re
 			continue
 		}
 		if err := d.replayInterruptionReport(ctx, run, session); err != nil {
+			if isRecoveryPending(err) {
+				continue
+			}
 			failures = append(failures, err)
 			var rate *github.RateLimitError
 			if errors.As(err, &rate) {
@@ -49,6 +52,13 @@ func (d *Daemon) replayInterruptionReports(ctx context.Context, repos []store.Re
 }
 
 func (d *Daemon) replayInterruptionReport(ctx context.Context, run store.Run, session store.Session) (err error) {
+	allowed, gateErr := d.recoveryAllowed(ctx, store.ReportRecovery{Key: recoveryKey(session.ID, run.TriggerCommentID), SessionID: session.ID, TriggerID: run.TriggerCommentID}, recoveryTime(ctx))
+	if gateErr != nil {
+		return gateErr
+	}
+	if !allowed {
+		return &recoveryPending{}
+	}
 	if !d.inflight.enter(session.ID) {
 		return nil
 	}
@@ -68,7 +78,7 @@ func (d *Daemon) replayInterruptionReport(ctx context.Context, run store.Run, se
 	if run.ExitCode != nil {
 		exit = int(*run.ExitCode)
 	}
-	_, err = d.reporter.ReportRun(ctx, turn.RunReport{
+	_, err = d.reportRun(ctx, turn.RunReport{
 		Run: report.Run{Ref: ref, Ordinal: run.Ordinal, Agent: run.Agent, Branch: session.Branch, WorktreePath: session.WorktreePath, LogPath: run.LogPath,
 			Result: &agent.RunResult{Outcome: agent.OutcomeInterrupted, Reason: run.Error, ExitCode: exit, StartedAt: run.StartedAt, FinishedAt: run.FinishedAt}},
 		SessionID: session.ID, CommentID: run.TriggerCommentID, RunID: run.ID,

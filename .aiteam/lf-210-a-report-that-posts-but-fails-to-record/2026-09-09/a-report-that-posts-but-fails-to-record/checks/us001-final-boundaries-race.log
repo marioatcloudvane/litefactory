@@ -1,0 +1,3 @@
+Command: go test -race -cover ./internal/store ./internal/turn -run 'TestRunLifecycleStorageBoundaries|TestPrelaunch|TestReadinessRefus|TestStoppedOutcome|TestNonterminalReport|TestRegistrationFailure|TestCancelledSessionRunning|TestPrepareDoesNotWrapSessionRunning|TestExecuteMarksTheSessionRunning|TestExecuteFetchFailure|TestExecuteRefusesACorrupted|TestExecuteRefusesAnOccupied|TestExecuteStatusInspection|TestExecuteFullTurn' -timeout 180s
+ok  	github.com/cloudvane/litefactory/internal/store	32.077s	coverage: 18.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	42.466s	coverage: 16.1% of statements

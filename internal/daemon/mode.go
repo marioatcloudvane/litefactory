@@ -40,7 +40,29 @@ func resolveModeLabel(labels []string) (agent.Mode, bool, error) {
 
 // retireModeSelections closes trigger recovery journals without changing the
 // owner's persistent selection. Legacy cleanup obligations are bookkeeping only.
-func (d *Daemon) retireModeSelections(ctx context.Context, sessionID int64) error {
+func (d *Daemon) retireModeSelections(ctx context.Context, sessionID int64) (retErr error) {
+	// A delivered report can outlive local mode-journal cleanup. Finish that
+	// scheduling debt here even when the consumed source is no longer polled.
+	defer func() {
+		d.recoveries.mu.Lock()
+		var cleanup []store.ReportRecovery
+		for _, row := range d.recoveries.items {
+			if row.SessionID == sessionID && row.State == "cleanup" {
+				cleanup = append(cleanup, row)
+			}
+		}
+		d.recoveries.mu.Unlock()
+		for _, row := range cleanup {
+			if retErr == nil {
+				d.recoverySucceeded(ctx, row.Key)
+			} else {
+				d.recoveryFailure(ctx, row, recoveryTime(ctx), &turn.DeliveryError{Key: row.DeliveryKey, State: "cleanup", Cause: retErr})
+			}
+		}
+		if retErr != nil && len(cleanup) != 0 {
+			retErr = &recoveryPending{retErr}
+		}
+	}()
 	for {
 		selection, found, err := d.db.PendingModeCleanup(ctx, sessionID)
 		if err != nil || !found {
@@ -99,7 +121,7 @@ func (d *Daemon) refuseMode(ctx context.Context, t *task, trigger turn.Trigger, 
 		t.log.InfoContext(ctx, "refusing issue-body mode selection; there is no comment to answer")
 		return nil
 	}
-	_, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	_, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref: t.ref, SessionID: t.session.ID, CommentID: trigger.CommentID, Refusal: kind,
 	})
 	return err

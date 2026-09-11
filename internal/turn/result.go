@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"context"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -100,6 +101,10 @@ func (d Disposition) String() string {
 // turn that never ran — are left zero, and the documented dispositions say
 // which those are.
 type Result struct {
+	// Repair is positive stopped-execution evidence retained by the daemon.
+	// Call only under the task's retained ownership; it never launches an agent.
+	Repair func(context.Context) (Result, error)
+
 	// Disposition is what the turn did. Read it first: Outcome, Run and the
 	// commit fields are only meaningful for the dispositions documented to set
 	// them.

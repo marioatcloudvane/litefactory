@@ -189,6 +189,9 @@ Panics and process death are outside the normal-return guarantee.
 triggers before it finishes. INFO `run prepared` establishes that a run was
 prepared; it does not establish process launch, completion, or success.
 
+For pending or uncertain report delivery, see [report recovery](docs/report-recovery.md).
+It describes retained content, bounded retry diagnostics and safe investigation.
+
 ## Structured story contracts
 
 [The operator protocol](docs/story-contract.md) describes typed Plan sections,

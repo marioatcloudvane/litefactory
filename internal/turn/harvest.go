@@ -56,6 +56,12 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return prepareTypedPlanSubmission(c, opts, prep)
 	}
 	prep.submissionOptions = &SubmissionSessionOptions{DB: opts.DB, Progress: opts.StoryProgress, Paths: opts.Paths, RunID: prep.run.ID, Worktree: prep.worktree.Path(), Bundle: prep.promptInput.ApprovedStories, Validation: prep.promptInput.Validation}
+	started, err := opts.DB.StartRun(ctx, prep.run.ID)
+	if err != nil {
+		return result, err
+	}
+	prep.run = started
+	result.Run = started
 	runResult, runErr := runClaude(ctx, prep, logger)
 	runResult = harvestValidation(bookkeeping, opts, prep, runResult)
 	if opts.StoryProgress != nil && prep.promptInput.ApprovedStories != nil {
@@ -105,6 +111,26 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return finish(bookkeeping, opts, prep, result, nil, &meta, logger)
 	}
 
+	return harvestStopped(ctx, opts, prep, result, runResult, &meta, logger)
+}
+
+// harvestStopped resumes only persistence and harvest after observed completion.
+func harvestStopped(ctx context.Context, opts Options, prep *preparation, result Result, runResult *harness.RunResult, meta *harness.Meta, logger *slog.Logger) (out Result, outErr error) {
+	bookkeeping := context.WithoutCancel(ctx)
+	terminalSaved := false
+	defer func() {
+		if outErr != nil && !terminalSaved {
+			out.Repair = func(c context.Context) (Result, error) {
+				return harvestStopped(c, opts, prep, result, runResult, meta, logger)
+			}
+		}
+	}()
+	for len(prep.stoppedRepairs) > 0 {
+		if err := prep.stoppedRepairs[0](bookkeeping); err != nil {
+			return result, err
+		}
+		prep.stoppedRepairs = prep.stoppedRepairs[1:]
+	}
 	result.Disposition = DispositionRan
 	result.Harness = runResult.Clone()
 	result.Outcome = runResult.Outcome
@@ -128,6 +154,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return result, fmt.Errorf("finish run %d of task %s: %w", prep.run.Ordinal, prep.ref, err)
 	}
 	result.Run = run
+	terminalSaved = true
 
 	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
@@ -152,7 +179,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
 	result = fileStoryIssues(ctx, opts, prep, result, runResult, logger)
-	return finish(bookkeeping, opts, prep, result, runResult, &meta, logger)
+	return finish(bookkeeping, opts, prep, result, runResult, meta, logger)
 }
 
 // runClaude starts the subprocess, and reruns it once — cold, in this same
@@ -501,7 +528,20 @@ func finish(
 	runResult *harness.RunResult,
 	meta *harness.Meta,
 	logger *slog.Logger,
-) (Result, error) {
+) (out Result, outErr error) {
+	defer func() {
+		if outErr != nil {
+			out.Repair = func(c context.Context) (Result, error) {
+				return finish(context.WithoutCancel(c), opts, prep, result, runResult, meta, logger)
+			}
+		}
+	}()
+	for len(prep.stoppedRepairs) > 0 {
+		if err := prep.stoppedRepairs[0](ctx); err != nil {
+			return result, err
+		}
+		prep.stoppedRepairs = prep.stoppedRepairs[1:]
+	}
 	if runResult == nil {
 		// The subprocess never started, so there is no outcome to derive: the
 		// row is failed by hand with the signal exit code S-9 reserves for "no

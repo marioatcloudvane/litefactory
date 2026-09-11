@@ -528,18 +528,14 @@ func TestExecuteFetchFailureAbortsWithNoWorktree(t *testing.T) {
 	f := newFixture(t, runner)
 	f.repo.SetOriginURL(filepath.Join(filepath.Dir(f.repo.Dir), "there-is-no-such-repository.git"))
 
-	result := f.execute(f.request())
-
-	switch {
-	case result.Disposition != DispositionPrepareFailed:
-		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionPrepareFailed, f.logs)
-	case !result.Reportable():
-		t.Error("Reportable() = false: a failed fetch still owes the issue a comment")
-	case !strings.Contains(result.Reason, "fetch"):
-		t.Errorf("reason = %q, want it to name the fetch", result.Reason)
-	case result.Err == nil:
-		t.Error("Err = nil, want the underlying git failure")
+	_, err := Execute(t.Context(), f.opts, f.request())
+	if err == nil {
+		t.Fatal("preparation failure must remain retryable")
 	}
+	if !strings.Contains(err.Error(), "fetch") {
+		t.Fatalf("lost cause: %v", err)
+	}
+
 	if _, err := os.Stat(f.worktreeDir()); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("worktree %s exists after a failed fetch, want no side effects", f.worktreeDir())
 	}
@@ -550,8 +546,8 @@ func TestExecuteFetchFailureAbortsWithNoWorktree(t *testing.T) {
 		t.Errorf("last_fetch_at = %v after a failed fetch, want the zero time", fetched)
 	}
 	session := f.reloadSession()
-	if session.State != store.SessionFailed {
-		t.Errorf("session state = %q, want %q", session.State, store.SessionFailed)
+	if session.State != f.session.State {
+		t.Errorf("session state = %q, want %q", session.State, f.session.State)
 	}
 	if session.LockOwner != "" {
 		t.Errorf("lock owner = %q, want it released", session.LockOwner)
@@ -635,14 +631,14 @@ func TestExecuteRefusesACorruptedFrozenSlug(t *testing.T) {
 		t.Fatalf("seed a corrupted slug: %v", err)
 	}
 
-	result := f.execute(f.request())
+	_, err := Execute(t.Context(), f.opts, f.request())
+	if err == nil {
+		t.Fatal("preparation failure must remain retryable")
+	}
+	if !strings.Contains(err.Error(), "slug") {
+		t.Fatalf("lost cause: %v", err)
+	}
 
-	if result.Disposition != DispositionPrepareFailed {
-		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionPrepareFailed)
-	}
-	if !strings.Contains(result.Reason, "slug") {
-		t.Errorf("reason = %q, want it to name the slug", result.Reason)
-	}
 	if runs := f.runs(); len(runs) != 0 {
 		t.Errorf("allocated %d runs, want 0", len(runs))
 	}
@@ -668,14 +664,14 @@ func TestExecuteRefusesAnOccupiedWorktreePath(t *testing.T) {
 		t.Fatalf("write the occupying file: %v", err)
 	}
 
-	result := f.execute(f.request())
+	_, err := Execute(t.Context(), f.opts, f.request())
+	if err == nil {
+		t.Fatal("preparation failure must remain retryable")
+	}
+	if !errors.Is(err, git.ErrWorktreeOccupied) {
+		t.Fatalf("lost occupied-path cause: %v", err)
+	}
 
-	if result.Disposition != DispositionPrepareFailed {
-		t.Fatalf("disposition = %s, want %s\nlogs:\n%s", result.Disposition, DispositionPrepareFailed, f.logs)
-	}
-	if !errors.Is(result.Err, git.ErrWorktreeOccupied) {
-		t.Errorf("Err = %v, want it to unwrap to %v", result.Err, git.ErrWorktreeOccupied)
-	}
 	if content, err := os.ReadFile(occupant); err != nil || string(content) != "do not delete me\n" {
 		t.Errorf("the occupying file was disturbed: content=%q err=%v", content, err)
 	}

@@ -489,6 +489,7 @@ func (f *forgeServer) handlePostComment(w http.ResponseWriter, r *http.Request) 
 			ID:        id,
 			Body:      payload.Body,
 			User:      bot(),
+			HTMLURL:   fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", r.PathValue("owner"), r.PathValue("repo"), number, id),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		})
@@ -584,6 +585,7 @@ func (f *forgeServer) addCommentIn(
 	rs.comments = append(rs.comments, fakeComment{
 		ID: id, Body: body, User: author, CreatedAt: at, UpdatedAt: at, issue: issue,
 		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d", owner, name, issue),
+		HTMLURL:  fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", owner, name, issue, id),
 	})
 	for i := range rs.issues {
 		if rs.issues[i].Number == issue {
@@ -1054,6 +1056,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		Logger:        f.logger,
 		Now:           f.clock.Now,
 		ShutdownGrace: 500 * time.Millisecond,
+	}
+	if overrides.Now != nil {
+		opts.Now = overrides.Now
 	}
 	if overrides.DB != nil {
 		opts.DB = overrides.DB
@@ -1528,6 +1533,27 @@ type labelFixtureForge interface {
 	daemon.Forge
 	AddIssueLabel(context.Context, github.Repo, int, string) error
 	RemoveIssueLabel(context.Context, github.Repo, int, string) error
+}
+
+// restorePendingReport models a remotely accepted report whose response was
+// lost. The immutable saved bytes supply exact trusted lookup evidence; merely
+// clearing an HTTP error would not establish whether delivery occurred.
+func (f *fixture) restorePendingReport(triggerID int64) {
+	f.t.Helper()
+	session := f.session()
+	delivery, found, err := f.db.FindPendingReportDelivery(f.t.Context(), session.ID, triggerID)
+	if err != nil || !found {
+		f.t.Fatalf("pending report: found=%v err=%v", found, err)
+	}
+	f.forge.addCommentAt(testIssue, 900000+triggerID, bot(), delivery.Body, f.clock.Now())
+	recovery, err := f.db.GetReportRecovery(f.t.Context(), fmt.Sprintf("source:%d:%d", session.ID, triggerID))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	now := f.clock.Now()
+	if recovery.NextAt.After(now) {
+		f.clock.advance(recovery.NextAt.Sub(now))
+	}
 }
 
 // bootstrapIssues waits through admitted discovery ticks before tests publish

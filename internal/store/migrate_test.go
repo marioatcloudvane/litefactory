@@ -10,6 +10,27 @@ import (
 // same unexported machinery [DB.Migrate] uses, so a test can stand a database
 // at an intermediate schema version and inspect it before the rest of the
 // sequence runs.
+// migrationVersionBefore is the version immediately preceding the migration
+// whose name is given. Tests that need a database as it stood before one
+// specific migration ask for it by name: a hardcoded number silently stops
+// meaning "just before this migration" the moment anything is renumbered, and
+// then fails somewhere unrelated.
+func migrationVersionBefore(t *testing.T, name string) int {
+	t.Helper()
+
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	for _, m := range migrations {
+		if m.name == name {
+			return m.version - 1
+		}
+	}
+	t.Fatalf("no migration named %q", name)
+	return 0
+}
+
 func applyMigrationsThrough(t *testing.T, db *DB, version int) {
 	t.Helper()
 

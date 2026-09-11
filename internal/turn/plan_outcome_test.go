@@ -419,9 +419,9 @@ func TestPlanReadinessInvalidatedBeforeExternalTeamCapture(t *testing.T) {
 	repo.ExternalTeam = "missing-team"
 	_, err := f.db.UpsertRepo(t.Context(), repo)
 	mustProgress(t, err)
-	r := f.execute(planRequest(f))
-	if r.Disposition != DispositionPrepareFailed || !strings.Contains(r.Reason, "external team") {
-		t.Fatalf("expected team preparation failure: %+v", r)
+	_, err = Execute(t.Context(), f.opts, planRequest(f))
+	if err == nil || !strings.Contains(err.Error(), "external team") {
+		t.Fatalf("expected retryable team preparation failure: %v", err)
 	}
 	assertPlanUnready(t, f)
 }

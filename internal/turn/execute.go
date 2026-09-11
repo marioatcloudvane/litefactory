@@ -461,8 +461,8 @@ func (r Request) mode() string {
 // happened, because every one of them owes the issue a comment (AC-4.1) and an
 // error return would be the one shape that cannot carry one.
 //
-// A non-nil error means the turn could not be conducted or recorded at all:
-// invalid options, an invalid request, or a database that would not answer. The
+// A non-nil error means preparation or recording is retryable, including
+// infrastructure failure. Explicit policy refusals remain results. The
 // caller logs it and leaves the comment unconsumed; the next tick tries again.
 //
 // # The lock
@@ -471,7 +471,7 @@ func (r Request) mode() string {
 // path including a panic (AC-3.1, AC-3.3). A lock already held is not an
 // error and not a queue: the turn returns [DispositionLocked], the comment
 // stays unconsumed, and a later tick retries it.
-func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
+func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr error) {
 	if err := opts.validate(); err != nil {
 		return Result{}, err
 	}
@@ -512,6 +512,13 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		return result, fmt.Errorf("task ref %q on session %d: %w", session.TaskRef, session.ID, err)
 	}
 	result.Ref = ref
+	if _, pending, err := opts.DB.FindPendingReportDelivery(ctx, session.ID, req.Trigger.CommentID); err != nil {
+		return result, err
+	} else if pending {
+		result.Disposition = DispositionPrepareFailed
+		result.Reason = "a prior explanation awaits confirmed delivery; no agent launched"
+		return result, nil
+	}
 	logger = logger.With(slog.String("task", ref.String()))
 
 	// AC-3.1: the lock comes before preparation, so two daemons cannot both
@@ -563,6 +570,12 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	// when the daemon is healthy is not a lock, it is a deadlock waiting for a
 	// restart.
 	defer func() {
+		if out.Repair != nil {
+			out.Repair = repairWithLock(out.Repair, func(c context.Context) error {
+				return opts.DB.ReleaseSessionLock(context.WithoutCancel(c), session.ID, opts.InstanceID)
+			})
+			return
+		}
 		releaseErr := opts.DB.ReleaseSessionLock(context.WithoutCancel(ctx), session.ID, opts.InstanceID)
 		if releaseErr != nil {
 			logger.Error("release the task lock", slog.Any("error", releaseErr))
@@ -576,12 +589,25 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 	if err != nil {
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
 	}
-	if replay {
+	if replay && existing.Status != store.RunPrelaunch {
 		return replayed(result, existing, logger), nil
 	}
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)
 	if err != nil {
+		if errors.Is(err, store.ErrPlanNotReady) {
+			return readinessRefused(ctx, opts, result)
+		}
+		// Any failure after allocation is retryable preparation. Do not turn
+		// infrastructure failure into a report that acknowledges the source.
+		allocated, found, lookupErr := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
+		if lookupErr != nil {
+			return result, errors.Join(err, lookupErr)
+		}
+		if found && allocated.Status == store.RunPrelaunch {
+			result.Run = allocated
+			return result, err
+		}
 		// Checked before the generic *failure: an agent-switch refusal is a
 		// *failure in spirit — a turn that could not be carried out because
 		// of the state of the world — but it is answered with
@@ -609,7 +635,7 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 		}
 		var prepFailure *failure
 		if errors.As(err, &prepFailure) {
-			return prepareFailed(ctx, opts, result, prepFailure, logger), nil
+			return result, prepFailure
 		}
 		return result, err
 	}
@@ -633,6 +659,10 @@ func Execute(ctx context.Context, opts Options, req Request) (Result, error) {
 func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 	result.Run = existing
 	result.Disposition = DispositionAlreadyRan
+	if !existing.Reportable() {
+		result.Disposition = DispositionLocked
+		return result
+	}
 	if existing.Status == store.RunReported {
 		result.Disposition = DispositionAlreadyReported
 	}
@@ -650,30 +680,6 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 		slog.Int("run_ordinal", existing.Ordinal),
 		slog.String("run_status", string(existing.Status)),
 		slog.String("disposition", result.Disposition.String()))
-	return result
-}
-
-// prepareFailed records a turn that never reached the subprocess.
-//
-// The session is marked failed and the reason is carried out for the report:
-// AC-3.5 wants a failure comment for a fetch that did not run, and AC-4.1 wants
-// one for every other way a turn can end early. For a failure raised before
-// allocateRun, no run row was allocated, so there is no ordinal to burn and
-// the next comment on this task starts clean.
-func prepareFailed(ctx context.Context, opts Options, result Result, prepFailure *failure, logger *slog.Logger) Result {
-	result.Disposition = DispositionPrepareFailed
-	result.Outcome = harness.OutcomeFailed
-	result.Reason = prepFailure.Error()
-	result.Err = prepFailure.Unwrap()
-
-	// The context may already be cancelled — a shutdown during a fetch looks
-	// exactly like this — and the session state still has to be honest.
-	if err := opts.DB.SetSessionState(context.WithoutCancel(ctx), result.SessionID, store.SessionFailed); err != nil {
-		logger.Error("mark the task failed", slog.Any("error", err))
-	}
-	logger.Error("turn could not be prepared",
-		slog.String("reason", prepFailure.reason),
-		slog.Any("error", prepFailure.Unwrap()))
 	return result
 }
 
@@ -765,4 +771,48 @@ func Reconcile(ctx context.Context, opts Options) (store.Reconciliation, error) 
 			slog.String("log_path", run.LogPath))
 	}
 	return reconciliation, nil
+}
+
+// readinessRefused carries an explanation only after a raced allocation, if
+// any, has become terminal. Refusals never change session state in preparation.
+func readinessRefused(ctx context.Context, opts Options, result Result) (Result, error) {
+	result.Disposition = DispositionPrepareFailed
+	result.Outcome = harness.OutcomeFailed
+	result.Reason = "Implementation refused: the plan is not ready or has pending refinements. No agent launched. Submit a fresh /implement command after the plan is ready."
+	run, found, err := opts.DB.GetRunByTrigger(ctx, result.SessionID, result.TriggerCommentID)
+	if err != nil {
+		return result, err
+	}
+	if found {
+		if run.Status != store.RunPrelaunch {
+			return result, fmt.Errorf("readiness refusal found a non-prelaunch run")
+		}
+		run, err = opts.DB.FinishRun(context.WithoutCancel(ctx), run.ID, store.RunOutcome{Status: store.RunFailed, SemanticOutcome: "refused", Error: result.Reason})
+		if err != nil {
+			return result, err
+		}
+		result.Run = run
+	}
+	return result, nil
+}
+
+// repairWithLock keeps cross-process ownership through every failed repair.
+func repairWithLock(repair func(context.Context) (Result, error), release func(context.Context) error) func(context.Context) (Result, error) {
+	return func(ctx context.Context) (Result, error) {
+		result, err := repair(ctx)
+		if err != nil {
+			next := result.Repair
+			if next == nil {
+				next = repair
+			}
+			result.Repair = repairWithLock(next, release)
+			return result, err
+		}
+		result.Repair = nil
+		if err := release(ctx); err != nil {
+			result.Repair = repairWithLock(func(context.Context) (Result, error) { result.Repair = nil; return result, nil }, release)
+			return result, err
+		}
+		return result, nil
+	}
 }

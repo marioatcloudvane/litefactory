@@ -23,6 +23,8 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	stoppedRepairs []func(context.Context) error
+
 	typedPlan           *TypedPlanSubmission
 	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
 	submissionOptions   *SubmissionSessionOptions
@@ -112,6 +114,11 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (*preparation, error) {
+	if req.mode() == "implement" {
+		if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateContinuation(ctx, opts, req, session); err != nil {
 		return nil, failuref(err, "automatic recovery requires manual intervention")
 	}
@@ -426,12 +433,7 @@ func prepare(
 	// back up by a later edit" without re-deriving this same argument, so it
 	// is read here, not checked there.
 	//
-	// Moving the write this late does open a window where allocateRun's runs
-	// row (and the attachment manifest written above) can be observed as
-	// running before its session is marked running. That window is accepted,
-	// not mitigated: ReconcileOrphans already fails an orphaned running run
-	// and its session together at daemon start, and nothing else in this
-	// tree branches control flow on session.state.
+	// The row remains prelaunch until the execution owner claims it.
 	if err = opts.DB.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
 		return nil, fmt.Errorf("mark task %s running: %w", ref, err)
 	}
@@ -1035,7 +1037,7 @@ func previousRun(
 	for _, run := range runs {
 		// ListRuns is in ordinal order, oldest first, so the last match wins
 		// and previous is the most recent run of this conversation.
-		if run.SegmentID == segment.ID && terminalRunStatus(run.Status) {
+		if run.SegmentID == segment.ID && terminalRunStatus(run.Status) && run.SemanticOutcome != "refused" {
 			previous, found = run, true
 		}
 	}
@@ -1510,12 +1512,23 @@ func allocateRun(
 	segment store.Segment,
 	ref naming.Ref,
 ) (store.Run, error) {
+	existing, found, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
+	if err != nil {
+		return store.Run{}, err
+	}
+	if found {
+		if existing.Status != store.RunPrelaunch || existing.SegmentID != segment.ID || existing.Mode != req.mode() || existing.Agent != segment.Agent {
+			return store.Run{}, fmt.Errorf("prelaunch allocation no longer matches this request")
+		}
+		return existing, nil
+	}
 	// The store calls this inside the allocating transaction and has nowhere to
 	// put an error, so the failure is carried out here instead. It cannot
 	// happen for a ref that has already parsed, which is exactly why it must
 	// not be swallowed if it ever does.
 	var pathErr error
 	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{
+		Prelaunch: true,
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
