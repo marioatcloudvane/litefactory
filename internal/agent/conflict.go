@@ -20,6 +20,15 @@ var conflictMarkers = []string{"<<<<<<<", "=======", ">>>>>>>"}
 // issue handle, worktree, tool permissions, or persistence capability — the
 // same boundary [ScheduleProposalRequest] draws for scheduling advice.
 type ConflictResolutionRequest struct {
+	BaseInputRef   string `json:"base_input_ref,omitempty"`
+	BaseInputSHA   string `json:"base_input_sha,omitempty"`
+	TaskInputRef   string `json:"task_input_ref,omitempty"`
+	TaskInputSHA   string `json:"task_input_sha"`
+	InputsObserved bool   `json:"inputs_observed,omitempty"`
+	TargetPhase    string `json:"target_phase,omitempty"`
+	TargetRef      string `json:"target_ref,omitempty"`
+	LocalSHA       string `json:"local_sha,omitempty"`
+	TargetSHA      string `json:"target_sha,omitempty"`
 	// Branch and Base name the two sides of the conflict, for the model's
 	// own orientation. Neither is rendered back into a comment by this
 	// package; internal/report screens anything derived from a run before

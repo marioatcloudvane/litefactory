@@ -155,9 +155,8 @@ type Result struct {
 	CommitSHA string
 
 	// Changed reports that the branch moved: this turn committed, or the run
-	// committed for itself. False is the AC-3.23 path — no changes, no commit,
-	// no push — and the report has to say so explicitly rather than implying an
-	// empty success.
+	// committed for itself. False means no post-preparation changes; outstanding
+	// preparation or prior-attempt commits may still be published.
 	Changed bool
 
 	// Committed reports that this turn made the commit, as opposed to the run
@@ -168,6 +167,9 @@ type Result struct {
 	// [Result.Err] is the push-failure path: the commit is intact in
 	// WorktreePath.
 	Pushed bool
+
+	// Publication describes verified publication or retained local work.
+	Publication string
 
 	// Remote is the remote the branch was pushed to, "origin" at M0.
 	Remote string
@@ -217,7 +219,10 @@ type Result struct {
 	// The blocked outcome does not travel here — it never reaches a run
 	// report at all, because [DispositionSyncRefused] answers the thread
 	// with [report.ReplyRefusesSync] instead and no run is started.
-	Sync *report.Sync
+	Sync       *report.Sync
+	TaskSync   *report.Sync
+	SyncDetail string
+	SyncPhase  string
 
 	// SyncTooFarBehind, SyncBehind and SyncMaxBehind are set only on a
 	// [DispositionSyncRefused] the cap produced rather than a conflict: no
