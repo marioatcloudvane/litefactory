@@ -1,0 +1,89 @@
+=== RUN   TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent
+    discovery_http_internal_test.go:209: OFFLINE fixture cold: actual requests=6 status_200=6 status_304=0 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture warm: actual requests=6 status_200=0 status_304=6 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture changed: actual requests=6 status_200=1 status_304=5 comment_pages=2 parents=2
+--- PASS: TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent (1.85s)
+=== RUN   TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories
+--- PASS: TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories (2.53s)
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403
+--- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal (1.61s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502 (0.80s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403 (0.81s)
+=== RUN   TestDiscoveryHTTP_CancelledCallReleasesReservation
+--- PASS: TestDiscoveryHTTP_CancelledCallReleasesReservation (1.83s)
+=== RUN   TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress
+--- PASS: TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress (1.89s)
+=== RUN   TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses
+--- PASS: TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses (0.78s)
+=== RUN   TestTwoIssuesInOneRepoRunConcurrently
+--- PASS: TestTwoIssuesInOneRepoRunConcurrently (1.13s)
+=== RUN   TestABackoffArmedMidTickStopsFurtherDispatch
+--- PASS: TestABackoffArmedMidTickStopsFurtherDispatch (1.03s)
+=== RUN   TestQuietPollingAC6TwoManagedParents
+--- PASS: TestQuietPollingAC6TwoManagedParents (1.09s)
+=== RUN   TestFiveCommentsOnOneIssueOccupyExactlyOneSlot
+--- PASS: TestFiveCommentsOnOneIssueOccupyExactlyOneSlot (2.80s)
+=== RUN   TestDeferredTaskDoesNotStallTheOthers
+--- PASS: TestDeferredTaskDoesNotStallTheOthers (1.37s)
+=== RUN   TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent
+    discovery_http_internal_test.go:209: OFFLINE fixture cold: actual requests=6 status_200=6 status_304=0 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture warm: actual requests=6 status_200=0 status_304=6 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture changed: actual requests=6 status_200=1 status_304=5 comment_pages=2 parents=2
+--- PASS: TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent (0.80s)
+=== RUN   TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories
+--- PASS: TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories (1.64s)
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403
+--- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal (3.49s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502 (1.85s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403 (1.64s)
+=== RUN   TestDiscoveryHTTP_CancelledCallReleasesReservation
+--- PASS: TestDiscoveryHTTP_CancelledCallReleasesReservation (1.27s)
+=== RUN   TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress
+--- PASS: TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress (1.00s)
+=== RUN   TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses
+--- PASS: TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses (1.30s)
+=== RUN   TestTwoIssuesInOneRepoRunConcurrently
+--- PASS: TestTwoIssuesInOneRepoRunConcurrently (1.16s)
+=== RUN   TestABackoffArmedMidTickStopsFurtherDispatch
+--- PASS: TestABackoffArmedMidTickStopsFurtherDispatch (0.93s)
+=== RUN   TestQuietPollingAC6TwoManagedParents
+--- PASS: TestQuietPollingAC6TwoManagedParents (1.11s)
+=== RUN   TestFiveCommentsOnOneIssueOccupyExactlyOneSlot
+--- PASS: TestFiveCommentsOnOneIssueOccupyExactlyOneSlot (1.88s)
+=== RUN   TestDeferredTaskDoesNotStallTheOthers
+--- PASS: TestDeferredTaskDoesNotStallTheOthers (2.08s)
+=== RUN   TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent
+    discovery_http_internal_test.go:209: OFFLINE fixture cold: actual requests=6 status_200=6 status_304=0 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture warm: actual requests=6 status_200=0 status_304=6 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture changed: actual requests=6 status_200=1 status_304=5 comment_pages=2 parents=2
+--- PASS: TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent (1.74s)
+=== RUN   TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories
+--- PASS: TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories (2.30s)
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403
+--- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal (1.99s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502 (0.78s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403 (1.22s)
+=== RUN   TestDiscoveryHTTP_CancelledCallReleasesReservation
+--- PASS: TestDiscoveryHTTP_CancelledCallReleasesReservation (1.22s)
+=== RUN   TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress
+--- PASS: TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress (0.92s)
+=== RUN   TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses
+--- PASS: TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses (1.54s)
+=== RUN   TestTwoIssuesInOneRepoRunConcurrently
+--- PASS: TestTwoIssuesInOneRepoRunConcurrently (1.83s)
+=== RUN   TestABackoffArmedMidTickStopsFurtherDispatch
+--- PASS: TestABackoffArmedMidTickStopsFurtherDispatch (1.13s)
+=== RUN   TestQuietPollingAC6TwoManagedParents
+--- PASS: TestQuietPollingAC6TwoManagedParents (1.06s)
+=== RUN   TestFiveCommentsOnOneIssueOccupyExactlyOneSlot
+--- PASS: TestFiveCommentsOnOneIssueOccupyExactlyOneSlot (2.75s)
+=== RUN   TestDeferredTaskDoesNotStallTheOthers
+--- PASS: TestDeferredTaskDoesNotStallTheOthers (1.17s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	54.199s

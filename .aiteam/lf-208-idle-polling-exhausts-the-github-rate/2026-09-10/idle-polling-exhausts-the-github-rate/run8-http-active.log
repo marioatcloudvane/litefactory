@@ -1,0 +1,12 @@
+=== RUN   TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory
+--- PASS: TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory (0.96s)
+=== RUN   TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory
+--- PASS: TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory (1.47s)
+=== RUN   TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory
+--- PASS: TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory (1.48s)
+=== RUN   TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory
+--- PASS: TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory (1.42s)
+=== RUN   TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory
+--- PASS: TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory (1.48s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	8.628s

@@ -27,6 +27,11 @@ type closureForge struct {
 }
 
 func (g *closureForge) GetIssue(ctx context.Context, repo github.Repo, number int) (github.Issue, error) {
+	// Quota observation is an independent real HTTP read, not a backlog
+	// candidate and must not invoke candidate-specific cancellation/errors.
+	if number == 1 {
+		return g.labelFixtureForge.GetIssue(ctx, repo, number)
+	}
 	g.mu.Lock()
 	g.reads = append(g.reads, number)
 	g.mu.Unlock()
@@ -122,7 +127,7 @@ func TestClosedBacklogReleasesAdmissionForOpenWork(t *testing.T) {
 	for _, n := range []int{testIssue, 124, 125, 126} {
 		f.forge.addIssue(fakeIssue{Number: n, Title: "Task", User: stranger()})
 	}
-	f.settle()
+	f.bootstrapIssues(f.repo, testIssue, 124, 125, 126)
 	f.clock.advance(pastListing)
 	f.settle()
 	for _, n := range []int{testIssue, 124, 125} {

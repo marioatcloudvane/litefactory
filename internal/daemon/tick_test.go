@@ -973,6 +973,10 @@ func TestReactionFailureDoesNotAbortTheTurn(t *testing.T) {
 // TestRateLimitBacksOffAndResumes is AC-2.12.
 func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	f := newFixture(t)
+	const retryAfter = 45 * time.Second
+	// The fixture's actual primary window expires during this refusal. A
+	// Retry-After alone does not authorize spending a still-exhausted window.
+	f.forge.quotaReset = f.clock.Now().Add(retryAfter).Unix()
 	f.plantCursor()
 	f.issue("Add a /health endpoint")
 	f.forge.addComment(testIssue, 111, owner(), "/spike after the limit clears")
@@ -980,7 +984,6 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 	cursorBefore := f.cursor()
 	issuesBefore, _, _, _ := f.forge.counts()
 
-	const retryAfter = 45 * time.Second
 	f.forge.onListIssues = func(w http.ResponseWriter, call int) bool {
 		if call != issuesBefore+1 {
 			return false
@@ -1025,10 +1028,21 @@ func TestRateLimitBacksOffAndResumes(t *testing.T) {
 
 	// Past the backoff, polling resumes on its own with nothing lost.
 	f.clock.advance(retryAfter + time.Second)
+	f.forge.mu.Lock()
+	f.forge.quotaReset = f.clock.Now().Add(time.Hour).Unix()
+	f.forge.mu.Unlock()
 	resumed := f.settle()
 	if resumed.Skipped {
 		t.Fatal("the daemon did not resume after the backoff expired")
 	}
+	// The remote hold ended, but fresh quota still requires the independently
+	// bounded scalar observation. Its one-minute cadence cannot be bypassed
+	// merely because the server supplied a shorter Retry-After.
+	if resumed.Dispatched != 0 {
+		t.Fatalf("dispatched %d before the next quota observation, want 0", resumed.Dispatched)
+	}
+	f.clock.advance(time.Minute)
+	resumed = f.settle()
 	if resumed.Dispatched != 1 {
 		t.Errorf("dispatched %d tasks on resuming, want 1", resumed.Dispatched)
 	}

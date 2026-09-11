@@ -357,9 +357,10 @@ type Daemon struct {
 	now          func() time.Time
 	ticks        <-chan time.Time
 
-	backoff  backoff
-	inflight inflight
-	pool     *pool
+	discovery discoveryBudget
+	backoff   backoff
+	inflight  inflight
+	pool      *pool
 
 	// lastRepoID and repoSessionCursor are the two levels of the dispatch
 	// rotation (RD-1): the repository the last dispatch came from, and per

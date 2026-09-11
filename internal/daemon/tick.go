@@ -127,6 +127,11 @@ type TickResult struct {
 // with.
 func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	startedAt := d.now()
+	d.discovery.tick(startedAt)
+	ctx = d.discoveryContext(ctx)
+	counts := &discoveryCounts{}
+	ctx = github.WithRequestObserver(ctx, counts.observe)
+	defer d.discoverySummary(ctx, "tick", counts)
 	if !d.autoResumeOnSessionLimit {
 		pending, err := d.db.ListPendingContinuations(ctx, 0)
 		if err != nil {
@@ -188,7 +193,8 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	}
 
 	queues, err := d.discover(ctx, repos, listingWindow(cursor), &result)
-	if err != nil {
+	discoveryDeferred := errors.Is(err, ErrDiscoveryDeferred)
+	if err != nil && !discoveryDeferred {
 		result.Duration = d.now().Sub(startedAt)
 		return result, d.observe(ctx, startedAt, err)
 	}
@@ -230,6 +236,10 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 	// other. sessions.needs_poll is that local record, and [Daemon.discover]
 	// unions it with the listings, so re-discovery no longer needs the cursor's
 	// help. See [store.DB.ListBacklogSessions].
+	if discoveryDeferred {
+		result.Duration = d.now().Sub(startedAt)
+		return result, nil
+	}
 	persisted := store.PollCursor{TasksUpdatedSince: startedAt, LastTickAt: d.now()}
 	if err := d.db.SetPollCursor(ctx, persisted); err != nil {
 		result.Duration = d.now().Sub(startedAt)
@@ -319,6 +329,7 @@ func (d *Daemon) discover(
 	// which is what makes an unguarded bool the right thing here — and which is
 	// also why [backoff.clear] is called from here and nowhere below.
 	cleared := false
+	deferred := false
 
 	queues := make([]*repoQueue, 0, len(repos))
 	byRepo := make(map[int64]*repoQueue, len(repos))
@@ -348,12 +359,17 @@ func (d *Daemon) discover(
 		queues = append(queues, q)
 		byRepo[repo.ID] = q
 
-		issues, err := d.forge.ListIssues(ctx, forgeRepo, since)
-		if err != nil {
+		if err := d.discoveryProbe(ctx, forgeRepo); err != nil {
+			return nil, err
+		}
+		issues, err := discoveryCall(ctx, d, discoveryKey(forgeRepo, "issues", 0), discoveryListBound, func(ctx context.Context) ([]github.Issue, error) { return d.forge.ListIssues(ctx, forgeRepo, since) })
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			deferred = true
+		} else if err != nil {
 			return nil, fmt.Errorf("list the issues of %s touched since %s: %w",
 				forgeRepo, since.UTC().Format(time.RFC3339), err)
 		}
-		if !cleared {
+		if err == nil && !cleared {
 			// Evidence that the forge is answering again, which is the only thing
 			// that ends a run of refusals. See [backoff.clear] for why this is
 			// here rather than at the end of the tick.
@@ -364,7 +380,9 @@ func (d *Daemon) discover(
 			}
 		}
 		commented, err := d.commentedIssues(ctx, repoLog, forgeRepo, since, issues)
-		if err != nil {
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			deferred = true
+		} else if err != nil {
 			return nil, err
 		}
 		issues = append(issues, commented...)
@@ -403,6 +421,9 @@ func (d *Daemon) discover(
 		slices.SortFunc(q.candidates, func(a, b *candidate) int {
 			return cmp.Compare(a.session.ID, b.session.ID)
 		})
+	}
+	if deferred {
+		return queues, ErrDiscoveryDeferred
 	}
 	return queues, nil
 }
@@ -618,7 +639,7 @@ func (d *Daemon) commentedIssues(
 	since time.Time,
 	listed []github.Issue,
 ) ([]github.Issue, error) {
-	numbers, err := d.forge.ListCommentedIssues(ctx, repo, since)
+	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.forge.ListCommentedIssues(ctx, repo, since) })
 	if err != nil {
 		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
 			repo, since.UTC().Format(time.RFC3339), err)
@@ -637,7 +658,7 @@ func (d *Daemon) commentedIssues(
 		if already[number] {
 			continue
 		}
-		issue, err := d.forge.GetIssue(ctx, repo, number)
+		issue, err := d.discoveryIssue(ctx, repo, number)
 		if err != nil {
 			// Every pull request is an issue, so pull request comments arrive
 			// in that listing too and the payload cannot tell them apart. The
@@ -882,6 +903,10 @@ func (d *Daemon) offer(ctx context.Context, c *candidate, tickAt time.Time, resu
 		// retiring its backlog flag failed.
 		d.pool.done()
 		d.inflight.leave(c.session.ID)
+		if errors.Is(err, ErrDiscoveryDeferred) {
+			result.Deferred++
+			return offerSkipped
+		}
 		if err != nil {
 			d.rateLimited(ctx, c.log, tickAt, err)
 			c.log.ErrorContext(ctx, "could not materialise a task that still needs a poll; "+
@@ -986,7 +1011,16 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	if !c.resolved {
 		// Lazily, and only now that a slot is held: see [Daemon.offer] for why
 		// this is the last thing that happens rather than the first.
-		fetched, err := d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		pending, err := d.db.ListPendingStoryRefinements(ctx, c.session.ID)
+		if err != nil {
+			return nil, err
+		}
+		var fetched github.Issue
+		if len(pending) > 0 {
+			fetched, err = d.forge.GetIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		} else {
+			fetched, err = d.discoveryIssue(ctx, c.forgeRepo, c.session.IssueNumber)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("read %s#%d, which still needs a poll: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
@@ -1031,6 +1065,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 // comment list is exhausted, a comment was left unconsumed, or the context is
 // done.
 func (d *Daemon) work(ctx context.Context, t *task) {
+	counts := &discoveryCounts{}
+	ctx = github.WithRequestObserver(ctx, counts.observe)
+	defer d.discoverySummary(ctx, "worker", counts)
 	if deferred, err := d.refineStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
@@ -1076,6 +1113,10 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 // Either way the session keeps its backlog flag, which is what brings the next
 // tick back to it.
 func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
+	if errors.Is(err, ErrDiscoveryDeferred) {
+		t.recordWorkerStatus(workerDeferred)
+		return
+	}
 	t.recordWorkerError(err)
 	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		t.log.DebugContext(ctx, "shutdown ended this task's turn; it still needs a poll, so "+
@@ -1099,7 +1140,7 @@ func (d *Daemon) stopped(ctx context.Context, t *task, what string, err error) {
 // `.aiteam/AC_AMENDMENTS.md` for why the old blanket ban on issue bodies
 // (AC-2.16) was reversed. Existing comments are still never replayed.
 func (d *Daemon) bootstrap(ctx context.Context, t *task) error {
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, 0)
+	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, 0)
 	if err != nil {
 		return fmt.Errorf("list the existing comments of task %s: %w", t.ref, err)
 	}
@@ -1262,7 +1303,7 @@ func (d *Daemon) drain(ctx context.Context, t *task, watermark int64) (bool, err
 	if err := d.retireModeSelections(ctx, t.session.ID); err != nil {
 		return false, fmt.Errorf("retire completed mode selections: %w", err)
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, t.issue.Number, watermark)
+	comments, err := d.discoveryComments(ctx, t.forgeRepo, t.issue.Number, watermark)
 	if err != nil {
 		return false, fmt.Errorf("list the comments of task %s above %d: %w", t.ref, watermark, err)
 	}

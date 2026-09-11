@@ -165,7 +165,10 @@ type forgeServer struct {
 	// of the wire, and no test depends on the wall clock.
 	now func() time.Time
 
-	mu sync.Mutex
+	mu             sync.Mutex
+	quotaRemaining int
+	quotaReset     int64
+	quotaNow       func() time.Time
 	// repos is keyed on "owner/name". Every registered repository gets an
 	// entry lazily, through [forgeServer.state], the first time anything
 	// touches it — including a repository nothing is ever added to, which is
@@ -246,7 +249,7 @@ func (f *forgeServer) issueOfComment(id int64) int {
 func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	t.Helper()
 
-	f := &forgeServer{t: t, now: now, repos: make(map[string]*repoState), nextCommentID: 500_000}
+	f := &forgeServer{t: t, now: now, repos: make(map[string]*repoState), nextCommentID: 500_000, quotaRemaining: 4999}
 
 	// Every route is keyed on {owner}/{repo} rather than the one repository
 	// this package used to hard-code, so that a second registered repository
@@ -271,7 +274,26 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
 	})
 
-	f.server = httptest.NewServer(mux)
+	// Real client budget observations come from the HTTP boundary, including
+	// an ordinary issue probe returning 404. Keep one stable quota window.
+	f.quotaReset = now().Add(time.Hour).Unix()
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		f.mu.Lock()
+		remaining := f.quotaRemaining
+		if f.quotaNow != nil {
+			at := f.quotaNow()
+			if at.Unix() >= f.quotaReset {
+				f.quotaReset = at.Add(time.Hour).Unix()
+			}
+		}
+		reset := f.quotaReset
+		f.mu.Unlock()
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(f.server.Close)
 	return f
 }
@@ -745,6 +767,12 @@ func (c *testClock) Now() time.Time {
 	return c.now
 }
 
+func (c *testClock) peek() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
 func (c *testClock) advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -949,6 +977,7 @@ func newFixture(t *testing.T) *fixture {
 
 	clock := newTestClock()
 	forge := newForgeServer(t, clock.Now)
+	forge.quotaNow = clock.peek
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	token := secrets.NewToken(testToken)
@@ -1499,4 +1528,25 @@ type labelFixtureForge interface {
 	daemon.Forge
 	AddIssueLabel(context.Context, github.Repo, int, string) error
 	RemoveIssueLabel(context.Context, github.Repo, int, string) error
+}
+
+// bootstrapIssues waits through admitted discovery ticks before tests publish
+// new commands. A deferred first history must not turn a new command into old
+// history merely because a fixture assumed every worker could list at once.
+func (f *fixture) bootstrapIssues(repo store.Repo, issues ...int) {
+	f.t.Helper()
+	for range 20 {
+		complete := true
+		for _, issue := range issues {
+			if f.watermarkIn(repo, issue) < 0 {
+				complete = false
+			}
+		}
+		if complete {
+			return
+		}
+		f.clock.advance(testInterval)
+		f.settle()
+	}
+	f.t.Fatalf("bootstrap did not complete for %s/%s issues%v\n%s", repo.Owner, repo.Name, issues, f.logs)
 }

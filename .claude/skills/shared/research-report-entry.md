@@ -34,28 +34,18 @@ Nothing follows it.
 4. **Links the brief.** Every run. The link is what makes the plain register
    affordable.
 
-## Sections, in order
+## How you build the response: always in exactly this structure!
 
-1. **Link to the brief.**
+Open with the **link to the brief** on its own line — one line, before section 1.
+It is short, it costs the reader nothing, and a cut from the end must never be
+able to reach it. Then, in exactly this order:
+
+1. **What was found** — the first analysis, in plain language.
 2. **Problems and risks** — named, never implied. No empty case: if the run found
    none, write "no problems found". Silence is not a finding.
-3. **What was found** — the first analysis, in plain language.
-4. **What to work on next** — below.
-
-## What to work on next
-
-The report ends by offering the questions worth pursuing, so the owner's reply is
-enough to start the next run.
-
-- **Two or three, ranked.** Drawn from the full inventory; a list of everything
-  is not an offer.
-- Each says **what it unblocks** and **who settles it** — owner, specialist, or
-  next mode.
-- **Invite a choice explicitly.** The owner names one on the thread.
-- Where the full inventory is in the same comment, it goes after this shortlist.
-
-**A shortlist is an offer, not a plan.** Do not start on any of it. Only a human
-comment opens the next piece of work.
+3. **What to work on next** — say **how many** open questions there are and ask
+   the user to work on them. **Do not list them** — the next cycle is for
+   thinking about them, and that is where they get shown in full.
 
 ### The standing line
 
@@ -70,7 +60,8 @@ for you to open one, and never licenses acting as though the next mode were open
 The final message is capped at 32 KiB (`maxResultBytes`,
 `internal/report/run.go:25`) and cut **from the end** (`truncateEnd`,
 `internal/report/run.go:713`). The tail is where links and question lists sit, so
-order for the cut: link and problems first.
+order for the cut — which is why the link leads and the problems come before
+anything optional.
 
 **This is a warning about order, not a size limit — do not turn it into one.**
 There is no byte or line limit on the report or the brief. Do not budget against

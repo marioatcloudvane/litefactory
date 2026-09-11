@@ -86,9 +86,14 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	}
 	// At most sixteen children per parent worker per tick; persisted rotation
 	// makes the bound fair across restarts as well as successive ticks.
+	discoveryDeferred := false
 	for n := 0; n < min(16, len(stories)); n++ {
 		s := stories[(start+n)%len(stories)]
 		discoveryErr := d.discoverStoryComments(ctx, t, relation, s)
+		if errors.Is(discoveryErr, ErrDiscoveryDeferred) {
+			discoveryDeferred = true
+			break
+		}
 		// Rotate even after a child-specific failure: a detached or inaccessible
 		// child must not permanently starve every later story.
 		if err := d.db.SetStoryDiscoveryRotation(ctx, t.session.ID, s.IssueNumber); err != nil {
@@ -103,6 +108,9 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 		return true, err
 	}
 	if len(pending) == 0 {
+		if discoveryDeferred {
+			return true, ErrDiscoveryDeferred
+		}
 		return false, nil
 	}
 	r := pending[0]
@@ -161,11 +169,13 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 }
 
 func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation storyRelationForge, s store.ManagedStory) error {
-	child, err := d.forge.GetIssue(ctx, t.forgeRepo, s.IssueNumber)
+	child, err := d.discoveryIssue(ctx, t.forgeRepo, s.IssueNumber)
 	if err != nil {
 		return err
 	}
-	parent, err := relation.GetParentIssue(ctx, t.forgeRepo, s.IssueNumber)
+	parent, err := discoveryCall(ctx, d, discoveryKey(t.forgeRepo, "parent", s.IssueNumber), 1, func(ctx context.Context) (github.Issue, error) {
+		return relation.GetParentIssue(ctx, t.forgeRepo, s.IssueNumber)
+	})
 	if err != nil {
 		return err
 	}
@@ -176,7 +186,7 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 	if err != nil {
 		return err
 	}
-	comments, err := d.forge.ListCommentsAfter(ctx, t.forgeRepo, s.IssueNumber, after)
+	comments, err := d.discoveryComments(ctx, t.forgeRepo, s.IssueNumber, after)
 	if err != nil {
 		return err
 	}

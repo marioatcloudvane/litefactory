@@ -1,0 +1,170 @@
+--- FAIL: TestTwoIssuesInOneRepoRunConcurrently (0.14s)
+    concurrency_test.go:150: dispatched 1 turns, want 2
+        logs:
+        time=2026-09-11T08:04:34.877+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:56429/repos/acme/acme-api/issues/1 status=404 duration=1.420208ms rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.878+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated&state=open" status=200 duration=322.291µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.878+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 issues=0 pull_requests_skipped=0
+        time=2026-09-11T08:04:34.878+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T09%3A00%3A02Z&sort=updated" status=200 duration=130.417µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.878+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T09:00:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-11T08:04:34.879+02:00 level=INFO msg="tick complete" repos=1 issues=0 dispatched=0 in_flight=0 workers_dispatched=0 workers_in_flight=0 forge_issues=0 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:02.000Z duration=1s
+        time=2026-09-11T08:04:34.879+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:0 Unchanged:0 Other:1 Pages:0} repository_comments:{OK:1 Unchanged:0 Other:0 Pages:1} repository_issues:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=0 quota_remaining=4997 quota_reserve=4000 background_spent=3 outstanding_reserved=0 traffic_available=117 quota_fresh=true
+        time=2026-09-11T08:04:34.881+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated&state=open" status=200 duration=1.159375ms rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.882+02:00 level=INFO msg="github: listed repository issues" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 issues=2 pull_requests_skipped=0
+        time=2026-09-11T08:04:34.882+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues/comments?direction=asc&per_page=100&since=2026-08-24T08%3A55%3A02Z&sort=updated" status=200 duration=358.167µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.883+02:00 level=INFO msg="github: listed repository issue comments" repo=acme/acme-api since=2026-08-24T08:55:02.000Z requests=1 comments=0 issues=0 malformed_issue_urls=0
+        time=2026-09-11T08:04:34.885+02:00 level=DEBUG msg="worker dispatched" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z
+        time=2026-09-11T08:04:34.885+02:00 level=DEBUG msg="worker dispatched" repo=acme/acme-api task=github:acme/acme-api#124 session_id=2 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z
+        time=2026-09-11T08:04:34.885+02:00 level=INFO msg="tick complete" repos=1 issues=2 dispatched=2 in_flight=2 workers_dispatched=2 workers_in_flight=2 forge_issues=2 deferred_sessions=0 scheduled=0 cursor=2026-08-24T09:00:06.000Z duration=1s
+        time=2026-09-11T08:04:34.885+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[repository_comments:{OK:1 Unchanged:0 Other:0 Pages:1} repository_issues:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=1 quota_remaining=4995 quota_reserve=4000 background_spent=5 outstanding_reserved=0 traffic_available=118 quota_fresh=true
+        time=2026-09-11T08:04:34.886+02:00 level=INFO msg="discovery request summary" scope=worker endpoints=map[] local_deferrals=2 quota_remaining=4995 quota_reserve=4000 background_spent=5 outstanding_reserved=100 traffic_available=18 quota_fresh=true
+        time=2026-09-11T08:04:34.886+02:00 level=DEBUG msg="worker finished" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z status=deferred duration=780.875µs execution_requests=0
+        time=2026-09-11T08:04:34.886+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues/124/comments?per_page=100" status=200 duration=318.292µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.886+02:00 level=DEBUG msg="github: listed issue comments" repo=acme/acme-api issue=124 after_id=0 requests=1 comments=0
+        time=2026-09-11T08:04:34.886+02:00 level=INFO msg="first sight of a task; its existing comments are skipped" repo=acme/acme-api task=github:acme/acme-api#124 session_id=2 existing_comments=0 watermark=0 created=true
+        time=2026-09-11T08:04:34.886+02:00 level=DEBUG msg="not running the issue body on first sight; it is not assigned to the owner" repo=acme/acme-api task=github:acme/acme-api#124 session_id=2 existing_comments=0
+        time=2026-09-11T08:04:34.887+02:00 level=INFO msg="discovery request summary" scope=worker endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=2 quota_remaining=4994 quota_reserve=4000 background_spent=6 outstanding_reserved=0 traffic_available=117 quota_fresh=true
+        time=2026-09-11T08:04:34.887+02:00 level=DEBUG msg="worker finished" repo=acme/acme-api task=github:acme/acme-api#124 session_id=2 dispatch_sources=[forge_discovery] tick_at=2026-08-24T09:00:06.000Z status=completed duration=1.488958ms execution_requests=0
+        time=2026-09-11T08:04:34.888+02:00 level=DEBUG msg="github: api request" method=GET url=http://127.0.0.1:56429/repos/acme/acme-api/issues/123 status=200 duration=524.542µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.889+02:00 level=DEBUG msg="worker dispatched" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[backlog] tick_at=2026-08-24T09:00:10.000Z
+        time=2026-09-11T08:04:34.889+02:00 level=INFO msg="discovery request summary" scope=tick endpoints="map[issue:{OK:1 Unchanged:0 Other:0 Pages:0}]" local_deferrals=5 quota_remaining=4993 quota_reserve=4000 background_spent=7 outstanding_reserved=0 traffic_available=119 quota_fresh=true
+        time=2026-09-11T08:04:34.890+02:00 level=DEBUG msg="github: api request" method=GET url="http://127.0.0.1:56429/repos/acme/acme-api/issues/123/comments?per_page=100" status=200 duration=407.75µs rate_limit_remaining=4999
+        time=2026-09-11T08:04:34.890+02:00 level=DEBUG msg="github: listed issue comments" repo=acme/acme-api issue=123 after_id=0 requests=1 comments=1
+        time=2026-09-11T08:04:34.890+02:00 level=INFO msg="first sight of a task; its existing comments are skipped" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=1 watermark=71 created=true
+        time=2026-09-11T08:04:34.890+02:00 level=DEBUG msg="not running the issue body on first sight; it is not assigned to the owner" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 existing_comments=1
+        time=2026-09-11T08:04:34.890+02:00 level=INFO msg="discovery request summary" scope=worker endpoints="map[comments:{OK:1 Unchanged:0 Other:0 Pages:1}]" local_deferrals=5 quota_remaining=4992 quota_reserve=4000 background_spent=8 outstanding_reserved=0 traffic_available=118 quota_fresh=true
+        time=2026-09-11T08:04:34.890+02:00 level=DEBUG msg="worker finished" repo=acme/acme-api task=github:acme/acme-api#123 session_id=1 dispatch_sources=[backlog] tick_at=2026-08-24T09:00:10.000Z status=completed duration=1.255833ms execution_requests=0
+panic: test timed out after 1m0s
+	running tests:
+		TestABackoffArmedMidTickStopsFurtherDispatch (1m0s)
+
+goroutine 287 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2959 +0x2c4
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/time/sleep.go:182 +0x38
+
+goroutine 1 [chan receive, 1 minutes]:
+testing.(*T).Run(0x58a5f319ab48, {0x10333eba4?, 0x58a5f374fa88?}, 0x103b2dd20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2266 +0x3cc
+testing.runTests.func1(0x58a5f319ab48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2742 +0x38
+testing.tRunner(0x58a5f319ab48, 0x58a5f374fbb8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+testing.runTests({0x10332ddd2, 0x20}, {0x103343ba3, 0x30}, 0x58a5f32982b8, {0x103ba7a70, 0xc5, 0xc5}, {0x58a5f374fc58?, 0x58a5f3592f20?, ...})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2740 +0x400
+testing.(*M).Run(0x58a5f346da40)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2600 +0x578
+main.main()
+	_testmain.go:440 +0x80
+
+goroutine 191 [select]:
+github.com/cloudvane/litefactory/internal/daemon_test.gatedForge.GetIssue({{0x103b2d3e0?, 0x58a5f384e390?}, _, _}, {_, _}, {{_, _}, {_, _}}, ...)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/dispatch_test.go:247 +0xd4
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).discoveryIssue.func1({0x103b2c298?, 0x58a5f337d770?})
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/discovery_budget.go:240 +0x9c
+github.com/cloudvane/litefactory/internal/daemon.discoveryCall[...]({0x103b2c298?, _}, _, {_, _}, _, _)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/discovery_budget.go:234 +0x12c
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).discoveryIssue(0x58a5f32a6908, {0x103b2c298, _}, {{_, _}, {_, _}}, _)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/discovery_budget.go:240 +0x17c
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).materialise(0x58a5f32a6908, {0x103b2c298, 0x58a5f32568d0}, 0x58a5f3582708, {0x10331ac4c?, 0x11?, 0x0?})
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/tick.go:1022 +0x1a8
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).offer(0x58a5f32a6908, {0x103b2c298, 0x58a5f32568d0}, 0x58a5f3582708, {0x4?, 0x58a5f3469990?, 0x0?}, 0x58a5f3777318)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/tick.go:897 +0xc4
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).dispatch(0x58a5f32a6908, {0x103b2c298, 0x58a5f32568d0}, {0x58a5f31780a8, 0x1, 0x1}, {0x0?, 0x58a5f3777318?, 0x0?}, 0x58a5f3777318)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/tick.go:805 +0x1cc
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).Tick(0x58a5f32a6908, {0x103b2c2d0, 0x58a5f3909720})
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/tick.go:223 +0xdec
+github.com/cloudvane/litefactory/internal/daemon_test.(*fixture).tick(0x58a5f32cc600)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/fixture_test.go:1132 +0xac
+github.com/cloudvane/litefactory/internal/daemon_test.(*fixture).settle(0x58a5f32cc600)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/fixture_test.go:1167 +0x64
+github.com/cloudvane/litefactory/internal/daemon_test.TestABackoffArmedMidTickStopsFurtherDispatch(0x58a5f38f2248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-208/internal/daemon/dispatch_test.go:113 +0x458
+testing.tRunner(0x58a5f38f2248, 0x103b2dd20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 482 [IO wait]:
+internal/poll.runtime_pollWait(0x111423400, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x58a5f3396580?, 0x58a5f37cc000?, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x58a5f3396580, {0x58a5f37cc000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x22c
+net.(*netFD).Read(0x58a5f3396580, {0x58a5f37cc000?, 0x8?, 0x80?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x28
+net.(*conn).Read(0x58a5f31780c0, {0x58a5f37cc000?, 0x0?, 0x58a5f3790d28?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x34
+net/http.(*persistConn).Read(0x58a5f37b6c80, {0x58a5f37cc000?, 0x103b26cd8?, 0x103b93140?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2300 +0x48
+bufio.(*Reader).fill(0x58a5f32aef60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0xdc
+bufio.(*Reader).Peek(0x58a5f32aef60, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0x58
+net/http.(*persistConn).readLoop(0x58a5f37b6c80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2483 +0x110
+created by net/http.(*Transport).dialConn in goroutine 481
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2123 +0x14d8
+
+goroutine 483 [select]:
+net/http.(*persistConn).writeLoop(0x58a5f37b6c80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2810 +0x98
+created by net/http.(*Transport).dialConn in goroutine 481
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/transport.go:2124 +0x1528
+
+goroutine 192 [select, 1 minutes]:
+database/sql.(*DB).connectionOpener(0x58a5f391c340, {0x103b2c2d0, 0x58a5f3909770})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0x84
+created by database/sql.OpenDB in goroutine 191
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x11c
+
+goroutine 460 [IO wait]:
+internal/poll.runtime_pollWait(0x111423800, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x58a5f33b8580?, 0x58a5f33e4000?, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x58a5f33b8580, {0x58a5f33e4000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x22c
+net.(*netFD).Read(0x58a5f33b8580, {0x58a5f33e4000?, 0x58a5f3819a28?, 0x102c24450?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_posix.go:68 +0x28
+net.(*conn).Read(0x58a5f3390ad0, {0x58a5f33e4000?, 0x111423800?, 0x0?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/net.go:196 +0x34
+net/http.(*connReader).Read(0x58a5f390e600, {0x58a5f33e4000, 0x1000, 0x1000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:856 +0x228
+bufio.(*Reader).fill(0x58a5f32ae120)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:113 +0xdc
+bufio.(*Reader).Peek(0x58a5f32ae120, 0x4)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/bufio/bufio.go:152 +0x58
+net/http.(*conn).serve(0x58a5f33b5320, {0x103b2c298, 0x58a5f3885d40})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:2173 +0x6cc
+created by net/http.(*Server).Serve in goroutine 299
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3581 +0x3e8
+
+goroutine 299 [IO wait, 1 minutes]:
+internal/poll.runtime_pollWait(0x111423600, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x58a5f3396080?, 0x102b70138?, 0x0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0x58a5f3396080)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:618 +0x210
+net.(*netFD).accept(0x58a5f3396080)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/fd_unix.go:149 +0x28
+net.(*TCPListener).accept(0x58a5f38dc3c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock_posix.go:159 +0x24
+net.(*TCPListener).Accept(0x58a5f38dc3c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/tcpsock.go:387 +0x2c
+net/http.(*Server).Serve(0x58a5f37b6000, {0x103b2bae8, 0x58a5f38dc3c0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/server.go:3551 +0x2a8
+net/http/httptest.(*Server).goServe.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:586 +0x54
+created by net/http/httptest.(*Server).goServe in goroutine 191
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/net/http/httptest/server.go:584 +0x8c
+FAIL	github.com/cloudvane/litefactory/internal/daemon	60.991s
+FAIL
