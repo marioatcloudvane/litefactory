@@ -49,6 +49,9 @@ type Options struct {
 	// [DefaultTimeout]. Tests point this at an httptest server, and so does
 	// anything that needs a proxy.
 	HTTPClient *http.Client
+	// Observe receives actual network outcomes, including foreground requests.
+	// It must be safe for concurrent use; nil disables the callback.
+	Observe func(RequestObservation)
 	// Logger receives request-level debug records and the per-repo listing
 	// summary. Nil discards.
 	Logger *slog.Logger
@@ -140,11 +143,17 @@ func New(opts Options) (*Client, error) {
 		// daemon owns the wait because only it knows what else is queued.
 		gogithub.WithDisableRateLimitCheck(),
 	}
+	httpClient := http.Client{Timeout: DefaultTimeout}
 	if opts.HTTPClient != nil {
-		options = append(options, gogithub.WithHTTPClient(opts.HTTPClient))
-	} else {
-		options = append(options, gogithub.WithTimeout(DefaultTimeout))
+		httpClient = *opts.HTTPClient
 	}
+	transport := httpClient.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	httpClient.Transport = &pollingTransport{next: transport, client: c, observe: opts.Observe, entries: make(map[[32]byte]cachedRepresentation)}
+	options = append(options, gogithub.WithHTTPClient(&httpClient))
+
 	// The one and only place the credential is revealed. WithAuthToken is the
 	// SDK's single credential path: it installs a RoundTripper that sets the
 	// Authorization header on a *clone* of each request, so the token reaches a
@@ -214,30 +223,11 @@ func do[T any](ctx context.Context, c *Client, call func(context.Context) (T, *g
 		return zero, nil, ErrUninitialized
 	}
 
-	start := c.clock()
 	value, resp, err := call(ctx)
-	c.observe(ctx, resp, start)
 	if err != nil {
 		return zero, resp, classify(resp, err, c.clock())
 	}
 	return value, resp, nil
-}
-
-// observe writes the per-request debug record. It is the line that makes "what
-// did this tick actually cost" answerable, and it carries no credential: the
-// method, URL and status are all safe to print, and the token travels in a
-// header this package never reads back.
-func (c *Client) observe(ctx context.Context, resp *gogithub.Response, start time.Time) {
-	if resp == nil || resp.Response == nil {
-		return
-	}
-	c.logger().DebugContext(ctx, "github: api request",
-		slog.String("method", requestMethod(resp.Response)),
-		slog.String("url", requestURL(resp.Response)),
-		slog.Int("status", resp.StatusCode),
-		slog.Duration("duration", c.clock().Sub(start)),
-		slog.Int("rate_limit_remaining", headerInt(resp.Header, "X-RateLimit-Remaining")),
-	)
 }
 
 // requestMethod and requestURL read back what was sent. net/http fills in

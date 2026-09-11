@@ -1,0 +1,28 @@
+=== RUN   TestClosedBacklogRetirementSurvivesRestart
+=== RUN   TestClosedBacklogRetirementSurvivesRestart/idle
+=== RUN   TestClosedBacklogRetirementSurvivesRestart/failed
+--- PASS: TestClosedBacklogRetirementSurvivesRestart (3.34s)
+    --- PASS: TestClosedBacklogRetirementSurvivesRestart/idle (2.24s)
+    --- PASS: TestClosedBacklogRetirementSurvivesRestart/failed (1.10s)
+=== RUN   TestClosedBacklogReleasesAdmissionForOpenWork
+--- PASS: TestClosedBacklogReleasesAdmissionForOpenWork (1.32s)
+=== RUN   TestUncertainBacklogObservationRetainsRetry
+=== RUN   TestUncertainBacklogObservationRetainsRetry/unknown
+=== RUN   TestUncertainBacklogObservationRetainsRetry/missing
+=== RUN   TestUncertainBacklogObservationRetainsRetry/inaccessible
+=== RUN   TestUncertainBacklogObservationRetainsRetry/transport
+=== RUN   TestUncertainBacklogObservationRetainsRetry/rate_limited
+--- PASS: TestUncertainBacklogObservationRetainsRetry (8.08s)
+    --- PASS: TestUncertainBacklogObservationRetainsRetry/unknown (1.86s)
+    --- PASS: TestUncertainBacklogObservationRetainsRetry/missing (0.95s)
+    --- PASS: TestUncertainBacklogObservationRetainsRetry/inaccessible (1.04s)
+    --- PASS: TestUncertainBacklogObservationRetainsRetry/transport (2.04s)
+    --- PASS: TestUncertainBacklogObservationRetainsRetry/rate_limited (2.19s)
+=== RUN   TestFailedClosureClearRetainsReadableRetry
+--- PASS: TestFailedClosureClearRetainsReadableRetry (1.41s)
+=== RUN   TestTwoIssuesInTwoReposRunConcurrently
+--- PASS: TestTwoIssuesInTwoReposRunConcurrently (1.09s)
+=== RUN   TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete
+--- PASS: TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete (2.03s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	19.112s
