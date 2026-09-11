@@ -6,12 +6,14 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — factory supplied complete frozen US-001/#232 and US-002/#233 for run 0007
-- [ ] **Implement** — run 0007 partial: both implementations and focused checks retained; final aggregate daemon timeout remains (BUG_ESCALATION.md)
+- [x] **Implement** — run 0008 US-002 repair and aggregate checks complete; engineering recorded, factory save/remote effects pending
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 **Validate** returns read-only structured findings through runner output.
 
 ## History
+
+- 2026-09-11 — Implement run 0008 resumed US-002 frozen revision 9c1be5ccfdc83bb4e2fa29b7ab59ccee742892744c704e8616c88c630aa8957e; US-001 is factory-declared engineering-complete and read-only. Verified clean worktree at 08f488c (merge over retained d376d08). Fresh reproduction, targeted fixes and aggregate checks in progress; previous execution claims are not this run's evidence.
 
 - 2026-09-10 — Implement run 0007 admitted with factory-supplied frozen US-001 (#232) and US-002 (#233), workflow version 2. Engineering and executed checks only; acceptance remains for explicit Validate. No commits, pushes or runtime administration are performed by this run.
 
@@ -40,3 +42,7 @@ US-002 corrected scoped engineering recorded in request `6ec04ea2aa6819f87064a00
 ### Run 0007 final status
 
 PARTIAL. Final full race gate timed out in `TestABackoffArmedMidTickStopsFurtherDispatch`; no final aggregate completion or successful save is claimed. Final US-002 invalidation request `8f8ee053ce704f340bd422b6ba142b60`: input valid, engineering rejected, acceptance not applicable, effects pending. Passing build and scoped evidence remain retained. See TEST_REPORT.md and BUG_ESCALATION.md. No acceptance/code/architecture/approved-plan review, commits, pushes or runtime administration performed.
+
+### Run 0008 final status
+
+Engineering complete. Fresh reproduction and fixes resolve reported dispatch/quiet-parent failures; full daemon race package terminated naturally (427.440s). Final make check exited 0 after minimal owned `.claude` instruction handoff correction; no `.codex` or US-001 source changes. Snapshot `us002-run8-final`, digest `dcd655151118472d02cea332593785482dc1039440175b8b97eed1b998a06d86`, 15 files. Request `352c4d3c523ccfd4bd5f7a9be1c79ebc`: valid input, recorded engineering, acceptance not applicable, remote effects pending. Full fresh execution inventory in TEST_REPORT.md. No acceptance review, commits, pushes or runtime changes. Successful factory save remains unconfirmed.

@@ -35,6 +35,7 @@ type discoveryBudget struct {
 	limit, remaining, spent, reserved         int
 	waiters                                   []discoveryWaiter
 	deferrals                                 int
+	lists                                     chan struct{}
 }
 
 type discoveryReservation struct {
@@ -225,6 +226,26 @@ func (d *Daemon) discoverySummary(ctx context.Context, scope string, s *discover
 }
 
 func discoveryCall[T any](ctx context.Context, d *Daemon, key string, cost int, call func(context.Context) (T, error)) (T, error) {
+	if cost == discoveryListBound {
+		// A list reserves the entire supported history before its first page.
+		// Serialize these reservations until unused pages are returned, rather
+		// than deferring another worker solely because a short fetch is in
+		// flight. This waits only for existing HTTP work, never for a quota
+		// refill; execution and reporting do not enter this discovery gate.
+		d.discovery.mu.Lock()
+		if d.discovery.lists == nil {
+			d.discovery.lists = make(chan struct{}, 1)
+		}
+		lists := d.discovery.lists
+		d.discovery.mu.Unlock()
+		select {
+		case lists <- struct{}{}:
+			defer func() { <-lists }()
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
+	}
 	r, err := d.discovery.acquire(key, cost, false)
 	if err != nil {
 		var zero T

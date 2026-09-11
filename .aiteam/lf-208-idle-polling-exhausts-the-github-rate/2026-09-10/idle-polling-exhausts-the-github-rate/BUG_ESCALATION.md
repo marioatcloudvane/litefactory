@@ -1,3 +1,9 @@
+# Run 0008 resolution
+
+RESOLVED for current engineering snapshot: original failures reproduced, paginated discovery reservation overlap corrected, deterministic overlap/cancellation/active-bypass tests added, and backoff fixture rendezvous made explicitly bounded. Complete daemon race package terminated naturally; final full make check exited 0. See TEST_REPORT.md and run8 logs for fresh evidence. Prior failed evidence below remains historical and is not a current blocker.
+
+---
+
 # Remaining aggregate engineering failure — run 0007
 
 ## Where

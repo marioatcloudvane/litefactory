@@ -402,3 +402,63 @@ func TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses(t *testing.T)
 		t.Fatalf("probe plus two charged responses=%d", f.d.discovery.spent)
 	}
 }
+
+// A held background history must not block the client used by active execution.
+// The HTTP boundary supplies the rendezvous; all client and reservation code is real.
+func TestDiscoveryHTTP_ActiveReadBypassesHeldBackgroundHistory(t *testing.T) {
+	f := newDiscoveryHTTPFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	arrived := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	boundary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/200/comments") {
+			close(arrived)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		f.serve(w, r)
+	}))
+	defer boundary.Close()
+	defer unblock()
+	client, err := github.New(github.Options{APIBase: boundary.URL, Token: secrets.NewToken("offline-active")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.d.forge = client
+	background := make(chan error, 1)
+	// One fixture goroutine, bounded by ctx and joined before the test returns.
+	go func() {
+		_, err := f.d.discoveryComments(f.d.discoveryContext(ctx), github.Repo{Owner: "acme", Name: "a"}, 200, 0)
+		background <- err
+	}()
+	select {
+	case <-arrived:
+	case <-ctx.Done():
+		t.Fatal("waiting for held background history: ", ctx.Err())
+	}
+	comments, err := client.ListCommentsAfter(f.d.discoveryContext(ctx), github.Repo{Owner: "acme", Name: "a"}, 201, 0)
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("active read while background reservation held: comments=%v error=%v", comments, err)
+	}
+	f.d.discovery.mu.Lock()
+	reserved, remaining := f.d.discovery.reserved, f.d.discovery.remaining
+	f.d.discovery.mu.Unlock()
+	if reserved != discoveryListBound || remaining != 4998 {
+		t.Errorf("active response must update quota without consuming background reservation: reserved=%d remaining=%d", reserved, remaining)
+	}
+	unblock()
+	select {
+	case err := <-background:
+		if err != nil {
+			t.Fatal("background history: ", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("waiting for background history settlement: ", ctx.Err())
+	}
+}

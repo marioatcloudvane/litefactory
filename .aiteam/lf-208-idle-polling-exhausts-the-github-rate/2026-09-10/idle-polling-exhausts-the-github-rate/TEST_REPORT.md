@@ -1,33 +1,27 @@
-# Executed engineering checks — run 0007
+# Test report — run 0008
 
-## US-001 scoped snapshot
+## Scope and outcome
 
-Frozen story #232 revision ad2a5af7b7121f5ad770073abc6d22e46c499f0516d3c9998f25565a0a7a4df1. Snapshot us001-run7-scoped, implementation digest ac086ebcfb5fd0147ec54684485218280b193c063d88b0794a5bb567aa92047d. Factory request 836d505bdf15f79256b14c72e836fe30 records passing checks with immutable source bytes.
+US-002 (#233), frozen revision 9c1be5ccfdc83bb4e2fa29b7ab59ccee742892744c704e8616c88c630aa8957e. US-001 is supplied engineering-complete and read-only, not reimplemented.
 
-- us001-race: `go test -race ./internal/github` passed (2.336s).
-- us001-build: `go build ./...` passed (exit 0).
+PASS: final full `make check` exited 0, including format, vet, pinned golangci-lint v2.13.1 (0 issues), and full race suite with existing 20-minute timeout. The rerun used `GOLANGCI_LINT_CACHE=/private/tmp/lf208-run8-lint-cache`, a writable ephemeral tool cache. Full output is `run8-make-check-final.log`.
 
-Specialists additionally executed isolated unit race/coverage cases and real-client HTTP cold/warm/changed cases. HTTP fixture coverage includes issue/direct-parent changes, stale-error invalidation, independent cached pagination with changed tail, ID filtering, and later-page failure/cancellation without partial results. Unit coverage includes representation/auth isolation, finite limits, oversized complete passthrough, eviction/restart and concurrent cloned responses.
+## Fresh execution inventory
 
-Initial aggregate make check stopped at test lint diagnostics; corrected by test specialists. Pinned lint then passed with zero issues. Aggregate race suite is in progress and will be rerun against final implementation if later source changes occur. No pending check is recorded as passing. Offline fixtures do not prove live endpoint validator support or production request savings.
+- `run8-reproduce.log`: original focused reproduction failed concurrency and timed out at 60s with the backoff rendezvous stack. Preserved factual failure.
+- `run8-focused-fix.log`: all five named regressions PASS, 1.316s.
+- `run8-focused-repeat.log`: five regressions repeated ten times PASS, 4.609s.
+- `run8-daemon-fix.log`: full daemon package PASS, terminated naturally in 32.080s.
+- `run8-unit-budget.log`: deterministic overlap/refund/cancellation and existing policy checks, race+coverage PASS, 1.820s; focused daemon coverage 5.5%.
+- `run8-http-regressions.log`: existing HTTP/migrated SQLite scenarios and five reported regressions, race count=3 PASS, 54.199s. Includes offline cold/warm/changed request summaries.
+- `run8-http-active.log`: new foreground bypass while background reservation held, race count=5 PASS, 8.628s.
+- `run8-build.log`: `go build ./...` exited 0 with no stdout.
+- `run8-make-check.log`: first aggregate exited 2 only because an owned-tree instruction handoff was missing. Full daemon race suite PASS and terminated naturally in 427.440s; turn package PASS in 780.005s. Initial lint cache-write warnings preserved.
+- `run8-instruction-handoff-check.log`: minimal owned-tree handoff correction, focused race test PASS, 2.057s.
+- `run8-make-check-final.log`: complete final gate exited 0. Unchanged passing package results were legitimately reused by Go cache; teamsource freshly passed in 12.862s.
 
-## US-002 scoped snapshot
+## Engineering submission
 
-Frozen story #233 revision 9c1be5ccfdc83bb4e2fa29b7ab59ccee742892744c704e8616c88c630aa8957e. Snapshot us002-run7-scoped, digest 2c6afd43f0217ab9aa96639eb487f1e1487ac2d52c2408415225f756d0f0afb4. Factory request 0b8136e8c99ec455a78d723b3cf291aa records specialist-reported executed checks with immutable source bytes:
+Preflight valid=true, complete=true, no diagnostics/unchecked paths. Request `352c4d3c523ccfd4bd5f7a9be1c79ebc` and subsequent receipt confirm InputState=valid, EngineeringState=recorded, AcceptanceState=not_applicable, EffectState=pending. Snapshot `us002-run8-final`, 15 files, digest `dcd655151118472d02cea332593785482dc1039440175b8b97eed1b998a06d86`; retained check IDs `run8-make-check`, `run8-unit-budget`. Receipt metadata saved in `run8-engineering-receipt.json`; full typed capture retained by factory.
 
-- us002-scoped-race: `GOFLAGS=-p=1 go test -race ./internal/daemon -run 'TestDiscovery(Budget|HTTP)_'` passed 19.130s after final style correction.
-- us002-lint: pinned v2.13.1 `make lint` with writable cache passed, 0 issues.
-
-Fifteen injected-tick policy functions passed, covering exact reserve/spend, outstanding reservations, primary 304 refunds versus traffic, refill/burst, stale/reset/invalid metadata and fair history priority. Eight real HTTP/migrated SQLite scenarios passed; retained focused output is evidence/us002-final-http-race.log. These cover 100-page completion, same-parent rotation and cross-repository deferred priority, retained failed cursors, queued active delivery at floor, concurrent real-request settlement, cancellation and genuine backoff.
-
-Initial aggregate result: FAIL at internal/turn 20-minute package timeout (other packages passed). No passing aggregate evidence claimed. Stale standalone daemon run explicitly cancelled after fixture correction. Final serialized full make check is running; all tests, race instrumentation and configured timeout remain unchanged.
-
-Final serialized aggregate attempt found daemon failures (494.553s) in backlog probe spies, advanced-clock quota fixtures and immediate-concurrency assumptions. The check process was cancelled after demonstrated failure; no success is claimed. Full available output is evidence/aggregate-cycle2-daemon-failures.log. US-002 invalidation request8726a7b8df518875c89b6d8fa24e29ee records valid input and rejected engineering state pending replacement. Second fix/retest cycle is active.
-
-Second-cycle targeted retests passed: backlog/cross-repository/refill 19.112s; confirmation/recovery 20.317s; HTTP/store/delivery/backoff 15.967s. Corrected US-002 capture `us002-run7-cycle2` (digest `d3bdb9a1ccfa05a46041c99534fd274541286d9589b858770f84863bde560417`) recorded with request `6ec04ea2aa6819f87064a00a1af15ee5`. Final serialized make check has passed format/vet/lint and is rerunning all race tests.
-
-## Final result — incomplete aggregate gate
-
-Final build passed (`evidence/final-build.log`). Final format/vet/pinned lint passed, but the complete race gate timed out after 20 minutes in `TestABackoffArmedMidTickStopsFurtherDispatch` (blocked 17m37s in gatedForge.GetIssue during fixture.settle). Full output is `evidence/final-aggregate-timeout.log`; no successful aggregate result is recorded. The test process was cancelled after the known failure.
-
-US-002 final invalidation request `8f8ee053ce704f340bd422b6ba142b60` returned valid input, engineering rejected and remote effects pending. Scope snapshots and passing focused checks remain historical engineering evidence only. Final aggregate evidence and save are missing. No Validate work was performed.
+Engineering and executed checks are complete. Save, remote effects and acceptance remain factory/explicit-Validate concerns; pending effects are not claimed successful. Offline fixtures establish local behavior only; no live endpoint support or production savings claim.
