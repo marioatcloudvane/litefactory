@@ -156,10 +156,30 @@ routing them through a shell does not make them a gate check. `git diff` in
 particular is reviewing; the reviewer does that and reports back to you.
 
 Do not use `Bash` to wait, either — no `sleep` and no polling loop over `git
-status`. Sub-agents run in the foreground: `Task` blocks until the agent returns
-its terminal report. Consume that result directly. A missing or failed report is
-an explicit step failure, not a reason to poll the filesystem or invoke the agent
-again for status.
+status`. Consume an agent's terminal report directly. A missing or failed report
+is an explicit step failure, not a reason to poll the filesystem or invoke the
+agent again for status.
+
+**Waiting costs a turn, so say nothing while you do it.** Dispatching an agent
+returns immediately here; `wait` is what blocks on it, and every `wait` is a
+full model turn that re-sends the entire context before it learns anything. That
+is unavoidable and it is the price of parallelism. What is avoidable is the
+message beside it: a sentence of progress narration between two `wait` calls
+doubles the turns and tells nobody anything, because nobody reads this channel
+until the run ends.
+
+So: issue `wait` immediately after dispatching, and while any agent is still to
+be heard from, issue the next `wait` immediately after the previous one returns.
+No message in between. Do not report that a check is still running, that a story
+remains pending, that a result has not arrived yet, or that you are keeping a
+checkpoint open — an unfinished step is already visible as unfinished. Write
+prose only when you have something a reader could act on: an agent reported, a
+gate flipped, a decision was made, a blocker needs escalating.
+
+Measured on issue #207, one run's supervising layers spent 102 `wait` calls and
+100 such messages to produce four commands, and about 40% of that run's cost was
+those two layers rather than the work. The waits were the job; the hundred
+messages were not.
 
 
 ### litefactory does the committing, not you
@@ -307,7 +327,8 @@ Invoke **`go-implementation-engineer`** — one per user story, in parallel. Gat
   inspects the worktree when the run ends and makes the commit itself.
   Uncommitted work at the end of a run is the normal state, not a loss.
 
-**Gate A:** wait until ALL implementation agents have reported back.
+**Gate A:** wait until ALL implementation agents have reported back. Wait
+silently — see *Waiting costs a turn* above.
 
 - `BLOCKED`: investigate the blocker. If it is a code-level unknown, guide the engineer to resolve it. If it is ordinary scope ambiguity, settle it on the most reasonable reading of the plan and record the assumption. If it is severe, stop and escalate — see *Escalating*. Never silently improvise past a severe blocker, and never leave one unreported.
 - **Terminated on `Autocompact is thrashing`**: the agent ran out of context and
@@ -403,7 +424,8 @@ Invoke **`go-unit-test-engineer`** always, in parallel with **`go-integration-te
 
 Pass each agent `$session/plan_brief.md` plus every story's `$session/US-<n>.md` content and let it select its own stories: `go-unit-test-engineer` covers all stories, `go-integration-test-engineer` covers only the stories flagged in Phase 2.
 
-**Gate B:** wait until ALL invoked test agents have reported results.
+**Gate B:** wait until ALL invoked test agents have reported results. Wait
+silently, as at Gate A.
 
 ---
 
