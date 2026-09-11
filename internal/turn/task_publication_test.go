@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,5 +210,54 @@ func TestTaskPublicationReportInput(t *testing.T) {
 	}
 	if in.Publication != result.Publication {
 		t.Fatalf("publication lost between result and report: %q", in.Publication)
+	}
+}
+
+// The push is verified once, inside the turn that made it. A report whose post
+// fails is rebuilt from the runs row on a later tick, so publication has to
+// survive in the row: a commit confirmed on the remote must not come back as
+// "in the local worktree only".
+func TestTaskPublicationSurvivesReportPostFailure(t *testing.T) {
+	t.Parallel()
+	var f *fixture
+	f = newFixture(t, newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeInWorktree(t, req, "published.txt", "work to publish\n")
+		return succeeded(req, f.paths.Home()), nil
+	}))
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
+	f.opts.AutoSyncBase = true
+
+	req := f.request()
+	first := f.execute(req)
+	if !first.Succeeded() || !first.Pushed || first.CommitSHA == "" {
+		t.Fatalf("setup did not publish: %+v", first)
+	}
+	remote := strings.Fields(f.repo.Git("ls-remote", "origin", "refs/heads/"+testBranch))[0]
+	if local := strings.TrimSpace(f.repo.GitIn(f.worktreeDir(), "rev-parse", "HEAD")); local != remote {
+		t.Fatalf("setup: local=%s remote=%s", local, remote)
+	}
+
+	forge.failWith(http.StatusInternalServerError)
+	if _, err := reporter.ReportTurn(t.Context(), first); err == nil {
+		t.Fatal("post failure ignored")
+	}
+	forge.recover()
+
+	replay := f.execute(req)
+	if replay.Disposition != DispositionAlreadyRan {
+		t.Fatalf("replay disposition = %v", replay.Disposition)
+	}
+	if !replay.Pushed || replay.Publication != first.Publication {
+		t.Fatalf("replay lost publication: pushed=%v publication=%q, want true and %q",
+			replay.Pushed, replay.Publication, first.Publication)
+	}
+
+	if _, err := reporter.ReportTurn(t.Context(), replay); err != nil {
+		t.Fatal(err)
+	}
+	body := forge.only(t).body
+	if strings.Contains(body, "not pushed") || !strings.Contains(body, "(pushed)") {
+		t.Fatalf("verified push reported as unpublished: %s", body)
 	}
 }

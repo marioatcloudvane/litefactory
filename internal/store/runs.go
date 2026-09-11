@@ -146,6 +146,13 @@ type Run struct {
 	// ResultCommentID is the forge id of the report comment; 0 until it is
 	// posted.
 	ResultCommentID int64
+	// Published records whether CommitSHA was verified on the remote, and
+	// Publication is the sentence the report renders for it. Both are durable
+	// because a report whose post fails is rebuilt from this row on a later
+	// tick: the push was verified once, and re-deriving it later would answer
+	// a different question. Historical rows are false and "".
+	Published   bool
+	Publication string
 	// SyncOutcome, SyncBehind, SyncAhead and SyncCommitSHA are the
 	// base-branch auto-sync result [DB.RecordRunSync] recorded for this run
 	// (US-9). SyncOutcome is "" for a run written before that column existed,
@@ -403,6 +410,22 @@ func (db *DB) SetRunCommit(ctx context.Context, runID int64, commitSHA string) e
 		return fmt.Errorf("store: set commit on run %d: %w", runID, err)
 	}
 	return requireAffected(res, fmt.Sprintf("store: set commit on run %d", runID))
+}
+
+// SetRunPublication records whether this run's commit reached the remote, and
+// the sentence the report renders for it.
+//
+// It is separate from [DB.SetRunCommit] because the two facts are established
+// at different moments and a run can have one without the other: a run that
+// committed nothing still has publication text ("not published by this run"),
+// and a commit is recorded even when the push that followed it failed.
+func (db *DB) SetRunPublication(ctx context.Context, runID int64, published bool, publication string) error {
+	res, err := db.sql.ExecContext(ctx,
+		`UPDATE runs SET published = ?, publication = ? WHERE id = ?`, published, publication, runID)
+	if err != nil {
+		return fmt.Errorf("store: set publication on run %d: %w", runID, err)
+	}
+	return requireAffected(res, fmt.Sprintf("store: set publication on run %d", runID))
 }
 
 // RunSyncOutcome is what [DB.RecordRunSync] writes onto a run row: the
@@ -822,7 +845,8 @@ const runColumns = `
     id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
-    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations`
+    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations,
+    published, publication`
 
 func scanRun(s scanner) (Run, error) {
 	var (
@@ -843,7 +867,8 @@ func scanRun(s scanner) (Run, error) {
 	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
-		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations)
+		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations,
+		&run.Published, &run.Publication)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound

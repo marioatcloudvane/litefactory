@@ -642,6 +642,10 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 		result.Reason = existing.Error
 	}
 	result.CommitSHA = existing.CommitSHA
+	// Publication was established by the turn that ran; without this a commit
+	// verified on the remote is replayed as "in the local worktree only".
+	result.Pushed = existing.Published
+	result.Publication = existing.Publication
 	logger.Info("comment has already been run",
 		slog.Int("run_ordinal", existing.Ordinal),
 		slog.String("run_status", string(existing.Status)),

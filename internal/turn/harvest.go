@@ -525,6 +525,17 @@ func finish(
 		result.Run.CommitSHA = result.CommitSHA
 	}
 
+	// The push was verified once, here. A report whose post fails is rebuilt
+	// from the row on a later tick, so the answer has to be durable rather
+	// than re-derived against a remote that may have moved since.
+	if result.Publication != "" || result.Pushed {
+		if err := opts.DB.SetRunPublication(ctx, prep.run.ID, result.Pushed, result.Publication); err != nil {
+			return result, fmt.Errorf("record the publication of run %d: %w", prep.run.Ordinal, err)
+		}
+		result.Run.Published = result.Pushed
+		result.Run.Publication = result.Publication
+	}
+
 	meta.SHAAfter = result.SHAAfter
 	meta.FilesTouched = result.Files()
 	if meta.FilesTouched == nil {
