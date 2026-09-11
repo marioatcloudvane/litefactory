@@ -413,6 +413,8 @@ type Reply struct {
 	// Zero and empty for every other kind.
 	SyncBehind    int
 	SyncBase      string
+	SyncDetail    string
+	SyncPhase     string
 	SyncMaxBehind int
 
 	// ConflictPaths is read by [ReplyRefusesSync] alone (US-4): the paths
@@ -482,11 +484,13 @@ type ConfirmReply struct {
 // ConflictProposal carries raw statistics and sanitized prepared diffs for a
 // region proposal. Legacy values remain displayable but cannot be confirmed.
 type ConflictProposal struct {
-	Format    int
-	BranchSHA string
-	ID        int64
-	Model     string
-	Files     []ConflictProposalFile
+	TargetPhase, TargetRef, TargetSHA  string
+	BaseRef, BaseSHA, TaskRef, TaskSHA string
+	Format                             int
+	BranchSHA                          string
+	ID                                 int64
+	Model                              string
+	Files                              []ConflictProposalFile
 }
 
 // ConflictProposalFile carries one path's raw statistics and prepared diff.
@@ -807,10 +811,20 @@ func (r Reply) body() string {
 			"so litefactory stopped before starting the agent. ",
 			r.SyncBehind, codeSpan(r.SyncBase), r.SyncMaxBehind)
 		b.WriteString(syncTooFarBehindSentence)
+		if r.SyncDetail != "" {
+			b.WriteString(sectionGap + codeSpan(r.SyncDetail))
+		}
 
 	case ReplyRefusesSync:
-		b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
-			"stopped before starting the agent. ")
+		if r.SyncPhase == "task" {
+			b.WriteString("This task's branch could not be reconciled with its remote task branch, so litefactory stopped before starting the agent. ")
+		} else {
+			b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
+				"stopped before starting the agent. ")
+		}
+		if r.SyncDetail != "" {
+			b.WriteString(codeSpan(r.SyncDetail) + " ")
+		}
 		b.WriteString(syncRefusalSentence)
 		if len(r.ConflictPaths) > 0 {
 			b.WriteString(sectionGap)
@@ -830,8 +844,15 @@ func (r Reply) body() string {
 		b.WriteString("Resolve the conflict on the base branch or on this task's branch, then comment again.")
 
 	case ReplySuggestsResolution:
-		b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
-			"stopped before starting the agent. ")
+		if r.SyncPhase == "task" {
+			b.WriteString("This task's branch could not be reconciled with its remote task branch, so litefactory stopped before starting the agent. ")
+		} else {
+			b.WriteString("This task's branch could not be merged with the base branch cleanly, so litefactory " +
+				"stopped before starting the agent. ")
+		}
+		if r.SyncDetail != "" {
+			b.WriteString(codeSpan(r.SyncDetail) + " ")
+		}
 		b.WriteString(syncRefusalSentence)
 		if len(r.ConflictPaths) > 0 {
 			b.WriteString(sectionGap)
@@ -926,7 +947,7 @@ func (r Reply) body() string {
 		b.WriteString("Comment again to ask for a fresh suggestion.")
 
 	case ReplyConfirmSupersededProposal:
-		fmt.Fprintf(&b, "Proposal `%d` no longer matches this task's current branch or base and cannot be applied. "+
+		fmt.Fprintf(&b, "Proposal `%d` no longer matches this task's current branch or base/task inputs, or lacks verified input binding, and cannot be applied. "+
 			"Nothing was applied.", r.Confirm.ProposalID)
 		b.WriteString(sectionGap)
 		b.WriteString("Comment again to ask for a fresh suggestion.")

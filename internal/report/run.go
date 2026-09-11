@@ -116,6 +116,9 @@ type Run struct {
 	// because a permalink into an unpushed commit is a guaranteed 404.
 	Pushed bool
 
+	// Publication distinguishes existing/preparation commits from agent edits.
+	Publication string
+
 	// Files is the files-touched list from the worktree's status: a plain
 	// git-derived list of the run's changes plus its untracked additions
 	// (AC-4.4). It is not an aiteam artefact walk — that is out of scope at M0.
@@ -172,7 +175,8 @@ type Run struct {
 	//
 	// Every other outcome gets a rendered sentence, [SyncSkipped] included —
 	// a skip is never silent (AC-3.2), whatever caused it.
-	Sync *Sync
+	Sync     *Sync
+	TaskSync *Sync
 
 	// BriefPath is the repository-relative, slash-separated path of this task's
 	// RESEARCH_BRIEF.md, as found on disk by the caller. Empty means the caller
@@ -291,6 +295,12 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	var sections [numSections]string
 	sections[secFixed] = fixedSection(run, view)
 	sections[secSync] = syncSection(run)
+	if task := taskSyncSection(run.TaskSync); task != "" {
+		if sections[secSync] != "" {
+			task += sectionGap
+		}
+		sections[secSync] = task + sections[secSync]
+	}
 	sections[secResult] = resultSection(run, view)
 	sections[secFiles] = filesSection(run)
 
@@ -642,6 +652,10 @@ func metadataList(run Run, view outcomeView) string {
 			inWorktreeAt(run.WorktreePath))
 	}
 
+	if run.Publication != "" {
+		add("Publication", sanitize(run.Publication))
+	}
+
 	// The brief sits with the branch and the commit because it is the same kind
 	// of fact — where the work is — and because being in metadataList puts it in
 	// secFixed, the one section [runBody] never trims. A link that only survives
@@ -854,6 +868,8 @@ const (
 // branch, before the run itself started. See [Run.Sync] for how a nil or
 // up-to-date value renders.
 type Sync struct {
+	Phase               string
+	LocalSHA, RemoteSHA string
 	// Outcome is the synchronization decision reached.
 	Outcome SyncOutcome
 
@@ -953,6 +969,9 @@ func syncSection(run Run) string {
 	b.WriteString(syncHeading)
 	b.WriteString(sectionGap)
 	b.WriteString(lead)
+	if sync.LocalSHA != "" {
+		fmt.Fprintf(&b, " Compared local %s and remote %s.", codeSpan(sync.LocalSHA), codeSpan(sync.RemoteSHA))
+	}
 
 	if sync.Outcome == SyncBlocked && len(sync.Conflicts) > 0 {
 		b.WriteString(sectionGap)
@@ -1201,4 +1220,25 @@ func longestRun(s string, c byte) int {
 		}
 	}
 	return longest
+}
+
+// taskSyncSection discloses the independent remote task observation, including
+// an up-to-date observation and read-only Validate freshness.
+func taskSyncSection(s *Sync) string {
+	if s == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("**Task branch sync**" + sectionGap)
+	fmt.Fprintf(&b, "%s: %s; %d behind, %d ahead. Compared local %s and remote %s.", codeSpan(s.Base), codeSpan(string(s.Outcome)), s.Behind, s.Ahead, codeSpan(s.LocalSHA), codeSpan(s.RemoteSHA))
+	if s.CommitSHA != "" {
+		b.WriteString(" Resulting commit: " + codeSpan(s.CommitSHA) + ".")
+	}
+	if s.Reason != "" {
+		b.WriteString(" " + sanitize(s.Reason) + ".")
+	}
+	if len(s.Conflicts) > 0 {
+		b.WriteString(sectionGap + conflictsBlock(s.Conflicts))
+	}
+	return b.String()
 }
