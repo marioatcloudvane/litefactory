@@ -105,37 +105,38 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-   If it is the first run (there is no RESEARCH_BRIEF.md), by the end of the run you need to produce the research brief. Call the research-report-entry skill for that. Then, give a business summary as feedback back to the factory. This summary needs to be business focused, not technical. Don't overwhelm the user, explain in easy terms and without much prose. Don't expect the user to be a senior expert.
-4. If it is not the first run, Read `.claude/skills/shared/research-brief.md` and write
-   `$session/RESEARCH_BRIEF.md`. Use the "research-open-questions" skill to create the digest for the end of the run. Always list the full response from the agent to the user.
-5. Present the result to the user for confirmation.
-6. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
-7. Read `.claude/skills/shared/research-report-entry.md` and write the report as
-   your final message. It is required on every run, and it is the run's last
-   word: nothing follows it. Where the whole inventory of unresolved questions
-   belongs in that message, read
-   `.claude/skills/shared/research-open-questions.md` and put it after the
-   shortlist.
+3. Read `.claude/skills/shared/research-brief.md` and write
+   `$session/RESEARCH_BRIEF.md`. On a first run this creates it; on a later run
+   it updates it. The brief is written on every run.
+4. Present the result to the user for confirmation.
+5. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
+6. Write your final message. Which procedure you read depends on the run:
+
+   | | Read | The message is |
+   |---|---|---|
+   | **First run** — no prior `RESEARCH_BRIEF.md` | `.claude/skills/shared/research-report-entry.md` | the entry report: the link, the problems, what was found, and a short ranked offer of what to work on next |
+   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | the full digest of everything still unresolved, and the specialists' full response to the user |
+
+   Either way the message is **business-focused, not technical**. Explain in easy
+   terms, without much prose. Do not overwhelm the reader and do not expect them
+   to be a senior expert. It is the run's last word: nothing follows it.
 
 The report you have just written *is* what routes back to the top-level
 dispatcher. Do not append a handoff note after it.
 
-## Detour rule
+## Asking the factory
 
-When you hit an unknown: **log it as an open question in the brief and
-continue.** Unknowns are the work of Research mode — do not pause for user input
-on facts you can capture as questions. This is the default and it stays the
-default.
+You run headless, but there is someone to ask — see *Important* above. **Anything
+needing human judgment goes to the factory.** Never assume it, and hand off early
+rather than at the end.
 
-Asking is a tier above this rule, and it opens only when **both** of these are
-true — check them in order, and do not read further if either fails:
+Route by what the question actually is:
 
-1. **The run's prompt granted permission to ask.** litefactory grants that per
-   run; you never grant it to yourself. Absent the grant, the default above is
-   the whole of your behaviour.
-2. **The question would change what gets built and cannot be settled by reading
-   the repository.** A question a specialist could answer fails this — invoke the
-   specialist instead.
+| The question | Where it goes |
+|---|---|
+| Needs human judgment — what gets built, a trade-off with no technical answer, scope | **The factory.** Read `.claude/skills/shared/asking.md` for how to put it and how to judge the reply. |
+| A fact someone could establish by looking | **A specialist.** Invoke `codebase-tour` or `web-researcher`; do not spend a human on it. |
+| Genuinely unresolvable right now | **The brief.** Log it as an open question and continue — unknowns are the work of Research mode. |
 
-Only with both satisfied, read `.claude/skills/shared/asking.md` for how to ask
-and how to judge the reply. Everything else is logged above and the run continues.
+The middle row is the common case and the one most often got wrong: reaching for
+a human is not diligence when a specialist has the tools to settle it.

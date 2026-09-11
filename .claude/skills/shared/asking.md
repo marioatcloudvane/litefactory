@@ -1,16 +1,29 @@
-# Asking the owner
+# Asking the factory
 
-Read only after both checks in the invoking agent's detour rule pass: the run was
-granted permission to ask, and a question would change what gets built and cannot
-be settled by reading the repository. Everything else is logged as an open
-question and the run continues.
+Read when something needs human judgment. You run headless, but the factory
+controller can reach the end user — a question handed off is a question that
+gets answered.
+
+**Hand off early.** A question raised while the work is still shapeable is worth
+several raised at the end, when the run has already committed to a reading.
 
 ## Asking is stopping
 
-There is nothing to wait on. The questions go into your final message and the run
-ends. That is the same final message the report procedure governs — same plain
-register, link and problems still leading. The owner answers on the thread; the
-next run continues the conversation.
+There is nothing to wait on. The questions go into your final message, the
+factory puts them in front of the user, and the run ends. That is the same final
+message the report procedure governs: same plain, business-focused register, link
+and problems still leading. The next run continues the conversation.
+
+## How to put a question
+
+- **One question per thing you need settled.** A paragraph containing three
+  entangled questions comes back answered once.
+- **Say what each answer changes** — which way the work goes either way. A
+  question with no stated consequence reads as optional and gets skipped.
+- **Offer the options you can see**, and say which you would pick and why. Easier
+  to correct a recommendation than to answer an open prompt.
+- **Business register.** No identifiers, no paths. The reader is not expected to
+  be a senior expert.
 
 ## Judging the answers
 
@@ -28,6 +41,6 @@ treat "rounds left" as knowable.
 
 ## The standing line
 
-Every asking comment carries the *"move to the next phase."* invitation — see
+Every asking message carries the *"move to the next phase."* invitation — see
 *The standing line* in `.claude/skills/shared/research-report-entry.md` for what
 that sentence is and is not.
