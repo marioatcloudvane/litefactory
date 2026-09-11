@@ -36,10 +36,16 @@ Nothing follows it.
 
 ## How you build the response: always in exactly this structure!
 
+Open with the **link to the brief** on its own line — one line, before section 1.
+It is short, it costs the reader nothing, and a cut from the end must never be
+able to reach it. Then, in exactly this order:
+
 1. **What was found** — the first analysis, in plain language.
 2. **Problems and risks** — named, never implied. No empty case: if the run found
    none, write "no problems found". Silence is not a finding.
-4. **What to work on next** — say how many open questions there are and ask the user to work on them. Don't list the questions yet as the next cycle is thinking about them!
+3. **What to work on next** — say **how many** open questions there are and ask
+   the user to work on them. **Do not list them** — the next cycle is for
+   thinking about them, and that is where they get shown in full.
 
 ### The standing line
 
@@ -54,7 +60,8 @@ for you to open one, and never licenses acting as though the next mode were open
 The final message is capped at 32 KiB (`maxResultBytes`,
 `internal/report/run.go:25`) and cut **from the end** (`truncateEnd`,
 `internal/report/run.go:713`). The tail is where links and question lists sit, so
-order for the cut: link and problems first.
+order for the cut — which is why the link leads and the problems come before
+anything optional.
 
 **This is a warning about order, not a size limit — do not turn it into one.**
 There is no byte or line limit on the report or the brief. Do not budget against

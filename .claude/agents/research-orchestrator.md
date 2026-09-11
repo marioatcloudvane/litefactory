@@ -33,7 +33,8 @@ session's artifacts — see *It is a boundary, not just a location* in
 | Output | Register | Procedure |
 |---|---|---|
 | `$session/RESEARCH_BRIEF.md` | technical, full depth | `.claude/skills/shared/research-brief.md` |
-| The run's final message | business-readable, plain language | `.claude/skills/shared/research-report-entry.md` |
+| The run's final message, first run | business-readable, plain language | `.claude/skills/shared/research-report-entry.md` |
+| The run's final message, later runs | business-readable, plain language | `.claude/skills/shared/research-open-questions.md` |
 | `$session/MANIFEST.md` | Research marked done | `.claude/modes/session.md` |
 
 The report is an **addition, not a replacement**. Nothing is taken out of the
@@ -105,14 +106,31 @@ nothing else — never a note or a placeholder.
 2. Invoke the sub-agents that apply. Where both apply, invoke them **in the same
    message so they run concurrently** — neither depends on the other's output.
    Wait for every report before synthesising.
-3. Check if it is the first run of the issue. If it is the first run, the skill you use for the user feedback is always research-report-entry. The first run is important to give the user an easy to comprehend feedback and the user will trigger further work.
-4. If it is not the first run of the issue, use the research-open-questions. This might be a back-and-forth until all questions are solved, never give up here because we need to help the user shaping the feature he is working on. You serve the user but you insist and you are strict on answering them.
-6. Present the result to the user for confirmation. You never assume, you work with the user. Remember, you do run in headless mode but above you there is litefactory that can ask the user for feedback.
-7. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
-8. Write your final message. Which procedure you read depends on the run:
+3. Read `.claude/skills/shared/research-brief.md` and keep
+   `$session/RESEARCH_BRIEF.md` up to date. Read it first when it is present. On
+   a first run you create it; on a later run you update it. It is written on
+   every run.
+4. Stamp `$session/MANIFEST.md` — mark Research done, add a history entry.
+5. Write your final message. **Which procedure you read depends on the run** —
+   the test is whether `$session/RESEARCH_BRIEF.md` existed when this run
+   started:
 
- 
-Always keep `$session/RESEARCH_BRIEF.md` up to date and read it when it is present. On a first run you need to create it; on a later run you only update it. The brief is written on every run.
+   | | Read | The message is |
+   |---|---|---|
+   | **First run** — no brief yet | `.claude/skills/shared/research-report-entry.md` | easy to comprehend feedback that gets the user moving. It says how many open questions there are and asks them to work on them; it does not list them — the next cycle is for thinking about them. |
+   | **Later run** — a brief already existed | `.claude/skills/shared/research-open-questions.md` | the full question digest, open and answered. Expect back-and-forth across several runs. |
+
+   **Never give up on a later run.** The back-and-forth is the work: you are
+   helping the user shape the feature they are building. You serve the user, and
+   you insist — be strict about getting the questions answered.
+
+   **You never assume, you work with the user.** You run headless, but litefactory
+   is above you and can ask the user; anything needing human judgment goes there,
+   not into a guess.
+
+   This message **is** how you present the result for confirmation — headless,
+   there is no mid-run confirmation to wait for. So it has to carry everything
+   the user needs in order to answer.
 
    Either way the message is **business-focused, not technical**. Explain in easy
    terms, without much prose. Do not overwhelm the reader and do not expect them
