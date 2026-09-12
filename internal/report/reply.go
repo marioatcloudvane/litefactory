@@ -48,13 +48,16 @@ const (
 	// shape check makes it safe to quote back.
 	ReplyUnknownAgent
 
-	// ReplyAgentSwitchRefused answers a comment that asked to continue an
-	// existing conversation under a different coding-agent tool than the one
-	// that conversation already belongs to. A segment's Agent is fixed at
-	// creation (internal/store), and switching it mid-conversation would
-	// either hand one tool's session identity to another tool's process or
-	// silently start a second, unrelated conversation under the first run's
-	// number — so the request is refused rather than guessed at.
+	// ReplyAgentSwitchRefused answers an automatic-recovery continuation whose
+	// named segment no longer belongs to the coding-agent tool this comment's
+	// labels resolved to. This is narrower than it sounds: an ordinary
+	// comment that simply asks for a different coding-agent tool is not
+	// refused — internal/turn switches the segment to the newly resolved
+	// tool in place and runs it, cold, under the new tool. This reply exists
+	// only for automatic recovery, which names the exact segment and run it
+	// is continuing; if the label changed between when that continuation was
+	// recorded and when it runs, recovery cannot silently follow the label to
+	// a tool the run it is recovering never used, so it refuses instead.
 	ReplyAgentSwitchRefused
 
 	// ReplyRefusesSync answers a turn whose task branch could not be merged
@@ -797,13 +800,15 @@ func (r Reply) body() string {
 			"has running, and comment again.")
 
 	case ReplyAgentSwitchRefused:
-		b.WriteString("This task's conversation already belongs to a different coding-agent tool than " +
-			"this comment asked for. ")
+		b.WriteString("This automatic recovery attempt was continuing a run under a different " +
+			"coding-agent tool than the issue's `Coding Agent:` label names now. ")
 		b.WriteString(agentRefusalSentence)
 		b.WriteString(sectionGap)
-		b.WriteString("A conversation stays with the tool it started with — litefactory does not hand " +
-			"one tool's session to another. Comment again without asking for a different agent, " +
-			"or start a new task for the one you want.")
+		b.WriteString("Automatic recovery has to continue the exact run it recorded, not one under a " +
+			"newly switched tool, so it stops here rather than guessing. An ordinary comment does not " +
+			"have this problem — litefactory switches the running coding-agent tool to match the " +
+			"current label automatically and starts a fresh conversation under it. Comment again to " +
+			"run under the current label.")
 
 	case ReplyRefusesSyncTooFarBehind:
 		fmt.Fprintf(&b, "This task's branch is %d commit(s) behind %s, more than the configured cap of %d, "+

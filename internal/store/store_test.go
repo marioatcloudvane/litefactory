@@ -937,6 +937,90 @@ func TestSetSegmentResumeTokenRejectsBadInput(t *testing.T) {
 	}
 }
 
+// TestSetSegmentAgentSwitchesInPlaceTransactionally is the store half of a
+// coding-agent switch: the same row moves to the new tool, with a fresh
+// session ref, a cleared resume token and its delivery pin removed, all in
+// one transaction.
+func TestSetSegmentAgentSwitchesInPlaceTransactionally(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-ref", AgentClaude)
+	if err != nil {
+		t.Fatalf("create segment: %v", err)
+	}
+	if err := db.SetSegmentResumeToken(t.Context(), segment.ID, "claude-thread-1"); err != nil {
+		t.Fatalf("seed a resume token: %v", err)
+	}
+	if err := db.SetSegmentDelivery(t.Context(), segment.ID, "identity-1", "root-1"); err != nil {
+		t.Fatalf("seed a delivery pin: %v", err)
+	}
+
+	if err := db.SetSegmentAgent(t.Context(), segment.ID, AgentCodex, "codex-ref"); err != nil {
+		t.Fatalf("switch agent: %v", err)
+	}
+
+	switched, err := db.GetSegment(t.Context(), segment.ID)
+	if err != nil {
+		t.Fatalf("read after switch: %v", err)
+	}
+	switch {
+	case switched.ID != segment.ID || switched.SessionID != segment.SessionID || switched.Ordinal != segment.Ordinal:
+		t.Fatalf("switch changed row identity: before=%+v after=%+v", segment, switched)
+	case switched.Agent != AgentCodex:
+		t.Errorf("agent = %q, want %q", switched.Agent, AgentCodex)
+	case switched.SessionRef != "codex-ref":
+		t.Errorf("session ref = %q, want %q", switched.SessionRef, "codex-ref")
+	case switched.ResumeToken != "":
+		t.Errorf("resume token = %q, want it cleared by the switch", switched.ResumeToken)
+	}
+
+	identity, root, err := db.SegmentDelivery(t.Context(), segment.ID)
+	if err != nil {
+		t.Fatalf("read delivery after switch: %v", err)
+	}
+	if identity != "" || root != "" {
+		t.Errorf("delivery after switch = %q/%q, want it deleted by the switch", identity, root)
+	}
+}
+
+// TestSetSegmentAgentRejectsBadInput covers the required-argument checks and
+// the not-found case, the same shape [TestSetSegmentResumeTokenRejectsBadInput]
+// covers for its neighbour.
+func TestSetSegmentAgentRejectsBadInput(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	session := testSession(t, db, 123)
+
+	segment, err := db.GetOrCreateSegment(t.Context(), session.ID, FirstSegmentOrdinal, "claude-ref", AgentClaude)
+	if err != nil {
+		t.Fatalf("create segment: %v", err)
+	}
+
+	if err := db.SetSegmentAgent(t.Context(), 0, AgentCodex, "codex-ref"); err == nil {
+		t.Error("accepted a zero segment id")
+	}
+	if err := db.SetSegmentAgent(t.Context(), segment.ID, "", "codex-ref"); err == nil {
+		t.Error("accepted an empty agent kind")
+	}
+	if err := db.SetSegmentAgent(t.Context(), segment.ID, AgentCodex, ""); err == nil {
+		t.Error("accepted an empty fresh session ref")
+	}
+	if err := db.SetSegmentAgent(t.Context(), segment.ID+1000, AgentCodex, "codex-ref"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("switching a segment that does not exist gave %v, want ErrNotFound", err)
+	}
+
+	// None of the rejected calls above should have mutated the row.
+	unchanged, err := db.GetSegment(t.Context(), segment.ID)
+	if err != nil {
+		t.Fatalf("read after rejected calls: %v", err)
+	}
+	if unchanged.Agent != AgentClaude || unchanged.SessionRef != "claude-ref" {
+		t.Errorf("segment changed despite rejected input: %+v", unchanged)
+	}
+}
+
 // TestAllocateRunAssignsOrdinalsAndRefusesReplay covers S-1 (the ordinal is
 // owned before the subprocess starts) and AC-3.4 (one comment, at most one
 // run, ever).

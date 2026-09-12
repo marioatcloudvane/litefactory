@@ -683,8 +683,11 @@ func replayed(result Result, existing store.Run, logger *slog.Logger) Result {
 	return result
 }
 
-// agentSwitchRefused records a turn whose resolved agent does not own this
-// session's segment (US-3).
+// agentSwitchRefused records an automatic-recovery continuation whose
+// resolved agent no longer owns the segment it named (US-3): the label
+// changed after the continuation was recorded and before it was dispatched.
+// An ordinary turn never reaches this — a mismatched ordinary turn is a
+// switch, handled by rewriting the segment in place, not a refusal.
 //
 // Unlike [prepareFailed] it allocates nothing and never transitions session
 // state: no session-state transition has occurred and no runs row has been

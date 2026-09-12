@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -291,20 +292,13 @@ func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
 	return &d, nil
 }
 
-// The task lock owns this read/create sequence. Vendor switches remain
-// refusals, checked and returned before mode ever enters the decision.
-// Otherwise the candidate segment — the session's most recent one, whether or
-// not an instruction bundle is configured — rotates to a new segment (next
-// ordinal, a distinct session_ref, no resume token) when either the effective
-// instruction-bundle identity or the admitted mode ([Request.mode]) differs
-// from what the segment's last terminal, non-refused run ([previousRun])
-// recorded; a candidate with no such run is never rotated for a mode change,
-// since there is nothing to compare against. A rotated segment is looked up
-// fresh, so it always reads back with no previous run, which is what keeps the
-// resume/prompt layer's PreviousMode-driven cold path unreachable from a mode
-// change going through here. Repositories with no instruction bundle configured
-// follow this same ladder; only the identity comparison degenerates to "always
-// empty" for them.
+// The task lock owns this read/create sequence. A label change that resolves
+// to a different coding-agent tool than the one already owning this session's
+// last segment is a switch, not a refusal: the tail of this function
+// reconciles the stale-agent row to the newly resolved tool in place — same
+// id, same ordinal — via [reconcileSegmentAgent], writes a bundle rendered
+// for the new tool, and re-pins delivery for it. Only a change in effective
+// instructions under the *same* tool still rotates to a new segment.
 func prepareDeliverySegment(ctx context.Context, opts Options, req Request, session store.Session, ref naming.Ref, firstRef string, p *deliveryPlan) (store.Segment, *agent.Delivery, error) {
 	if req.Continuation != nil {
 		segment, err := opts.DB.GetSegment(ctx, req.Continuation.SegmentID)
@@ -328,6 +322,20 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		delivery, err := verifyDelivery(segment.DeliveryRoot, p)
 		return segment, delivery, err
 	}
+	if p == nil {
+		hadDelivery, err := opts.DB.HasSessionDelivery(ctx, session.ID)
+		if err != nil {
+			return store.Segment{}, nil, err
+		}
+		if !hadDelivery {
+			segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, firstRef, string(req.Agent))
+			if err != nil {
+				return store.Segment{}, nil, err
+			}
+			segment, err = reconcileSegmentAgent(ctx, opts, segment, string(req.Agent))
+			return segment, nil, err
+		}
+	}
 	segments, err := opts.DB.ListSegments(ctx, session.ID)
 	if err != nil {
 		return store.Segment{}, nil, err
@@ -343,25 +351,28 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		if err != nil {
 			return store.Segment{}, nil, err
 		}
-		if last.Agent != string(req.Agent) {
-			return last, nil, nil
-		}
-		previous, found, err := previousRun(ctx, opts, session, last)
-		if err != nil {
-			return store.Segment{}, nil, err
-		}
-		modeChanged := found && previous.Mode != req.mode()
-		if last.DeliveryIdentity == identity && !modeChanged {
+		switch {
+		case last.Agent != string(req.Agent):
+			// A switch: keep this row's ordinal and the session_ref that was
+			// current before the switch (reconcileSegmentAgent below is what
+			// actually replaces it with a fresh one) and fall through to the
+			// same tail every other path uses — it writes a bundle already
+			// rendered for the new agent, finds this same row again, and
+			// reconciles it. Never the rotation case below, which is only
+			// for a same-agent instruction change.
+			ordinal, sessionRef = last.Ordinal, last.SessionRef
+		case last.DeliveryIdentity == identity:
 			if p == nil {
 				return last, nil, nil
 			}
 			delivery, err := verifyDelivery(last.DeliveryRoot, p)
 			return last, delivery, err
-		}
-		ordinal = last.Ordinal + 1
-		sessionRef, err = naming.SessionRef(ref, ordinal)
-		if err != nil {
-			return store.Segment{}, nil, err
+		default:
+			ordinal = last.Ordinal + 1
+			sessionRef, err = naming.SessionRef(ref, ordinal)
+			if err != nil {
+				return store.Segment{}, nil, err
+			}
 		}
 		opts.Logger.Info("rotating conversation segment for a mode or instruction-bundle change",
 			slog.String("previous_mode", previous.Mode),
@@ -385,6 +396,10 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 	if err != nil {
 		return store.Segment{}, nil, err
 	}
+	segment, err = reconcileSegmentAgent(ctx, opts, segment, string(req.Agent))
+	if err != nil {
+		return store.Segment{}, nil, err
+	}
 	if delivery != nil {
 		if err := opts.DB.SetSegmentDelivery(ctx, segment.ID, delivery.Identity, delivery.Root); err != nil {
 			return store.Segment{}, nil, err
@@ -392,4 +407,58 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		segment.DeliveryIdentity, segment.DeliveryRoot = delivery.Identity, delivery.Root
 	}
 	return segment, delivery, nil
+}
+
+// reconcileSegmentAgent brings segment's stored agent in line with kind when
+// an earlier step in this function fetched or created a row for a different
+// agent than the one this turn resolved to — the issue's label changed since
+// that row was written. It is the single funnel both call sites in
+// [prepareDeliverySegment] route through, so a switch is handled exactly
+// once regardless of which path found the stale row.
+//
+// It is a no-op, and touches the store not at all, when segment already
+// belongs to kind: every ordinary call through this function's tail —
+// unchanged agent, a brand new segment created under kind directly, a
+// same-agent rotation — reaches this as a no-op.
+//
+// Otherwise it performs the switch: a fresh session id this row has never
+// held before, decoupled from internal/naming's derivation, so the newly
+// selected agent always cold-starts, even switching back to a tool this
+// segment used before an earlier switch away from it. AgentSwitched is set
+// true on the returned [store.Segment] so [resumeDecision] can force that
+// cold start unconditionally, without inspecting run history or any
+// coding-agent-specific rule.
+func reconcileSegmentAgent(ctx context.Context, opts Options, segment store.Segment, kind string) (store.Segment, error) {
+	if segment.Agent == kind {
+		return segment, nil
+	}
+	freshRef, err := freshSegmentSessionRef()
+	if err != nil {
+		return store.Segment{}, fmt.Errorf("mint a fresh session ref for the switched segment: %w", err)
+	}
+	if err := opts.DB.SetSegmentAgent(ctx, segment.ID, kind, freshRef); err != nil {
+		return store.Segment{}, err
+	}
+	segment.Agent = kind
+	segment.SessionRef = freshRef
+	segment.ResumeToken = ""
+	segment.AgentSwitched = true
+	return segment, nil
+}
+
+// freshSegmentSessionRef mints a session id no segment row has ever held
+// before, for the session_ref a coding-agent switch always assigns
+// ([store.DB.SetSegmentAgent]). It matches the canonical UUID shape
+// internal/naming's own derived refs share — [harness.Runner] still validates
+// that shape regardless of how the id was produced — but the value here is
+// random, not derived: a switch's entire point is a session id nothing has
+// used before, and deriving it from anything defeats that.
+func freshSegmentSessionRef() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate random session ref bytes: %w", err)
+	}
+	b[6] = b[6]&0x0f | 0x50 // version 5, matching the shape naming.SessionRef produces
+	b[8] = b[8]&0x3f | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
