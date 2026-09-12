@@ -4,7 +4,7 @@
 
 ## Modes
 
-- [x] **Research** — `RESEARCH_BRIEF.md` *(complete)*
+- [x] **Research** — `RESEARCH_BRIEF.md` *(complete; run 0004 simplified recommendation)*
 - [x] **Plan** — `plan_brief.md` + typed story contribution *(planning iteration complete; factory publication and save pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
@@ -32,3 +32,5 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - Submitted request: `c7b606e2cf950aff3498bcefc890b634`.
 - Receipt: input valid; Plan pending; engineering, acceptance and effects not applicable.
 - Publication, story links, save and readiness remain factory-owned and pending at subprocess completion.
+
+- 2026-09-12 — Research completed for run 0004: rechecked current code at c8b7bf0e42b8209aa13f745bc678a7909f8d5ab1; recommendation reduced to mode-aware existing segment selection plus an existing-session prompt pointer. Prior seven-story Plan direction is superseded by this research recommendation; its artifacts and factory state were not modified. A later explicit Plan iteration must reconcile scope. No implementation, tests, forge mutations, commits or pushes.
