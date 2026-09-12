@@ -100,7 +100,7 @@ func TestBuildPromptStatesTheFeatureSlug(t *testing.T) {
 
 // The gag belongs to the untagged path alone now (AC-A1.2).
 func TestBuildPromptForbidsQuestions(t *testing.T) {
-	if prompt := buildPrompt(t, testPromptInput()); !strings.Contains(prompt, "do not ask clarifying questions") {
+	if prompt := buildPrompt(t, testPromptInput()); !strings.Contains(prompt, "may not ask clarifying questions") {
 		t.Error("an untagged prompt does not forbid interactive questions")
 	}
 }
@@ -339,7 +339,7 @@ func TestInferModeAsksTheRunToChoose(t *testing.T) {
 	for _, want := range []string{
 		"- Mode: infer\n",
 		"named no command",
-		"CLAUDE.md",
+		"supplied project instructions",
 		"choose the one this request calls for",
 		"under the feature slug named above",
 	} {
@@ -384,9 +384,9 @@ func TestSpikePromptIsUnchanged(t *testing.T) {
 - Working directory: the git worktree you are already in.
 
 If anything asks for the feature name or ticket id for this work, it is ` +
-		"`123-add-a-widget`" + `. It is stated here because this run is headless and no one can answer a question.
+		"`123-add-a-widget`" + `. It is stated here so that nothing has to stop to look it up.
 
-You are running without a terminal. Nobody will read a question and nobody can answer one, so do not ask clarifying questions, do not wait for confirmation and do not stop for approval. Where something is ambiguous, take the most reasonable reading, act on it, and say what you assumed in your final message. Do the work in this worktree; do not commit or push — litefactory does that once you are finished.
+You are running without a terminal. This run may not ask clarifying questions or wait for confirmation. Use the supplied context and record reasonable assumptions. If missing authority or a material scope decision prevents safe completion, report the blocker and stop; do not invent authorization. Do the work in this worktree; do not commit or push — litefactory does that once you are finished.
 
 ## Instruction
 
@@ -442,7 +442,7 @@ func TestResumedPromptIsTheDelta(t *testing.T) {
 		"- Branch:",
 		"- Working directory:",
 		"feature name or ticket id",
-		"do not ask clarifying questions",
+		"may not ask clarifying questions",
 		"Title: Add a widget",
 		"The widget should be blue.",
 		"The two notes below",
@@ -480,7 +480,7 @@ func TestColdPromptStillCarriesEverything(t *testing.T) {
 		"- Branch: lf/123-add-a-widget",
 		"- Working directory:",
 		"feature name or ticket id",
-		"do not ask clarifying questions",
+		"may not ask clarifying questions",
 		"Title: Add a widget",
 	} {
 		if !strings.Contains(cold, want) {

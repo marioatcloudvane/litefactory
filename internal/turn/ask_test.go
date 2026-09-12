@@ -286,7 +286,7 @@ func TestModeMayAsk(t *testing.T) {
 }
 
 // TestPermissionHonorsModeAndOwnerControl covers the live permission policy:
-// Plan defaults to asynchronous questions; Research needs the explicit tag,
+// Research and Plan default to asynchronous questions,
 // and other modes cannot acquire permission through tagging.
 func TestPermissionHonorsModeAndOwnerControl(t *testing.T) {
 	t.Parallel()
@@ -302,8 +302,8 @@ func TestPermissionHonorsModeAndOwnerControl(t *testing.T) {
 		{name: "tagged infer", body: "look into it\n" + AskTag, mode: harness.InferMode, want: true},
 		{name: "tagged implement", body: "build it\n" + AskTag, mode: "implement"},
 		{name: "tagged spike", body: "try it\n" + AskTag, mode: store.ModeSpike},
-		{name: "untagged research", body: "look into it", mode: researchMode},
-		{name: "quoted tag, research", body: "> " + AskTag + "\nlook into it", mode: researchMode},
+		{name: "untagged research", body: "look into it", mode: researchMode, want: true},
+		{name: "quoted tag, research", body: "> " + AskTag + "\nlook into it", mode: researchMode, want: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -347,6 +347,7 @@ func TestPreviousMayAsk(t *testing.T) {
 			previous:            store.Run{TriggerCommentID: 9001, Mode: researchMode},
 			resume:              true,
 			previousTriggerBody: "look into it",
+			want:                true,
 		},
 		{
 			name:                "the previous run was a spike, tag or no tag",
@@ -359,6 +360,7 @@ func TestPreviousMayAsk(t *testing.T) {
 			previous:            store.Run{TriggerCommentID: 9001, Mode: researchMode},
 			resume:              true,
 			previousTriggerBody: "> " + AskTag + "\nlook into it",
+			want:                true,
 		},
 		{
 			// T-A1.7. Trigger id 0 is the issue body run as the first
@@ -378,11 +380,12 @@ func TestPreviousMayAsk(t *testing.T) {
 		},
 		{
 			// The comment could not be found — it predates litefactory's first
-			// sight of the issue, so no body was ever stored. No evidence is
-			// read as no permission, which is the direction that fails closed.
-			name:     "the previous trigger comment is not in the table",
+			// sight of the issue, so no body was ever stored. Derive the
+			// same default policy used for a current Research request.
+			name:     "missing prior trigger uses the Research default",
 			previous: store.Run{TriggerCommentID: 9001, Mode: researchMode},
 			resume:   true,
+			want:     true,
 		},
 		{
 			// A zero store.Run has trigger id 0 too, which without the resume

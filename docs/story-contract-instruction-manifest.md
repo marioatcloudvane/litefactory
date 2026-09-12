@@ -11,11 +11,14 @@ US-012 owns aggregate parity and the still-missing authentic dual-harness eviden
 Paths below are exact repository-relative targets for manual protocol integration.
 Installed specialist copies have legacy tool-specific wrappers and expanded role
 instructions; native catalog rendering does not byte-generate these legacy copies.
-Preserve those wrappers and apply the shared contract to each named target. Do not
+For Research, use standalone entrypoints and the neutral research-evidence contract;
+no wrapper or full story workflow read is required. Preserve other roles until
+separately scoped. Do not
 replace installed files with native `roles/*.toml` or `plugin/agents/*.md` payloads.
 
-All agents transitively consume `teams/source/skills/workflow/SKILL.md` through
-planning-contracts, research-evidence, go-constraints or review-evidence. The role
+All story-producing or reviewing agents transitively consume `teams/source/skills/workflow/SKILL.md` through
+planning-contracts, go-constraints or review-evidence. Research instead consumes
+only research-evidence for its authority, session, clarification and reporting. The role
 source in each row, plus those declared skills, determines the affected contract.
 
 | Source under `teams/source/agents/` | US-010 Claude target | US-011 Codex target |
@@ -88,3 +91,11 @@ Separately provide the [authentic evidence capture](agent-evidence-capture.md)
 for both actual harnesses. Temporary renders and synthetic tests cannot prove
 actual helper invocation, same-run correction or a decision observed before exit.
 Missing external evidence remains unverified; Validate only reads retained artifacts.
+
+## Research maintenance scope
+
+An explicit user assignment may cover both installed Research entrypoints and
+their neutral shared contract. Honor actual filesystem permissions; the earlier
+US-010/US-011 split is historical scope, not a restriction on that assignment.
+Verify each entrypoint without the other provider tree. No live agent run or
+measured token savings are established by source or rendering checks.

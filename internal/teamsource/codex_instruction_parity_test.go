@@ -163,7 +163,6 @@ const structuredProtocolHandoff = "## Structured protocol handoff\n\n" +
 // .codex tree, never at the Claude installed copy.
 func TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree(t *testing.T) {
 	files := []string{
-		".codex/skills/research-orchestrator/SKILL.md",
 		".codex/skills/implement-orchestrator/SKILL.md",
 		".codex/skills/go-implementation-engineer/SKILL.md",
 		".codex/skills/go-integration-test-engineer/SKILL.md",

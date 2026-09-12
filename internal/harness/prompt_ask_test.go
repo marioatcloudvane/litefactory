@@ -53,7 +53,7 @@ func TestResumeHeaderIsPinned(t *testing.T) {
 			mode:         InferMode,
 			previousMode: "spike",
 			want: strings.Replace(runAndMode, "%s", InferMode, 1) + `
-This run was started by a comment that named no command, so working out what kind of work it is forms part of the task. If this repository's CLAUDE.md defines modes, a routing scheme or a way of classifying a request, follow it and choose the one this request calls for. If it does not, simply do what is asked. Put any documents you produce under the feature slug named above, wherever this repository keeps them. Say which mode you chose in your final message.
+This run was started by a comment that named no command, so working out what kind of work it is forms part of the task. If the supplied project instructions define modes, a routing scheme or a way of classifying a request, follow it and choose the one this request calls for. If it does not, simply do what is asked. Put any documents you produce under the feature slug named above, wherever this repository keeps them. Say which mode you chose in your final message.
 `,
 		},
 	}
@@ -182,7 +182,7 @@ func TestTaggedColdHeaderGrantsPermission(t *testing.T) {
 		// AC-A1.15 / T-A1.12: the standing invitation is on every asking prompt.
 		// It is litefactory telling the owner what sentence opens the next mode,
 		// which under One Run, One Mode only a human comment can do.
-		`"move to the next phase"`,
+		"honor explicit instructions",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("the tagged prompt is missing %q:\n%s", want, prompt)

@@ -32,6 +32,11 @@ func TestPlanDeliverySelectedRosterAndIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, rule := range []string{"instead of reopening its local SKILL.md", "fallback only when no definition was supplied", "not already supplied in full"} {
+		if !strings.Contains(string(baseline.files["bootstrap.md"]), rule) {
+			t.Errorf("bootstrap lost role precedence: %s", rule)
+		}
+	}
 	if !reflect.DeepEqual(baseline.roles, []string{"researcher"}) {
 		t.Fatalf("roster=%v", baseline.roles)
 	}
