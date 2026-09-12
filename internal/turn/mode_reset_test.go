@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
@@ -251,6 +252,85 @@ func TestSimultaneousBundleAndModeChangeRotatesExactlyOnce(t *testing.T) {
 	}
 }
 
+// TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates covers the one
+// case the #228/#254 merge left undecided: a single turn where the resolved
+// coding-agent tool changes *and* the admitted mode changes together. The
+// agent-switch check in [prepareDeliverySegment]'s ladder runs first, ahead of
+// the mode comparison, so the switch wins outright — the existing segment
+// row is reconciled to the new agent in place (same id, same ordinal, a fresh
+// session_ref, [store.Segment.AgentSwitched] set) — and the mode change is
+// absorbed into that reconciliation rather than separately rotating to a
+// second new segment. Exactly one segment must exist afterward, never two,
+// and the delivery it carries (when a bundle is configured) must be the one
+// planned for the newly resolved agent, not a leftover pin from the old one.
+func TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture(t, nil)
+	f.opts.Tiers = tieredOptions()
+	ref := testRef(t)
+
+	_, _, snapshot := deliveryFixture()
+	claudePlan, err := planDelivery(f.opts, Request{Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeResearch}, snapshot, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	baseReq := Request{Agent: agent.Kind(store.AgentClaude), Mode: agent.ModeResearch, SessionID: f.session.ID, Trigger: Trigger{CommentID: testComment}}
+	first, firstDelivery, err := prepareDeliverySegment(t.Context(), f.opts, baseReq, f.session, ref, "simultaneous-switch-session", claudePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Agent != string(store.AgentClaude) || firstDelivery == nil {
+		t.Fatalf("seeded segment = %+v delivery=%v, want a claude segment with a delivery pinned", first, firstDelivery)
+	}
+	finishTerminalRun(t, f, ref, first, agent.Kind(store.AgentClaude), agent.ModeResearch, testComment)
+
+	codexPlan, err := planDelivery(f.opts, Request{Agent: agent.Kind(store.AgentCodex), Mode: agent.ModePlan}, snapshot, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexPlan.identity == claudePlan.identity {
+		t.Fatal("fixture bug: the two agents' plans must not already share an identity")
+	}
+
+	// Both the agent and the mode change from the first admission together.
+	req := baseReq
+	req.Agent = agent.Kind(store.AgentCodex)
+	req.Mode = agent.ModePlan
+	req.Trigger.CommentID = testComment + 1
+	got, gotDelivery, err := prepareDeliverySegment(t.Context(), f.opts, req, f.session, ref, "simultaneous-switch-session", codexPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	segments, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("segments = %d, want exactly one — a simultaneous agent+mode change must never produce two: %+v", len(segments), segments)
+	}
+	if got.ID != first.ID || got.Ordinal != first.Ordinal {
+		t.Fatalf("a simultaneous agent+mode change rotated instead of reconciling in place: first=%+v got=%+v", first, got)
+	}
+	if got.Agent != string(store.AgentCodex) {
+		t.Fatalf("agent = %q, want %q — the switch must win", got.Agent, store.AgentCodex)
+	}
+	if !got.AgentSwitched {
+		t.Fatal("the segment was not marked switched — a rotation happened instead of an in-place reconciliation")
+	}
+	if got.SessionRef == first.SessionRef {
+		t.Fatal("reconciling to the new agent must mint a fresh session_ref, not keep the old one")
+	}
+	if gotDelivery == nil || gotDelivery.Identity != codexPlan.identity {
+		t.Fatalf("the reconciled segment did not carry the new agent's delivery: %+v", gotDelivery)
+	}
+	if _, err := verifyDelivery(firstDelivery.Root, claudePlan); err != nil {
+		t.Fatalf("the simultaneous switch modified the bundle the segment retained before it: %v", err)
+	}
+}
+
 // TestModeSequenceProducesForwardOnlyRecomputableOrdinals is AC-001's
 // sequencing half: research -> plan -> implement -> plan again produces
 // strictly increasing, distinct, independently recomputable ordinals and
@@ -386,35 +466,104 @@ func TestPrepareDeliverySegmentNeverResetsWithoutATerminalNonRefusedRun(t *testi
 // agent that differs from the segment's recorded agent still produces the
 // existing agent-switch refusal, with no new segment created and no run
 // allocated, even when the admitted mode also differs from the segment's
-// last recorded run.
+// last recorded run. That refusal only fires for an automatic-recovery
+// continuation (prepare.go gates it on req.Continuation != nil, since an
+// ordinary turn's own agent mismatch is reconciled in place, not refused), so
+// this drives a genuine continuation through Execute rather than an
+// ordinary turn. The one way a continuation's segment still disagrees with
+// the resolved agent by the time it is replayed is an ordinary turn already
+// having reconciled it to a different tool in between — prepare.go's own
+// comment calls this "defence in depth, not the primary defence" — so that
+// is what this test reproduces, by switching the segment's stored agent
+// directly after the continuation was saved and before it is replayed.
 func TestAgentSwitchRefusalFiresRegardlessOfModeChange(t *testing.T) {
 	t.Parallel()
 
-	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("claude ran despite an agent-switch refusal")
-		return nil, errors.New("must not be reached")
+	var f *fixture
+	calls := 0
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		calls++
+		res := succeeded(req, f.paths.Home())
+		switch calls {
+		case 1:
+			// A terminal, non-refused run in one mode: the "segment's last
+			// recorded run" the refusal must still fire despite disagreeing
+			// with.
+			return res, nil
+		case 2:
+			// A second turn, in a different mode, that hits its session
+			// limit and leaves a reserved continuation behind.
+			res.Outcome = agent.OutcomeInterrupted
+			res.Interruption = &agent.Interruption{
+				Precision:  agent.ResetExact,
+				ResetBound: res.FinishedAt.Add(time.Hour),
+				DueAt:      res.FinishedAt.Add(time.Hour + time.Minute),
+			}
+			return res, nil
+		default:
+			t.Error("claude ran despite an agent-switch refusal")
+			return nil, errors.New("must not be reached")
+		}
 	})
-	f := newFixture(t, runner)
-	f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID, seededComment, store.ModeSpike, store.RunReported)
+	f = newFixture(t, runner)
+	f.opts.AutoResumeOnSessionLimit = true
 
-	req := f.request()
-	req.Agent = agent.Kind(store.AgentCodex)
-	req.Mode = agent.ModeResearch
-	req.Trigger.Body = "/research look again"
-	req.Command = ParseCommand(req.Trigger.Body)
+	first := f.request()
+	first.Mode = agent.ModeSpike
+	f.execute(first)
+
+	second := f.request()
+	second.Mode = agent.ModeResearch
+	second.Trigger.CommentID = testComment + 1
+	second.Trigger.Body = "/research look again"
+	second.Command = ParseCommand(second.Trigger.Body)
+	f.execute(second)
+
+	pending, err := f.db.ListPendingContinuations(t.Context(), f.session.ID)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	c, ok, err := f.db.ReserveContinuation(t.Context(), pending[0].ID, pending[0].DueAt)
+	if err != nil || !ok {
+		t.Fatalf("reserve=%v %v", ok, err)
+	}
+
+	req := second
+	req.Continuation = &c
+	req.Trigger = Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: second.Trigger.Author}
+	req.Command = Command{Kind: KindFreeText, Text: c.Context.Request}
+
+	// The only way a continuation's segment still disagrees with the
+	// resolved agent by the time it is replayed: an ordinary turn already
+	// reconciled it to a different tool in between validateContinuation's own
+	// read (which must still see the segment matching what the continuation
+	// recorded) and prepareDeliverySegment's later, independent re-read of
+	// the same row. [raceGate] places that switch deterministically inside
+	// that window.
+	f.opts.CloneGate = &raceGate{CloneGate: f.opts.CloneGate, hook: func() {
+		if err := f.db.SetSegmentAgent(t.Context(), c.SegmentID, string(store.AgentCodex), "codex-switched-in-session"); err != nil {
+			t.Fatalf("switch the segment's agent out from under the continuation: %v", err)
+		}
+	}}
 
 	result := f.execute(req)
 	if result.Disposition != DispositionAgentSwitchRefused {
 		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
 	}
-	if runs := f.runs(); len(runs) != 1 {
+	if calls != 2 {
+		t.Fatalf("claude invoked %d times, want 2 (the terminal run and the interrupted one)", calls)
+	}
+	if runs := f.runs(); len(runs) != 2 {
 		t.Fatalf("agent-switch refusal changed the run rows: %+v", runs)
 	}
 	segments, err := f.db.ListSegments(t.Context(), f.session.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(segments) != 1 || segments[0].Ordinal != store.FirstSegmentOrdinal {
+	// Two segments already exist from the mode change between the first two
+	// turns (spike, then research); the refused continuation must not add a
+	// third.
+	if len(segments) != 2 || segments[len(segments)-1].ID != c.SegmentID {
 		t.Fatalf("agent-switch refusal rotated the segment: %+v", segments)
 	}
 }
@@ -466,5 +615,124 @@ func TestContinuationRefusesWhenTheBundleIdentityChanged(t *testing.T) {
 	// The retained bundle from the accepted segment is untouched by the refusal.
 	if _, err := verifyDelivery(delivery.Root, original); err != nil {
 		t.Fatalf("the refused continuation modified the retained bundle: %v", err)
+	}
+}
+
+// TestModeResetPreservesOrdinaryColdTurnMachinery is AC-13: a mode-change
+// reset's prepared values — base-sync outcome, attachment handling, recorded
+// comment history and approved/frozen story context — match those of an
+// equivalent cold turn that went cold for an unrelated reason. Two identical
+// sequences are run (same seeded comment thread, same first turn), and the
+// second turn in each goes cold for a different, independent cause: one
+// changes the admitted mode (a rotation to a fresh segment), the other keeps
+// the mode but switches the coding-agent tool (an in-place reconciliation
+// [store.Segment.AgentSwitched] forces cold regardless of history). Neither
+// is a resume, so this is a genuine cold-vs-cold comparison, not the
+// cold-vs-resume difference AC-11 already covers elsewhere: everything this
+// test asserts on is computed upstream of segment selection, so it must come
+// out the same either way.
+func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
+	t.Parallel()
+
+	type secondTurn struct {
+		result Result
+		req    harness.Request
+	}
+
+	run := func(t *testing.T, secondMode agent.Mode, secondKind agent.Kind) secondTurn {
+		t.Helper()
+
+		var f *fixture
+		runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+			return succeeded(req, f.paths.Home()), nil
+		})
+		f = newFixture(t, runner)
+		f.opts.Runners = RunnerSet{
+			agent.Kind(store.AgentClaude): runner,
+			agent.Kind(store.AgentCodex):  runner,
+		}
+		f.seedThread()
+
+		first := f.request()
+		first.Mode = agent.ModeResearch
+		first.Agent = agent.Kind(store.AgentClaude)
+		f.execute(first)
+
+		second := f.request()
+		second.Mode = secondMode
+		second.Agent = secondKind
+		second.Trigger.CommentID = testComment + 1
+		second.Trigger.Body = "/" + string(secondMode) + " keep going with the next step"
+		second.Command = ParseCommand(second.Trigger.Body)
+		result := f.execute(second)
+
+		if len(runner.requests) != 2 {
+			t.Fatalf("requests=%+v", runner.requests)
+		}
+		return secondTurn{result: result, req: runner.requests[1]}
+	}
+
+	// Cold via a mode change, same agent: the reset this story adds.
+	reset := run(t, agent.ModePlan, agent.Kind(store.AgentClaude))
+	// Cold via an agent switch, same mode: an unrelated, already-existing
+	// reason for a turn to go cold, used here only as the "equivalent cold
+	// turn" reference.
+	switched := run(t, agent.ModeResearch, agent.Kind(store.AgentCodex))
+
+	// Sanity: both are genuinely cold, for their own distinct reason, and
+	// neither is a resume.
+	if reset.req.Path != harness.PathCold {
+		t.Fatalf("mode-changed second turn path = %v, want %v", reset.req.Path, harness.PathCold)
+	}
+	if switched.req.Path != harness.PathCold {
+		t.Fatalf("agent-switched second turn path = %v, want %v", switched.req.Path, harness.PathCold)
+	}
+
+	// Base-sync outcome: identical repo state in both fixtures, so the
+	// recorded outcome must agree regardless of what caused the cold start.
+	if reset.result.Run.SyncOutcome != switched.result.Run.SyncOutcome ||
+		reset.result.Run.SyncBehind != switched.result.Run.SyncBehind ||
+		reset.result.Run.SyncAhead != switched.result.Run.SyncAhead {
+		t.Fatalf("sync outcome diverged between the two cold turns: reset=%+v switched=%+v",
+			reset.result.Run, switched.result.Run)
+	}
+
+	// Attachments: neither trigger carries any, so neither prompt gets the section.
+	for name, req := range map[string]harness.Request{"reset": reset.req, "switched": switched.req} {
+		if strings.Contains(req.Prompt, "## Attachments") {
+			t.Errorf("%s prompt carries an attachments section nothing triggered:\n%s", name, req.Prompt)
+		}
+	}
+
+	// Comment history: the thread seeded before either sequence's first turn
+	// must be surfaced on the second turn exactly the same way regardless of
+	// what caused it to go cold — a mode-change reset must not suppress,
+	// duplicate or reorder it relative to any other cold turn.
+	for name, req := range map[string]harness.Request{"reset": reset.req, "switched": switched.req} {
+		for _, want := range []string{
+			"[old_owner] @marioatcloudvane at 2026-08-20T09:00:00Z:\n" + historyOwnerBody,
+			"[old_third_party] @carol at 2026-08-20T10:00:00Z:\n" + historyThirdPartyBody,
+			"[litefactory] @litefactory-bot at 2026-08-20T11:00:00Z:\n" + historySelfBody,
+		} {
+			if !strings.Contains(req.Prompt, want) {
+				t.Errorf("%s prompt is missing seeded history %q:\n%s", name, want, req.Prompt)
+			}
+		}
+	}
+	// The first turn's own trigger becomes history too, once a second turn is
+	// underway, exactly the same way for both.
+	const firstTurnBody = "/spike add a health endpoint that reports the build sha"
+	if !strings.Contains(reset.req.Prompt, firstTurnBody) || !strings.Contains(switched.req.Prompt, firstTurnBody) {
+		t.Errorf("the first turn's own comment did not carry forward as history:\nreset:\n%s\nswitched:\n%s",
+			reset.req.Prompt, switched.req.Prompt)
+	}
+
+	// Approved/frozen story context: no managed feature is configured in
+	// either sequence, so neither carries plan-handoff transport.
+	for name, req := range map[string]harness.Request{"reset": reset.req, "switched": switched.req} {
+		if req.PlanWorkingContext != "" || req.PlanProposalPath != "" || req.PlanContextPath != "" {
+			t.Errorf("%s carries approved/frozen story context nothing configured: working=%q proposal=%q context=%q",
+				name, req.PlanWorkingContext, req.PlanProposalPath, req.PlanContextPath)
+		}
 	}
 }

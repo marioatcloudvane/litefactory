@@ -7,13 +7,27 @@ import (
 
 // TestBuildPromptSessionArtifactsByteIdentity is AC-010: with both fields
 // empty, BuildPrompt returns exactly what it returned before this feature
-// existed.
+// existed. The comparison is not vacuous: the same input is first proven to
+// actually change the prompt once the two fields are populated, and only then
+// cleared back to their zero value to prove the empty case is byte-identical
+// to the baseline — never a leftover heading, blank line or other residue
+// from the fields having existed at all on a zero-valued input.
 func TestBuildPromptSessionArtifactsByteIdentity(t *testing.T) {
-	withField := testPromptInput()
 	baseline := buildPrompt(t, testPromptInput())
+
+	withField := testPromptInput()
+	withField.SessionArtifactDir = ".aiteam/lf-123-add-a-widget/2026-09-01/add-a-widget"
+	withField.SessionArtifactBrief = "plan_brief.md"
+	populated := buildPrompt(t, withField)
+	if populated == baseline {
+		t.Fatal("populating the session artifact fields did not change the prompt; this test proves nothing")
+	}
+
+	withField.SessionArtifactDir = ""
+	withField.SessionArtifactBrief = ""
 	got := buildPrompt(t, withField)
 	if got != baseline {
-		t.Fatalf("BuildPrompt with empty session artifact fields changed the prompt:\ngot:  %q\nwant: %q", got, baseline)
+		t.Fatalf("BuildPrompt with the session artifact fields cleared back to empty did not match the baseline:\ngot:  %q\nwant: %q", got, baseline)
 	}
 }
 

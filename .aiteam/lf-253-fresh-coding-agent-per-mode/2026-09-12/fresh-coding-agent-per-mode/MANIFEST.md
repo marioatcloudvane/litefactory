@@ -116,3 +116,60 @@ asked for; nothing here licenses starting the next one.
   `-race` (confirmed to pass functionally without `-race` in 83s), a
   pre-existing package-size/race-overhead condition, not a regression from
   this story's code.
+- 2026-09-12 (run 0005) — Recovery/correction run following commit `afce2f1`
+  ("Apply confirmed conflict-resolution proposal"), which merged main
+  (including issue #228's "switch the coding agent from the issue label")
+  into this branch and, in resolving the conflict in
+  `internal/turn/delivery.go`, took main's side wholesale — deleting this
+  story's T-1 mode-rotation logic and breaking the build
+  (`internal/turn/delivery.go:378:33: undefined: previous`). The owner's
+  diagnosis was verified directly (build failure reproduced exactly as
+  described; `prepareDeliverySegment`'s admitted-mode comparison was
+  confirmed absent; `mode_reset_test.go`, `session_artifacts.go`,
+  `session_artifacts_test.go`, and
+  `harness/prompt_session_artifacts_test.go` were confirmed still present)
+  before any fix was made. go-implementation-engineer then: (1) restored the
+  `modeChanged` comparison and composed it with #228's `last.Agent !=
+  string(req.Agent)` in-place-reconcile arm, choosing and documenting the
+  precedence that agent-switch reconciliation always wins over a
+  simultaneous mode change (the switch's agent-switch case is checked first
+  and short-circuits before `modeChanged` is consulted, guaranteeing at most
+  one segment mutation per turn by construction) — added
+  `TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates` asserting
+  exactly one segment results; (2) also found and re-removed a second,
+  undocumented regression the same merge reintroduced — a `p == nil &&
+  !HasSessionDelivery` fast path that unconditionally short-circuited
+  bundleless-repo turns to `FirstSegmentOrdinal`, bypassing the rotation
+  ladder entirely (run 0004 had already removed this once; the merge brought
+  it back); (3) rewrote `TestAgentSwitchRefusalFiresRegardlessOfModeChange`
+  to drive a genuine continuation (`req.Continuation != nil`), matching
+  `prepare.go`'s #228-derived continuation-gated refusal, instead of
+  reverting that gating to fit the old test; (4) fixed the tautological
+  `TestBuildPromptSessionArtifactsByteIdentity` (now proves a populated vs.
+  empty difference before asserting byte-identity) and wrote the
+  previously-missing AC-013 offline fixture,
+  `TestModeResetPreservesOrdinaryColdTurnMachinery`, comparing a mode-reset
+  cold turn against an agent-switch cold turn's sync outcome, attachments,
+  comment history, and approved context. Files touched: only
+  `internal/turn/delivery.go`, `internal/turn/mode_reset_test.go`,
+  `internal/harness/prompt_session_artifacts_test.go` (confirmed via `git
+  status --short`). go-code-reviewer returned **CLEAN** on all three files,
+  independently confirming the switch-arm exclusivity, the fast-path
+  removal's soundness, and each rewritten/added test's fidelity to its AC.
+  go-unit-test-engineer ran targeted, race-enabled and functional passes
+  across `internal/turn` and `internal/harness` covering AC-001 through
+  AC-013 plus an `internal/store` migration sanity check for AC-014, found no
+  coverage gaps, and made no changes. Orchestrator then ran the aggregate
+  gates: `make fmt vet lint` clean (0 issues); `go test ./internal/turn/...`
+  full-package functional green (448.5s); `go test ./internal/harness/...
+  ./internal/naming/...` race-enabled green (18.4s / 1.7s); `go test
+  ./internal/store/... ./internal/codex/...` race-enabled green (196.1s /
+  38.7s); `go test ./internal/daemon/...` functional green (38.3s, `-race`
+  intentionally not combined with the full suite per run 0004's already-noted
+  pre-existing package-size/race-overhead condition). Per explicit owner
+  instruction this run, the two pre-existing, out-of-scope failures
+  (`internal/teamsource` instruction-tree parity;
+  `TestRunTimeoutKillsTheWholeSubtree`) were left untouched and not
+  re-verified. No factory submission was made (no descriptor supplied this
+  run); no new story events were emitted; nothing was committed, staged, or
+  pushed — that remains the factory's step.
