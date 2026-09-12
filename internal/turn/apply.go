@@ -223,7 +223,7 @@ type ApplyResult struct {
 	// unchanged from what [ValidateConfirmation] read.
 	Proposal store.ConflictProposal
 	// CommitSHA is the merge commit produced, non-empty only when Outcome
-	// is [ApplyOutcomeApplied].
+	// is [ApplyOutcomeApplied], or when publication failed after the commit.
 	CommitSHA string
 	// Reason is a human-readable account of why Outcome is
 	// [ApplyOutcomeFailed]. Empty otherwise.
@@ -306,7 +306,11 @@ func ExecuteApplyResolution(ctx context.Context, opts Options, req ApplyRequest)
 	minimalReq := Request{SessionID: req.SessionID, Issue: Issue{Number: session.IssueNumber}}
 	_, _, _, _, applyResult, err := prepareClone(ctx, opts, minimalReq, clone, session, repo, author, logger, &req.Proposal)
 	if err != nil {
-		return applyFailed(stored, err), nil
+		result := applyFailed(stored, err)
+		if applyResult != nil {
+			result.CommitSHA = applyResult.CommitSHA
+		}
+		return result, nil
 	}
 	if applyResult == nil {
 		// Unreachable in practice: req.Proposal is always non-nil here
@@ -355,6 +359,10 @@ func ExecuteApplyResolution(ctx context.Context, opts Options, req ApplyRequest)
 // independently terminal run would be).
 func applyFailed(proposal store.ConflictProposal, err error) ApplyResult {
 	if errors.Is(err, git.ErrWorktreeUncommittedChanges) {
+		if proposal.Inputs.TargetPhase == "task" {
+			return ApplyResult{Outcome: ApplyOutcomeFailed, Proposal: proposal, Reason: "The confirmed task resolution was not applied because the worktree has uncommitted changes. Your work is preserved and the proposal remains pending. Preserve and finish the retained edits in the task worktree before confirming again. If local HEAD or either remote input changes, request a new proposal and confirmation."}
+		}
+
 		// Confirmation must not overwrite unfinished work. An ordinary run can
 		// now defer synchronization and let the owner recover it (AC-171-5).
 		return ApplyResult{

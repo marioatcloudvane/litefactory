@@ -142,31 +142,6 @@ func closeOpenFence(s string) string {
 	return strings.TrimRight(s, "\n") + "\n" + strings.Repeat("`", open)
 }
 
-// lastLines returns the last n lines of s, with trailing blank lines removed.
-func lastLines(s string, n int) string {
-	s = strings.TrimRight(s, "\n")
-	if s == "" || n <= 0 {
-		return ""
-	}
-	end := len(s)
-	for range n {
-		nl := strings.LastIndexByte(s[:end], '\n')
-		if nl < 0 {
-			return s
-		}
-		end = nl
-	}
-	return s[end+1:]
-}
-
-// countLines returns the number of lines in s. Empty text is zero lines.
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	return strings.Count(s, "\n") + 1
-}
-
 // cutAt returns an index at or below limit to cut s at. The caller guarantees
 // limit < len(s).
 //
@@ -220,70 +195,6 @@ func truncateEnd(s, notice string, limit int) (string, bool) {
 		return "", true
 	}
 	return s[:cutAt(s, room)] + notice, true
-}
-
-// elideMiddle cuts s down to at most limit bytes by removing whole lines from the
-// middle and putting notice in the gap, reporting whether it cut anything.
-//
-// The middle is what goes because the two ends are what carry meaning: the
-// first lines of the kept tail show what the run was doing, and the last lines
-// show how it stopped. Cutting only from the end would throw away the failure
-// itself.
-//
-// notice is a function rather than a string because its own length depends on
-// the numbers it reports, and those numbers depend on where the cut lands.
-// Reserving the length of the notice for the largest values it could hold —
-// every line, every byte — breaks the circularity from above, and the real
-// notice is never longer than what was reserved.
-func elideMiddle(s string, limit int, notice func(lines, bytes int) string) (string, bool) {
-	if len(s) <= limit {
-		return s, false
-	}
-	reserved := len(notice(countLines(s), len(s)))
-	room := limit - reserved
-	if room <= 0 {
-		return "", true
-	}
-
-	head, tail := room/2, room-room/2
-
-	// Whole lines from the front, up to head bytes.
-	frontEnd := 0
-	for {
-		nl := strings.IndexByte(s[frontEnd:], '\n')
-		if nl < 0 || frontEnd+nl+1 > head {
-			break
-		}
-		frontEnd += nl + 1
-	}
-
-	// Whole lines from the back, up to tail bytes.
-	backStart := len(s)
-	for backStart > 0 {
-		nl := strings.LastIndexByte(s[:backStart-1], '\n')
-		if nl < 0 || len(s)-(nl+1) > tail {
-			break
-		}
-		backStart = nl + 1
-	}
-	if backStart < frontEnd {
-		// Cannot happen for room < len(s), which the early return guarantees.
-		// Preferring the tail keeps the most recent output if it ever does.
-		frontEnd = 0
-	}
-
-	removed := s[frontEnd:backStart]
-	if removed == "" {
-		// A single line longer than the whole budget: there is no line
-		// boundary to elide at, so fall back to cutting the end off.
-		return truncateEnd(s, "\n"+notice(0, len(s)-room), limit)
-	}
-
-	removedLines := strings.Count(removed, "\n")
-	if !strings.HasSuffix(removed, "\n") {
-		removedLines++
-	}
-	return s[:frontEnd] + notice(removedLines, len(removed)) + s[backStart:], true
 }
 
 // formatDuration renders a wall-clock duration at a precision a human reads

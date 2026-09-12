@@ -53,9 +53,8 @@ be expensive.
 
 A spike that reads forty files is not a spike. The time box is the point.
 
-- **Delegate breadth.** If answering means sweeping the codebase, invoke
-  `codebase-tour` rather than doing the sweep in your own context. If it means
-  looking something up outside the repo, invoke `web-researcher`.
+- **Research directly.** Read relevant code and authoritative web sources. If
+  the investigation needs a broad sweep, recommend Research.
 - **Do not read `.aiteam/` archives.** Other sessions are out of bounds — see the
   boundary rule in `.claude/modes/session.md`. "Has anyone looked at this before?"
   is not a reason to go looking.

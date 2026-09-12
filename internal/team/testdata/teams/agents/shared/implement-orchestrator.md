@@ -165,8 +165,8 @@ with no team instructions, the full tool surface, and no idea that
 `go-implementation-engineer` at all; the reports read `DONE`, so nothing looked
 wrong. The roster is: `go-implementation-engineer`, `go-unit-test-engineer`,
 `go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
-`proxy-product-owner`, `codebase-tour`,
-`requirements-engineer`, `web-researcher`.
+`proxy-product-owner`,
+`requirements-engineer`.
 
 `subagent_type` carries an agent name and nothing else — never a note, a
 placeholder, or an aside to yourself. A run on #33 passed

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -22,7 +23,10 @@ type RunStatus string
 
 // The run statuses.
 const (
-	// RunRunning is set when the row is allocated, before the subprocess
+	// RunPrelaunch owns an ordinal but has not crossed the launch boundary.
+	RunPrelaunch RunStatus = "prelaunch"
+
+	// RunRunning marks the execution boundary (or legacy direct allocation), before the subprocess
 	// starts.
 	RunRunning RunStatus = "running"
 	// RunSucceeded means claude exited zero and emitted a terminal result
@@ -145,16 +149,24 @@ type Run struct {
 	// ResultCommentID is the forge id of the report comment; 0 until it is
 	// posted.
 	ResultCommentID int64
+	// Published records whether CommitSHA was verified on the remote, and
+	// Publication is the sentence the report renders for it. Both are durable
+	// because a report whose post fails is rebuilt from this row on a later
+	// tick: the push was verified once, and re-deriving it later would answer
+	// a different question. Historical rows are false and "".
+	Published   bool
+	Publication string
 	// SyncOutcome, SyncBehind, SyncAhead and SyncCommitSHA are the
 	// base-branch auto-sync result [DB.RecordRunSync] recorded for this run
 	// (US-9). SyncOutcome is "" for a run written before that column existed,
 	// or one no sync attempt was ever recorded against. SyncCommitSHA is ""
 	// unless SyncOutcome is [SyncSynced] and the merge actually moved the
 	// branch.
-	SyncOutcome   SyncOutcome
-	SyncBehind    int
-	SyncAhead     int
-	SyncCommitSHA string
+	SyncObservations []SyncObservation
+	SyncOutcome      SyncOutcome
+	SyncBehind       int
+	SyncAhead        int
+	SyncCommitSHA    string
 }
 
 // Duration returns the run's wall-clock duration, and false while it is still
@@ -200,6 +212,9 @@ func (r Run) Succeeded() bool {
 
 // AllocateRunParams describes the run to allocate.
 type AllocateRunParams struct {
+	// Prelaunch makes allocation retryable until StartRun claims execution.
+	Prelaunch bool
+
 	// SessionID is the task.
 	SessionID int64
 	// SegmentID is the conversation, from [DB.GetOrCreateSegment].
@@ -267,6 +282,10 @@ func (db *DB) AllocateRun(ctx context.Context, params AllocateRunParams) (Run, e
 		startedAt = nowUTC()
 	}
 
+	status := RunRunning
+	if params.Prelaunch {
+		status = RunPrelaunch
+	}
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if IsAutomaticTrigger(params.TriggerCommentID) {
@@ -294,11 +313,11 @@ INSERT INTO runs (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+runColumns,
 			params.SessionID, params.SegmentID, ordinal, params.Mode, params.Agent,
-			params.TriggerCommentID, string(RunRunning), FormatTime(startedAt), logPath))
+			params.TriggerCommentID, string(status), FormatTime(startedAt), logPath))
 		if isUniqueViolation(err) {
 			return ErrDuplicateRun
 		}
-		if err == nil && IsAutomaticTrigger(params.TriggerCommentID) {
+		if err == nil && !params.Prelaunch && IsAutomaticTrigger(params.TriggerCommentID) {
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
 		}
 		return err
@@ -403,6 +422,22 @@ func (db *DB) SetRunCommit(ctx context.Context, runID int64, commitSHA string) e
 	return requireAffected(res, fmt.Sprintf("store: set commit on run %d", runID))
 }
 
+// SetRunPublication records whether this run's commit reached the remote, and
+// the sentence the report renders for it.
+//
+// It is separate from [DB.SetRunCommit] because the two facts are established
+// at different moments and a run can have one without the other: a run that
+// committed nothing still has publication text ("not published by this run"),
+// and a commit is recorded even when the push that followed it failed.
+func (db *DB) SetRunPublication(ctx context.Context, runID int64, published bool, publication string) error {
+	res, err := db.sql.ExecContext(ctx,
+		`UPDATE runs SET published = ?, publication = ? WHERE id = ?`, published, publication, runID)
+	if err != nil {
+		return fmt.Errorf("store: set publication on run %d: %w", runID, err)
+	}
+	return requireAffected(res, fmt.Sprintf("store: set publication on run %d", runID))
+}
+
 // RunSyncOutcome is what [DB.RecordRunSync] writes onto a run row: the
 // outcome [syncBase] (internal/turn) reached for the task branch, the
 // divergence it was measured from, and the merge commit when one was
@@ -477,51 +512,40 @@ RETURNING `+runColumns,
 // and re-advances the watermark, which is what should happen if the post
 // succeeded but this transaction did not.
 func (db *DB) CompleteRunReport(ctx context.Context, runID, resultCommentID int64) (Run, error) {
-	if resultCommentID == 0 {
+	if resultCommentID <= 0 {
 		return Run{}, errors.New("store: complete run report: result comment id is required")
 	}
-
 	var run Run
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		current, err := scanRun(tx.QueryRowContext(ctx,
-			`SELECT `+runColumns+` FROM runs WHERE id = ?`, runID))
-		if err != nil {
-			return err
-		}
-		switch current.Status {
-		case RunSucceeded, RunFailed, RunReported:
-		case RunRunning:
-			return errors.New("run has not finished: finish it before reporting it")
-		default:
-			return fmt.Errorf("run is in unknown status %q", current.Status)
-		}
-
-		run, err = scanRun(tx.QueryRowContext(ctx, `
-UPDATE runs SET status = ?, result_comment_id = ? WHERE id = ?
-RETURNING `+runColumns,
-			string(RunReported), resultCommentID, runID))
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET announcement_comment_id = ? WHERE source_run_id = ?`, resultCommentID, runID); err != nil {
-			return err
-		}
-		// Factory-private schedule triggers had their source comments consumed
-		// when scheduling was acknowledged, so advancing a
-		// watermark with one would be both meaningless and unsafe.
-		refinement, err := consumeRefinement(ctx, tx, run.SessionID, run.TriggerCommentID)
-		if err != nil {
-			return fmt.Errorf("consume story refinement: %w", err)
-		}
-		if !refinement && !IsScheduleTrigger(run.TriggerCommentID) && !IsAutomaticTrigger(run.TriggerCommentID) {
-			if _, err := advanceWatermark(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
-				return fmt.Errorf("advance watermark: %w", err)
-			}
-		}
-		return nil
+		var err error
+		run, err = completeRunReportTx(ctx, tx, runID, resultCommentID)
+		return err
 	})
 	if err != nil {
 		return Run{}, fmt.Errorf("store: complete report for run %d: %w", runID, err)
+	}
+	return run, nil
+}
+
+// completeRunReportTx also participates in durable delivery completion, so all
+// acknowledgments share one transaction instead of nesting single-pool calls.
+func completeRunReportTx(ctx context.Context, tx *sql.Tx, runID, resultCommentID int64) (Run, error) {
+	current, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id=?`, runID))
+	if err != nil {
+		return Run{}, err
+	}
+	if !current.Reportable() {
+		return Run{}, errors.New("run has not finished: finish it before reporting it")
+	}
+	run, err := scanRun(tx.QueryRowContext(ctx, `UPDATE runs SET status=?,result_comment_id=? WHERE id=? RETURNING `+runColumns, string(RunReported), resultCommentID, runID))
+	if err != nil {
+		return Run{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE automatic_continuations SET announcement_comment_id=? WHERE source_run_id=?`, resultCommentID, runID); err != nil {
+		return Run{}, err
+	}
+	if err := consumeReportSource(ctx, tx, run.SessionID, run.TriggerCommentID); err != nil {
+		return Run{}, err
 	}
 	return run, nil
 }
@@ -696,7 +720,7 @@ RETURNING `+runColumns,
 		for _, item := range scheduled {
 			run, runErr := scanRun(tx.QueryRowContext(ctx,
 				`SELECT `+runColumns+` FROM runs WHERE session_id = ? AND trigger_comment_id = ?`, item.SessionID, item.TriggerID()))
-			if errors.Is(runErr, ErrNotFound) {
+			if errors.Is(runErr, ErrNotFound) || (runErr == nil && run.Status == RunPrelaunch) {
 				if _, err := tx.ExecContext(ctx, `UPDATE schedules SET status = ?, started_at = NULL, updated_at = ? WHERE id = ? AND status = ?`,
 					string(SchedulePending), FormatTime(now), item.ID, string(ScheduleRunning)); err != nil {
 					return fmt.Errorf("requeue abandoned schedule %d: %w", item.ID, err)
@@ -820,32 +844,38 @@ const runColumns = `
     id, session_id, segment_id, ordinal, mode, agent, trigger_comment_id, status,
     exit_code, error, started_at, finished_at, duration_ms, cost_usd,
     log_path, commit_sha, result_comment_id, sync_outcome, sync_behind,
-    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason`
+    sync_ahead, sync_commit_sha, semantic_outcome, recovery_reason, sync_observations,
+    published, publication`
 
 func scanRun(s scanner) (Run, error) {
 	var (
-		run             Run
-		status          string
-		exitCode        sql.NullInt64
-		reason          sql.NullString
-		startedAt       sql.NullString
-		finishedAt      sql.NullString
-		durationMS      sql.NullInt64
-		costUSD         sql.NullFloat64
-		commitSHA       sql.NullString
-		resultCommentID sql.NullInt64
-		syncOutcome     string
-		syncCommitSHA   sql.NullString
+		run              Run
+		status           string
+		exitCode         sql.NullInt64
+		reason           sql.NullString
+		startedAt        sql.NullString
+		finishedAt       sql.NullString
+		durationMS       sql.NullInt64
+		costUSD          sql.NullFloat64
+		commitSHA        sql.NullString
+		resultCommentID  sql.NullInt64
+		syncOutcome      string
+		syncObservations string
+		syncCommitSHA    sql.NullString
 	)
 	err := s.Scan(&run.ID, &run.SessionID, &run.SegmentID, &run.Ordinal, &run.Mode, &run.Agent,
 		&run.TriggerCommentID, &status, &exitCode, &reason, &startedAt, &finishedAt,
 		&durationMS, &costUSD, &run.LogPath, &commitSHA, &resultCommentID, &syncOutcome,
-		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason)
+		&run.SyncBehind, &run.SyncAhead, &syncCommitSHA, &run.SemanticOutcome, &run.RecoveryReason, &syncObservations,
+		&run.Published, &run.Publication)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Run{}, ErrNotFound
 		}
 		return Run{}, err
+	}
+	if err := json.Unmarshal([]byte(syncObservations), &run.SyncObservations); err != nil {
+		return Run{}, fmt.Errorf("decode synchronization observations: %w", err)
 	}
 	run.Status = RunStatus(status)
 	run.ExitCode = scanInt(exitCode)

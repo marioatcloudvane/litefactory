@@ -23,6 +23,17 @@ func (n StoryProgressNotice) Marker() string {
 }
 
 // RenderStoryProgress revalidates identities and frames evidence before redaction.
+//
+// The rendered body no longer prints the run number, generation, event/
+// sequence number, approved revision hash or implementation digest: those are
+// factory bookkeeping that made the thread read like a build log rather than
+// a story update. They are still validated exactly as strictly as before —
+// n.Generation, n.RunID, n.EffectID and n.Revision are still checked below,
+// and n.ImplementationDigest is still required and pattern-checked for
+// engineering_complete and verified — because [StoryProgressNotice.Marker]
+// still keys on Parent, RunID and EffectID for recovery/dedup, and a body
+// whose identities were never validated could carry a digest recovery later
+// trusts without ever having proven it was genuine.
 func (r *Reporter) RenderStoryProgress(ctx context.Context, n StoryProgressNotice) (redact.Body, error) {
 	if err := n.Parent.Validate(); err != nil {
 		return redact.Body{}, err
@@ -54,7 +65,7 @@ func (r *Reporter) RenderStoryProgress(ctx context.Context, n StoryProgressNotic
 	// Indented lines keep arbitrary evidence inside a code block; it cannot add a
 	// forged marker at column zero or impersonate the surrounding factory prose.
 	detail := strings.ReplaceAll(strings.ReplaceAll(n.Detail, "\r", ""), "\n", "\n    ")
-	body := fmt.Sprintf("Story %s — %s\n\nParent: https://github.com/%s/%s/issues/%d; run %d; generation %d; event %d; approved revision `%s`.\n\nValidated implementation digest: `%s`.\n\n    %s\n\n%s", n.Story, state, n.Parent.Owner, n.Parent.Repo, n.Parent.Issue, n.RunID, n.Generation, n.Sequence, n.Revision, n.ImplementationDigest, detail, n.Marker())
+	body := fmt.Sprintf("Story %s — %s\n\nParent: https://github.com/%s/%s/issues/%d.\n\n    %s\n\n%s", n.Story, state, n.Parent.Owner, n.Parent.Repo, n.Parent.Issue, detail, n.Marker())
 	out, err := r.redactor.Apply(ctx, body, r.limit)
 	if err != nil {
 		return redact.Body{}, err

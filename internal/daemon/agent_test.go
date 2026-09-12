@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -188,8 +189,8 @@ func TestMalformedAgentLabelReplyNeverEchoesInjectedText(t *testing.T) {
 			if strings.Contains(body, tc.value) {
 				t.Errorf("the reply echoed the raw label value %q:\n%s", tc.value, body)
 			}
-			if strings.Count(body, turn.MarkerPrefix) != 1 {
-				t.Errorf("the reply carries %d lf: markers, want exactly its own one:\n%s",
+			if strings.Count(body, turn.MarkerPrefix) != 2 || !strings.Contains(body, "<!-- lf:reply task="+f.session().TaskRef+" -->") || !regexp.MustCompile(`<!-- lf:delivery v=1 key=[0-9a-f]{64} -->`).MatchString(body) {
+				t.Errorf("the reply carries %d lf: markers, want exactly its own reply and durable delivery markers:\n%s",
 					strings.Count(body, turn.MarkerPrefix), body)
 			}
 			if strings.Contains(body, "@everyone") {

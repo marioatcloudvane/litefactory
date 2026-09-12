@@ -184,7 +184,7 @@ func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID 
 	var faults []error
 	complete := true
 	for _, r := range runs {
-		if r.Parent != parent {
+		if r.Parent != parent || r.Status == store.RunPrelaunch {
 			continue
 		}
 		if err := p.ingest(ctx, r); err != nil {

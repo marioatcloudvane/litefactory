@@ -472,6 +472,7 @@ func DefaultClaude() Claude {
 	return Claude{
 		Binary: DefaultClaudeBinary, ModelTier: TierBalanced,
 		AutoCompact: DefaultClaudeAutoCompact, Tools: defaultTools(),
+		ToolCeiling:  append(defaultTools(), "WebSearch", "WebFetch"),
 		AllowedTools: defaultAllowedTools(), TimeoutSeconds: DefaultClaudeTimeoutSeconds,
 	}
 }
@@ -499,6 +500,8 @@ func DefaultToolProfiles() ToolProfiles {
 		"Bash(git rev-parse:*)", "Bash(git ls-tree:*)", "Bash(git merge-base:*)", "Bash(git rev-list:*)",
 		"Bash(mkdir:*)",
 	}
+	researchTools := append(slices.Clone(artifactTools), "Edit", "WebSearch", "WebFetch")
+	researchAllowed := append(slices.Clone(artifactAllowed), "Edit", "WebSearch", "WebFetch")
 	// Claude's --allowedTools is additive to ambient permissions, so Bash
 	// cannot be made read-only with command qualifiers. Codex Validate retains
 	// shell verification through its independently enforced read-only sandbox.
@@ -512,7 +515,7 @@ func DefaultToolProfiles() ToolProfiles {
 		}
 	}
 	return ToolProfiles{Permissions: map[string]ToolProfile{
-		"research":  profile(artifactTools, artifactAllowed, "workspace-write", true),
+		"research":  profile(researchTools, researchAllowed, "workspace-write", true),
 		"plan":      profile(artifactTools, artifactAllowed, "workspace-write", true),
 		"implement": profile(implementTools, implementAllowed, "workspace-write", false),
 		"validate":  profile(readTools, readAllowed, "read-only", false),
@@ -679,6 +682,8 @@ func defaultConfiguredAgents(data []byte, cfg *Config) []Kind {
 			switch root.Content[i+1].Content[j].Value {
 			case "claude":
 				defaults := DefaultClaude()
+				// Omitted ceilings retain the operator tools as their upper bound.
+				defaults.ToolCeiling = nil
 				cfg.Agents.Claude = &defaults
 				order = append(order, KindClaude)
 			case "codex":

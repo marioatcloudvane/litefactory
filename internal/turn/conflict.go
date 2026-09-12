@@ -245,7 +245,8 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	}
 
 	resolution, err := advisor.ProposeConflictResolution(ctx, agent.ConflictResolutionRequest{
-		Branch: sr.branch, Base: sr.base, Files: conflictAdvisorFiles(sr.snapshots),
+		BaseInputRef: sr.inputs.BaseRef, BaseInputSHA: sr.inputs.BaseSHA, TaskInputRef: sr.inputs.TaskRef, TaskInputSHA: sr.inputs.TaskSHA, InputsObserved: sr.inputs.Observed,
+		Branch: sr.branch, Base: sr.base, TargetPhase: sr.inputs.TargetPhase, TargetRef: sr.inputs.TargetRef, LocalSHA: sr.branchSHA, TargetSHA: sr.baseSHA, Files: conflictAdvisorFiles(sr.snapshots),
 	})
 	if err != nil {
 		logger.Warn("conflict-resolution advisor failed", slog.Any("error", err))
@@ -281,7 +282,10 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 		return result
 	}
 
-	preview, previewErr := opts.ConflictPreviewer.PrepareConflictPreview(ctx, result.Ref, rawConflictPreview(validated, string(req.Agent), sr.branchSHA))
+	rawPreview := rawConflictPreview(validated, string(req.Agent), sr.branchSHA)
+	rawPreview.TargetPhase, rawPreview.TargetRef, rawPreview.TargetSHA = sr.inputs.TargetPhase, sr.inputs.TargetRef, sr.baseSHA
+	rawPreview.BaseRef, rawPreview.BaseSHA, rawPreview.TaskRef, rawPreview.TaskSHA = sr.inputs.BaseRef, sr.inputs.BaseSHA, sr.inputs.TaskRef, sr.inputs.TaskSHA
+	preview, previewErr := opts.ConflictPreviewer.PrepareConflictPreview(ctx, result.Ref, rawPreview)
 	if previewErr != nil {
 		result.ConflictSuggestionFailed = true
 		result.ConflictSuggestionReason = previewErr.Error()
@@ -297,7 +301,7 @@ func attemptConflictSuggestion(ctx context.Context, opts Options, req Request, r
 	proposal, _, err := opts.DB.CreateOrGetConflictProposal(ctx, store.CreateConflictProposalParams{
 		SessionID: result.SessionID, TriggerCommentID: result.TriggerCommentID,
 		Model: string(req.Agent), Files: storeFiles, Format: store.ConflictRegionFormat,
-		BaseSHA: sr.baseSHA, BranchSHA: sr.branchSHA,
+		BaseSHA: sr.baseSHA, BranchSHA: sr.branchSHA, Inputs: sr.inputs,
 	})
 	if err != nil {
 		logger.Warn("could not persist the conflict-resolution proposal", slog.Any("error", err))

@@ -164,6 +164,7 @@ func TestPersistentModeReportRetryAfterRestart(t *testing.T) {
 	}
 	assertRetentionLabels(t, f, "Mode: Plan")
 	f.forge.onPostComment = nil
+	f.restorePendingReport(501)
 	f.daemon = retentionDaemon(t, f, &retentionClassifier{})
 	if _, err := f.daemon.Start(t.Context()); err != nil {
 		t.Fatal(err)
@@ -171,7 +172,10 @@ func TestPersistentModeReportRetryAfterRestart(t *testing.T) {
 	f.settle()
 	assertRetentionLabels(t, f, "Mode: Plan")
 	assertRetiredSelection(t, f, 501)
-	if runs := f.runs(); len(runs) != 1 || runs[0].Status != store.RunReported || f.watermark() != 501 {
+	if got := f.turns.triggers(); len(got) != 1 || got[0] != 501 {
+		t.Fatalf("report recovery changed execution history: %v", got)
+	}
+	if runs := f.runs(); len(runs) != 1 || runs[0].Status != store.RunReported || f.watermark() < 501 {
 		t.Fatalf("runs=%+v watermark=%d", runs, f.watermark())
 	}
 }

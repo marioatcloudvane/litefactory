@@ -1,0 +1,20 @@
+$ go test -race -cover ./internal/daemon -run '^(TestAutomaticCancellationNoticeRetriesUntilConfirmed|TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark|TestRecoveryLifecycleBothRealCLIRunners|TestRecoveryCleanupResolvesAfterSourceAlreadyConsumed)$' -count=1 -v
+=== RUN   TestAutomaticCancellationNoticeRetriesUntilConfirmed
+--- PASS: TestAutomaticCancellationNoticeRetriesUntilConfirmed (1.18s)
+=== RUN   TestRecoveryLifecycleBothRealCLIRunners
+=== RUN   TestRecoveryLifecycleBothRealCLIRunners/claude
+=== RUN   TestRecoveryLifecycleBothRealCLIRunners/codex
+=== RUN   TestRecoveryLifecycleBothRealCLIRunners/three_automatic_limits
+--- PASS: TestRecoveryLifecycleBothRealCLIRunners (18.44s)
+    --- PASS: TestRecoveryLifecycleBothRealCLIRunners/claude (4.54s)
+    --- PASS: TestRecoveryLifecycleBothRealCLIRunners/codex (8.68s)
+    --- PASS: TestRecoveryLifecycleBothRealCLIRunners/three_automatic_limits (5.21s)
+=== RUN   TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark
+--- PASS: TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark (1.08s)
+=== RUN   TestRecoveryCleanupResolvesAfterSourceAlreadyConsumed
+--- PASS: TestRecoveryCleanupResolvesAfterSourceAlreadyConsumed (1.20s)
+PASS
+coverage: 39.9% of statements
+ok  	github.com/cloudvane/litefactory/internal/daemon	23.779s	coverage: 39.9% of statements
+
+Exit status: 0

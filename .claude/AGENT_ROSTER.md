@@ -7,7 +7,6 @@ Generated for the `go-backend` lightweight team. Read by `proxy-product-owner` b
 | `research-orchestrator` | research-orchestrator | `agents/research-orchestrator.md` | Orchestrates Research mode — produces `RESEARCH_BRIEF.md` |
 | `plan-orchestrator` | plan-orchestrator | `agents/plan-orchestrator.md` | Orchestrates Plan mode — produces `plan_brief.md` plus one sub-issue per user story |
 | `implement-orchestrator` | implement-orchestrator | `agents/implement-orchestrator.md` | Orchestrates versioned engineering + executed tests; legacy review gates retained |
-| `codebase-tour` | codebase-tour | `agents/codebase-tour.md` | Two-pass codebase exploration for Research mode |
 | `requirements-engineer` | requirements | `agents/requirements-engineer.md` | Runs the Plan-mode requirements conversation, writes `feature-spec.md` |
 | `proxy-product-owner` | product-owner | `agents/proxy-product-owner.md` | Breaks `feature-spec.md` into user stories + tasks |
 | `go-architect` | architect | `agents/go-architect.md` | Structural/architectural guidance for Go backend tasks — no code |

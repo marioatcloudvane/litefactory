@@ -2,8 +2,10 @@ package git
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Push publishes the worktree's branch to remote.
@@ -165,3 +167,30 @@ func (e *PushError) Error() string {
 }
 
 func (e *PushError) Unwrap() error { return e.Err }
+
+// RemoteHead observes the server's exact task tip without relying on cached
+// tracking refs or modifying any local ref. An empty SHA means confirmed absence.
+func (w *Worktree) RemoteHead(ctx context.Context, remote string) (string, error) {
+	if err := w.check(); err != nil {
+		return "", err
+	}
+	if err := checkName("remote", remote); err != nil {
+		return "", err
+	}
+	ref := "refs/heads/" + w.branch
+	out, err := w.runner.run(ctx, fetchTimeout, "ls-remote", "--refs", "--", remote, ref)
+	if err != nil {
+		return "", fmt.Errorf("observe remote task tip: %w", err)
+	}
+	if out == "" {
+		return "", nil
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 || fields[1] != ref || (len(fields[0]) != 40 && len(fields[0]) != 64) {
+		return "", fmt.Errorf("unexpected remote task observation for %s", ref)
+	}
+	if _, err := hex.DecodeString(fields[0]); err != nil {
+		return "", fmt.Errorf("invalid remote task object ID: %w", err)
+	}
+	return fields[0], nil
+}

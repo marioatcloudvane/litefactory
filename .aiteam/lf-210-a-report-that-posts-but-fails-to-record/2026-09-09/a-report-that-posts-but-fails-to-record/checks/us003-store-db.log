@@ -1,0 +1,2 @@
+Command: go test -race -cover ./internal/store -run '^TestReportRecovery' -timeout 180s
+ok  	github.com/cloudvane/litefactory/internal/store	5.477s	coverage: 7.7% of statements

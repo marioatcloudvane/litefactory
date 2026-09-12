@@ -129,7 +129,7 @@ func confirmationRefusalReply(refusal turn.ConfirmationRefusal) (kind report.Rep
 // post-before-consume discipline [Daemon.replySchedule] already gives its
 // own factory-owned control (CONC-4).
 func (d *Daemon) replyConfirm(ctx context.Context, t *task, c github.Comment, kind report.ReplyKind, reply report.ConfirmReply, log *slog.Logger) error {
-	posted, err := d.reporter.ReportReply(ctx, turn.ReplyRequest{
+	posted, err := d.reportReply(ctx, turn.ReplyRequest{
 		Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID,
 		ConfirmKind: kind, Confirm: reply,
 	})

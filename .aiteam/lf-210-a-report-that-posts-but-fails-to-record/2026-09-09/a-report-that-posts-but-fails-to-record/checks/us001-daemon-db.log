@@ -1,0 +1,14 @@
+Command: go test -race -cover ./internal/daemon -run '^Test(StoppedResult(SQLite|Startup|Scheduled|Continuation)|StartReportsAnAbandonedRunAndDoesNotRerunIt)' -count=1 -v
+=== RUN   TestStartReportsAnAbandonedRunAndDoesNotRerunIt
+--- PASS: TestStartReportsAnAbandonedRunAndDoesNotRerunIt (1.96s)
+=== RUN   TestStoppedResultSQLiteOutageRecoversWithoutRelaunch
+--- PASS: TestStoppedResultSQLiteOutageRecoversWithoutRelaunch (1.85s)
+=== RUN   TestStoppedResultStartupPreservesPrelaunchAllocation
+--- PASS: TestStoppedResultStartupPreservesPrelaunchAllocation (0.88s)
+=== RUN   TestStoppedResultScheduledPrelaunchRemainsRetryable
+--- PASS: TestStoppedResultScheduledPrelaunchRemainsRetryable (1.31s)
+=== RUN   TestStoppedResultContinuationPrelaunchRemainsRetryable
+--- PASS: TestStoppedResultContinuationPrelaunchRemainsRetryable (0.99s)
+PASS
+coverage: 40.1% of statements
+ok  	github.com/cloudvane/litefactory/internal/daemon	8.770s	coverage: 40.1% of statements

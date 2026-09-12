@@ -13,6 +13,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/report"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -190,6 +191,8 @@ type Options struct {
 
 	// Reporter posts reports and replies and consumes comments. Required.
 	Reporter Reporter
+	// DiagnosticRedactor uses the already resolved token/environment hygiene.
+	DiagnosticRedactor *redact.Redactor
 
 	// ProposalGenerator may be nil when the configured coding tool has no
 	// bounded schedule-advice adapter. --propose then receives an immediate
@@ -357,9 +360,14 @@ type Daemon struct {
 	now          func() time.Time
 	ticks        <-chan time.Time
 
-	backoff  backoff
-	inflight inflight
-	pool     *pool
+	discovery          discoveryBudget
+	backoff            backoff
+	inflight           inflight
+	stoppedDebt        stoppedResults
+	recoveries         reportRecoveryCache
+	prepFailures       prepareFailures
+	diagnosticRedactor *redact.Redactor
+	pool               *pool
 
 	// lastRepoID and repoSessionCursor are the two levels of the dispatch
 	// rotation (RD-1): the repository the last dispatch came from, and per
@@ -419,6 +427,7 @@ func New(opts Options) (*Daemon, error) {
 		filter:                   opts.Filter,
 		turn:                     opts.Turn,
 		reporter:                 opts.Reporter,
+		diagnosticRedactor:       opts.DiagnosticRedactor,
 		proposals:                opts.ProposalGenerator,
 		confirmer:                opts.Confirmer,
 		conflictProposalTTL:      opts.ConflictProposalTTL,
@@ -501,6 +510,8 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		return Reconciled{}, fmt.Errorf("reconcile what a previous daemon left behind: %w", err)
 	}
 
+	d.refreshRecoveries(ctx, time.Time{})
+
 	for _, lock := range reconciliation.ReclaimedLocks {
 		// AC-3.2: the reclaim is logged. A lock silently taken from another
 		// instance is how two daemons end up in the same worktree.
@@ -562,7 +573,7 @@ func (d *Daemon) reportAbandoned(ctx context.Context, run store.Run) bool {
 		return false
 	}
 
-	posted, err := d.reporter.ReportRun(ctx, turn.RunReport{
+	posted, err := d.reportRun(ctx, turn.RunReport{
 		Run: report.Run{
 			Ref:     ref,
 			Ordinal: run.Ordinal,
@@ -575,6 +586,9 @@ func (d *Daemon) reportAbandoned(ctx context.Context, run store.Run) bool {
 		RunID:     run.ID,
 	})
 	if err != nil {
+		if isRecoveryPending(err) {
+			return false
+		}
 		log.ErrorContext(ctx, "could not post the failure comment for an abandoned run; "+
 			"it stays unreported and its comment stays unconsumed, so the next tick that sees "+
 			"this issue reports it without running claude again",
@@ -718,6 +732,9 @@ func (d *Daemon) loop(ctx context.Context, ticks <-chan time.Time) {
 				return
 			}
 			if _, err := d.Tick(ctx); err != nil {
+				if isRecoveryPending(err) {
+					continue
+				}
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
 				}

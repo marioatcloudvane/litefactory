@@ -1,0 +1,8 @@
+# github.com/cloudvane/litefactory/internal/daemon [github.com/cloudvane/litefactory/internal/daemon.test]
+internal/daemon/report_recovery_internal_test.go:54:40: posted.Consumed undefined (type turn.Posted has no field or method Consumed)
+internal/daemon/report_recovery_internal_test.go:100:133: unknown field Consumed in struct literal of type turn.Posted
+internal/daemon/report_recovery_internal_test.go:101:27: result.Consumed undefined (type turn.Posted has no field or method Consumed)
+internal/daemon/report_recovery_internal_test.go:134:83: unknown field Consumed in struct literal of type turn.Posted
+internal/daemon/report_recovery_internal_test.go:140:29: posted.Consumed undefined (type turn.Posted has no field or method Consumed)
+FAIL	github.com/cloudvane/litefactory/internal/daemon [build failed]
+FAIL

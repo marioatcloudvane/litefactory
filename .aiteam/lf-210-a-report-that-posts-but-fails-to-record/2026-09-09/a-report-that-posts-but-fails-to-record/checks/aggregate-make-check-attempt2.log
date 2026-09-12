@@ -1,0 +1,134 @@
+Command: GOLANGCI_LINT_CACHE=/private/tmp/lf210-golangci-cache make check
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=20m ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.595s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.616s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.272s
+ok  	github.com/cloudvane/litefactory/internal/cli	307.372s
+ok  	github.com/cloudvane/litefactory/internal/codex	59.406s
+ok  	github.com/cloudvane/litefactory/internal/config	8.270s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.362s
+--- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText (7.83s)
+    --- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText/markdown (1.28s)
+        agent_test.go:192: the reply carries 2 lf: markers, want exactly its own one:
+            <!-- lf:reply task=github:acme/acme-api#123 -->
+            
+            The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+            
+            Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label text is not repeated here on purpose.
+            
+            _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+            
+            
+            <!-- lf:delivery v=1 key=432849c473b42ebb625ef392ca77182040ad91aced1274d23bbd96d3a930a714 -->
+    --- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText/an_html_comment (1.83s)
+        agent_test.go:192: the reply carries 2 lf: markers, want exactly its own one:
+            <!-- lf:reply task=github:acme/acme-api#123 -->
+            
+            The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+            
+            Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label text is not repeated here on purpose.
+            
+            _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+            
+            
+            <!-- lf:delivery v=1 key=432849c473b42ebb625ef392ca77182040ad91aced1274d23bbd96d3a930a714 -->
+    --- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText/a_second_lf_marker (1.71s)
+        agent_test.go:192: the reply carries 2 lf: markers, want exactly its own one:
+            <!-- lf:reply task=github:acme/acme-api#123 -->
+            
+            The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+            
+            Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label text is not repeated here on purpose.
+            
+            _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+            
+            
+            <!-- lf:delivery v=1 key=432849c473b42ebb625ef392ca77182040ad91aced1274d23bbd96d3a930a714 -->
+    --- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText/a_mention (1.65s)
+        agent_test.go:192: the reply carries 2 lf: markers, want exactly its own one:
+            <!-- lf:reply task=github:acme/acme-api#123 -->
+            
+            The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+            
+            Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label text is not repeated here on purpose.
+            
+            _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+            
+            
+            <!-- lf:delivery v=1 key=432849c473b42ebb625ef392ca77182040ad91aced1274d23bbd96d3a930a714 -->
+    --- FAIL: TestMalformedAgentLabelReplyNeverEchoesInjectedText/an_embedded_newline (1.35s)
+        agent_test.go:192: the reply carries 2 lf: markers, want exactly its own one:
+            <!-- lf:reply task=github:acme/acme-api#123 -->
+            
+            The `Coding Agent: …` label on this issue does not name a usable coding-agent tool. Nothing was run: litefactory refuses a run it cannot resolve the coding-agent tool for rather than falling back to a different one.
+            
+            Use exactly `Coding Agent: Claude` or `Coding Agent: Codex`. The label text is not repeated here on purpose.
+            
+            _Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+            
+            
+            <!-- lf:delivery v=1 key=432849c473b42ebb625ef392ca77182040ad91aced1274d23bbd96d3a930a714 -->
+--- FAIL: TestAnUnconsumedCommentLeavesTheBacklogFlagSet (1.35s)
+    backlog_test.go:143: watermark is 0 after the retry, want 212
+--- FAIL: TestAutomaticCancellationNoticeRetriesUntilConfirmed (2.45s)
+    continuation_admission_test.go:218: confirmed notice remains pending: [{ID:1 SourceRunID:1 RootRunID:1 SessionID:1 SegmentID:1 Attempt:1 Origin:session_limit DueAt:2026-08-24 10:00:06 +0000 UTC ResetBound:2026-08-24 09:59:06 +0000 UTC Precision:exact Context:{Task:github:acme/acme-api#123 Worktree:/saved/worktree Agent:claude Mode:spike Request:original request ResumeIdentity:d3ece914-438d-584f-a110-fa6b77f31645 SessionRef:d3ece914-438d-584f-a110-fa6b77f31645 SegmentOrdinal:1 OwnerCommentID:42 ApprovedGeneration:0} PrerequisiteID:0 Status:cancelled AllocatedRunID:0 ReservedAt:0001-01-01 00:00:00 +0000 UTC FinishedAt:2026-08-24 09:00:09 +0000 UTC CancellationReason:conversation reset; resume manually AnnouncementCommentID:500001 CreatedAt:2026-08-24 09:00:06 +0000 UTC}] <nil>
+--- FAIL: TestRecoveryLifecycleBothRealCLIRunners (12.38s)
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/claude (3.35s)
+        continuation_lifecycle_test.go:154: restart report={SemanticOutcome:interrupted RecoveryReason: ID:1 SessionID:1 SegmentID:1 Ordinal:1 Mode:spike Agent:claude TriggerCommentID:42 Status:failed ExitCode:0xc00086d868 Error:session quota limit reached StartedAt:2026-09-10 20:45:14.221 +0000 UTC FinishedAt:2026-09-10 20:45:14.781 +0000 UTC DurationMS:0xc00086d878 CostUSD:0xc00086d888 LogPath:/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRecoveryLifecycleBothRealCLIRunnersclaude2748197256/001/lfhome/logs/runs/github/acme/acme-api/123/0001.jsonl CommitSHA: ResultCommentID:0 SyncOutcome:up_to_date SyncBehind:0 SyncAhead:0 SyncCommitSHA:} <nil>
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/codex (6.23s)
+        continuation_lifecycle_test.go:154: restart report={SemanticOutcome:interrupted RecoveryReason: ID:1 SessionID:1 SegmentID:1 Ordinal:1 Mode:spike Agent:codex TriggerCommentID:42 Status:failed ExitCode:0xc000743888 Error:session quota limit reached StartedAt:2026-09-10 20:45:18.77 +0000 UTC FinishedAt:2026-09-10 20:45:19.163 +0000 UTC DurationMS:0xc000743898 CostUSD:<nil> LogPath:/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRecoveryLifecycleBothRealCLIRunnerscodex191680985/001/lfhome/logs/runs/github/acme/acme-api/123/0001.jsonl CommitSHA: ResultCommentID:0 SyncOutcome:up_to_date SyncBehind:0 SyncAhead:0 SyncCommitSHA:} <nil>
+    --- FAIL: TestRecoveryLifecycleBothRealCLIRunners/three_automatic_limits (2.79s)
+        continuation_lifecycle_test.go:154: restart report={SemanticOutcome:interrupted RecoveryReason: ID:1 SessionID:1 SegmentID:1 Ordinal:1 Mode:spike Agent:claude TriggerCommentID:42 Status:failed ExitCode:0xc0008b1398 Error:session quota limit reached StartedAt:2026-09-10 20:45:23.394 +0000 UTC FinishedAt:2026-09-10 20:45:23.821 +0000 UTC DurationMS:0xc0008b13a8 CostUSD:0xc0008b13b8 LogPath:/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRecoveryLifecycleBothRealCLIRunnersthree_automatic_limits490482303/001/lfhome/logs/runs/github/acme/acme-api/123/0001.jsonl CommitSHA: ResultCommentID:0 SyncOutcome:up_to_date SyncBehind:0 SyncAhead:0 SyncCommitSHA:} <nil>
+--- FAIL: TestPersistentModeReportRetryAfterRestart (1.23s)
+    mode_retention_test.go:173: journal={SessionID:1 TriggerCommentID:501 Mode:plan Label:Mode: Plan PreviousLabel: PreviousLabelRemoved:false LabelApplied:true CleanupPending:false} err=<nil>, want retired
+--- FAIL: TestModeTransitionReportRetryPreservesOwnerEdit (1.02s)
+    mode_transition_test.go:239: journal={SessionID:1 TriggerCommentID:501 Mode:implement Label:Mode: Implement PreviousLabel:Mode: Plan PreviousLabelRemoved:true LabelApplied:true CleanupPending:false} err=<nil>, want retired
+--- FAIL: TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark (1.70s)
+    recovery_announcement_test.go:60: failed post should surface an error
+--- FAIL: TestQueueStopsAtTheFirstCommentWhoseReportFailed (2.10s)
+    tick_test.go:346: turns ran for [11], want [11 11 12 13]: 11 retried, then 12 and 13
+    tick_test.go:349: watermark is 0 after the retry, want 13
+    tick_test.go:352: allocated 1 runs, want 3 — comment 11 must not run twice
+    tick_test.go:356: run 1 is "succeeded", want "reported"
+--- FAIL: TestQueueStopsWhenAPostedReportWasNotRecorded (1.03s)
+    tick_test.go:422: the orphaned comment was not logged; it is the one failure that costs a duplicate
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	447.755s
+ok  	github.com/cloudvane/litefactory/internal/git	122.925s
+ok  	github.com/cloudvane/litefactory/internal/github	7.399s
+ok  	github.com/cloudvane/litefactory/internal/gittest	7.753s
+ok  	github.com/cloudvane/litefactory/internal/harness	65.113s
+ok  	github.com/cloudvane/litefactory/internal/identity	23.815s
+ok  	github.com/cloudvane/litefactory/internal/launchd	5.974s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.377s
+ok  	github.com/cloudvane/litefactory/internal/meter	2.631s
+ok  	github.com/cloudvane/litefactory/internal/naming	3.077s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	3.589s
+ok  	github.com/cloudvane/litefactory/internal/redact	3.448s
+ok  	github.com/cloudvane/litefactory/internal/render	2.682s
+ok  	github.com/cloudvane/litefactory/internal/report	29.091s
+ok  	github.com/cloudvane/litefactory/internal/repos	11.769s
+ok  	github.com/cloudvane/litefactory/internal/schedule	2.430s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.597s
+ok  	github.com/cloudvane/litefactory/internal/store	257.101s
+ok  	github.com/cloudvane/litefactory/internal/submission	2.356s
+ok  	github.com/cloudvane/litefactory/internal/team	4.583s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	5.617s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	4.766s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	20.953s
+--- FAIL: TestInterruptionDurableBeforeAnnouncementAndReplay (10.75s)
+    --- FAIL: TestInterruptionDurableBeforeAnnouncementAndReplay/enabled/schedules (2.99s)
+        continuations_test.go:87: retry disposition=prepare_failed
+    --- FAIL: TestInterruptionDurableBeforeAnnouncementAndReplay/disabled/manual (4.10s)
+        continuations_test.go:87: retry disposition=prepare_failed
+    --- FAIL: TestInterruptionDurableBeforeAnnouncementAndReplay/missing_reset/manual (3.66s)
+        continuations_test.go:87: retry disposition=prepare_failed
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	792.201s
+FAIL
+make: *** [test] Error 1
