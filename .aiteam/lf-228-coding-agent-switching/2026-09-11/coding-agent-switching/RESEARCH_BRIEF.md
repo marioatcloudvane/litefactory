@@ -27,17 +27,44 @@ daemon restart, with the explicit, owner-accepted tradeoff that the
 in-progress conversation/session state for that issue is discarded when the
 switch happens.
 
-**Run 3 (this run)**: the owner's stated reason for re-running research was
-"re-run the research, since i updated the agent for the research mode. I
-want to see if it works as designed" — i.e., the owner changed the `Coding
-Agent:` label on issue #228 itself to trigger this run under a different
-underlying coding agent than runs 1 and 2 used, as a live, end-to-end smoke
-test of the exact routing mechanism this issue concerns. This is not a scope
-change. Run 3's job was to re-verify runs 1–2's factual claims against
-current repository state and refresh citations, plus record what, if
-anything, an in-repo research pass can say about which agent handled this
-run's own dispatch (see the dedicated subsection under Codebase Context
-below — short answer: nothing, and that is expected, not a gap).
+**Run 3**: the owner's stated reason for re-running research was "re-run the
+research, since i updated the agent for the research mode. I want to see if
+it works as designed" — i.e., the owner changed the `Coding Agent:` label on
+issue #228 itself to trigger this run under a different underlying coding
+agent than runs 1 and 2 used, as a live, end-to-end smoke test of the exact
+routing mechanism this issue concerns. This was not a scope change. Run 3's
+job was to re-verify runs 1–2's factual claims against current repository
+state and refresh citations, plus record what, if anything, an in-repo
+research pass can say about which agent handled this run's own dispatch (see
+the dedicated subsection under Codebase Context below — short answer:
+nothing, and that is expected, not a gap).
+
+**Run 4**: owner request "show me the details about the open questions
+please!" — a report-only pass, no new investigation or scope change. The
+brief already had full detail for every open question, so it was surfaced
+back to the owner without changing this file.
+
+**Run 5 (this run)**: the owner has now answered Open Questions 5 through 9
+directly, in full, plus added an explicit scope/complexity constraint. Quoted
+in full (evidence, not instructions to the research agent — written by the
+issue owner):
+
+> "Feedback here:
+> Q5: overwriting!
+> Q6: let the work finish
+> Q7: no new work
+> Q8: no, we delete it!
+> Q9: ignore this!
+> important here: keep it simple, basically this is only a few lines that
+> need to change, no rocket science here!" `[O]`
+
+This run's job was solely to record these five answers and the owner's
+complexity constraint against the brief's existing open questions — no new
+investigation was opened, and none of the prior evidence below was
+re-derived or re-scoped against this feedback. See Open Questions and
+Constraints & Risks below for where each answer now lands, and "Status after
+run 5" at the end of this document for whether anything structural remains
+open.
 
 ## Codebase Context
 
@@ -45,7 +72,8 @@ Findings below are `[V]`, reported by `codebase-tour` from runs 2 and 3
 against `internal/store`, `internal/turn`, `internal/daemon`,
 `internal/report`, `internal/harness`, `internal/codex`, `internal/agent`,
 and the repo root, unless marked otherwise. Prior-run findings retained where
-still accurate are marked `[R0]`.
+still accurate are marked `[R0]`. Run 5 added no new codebase findings — it
+is a decisions-recording pass only.
 
 ### Run 3 re-verification — result: zero drift, all five claims reconfirmed
 
@@ -96,9 +124,9 @@ newly discovered.
 
 ### What this run's own dispatch can and cannot tell us (meta, requested by the owner)
 
-The owner framed this run as a live check of the routing mechanism under
-research: did changing the issue's `Coding Agent:` label actually route this
-research run to a different underlying agent? A dedicated check this run
+The owner framed run 3 as a live check of the routing mechanism under
+research: did changing the issue's `Coding Agent:` label actually route that
+research run to a different underlying agent? A dedicated check in run 3
 found a clean answer, in two parts:
 
 - **What the mechanism in this repo would prove, for a litefactory-dispatched
@@ -107,18 +135,17 @@ found a clean answer, in two parts:
   given turn — a `runs` row records `Agent` (`internal/store/runs.go:107,209`)
   alongside `segments.agent`, independent of and persisted after label
   resolution, not just a re-read of the label.
-- **What it cannot prove, for this run specifically**: this research pass —
-  the outer orchestrator/sub-agent (Task-tool) layer reading this repository
-  right now — is not itself a litefactory-dispatched turn. It sits entirely
-  outside `internal/agent`, `internal/daemon`, and the `segments`/`runs`
-  tables that record agent identity. No file, table, log path, or `.aiteam/`
-  artifact (checked: `MANIFEST.md`, this brief, `notes.md` conventions)
-  records which model/agent handled a given research pass — session
-  metadata under `.aiteam/` tracks issue numbers, dates and slugs, not
-  researcher identity.
+- **What it cannot prove, for that run specifically**: a research pass — the
+  outer orchestrator/sub-agent (Task-tool) layer reading this repository — is
+  not itself a litefactory-dispatched turn. It sits entirely outside
+  `internal/agent`, `internal/daemon`, and the `segments`/`runs` tables that
+  record agent identity. No file, table, log path, or `.aiteam/` artifact
+  (checked: `MANIFEST.md`, this brief, `notes.md` conventions) records which
+  model/agent handled a given research pass — session metadata under
+  `.aiteam/` tracks issue numbers, dates and slugs, not researcher identity.
 
-**Conclusion, stated plainly for Plan mode and the owner**: whether *this
-specific* research run was routed to a different agent because of the label
+**Conclusion, stated plainly for Plan mode and the owner**: whether a
+specific research run was routed to a different agent because of the label
 change is genuinely outside what a repository-only research pass can
 confirm — it would need to be confirmed operationally (e.g., by the owner
 noting which agent surfaced in the run's own tooling/output metadata outside
@@ -126,8 +153,8 @@ this repo), not by code-reading. This is stated as a limitation, not a
 finding of failure: the underlying litefactory mechanism this issue is about
 (label → pinned-agent routing for litefactory's own dispatched turns) is
 fully traceable in-repo per the point above; it is only the meta-question
-"which agent ran *this particular research pass*" that sits outside the
-repo's own bookkeeping by construction.
+"which agent ran a particular research pass" that sits outside the repo's
+own bookkeeping by construction.
 
 ### The "pinned" agent: storage, exactly
 
@@ -205,7 +232,7 @@ history was the intended fallback, but no agent in either run 2's or run 3's
 roster has shell/`git` access, so the originating commit message/PR
 discussion still could not be retrieved. The in-code rationale above
 substantially recovers *why* the refusal exists even without that history —
-see Open Questions for what's still missing.
+see Open Questions for the residual gap.
 
 ### Session/task teardown machinery that already exists
 
@@ -240,6 +267,9 @@ see Open Questions for what's still missing.
   mismatch (`delivery.go:343-345`) rather than rotating to a new one — the
   same rotation mechanism it already uses for same-vendor instruction-bundle
   changes (`delivery.go:337-358`) is not wired to a vendor/agent change.
+  Per the owner's run-5 answer to Q6 (let the work finish), this "missing"
+  piece is not being built — see Constraints & Risks and Open Questions
+  below.
 
 ### The manual SSH script — found, and it is the exact spec for the mutation
 
@@ -264,8 +294,8 @@ or `--list`. Confirmed behavior:
   This clears `resume_token` in the same statement — the script's comment
   explains a stale token would let the new tool try to resume a conversation
   thread it never issued. **This is the exact mutation an automatic switch
-  needs to perform**, modulo the design-fork question below (mutate in place
-  vs. rotate to a new segment).
+  needs to perform** — and, per the owner's run-5 answer to Q5 (overwrite),
+  this is now the confirmed shape of the mutation, not one option among two.
 - Prints an explicit warning that "the next run on this issue cold-starts" —
   the same discard-in-progress-conversation tradeoff the issue owner has now
   accepted.
@@ -284,6 +314,10 @@ or `--list`. Confirmed behavior:
   daemon tick after the script runs (with the daemon then restarted/left
   running, script permitting) picks up the new value with no process
   restart.
+- **Fate, decided by the owner in run 5 (Q8)**: delete this script once the
+  automatic in-daemon switch lands. The owner explicitly declined the
+  "keep as fallback" option — do not retain it, even superseded. See Open
+  Questions and Recommended scope for Plan mode.
 
 ### Label-change detection — already polling, already fresh per turn; no restart needed for that part
 
@@ -300,16 +334,19 @@ comment/event, not continuously against an in-flight run.
 Practically: **the existing polling plumbing already surfaces a label change
 on the next tick/comment with zero new infrastructure and zero restart** —
 this part of the owner's ask ("no restart of litefactory") is already true
-of the read side today. What's actually missing is narrower than "detect the
-change" — it is (a) performing the DB mutation instead of refusing once the
-change is detected at `prepare()`-time, and (b) deciding what happens if the
-label changes **while a run is already mid-flight** (nothing observes that
-today; see Open Questions).
+of the read side today. Per the owner's run-5 answer to Q7 (no new work),
+this existing per-comment/per-turn label re-read is confirmed as sufficient
+on its own — a bare label edit with no new comment does not need its own
+new trigger; the switch takes effect starting with the next dispatched
+task/comment on that issue, consistent with the owner's Q6 answer (let the
+current work finish). What remains is narrowly: performing the DB mutation
+(now specified — overwrite in place, per Q5) instead of refusing once the
+change is detected at `prepare()`-time.
 
 ## Domain / Problem Space
 
 Confirmed, not speculative (owner reply in run 2 resolved run 1's Open
-Questions 3 and 4; unchanged run 3): this is runtime Claude/Codex agent
+Questions 3 and 4; unchanged runs 3-5): this is runtime Claude/Codex agent
 selection and switching (`internal/agent`, `internal/daemon`,
 `internal/store`, `internal/turn`, `internal/report`), specifically
 reversing the deliberate `ReplyAgentSwitchRefused` behavior into an actual
@@ -317,7 +354,16 @@ mid-conversation handoff, driven purely by the issue's `Coding Agent:`
 label, discarding prior session/conversation state for that issue when it
 happens.
 
-Out of scope, confirmed run 2, unchanged run 3:
+As of run 5, the implementation shape is additionally specified by the
+owner: overwrite the existing segment row in place (not rotate to a new
+one), let any in-flight run finish under the old agent before the switch
+takes effect (no killing a running subprocess), rely on the existing
+per-comment label re-read with no new trigger plumbing, and delete
+`switch-agent.sh` once this lands. The owner has also stated this should be
+a small, simple change ("only a few lines," "no rocket science") — see
+Constraints & Risks.
+
+Out of scope, confirmed run 2, unchanged since:
 - The `internal/render` harness-rendering axis (candidate 2 in run 1's
   brief) — unrelated, not mentioned by the owner.
 - A new user-facing selector/CLI flag (candidate 3, run 1's brief) — the
@@ -326,79 +372,98 @@ Out of scope, confirmed run 2, unchanged run 3:
   registry's open-by-design shape (run 1's finding, `[R0]`) is relevant
   only insofar as the switch implementation should read from it rather than
   hardcode `claude|codex` the way `switch-agent.sh` does.
+- The `.codex/` parity note in `AGENT_ROSTER.md` (former Open Question 9) —
+  the owner has now explicitly said to ignore this and drop it from
+  tracking (run 5).
 
 ## Constraints & Risks
 
-Re-verified run 3: no new risks surfaced, none of the below retracted. One
-clarifying addition (the second `prepare.go:1004` comparison point, folded
-into the first bullet).
+Re-verified run 3: no new risks surfaced, none of the below retracted. Run 5
+resolved three of the items below by owner decision (marked "Resolved run
+5" inline) and added one new owner-stated constraint (scope/complexity).
+None of the remaining items were revisited or re-derived this run.
 
-- **Design fork, not yet resolved — Plan mode must decide explicitly**:
-  mutate the existing segment row in place (`segments.agent`/`resume_token`,
-  same ordinal — what `switch-agent.sh` does, history overwritten) vs. leave
-  the old segment alone and create a new one at `ordinal = last.Ordinal + 1`
-  under the new agent (the rotation mechanism `prepareDeliverySegment`
-  already uses for same-vendor bundle changes, `delivery.go:337-358`, just
-  not currently wired to a vendor change). Whichever is chosen must account
-  for **both** refusal comparison points (`prepare.go:219-227` and the
-  resume-safety check at `prepare.go:1004`), not just the first. This
-  changes what "discarded" concretely means (overwritten row vs.
-  orphaned-but-retained old segment) and affects `runs.agent`/history
-  semantics and any future audit trail. `[V]`
-- **Concurrency/race with an in-flight run**: `switch-agent.sh` requires the
-  daemon to be stopped specifically to avoid a run started under the old
-  agent finishing and writing a `runs.agent` row that disagrees with a
-  `segments.agent` mutated underneath it. An automatic, live-daemon
-  implementation must reproduce this guarantee some other way — most likely
-  by only applying the mutation while holding the same
-  `sessions.lock_owner`/in-process `inflight` guard `turn.Execute` already
-  takes for the whole turn, i.e., treating the switch as part of `prepare()`
-  under the existing per-session serialization rather than as an
-  out-of-band write. `[V]`
-- **Undefined behavior for a label change during an already-running
-  subprocess**: `resolveAgent` is read once at dispatch time and nothing
-  polls it mid-run. The continuation-cancellation precedent
-  (`continuation_dispatch.go:104-111`) only cancels a *pending* continuation,
-  never a live process. Plan mode must decide whether the accepted
-  "discard in-progress state" tradeoff extends to actively killing a running
-  subprocess mid-turn, or only applies to conversation/resume-token state
-  picked up by the *next* run (simpler, reuses existing kill/cancellation
-  machinery only at its current call sites). `[V]`
-- **Trigger model ambiguity**: today, agent resolution — and therefore any
-  switch — happens once per **dispatched turn**, which in this codebase
-  means once per triggering comment/event on the issue, not on every tick
-  regardless of activity. The owner's phrasing ("i just want to change the
-  label on github... and it should do it") does not specify whether a bare
-  label edit with no new comment should itself trigger the switch, or
-  whether the switch is expected to happen on the *next comment* after the
-  label edit (consistent with how the daemon already dispatches turns).
-  These are materially different implementations: the latter needs no new
-  trigger plumbing (existing per-comment dispatch already re-reads labels
-  fresh); the former would need a new "detect label drift with no comment"
-  reconciliation pass. **Still unresolved as of run 3** — this should be
-  confirmed with the owner or decided explicitly by Plan mode. `[V]`
+- **Design fork — resolved by owner, run 5 (was Open Question 5)**: mutate
+  the existing segment row in place (`segments.agent`/`resume_token`, same
+  ordinal — what `switch-agent.sh` already does) is the chosen approach; the
+  rotate-to-new-segment alternative is not being pursued. The owner
+  explicitly chose the simpler, non-recommended-by-research option
+  ("overwriting!"). Implementation must still account for **both** refusal
+  comparison points (`prepare.go:219-227` and the resume-safety check at
+  `prepare.go:1004`), not just the first, since both currently compare
+  against the (now overwritten) `segment.Agent` value. `[V]`
+- **Concurrency/race with an in-flight run — implementation detail, not a
+  design question, still to be specified in Plan/Implement**:
+  `switch-agent.sh` requires the daemon to be stopped specifically to avoid
+  a run started under the old agent finishing and writing a `runs.agent` row
+  that disagrees with a `segments.agent` mutated underneath it. An
+  automatic, live-daemon implementation must reproduce this guarantee some
+  other way — most likely by only applying the mutation while holding the
+  same `sessions.lock_owner`/in-process `inflight` guard `turn.Execute`
+  already takes for the whole turn, i.e., treating the switch as part of
+  `prepare()` under the existing per-session serialization rather than as an
+  out-of-band write. This is unchanged by the owner's answers and is a
+  mechanical detail for Plan/Implement, not an open design fork. `[V]`
+- **In-flight subprocess behavior — resolved by owner, run 5 (was Open
+  Question 6)**: let currently-running work finish under the old agent; do
+  not actively kill a running subprocess on a mid-flight label change. The
+  switch takes effect starting with the next dispatched task on that issue.
+  This is the owner's explicitly recommended option. No new
+  cancellation/kill wiring beyond what exists today
+  (`continuation_dispatch.go:104-111`'s pending-continuation cancellation,
+  unaffected) is required for this behavior. `[V]`
+- **Trigger model ambiguity — resolved by owner, run 5 (was Open Question
+  7)**: a bare label edit with no new comment does **not** need its own new
+  trigger/reconciliation pass; the existing per-comment dispatch, which
+  already re-reads the label fresh (`resolveAgent`, `internal/daemon/
+  agent.go:94-96`), is sufficient. This is the owner's explicitly
+  recommended option and confirms no new plumbing is needed for detection —
+  only the mutation itself (now specified) is new. `[V]`
 - **Registry hardcoding must not be inherited**: `switch-agent.sh` hardcodes
   `claude|codex` because it runs outside the daemon process and cannot see
   the registry built at startup from config. The in-daemon implementation
   must read from the actual `RunnerSet`/registry so a third registered agent
-  (if one is ever added) is switchable without a script change. `[V]`
+  (if one is ever added) is switchable without a script change. Unaffected
+  by the owner's run-5 answers. `[V]`
 - **Tests currently assert the opposite of the new requirement** —
   `internal/turn/execute_test.go:316-378` explicitly assert that an agent
   mismatch touches nothing. These are the correct place to look for what
   currently passes and will need rewriting, not just new tests added
-  alongside them. `[V]`
+  alongside them. Unaffected by the owner's run-5 answers. `[V]`
+- **`switch-agent.sh` fate — resolved by owner, run 5 (was Open Question
+  8)**: delete it once the automatic switch is implemented. The owner
+  explicitly declined the "keep as fallback" option ("no, we delete it!").
+  Plan/Implement should treat removing this file as part of the change, not
+  a follow-up. `[V]`
+- **`.codex/` parity note in `AGENT_ROSTER.md` — resolved by owner, run 5
+  (was Open Question 9)**: ignore; drop from tracking. Not part of this
+  change. `[V]`
+- **Owner-stated scope/complexity constraint (new, run 5)**: the owner
+  expects this to be a small, simple change — quoted: *"keep it simple,
+  basically this is only a few lines that need to change, no rocket science
+  here!"* Read together with the owner's other run-5 answers (overwrite in
+  place, let in-flight work finish naturally, no new label-watching
+  infrastructure, delete the manual script rather than keep it as a parallel
+  path), this is a directive for Plan and Implement: do not introduce new
+  segment-rotation machinery, new polling/reconciliation passes, new kill/
+  cancellation wiring, or a fallback/dual-path design for `switch-agent.sh`.
+  This is recorded here as owner guidance to be honored, not something for
+  a research pass to independently verify against the code or use to
+  re-scope the investigation — this run intentionally did not re-derive or
+  re-litigate scope against this constraint. `[O, new run 5]`
 - **Git history for the original refusal decision (and any prior discussion
   of reverting it, e.g. in session `lf-120-agent-switch-refused-leaves-the-
   session`) could not be retrieved in run 2 or run 3** — no agent in either
   run's roster had shell/`git` access. The in-code rationale (doc comments,
   tests, `switch-agent.sh`'s own header) substantially recovers the design
   intent, but a full paper trail (was reversing this ever proposed and
-  rejected before, and why) is not confirmed. `[V, limitation, unchanged
-  run 3]`
-- **This run's own dispatch cannot be verified from the repository** — see
-  the dedicated subsection under Codebase Context. Noted as a limitation of
-  what a repo-only research pass can confirm, not a defect in the mechanism
-  itself. `[V, new run 3]`
+  rejected before, and why) is not confirmed. This is unrelated to the
+  owner's run-5 answers and remains a non-blocking residual gap. `[V,
+  limitation, unchanged since run 3]`
+- **A prior run's own dispatch could not be verified from the repository**
+  — see the dedicated subsection under Codebase Context. Noted as a
+  limitation of what a repo-only research pass can confirm, not a defect in
+  the mechanism itself. Unrelated to the owner's run-5 answers. `[V, run 3]`
 
 ## Open Questions
 
@@ -406,44 +471,49 @@ into the first bullet).
    candidate interpretations applies. Owner confirmed: reverse
    `ReplyAgentSwitchRefused` into an actual switch, label-driven, no
    restart, session loss accepted. `[O]`
-2. **Resolved run 2, unchanged run 3** — why the refusal was built the way
+2. **Resolved run 2, unchanged since** — why the refusal was built the way
    it was. The in-code rationale (`reply.go:51-57` doc comment,
    `execute_test.go:316-378` invariants, `switch-agent.sh`'s own header)
-   recovers this without needing session 120's artifacts. Residual gap: the
-   originating commit/PR discussion (was reverting ever proposed/rejected
-   before) is still unconfirmed — see Constraints & Risks. `[V, partially
-   resolved]`
+   recovers this without needing session 120's artifacts. Residual,
+   non-blocking gap: the originating commit/PR discussion (was reverting
+   ever proposed/rejected before) is still unconfirmed — see Constraints &
+   Risks. This residual gap is unrelated to the owner's run-5 answers and
+   was not addressed by them. `[V, partially resolved]`
 3. **Resolved run 2** — runtime axis confirmed in scope; `internal/render`
    harness-rendering axis confirmed out of scope. `[O]`
 4. **Resolved run 2** — yes, the refusal should become a switch, not
    just better labeling UX. `[O]`
-5. **Still open, blocks implementation shape**: mutate-in-place vs. rotate-to-new-
-   segment for the switch (see Constraints & Risks, design fork). Settles
-   with: Plan mode / architect decision, informed by how `runs.agent`
-   history and any future audit needs should behave. `[R0]`
-6. **Still open, blocks implementation shape**: what happens to an already-running
-   subprocess when the label changes mid-flight — let it finish under the
-   old agent and apply the switch to the next run, or actively cancel it?
-   Settles with: owner confirmation or Plan mode decision; the owner's
-   "lose the session" acceptance does not by itself specify this. `[R0]`
-7. **Still open, blocks trigger design**: does the switch need to fire on a bare
-   label edit with no new comment, or only take effect on the next comment
-   (matching the existing per-comment dispatch model, which needs no new
-   plumbing)? Settles with: owner clarification. `[R0]`
-8. **Still open, low priority**: should `switch-agent.sh` be retired, kept as an
-   emergency/offline fallback once the automatic path exists, or left
-   as-is? Settles with: Plan mode, not blocking for scoping. `[R0]`
-9. **Carried forward, low priority, likely unrelated**: `.codex/` parity
-   note in `AGENT_ROSTER.md` — flagged only for terminology overlap, not
-   believed to be in scope. `[R0]`
+5. **Resolved run 5** — mutate-in-place vs. rotate-to-new-segment for the
+   switch. Owner decision: **overwrite the existing segment record in
+   place** (matches `switch-agent.sh`'s existing mutation; the
+   non-recommended, simpler option). `[O, resolved run 5]`
+6. **Resolved run 5** — what happens to an already-running subprocess when
+   the label changes mid-flight. Owner decision: **let it finish**; the
+   switch takes effect starting with the next dispatched task on the issue.
+   No active cancellation of a running subprocess. `[O, resolved run 5]`
+7. **Resolved run 5** — does a bare label edit with no new comment need its
+   own trigger. Owner decision: **no new work needed** — rely on the
+   existing behavior of re-reading the label fresh on the next comment/turn.
+   `[O, resolved run 5]`
+8. **Resolved run 5** — fate of the manual `switch-agent.sh` script. Owner
+   decision: **delete it** once the automatic path is implemented (not kept
+   as a fallback). `[O, resolved run 5]`
+9. **Resolved run 5** — the unrelated `.codex/` parity note in
+   `AGENT_ROSTER.md`. Owner decision: **ignore it, drop from tracking**.
+   `[O, resolved run 5]`
 
-Run 3 did not close any of questions 5–9 — the owner's request this run was
-specifically a re-verification/smoke-test pass, not a scope conversation, so
-these were neither asked about nor answered. They remain live blockers for
-Plan mode and are restated in this run's report for the owner to act on if
-they choose to.
+All nine of the brief's open questions are now resolved. The only remaining
+item touching this area is the non-blocking residual gap noted under
+Question 2 and in Constraints & Risks (the originating commit/PR history for
+`ReplyAgentSwitchRefused` could not be retrieved for lack of `git` access in
+the research roster) — this was never one of Questions 5-9, was not raised
+by the owner in run 5, and does not block Plan or Implement; it would only
+matter if Plan mode specifically wants that paper trail.
 
 ## Recommended scope for Plan mode
+
+Updated run 5 to reflect the owner's decisions; items that previously said
+"Plan mode must decide" are now settled and restated as directives.
 
 - **In scope**: reversing `ReplyAgentSwitchRefused` (`internal/report/
   reply.go`) into an actual mid-conversation agent switch, triggered by the
@@ -453,21 +523,21 @@ they choose to.
   `prepare.go:1004`) rather than as new plumbing to detect the label
   change — that detection already exists and already runs without a
   restart.
-- **Plan mode must resolve, not inherit silently from `switch-agent.sh`**:
-  the mutate-in-place vs. rotate-to-new-segment design fork (Open Question
-  5/Constraints), and the in-flight-subprocess behavior (Open Question 6).
-  Both have real, different implementation costs and different user-visible
-  behavior.
-- **Plan mode should get an explicit owner answer on the trigger model**
-  (Open Question 7) before committing to "no new plumbing needed" — if a
-  bare label edit with no comment must also trigger the switch, that is a
-  materially larger scope (a reconciliation pass) than reusing the existing
-  per-comment dispatch.
-- **Concurrency/locking design must be specified**, not left implicit: the
-  plan should state explicitly how the switch avoids the race
-  `switch-agent.sh` avoids today by requiring the daemon to be stopped
-  (most likely: perform the mutation under the same per-session lock/inflight
-  guard `turn.Execute` already acquires).
+- **Settled by the owner, not for Plan mode to re-decide**: overwrite the
+  existing `segments.agent`/`resume_token` row in place (Question 5); let
+  an already-running subprocess finish under the old agent, with the switch
+  applying starting with the next dispatched task (Question 6); no new
+  trigger/reconciliation plumbing for a bare label edit — the existing
+  per-comment label re-read is sufficient (Question 7); delete
+  `switch-agent.sh` as part of this change rather than keeping it as a
+  fallback (Question 8); ignore the `.codex/` `AGENT_ROSTER.md` note
+  (Question 9).
+- **Concurrency/locking still needs to be specified mechanically** (not a
+  design fork, just an implementation detail): the plan should state
+  explicitly how the switch avoids the race `switch-agent.sh` avoids today
+  by requiring the daemon to be stopped — most likely by performing the
+  mutation under the same per-session lock/inflight guard `turn.Execute`
+  already acquires.
 - **Must not hardcode agent kinds** — implementation should read from the
   existing `RunnerSet`/registry (`internal/turn`, `internal/daemon/
   runners.go`), unlike `switch-agent.sh`.
@@ -475,17 +545,44 @@ they choose to.
   (`internal/turn/execute_test.go:316-378`) that currently assert a
   mismatch touches nothing, plus the `reply.go:51-57` rationale comment,
   which both currently describe the behavior being reversed.
-- **Decide the fate of `switch-agent.sh`** (retire, keep as fallback, or
-  leave) as part of the plan, not as an afterthought — it is the only
-  existing, working implementation of the mutation and is a reasonable
-  reference/fallback even if superseded.
+- **Remove `switch-agent.sh`** as part of this change (owner decision,
+  Question 8) — it is no longer being kept as a fallback or reference once
+  the automatic path exists.
+- **Honor the owner's simplicity constraint**: the owner expects this to be
+  a small, few-lines change, not a larger redesign. Plan mode should size
+  the implementation accordingly — overwrite in place, no new segment
+  rotation, no new polling/kill infrastructure, no dual-path
+  script-plus-automation design — rather than building the
+  more-defensive alternatives this brief's earlier runs surfaced as
+  options (e.g., segment rotation, subprocess cancellation, keeping
+  `switch-agent.sh` as a fallback). Those alternatives are recorded above
+  for context but are explicitly not what the owner asked for.
 - **Out of scope**: `internal/render` harness rendering; adding a third
-  coding-agent tool; any CLI-flag-based selection surface — none of these
-  were requested by the owner.
-- **Residual gap for a follow-up pass if needed**: the originating
-  commit/PR for `ReplyAgentSwitchRefused` (and any related discussion in
-  session `lf-120-agent-switch-refused-leaves-the-session`) was not
-  retrievable in run 2 or run 3 for lack of shell/`git` tool access in the
-  available roster. If Plan mode wants that paper trail specifically
+  coding-agent tool; any CLI-flag-based selection surface; the `.codex/`
+  `AGENT_ROSTER.md` note — none of these were requested by the owner.
+- **Residual gap for a follow-up pass if needed, non-blocking**: the
+  originating commit/PR for `ReplyAgentSwitchRefused` (and any related
+  discussion in session `lf-120-agent-switch-refused-leaves-the-session`)
+  was not retrievable in run 2 or run 3 for lack of shell/`git` tool access
+  in the available roster. If Plan mode wants that paper trail specifically
   (rather than the in-code rationale already captured above), it needs a
-  pass with `git log`/`git blame` access.
+  pass with `git log`/`git blame` access. This does not block starting
+  Plan.
+
+## Status after run 5
+
+With Open Questions 5 through 9 now answered by the owner, every structural
+decision this brief previously flagged as blocking Plan mode is resolved:
+the mutation is specified (overwrite in place), the in-flight-run behavior
+is specified (let it finish, switch applies to the next task), the trigger
+model is specified (no new plumbing, reuse existing per-comment label
+re-read), and the fate of `switch-agent.sh` is specified (delete it). The
+owner has also constrained the expected implementation size (a few lines,
+not a redesign), which this brief records as a directive for Plan/Implement
+rather than something this run re-derived from the code.
+
+**Nothing structurally open remains in this brief.** The only unresolved
+item is the pre-existing, explicitly non-blocking residual gap on the
+original design-rationale paper trail (Question 2's residual, git-history
+access), which does not require a decision before Plan proceeds. **This
+brief is ready to hand to Plan mode.**

@@ -70,5 +70,20 @@ asked for; nothing here licenses starting the next one.
   disk; this run's job was to surface that existing detail back to the owner
   in the final message, laid out as one question per block with its
   solution options and tradeoffs, per the later-run reporting format.
+- 2026-09-12 — Fifth Research run, owner feedback recorded verbatim:
+  Q5 overwrite in place; Q6 let in-flight work finish, switch applies to the
+  next task; Q7 no new trigger plumbing needed, rely on existing per-comment
+  label re-read; Q8 delete `switch-agent.sh` once automated (not kept as a
+  fallback); Q9 ignore the unrelated `.codex/AGENT_ROSTER.md` note and drop
+  it from tracking. Owner also stated an explicit simplicity constraint
+  ("keep it simple, basically this is only a few lines that need to change,
+  no rocket science here!"), recorded as a directive for Plan/Implement, not
+  independently re-validated against the code this run. Moved Open Questions
+  5-9 from open to resolved, updated the Constraints & Risks entries that
+  depended on them, and updated Recommended scope for Plan mode accordingly.
+  No new investigation opened. With all nine open questions now resolved
+  and only the pre-existing, explicitly non-blocking git-history residual
+  gap remaining, `RESEARCH_BRIEF.md` now states the brief is ready to hand
+  to Plan mode.
 
 ## Notes
