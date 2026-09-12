@@ -249,8 +249,10 @@ func TestTaskPublicationSurvivesAReplayedTrigger(t *testing.T) {
 	if _, err := reporter.ReportTurn(t.Context(), replay); err != nil {
 		t.Fatal(err)
 	}
-	body := forge.only(t).body
-	if strings.Contains(body, "not pushed") || !strings.Contains(body, "(pushed)") {
-		t.Fatalf("verified push reported as unpublished: %s", body)
-	}
+	// The publication check above (replay.Pushed, replay.Publication) is what
+	// this test is actually about; internal/report no longer renders a
+	// pushed/not-pushed bullet at all (an explicit consequence of #247's
+	// renderer shrink), so what is left to assert here is that the replayed
+	// trigger still owes, and gets, exactly one comment.
+	forge.only(t)
 }

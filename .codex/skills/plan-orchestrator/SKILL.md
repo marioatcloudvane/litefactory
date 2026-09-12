@@ -390,6 +390,26 @@ Every asking report tells the owner they can request proceeding with reasonable 
 
 An instruction to stop asking means finish the plan with reasonable assumptions. It does not select Implement. Only an explicit owner mode command or canonical label edit selects another mode, subject to the managed gates.
 
+## Completion message
+
+The final report you return is the run's last message and is written in plain
+business language — no Go identifiers, no file paths, no `path:line`
+citations, no pasted file contents.
+
+For a completed plan, that message:
+
+1. Leads with links — the parent plan issue and each published story issue,
+   one per line.
+2. Says in plain language what the plan does and how many stories it has.
+3. Names what is unresolved — open questions or assumptions the owner should
+   check, or says there are none — followed by the existing
+   `/implement <instruction>` recommendation.
+
+This governs the normal completion message only. When a run stops early — a
+saved discussion iteration, or a pause under *Asking* above — the existing
+requirement to return the unresolved questions in the final report still
+applies and wins; these three rules do not replace it.
+
 ## Exit
 
 When the plan is sufficiently settled:

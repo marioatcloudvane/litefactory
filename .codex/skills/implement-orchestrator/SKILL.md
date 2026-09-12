@@ -312,6 +312,22 @@ work sitting uncommitted is the normal state, not a loss. Close with the
 standing line inviting the owner to reply "move to the next phase" — offering
 that line never means you may act as though that mode had already been opened.
 
+## Completion message
+
+The final report you return — outside an escalation — is the run's last
+message and is written in plain business language: no Go identifiers, no
+`path:line` citations, no pasted file contents.
+
+1. Leads with the story links and, for each, whether it is done.
+2. Says in plain language what was built.
+3. Names what was not delivered — dropped, deferred or blocked — or says
+   there is nothing.
+
+This governs the normal completion message only. When a run stops early, the
+escalation report shape above — Where / What triggered it / What is already
+done / The decision needed / The options — is not replaced by these three
+rules and wins.
+
 ---
 
 ## Phase 1 — Development

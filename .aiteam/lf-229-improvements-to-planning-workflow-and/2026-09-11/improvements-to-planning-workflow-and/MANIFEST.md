@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(done)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done for S-1, S-2, S-3, S-5; S-4 excluded by owner selection)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -45,6 +45,71 @@ asked for; nothing here licenses starting the next one.
   two checks after submission. Wrote `plan_brief.md` with a link-only Story
   Index whose sub-issue links are placeholders pending factory publication.
 
+- 2026-09-12 — Implement run (separated workflow): owner selected S-1, S-2,
+  S-3 and S-5 (S-4 excluded). Sequenced S-1 before S-2 per dependency; S-3 and
+  S-5 ran independently. go-implementation-engineer implemented all four
+  stories; go-unit-test-engineer ran per-story checkpoints for the three Go
+  stories (S-1, S-2, S-3; S-5 is docs-only) and closed several real coverage
+  gaps. Fixed two pre-existing internal/turn test assertions orphaned by S-1's
+  approved removal of the Log bullet and success-shaped publication strings
+  (not a scope change — see `notes.md`). Aggregate gates green: `make fmt vet
+  lint` 0 issues; full-module race test suite green (run split across
+  multiple invocations due to tool timeout limits, not test failures — see
+  `notes.md`). Submitted all four stories' engineering-complete outcome via
+  `submission preflight`/`submit`; all four recorded `EngineeringState:
+  recorded` against their correct frozen revisions (S-1 receipt 33, S-2
+  receipt 34, S-3 receipt 35, S-5 receipt 36, all under run 345). Wrote
+  `notes.md` and `DRIFT_REPORT.md` (verdict: CLEAN for the four selected
+  stories). S-4 not started, `.claude/**` untouched. This run's overall
+  daemon/turn outcome was later reported as failed with reason "Engineering
+  evidence remains incomplete: S-4" even though S-4 was never in this run's
+  selected scope.
+
+- 2026-09-12 — Implement run (verification-only, resuming after the prior
+  run's "Engineering evidence remains incomplete: S-4" failure reason):
+  treated the prior run's self-report as unverified per this run's
+  instructions and independently re-checked everything from the actual
+  worktree rather than trusting it. `git status --short` matches the prior
+  run's claimed file list exactly (all `internal/report`/`internal/turn`
+  files plus both `.codex/skills/*/SKILL.md`; `.claude/**` untouched, S-4
+  confirmed not started). Ran the gates myself: `go build ./...` and
+  `go vet ./...` clean; `golangci-lint run ./...` — 0 issues; full test suite
+  across all 32 non-`internal/turn` packages green in one pass; `internal/turn`
+  green on a clean re-run after one transient `-race`-unrelated flake
+  (`TestStoryContractUpgradePreviewAndExplicitApply` hit a pre-existing
+  "story progress parent is busy" SQLite-contention flake on the first
+  full-suite pass, unrelated to any of S-1/S-2/S-3/S-5's files, passed in
+  isolation and on a full clean re-run); additionally ran `-race` on
+  `internal/report` (clean) and on the specific S-2/regression-fix tests in
+  `internal/turn` (`TestStoryTally*`, `TestRunInputCarriesTheStoryTally`,
+  `TestReportFailedRunStillPostsAndAdvances`,
+  `TestTaskPublicationSurvivesAReplayedTrigger`) — all pass under `-race`.
+  Dispatched `go-code-reviewer` in a read-only verification pass (not an
+  acceptance/Validate review) against each story's stated acceptance
+  criteria; it returned CONFIRMED with quoted line-level evidence for all
+  four stories (S-1's `run.go` section ladder and metadata trimming, S-2's
+  `StoryTally`/`describeOutcome` partial arm/`internal/turn` tally wiring,
+  S-3's `RenderStoryProgress` trimmed format plus the two dormant-path source
+  comments, S-5's two `.codex/skills/*/SKILL.md` completion-message rules) —
+  no gaps found. Attempted independent cross-run receipt confirmation via
+  `submission receipt` against the prior run's four known request IDs (run
+  345, receipts 33-36); all four returned "Request processing did not
+  complete; retain this request ID and query its receipt" for every ID —
+  this endpoint does not appear to support cross-run receipt lookup from a
+  new run's descriptor, so this run relied instead on the frozen
+  `engineering_complete:true` flags already supplied for S-1/S-2/S-3/S-5 in
+  this run's story data, combined with the independent file/test/review
+  verification above. Since verification found no gaps for any of the four
+  stories, this run did **not** resubmit engineering-complete evidence for
+  any of them (resubmitting an already-genuinely-satisfied story would
+  violate "do not reimplement"). S-4 was not started and `.claude/**` was not
+  touched, per the owner's explicit continued exclusion of S-4 from this
+  run's selection — flagging for the owner that the prior run's failure
+  reason ("Engineering evidence remains incomplete: S-4") appears to reflect
+  the overall 5-story plan not being fully engineering-complete, not any
+  deficiency in S-1/S-2/S-3/S-5's own work; whether to select S-4 in a future
+  run is left to the owner.
+
 ## Notes
 
 - Typed Plan submission `request_id`: `f7b37dd4b49190277867aa3af6ee19da`
@@ -52,3 +117,11 @@ asked for; nothing here licenses starting the next one.
   readiness) is owned entirely by the factory and was still pending as of this
   run; re-check the receipt or the parent issue before relying on the Story
   Index links in `plan_brief.md`.
+- Implement engineering submissions (run 345): S-1 request_id
+  `a35af02b26123bffd461f4ce8c87ad07` (receipt 33), S-2 request_id
+  `8be755dd7274d86dfa3780522cdf11d0` (receipt 34), S-3 request_id
+  `6b90a28b1ee37976c8b38bac6684e014` (receipt 35), S-5 request_id
+  `6accd19b56ce084e8108594dbbe90195` (receipt 36). All four: `InputState:
+  valid`, `EngineeringState: recorded`. Issues/acceptance boxes remain open —
+  Validate owns acceptance/code/architecture review next, on explicit
+  request.

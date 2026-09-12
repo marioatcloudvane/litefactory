@@ -2,32 +2,6 @@
 
 ### litefactory · run 3 · succeeded
 
-- **Branch:** `lf/123-add-dry-run-to-task-clean`
-- **Commit:** none — this run committed nothing
-- **Exit status:** `0`
-- **Duration:** 12.4s
-- **Cost:** unknown
-- **Model:** `claude-sonnet-4-5`
-- **Log:** `litefactory logs 123 --run 3` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
-
-_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
-
 **Result**
 
 _The run finished without a closing message._
-
-**Files touched (1)**
-
-```
-modified go.mod
-```
-
-<details>
-<summary>Run output — last 40 lines</summary>
-
-```text
-go: downloading example.com/nope v1.2.3
-error: module example.com/nope: not found
-```
-
-</details>

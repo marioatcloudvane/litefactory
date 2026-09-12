@@ -21,16 +21,6 @@ import (
 	"github.com/cloudvane/litefactory/internal/secrets"
 )
 
-// todoWriteResolved and todoWriteRequested are the measured finding this story
-// exists to make visible ("Settled before planning", IMPLEMENTATION_PLAN.md):
-// eight tools requested, seven resolved, TodoWrite silently dropped with no
-// error raised anywhere. The resolved order is copied verbatim from a real
-// init event.
-var (
-	todoWriteResolved  = []string{"Task", "Bash", "Edit", "Glob", "Grep", "Read", "Write"}
-	todoWriteRequested = append(append([]string{}, todoWriteResolved...), "TodoWrite")
-)
-
 // update rewrites the golden files instead of comparing against them.
 //
 // The goldens are the point of this file: a comment body is prose plus markup,
@@ -252,24 +242,20 @@ func TestEveryBodyBeginsWithItsMarker(t *testing.T) {
 	}
 }
 
-// TestEveryBodyTellsTheReaderHowToReply is AC-S0.6, the half of the fix that
+// TestReplyBodiesTellTheReaderHowToReply is AC-S0.6, the half of the fix that
 // ships in prose rather than in the matcher.
 //
 // Line-anchoring the self-filter makes GitHub's quote-reply safe, but it cannot
 // make a marker pasted back unquoted safe: at the start of a line that is
-// litefactory's own output by definition. Every comment litefactory posts is a
-// comment somebody may answer, so every one of them says how.
-//
-// The notice is checked on both shapes and at the smallest limit a body is ever
-// assembled at, because a report whose notice was the part that did not fit
-// would fail exactly the reader it is for.
-func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
+// litefactory's own output by definition. A run-less reply is still a comment
+// somebody may answer, so it still says how. A run's own report no longer
+// carries the notice at all — see [TestRunReportsCarryExactlyOneMarker] — so
+// this test covers only the shapes that still do.
+func TestReplyBodiesTellTheReaderHowToReply(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
 
 	bodies := map[string]string{
-		"run report":      render(t, rep, successRun()).String(),
-		"failure report":  render(t, rep, failureRun()).String(),
 		"run-less reply":  renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyEmptySpike, Command: "/spike"}),
 		"tools refusal":   renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyLegacyToolLabel}),
 		"unknown command": renderReply(t, rep, report.Reply{Ref: testRef, Kind: report.ReplyUnknownCommand, Command: "/frobnicate"}),
@@ -290,20 +276,27 @@ func TestEveryBodyTellsTheReaderHowToReply(t *testing.T) {
 	if strings.Contains(report.ReplyPlainlyNotice, report.MarkerPrefix) {
 		t.Error("ReplyPlainlyNotice contains the marker prefix it exists to warn about")
 	}
+}
 
-	// A report squeezed into a quarter of GitHub's limit still carries it: the
-	// notice is in the never-cut section, above the log tail (AC-4.8).
-	small, err := report.New(report.Options{
-		Redactor: redact.New(redact.Options{Environ: []string{}}),
-		Limit:    4_000,
-	})
-	if err != nil {
-		t.Fatalf("report.New: %v", err)
+// TestRunReportsCarryExactlyOneMarker holds what is left of AC-S0.6 for a run
+// report now that it no longer writes [report.ReplyPlainlyNotice] into its own
+// body: whatever else was trimmed, the marker survives, once, at the start.
+func TestRunReportsCarryExactlyOneMarker(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	bodies := map[string]string{
+		"run report":     render(t, rep, successRun()).String(),
+		"failure report": render(t, rep, failureRun()).String(),
 	}
-	run := successRun()
-	run.Output = numberedLines("worker: applying edit to internal/cli/task.go", 60)
-	if body := render(t, small, run).String(); !strings.Contains(body, report.ReplyPlainlyNotice) {
-		t.Errorf("a truncated report dropped the notice:\n%s", body)
+
+	for name, body := range bodies {
+		if strings.Contains(body, report.ReplyPlainlyNotice) {
+			t.Errorf("the %s still carries the reply-plainly notice:\n%s", name, body)
+		}
+		if got := strings.Count(body, report.MarkerPrefix); got != 1 {
+			t.Errorf("the %s carries %d markers, want exactly the one it opens with", name, got)
+		}
 	}
 }
 
@@ -317,8 +310,19 @@ func renderReply(t *testing.T, rep *report.Reporter, reply report.Reply) string 
 	return body.String()
 }
 
-// TestSuccessReport walks AC-4.3 element by element and then pins the whole
-// body to a golden file.
+// removedMetadataLabels are the bullets no run report may carry again
+// (AC-002), whatever the outcome: everything metadataList used to render
+// beyond the surviving Commit/Publication/Research-brief bullets. Commit is
+// deliberately not in this list — it still renders for a non-success run
+// that committed nothing (AC-006) — and is checked separately by whichever
+// test exercises that fixture.
+var removedMetadataLabels = []string{
+	"**Branch:**", "**Exit status:**", "**Reason:**",
+	"**Duration:**", "**Cost:**", "**Model:**", "**Tools:**", "**Log:**", "**Note:**",
+}
+
+// TestSuccessReport walks the surviving shape element by element (AC-001,
+// AC-002, AC-007) and then pins the whole body to a golden file.
 func TestSuccessReport(t *testing.T) {
 	t.Parallel()
 
@@ -327,28 +331,34 @@ func TestSuccessReport(t *testing.T) {
 
 	containsAll(t, "success report", body,
 		"succeeded",
-		run.Result.ResultText,             // final result text
-		"internal/cli/task_clean_test.go", // files touched
-		"renamed internal/cli/clean.go -> internal/cli/task_clean.go",
-		"Files touched (3)",
-		run.Branch,    // branch name
-		run.CommitSHA, // commit SHA, plain text
-		"(pushed)",
-		"**Exit status:** `0`", // exit status
-		"**Duration:** 1m33s",  // duration
-		testLogPath,            // where the unredacted copy is
-		"<details>",            // collapsible output
-		"</details>",
-		fmt.Sprintf("last %d lines", report.TailLines),
+		run.Result.ResultText, // final result text
 	)
 
-	// The commit itself is still plain text — the SHA is a fact to quote, not a
-	// destination. What is linked is the brief, and only ever pinned to a
-	// commit: a bare "/blob/" check would pass a branch-relative URL, which
-	// shows whatever the branch holds when it is opened rather than what this
-	// run produced.
+	if strings.Contains(body, "> [!") {
+		t.Errorf("a succeeded run's report carries a callout:\n%s", body)
+	}
+	for _, absent := range removedMetadataLabels {
+		if strings.Contains(body, absent) {
+			t.Errorf("success report still carries %q:\n%s", absent, body)
+		}
+	}
+	if strings.Contains(body, "**Commit:**") {
+		t.Errorf("a succeeded run with a real commit still carries a Commit bullet:\n%s", body)
+	}
+	if strings.Contains(body, "Files touched") || strings.Contains(body, "Run output") ||
+		strings.Contains(body, "<details>") {
+		t.Errorf("success report still carries files-touched or run-output content:\n%s", body)
+	}
+	if strings.Contains(body, "404s until a Research run writes one") {
+		t.Error("Research brief bullet still carries its dropped caveat clause")
+	}
+
+	// The commit itself is no longer named at all. What is still linked is the
+	// brief, and only ever pinned to a commit: a bare "/blob/" check would pass
+	// a branch-relative URL, which shows whatever the branch holds when it is
+	// opened rather than what this run produced.
 	if strings.Contains(body, "https://github.com/acme/acme-api/commit") {
-		t.Error("success report links the commit page; the SHA is rendered as plain text")
+		t.Error("success report links the commit page")
 	}
 	if want := "/blob/" + run.SHAAfter + "/"; !strings.Contains(body, want) {
 		t.Errorf("success report has no permalink pinned to sha_after; want %q in:\n%s", want, body)
@@ -357,20 +367,12 @@ func TestSuccessReport(t *testing.T) {
 		t.Error("success report carries a branch-relative blob URL, which is not pinned to this run")
 	}
 
-	// The <details> block carries the *last* TailLines lines, not the first.
-	if !strings.Contains(body, "[line 0060]") {
-		t.Error("output tail does not reach the last line of the run's output")
-	}
-	if strings.Contains(body, "[line 0020]") {
-		t.Errorf("output tail reaches back to line 20, so it is longer than %d lines", report.TailLines)
-	}
-
 	checkGolden(t, "run_succeeded", body)
 }
 
-// TestFailureReport covers AC-4.5 and S-9: distinguishable from a success at a
-// glance, carrying the exit code, the elapsed duration, the absolute local log
-// path and the quoted tail.
+// TestFailureReport covers AC-006: distinguishable from a success at a glance,
+// carrying the callout, the heading word and the lead sentence — and none of
+// the metadata bullets this story removed.
 func TestFailureReport(t *testing.T) {
 	t.Parallel()
 	rep := newReporter(t)
@@ -382,13 +384,18 @@ func TestFailureReport(t *testing.T) {
 		"failed",
 		"> [!CAUTION]",         // the callout that makes it obvious
 		"exited with status 1", // the exit code, in words
-		"**Exit status:** `1`",
-		"**Reason:** claude exited 1", // the reason the harness recorded (S-9)
-		"**Duration:** 12.4s",         // elapsed duration
-		testLogPath,                   // absolute local log path
-		"<details>",
-		"module example.com/nope: not found", // the stderr tail, quoted
 	)
+	for _, absent := range removedMetadataLabels {
+		if strings.Contains(failure, absent) {
+			t.Errorf("failure report still carries %q:\n%s", absent, failure)
+		}
+	}
+	if strings.Contains(failure, testLogPath) {
+		t.Errorf("failure report still names the local log path:\n%s", failure)
+	}
+	if strings.Contains(failure, "<details>") || strings.Contains(failure, "module example.com/nope: not found") {
+		t.Error("failure report still quotes the run's output")
+	}
 
 	if !filepath.IsAbs(testLogPath) {
 		t.Fatalf("the fixture log path %q is not absolute", testLogPath)
@@ -414,6 +421,157 @@ func headline(body string) string {
 		}
 	}
 	return ""
+}
+
+// TestRetainedInputsNeverReachTheBody covers AC-003 for the inputs run.go's own
+// field comments describe as "retained ... even though the run comment no
+// longer renders" them: Meter and TaskSync. Populating them with realistic,
+// non-empty data — rather than merely leaving them nil, which every other
+// fixture in this file already does — has to change nothing about the
+// rendered body, because nothing in [runBody]'s call graph reads them any
+// more. ToolsRequested and ToolProfile get the same treatment: no fixture in
+// this package sets either field, so their bullet's absence elsewhere in this
+// file has never actually been exercised against a populated value.
+func TestRetainedInputsNeverReachTheBody(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	baseline := render(t, rep, successRun()).String()
+
+	run := successRun()
+	estimated, subtotal := "12.34", "10.00"
+	run.Meter = &report.MeterSummary{
+		EstimatedUSD:      &estimated,
+		PricedSubtotalUSD: &subtotal,
+		CollectionStatus:  "complete",
+		PricingStatus:     "priced",
+		PriceRevisions:    []int64{7},
+	}
+	run.TaskSync = &report.Sync{
+		Outcome: report.SyncSynced,
+		Base:    "origin/main",
+		Behind:  4,
+		Ahead:   1,
+	}
+	run.ToolsRequested = []string{"Bash", "Read", "Edit"}
+	run.ToolProfile = "default-profile"
+
+	body := render(t, rep, run).String()
+
+	if body != baseline {
+		t.Errorf("populating Meter/TaskSync/ToolsRequested/ToolProfile changed the rendered body:\n--- baseline ---\n%s\n--- with retained inputs populated ---\n%s",
+			baseline, body)
+	}
+	for _, absent := range []string{
+		"Meter coverage", "Local estimated cost", "12.34", "10.00",
+		"Task branch sync",
+		"**Tools:**", "default-profile", "Bash", "Read", "Edit",
+	} {
+		if strings.Contains(body, absent) {
+			t.Errorf("a retained-but-unrendered input leaked %q into the body:\n%s", absent, body)
+		}
+	}
+}
+
+// TestPartialStoryTallyRendersANoteCallout covers S-2's success arm (AC-011):
+// a successful run whose managed feature has unfinished stories gets a
+// NOTE-level "partial" callout naming exactly the two integers — never the
+// words this package reserves for a failure.
+func TestPartialStoryTallyRendersANoteCallout(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	run := successRun()
+	run.Stories = &report.StoryTally{Done: 2, Total: 5}
+	body := render(t, rep, run).String()
+
+	containsAll(t, "partial report", body, "> [!NOTE]", "finished 2 of 5 stories")
+	if want := "### litefactory · run 2 · partial"; headline(body) != want {
+		t.Errorf("partial report heading = %q, want %q", headline(body), want)
+	}
+	for _, word := range []string{"fail", "failed", "error"} {
+		if strings.Contains(strings.ToLower(body), word) {
+			t.Errorf("partial callout contains %q:\n%s", word, body)
+		}
+	}
+	if strings.Contains(body, "[!CAUTION]") || strings.Contains(body, "[!WARNING]") {
+		t.Error("a partial run's report still carries a failure-shaped callout")
+	}
+
+	checkGolden(t, "run_partial", body)
+}
+
+// TestStoryTallyRendersNoCalloutWhenNotPartial covers AC-012: a run whose
+// tally is exactly done, and a run with no tally at all, both render exactly
+// as a plain success report does.
+func TestStoryTallyRendersNoCalloutWhenNotPartial(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	cases := []struct {
+		name    string
+		stories *report.StoryTally
+	}{
+		{"done equals total", &report.StoryTally{Done: 5, Total: 5}},
+		{"nil tally", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := successRun()
+			run.Stories = tc.stories
+			body := render(t, rep, run).String()
+			if strings.Contains(body, "[!NOTE]") || strings.Contains(headline(body), "partial") {
+				t.Errorf("%s: success report still carries a partial callout:\n%s", tc.name, body)
+			}
+		})
+	}
+}
+
+// TestInvalidStoryTallyRendersNoCallout covers AC-017: a tally with a
+// non-positive total, a negative done count, or a done count over its total
+// is treated exactly like no tally at all — omitted rather than guessed at.
+func TestInvalidStoryTallyRendersNoCallout(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	cases := []struct {
+		name    string
+		stories *report.StoryTally
+	}{
+		{"total is zero", &report.StoryTally{Done: 0, Total: 0}},
+		{"total is negative", &report.StoryTally{Done: 0, Total: -1}},
+		{"done is negative", &report.StoryTally{Done: -1, Total: 5}},
+		{"done exceeds total", &report.StoryTally{Done: 6, Total: 5}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := successRun()
+			run.Stories = tc.stories
+			body := render(t, rep, run).String()
+			if strings.Contains(body, "[!NOTE]") || strings.Contains(headline(body), "partial") {
+				t.Errorf("%s: invalid tally still rendered a partial callout:\n%s", tc.name, body)
+			}
+		})
+	}
+}
+
+// TestNonSuccessOutcomeWinsOverPartialTally covers AC-014: a hard failure
+// always wins over partial. A non-success run carrying a Done < Total tally
+// still renders its own non-success callout, never the partial one.
+func TestNonSuccessOutcomeWinsOverPartialTally(t *testing.T) {
+	t.Parallel()
+	rep := newReporter(t)
+
+	run := failureRun()
+	run.Stories = &report.StoryTally{Done: 2, Total: 5}
+	body := render(t, rep, run).String()
+
+	if strings.Contains(body, "[!NOTE]") || strings.Contains(headline(body), "partial") {
+		t.Errorf("a non-success run's report shows partial instead of its own outcome:\n%s", body)
+	}
+	containsAll(t, "failure report with a partial tally", body, "failed", "> [!CAUTION]")
 }
 
 // TestEveryOutcomeRendersDistinguishably is the reason harness.Outcome has five
@@ -463,13 +621,6 @@ func TestEveryOutcomeRendersDistinguishably(t *testing.T) {
 			t.Errorf("%s and %s render the same heading %q", prev, outcome, head)
 		}
 		headings[head] = outcome
-
-		// S-9 wants the exit code *or the kill reason* in every failure
-		// comment. The three killed outcomes have no exit status to give, so
-		// the reason is the only thing that says what happened to them.
-		if reason := reasons[outcome]; reason != "" && !strings.Contains(body, "**Reason:** "+reason) {
-			t.Errorf("the %s report does not carry the recorded reason %q", outcome, reason)
-		}
 
 		checkGolden(t, "outcome_"+outcome.String(), body)
 	}
@@ -533,6 +684,10 @@ func TestAFailureAroundTheRunIsItsOwnReport(t *testing.T) {
 
 		run := successRun()
 		run.Pushed = false
+		// A real caller populates Publication for exactly this shape — a
+		// commit that exists but never reached the remote — and this is the
+		// one publication state the comment still discloses (AC-008).
+		run.Publication = "Local commit " + run.CommitSHA + " retained; publication not confirmed."
 		run.Failure = errors.New("git push origin lf/123-add-dry-run-to-task-clean: permission denied (publickey)")
 		run.WorktreePath = "/Users/mario/dev/.lf-worktrees/acme-api/task-123"
 
@@ -543,10 +698,14 @@ func TestAFailureAroundTheRunIsItsOwnReport(t *testing.T) {
 			"> [!CAUTION]",
 			"permission denied",
 			run.WorktreePath,
-			"not pushed",
-			run.CommitSHA,         // the commit is real and is named
+			"- **Publication:** "+run.Publication,
 			run.Result.ResultText, // and so is what the run did
 		)
+		// There is no separate Commit bullet naming the SHA on this path —
+		// only the worktree it is still in, and the Publication prose above.
+		if strings.Contains(body, "**Commit:**") {
+			t.Errorf("the push-failure report still carries a Commit bullet:\n%s", body)
+		}
 		if strings.Contains(headline(body), "succeeded") {
 			t.Errorf("an unpushed run reports as a success: %q", headline(body))
 		}
@@ -557,65 +716,18 @@ func TestAFailureAroundTheRunIsItsOwnReport(t *testing.T) {
 // TestOversizeBodyCutsTheLogTailAndNeverTheSummary is AC-4.8. The log tail is
 // the expendable part — the whole of it is on disk — and the summary and the
 // path to that disk copy are what a human needs, so they are what survives.
-func TestOversizeBodyCutsTheLogTailAndNeverTheSummary(t *testing.T) {
-	t.Parallel()
-
-	run := successRun()
-	// Forty lines, each far larger than a whole comment: the tail alone is
-	// twelve times the limit.
-	run.Output = strings.Repeat(strings.Repeat("x", 20_000)+"\n", 40)
-	run.Output = strings.ReplaceAll(run.Output, "xxxxxxxxxx\n", "END-OF-LINE\n")
-
-	body := render(t, newReporter(t), run)
-	text := body.String()
-
-	if body.Len() > github.CommentSizeLimit {
-		t.Errorf("body is %d bytes, over GitHub's %d-byte limit", body.Len(), github.CommentSizeLimit)
-	}
-
-	// The summary survives whole: every element AC-4.3 lists is still there.
-	containsAll(t, "the truncated body", text,
-		report.StatusMarker(testRef, 2),
-		run.Result.ResultText,
-		run.Branch,
-		run.CommitSHA,
-		"Files touched (3)",
-		"internal/cli/task_clean_test.go",
-		"**Exit status:** `0`",
-		"**Duration:** 1m33s",
-	)
-
-	// The truncation is explicit, and it names the local log — the two things
-	// that stop a shortened comment from being read as a complete one.
-	containsAll(t, "the truncated body", text, "removed here to fit the comment size limit", testLogPath)
-
-	// The cut came out of the middle: both ends of the tail survive.
-	if !strings.Contains(text, "END-OF-LINE") {
-		t.Error("no run output survived the cut at all")
-	}
-	if !strings.HasSuffix(strings.TrimRight(text, "\n"), "</details>") {
-		t.Error("the body does not end with the closing </details>, so the cut ran past the tail")
-	}
-}
-
 // truncatedReportLimit is the limit TestTruncatedReportReadsAsOne renders at:
-// small enough that the report has to be cut and can be read in one screen,
-// large enough that the log tail is still worth quoting rather than dropped
-// whole.
-//
-// It was 4000 until the brief link landed in the metadata list. The link is a
-// forge URL — around 300 bytes with its path, against a budget of limit less
-// [redact.Margin] — and at 4000 it took the log tail below [minTailBytes], so
-// this test stopped exercising the middle-elision it was written for and
-// started exercising the drop-it-whole branch instead. The number moved rather
-// than the assertions, because what is under test here is the elision.
-// Dropping the tail whole at a small limit is covered by the goldens.
+// small enough that the run's final message has to be cut, and the whole
+// report still reads in one screen.
 const truncatedReportLimit = 5_000
 
-// TestTruncatedReportReadsAsOne renders the AC-4.8 result at a limit small
-// enough to read in one screen. The golden is the actual review: someone has to
-// be able to look at a shortened report and tell that it is shortened, and know
-// where the rest of it went.
+// TestTruncatedReportReadsAsOne is what remains of AC-4.8 now that the log
+// tail and the files list are gone: the run's final message is the one
+// section a run can make arbitrarily long, so it is the one [runBody] ever
+// has to cut, and the fixed section above it — the marker, the heading, the
+// callout and whatever survives of the metadata — is never touched. The
+// golden is the actual review: someone has to be able to look at a shortened
+// report and tell that it is shortened, and know where the rest of it went.
 func TestTruncatedReportReadsAsOne(t *testing.T) {
 	t.Parallel()
 
@@ -628,7 +740,8 @@ func TestTruncatedReportReadsAsOne(t *testing.T) {
 	}
 
 	run := successRun()
-	run.Output = numberedLines("worker: applying edit to internal/cli/task.go", 60)
+	run.Result = run.Result.Clone()
+	run.Result.ResultText = numberedLines("a distinguishable line of the run's final message", 200)
 
 	body := render(t, rep, run)
 	text := body.String()
@@ -636,12 +749,16 @@ func TestTruncatedReportReadsAsOne(t *testing.T) {
 	if body.Len() > truncatedReportLimit {
 		t.Errorf("body is %d bytes, over the %d-byte limit", body.Len(), truncatedReportLimit)
 	}
-	// Both ends of the tail survive and the middle is gone: the first lines say
-	// what the run was doing and the last say how it stopped.
+	// The cut is from the end: the opening of the message survives, the close
+	// of it does not, and a notice naming the local log sits in its place.
 	containsAll(t, "the truncated report", text,
-		"[line 0021]", "[line 0060]", "of output removed here", testLogPath)
-	if strings.Contains(text, "[line 0040]") {
-		t.Error("the cut did not come out of the middle of the tail")
+		report.StatusMarker(testRef, 2),
+		"[line 0001]",
+		"cut to fit the comment size limit",
+		testLogPath,
+	)
+	if strings.Contains(text, "[line 0200]") {
+		t.Error("the cut did not come from the end of the run's final message")
 	}
 
 	checkGolden(t, "run_truncated", text)
@@ -660,7 +777,6 @@ func TestOversizeBodyIsWithinTheLimitAfterRedaction(t *testing.T) {
 	})
 
 	run := successRun()
-	run.Output = strings.Repeat("abcdefgh abcdefgh abcdefgh abcdefgh\n", 4_000)
 	run.Result = run.Result.Clone()
 	run.Result.ResultText = strings.Repeat("abcdefgh ", 8_000)
 
@@ -694,19 +810,15 @@ func TestTokenShapedOutputNeverReachesTheBody(t *testing.T) {
 
 	run := successRun()
 	run.Result = run.Result.Clone()
-	run.Result.ResultText = "I exported the token as " + envSecret + " and it worked."
-	run.Result.Stderr = "curl: Authorization: Bearer " + botToken + "\n"
-	run.Result.Reason = "auth failed for " + botToken
-	run.Output = "fatal: could not read from https://mario:" + envSecret + "@github.com/acme/acme-api.git\n" +
-		"ghp_anotherTokenShapedStringABCDEFGHIJ0123\nAKIAIOSFODNN7EXAMPLE\n"
+	run.Result.ResultText = "I exported the token as " + envSecret + " and it worked. " +
+		"Authorization: Bearer " + botToken
 
 	// The local copy is untouched: this is the exact text that stays in the
 	// JSONL on disk, and it still holds every secret verbatim.
-	local := run.Result.ResultText + run.Result.Stderr + run.Output
-	containsAll(t, "the local, unredacted copy", local, botToken, envSecret, "AKIAIOSFODNN7EXAMPLE")
+	containsAll(t, "the local, unredacted copy", run.Result.ResultText, botToken, envSecret)
 
 	body := render(t, rep, run).String()
-	for _, secret := range []string{botToken, envSecret, "AKIAIOSFODNN7EXAMPLE", "ghp_anotherTokenShapedStringABCDEFGHIJ0123"} {
+	for _, secret := range []string{botToken, envSecret} {
 		if strings.Contains(body, secret) {
 			t.Errorf("the outbound body contains the credential %q", secret)
 		}
@@ -733,8 +845,6 @@ func TestSparseRunResultStillReports(t *testing.T) {
 			report.StatusMarker(testRef, 4),
 			"outcome unknown",
 			"> [!CAUTION]",
-			"**Exit status:** unknown",
-			"**Duration:** unknown",
 		)
 		// It must not claim a success it has no evidence for.
 		if strings.Contains(headline(body), "succeeded") {
@@ -758,11 +868,7 @@ func TestSparseRunResultStillReports(t *testing.T) {
 
 		containsAll(t, "the sparse failure report", body,
 			"failed",
-			"killed by litefactory",
-			"**Duration:** unknown",
-			testLogPath,
-			"No files were changed.",
-			"No output was captured",
+			"without an exit status of its own",
 		)
 		checkGolden(t, "run_sparse_result", body)
 	})
@@ -772,33 +878,26 @@ func TestSparseRunResultStillReports(t *testing.T) {
 // "untrusted content": the run output is written by a model that read a
 // third-party issue comment, and quoting it with a fixed three-backtick fence
 // would let it close the fence and continue as markup.
-func TestUntrustedTextCannotBreakOutOfItsBlock(t *testing.T) {
+// TestUntrustedResultTextCannotBreakOutOfItsFence covers what remains of the
+// markup half of "untrusted content" once the log tail and the files list are
+// gone: the run's final message is written by a model that read a
+// third-party issue comment, rendered as markdown rather than quoted inside a
+// fence of this package's own, so an unbalanced fence left open in it would
+// otherwise run on and swallow whatever this package renders below it.
+func TestUntrustedResultTextCannotBreakOutOfItsFence(t *testing.T) {
 	t.Parallel()
 
 	run := successRun()
-	run.Output = "harmless\n```\n</details>\n### not a heading\n``` \nmore\n"
-	run.Files = []git.FileChange{{Kind: git.ChangeUntracked, Path: "weird/```name.txt"}}
+	run.Result = run.Result.Clone()
+	run.Result.ResultText = "harmless\n```go\nfunc evil() {}\n\n### not a heading"
 
 	body := render(t, newReporter(t), run).String()
 
-	// The fence around the output is longer than any run of backticks inside
-	// it, so the block closes where this package says it does.
-	open := strings.Index(body, "````text\n")
-	closing := strings.LastIndex(body, "````")
-	if open < 0 || closing <= open {
-		t.Fatalf("the output block does not use a widened fence:\n%s", body)
-	}
 	if headline(body) == "### not a heading" {
-		t.Error("output escaped its code block and became a heading")
+		t.Error("result text escaped its open fence and became the body's heading")
 	}
-
-	// The </details> the output carries sits inside the fence; the one that
-	// closes the block is the last thing in the body.
-	if quoted := strings.Index(body, "</details>"); quoted < open || quoted > closing {
-		t.Errorf("the quoted </details> at %d is not inside the fence (%d..%d)", quoted, open, closing)
-	}
-	if !strings.HasSuffix(strings.TrimRight(body, "\n"), "</details>") {
-		t.Error("the block is not closed at the end of the body")
+	if !strings.HasSuffix(strings.TrimRight(body, "\n"), "```") {
+		t.Errorf("an open fence in the result text was not closed at the end of the body:\n%s", body)
 	}
 }
 
@@ -809,7 +908,8 @@ func TestControlCharactersAreStripped(t *testing.T) {
 	t.Parallel()
 
 	run := successRun()
-	run.Output = "\x1b[31mred\x1b[0m text\x00 and \xff invalid\r\n"
+	run.Result = run.Result.Clone()
+	run.Result.ResultText = "\x1b[31mred\x1b[0m text\x00 and \xff invalid\r\n"
 
 	body := render(t, newReporter(t), run).String()
 
@@ -1028,197 +1128,10 @@ func TestASmallLimitStillProducesAPostableBody(t *testing.T) {
 	}
 }
 
-// TestToolsBulletRendersRequestedAndResolvedSurface is AC-4.2 and AC-4.3: the
-// four cases the implementer measured, pinned by name. The last case is a
-// deliberate judgement call — metadataList's documented rule is to omit a fact
-// rather than guess at it, and this is the test that locks that rule in for
-// the Tools bullet specifically.
-func TestToolsBulletRendersRequestedAndResolvedSurface(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		modify     func(*report.Run)
-		want       string
-		wantAbsent bool
-	}{
-		{
-			name: "granted profile/lists the resolved surface and its profile",
-			modify: func(r *report.Run) {
-				r.Result.Tools = []string{"Read", "Grep", "Bash"}
-				r.ToolProfile = "research"
-			},
-			want: "- **Tools:** `Read`, `Grep`, `Bash` — profile `research`",
-		},
-		{
-			name: "requested exceeds resolved/names the tool that was not granted (TodoWrite worked example)",
-			modify: func(r *report.Run) {
-				r.Result.Tools = todoWriteResolved
-				r.ToolsRequested = todoWriteRequested
-			},
-			want: "- **Tools:** `Task`, `Bash`, `Edit`, `Glob`, `Grep`, `Read`, `Write` — " +
-				"no profile (the operator's default surface) — requested but not granted: `TodoWrite`",
-		},
-		{
-			name: "nil RunResult/shows the requested surface and the profile, never a resolved one",
-			modify: func(r *report.Run) {
-				r.Result = nil
-				r.ToolsRequested = []string{"Read", "Grep"}
-				r.ToolProfile = "research"
-			},
-			want: "- **Tools:** requested `Read`, `Grep`, but the run recorded no resolved surface — profile `research`",
-		},
-		{
-			name: "no profile at all/says so explicitly rather than staying silent",
-			modify: func(r *report.Run) {
-				r.Result.Tools = []string{"Read", "Edit"}
-			},
-			want: "- **Tools:** `Read`, `Edit` — no profile (the operator's default surface)",
-		},
-		{
-			name: "nothing known about tools/the bullet is omitted rather than guessed",
-			modify: func(r *report.Run) {
-				r.Result = nil
-			},
-			wantAbsent: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			run := successRun()
-			// Start from nothing tools-related recorded, so every case's
-			// expectation is self-contained rather than riding successRun's
-			// own defaults.
-			run.Result.Tools = nil
-			run.ToolsRequested = nil
-			run.ToolProfile = ""
-			tt.modify(&run)
-
-			text := render(t, newReporter(t), run).String()
-
-			if tt.wantAbsent {
-				if strings.Contains(text, "**Tools:**") {
-					t.Errorf("expected no Tools bullet, got:\n%s", text)
-				}
-				return
-			}
-			if !strings.Contains(text, tt.want) {
-				t.Errorf("rendered report does not contain %q:\n%s", tt.want, text)
-			}
-		})
-	}
-}
-
-// TestToolsBulletFollowsModelImmediately is the positional half of AC-4.2: the
-// bullet must land in metadataList right after Model, which is what puts it
-// inside secFixed — the one section [runBody] never trims.
-func TestToolsBulletFollowsModelImmediately(t *testing.T) {
-	t.Parallel()
-
-	run := successRun()
-	run.Result.Tools = []string{"Read", "Grep", "Bash"}
-	run.ToolProfile = "research"
-
-	text := render(t, newReporter(t), run).String()
-	lines := strings.Split(text, "\n")
-
-	modelIdx := -1
-	for i, line := range lines {
-		if strings.HasPrefix(line, "- **Model:**") {
-			modelIdx = i
-			break
-		}
-	}
-	if modelIdx == -1 {
-		t.Fatalf("no Model bullet found:\n%s", text)
-	}
-	if modelIdx+1 >= len(lines) {
-		t.Fatalf("Model is the last line of the body; Tools cannot follow it:\n%s", text)
-	}
-	if next := lines[modelIdx+1]; !strings.HasPrefix(next, "- **Tools:**") {
-		t.Errorf("Tools does not immediately follow Model; the next line is %q", next)
-	}
-}
-
-// TestToolsBulletSurvivesTruncation is AC-4.2's second, load-bearing
-// assertion: the bullet must still be there under a report big enough to
-// force every other section to be cut, because it is the only after-the-fact
-// evidence of which tool surface a per-tick-resolved run actually used (C3).
-// Asserting only the bullet's position, without this, would miss the whole
-// point of putting it in secFixed.
-func TestToolsBulletSurvivesTruncation(t *testing.T) {
-	t.Parallel()
-
-	run := successRun()
-	run.Result.Tools = []string{"Read", "Grep", "Bash"}
-	run.ToolProfile = "research"
-	run.ToolsRequested = []string{"Read", "Grep", "Bash", "TodoWrite"}
-	// Forty lines, each far larger than a whole comment: enough to force the
-	// log tail to be elided or dropped outright.
-	run.Output = strings.Repeat(strings.Repeat("x", 20_000)+"\n", 40)
-
-	body := render(t, newReporter(t), run)
-	text := body.String()
-
-	if body.Len() > github.CommentSizeLimit {
-		t.Errorf("body is %d bytes, over GitHub's %d-byte limit", body.Len(), github.CommentSizeLimit)
-	}
-	want := "- **Tools:** `Read`, `Grep`, `Bash` — profile `research` — requested but not granted: `TodoWrite`"
-	if !strings.Contains(text, want) {
-		t.Errorf("the Tools bullet did not survive truncation; want %q in:\n%s", want, text)
-	}
-}
-
-// TestToolsBulletPassesThroughRedactionUntouched is AC-4.6: internal/redact
-// matches credential shapes only, so a realistic tool list and profile name
-// must come out exactly as they went in, with no redaction class firing on
-// them at all.
-func TestToolsBulletPassesThroughRedactionUntouched(t *testing.T) {
-	t.Parallel()
-
-	redactor := redact.New(redact.Options{Environ: []string{"DEPLOY_SECRET=abcdefgh", "API_KEY=shhhhhhh1"}})
-	line := "- **Tools:** `Task`, `Bash`, `Edit`, `Glob`, `Grep`, `Read`, `Write` — " +
-		"profile `research` — requested but not granted: `TodoWrite`"
-
-	body, err := redactor.Apply(t.Context(), line, 10_000)
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-	if body.String() != line {
-		t.Errorf("a tool list was altered by redaction:\ngot:  %s\nwant: %s", body.String(), line)
-	}
-	if total := body.Counts().Total(); total != 0 {
-		t.Errorf("redaction fired %d times on a tool list and profile name: %+v", total, body.Counts())
-	}
-}
-
-// TestToolsBulletCarriesNoLabelSyntax is the C2/S-13 guardrail: nothing
-// originating from GitHub — a label body, the "lf:tools=" syntax itself — may
-// ever reach a rendered report. ToolProfile is documented as a validated
-// config key, never raw label text.
-func TestToolsBulletCarriesNoLabelSyntax(t *testing.T) {
-	t.Parallel()
-
-	run := successRun()
-	run.Result.Tools = todoWriteResolved
-	run.ToolsRequested = todoWriteRequested
-	run.ToolProfile = "research"
-
-	text := render(t, newReporter(t), run).String()
-
-	for _, forbidden := range []string{"lf:tools=", "lf:tools ="} {
-		if strings.Contains(text, forbidden) {
-			t.Errorf("rendered report leaked label syntax %q:\n%s", forbidden, text)
-		}
-	}
-}
-
-// TestRunCarriesNoLabelField is the structural half of the same guardrail:
-// report.Run has no field for raw label text at all, so there is nothing for a
-// future change to wire up by mistake (S-13).
+// TestRunCarriesNoLabelField is the C2/S-13 guardrail: nothing originating
+// from GitHub — a label body — may ever reach a rendered report, and
+// report.Run has no field for raw label text at all, so there is nothing for
+// a future change to wire up by mistake.
 func TestRunCarriesNoLabelField(t *testing.T) {
 	t.Parallel()
 
@@ -1457,6 +1370,9 @@ func TestNonSuccessReportNamesTheWorktree(t *testing.T) {
 		t.Errorf("the succeeded report names the worktree, which only a non-success run should:\n%s", successBody)
 	}
 
+	// A succeeded, no-change run carries no Commit bullet at all now — the
+	// "committed nothing" success wording is one of the arms this story
+	// removed for good — and it never names a worktree either way.
 	noChange := successRun()
 	noChange.CommitSHA = ""
 	noChange.SHAAfter = ""
@@ -1464,8 +1380,8 @@ func TestNonSuccessReportNamesTheWorktree(t *testing.T) {
 	noChange.Files = nil
 	noChange.WorktreePath = testWorktreePath
 	noChangeBody := render(t, rep, noChange).String()
-	if !strings.Contains(noChangeBody, "this run committed nothing") {
-		t.Errorf("a succeeded, no-change report lost its own wording:\n%s", noChangeBody)
+	if strings.Contains(noChangeBody, "**Commit:**") {
+		t.Errorf("a succeeded, no-change report still carries a Commit bullet:\n%s", noChangeBody)
 	}
 	if strings.Contains(noChangeBody, testWorktreePath) {
 		t.Errorf("a succeeded, no-change report names the worktree; nothing was left uncommitted:\n%s", noChangeBody)
@@ -1579,62 +1495,6 @@ func TestFailureAroundTheRunWithNoCommitNamesTheWorktreeOnce(t *testing.T) {
 
 			if got := strings.Count(body, testWorktreePath); got != 1 {
 				t.Errorf("the report names the worktree %d times, want exactly 1:\n%s", got, body)
-			}
-		})
-	}
-}
-
-// TestCostRowRendering is US-6 (T-6.2, AC-6.1): the Cost row is a
-// HasCost/HasResult-driven three-way, and is never silently omitted.
-func TestCostRowRendering(t *testing.T) {
-	t.Parallel()
-	rep := newReporter(t)
-
-	tests := []struct {
-		name   string
-		result *harness.RunResult
-		want   string
-	}{
-		{
-			name: "reported positive cost",
-			result: &harness.RunResult{
-				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0.4213,
-			},
-			want: "- **Cost:** $0.4213",
-		},
-		{
-			name: "reported exactly zero cost",
-			result: &harness.RunResult{
-				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: true, CostUSD: 0,
-			},
-			want: "- **Cost:** $0.0000",
-		},
-		{
-			name: "a terminal result with no cost reported at all",
-			result: &harness.RunResult{
-				Outcome: harness.OutcomeSucceeded, HasResult: true, HasCost: false,
-			},
-			want: "- **Cost:** unknown",
-		},
-		{
-			name:   "no terminal result at all",
-			result: nil,
-			want:   "- **Cost:** unknown",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			run := report.Run{Ref: testRef, Ordinal: 1, Branch: "lf/123-x", Result: tc.result}
-			body := render(t, rep, run).String()
-
-			if !strings.Contains(body, tc.want) {
-				t.Errorf("the report is missing %q:\n%s", tc.want, body)
-			}
-			if !strings.Contains(body, "- **Cost:**") {
-				t.Errorf("the Cost row is missing entirely:\n%s", body)
 			}
 		})
 	}

@@ -100,10 +100,7 @@ func (r *Reporter) RenderRun(ctx context.Context, run Run) (redact.Body, error) 
 		r.log.LogAttrs(ctx, slog.LevelInfo, "trimmed run report to fit the comment size limit",
 			slog.String("task", run.Ref.String()),
 			slog.Int("run", run.Ordinal),
-			slog.Bool("output_truncated", cuts.output),
-			slog.Bool("output_dropped", cuts.outputDropped),
 			slog.Bool("result_truncated", cuts.result),
-			slog.Bool("files_dropped", cuts.filesDropped),
 			slog.Int("bytes", len(body)),
 			slog.Int("budget", r.budget),
 		)
