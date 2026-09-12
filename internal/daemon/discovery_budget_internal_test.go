@@ -41,6 +41,27 @@ func budgetRequest(b *discoveryBudget, r *discoveryReservation, status int, auth
 	r.observe(o)
 }
 
+// budgetDrainTo spends traffic down to target with authenticated 304 scalars,
+// which are refunded their primary charge and so move nothing but the token
+// bucket. Tests that care about what a refill restores call this instead of
+// assuming the bucket started at any particular size, so discoveryBurst can be
+// retuned without rewriting them. The waiter queue must be empty: a queued head
+// reserves its own cost and would refuse these scalars.
+func budgetDrainTo(t *testing.T, b *discoveryBudget, target int) {
+	t.Helper()
+	// Bounded, because a refund bug makes the loop condition unreachable: a
+	// finish that returned traffic it never used would spin here forever rather
+	// than fail, and a test helper that hangs reports nothing at all.
+	for i := 0; b.tokens > float64(target); i++ {
+		if i > discoveryBurst {
+			t.Fatalf("draining to %d did not converge: tokens=%v after %d scalars", target, b.tokens, i)
+		}
+		r := budgetAcquire(t, b, "drain", 1, false)
+		budgetRequest(b, r, http.StatusNotModified, true)
+		r.finish()
+	}
+}
+
 func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 	for _, tt := range []struct {
 		name                      string
@@ -106,7 +127,9 @@ func TestDiscoveryBudget_TrafficAndRefunds(t *testing.T) {
 			if b.spent != tt.primary {
 				t.Fatalf("primary spending %d, want %d", b.spent, tt.primary)
 			}
-			// Every network response consumes traffic even if its primary charge is free.
+			// Every network response consumes traffic even if its primary charge is
+			// free: the fully used reservation above refunded none of it.
+			budgetDrainTo(t, b, 20)
 			budgetDenied(t, b, "history", 100, false)
 			b.tick(now.Add(39 * time.Second))
 			budgetDenied(t, b, "history", 100, false)
@@ -223,6 +246,7 @@ func TestDiscoveryBudget_FairHistoryPriority(t *testing.T) {
 		budgetRequest(b, r, 304, true)
 	}
 	r.finish()
+	budgetDrainTo(t, b, 20)
 	budgetDenied(t, b, "org/first/comments/1", 100, false)
 	// A different parent's short work must not spend tokens needed by the waiting history.
 	budgetDenied(t, b, "org/second/issue/2", 1, false)
@@ -272,7 +296,7 @@ func TestDiscoveryBudget_BurstIsCappedAfterLongRefill(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
 	b.tick(now.Add(time.Minute))
 	first := budgetAcquire(t, b, "first", 100, false)
-	second := budgetAcquire(t, b, "second", 20, false)
+	second := budgetAcquire(t, b, "second", discoveryBurst-100, false)
 	budgetDenied(t, b, "third", 1, false)
 	first.finish()
 	second.finish()
@@ -292,7 +316,8 @@ func TestDiscoveryBudget_ConcurrentRefunds(t *testing.T) {
 		t.Fatalf("after authenticated refunds: spent=%d reserved=%d", b.spent, b.reserved)
 	}
 	// All 100 refunds restore primary admission but not the network burst.
-	r := budgetAcquire(t, b, "twenty", 20, false)
+	r := budgetAcquire(t, b, "short", 20, false)
+	budgetDrainTo(t, b, 0)
 	budgetDenied(t, b, "one_more", 1, false)
 	r.finish()
 }

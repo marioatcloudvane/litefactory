@@ -96,7 +96,7 @@ func TestDiscoveryCall_OverlappingHistories(t *testing.T) {
 					default:
 						t.Fatal("cancelled waiter did not terminate")
 					}
-					if d.discovery.reserved != 100 || d.discovery.tokens != 20 {
+					if d.discovery.reserved != 100 || d.discovery.tokens != float64(discoveryBurst-100) {
 						t.Fatalf("cancel affected first reservation: reserved=%d tokens=%v", d.discovery.reserved, d.discovery.tokens)
 					}
 				}
@@ -124,8 +124,8 @@ func TestDiscoveryCall_OverlappingHistories(t *testing.T) {
 				if cancelWaiting {
 					wantRequests = 1
 				}
-				if d.discovery.reserved != 0 || d.discovery.tokens != float64(120-wantRequests) || d.discovery.spent != wantRequests || d.discovery.deferrals != 0 {
-					t.Fatalf("settlement: reserved=%d tokens=%v spent=%d deferrals=%d; want 0, %d, %d, 0", d.discovery.reserved, d.discovery.tokens, d.discovery.spent, d.discovery.deferrals, 120-wantRequests, wantRequests)
+				if d.discovery.reserved != 0 || d.discovery.tokens != float64(discoveryBurst-wantRequests) || d.discovery.spent != wantRequests || d.discovery.deferrals != 0 {
+					t.Fatalf("settlement: reserved=%d tokens=%v spent=%d deferrals=%d; want 0, %d, %d, 0", d.discovery.reserved, d.discovery.tokens, d.discovery.spent, d.discovery.deferrals, discoveryBurst-wantRequests, wantRequests)
 				}
 			})
 		})

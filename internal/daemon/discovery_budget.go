@@ -17,7 +17,7 @@ import (
 var ErrDiscoveryDeferred = errors.New("background discovery deferred")
 
 const (
-	discoveryBurst      = 120
+	discoveryBurst      = 400
 	discoveryListBound  = 100
 	discoveryQueueBound = 4096
 )
