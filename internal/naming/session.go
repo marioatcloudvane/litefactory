@@ -56,9 +56,16 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89a
 // that resuming into a second segment later needs no migration and no stored
 // counter — segment 2 of a task already has a distinct, predetermined id.
 //
-// The result is recorded on the segments row. Recomputing it must give the
-// same answer as the stored value; if it ever does not, the derivation changed
-// and the stored value wins, because it is the one the tool knows.
+// The result is recorded on the segments row, but it is a starting point for
+// that row, not a lifelong pin: a coding-agent switch replaces the stored
+// value with a freshly generated one this function had no part in deriving
+// (internal/store's DB.SetSegmentAgent), on purpose decoupled from this
+// derivation, so the newly selected agent always cold-starts under a session
+// id nothing has used before. Recomputing this function must give the same
+// answer as the stored value for a segment that has never been switched; if
+// it ever does not, either the derivation changed, or a switch deliberately
+// replaced it — and the stored value wins either way, because it is the one
+// the tool knows.
 func SessionRef(ref Ref, segmentOrdinal int) (string, error) {
 	if err := ref.Validate(); err != nil {
 		return "", fmt.Errorf("derive session ref: %w", err)

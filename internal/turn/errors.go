@@ -65,9 +65,15 @@ func failuref(err error, format string, args ...any) *failure {
 	return &failure{reason: fmt.Sprintf(format, args...), err: err}
 }
 
-// agentSwitchRefusal is a turn whose resolved coding-agent tool does not own
-// this session's segment (US-3): the segment already belongs to owning, and
-// this turn's labels resolved to requested instead.
+// agentSwitchRefusal is an automatic-recovery continuation whose named
+// segment does not own the coding-agent tool this turn's labels resolved to
+// (US-3): the segment already belongs to owning, and this turn's labels
+// resolved to requested instead. An ordinary turn no longer reaches this —
+// prepareDeliverySegment reconciles an ordinary turn's segment to the newly
+// resolved tool in place instead of refusing — so this now only fires when a
+// label changed between when the continuation was recorded and when it was
+// dispatched, and the segment it names can no longer be continued under the
+// tool it was recorded for.
 //
 // It is unexported and distinct from [failure] on purpose. A [failure]
 // becomes a run-failure comment through [prepareFailed]; this becomes
