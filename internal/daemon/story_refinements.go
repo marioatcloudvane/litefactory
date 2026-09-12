@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -73,6 +74,9 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 		return true, err
 	}
 	slices.SortFunc(stories, func(a, b store.ManagedStory) int { return cmp.Compare(a.IssueNumber, b.IssueNumber) })
+
+	stories = d.storiesToSweep(ctx, t, f, stories)
+
 	cursor, err := d.db.StoryDiscoveryRotation(ctx, t.session.ID)
 	if err != nil {
 		return true, err
@@ -168,6 +172,44 @@ func (d *Daemon) refineStories(ctx context.Context, t *task) (bool, error) {
 	return true, err
 }
 
+// storiesToSweep narrows a generation's children to the ones a sweep can still
+// learn something from.
+//
+// Every child of every dispatched parent used to be read on every tick — the
+// child, its parent link, its comments — whether or not anything had been said
+// on any of them. The repository comment listing already names the children
+// that were commented on, once per tick for the whole repository, so that is
+// the signal, and a child it did not name is not read at all.
+//
+// Deliberately not narrowed further by the feature's state. A feature past
+// planning cannot act on a refinement, but it must still answer one that was
+// written to — a refusal is an answer and silence is not — and once discovery
+// is driven by the listing there is nothing left for a state gate to save: a
+// locked feature with nothing said on it already reads no child at all.
+//
+// A failure to consult the debt is not a reason to skip the sweep. The walk is
+// bounded and idempotent, so falling back to every child costs quota; guessing
+// that nothing moved costs an owner's comment.
+func (d *Daemon) storiesToSweep(ctx context.Context, t *task, f store.ManagedFeature, stories []store.ManagedStory) []store.ManagedStory {
+	awaiting, err := d.db.ListStoriesAwaitingDiscovery(ctx, t.session.ID, f.ParentTask, f.Generation)
+	if err != nil {
+		t.log.WarnContext(ctx, "could not read which children owe a comment sweep; sweeping all of them",
+			slog.Any("error", err))
+		return stories
+	}
+	owed := make(map[int]bool, len(awaiting))
+	for _, child := range awaiting {
+		owed[child] = true
+	}
+	out := stories[:0]
+	for _, s := range stories {
+		if owed[s.IssueNumber] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation storyRelationForge, s store.ManagedStory) error {
 	child, err := d.discoveryIssue(ctx, t.forgeRepo, s.IssueNumber)
 	if err != nil {
@@ -207,5 +249,17 @@ func (d *Daemon) discoverStoryComments(ctx context.Context, t *task, relation st
 			return err
 		}
 	}
-	return nil
+	// A sweep that read nothing still has to leave a cursor behind. The row's
+	// existence is what says this child's history has been seen — without it a
+	// child nobody ever comments on reads as never swept forever, and the walk
+	// goes straight back to costing three requests a tick. MAX makes this a
+	// no-op against a cursor the loop above already moved further.
+	if err := d.db.AdvanceStoryDiscovery(ctx, t.session.ID, s.IssueNumber, after); err != nil {
+		return err
+	}
+	// Last, and only on the path where every comment above was admitted and the
+	// cursor advanced past it. An early return leaves the debt standing, which
+	// costs one more sweep; clearing it before the cursor moved would cost the
+	// comment itself.
+	return d.db.ClearStoryDiscoveryPending(ctx, t.session.ID, s.IssueNumber)
 }

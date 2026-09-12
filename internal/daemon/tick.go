@@ -383,7 +383,7 @@ func (d *Daemon) discover(
 					slog.String("held_for", held.String()))
 			}
 		}
-		commented, err := d.commentedIssues(ctx, repoLog, forgeRepo, since, issues)
+		commented, err := d.commentedIssues(ctx, repoLog, q, since, issues)
 		if errors.Is(err, ErrDiscoveryDeferred) {
 			deferred = true
 		} else if err != nil {
@@ -523,6 +523,16 @@ func (d *Daemon) sight(ctx context.Context, q *repoQueue, issue github.Issue) (*
 	if err != nil {
 		return nil, fmt.Errorf("task ref %q on task %d: %w", session.TaskRef, session.ID, err)
 	}
+	// The issue is open, and the listing that produced it is fresh. That is the
+	// reopen path for [DB.SetManagedParentClosed]: reopening moves the issue's
+	// timestamp, so the listing returns it and it arrives here. One indexed
+	// write on a primary key, and a no-op for everything that is not a managed
+	// parent, which is why it is unconditional rather than preceded by a read.
+	if err := d.db.SetManagedParentClosed(ctx, ref.String(), false); err != nil {
+		return nil, fmt.Errorf("restore the managed registry entry for reopened %s#%d: %w",
+			q.forgeRepo, issue.Number, err)
+	}
+
 	c := q.candidate(session, ref)
 	c.issue = issue
 	c.resolved = true
@@ -639,10 +649,11 @@ func (q *repoQueue) rest() []*candidate {
 func (d *Daemon) commentedIssues(
 	ctx context.Context,
 	log *slog.Logger,
-	repo github.Repo,
+	q *repoQueue,
 	since time.Time,
 	listed []github.Issue,
 ) ([]github.Issue, error) {
+	repo := q.forgeRepo
 	numbers, err := discoveryCall(ctx, d, discoveryKey(repo, "commented", 0), discoveryListBound, func(ctx context.Context) ([]int, error) { return d.forge.ListCommentedIssues(ctx, repo, since) })
 	if err != nil {
 		return nil, fmt.Errorf("list the comments of %s written since %s: %w",
@@ -662,6 +673,19 @@ func (d *Daemon) commentedIssues(
 		if already[number] {
 			continue
 		}
+		// A registered story child is never a candidate of its own — [Daemon.sight]
+		// drops it — so reading its issue here bought nothing. What this listing
+		// does know is the one thing per-story discovery could not find out
+		// without three requests: that something was said on it. Recording that
+		// is the whole of the child's discovery cost, and it replaces the walk
+		// over every child of every dispatched parent on every tick.
+		marked, err := d.markCommentedChild(ctx, log, q, number)
+		if err != nil {
+			return nil, err
+		}
+		if marked {
+			continue
+		}
 		issue, err := d.discoveryIssue(ctx, repo, number)
 		if err != nil {
 			// Every pull request is an issue, so pull request comments arrive
@@ -678,6 +702,36 @@ func (d *Daemon) commentedIssues(
 		extra = append(extra, issue)
 	}
 	return extra, nil
+}
+
+// markCommentedChild records a comment on a registered story child against its
+// parent's session, and reports whether the number was one.
+//
+// Both lookups are local. A child whose parent has no session is left to the
+// ordinary path rather than silently dropped: the registry is the only thing
+// claiming a relationship here, and a claim with nothing behind it must not be
+// able to make an issue invisible to discovery.
+func (d *Daemon) markCommentedChild(ctx context.Context, log *slog.Logger, q *repoQueue, number int) (bool, error) {
+	parent, err := d.db.ManagedParentForChild(ctx, q.repo.ID, number)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	session, err := d.db.GetSessionByTaskRef(ctx, parent)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := d.db.MarkStoryDiscoveryPending(ctx, session.ID, number); err != nil {
+		return false, err
+	}
+	log.DebugContext(ctx, "a registered story child was commented on; its parent owes it a sweep",
+		slog.Int("child", number), slog.String("parent", parent))
+	return true, nil
 }
 
 // task is one issue's context for the duration of a turn.
@@ -1038,6 +1092,15 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 	if issue.State == "closed" {
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
+				c.forgeRepo, c.session.IssueNumber, err)
+		}
+		// Clearing the backlog flag retires the listing-driven axis only. The
+		// managed registry re-queues this parent on the next tick whatever the
+		// flag says, so the read that just established the closure is also
+		// where it has to be recorded, or it is paid for again every minute
+		// for the life of the registry row. Not a managed parent is a no-op.
+		if err := d.db.SetManagedParentClosed(ctx, c.ref.String(), true); err != nil {
+			return nil, fmt.Errorf("retire the managed registry entry for closed %s#%d: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
 		}
 	}

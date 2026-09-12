@@ -118,3 +118,92 @@ func TestStoryRefinementLocksAfterPromotion(t *testing.T) {
 		t.Fatal("lock refusal advanced parent watermark")
 	}
 }
+
+// TestClosedManagedParentStopsCostingAReadEveryTick is the regression for the
+// registry's missing terminal state.
+//
+// [store.DB.ListManagedFeatures] is the one discovery axis nothing gates on a
+// forge listing — deliberately, because GitHub does not move a parent's
+// timestamp when a child moves. Without a terminal state that made every closed
+// parent a standing cost: one issue read per tick, forever, purely so
+// materialise could rediscover the closure and drop the candidate again. With
+// eighteen registered features and a sixty-second tick that was most of the
+// daemon's hourly background allowance spent on nothing.
+//
+// The assertion is the shape rather than a number: the closure is observed
+// once, and no later tick pays for it again.
+func TestClosedManagedParentStopsCostingAReadEveryTick(t *testing.T) {
+	f := managedRefinementFixture(t)
+	f.forge.closeIssue(testIssue)
+	f.settle()
+
+	observed := f.forge.issueReadsOf(testIssue)
+	if observed == 0 {
+		t.Fatalf("the closure was never read, so nothing established it\n%s", f.logs)
+	}
+	for tick := range 3 {
+		f.settle()
+		if got := f.forge.issueReadsOf(testIssue); got != observed {
+			t.Fatalf("tick %d re-read the closed parent: %d reads, want the %d already spent\n%s",
+				tick+1, got, observed, f.logs)
+		}
+	}
+
+	// Reopening is found through ordinary discovery: it moves the issue's
+	// timestamp, so the listing returns it and [Daemon.sight] restores the
+	// registry entry. Retirement must not be a one-way door.
+	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent feature", User: stranger()})
+	f.settle()
+	features, err := f.db.ListManagedFeatures(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(features) != 1 {
+		t.Fatalf("the reopened parent is still retired: %+v\n%s", features, f.logs)
+	}
+}
+
+// TestQuietStoriesCostNothingPerTick is the regression for the sweep that
+// scaled with the registry instead of with the work.
+//
+// Story discovery used to read every registered child of every dispatched
+// parent on every tick — the child, its parent link, its comments — whether or
+// not anything had been said on any of them. At sixty ticks an hour that was
+// the bulk of the daemon's background quota, spent to re-establish that nothing
+// had happened.
+//
+// Two assertions, and both are the shape rather than a number: a quiet child
+// costs nothing after its first sweep, and a child that is commented on is
+// still found. The second is what stops the first being satisfied by simply
+// never looking.
+func TestQuietStoriesCostNothingPerTick(t *testing.T) {
+	f := managedRefinementFixture(t)
+	f.forge.addIssue(fakeIssue{ID: 1230, Number: testIssue, Title: "Parent feature", User: stranger(), Labels: toFakeLabels("Mode: Plan")})
+	f.settle()
+
+	// The first sweep is owed: nothing has ever read this child's history, so
+	// no listing can vouch for it. It is what leaves the cursor behind.
+	settled := f.forge.issueReadsOf(200)
+	if settled == 0 {
+		t.Fatalf("the child was never swept, so no cursor was established\n%s", f.logs)
+	}
+	for tick := range 3 {
+		f.settle()
+		if got := f.forge.issueReadsOf(200); got != settled {
+			t.Fatalf("tick %d re-read a child nobody had commented on: %d reads, want the %d already spent\n%s",
+				tick+1, got, settled, f.logs)
+		}
+	}
+
+	// The repository comment listing names the child, which is what owes it the
+	// next sweep — the parent's own timestamp never moved.
+	f.forge.addComment(200, 90, owner(), "refine acceptance criteria")
+	f.settle()
+	if got := f.forge.issueReadsOf(200); got <= settled {
+		t.Fatalf("a commented child was not swept: still %d reads\n%s", got, f.logs)
+	}
+	calls := f.turns.calls()
+	if len(calls) != 1 || calls[0].Trigger.CommentID != 90 {
+		t.Fatalf("the child's comment did not reach the parent: %+v\n%s", calls, f.logs)
+	}
+}
