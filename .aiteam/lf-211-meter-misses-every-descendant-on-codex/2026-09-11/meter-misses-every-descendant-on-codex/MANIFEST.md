@@ -24,3 +24,5 @@
 - Headless research only; no questions, commits, pushes or automatic mode transitions.
 - Run 0002 factory context reported deferred synchronization: 79 commits behind origin/main, 0 ahead. Run 0003 did not recheck current divergence; prior findings describe the earlier supplied task base.
 - Prior run left only an untracked manifest in the 2026-09-10 session; preserved untouched. Prior failure is not evidence of completed research.
+
+- 2026-09-12 — Run 0004 direct Research investigation completed. Read-only runtime reconciliation assigns children to run 5, identifies runs 6–8 aggregate mislabel, confirms Claude refused resume and current deletion of comment meter metadata. Saved sanitized RUNTIME_EVIDENCE.json and refreshed Q-01–Q-12. No implementation, checks, backfill, runtime changes or automatic mode transition. Current HEAD 13c265c is 4 ahead/0 behind local origin/main; supersedes historical divergence note.
