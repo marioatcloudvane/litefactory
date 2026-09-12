@@ -116,6 +116,9 @@ func TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly(t *te
 	wantCodex := normalizeWhitespace(structuredProtocolHandoff)
 
 	for _, row := range bothTreeMapping() {
+		if row.name == "research-orchestrator" {
+			continue // Research has no story submission contract; tested separately.
+		}
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
 			claudeText := normalizeWhitespace(readRepoFile(t, row.claude))
@@ -239,15 +242,15 @@ const rootRouting = "`- Mode: X` in the prompt header is authoritative: never cl
 	"\x00Plan | `plan-orchestrator`" +
 	"\x00Implement | `implement-orchestrator`" +
 	"\x00Validate | `go-code-reviewer`, read-only contract" +
-	"\x00Spike | nobody — read `.claude/modes/spike.md` and do it here" +
-	"\x00Outside Validate, scaffold `$session` per `.claude/modes/session.md` first" +
+	"\x00Spike | nobody — read `docs/workflow/spike.md` and do it here" +
+	"\x00Outside Validate, scaffold `$session` per `docs/workflow/session.md` first" +
 	"\x00Validate reuses the supplied session and frozen scope read-only." +
 	"\x00Do not scaffold a directory or MANIFEST, write artifacts, or require artifact existence to route or finish Validate." +
 	"\x00Validate finishes with structured runner findings, not an artifact" +
 	"\x00Invoke once, read the result once, check the artifact once. Never poll for status." +
 	"\x00Do not read source, search the repo or form a view on the design" +
 	"\x00Never `git add`, `commit`, `stash` or `push`" +
-	"\x00Lifecycle, managed stories, Plan continuation and the story protocol are in\n%s."
+	"\x00modes, lifecycle, managed stories, Plan continuation and the story protocol are in\n%s."
 
 // TestRootInstructionFilesShareRoutingBehaviour pins CLAUDE.md against
 // AGENTS.md.

@@ -602,12 +602,8 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 	// that question, and it is stated on both paths (AC-A1.3). Permission to ask
 	// is permission to ask about what should be built; it is not a reason to
 	// stop on a bookkeeping question litefactory already knows the answer to.
-	// Only the justification changes, because the untagged one — that nobody can
-	// answer — is no longer true of a tagged run (F-10).
-	reason := "It is stated here because this run is headless and no one can answer a question."
-	if in.MayAsk {
-		reason = "It is stated here so that nothing has to stop to look it up."
-	}
+	// Feature identity is supplied regardless of question permission.
+	reason := "It is stated here so that nothing has to stop to look it up."
 	fmt.Fprintf(b, "\nIf anything asks for the feature name or ticket id for this work, "+
 		"it is `%s`. %s\n", in.FeatureSlug, reason)
 
@@ -646,13 +642,11 @@ func writeHeader(b *strings.Builder, in PromptInput, ordinal string) {
 // two different things depending on which prompt carried it would be the one
 // kind of drift no reader could see from either side.
 const (
-	// headlessRule is what every run was told before asking existed, and what
-	// every untagged run is still told, byte for byte (AC-A1.1).
-	headlessRule = "You are running without a terminal. Nobody will read a question and " +
-		"nobody can answer one, so do not ask clarifying questions, do not wait for " +
-		"confirmation and do not stop for approval. Where something is ambiguous, take " +
-		"the most reasonable reading, act on it, and say what you assumed in your final " +
-		"message."
+	// headlessRule applies when this run may not ask asynchronous questions.
+	headlessRule = "You are running without a terminal. This run may not ask clarifying " +
+		"questions or wait for confirmation. Use the supplied context and record reasonable " +
+		"assumptions. If missing authority or a material scope decision prevents safe " +
+		"completion, report the blocker and stop; do not invent authorization."
 
 	// worktreeRule is unconditional. See the comment in [writeHeader] for why it
 	// had to be pulled out of the paragraph above before that paragraph could be
@@ -660,46 +654,23 @@ const (
 	worktreeRule = "Do the work in this worktree; do not commit or push — litefactory " +
 		"does that once you are finished."
 
-	// askingRule is what a tagged run is told instead of [headlessRule]. It
-	// deliberately contains neither "do not ask clarifying questions" nor "no one
-	// can answer a question" (AC-A1.2): a prompt that granted permission in one
-	// sentence and withdrew it in another would be resolved by whichever half the
-	// model weighted, which is not a decision litefactory gets to observe.
-	//
-	// The bar is the expensive half. A run that asks whatever it is unsure of
-	// turns one comment into a queue of them and costs the owner more attention
-	// than guessing wrong would have; a question that could have been answered by
-	// reading the repository is one the run was equipped to answer itself.
-	//
-	// Asking is stopping. There is no channel to wait on — the process ends, the
-	// final message becomes the report comment on the issue, and the owner's
-	// reply resumes the same conversation on the next tick — so a run that asked
-	// and then waited would simply burn its timeout.
-	//
-	// The "move to the next phase" line is litefactory telling the agent what
-	// sentence to offer the owner, and it is not litefactory granting itself
-	// permission to continue: per the target repository's own One Run, One Mode
-	// rule, only a human comment opens the next mode, and that sentence is the
-	// comment. Saying it in the asking message is what makes the escape hatch
-	// discoverable at the moment it is needed (AC-A1.15, T-A1.12).
-	askingRule = "You are running without a terminal, but this run has been given " +
-		"permission to ask. Ask only when the answer would change what gets built and " +
-		"cannot be settled by reading this repository — a question you could answer " +
-		"yourself by reading the code is not a question. Ask by stopping: put everything " +
-		"you need to know into your final message and end the run. There is nothing to " +
-		"wait on; your final message is posted as a comment on the issue, the owner " +
-		"answers it there, and the next run continues this same conversation. Batch your " +
-		"questions into that one message rather than taking a run per question, and say " +
-		"in it that the owner can reply \"move to the next phase\" to have you stop " +
-		"asking and get on with the work. Where something is ambiguous and does not meet " +
-		"that bar, take the most reasonable reading, act on it, and say what you assumed " +
-		"in your final message."
+	// Questions are asynchronous: the final report is delivered to the owner.
+	askingRule = "You are running without a terminal, with permission to ask. Before substantial " +
+		"investigation, check whether the intended outcome, scope and success criteria are clear. " +
+		"If plausible interpretations change them and cannot be settled by reading this repository " +
+		"or supplied context, ask before choosing. For bugs, establish expected behavior, actual " +
+		"behavior and missing reproduction details. Offer concrete options and a recommendation " +
+		"when useful. Ask by stopping: preserve findings and unresolved decisions as incomplete, " +
+		"put the necessary questions in your final message and end the run. Batch your questions " +
+		"into one report; it is posted on the issue and the owner's reply starts the next run. " +
+		"Never wait for an answer. Do not re-ask settled questions; honor explicit instructions " +
+		"to proceed with recorded assumptions. An invitation to proceed never changes mode automatically."
 
 	// inferAskingSeam is the one place the Research-and-Plan-only rule is carried
 	// as prompt text rather than enforced in Go, and it is structural rather than
 	// a shortcut (AC-A1.7). When the mode is [InferMode] nothing here knows what
 	// the run will turn out to be: the agent classifies it from the target
-	// repository's own CLAUDE.md, which it reads after this prompt has been
+	// supplied project instructions, which it reads after this prompt has been
 	// assembled. Go can enforce the tag and it can enforce a mode it knows; this
 	// is the mode it cannot know yet.
 	inferAskingSeam = "One exception, and it is not negotiable: if this run resolves to " +
@@ -849,7 +820,7 @@ func writePreviousFailedNote(b *strings.Builder, reason string) {
 // This is the whole of litefactory's "intent inference". The request arrived
 // without a command word, so nothing here knows whether it is asking for
 // research, a plan or an implementation — but the worktree this run executes in
-// holds the target repository's own CLAUDE.md, and if that file defines modes
+// holds project instructions; if those define modes
 // then it already says how to tell them apart. Pointing the run at it costs one
 // paragraph. Deciding here instead would cost a second model call to produce a
 // label this run derives anyway, and would hard-code one repository's idea of
@@ -864,8 +835,8 @@ func writeInferGuidance(b *strings.Builder, bodyIsInstruction bool) {
 		trigger = "an issue whose body named no command"
 	}
 	b.WriteString("\nThis run was started by " + trigger + ", so working out " +
-		"what kind of work it is forms part of the task. If this repository's CLAUDE.md " +
-		"defines modes, a routing scheme or a way of classifying a request, follow it and " +
+		"what kind of work it is forms part of the task. If the supplied project instructions " +
+		"define modes, a routing scheme or a way of classifying a request, follow it and " +
 		"choose the one this request calls for. If it does not, simply do what is asked. " +
 		"Put any documents you produce under the feature slug named above, wherever this " +
 		"repository keeps them. Say which mode you chose in your final message.\n")

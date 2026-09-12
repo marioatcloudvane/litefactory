@@ -101,7 +101,7 @@ func planDelivery(opts Options, req Request, snapshot *teamsource.Snapshot, work
 			listedRoles[i] = "litefactory-team:" + name
 		}
 	}
-	bootstrap := "The daemon has selected mode " + req.mode() + ". Use only its ordered specialist roster: " + strings.Join(listedRoles, ", ") + ". The first orchestrator, when present, sequences the remaining specialists. Do not change mode. Supporting resources are retained in this bundle's sources/ directory. Available supporting skills: " + strings.Join(p.skills, ", ") + ". Read a supporting skill only when relevant. Respect ordinary project instructions and the parent permission boundary.\n"
+	bootstrap := "The daemon has selected mode " + req.mode() + ". Use only its ordered specialist roster: " + strings.Join(listedRoles, ", ") + ". The first orchestrator, when present, sequences the remaining specialists. Do not change mode. Supporting resources are retained in this bundle's sources/ directory. Available supporting skills: " + strings.Join(p.skills, ", ") + ". Use the supplied role definition instead of reopening its local SKILL.md or agent file. Local role files are fallback only when no definition was supplied. Read a supporting skill only when relevant and not already supplied in full. Respect ordinary project instructions and the parent permission boundary.\n"
 	p.files["bootstrap.md"] = []byte(bootstrap)
 	projectName := "AGENTS.md"
 	if string(req.Agent) == "claude" {

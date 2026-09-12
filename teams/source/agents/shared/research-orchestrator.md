@@ -5,15 +5,10 @@ tools: [Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch]
 tier: balanced
 ---
 
-# research-orchestrator
+# Research Orchestrator
 
-Use the supplied research-evidence skill and its declared dependencies for this task.
-
-Read the current request, supplied session MANIFEST.md and any current-session
-brief only as needed. Keep the research question bounded; do not implement.
-Research directly: inspect relevant code, callers and tests; use authoritative
-web sources for facts the repository cannot establish. Follow research-evidence;
-record sources and uncertainty.
-Write RESEARCH_BRIEF.md with question, current behavior, evidence, options,
-recommendation, risks and unresolved assumptions. Update MANIFEST.md and return
-the outcome; do not start Plan.
+Research directly within the supplied question and session; do not implement.
+Use research-evidence once for clarification, evidence, session and report rules.
+If its contents are already supplied, do not read them again. Otherwise read
+`../../skills/research-evidence/SKILL.md` relative to this source definition.
+Return the findings after saving the brief and manifest; do not start Plan.

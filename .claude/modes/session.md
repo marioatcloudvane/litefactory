@@ -108,8 +108,8 @@ owner command or canonical label replacement selects another mode; label removal
 returns new triggers to command/classifier routing. Agent recommendations never
 change it.
 
-Plan permits material asynchronous questions unless explicitly prohibited for the
-run; Research stays opt-in. Finish with one final report and never wait for an
+Research and Plan permit material asynchronous questions unless explicitly prohibited
+for the run. Finish with one final report and never wait for an
 answer. Recommend `/implement <instruction>` after completion and leave Plan
 selected. Only successful factory publication, link replacement and save
 establish readiness — never an agent-written proposal or an old local brief.

@@ -179,7 +179,11 @@ type forgeServer struct {
 	nextCommentID int64
 
 	// Recorded traffic.
-	sinceValues      []string
+	sinceValues []string
+	// issueReads counts single-issue GETs per number. Listings are bounded by
+	// the repository count; this is the cost that scales with whatever the
+	// daemon re-reads, which is where a standing per-tick leak shows up.
+	issueReads       map[int]int
 	listIssues       int
 	listComments     int
 	listRepoComments int
@@ -434,6 +438,10 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.issueReads == nil {
+		f.issueReads = make(map[int]int)
+	}
+	f.issueReads[number]++
 	for _, issue := range f.state(r.PathValue("owner"), r.PathValue("repo")).issues {
 		if issue.Number == number {
 			writeJSON(w, http.StatusOK, issue)
@@ -671,6 +679,14 @@ func (f *forgeServer) counts() (issues, comments, posts, reactions int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.listIssues, f.listComments, len(f.postedBodies), f.reactionCalls
+}
+
+// issueReadsOf is how many times one issue was read on its own, as opposed to
+// arriving inside a listing.
+func (f *forgeServer) issueReadsOf(number int) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.issueReads[number]
 }
 
 // repoCommentListings is how many times the repo-level comment listing was

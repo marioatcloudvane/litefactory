@@ -9,7 +9,7 @@ import (
 // AskTag is the literal a comment carries to give the run it triggers
 // permission to stop and ask a question instead of guessing (Q3, AC-A1.4).
 //
-// Research remains opt-in. Plan permits material asynchronous questions by
+// Research and Plan permit material asynchronous questions by
 // default; an explicit current no-question instruction overrides both defaults.
 //
 // # It is not the self-marker, and merging the two would be a security bug
@@ -109,7 +109,7 @@ func stripAskTag(body string) string {
 // modeMayAsk reports whether a run in this mode is allowed to ask at all.
 //
 // This is the mode boundary shared by current and previous request policy.
-// Research and legacy infer require the ask tag; Plan does not. Other modes
+// Legacy infer requires the ask tag; Research and Plan do not. Other modes
 // never gain question permission. All permitted questions are asynchronous.
 func modeMayAsk(mode string) bool {
 	switch strings.TrimSpace(mode) {
@@ -127,7 +127,7 @@ func questionPermission(mode string, command Command) bool {
 	if !modeMayAsk(mode) || forbidsQuestions(command.Text) {
 		return false
 	}
-	return strings.TrimSpace(mode) == planMode || command.Tagged
+	return strings.TrimSpace(mode) == researchMode || strings.TrimSpace(mode) == planMode || command.Tagged
 }
 
 func forbidsQuestions(instruction string) bool {
@@ -141,7 +141,7 @@ func forbidsQuestions(instruction string) bool {
 		if fenced || strings.HasPrefix(line, ">") {
 			continue
 		}
-		for _, phrase := range []string{"do not ask", "don't ask", "don’t ask", "stop asking", "no questions", "no more questions", "no clarifying questions", "no further questions", "no follow-up questions", "without questions", "without asking"} {
+		for _, phrase := range []string{"do not ask", "don't ask", "don’t ask", "stop asking", "no questions", "no more questions", "no clarifying questions", "no further questions", "no follow-up questions", "without questions", "without asking", "proceed with assumptions", "proceed with your assumptions", "use your best judgment", "use your best judgement"} {
 			if strings.Contains(line, phrase) {
 				return true
 			}

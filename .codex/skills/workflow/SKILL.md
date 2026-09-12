@@ -26,7 +26,7 @@ shift whenever the file is edited.
 
 | Role | Reads |
 |---|---|
-| Research — orchestrator, tour | everything above `## Persisted workflow version`, then stop |
+| Research — use research-evidence instead | everything above `## Persisted workflow version`, then stop |
 | Plan | the same opening, plus `## Structured content and submission contract` |
 | Implement, Validate, engineers | the whole file |
 | Any role editing a protected instruction tree | plus `## Independent instruction maintenance` |
