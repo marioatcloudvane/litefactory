@@ -1,0 +1,14 @@
+Command: go test -race -cover ./internal/daemon -run '^TestStoppedResultRepair_' -count=1 -v
+=== RUN   TestStoppedResultRepair_PreservesOwnershipUntilPersistence
+--- PASS: TestStoppedResultRepair_PreservesOwnershipUntilPersistence (0.00s)
+=== RUN   TestStoppedResultRepair_WaitsForOwnedWorkerCleanup
+--- PASS: TestStoppedResultRepair_WaitsForOwnedWorkerCleanup (0.00s)
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence/cancelled
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence/rate_limited
+--- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence (0.00s)
+    --- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence/cancelled (0.00s)
+    --- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence/rate_limited (0.00s)
+PASS
+coverage: 6.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/daemon	1.907s	coverage: 6.8% of statements

@@ -75,7 +75,7 @@ func TestSnapshotRejectsSources(t *testing.T) {
 	for _, kind := range []string{"missing", "directory", "escape", "oversized", "metadata", "cycle"} {
 		t.Run(kind, func(t *testing.T) {
 			root := centralFixture(t)
-			p := filepath.Join(root, "agents/shared/codebase-tour.md")
+			p := filepath.Join(root, "agents/shared/research-orchestrator.md")
 			switch kind {
 			case "missing":
 				if err := os.Remove(p); err != nil {
@@ -135,12 +135,12 @@ func TestSnapshotContainedAbsoluteAndSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := filepath.Join(root, "agents/shared/codebase-tour.md")
+	original := filepath.Join(root, "agents/shared/research-orchestrator.md")
 	alias := filepath.Join(root, "reader.md")
 	if err := os.Symlink(original, alias); err != nil {
 		t.Fatal(err)
 	}
-	raw = []byte(strings.Replace(string(raw), "agents/shared/codebase-tour.md", alias, 1))
+	raw = []byte(strings.Replace(string(raw), "agents/shared/research-orchestrator.md", alias, 1))
 	if err := os.WriteFile(p, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}

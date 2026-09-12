@@ -40,9 +40,9 @@ Conflicting shared definitions used by another installed team are refused.
 Overrides are operator-global and copied into central storage:
 
 ```sh
-litefactory team manage shared:codebase-tour set source=/absolute/path/to/agent.md
-litefactory team manage shared:codebase-tour show --json
-litefactory team manage shared:codebase-tour unset
+litefactory team manage shared:research-orchestrator set source=/absolute/path/to/agent.md
+litefactory team manage shared:research-orchestrator show --json
+litefactory team manage shared:research-orchestrator unset
 litefactory team manage team:go-team:go-architect show
 ```
 
@@ -188,6 +188,9 @@ Panics and process death are outside the normal-return guarantee.
 `turn complete` remains a per-trigger event: a worker can handle multiple
 triggers before it finishes. INFO `run prepared` establishes that a run was
 prepared; it does not establish process launch, completion, or success.
+
+For pending or uncertain report delivery, see [report recovery](docs/report-recovery.md).
+It describes retained content, bounded retry diagnostics and safe investigation.
 
 ## Structured story contracts
 

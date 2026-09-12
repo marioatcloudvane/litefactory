@@ -2,11 +2,9 @@ package report
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"math/big"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -144,23 +142,4 @@ func addMeterAmount(a, b *string) (*string, error) {
 	}
 	result := sum.FloatString(12)
 	return &result, nil
-}
-
-func meterMetadata(s *MeterSummary) string {
-	if s == nil {
-		return ""
-	}
-	amount := "unknown"
-	if s.EstimatedUSD != nil && s.CollectionStatus == "complete" {
-		amount = "$" + *s.EstimatedUSD
-	}
-	subtotal := "unknown"
-	if s.PricedSubtotalUSD != nil {
-		subtotal = "$" + *s.PricedSubtotalUSD
-	}
-	revisions := make([]string, len(s.PriceRevisions))
-	for i, v := range s.PriceRevisions {
-		revisions[i] = strconv.FormatInt(v, 10)
-	}
-	return fmt.Sprintf("\n- **Local estimated cost:** %s; observed priced subtotal %s\n- **Meter coverage:** %s; pricing %s; price revisions %s; daemon helper overhead excluded\n", amount, subtotal, s.CollectionStatus, s.PricingStatus, strings.Join(revisions, ","))
 }

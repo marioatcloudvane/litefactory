@@ -25,20 +25,6 @@ func (r *Reporter) refinementDestination(ctx context.Context, sessionID, comment
 	ref.Issue = refinement.ChildNumber
 	return ref, &refinement, nil
 }
-func (r *Reporter) consumeSource(ctx context.Context, sessionID, commentID int64) error {
-	if store.IsAutomaticTrigger(commentID) {
-		return nil
-	}
-	_, err := r.db.GetStoryRefinement(ctx, sessionID, commentID)
-	if errors.Is(err, store.ErrNotFound) {
-		_, err := r.db.AdvanceWatermark(ctx, sessionID, commentID)
-		return err
-	}
-	if err != nil {
-		return err
-	}
-	return r.db.ConsumeStoryRefinement(ctx, sessionID, commentID)
-}
 
 // The target context is a bounded history entry: BuildPrompt escapes and frames
 // it as untrusted evidence. The managed plan handoff supplies full story bodies.

@@ -78,7 +78,7 @@ Omitting it does not fail — it silently resolves to `general-purpose`, which
 carries none of this team's instructions and reports `DONE` all the same, so the
 substitution is invisible in the log. The names you may use here are
 `requirements-engineer`, `go-architect`, `proxy-product-owner`,
-`research-orchestrator` and `codebase-tour`. The field takes an agent name and
+`research-orchestrator`. The field takes an agent name and
 nothing else — never a note or a placeholder.
 
 ## Choreography

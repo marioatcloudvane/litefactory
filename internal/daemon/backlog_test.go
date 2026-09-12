@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -135,12 +136,17 @@ func TestAnUnconsumedCommentLeavesTheBacklogFlagSet(t *testing.T) {
 	}
 
 	f.forge.onPostComment = nil
+	f.restorePendingReport(211)
 	f.settle()
 	f.settle()
-	f.settle() // consume the second instruction, then prove the backlog self-heals
+	f.settle() // consume the observed bot receipt after the second instruction
+	f.settle() // prove the now-drained backlog self-heals
 
-	if got := f.watermark(); got != 212 {
-		t.Fatalf("watermark is %d after the retry, want 212", got)
+	if got := f.turns.triggers(); !slices.Equal(got, []int64{211, 212}) {
+		t.Fatalf("owner commands were skipped, rerun or reordered before bot receipt: %v", got)
+	}
+	if got := f.watermark(); got != 900211 {
+		t.Fatalf("watermark is %d after the retry, want 900211 (the recovered bot receipt after both owner commands)", got)
 	}
 	if session := f.session(); session.NeedsPoll {
 		t.Errorf("needs_poll survived the retry that drained the queue; a stale-true flag "+

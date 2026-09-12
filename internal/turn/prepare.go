@@ -23,6 +23,8 @@ import (
 // preparation is everything the run needs, assembled and recorded before the
 // subprocess starts. It is built by [prepare] and consumed by [runAndHarvest].
 type preparation struct {
+	stoppedRepairs []func(context.Context) error
+
 	typedPlan           *TypedPlanSubmission
 	planSubmission      func(context.Context) (*PlanSubmissionCallbacks, error)
 	submissionOptions   *SubmissionSessionOptions
@@ -112,6 +114,11 @@ func prepare(
 	ref naming.Ref,
 	logger *slog.Logger,
 ) (*preparation, error) {
+	if req.mode() == "implement" {
+		if err := opts.DB.CheckManagedReadiness(ctx, ref.String()); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateContinuation(ctx, opts, req, session); err != nil {
 		return nil, failuref(err, "automatic recovery requires manual intervention")
 	}
@@ -160,6 +167,7 @@ func prepare(
 	if sync.Outcome == syncOutcomeTooFarBehind {
 		return nil, &syncRefusal{
 			tooFarBehind: true,
+			observation:  &sync,
 			behind:       sync.Behind,
 			maxBehind:    opts.AutoSyncMaxBehind,
 			branch:       sync.Branch, base: sync.Base,
@@ -167,13 +175,14 @@ func prepare(
 	}
 	if sync.Outcome == syncOutcomeBlocked && opts.BlockRunOnConflict {
 		return nil, &syncRefusal{
-			conflicts: append([]string(nil), sync.Conflicts...),
-			branch:    sync.Branch, base: sync.Base,
+			observation: &sync,
+			conflicts:   append([]string(nil), sync.Conflicts...),
+			branch:      sync.Branch, base: sync.Base,
 			files:            sync.ConflictFiles,
 			snapshots:        sync.ConflictSnapshots,
 			collectionReason: sync.ConflictCollectionReason,
 			excluded:         sync.ConflictExcluded,
-			baseSHA:          sync.BaseSHA, branchSHA: sync.BranchSHA,
+			baseSHA:          sync.BaseSHA, branchSHA: sync.BranchSHA, inputs: sync.ConflictInputs,
 		}
 	}
 	if session.WorktreePath != worktree.Path() {
@@ -284,6 +293,16 @@ func prepare(
 		CommitSHA: sync.SyncCommitSHA,
 	}); err != nil {
 		return nil, fmt.Errorf("record the base-sync outcome for run %d of task %s: %w", run.Ordinal, ref, err)
+	}
+	observations := []store.SyncObservation{}
+	if sync.Task != nil {
+		observations = append(observations, observation(*sync.Task))
+	}
+	baseObservation := observation(sync)
+	baseObservation.Ref = opts.remote() + "/" + repo.BaseBranch
+	observations = append(observations, baseObservation)
+	if _, err = opts.DB.RecordRunSyncObservations(ctx, run.ID, observations); err != nil {
+		return nil, fmt.Errorf("record synchronization observations for run %d: %w", run.ID, err)
 	}
 	metaPath, err := harness.MetaPath(opts.Paths.Home(), ref, run.Ordinal)
 	if err != nil {
@@ -414,12 +433,7 @@ func prepare(
 	// back up by a later edit" without re-deriving this same argument, so it
 	// is read here, not checked there.
 	//
-	// Moving the write this late does open a window where allocateRun's runs
-	// row (and the attachment manifest written above) can be observed as
-	// running before its session is marked running. That window is accepted,
-	// not mitigated: ReconcileOrphans already fails an orphaned running run
-	// and its session together at daemon start, and nothing else in this
-	// tree branches control flow on session.state.
+	// The row remains prelaunch until the execution owner claims it.
 	if err = opts.DB.SetSessionState(ctx, session.ID, store.SessionRunning); err != nil {
 		return nil, fmt.Errorf("mark task %s running: %w", ref, err)
 	}
@@ -577,9 +591,41 @@ func prepareClone(
 	}
 
 	if confirmed == nil {
-		sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+		inputs, inputErr := observeConflictInputs(ctx, opts, clone, worktree, repo)
+		if inputErr != nil {
+			return session, branch, worktree, syncResult{}, nil, inputErr
+		}
+		task, err := syncTask(ctx, opts, req, clone, worktree, author, logger)
 		if err != nil {
-			return session, "", nil, syncResult{}, nil, err
+			var refusal *syncRefusal
+			if errors.As(err, &refusal) {
+				inputs.TargetPhase = "task"
+				inputs.TargetRef = inputs.TaskRef
+				refusal.inputs = inputs
+			}
+			return session, branch, worktree, syncResult{Task: &task}, nil, err
+		}
+		baseRef := opts.remote() + "/" + repo.BaseBranch
+		localSHA, err := worktree.RevParse(ctx, "HEAD", git.RevParseOptions{})
+		if err != nil {
+			return session, branch, worktree, syncResult{Task: &task}, nil, failuref(err, "base synchronization could not read HEAD")
+		}
+		baseSHA, err := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
+		if err != nil {
+			return session, branch, worktree, syncResult{Task: &task}, nil, failuref(err, "base synchronization could not resolve %s", baseRef)
+		}
+		sync, err := syncBase(ctx, opts, req, worktree, repo, author, logger)
+		sync.Phase, sync.Task = "base", &task
+		inputs.TargetPhase, inputs.TargetRef = "base", inputs.BaseRef
+		sync.ConflictInputs = inputs
+		sync.BranchSHA, sync.BaseSHA = localSHA, baseSHA
+		// Keep the legacy branch name for advisor inputs; the observation ref
+		// is fully qualified when persisted and rendered.
+		if sync.Base == "" {
+			sync.Base = baseRef
+		}
+		if err != nil {
+			return session, branch, worktree, sync, nil, err
 		}
 		return session, branch, worktree, sync, nil, nil
 	}
@@ -594,16 +640,23 @@ func prepareClone(
 	if revErr != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "the head of %s could not be read", worktree.Branch())
 	}
-	baseRef := opts.remote() + "/" + repo.BaseBranch
-	currentBaseSHA, revErr := worktree.RevParse(ctx, baseRef, git.RevParseOptions{})
-	if revErr != nil {
-		return session, branch, worktree, syncResult{}, nil, failuref(revErr, "%s could not be resolved", baseRef)
+	inputs, inputErr := observeConflictInputs(ctx, opts, clone, worktree, repo)
+	if inputErr != nil {
+		return session, branch, worktree, syncResult{}, nil, inputErr
 	}
-	if currentBranchSHA != stored.BranchSHA || currentBaseSHA != stored.BaseSHA {
-		logger.Info("confirmed proposal is stale; will be superseded rather than applied",
-			slog.Int64("proposal_id", stored.ID),
-			slog.String("stored_branch_sha", stored.BranchSHA), slog.String("current_branch_sha", currentBranchSHA),
-			slog.String("stored_base_sha", stored.BaseSHA), slog.String("current_base_sha", currentBaseSHA))
+	inputs.TargetPhase = stored.Inputs.TargetPhase
+	switch inputs.TargetPhase {
+	case "base":
+		inputs.TargetRef = inputs.BaseRef
+	case "task":
+		inputs.TargetRef = inputs.TaskRef
+	}
+	targetSHA := inputs.BaseSHA
+	if inputs.TargetPhase == "task" {
+		targetSHA = inputs.TaskSHA
+	}
+	if !stored.Inputs.Observed || inputs != stored.Inputs || targetSHA == "" || targetSHA != stored.BaseSHA || currentBranchSHA != stored.BranchSHA || (inputs.TargetPhase != "base" && inputs.TargetPhase != "task") {
+		logger.Info("confirmed proposal inputs changed or were not bound; superseding without mutation", slog.Int64("proposal_id", stored.ID))
 		return session, branch, worktree, syncResult{}, &confirmedApplyResult{Superseded: true, Proposal: stored}, nil
 	}
 
@@ -616,7 +669,13 @@ func prepareClone(
 	for _, f := range stored.Files {
 		files = append(files, appliedRegionFile(stored, f, opts.ConflictContentMaxBytes))
 	}
-	if err := worktree.WriteResolvedFiles(ctx, baseRef, files); err != nil {
+	// Preserve the preview's marker labels: base previews use the ref, task
+	// previews use its pinned SHA. Both have already passed exact freshness.
+	mergeInput := targetSHA
+	if inputs.TargetPhase == "base" {
+		mergeInput = inputs.TargetRef
+	}
+	if err := worktree.WriteResolvedFiles(ctx, mergeInput, files); err != nil {
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the confirmed resolution for proposal %d could not be written", stored.ID)
 	}
 	if err := worktree.StageResolvedFiles(ctx, files); err != nil {
@@ -630,7 +689,7 @@ func prepareClone(
 		return session, branch, worktree, syncResult{}, nil, failuref(err, "the merge confirmed by proposal %d could not be completed", stored.ID)
 	}
 	if err := worktree.Push(ctx, opts.remote()); err != nil {
-		return session, branch, worktree, syncResult{}, nil, failuref(err, "the commit applying proposal %d could not be pushed", stored.ID)
+		return session, branch, worktree, syncResult{}, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, failuref(err, "the commit %s applying proposal %d could not be pushed; it remains in worktree %s and has not been published", mergeResult.Head, stored.ID, worktree.Path())
 	}
 
 	return session, branch, worktree, syncResult{}, &confirmedApplyResult{Proposal: stored, CommitSHA: mergeResult.Head}, nil
@@ -640,9 +699,8 @@ func prepareClone(
 // non-nil (US-12): either the proposal turned out to be stale and was left
 // for the caller to mark superseded, or it was applied and CommitSHA is the
 // merge commit [git.Worktree.CompleteMerge] produced. It is nil whenever
-// confirmed was nil, and whenever an error is also returned — a git mutator
-// that failed reports through the ordinary error return, the same as every
-// other step of this function.
+// confirmed was nil. A postcommit publication failure returns the actual
+// local commit alongside its error, so reporting can retain that evidence.
 type confirmedApplyResult struct {
 	// Superseded is true when the stored base/branch shas no longer matched
 	// what a fresh read found (AC-12.4). Proposal is set; CommitSHA is not.
@@ -682,6 +740,8 @@ const (
 // and Conflicts to render the comment, US-9 reads SyncCommitSHA to persist it,
 // and neither has to call back into internal/git to get there.
 type syncResult struct {
+	Phase string
+	Task  *syncResult
 	// Outcome is the synchronization decision syncBase reached.
 	Outcome syncOutcome
 	// Behind and Ahead are the [git.Divergence] syncBase measured before
@@ -718,6 +778,7 @@ type syncResult struct {
 	// acquisition (US-11, S-10), non-nil only when
 	// [Options.SuggestConflictResolution] was true and Outcome reached
 	// [syncOutcomeBlocked].
+	ConflictInputs           store.ConflictProposalInputs
 	ConflictCollectionReason string
 	ConflictSnapshots        []git.ConflictSnapshot
 	ConflictFiles            []agent.ConflictFileContent
@@ -747,15 +808,15 @@ func withinSyncCap(opts Options, behind int) bool {
 // nil case by design: AC-3.1 requires a report for a branch that was already
 // current to be byte-identical to one from before this feature existed.
 //
-// Blocked never reaches here either, for a different reason — a blocked run
-// is refused before it starts and answered by [report.ReplyRefusesSync], so
-// there is no run report to carry it.
+// A base conflict allowed by existing policy remains visible here. Task
+// conflicts always refuse before launch through [report.ReplyRefusesSync].
 func reportSync(sync syncResult) *report.Sync {
-	switch sync.Outcome {
-	case syncOutcomeUpToDate, syncOutcomeBlocked:
+	if sync.Outcome == syncOutcomeUpToDate {
 		return nil
 	}
 	return &report.Sync{
+		Phase: sync.Phase, LocalSHA: sync.BranchSHA, RemoteSHA: sync.BaseSHA,
+		Conflicts: append([]string(nil), sync.Conflicts...),
 		Outcome:   report.SyncOutcome(sync.Outcome),
 		Behind:    sync.Behind,
 		Ahead:     sync.Ahead,
@@ -976,7 +1037,7 @@ func previousRun(
 	for _, run := range runs {
 		// ListRuns is in ordinal order, oldest first, so the last match wins
 		// and previous is the most recent run of this conversation.
-		if run.SegmentID == segment.ID && terminalRunStatus(run.Status) {
+		if run.SegmentID == segment.ID && terminalRunStatus(run.Status) && run.SemanticOutcome != "refused" {
 			previous, found = run, true
 		}
 	}
@@ -1451,12 +1512,23 @@ func allocateRun(
 	segment store.Segment,
 	ref naming.Ref,
 ) (store.Run, error) {
+	existing, found, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
+	if err != nil {
+		return store.Run{}, err
+	}
+	if found {
+		if existing.Status != store.RunPrelaunch || existing.SegmentID != segment.ID || existing.Mode != req.mode() || existing.Agent != segment.Agent {
+			return store.Run{}, fmt.Errorf("prelaunch allocation no longer matches this request")
+		}
+		return existing, nil
+	}
 	// The store calls this inside the allocating transaction and has nowhere to
 	// put an error, so the failure is carried out here instead. It cannot
 	// happen for a ref that has already parsed, which is exactly why it must
 	// not be swallowed if it ever does.
 	var pathErr error
 	run, err := opts.DB.AllocateRun(ctx, store.AllocateRunParams{
+		Prelaunch: true,
 		SessionID: session.ID,
 		SegmentID: segment.ID,
 		Mode:      req.mode(),

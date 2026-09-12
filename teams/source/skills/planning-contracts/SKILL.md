@@ -7,8 +7,10 @@ requires:
 
 Derive scope from the latest owner request and current code; prior briefs are
 evidence, not permission to retain superseded requirements. Separate decisions,
-assumptions, non-goals, risks and existing features to reuse. In headless runs,
-resolve non-material gaps reasonably instead of asking questions nobody can answer.
+assumptions, non-goals, risks and existing features to reuse. Ask about remaining
+material user decisions unless explicitly prohibited; do not re-ask settled
+questions. Save discussion context and end the run without waiting. Record
+reasonable assumptions for non-material gaps.
 
 Use the factory-supplied content/submission version. For contract 2 supply a
 Plan contribution with `stage: "plan"`, outcome discussion or completed, and

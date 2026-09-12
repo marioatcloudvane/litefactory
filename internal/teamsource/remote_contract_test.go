@@ -24,7 +24,7 @@ func TestPublishedModeRostersKeepOrchestrators(t *testing.T) {
 		mode string
 		want []string
 	}{
-		{"research", []string{"research-orchestrator", "codebase-tour", "web-researcher"}},
+		{"research", []string{"research-orchestrator"}},
 		{"plan", []string{"plan-orchestrator", "requirements-engineer", "go-architect", "proxy-product-owner"}},
 		{"implement", []string{"implement-orchestrator", "go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}},
 		{"validate", []string{"go-code-reviewer"}},
@@ -85,7 +85,7 @@ func TestRemoteInstallPreservesStateOnFailure(t *testing.T) {
 			if err := teamsource.RemoteInstall(t.Context(), paths, "go-team", packageFetcher{p: initial}, opts); err != nil {
 				t.Fatal(err)
 			}
-			installedPath := filepath.Join(paths.TeamsDir(), "agents/shared/codebase-tour.md")
+			installedPath := filepath.Join(paths.TeamsDir(), "agents/shared/research-orchestrator.md")
 			original, err := os.ReadFile(installedPath)
 			if err != nil {
 				t.Fatal(err)
@@ -95,7 +95,7 @@ func TestRemoteInstallPreservesStateOnFailure(t *testing.T) {
 			fetch := packageFetcher{}
 			switch scenario {
 			case "same version changed even force":
-				if err := os.WriteFile(filepath.Join(source, "agents/shared/codebase-tour.md"), append(original, []byte("\nchanged prompt\n")...), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(source, "agents/shared/research-orchestrator.md"), append(original, []byte("\nchanged prompt\n")...), 0600); err != nil {
 					t.Fatal(err)
 				}
 				next = remotePackage(t, source, "2.0.0")
@@ -117,7 +117,7 @@ func TestRemoteInstallPreservesStateOnFailure(t *testing.T) {
 				fetch.err = errors.New("unavailable")
 			case "payload tamper":
 				next = remotePackage(t, source, "3.0.0")
-				next.Files["agents/shared/codebase-tour.md"] = []byte("tampered")
+				next.Files["agents/shared/research-orchestrator.md"] = []byte("tampered")
 			}
 			fetch.p = next
 			if err := teamsource.RemoteInstall(t.Context(), paths, "go-team", fetch, opts); err == nil {

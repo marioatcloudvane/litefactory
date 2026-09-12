@@ -1,0 +1,6 @@
+PASS
+coverage: 61.5% of statements
+signal: interrupt
+FAIL	github.com/cloudvane/litefactory/internal/store	264.756s
+signal: interrupt
+FAIL	github.com/cloudvane/litefactory/internal/turn	264.756s

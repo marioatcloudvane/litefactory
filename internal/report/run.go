@@ -2,8 +2,6 @@ package report
 
 import (
 	"fmt"
-	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,11 +16,6 @@ import (
 // Claude run, which is every run they describe.
 const defaultAgentName = "claude"
 
-// TailLines is how many lines of run output the <details> block carries
-// (AC-4.3, S-9). It is exported so the caller capturing that output knows how
-// much of it is worth keeping.
-const TailLines = 40
-
 const (
 	// maxResultBytes caps the run's final message. A model can emit a message
 	// far larger than a comment, and the summary is the part that must never be
@@ -30,23 +23,39 @@ const (
 	// rather than trimmed as an emergency later.
 	maxResultBytes = 32 << 10
 
-	// maxFileEntries caps the files-touched list. A refactor touching two
-	// thousand files produces a list nobody reads and a body nobody can post;
-	// the count above the list still tells the true number.
-	maxFileEntries = 200
-
 	// maxFenceBytes is the room [resultSection] reserves for a closing fence
 	// [closeOpenFence] may have to append after a cut. A run of more than 64
 	// backticks in a final message is not worth sizing anything for, and
 	// [runBody]'s budget pass is the limit that actually has to hold.
 	maxFenceBytes = 64
 
-	// minTailBytes is the least amount of room worth giving the log tail. Below
-	// this the block is dropped whole and replaced with a line naming the local
-	// log, because a dozen surviving bytes of output is not evidence of
-	// anything.
+	// minTailBytes is the least amount of room worth giving the run's final
+	// message when [runBody] has to cut it to fit. Below this the message is
+	// dropped whole and replaced with a line naming the local log, because a
+	// dozen surviving bytes of it is not evidence of anything.
 	minTailBytes = 512
 )
+
+// StoryTally is how many of a managed feature's stories were done as of the
+// moment a run finished, and how many the feature has in total. It exists
+// only to drive [Run.Stories]'s "partial" callout (S-2): this package never
+// computes it and never looks past these two integers — no story key, title,
+// issue number or parent ref ever enters a rendered body.
+type StoryTally struct {
+	// Done is how many of the feature's stories count as finished.
+	Done int
+	// Total is how many stories the feature has.
+	Total int
+}
+
+// valid reports whether t is worth rendering: present, with a positive total
+// and a done count that is neither negative nor over it. A nil or invalid
+// tally is treated identically — omitted rather than guessed at (AC-017) —
+// which is why every caller of this reaches it through a method that already
+// tolerates a nil receiver rather than a nil check of its own.
+func (t *StoryTally) valid() bool {
+	return t != nil && t.Total > 0 && t.Done >= 0 && t.Done <= t.Total
+}
 
 // Run is everything [Reporter.RenderRun] needs to render one run report.
 //
@@ -58,7 +67,9 @@ const (
 // Every field except Ref and Ordinal is allowed to be absent. A run that
 // crashed on its way to reporting still gets a comment (AC-4.1).
 type Run struct {
-	// Meter contains prepared frozen metering values, independent of legacy cost.
+	// Meter contains prepared frozen metering values, independent of legacy
+	// cost. It is retained as an input even though the run comment no longer
+	// renders it.
 	Meter            *MeterSummary
 	Recovery         *Recovery
 	SourceStoryIssue int
@@ -116,15 +127,17 @@ type Run struct {
 	// because a permalink into an unpushed commit is a guaranteed 404.
 	Pushed bool
 
+	// Publication distinguishes existing/preparation commits from agent edits.
+	Publication string
+
 	// Files is the files-touched list from the worktree's status: a plain
-	// git-derived list of the run's changes plus its untracked additions
-	// (AC-4.4). It is not an aiteam artefact walk — that is out of scope at M0.
+	// git-derived list of the run's changes plus its untracked additions. It is
+	// retained as an input even though the run comment no longer renders it.
 	Files []git.FileChange
 
 	// Output is the run's output as captured locally: stream text, stderr, or
-	// both. Only the last [TailLines] lines of it reach the comment, and the
-	// unredacted whole of it stays in $LF_HOME/logs. Empty falls back to the
-	// harness result's stderr tail.
+	// both, and the unredacted whole of it stays in $LF_HOME/logs. It is
+	// retained as an input even though the run comment no longer quotes it.
 	Output string
 
 	// LogPath is the absolute path of the run's local log. Empty falls back to
@@ -148,14 +161,8 @@ type Run struct {
 
 	// ToolsRequested is the tool surface litefactory asked claude for, and
 	// ToolProfile is the name of the operator-authored profile that surface came
-	// from — empty when no profile was selected.
-	//
-	// They are on Run rather than on Result because they are known before the
-	// subprocess starts and must survive a run that produced no result at all:
-	// Result is nil for a run that died before the init event, which is exactly
-	// the run whose requested surface is worth reading. The resolved surface —
-	// what claude actually ran under — stays on Result, where the init event put
-	// it, and the two are reported side by side.
+	// from — empty when no profile was selected. Both are retained as inputs
+	// even though the run comment no longer renders them.
 	//
 	// ToolProfile is a validated profile name from the operator's own config. No
 	// text originating from the forge is ever carried here.
@@ -174,6 +181,10 @@ type Run struct {
 	// a skip is never silent (AC-3.2), whatever caused it.
 	Sync *Sync
 
+	// TaskSync is retained as an input even though the run comment no longer
+	// renders it; [Sync] is the one disclosure this package still writes.
+	TaskSync *Sync
+
 	// BriefPath is the repository-relative, slash-separated path of this task's
 	// RESEARCH_BRIEF.md, as found on disk by the caller. Empty means the caller
 	// looked and there is no brief — or had no worktree to look in — and the
@@ -188,6 +199,15 @@ type Run struct {
 	// that had never existed while the brief sat one directory away. A report
 	// that names no brief is recoverable; one that names the wrong brief is not.
 	BriefPath string
+
+	// Stories is the story-completion tally for this run's managed feature
+	// (S-2). Nil means no tally applies — a caller that predates this field, a
+	// run from any mode other than Implement, a feature that is not managed,
+	// or one where the store read needed to compute it failed — and the report
+	// renders exactly as it did before this field existed. A non-nil tally
+	// that is not [StoryTally.valid] renders the same way: this package omits
+	// an unusable count rather than guess at it (AC-017).
+	Stories *StoryTally
 }
 
 // agentName returns which coding-agent tool ran this, falling back to
@@ -211,26 +231,6 @@ func (r Run) logPath() string {
 	return r.Result.LogPath
 }
 
-// logsCommand is the command that shows this run's log on the machine that ran
-// it. It is what the comment points at: the comment is redacted and size-capped
-// by design, and this is how a reader gets the whole of what it left out.
-func (r Run) logsCommand() string {
-	return fmt.Sprintf("litefactory logs %d --run %d", r.Ref.Issue, r.Ordinal)
-}
-
-// outputText returns the run output to quote, falling back to the stderr tail
-// the harness kept when the caller captured nothing else. A failed run whose
-// only trace is what it printed to stderr is exactly the run S-9 is about.
-func (r Run) outputText() string {
-	if strings.TrimSpace(r.Output) != "" {
-		return r.Output
-	}
-	if r.Result != nil {
-		return r.Result.Stderr
-	}
-	return ""
-}
-
 // duration returns the run's wall-clock duration and whether it is known.
 func (r Run) duration() (time.Duration, bool) {
 	res := r.Result
@@ -249,26 +249,21 @@ func (r Run) duration() (time.Duration, bool) {
 // cuts records what the fitting pass had to remove, for the log line that
 // explains a short comment.
 type cuts struct {
-	output        bool
-	outputDropped bool
-	result        bool
-	filesDropped  bool
+	result bool
 }
 
 func (c cuts) any() bool {
-	return c.output || c.outputDropped || c.result || c.filesDropped
+	return c.result
 }
 
 // Section indices into the assembled body. The order is the reading order and
-// also the survival order: everything above the log tail outranks it, so even
-// [redact.Redactor.Apply]'s own last-resort cut from the bottom takes the
-// expendable part first.
+// also the survival order: everything above the run's final message outranks
+// it, so even [redact.Redactor.Apply]'s own last-resort cut from the bottom
+// takes the expendable part first.
 const (
 	secFixed  = iota // marker, heading, status callout, metadata — never cut
 	secSync          // base branch sync disclosure — never cut (US-3)
 	secResult        // the run's final message
-	secFiles         // files touched
-	secOutput        // the <details> log tail
 	numSections
 )
 
@@ -278,11 +273,10 @@ const sectionGap = "\n\n"
 // runBody assembles the report and trims it to the budget, reporting what it
 // had to remove.
 //
-// The trimming order is AC-4.8's: the log tail goes first and from the middle,
-// because the whole of it is on disk and the body says where. Only if removing
-// it outright still leaves the body over budget — which the caps on the result
-// text and the files list make close to unreachable — does anything in the
-// summary get touched.
+// The trimming order cuts the run's final message first, because it is the one
+// section a run can make arbitrarily long — the caps already on it make going
+// further close to unreachable. Only if that still leaves the body over
+// budget does the failure diagnostic in the fixed section itself get shrunk.
 func (r *Reporter) runBody(run Run) (string, cuts) {
 	var c cuts
 	view := describeOutcome(run)
@@ -292,29 +286,12 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 	sections[secFixed] = fixedSection(run, view)
 	sections[secSync] = syncSection(run)
 	sections[secResult] = resultSection(run, view)
-	sections[secFiles] = filesSection(run)
-
-	output := lastLines(sanitize(run.outputText()), TailLines)
-	fence := fenceFor(output)
-	sections[secOutput] = outputSection(output, fence, false)
 
 	if body := join(sections[:]); len(body) <= r.budget {
 		return body, c
 	}
 
-	// 1. The log tail: elided from the middle, or dropped whole if what would
-	//    survive is not worth the space. Skipped when there was no output to
-	//    quote in the first place — "omitted" and "there was none" are
-	//    different facts and the report must not confuse them.
-	if output != "" {
-		sections[secOutput], c.output, c.outputDropped =
-			fitOutput(output, fence, logPath, r.roomFor(sections, secOutput))
-	}
-	if body := join(sections[:]); len(body) <= r.budget {
-		return body, c
-	}
-
-	// 2. The run's final message, cut from the end: its opening is the part
+	// 1. The run's final message, cut from the end: its opening is the part
 	//    that says what happened.
 	if sections[secResult] != "" {
 		if room := r.roomFor(sections, secResult); room > len(resultHeading)+minTailBytes {
@@ -328,18 +305,12 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 		return body, c
 	}
 
-	// 3. Last: the files-touched list. Reaching here means the fixed section
-	//    alone is near the budget, which takes a pathological log path or task
-	//    ref; Apply's hard-truncate is the backstop below this.
-	sections[secFiles] = filesHeading + sectionGap + "_Omitted to fit the comment size limit._"
-	c.filesDropped = true
-	// Supplemental guidance must not push mandatory metadata (especially the
-	// sole worktree location) into Apply's hard truncation. Rebudget with shorter
-	// guidance when even the reduced report cannot fit. Clone keeps rendering
-	// pure; each retry removes at least the overflow plus literal markup room,
-	// and guidance too short to be useful is omitted altogether.
-	if len(join(sections[:])) > r.budget && run.Result != nil &&
-		run.Result.Outcome == agent.OutcomeFailed && run.Result.Diagnostic != "" {
+	// 2. Last resort: reaching here means the fixed section alone is near the
+	//    budget, which takes a pathological log path or task ref. Shrink the
+	//    failure diagnostic — the only other variable-length text left — and
+	//    retry; each retry removes at least the overflow plus literal markup
+	//    room, and guidance too short to be useful is omitted altogether.
+	if run.Result != nil && run.Result.Outcome == agent.OutcomeFailed && run.Result.Diagnostic != "" {
 		run.Result = run.Result.Clone()
 		diagnostic := oneLine(run.Result.Diagnostic)
 		room := min(len(diagnostic), 1024) - (len(join(sections[:])) - r.budget) - 32
@@ -351,22 +322,6 @@ func (r *Reporter) runBody(run Run) (string, cuts) {
 		return r.runBody(run)
 	}
 	return join(sections[:]), c
-}
-
-// fitOutput cuts the log tail down to room bytes, or gives up on it entirely.
-// It reports whether the tail was elided and whether it was dropped.
-//
-// Giving up is a real outcome rather than a failure: a hundred surviving bytes
-// of a log is not evidence of anything, and the line that replaces the block
-// says where the whole of it is.
-func fitOutput(output, fence, logPath string, room int) (section string, elided, dropped bool) {
-	content := room - outputOverhead(fence, true)
-	if room >= minTailBytes && content >= minTailBytes {
-		if cut, ok := elideMiddle(output, content, elisionNotice(logPath)); strings.TrimSpace(cut) != "" {
-			return outputSection(cut, fence, ok), ok, false
-		}
-	}
-	return droppedOutputNotice(logPath), false, true
 }
 
 // roomFor returns how many bytes section i may occupy for the whole body to sit
@@ -404,12 +359,38 @@ type outcomeView struct {
 // describeOutcome renders the heading word and the callout for a run, taking
 // account of a failure that happened around the run as well as of how the run
 // itself ended.
+//
+// The partial substitution (S-2) applies only on the success arm, after the
+// failure fold below: a non-success outcome always wins over partial
+// (AC-014), and that ordering is what makes it hold structurally rather than
+// by a separate check. [describeRunOutcome] itself is never touched by it.
 func describeOutcome(run Run) outcomeView {
 	view := describeRunOutcome(run)
-	if run.Failure == nil {
-		return view
+	if run.Failure != nil {
+		return view.withFailure(run)
 	}
-	return view.withFailure(run)
+	if view.succeed && run.Stories.valid() && run.Stories.Done < run.Stories.Total {
+		return partialOutcomeView(run.Stories)
+	}
+	return view
+}
+
+// partialOutcomeView is the callout for a run that succeeded but did not
+// finish every story in its managed feature (S-2, AC-011). It is a NOTE
+// rather than a CAUTION or WARNING — nothing failed — and succeed stays true,
+// which is what lets a later non-success check (AC-014) and the commit-line
+// logic in [metadataList] keep treating this run as the success it was. The
+// lead sentence names only the two integers in tally: never a story key,
+// title, issue number or parent ref, and never the words "fail", "failed" or
+// "error" (AC-011).
+func partialOutcomeView(tally *StoryTally) outcomeView {
+	return outcomeView{
+		word:  "partial",
+		alert: "NOTE",
+		lead: fmt.Sprintf("This run finished %d of %d stories in the managed feature. The rest are still open.",
+			tally.Done, tally.Total),
+		succeed: true,
+	}
 }
 
 // withFailure folds a failure that was not the run's own into the callout.
@@ -440,11 +421,10 @@ func (v outcomeView) withFailure(run Run) outcomeView {
 		v.lead += "\n\nlitefactory then could not complete the turn either: " + failure
 	}
 
-	// Only mention the worktree here when there is a commit to distinguish
-	// this callout from: with CommitSHA != "", metadataList's Commit line
-	// takes its own case (line 567/569) and never names the path itself, so
-	// this is the single place that does. With CommitSHA == "", metadataList's
-	// Commit-line default arm (below) already names the path for a non-success
+	// Only mention the worktree here when there is a commit: with
+	// CommitSHA != "", metadataList renders no Commit line at all, so this is
+	// the single place that names the path. With CommitSHA == "",
+	// metadataList's own Commit line already names the path for a non-success
 	// run with nothing committed — naming it here too would say it twice.
 	if run.CommitSHA != "" {
 		v.lead += worktreeNote(run.WorktreePath)
@@ -554,15 +534,18 @@ func describeRunOutcome(run Run) outcomeView {
 	}
 }
 
-// fixedSection renders the part of the body that is never cut: the marker, the
-// heading, the status callout, the metadata list and [ReplyPlainlyNotice]. The
-// absolute log path is in here rather than beside the output it describes,
-// precisely so that it survives every level of truncation (AC-4.5, AC-4.8).
+// fixedSection renders the part of the body that is never cut: the marker,
+// the heading, the status callout, whatever [metadataList] has left to say and
+// the session-limit recovery section, when there is one. It is called "fixed"
+// for the same reason it always was: everything here sits in secFixed, the
+// section [runBody] never trims, so what a reader needs most — where
+// uncommitted work still is, or how to reach the research brief — survives
+// every level of truncation (AC-4.5, AC-4.8).
 //
-// The notice is in here, and not appended to the body, for the same reason.
-// Everything below the log tail is what redact.Apply's last-resort hard truncate
-// eats first, and a report that cost a run to produce should not be the one that
-// arrives without the line saying how to answer it (AC-S0.6).
+// metadataList may have nothing left to say at all — a succeeded run with
+// nothing committed and no brief to link renders none of its bullets — and
+// this function skips the gap around an empty list rather than leave a blank
+// paragraph in its place.
 func fixedSection(run Run, view outcomeView) string {
 	var b strings.Builder
 	b.WriteString(StatusMarker(run.Ref, run.Ordinal))
@@ -573,11 +556,10 @@ func fixedSection(run Run, view outcomeView) string {
 		b.WriteString(sectionGap)
 		b.WriteString(alertBlock(view.alert, view.lead))
 	}
-	b.WriteString(sectionGap)
-	b.WriteString(metadataList(run, view))
-	b.WriteString(meterMetadata(run.Meter))
-	b.WriteString(sectionGap)
-	b.WriteString(ReplyPlainlyNotice)
+	if list := metadataList(run, view); list != "" {
+		b.WriteString(sectionGap)
+		b.WriteString(list)
+	}
 	if text := recoverySection(run.Recovery); text != "" {
 		b.WriteString(sectionGap)
 		b.WriteString(text)
@@ -609,8 +591,12 @@ func alertBlock(kind, text string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// metadataList renders the facts of the run as a bullet list. Every entry is
-// omitted rather than guessed when it is not known.
+// metadataList renders what survives of the run's facts as a bullet list:
+// where uncommitted work still is when a non-success run left nothing
+// committed, whether an existing commit was left unpublished, and a link to
+// the task's research brief. Every entry is omitted rather than guessed when
+// it is not known, and the list itself may be empty — a succeeded run that
+// committed nothing new and has no brief to link renders none of these.
 //
 // view is the outcome already computed for the callout above — passed in
 // rather than recomputed, so the Commit line's wording and the callout's
@@ -621,186 +607,31 @@ func metadataList(run Run, view outcomeView) string {
 		lines = append(lines, "- **"+label+":** "+value)
 	}
 
-	if run.Branch != "" {
-		add("Branch", codeSpan(run.Branch))
-	}
-	switch {
-	case run.CommitSHA != "" && run.Pushed:
-		add("Commit", codeSpan(run.CommitSHA)+" (pushed)")
-	case run.CommitSHA != "":
-		add("Commit", codeSpan(run.CommitSHA)+" (in the local worktree only — not pushed)")
-	case run.Branch == "":
-		// Nothing to report: with no branch there is no worktree to name either.
-	case view.succeed:
-		add("Commit", "none — this run committed nothing")
-	default:
-		// A non-success run that committed nothing is not the same fact as a
-		// successful run that had nothing to change (AC-3.1): the words must
-		// differ, and this is where the reader is told where the work — if
-		// there is any — still is.
+	// The one Commit case that survives (AC-3.1): a non-success run that
+	// committed nothing still needs to say where whatever it did produce still
+	// is. A run with no branch has no worktree to name, and a run that either
+	// committed something or succeeded says nothing about its commit here at
+	// all — this comment no longer names a commit's SHA or push state.
+	if run.CommitSHA == "" && run.Branch != "" && !view.succeed {
 		add("Commit", "none — this run did not succeed; if it produced anything, it is still in the worktree"+
 			inWorktreeAt(run.WorktreePath))
 	}
 
-	// The brief sits with the branch and the commit because it is the same kind
-	// of fact — where the work is — and because being in metadataList puts it in
-	// secFixed, the one section [runBody] never trims. A link that only survives
-	// on short comments is a link nobody can rely on.
-	//
-	// The caveat is on the line rather than in this comment on purpose. The path
-	// is derived and not discovered (see [Run.briefLink]), so the report must not
-	// present it as a page it has checked is there.
+	// Publication only renders for the one state worth disclosing here: a
+	// commit exists but never reached the remote. Every success-shaped
+	// publication string — a push that went fine, or nothing committed at all
+	// — is dropped along with it.
+	if run.CommitSHA != "" && !run.Pushed && run.Publication != "" {
+		add("Publication", sanitize(run.Publication))
+	}
+
+	// The brief sits in secFixed, the one section [runBody] never trims — a
+	// link that only survives on short comments is a link nobody can rely on.
 	if link, ok := run.briefLink(); ok {
-		add("Research brief", link+" — pinned to this run's commit; 404s until a Research run writes one")
-	}
-
-	if res := run.Result; res != nil {
-		switch res.ExitCode {
-		case agent.SignalExitCode:
-			add("Exit status", "killed by litefactory, so there is no exit code")
-		default:
-			add("Exit status", codeSpan(strconv.Itoa(res.ExitCode)))
-		}
-		// The kill reason S-9 requires alongside the exit code, and its only
-		// home in the body: the callout above is prose, this is the line the
-		// harness actually recorded.
-		if reason := oneLine(res.Reason); reason != "" {
-			add("Reason", reason)
-		}
-	} else {
-		add("Exit status", "unknown")
-	}
-
-	if d, ok := run.duration(); ok {
-		add("Duration", formatDuration(d))
-	} else {
-		add("Duration", "unknown")
-	}
-
-	if res := run.Result; res != nil {
-		switch {
-		case res.HasCost:
-			label := "Cost"
-			if run.Meter != nil {
-				label = "Legacy reported cost"
-			}
-			add(label, fmt.Sprintf("$%.4f", res.CostUSD))
-		default:
-			add("Cost", "unknown")
-		}
-		if res.Model != "" {
-			add("Model", codeSpan(res.Model))
-		}
-	} else {
-		add("Cost", "unknown")
-	}
-
-	if tools, ok := toolsEntry(run); ok {
-		add("Tools", tools)
-	}
-
-	// The command first, the path second. A path to a JSONL file is a thing to
-	// go and find a way to read; the command is the way to read it, and it is
-	// the same command whether or not the run recorded a path, because `logs`
-	// derives one from the task ref when the row carries none.
-	if path := run.logPath(); path != "" {
-		add("Log", codeSpan(run.logsCommand())+" — the file is "+codeSpan(path)+
-			" (unredacted, on the machine that ran it)")
-	} else {
-		add("Log", codeSpan(run.logsCommand())+" (no local log path was recorded for this run)")
-	}
-
-	if res := run.Result; res != nil && res.StreamError != nil {
-		add("Note", "the run's output could not be captured in full: "+sanitize(res.StreamError.Error()))
+		add("Research brief", link)
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-// toolsEntry renders the Tools bullet: the surface the run actually had, the
-// profile that surface came from, and anything litefactory asked for and did
-// not get. The second result is false only when nothing about the run's tools
-// was recorded at all, which is metadataList's standing rule — omit rather than
-// guess — applied to a run that never reached a boundary decision.
-//
-// This line is required, not decorative. Do not make it conditional and do not
-// drop it to save a bullet:
-//
-//   - Profiles are resolved per tick, not per comment: two comments drained in
-//     one tick share one label snapshot. This bullet is the only after-the-fact
-//     evidence of which snapshot the run in front of you used.
-//   - Labels are authenticated by nothing (C3). Anyone with triage permission
-//     can widen an issue's profile and wait for the next comment. The ceiling
-//     bounds what that can reach; this line is the only thing that makes it
-//     visible afterwards, so it is the whole detection story for a relabel.
-//   - Requested and resolved genuinely differ in practice. TodoWrite was
-//     requested and silently dropped for the life of the project — eight asked
-//     for, seven granted, no error anywhere — and nothing but this comparison
-//     would have shown it.
-func toolsEntry(run Run) (string, bool) {
-	var resolved []string
-	if run.Result != nil {
-		resolved = run.Result.Tools
-	}
-	requested := run.ToolsRequested
-
-	if len(resolved) == 0 && len(requested) == 0 && run.ToolProfile == "" {
-		return "", false
-	}
-
-	var parts []string
-	switch {
-	case len(resolved) > 0:
-		parts = append(parts, codeList(resolved))
-	case len(requested) > 0:
-		// No init event arrived, so the surface claude ran under was never
-		// observed. Say what was asked for and say plainly that it is not the
-		// same claim (AC-4.3).
-		parts = append(parts, "requested "+codeList(requested)+
-			", but the run recorded no resolved surface")
-	default:
-		parts = append(parts, "no tool surface was recorded")
-	}
-
-	if run.ToolProfile != "" {
-		parts = append(parts, "profile "+codeSpan(run.ToolProfile))
-	} else {
-		// A run with no profile ran on the operator's configured surface. That
-		// is a fact about the run, not an absence, and it is what every run
-		// before profiles existed will say.
-		parts = append(parts, "no profile (the operator's default surface)")
-	}
-
-	// Only worth computing when both lists are real: with no resolved surface
-	// to compare against, every requested tool would look dropped.
-	if len(resolved) > 0 {
-		if missing := notGranted(requested, resolved); len(missing) > 0 {
-			parts = append(parts, "requested but not granted: "+codeList(missing))
-		}
-	}
-
-	return strings.Join(parts, " — "), true
-}
-
-// notGranted is the requested tools that the resolved surface does not carry,
-// in the order they were requested.
-func notGranted(requested, resolved []string) []string {
-	var missing []string
-	for _, tool := range requested {
-		if !slices.Contains(resolved, tool) {
-			missing = append(missing, tool)
-		}
-	}
-	return missing
-}
-
-// codeList renders names as a comma-separated list of code spans.
-func codeList(names []string) string {
-	spans := make([]string, 0, len(names))
-	for _, name := range names {
-		spans = append(spans, codeSpan(name))
-	}
-	return strings.Join(spans, ", ")
 }
 
 // SyncOutcome is which of the outcomes litefactory's automatic branch
@@ -854,6 +685,8 @@ const (
 // branch, before the run itself started. See [Run.Sync] for how a nil or
 // up-to-date value renders.
 type Sync struct {
+	Phase               string
+	LocalSHA, RemoteSHA string
 	// Outcome is the synchronization decision reached.
 	Outcome SyncOutcome
 
@@ -872,12 +705,11 @@ type Sync struct {
 	CommitSHA string
 
 	// Conflicts lists the paths a blocked merge preview reported, exactly as
-	// given. It is rendered inside a fenced block, the same defence
-	// [filesSection] uses for the files-touched list, so a path cannot
-	// become markup in the comment (S-2) no matter what it contains — but
-	// this package does not sanitise or truncate the list itself, or decide
-	// which paths are safe to show at all. That is a caller's job (US-5);
-	// this renderer shows whatever list it is handed.
+	// given. It is rendered inside a fenced block by [conflictsBlock], so a
+	// path cannot become markup in the comment (S-2) no matter what it
+	// contains — but this package does not sanitise or truncate the list
+	// itself, or decide which paths are safe to show at all. That is a
+	// caller's job (US-5); this renderer shows whatever list it is handed.
 	Conflicts []string
 
 	// Reason is why sync did not complete, in a sentence fit to render
@@ -953,6 +785,9 @@ func syncSection(run Run) string {
 	b.WriteString(syncHeading)
 	b.WriteString(sectionGap)
 	b.WriteString(lead)
+	if sync.LocalSHA != "" {
+		fmt.Fprintf(&b, " Compared local %s and remote %s.", codeSpan(sync.LocalSHA), codeSpan(sync.RemoteSHA))
+	}
 
 	if sync.Outcome == SyncBlocked && len(sync.Conflicts) > 0 {
 		b.WriteString(sectionGap)
@@ -964,10 +799,9 @@ func syncSection(run Run) string {
 
 // conflictsBlock quotes conflicting paths inside a fenced block, so a path
 // holding markdown characters — or one crafted to look like a code fence of
-// its own — cannot become markup in the comment (S-2). It is the same
-// defence [filesSection] uses for the files-touched list, applied here for
-// the same reason: both lists are attacker-influenced content read from a
-// worktree, and neither is trusted to render as anything but literal text.
+// its own — cannot become markup in the comment (S-2). The list is
+// attacker-influenced content read from a worktree, and it is not trusted to
+// render as anything but literal text.
 //
 // Before any of that, every path is classified by [classifyConflictPaths]
 // (US-5): a path that could be read as an HTML comment shaped like
@@ -1029,9 +863,9 @@ const resultOverlongNotice = "\n\n_[litefactory: the run's final message was lon
 // Rendering it as markdown is what makes [closeOpenFence] necessary. The message
 // is the one part of the body that is untrusted markup and is not wrapped in a
 // fence of this package's own, so an unbalanced fence in it would run on and
-// swallow everything below — including the log tail and the closing </details>.
-// It is closed twice: once for a fence the model left open, and once for one the
-// size cap cut open, with the notice outside the block where it can be read.
+// swallow whatever this package renders below it. It is closed twice: once for
+// a fence the model left open, and once for one the size cap cut open, with
+// the notice outside the block where it can be read.
 func resultSection(run Run, view outcomeView) string {
 	res := run.Result
 	if res == nil {
@@ -1053,102 +887,6 @@ func resultSection(run Run, view outcomeView) string {
 		text = closeOpenFence(cut) + resultOverlongNotice
 	}
 	return resultHeading + sectionGap + text
-}
-
-const filesHeading = "**Files touched**"
-
-// filesSection renders the git-derived files-touched list (AC-4.4).
-//
-// It is quoted rather than bulleted so that a path containing markdown
-// characters — or a newline, which git permits and -z preserves — cannot become
-// markup in the comment.
-func filesSection(run Run) string {
-	if len(run.Files) == 0 {
-		return filesHeading + sectionGap + "_No files were changed._"
-	}
-
-	shown := run.Files
-	var overflow int
-	if len(shown) > maxFileEntries {
-		overflow = len(shown) - maxFileEntries
-		shown = shown[:maxFileEntries]
-	}
-
-	lines := make([]string, 0, len(shown))
-	for _, f := range shown {
-		lines = append(lines, sanitize(f.String()))
-	}
-	list := strings.Join(lines, "\n")
-	fence := fenceFor(list)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "**Files touched (%d)**%s", len(run.Files), sectionGap)
-	b.WriteString(fence)
-	b.WriteString("\n")
-	b.WriteString(list)
-	b.WriteString("\n")
-	b.WriteString(fence)
-	if overflow > 0 {
-		fmt.Fprintf(&b, "%s_… and %d more, listed in full in the local log directory._", sectionGap, overflow)
-	}
-	return b.String()
-}
-
-// outputSummary is the <summary> line of the log tail block.
-func outputSummary(truncated bool) string {
-	s := fmt.Sprintf("Run output — last %d lines", TailLines)
-	if truncated {
-		s += ", with the middle removed to fit the comment size limit"
-	}
-	return s
-}
-
-// outputSection renders the collapsible log tail (AC-4.3, S-9). The caller
-// passes the fence so that the space this block needs can be computed before
-// the content is cut to fit it.
-func outputSection(content, fence string, truncated bool) string {
-	if strings.TrimSpace(content) == "" {
-		return "**Run output**" + sectionGap + "_No output was captured for this run._"
-	}
-	var b strings.Builder
-	b.WriteString("<details>\n<summary>")
-	b.WriteString(outputSummary(truncated))
-	b.WriteString("</summary>\n\n")
-	b.WriteString(fence)
-	b.WriteString("text\n")
-	b.WriteString(strings.TrimRight(content, "\n"))
-	b.WriteString("\n")
-	b.WriteString(fence)
-	b.WriteString("\n\n</details>")
-	return b.String()
-}
-
-// outputOverhead is how many bytes [outputSection] adds around its content.
-func outputOverhead(fence string, truncated bool) int {
-	return len(outputSection("x", fence, truncated)) - 1
-}
-
-// elisionNotice builds the line that replaces the removed middle of the log
-// tail. It names the byte and line count and the local log, so a shortened
-// comment can never be mistaken for a complete one (AC-4.8).
-func elisionNotice(logPath string) func(lines, bytes int) string {
-	return func(lines, bytes int) string {
-		where := "the local log"
-		if logPath != "" {
-			where = logPath
-		}
-		return fmt.Sprintf(
-			"\n[litefactory: %d lines / %d bytes of output removed here to fit the comment size limit. The full output is at %s]\n\n",
-			lines, bytes, where)
-	}
-}
-
-// droppedOutputNotice replaces the log tail entirely when there is no room for
-// a useful amount of it.
-func droppedOutputNotice(logPath string) string {
-	return "**Run output**" + sectionGap +
-		"_Omitted: this report filled the comment size limit before the output could be quoted. The full, unredacted output is at " +
-		logLocation(logPath) + "._"
 }
 
 // resultCutNotice ends a final message that had to be shortened.

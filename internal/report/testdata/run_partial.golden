@@ -1,0 +1,12 @@
+<!-- lf:status task=github:acme/acme-api#123 run=2 -->
+
+### litefactory · run 2 · partial
+
+> [!NOTE]
+> This run finished 2 of 5 stories in the managed feature. The rest are still open.
+
+- **Research brief:** [`.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md`](https://github.com/acme/acme-api/blob/9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1/.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md)
+
+**Result**
+
+Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.

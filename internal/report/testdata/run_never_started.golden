@@ -5,19 +5,4 @@
 > [!CAUTION]
 > litefactory could not start coding agent `claude` for run 1: git worktree add: fatal: 'lf/123-x' is already checked out at /Users/mario/dev/.lf-worktrees/acme-api/task-123
 
-- **Branch:** `lf/123-add-dry-run-to-task-clean`
 - **Commit:** none — this run did not succeed; if it produced anything, it is still in the worktree
-- **Exit status:** unknown
-- **Duration:** unknown
-- **Cost:** unknown
-- **Log:** `litefactory logs 123 --run 1` (no local log path was recorded for this run)
-
-_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
-
-**Files touched**
-
-_No files were changed._
-
-**Run output**
-
-_No output was captured for this run._

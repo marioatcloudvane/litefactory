@@ -1,0 +1,4 @@
+=== RUN   TestRateLimitBacksOffAndResumes
+--- PASS: TestRateLimitBacksOffAndResumes (0.97s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	2.688s

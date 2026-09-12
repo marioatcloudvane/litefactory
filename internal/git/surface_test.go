@@ -83,6 +83,8 @@ func TestWorktreeMethodSetIsTheAllowlist(t *testing.T) {
 		// at).
 		"Path", "Branch", "ClonePath", "RevParse", "Status", "Divergence",
 		"MergePreview", "ConflictBlob",
+		// US-003 authoritative server observation; no local or remote mutation.
+		"RemoteHead",
 		// US-1 bounded immutable blob/mode collection, no index/worktree/ref mutations.
 		"CollectConflictSnapshots",
 		// Mutating, pre-US-12: the only three operations that write to a

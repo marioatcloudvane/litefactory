@@ -163,9 +163,6 @@ const structuredProtocolHandoff = "## Structured protocol handoff\n\n" +
 // .codex tree, never at the Claude installed copy.
 func TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree(t *testing.T) {
 	files := []string{
-		".codex/skills/codebase-tour/SKILL.md",
-		".codex/skills/web-researcher/SKILL.md",
-		".codex/skills/research-orchestrator/SKILL.md",
 		".codex/skills/implement-orchestrator/SKILL.md",
 		".codex/skills/go-implementation-engineer/SKILL.md",
 		".codex/skills/go-integration-test-engineer/SKILL.md",
@@ -256,8 +253,6 @@ func TestCodexSkills_ForbiddenClaimsAbsent(t *testing.T) {
 		".codex/skills/requirements-engineer/SKILL.md",
 		".codex/skills/go-architect/SKILL.md",
 		".codex/skills/go-code-reviewer/SKILL.md",
-		".codex/skills/codebase-tour/SKILL.md",
-		".codex/skills/web-researcher/SKILL.md",
 		".codex/skills/research-orchestrator/SKILL.md",
 		".codex/skills/implement-orchestrator/SKILL.md",
 		".codex/skills/go-implementation-engineer/SKILL.md",
@@ -310,8 +305,6 @@ func TestCodexSkills_ModeHeaderContractNotDuplicatedOrAltered(t *testing.T) {
 		".codex/skills/requirements-engineer/SKILL.md",
 		".codex/skills/go-architect/SKILL.md",
 		".codex/skills/go-code-reviewer/SKILL.md",
-		".codex/skills/codebase-tour/SKILL.md",
-		".codex/skills/web-researcher/SKILL.md",
 		".codex/skills/research-orchestrator/SKILL.md",
 		".codex/skills/implement-orchestrator/SKILL.md",
 		".codex/skills/go-implementation-engineer/SKILL.md",

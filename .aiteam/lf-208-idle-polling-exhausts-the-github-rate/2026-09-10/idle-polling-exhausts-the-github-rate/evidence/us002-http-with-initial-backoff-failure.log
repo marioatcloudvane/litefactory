@@ -1,0 +1,27 @@
+=== RUN   TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent
+    discovery_http_internal_test.go:209: OFFLINE fixture cold: actual requests=6 status_200=6 status_304=0 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture warm: actual requests=6 status_200=0 status_304=6 comment_pages=2 parents=2
+    discovery_http_internal_test.go:209: OFFLINE fixture changed: actual requests=6 status_200=1 status_304=5 comment_pages=2 parents=2
+--- PASS: TestDiscoveryHTTP_OfflineColdWarmChangedMultiParent (5.48s)
+=== RUN   TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories
+--- PASS: TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories (8.55s)
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502
+=== RUN   TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403
+--- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal (11.00s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/502 (7.53s)
+    --- PASS: TestDiscoveryHTTP_LaterFailurePreservesCursorAndRealRefusal/403 (3.47s)
+=== RUN   TestDiscoveryHTTP_CancelledCallReleasesReservation
+--- PASS: TestDiscoveryHTTP_CancelledCallReleasesReservation (2.58s)
+=== RUN   TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress
+--- PASS: TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress (2.02s)
+=== RUN   TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses
+--- PASS: TestDiscoveryHTTP_ConcurrentReservationsSettleActualResponses (2.31s)
+=== RUN   TestDiscoveryBudgetPendingRefinementDeliveryBypassesReserve
+--- PASS: TestDiscoveryBudgetPendingRefinementDeliveryBypassesReserve (5.88s)
+=== RUN   TestRateLimitBacksOffAndResumes
+    tick_test.go:1039: dispatched 0 tasks on resuming, want 1
+--- FAIL: TestRateLimitBacksOffAndResumes (6.03s)
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	44.974s
+FAIL

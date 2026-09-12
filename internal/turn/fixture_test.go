@@ -189,6 +189,19 @@ func (f *fixture) execute(req Request) Result {
 	return result
 }
 
+// executeRefused runs a turn that is expected to fail before it consumed its
+// trigger. Since US-001 of #210 such a turn returns an error rather than a
+// reported result: the comment stays unconsumed so a blip does not burn it.
+func (f *fixture) executeRefused(req Request) (Result, error) {
+	f.t.Helper()
+
+	result, err := Execute(f.t.Context(), f.opts, req)
+	if err == nil {
+		f.t.Fatalf("turn was expected to refuse: %+v", result)
+	}
+	return result, err
+}
+
 func (f *fixture) worktreeDir() string {
 	f.t.Helper()
 

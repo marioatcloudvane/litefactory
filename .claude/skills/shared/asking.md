@@ -11,8 +11,9 @@ several raised at the end, when the run has already committed to a reading.
 
 There is nothing to wait on. The questions go into your final message, the
 factory puts them in front of the user, and the run ends. That is the same final
-message the report procedure governs: same plain, business-focused register, link
-and problems still leading. The next run continues the conversation.
+message the report procedure governs: same plain, business-focused register, no
+brief link, problems leading, one block and one options table per question. The
+next run continues the conversation.
 
 ## How to put a question
 

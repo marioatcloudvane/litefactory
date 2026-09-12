@@ -3,6 +3,7 @@ package turn
 import (
 	"errors"
 	"fmt"
+	"github.com/cloudvane/litefactory/internal/store"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
@@ -97,7 +98,9 @@ func (e *agentSwitchRefusal) Error() string {
 // tells the two apart with [errors.As] before it ever reaches the generic
 // *failure branch.
 type syncRefusal struct {
-	conflicts []string
+	phase       string
+	observation *syncResult
+	conflicts   []string
 
 	// tooFarBehind marks the second reason a sync refuses, added after
 	// US-4: the branch is further behind than [Options.AutoSyncMaxBehind]
@@ -133,9 +136,13 @@ type syncRefusal struct {
 	// [Options.SuggestConflictResolution], the same way branch and base
 	// themselves are.
 	baseSHA, branchSHA string
+	inputs             store.ConflictProposalInputs
 }
 
 func (e *syncRefusal) Error() string {
+	if e.observation != nil {
+		return taskRefusalDetail(e.observation)
+	}
 	if e.tooFarBehind {
 		return fmt.Sprintf("this task's branch is %d commit(s) behind the base branch, more than the cap of %d",
 			e.behind, e.maxBehind)

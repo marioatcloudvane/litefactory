@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"testing"
-	"time"
 
 	"github.com/cloudvane/litefactory/internal/daemon"
 	"github.com/cloudvane/litefactory/internal/turn"
@@ -117,49 +116,30 @@ func TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete(t *testing.T) {
 		}
 	}
 
-	awaitStarted := func(label string) int {
-		t.Helper()
-		select {
-		case i := <-started:
-			return i
-		case <-time.After(rendezvousTimeout):
-			releaseAll()
-			t.Fatalf("%s never started within %v", label, rendezvousTimeout)
-			return -1
-		}
-	}
-
 	f.plantCursor()
 	for _, num := range issues {
 		f.forge.addIssue(fakeIssue{Number: num, Title: fmt.Sprintf("Task %d", num), User: stranger()})
 	}
-	// Two settles, deliberately: with 5 candidates and a cap of 3, the first
-	// bootstraps only three of them and defers the rest, so a second is
-	// needed before every session has a planted watermark. Without it, a
-	// session dispatched for the first time only once its own comment
-	// already exists would treat that comment as history a first sight
-	// skips (AC-2.10), never running it at all.
-	f.settle()
-	f.settle()
+	f.bootstrapIssues(f.repo, issues[:]...)
 	for i, num := range issues {
 		f.forge.addComment(num, comments[i], owner(), fmt.Sprintf("/spike task %d", num))
 	}
 
-	first := f.tick()
-	if first.Dispatched != 3 {
-		releaseAll()
-		_ = f.daemon.Quiesce(f.t.Context())
-		t.Fatalf("first tick dispatched %d turns, want 3\nlogs:\n%s", first.Dispatched, f.logs)
-	}
-	if first.Deferred != 2 {
-		releaseAll()
-		_ = f.daemon.Quiesce(f.t.Context())
-		t.Fatalf("first tick deferred %d sessions, want 2\nlogs:\n%s", first.Deferred, f.logs)
-	}
-
+	// Discovery reservations may serialize initial histories. Continue ticks
+	// without releasing executions until all three pool slots are active.
 	running := make(map[int]bool, 3)
-	for range 3 {
-		running[awaitStarted("one of the first three turns")] = true
+	for attempts := 0; attempts < refillTicks && len(running) < 3; attempts++ {
+		f.clock.advance(testInterval)
+		f.tick()
+	drain:
+		for {
+			select {
+			case i := <-started:
+				running[i] = true
+			default:
+				break drain
+			}
+		}
 	}
 	if len(running) != 3 {
 		releaseAll()
@@ -190,6 +170,7 @@ func TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete(t *testing.T) {
 	close(release[runningOrder[0]])
 	fourth := -1
 	for range refillTicks {
+		f.clock.advance(testInterval)
 		f.tick()
 		select {
 		case fourth = <-started:
@@ -227,6 +208,7 @@ func TestFourthStartsWhenFirstFinishesNotAfterAllThreeComplete(t *testing.T) {
 	close(release[runningOrder[1]])
 	fifth := -1
 	for range refillTicks {
+		f.clock.advance(testInterval)
 		f.tick()
 		select {
 		case fifth = <-started:

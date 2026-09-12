@@ -56,8 +56,11 @@ func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "temporary post loss"})
 		return true
 	}
-	if _, err := f.tickErr(); err == nil {
-		t.Fatal("failed post should surface an error")
+	if _, err := f.tickErr(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.logs.String(), "report recovery pending") {
+		t.Fatal("missing bounded failure diagnostic")
 	}
 	if err := f.daemon.Quiesce(t.Context()); err != nil {
 		t.Fatal(err)
@@ -67,6 +70,7 @@ func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
 		t.Fatalf("failed announcement lost: %+v %v", pending, err)
 	}
 	f.forge.onPostComment = nil
+	retained := restoreTrustedRecoveryComment(t, f, session.ID, 42, 900)
 	f.settle()
 	got, err := f.db.GetRun(t.Context(), run.ID)
 	if err != nil || got.Status != store.RunReported || got.SemanticOutcome != "interrupted" {
@@ -77,7 +81,7 @@ func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
 		t.Fatalf("announcement bookkeeping: %+v %v", saved, err)
 	}
 	posts, _, _ := f.forge.snapshot()
-	if len(posts) != 1 || !strings.Contains(posts[0], "/schedule -to") {
+	if len(posts) != 0 || !strings.Contains(retained, "/schedule -to") {
 		t.Fatalf("replayed announcement: %v", posts)
 	}
 	if f.watermark() != 999 || len(f.turns.calls()) != 0 {
@@ -85,7 +89,57 @@ func TestRecoveryAnnouncementReplayIgnoresAdvancedWatermark(t *testing.T) {
 	}
 	f.settle()
 	posts, _, _ = f.forge.snapshot()
-	if len(posts) != 1 {
+	if len(posts) != 0 {
 		t.Fatalf("confirmed announcement repeated: %v", posts)
+	}
+}
+
+// A lost response does not authorize reposting. Supply the exact retained intent
+// as trusted remote evidence, then advance to the persisted retry deadline.
+func restoreTrustedRecoveryComment(t *testing.T, f *fixture, sessionID, triggerID, commentID int64) string {
+	t.Helper()
+	delivery, found, err := f.db.FindPendingReportDelivery(t.Context(), sessionID, triggerID)
+	if err != nil || !found {
+		t.Fatalf("missing uncertain delivery: %+v %v", delivery, err)
+	}
+	f.forge.addComment(testIssue, commentID, bot(), delivery.Body)
+	rows, err := f.db.ListReportRecoveries(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.SessionID == sessionID && row.TriggerID == triggerID {
+			if delta := row.NextAt.Sub(f.clock.Now()); delta > 0 {
+				f.clock.advance(delta)
+			}
+		}
+	}
+	return delivery.Body
+}
+
+func TestRecoveryCleanupResolvesAfterSourceAlreadyConsumed(t *testing.T) {
+	f := newFixture(t)
+	f.plantCursor()
+	f.issue("Completed delivery cleanup")
+	f.settle()
+	session := f.session()
+	if _, err := f.db.AdvanceWatermark(t.Context(), session.ID, 999); err != nil {
+		t.Fatal(err)
+	}
+	due := f.clock.Now().Add(testInterval)
+	debt := store.ReportRecovery{Key: "source:cleanup-test", SessionID: session.ID, TriggerID: 42, Task: session.TaskRef, State: "cleanup", Reason: "local cleanup unavailable", NextAt: due, Attempts: 3, Escalated: true}
+	if err := f.db.PutReportRecovery(t.Context(), debt); err != nil {
+		t.Fatal(err)
+	}
+	f.daemon = recoveryDaemon(t, f, true)
+	f.clock.advance(testInterval)
+	f.settle()
+	saved, err := f.db.GetReportRecovery(t.Context(), debt.Key)
+	if err != nil || saved.State != "resolved" || !saved.Escalated {
+		t.Fatalf("completed cleanup debt=%+v %v", saved, err)
+	}
+	posts, _, _ := f.forge.snapshot()
+	if len(posts) != 0 || len(f.turns.calls()) != 0 || f.watermark() != 999 {
+		t.Fatalf("cleanup repeated delivery/execution: posts=%v calls=%d watermark=%d", posts, len(f.turns.calls()), f.watermark())
 	}
 }

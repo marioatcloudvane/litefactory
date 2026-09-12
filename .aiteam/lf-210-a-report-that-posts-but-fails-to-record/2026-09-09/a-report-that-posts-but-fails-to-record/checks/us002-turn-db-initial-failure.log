@@ -1,0 +1,167 @@
+Command: go test -race -cover ./internal/turn -run '^TestReport' -count=1 -v
+=== RUN   TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== PAUSE TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== RUN   TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange
+--- PASS: TestReportDeliveryRefusalSurvivesReceiptLossAndReadinessChange (6.10s)
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/different_run
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/schedule
+=== RUN   TestReportDeliveryIdentitySeparatesLogicalMessages/automatic
+--- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages (0.01s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/owner_runless (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_trigger (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_purpose (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/allocated_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/different_run (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/redirected_child (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/child_execution (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/issue_body (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/schedule (0.00s)
+    --- PASS: TestReportDeliveryIdentitySeparatesLogicalMessages/automatic (0.00s)
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup
+=== RUN   TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup
+--- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence (0.01s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/equivalent_duplicates_choose_lowest_numeric (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/single_trusted_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_numeric_author (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_repository (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/wrong_host (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/missing_destination (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/mismatched_receipt_URL (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/body_drift (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/conflict_alongside_exact_match (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/unrelated_marker (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/empty_successful_lookup (0.00s)
+    --- PASS: TestReportDeliveryRecoveryRequiresTrustedExactEvidence/failed_partial_lookup (0.00s)
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker
+=== RUN   TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content
+--- PASS: TestReportDeliveryLegacyRunlessAmbiguity (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_reply (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/legacy_runless_status (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/modern_delivery (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/owner_copied_marker (0.00s)
+    --- PASS: TestReportDeliveryLegacyRunlessAmbiguity/unrelated_content (0.00s)
+=== RUN   TestReportRunPostsThenCommitsAllThree
+=== PAUSE TestReportRunPostsThenCommitsAllThree
+=== RUN   TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== PAUSE TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== RUN   TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== PAUSE TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== RUN   TestReportUsesTheBotCredentialOnly
+--- PASS: TestReportUsesTheBotCredentialOnly (4.20s)
+=== RUN   TestReportReplyAdvancesWithoutARunRow
+=== PAUSE TestReportReplyAdvancesWithoutARunRow
+=== RUN   TestReportFailedRunStillPostsAndAdvances
+=== PAUSE TestReportFailedRunStillPostsAndAdvances
+=== RUN   TestReportReadinessRefusalPostsWithNoRunRow
+=== PAUSE TestReportReadinessRefusalPostsWithNoRunRow
+=== RUN   TestReportReplayOfAReportedRunIsANoOp
+=== PAUSE TestReportReplayOfAReportedRunIsANoOp
+=== RUN   TestReportRunTriggeredByTheIssueBody
+=== PAUSE TestReportRunTriggeredByTheIssueBody
+=== RUN   TestReportSkipsALockedTurn
+=== PAUSE TestReportSkipsALockedTurn
+=== RUN   TestReportConsumeAdvancesWithoutPosting
+=== PAUSE TestReportConsumeAdvancesWithoutPosting
+=== RUN   TestReportValidatesItsArguments
+=== PAUSE TestReportValidatesItsArguments
+=== RUN   TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== PAUSE TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== RUN   TestReporterPostsTheSyncSkipReason
+=== PAUSE TestReporterPostsTheSyncSkipReason
+=== RUN   TestReporterRefusesARunTooFarBehindTheBase
+=== PAUSE TestReporterRefusesARunTooFarBehindTheBase
+=== CONT  TestReporterDisclosesDeferredDirtyWithoutSuccessClaim
+=== CONT  TestReportReplayOfAReportedRunIsANoOp
+=== CONT  TestReporterPostsTheSyncSkipReason
+=== CONT  TestReporterRefusesARunTooFarBehindTheBase
+=== CONT  TestReporterPostsReplyRefusesSyncWithConflictingPaths
+=== CONT  TestReportConsumeAdvancesWithoutPosting
+=== CONT  TestReportRenderFailurePostsNothingAndAdvancesNothing
+=== CONT  TestReportValidatesItsArguments
+=== CONT  TestReportSkipsALockedTurn
+=== CONT  TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched
+=== RUN   TestReportValidatesItsArguments/options
+=== PAUSE TestReportValidatesItsArguments/options
+=== RUN   TestReportValidatesItsArguments/run_reports
+=== PAUSE TestReportValidatesItsArguments/run_reports
+=== RUN   TestReportValidatesItsArguments/replies
+=== PAUSE TestReportValidatesItsArguments/replies
+=== RUN   TestReportValidatesItsArguments/consume
+=== PAUSE TestReportValidatesItsArguments/consume
+=== CONT  TestReportReplyAdvancesWithoutARunRow
+=== RUN   TestReportReplyAdvancesWithoutARunRow/retired_command
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/retired_command
+=== RUN   TestReportReplyAdvancesWithoutARunRow/unknown_command
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/unknown_command
+=== RUN   TestReportReplyAdvancesWithoutARunRow/empty_spike
+=== PAUSE TestReportReplyAdvancesWithoutARunRow/empty_spike
+=== CONT  TestReportRunPostsThenCommitsAllThree
+--- PASS: TestReportConsumeAdvancesWithoutPosting (10.53s)
+=== CONT  TestReportFailedRunStillPostsAndAdvances
+--- PASS: TestReportSkipsALockedTurn (11.02s)
+=== CONT  TestReportRunTriggeredByTheIssueBody
+=== NAME  TestReportRenderFailurePostsNothingAndAdvancesNothing
+    report_test.go:179: no loud log line explains the unreported run:
+        time=2026-09-10T22:12:11.560+02:00 level=DEBUG msg="fetched the registered clone" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 clone=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestReportRenderFailurePostsNothingAndAdvancesNothing3633248525/001/clone remote=origin
+        time=2026-09-10T22:12:12.350+02:00 level=INFO msg="worktree ready" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 worktree=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestReportRenderFailurePostsNothingAndAdvancesNothing3633248525/001/worktrees/task-123 branch=lf/123-add-a-health-endpoint branch_created=true branch_start=origin/main worktree_created=true
+        time=2026-09-10T22:12:12.489+02:00 level=DEBUG msg="base sync: up to date" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 branch=lf/123-add-a-health-endpoint base=origin/main behind=0 ahead=0 outcome=up_to_date
+        time=2026-09-10T22:12:12.803+02:00 level=INFO msg="run prepared" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 run_ordinal=1 run_id=1 branch=lf/123-add-a-health-endpoint worktree=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestReportRenderFailurePostsNothingAndAdvancesNothing3633248525/001/worktrees/task-123 sha_before=52002ea0bb1571cc4088d8623f57520b0541471a path=cold previous_run_ordinal=0 history_comments=0 prompt_bytes=1531
+        time=2026-09-10T22:12:13.355+02:00 level=INFO msg="run produced no changes; nothing to commit or push" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 branch=lf/123-add-a-health-endpoint
+        time=2026-09-10T22:12:13.368+02:00 level=INFO msg="turn finished" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 outcome=succeeded run_ordinal=1 changed=false committed=false pushed=false session_state=idle
+--- FAIL: TestReportRenderFailurePostsNothingAndAdvancesNothing (14.67s)
+=== CONT  TestReportReadinessRefusalPostsWithNoRunRow
+--- PASS: TestReporterRefusesARunTooFarBehindTheBase (15.31s)
+=== CONT  TestReportValidatesItsArguments/options
+=== CONT  TestReportValidatesItsArguments/consume
+=== CONT  TestReportValidatesItsArguments/replies
+=== CONT  TestReportValidatesItsArguments/run_reports
+=== CONT  TestReportReplyAdvancesWithoutARunRow/retired_command
+--- PASS: TestReportValidatesItsArguments (11.00s)
+    --- PASS: TestReportValidatesItsArguments/options (0.00s)
+    --- PASS: TestReportValidatesItsArguments/consume (0.00s)
+    --- PASS: TestReportValidatesItsArguments/replies (0.00s)
+    --- PASS: TestReportValidatesItsArguments/run_reports (0.00s)
+--- PASS: TestReportReplayOfAReportedRunIsANoOp (16.10s)
+=== CONT  TestReportReplyAdvancesWithoutARunRow/empty_spike
+--- PASS: TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched (16.52s)
+=== CONT  TestReportReplyAdvancesWithoutARunRow/unknown_command
+--- PASS: TestReporterPostsReplyRefusesSyncWithConflictingPaths (16.97s)
+--- PASS: TestReporterDisclosesDeferredDirtyWithoutSuccessClaim (18.08s)
+--- PASS: TestReporterPostsTheSyncSkipReason (18.13s)
+--- PASS: TestReportReadinessRefusalPostsWithNoRunRow (9.45s)
+--- PASS: TestReportFailedRunStillPostsAndAdvances (13.82s)
+--- PASS: TestReportReplyAdvancesWithoutARunRow (0.00s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/retired_command (9.23s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/empty_spike (8.51s)
+    --- PASS: TestReportReplyAdvancesWithoutARunRow/unknown_command (8.31s)
+--- PASS: TestReportRunPostsThenCommitsAllThree (14.42s)
+--- PASS: TestReportRunTriggeredByTheIssueBody (14.55s)
+FAIL
+coverage: 16.5% of statements
+FAIL	github.com/cloudvane/litefactory/internal/turn	36.984s
+FAIL

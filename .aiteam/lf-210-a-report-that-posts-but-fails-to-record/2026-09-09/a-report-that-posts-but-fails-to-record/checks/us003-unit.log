@@ -1,0 +1,26 @@
+$ go test -race -cover ./internal/daemon -run '^(TestReportRecovery_|TestStoppedResultRepair_)' -count=1 -v
+=== RUN   TestReportRecovery_CadenceAndSuppressedTicks
+--- PASS: TestReportRecovery_CadenceAndSuppressedTicks (0.00s)
+=== RUN   TestReportRecovery_StateChangeAndResolution
+--- PASS: TestReportRecovery_StateChangeAndResolution (0.00s)
+=== RUN   TestReportRecovery_GlobalHoldAndTaskIsolation
+=== RUN   TestReportRecovery_GlobalHoldAndTaskIsolation/1m0s
+=== RUN   TestReportRecovery_GlobalHoldAndTaskIsolation/9m0s
+--- PASS: TestReportRecovery_GlobalHoldAndTaskIsolation (0.00s)
+    --- PASS: TestReportRecovery_GlobalHoldAndTaskIsolation/1m0s (0.00s)
+    --- PASS: TestReportRecovery_GlobalHoldAndTaskIsolation/9m0s (0.00s)
+=== RUN   TestStoppedResultRepair_PreservesOwnershipUntilPersistence
+--- PASS: TestStoppedResultRepair_PreservesOwnershipUntilPersistence (0.00s)
+=== RUN   TestStoppedResultRepair_WaitsForOwnedWorkerCleanup
+--- PASS: TestStoppedResultRepair_WaitsForOwnedWorkerCleanup (0.00s)
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence/cancelled
+=== RUN   TestStoppedResultRepair_HoldsDoNotEraseEvidence/rate_limited
+--- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence (0.00s)
+    --- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence/cancelled (0.00s)
+    --- PASS: TestStoppedResultRepair_HoldsDoNotEraseEvidence/rate_limited (0.00s)
+PASS
+coverage: 11.3% of statements
+ok  	github.com/cloudvane/litefactory/internal/daemon	1.831s	coverage: 11.3% of statements
+
+Exit status: 0

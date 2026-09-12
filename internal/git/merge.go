@@ -266,9 +266,11 @@ func parseMergePreview(out string, clean bool) (MergePreview, error) {
 }
 
 // MergeOptions carries the identity a merge commit is authored as.
-// [Worktree.MergeBase] always merges --no-ff --no-edit, so unlike
-// [CommitOptions] there is no message or trailer to configure.
+// [Worktree.MergeBase] defaults to --no-ff --no-edit; FastForwardOnly
+// selects --ff-only for a task branch that has no unpublished local commits.
 type MergeOptions struct {
+	// FastForwardOnly requires an ancestry-preserving fast-forward, retaining all merge guards.
+	FastForwardOnly bool
 	// Author is the identity recorded as the merge commit's author and
 	// committer, exactly as [CommitOptions.Author] is for a plain commit.
 	Author Author
@@ -383,11 +385,15 @@ func (w *Worktree) MergeBase(ctx context.Context, base string, opts MergeOptions
 		return MergeResult{}, fmt.Errorf("merge %s into %s: reserved factory transport differs between branch and base; retained content was preserved: %w", base, w.branch, ErrInvalidArgument)
 	}
 
+	strategy := "--no-ff"
+	if opts.FastForwardOnly {
+		strategy = "--ff-only"
+	}
 	args := []string{
 		"-c", "user.name=" + opts.Author.Name,
 		"-c", "user.email=" + opts.Author.Email,
 		"-c", "commit.gpgsign=false",
-		"merge", "--no-ff", "--no-edit", "--end-of-options", base,
+		"merge", strategy, "--no-edit", "--end-of-options", base,
 	}
 	if _, err := w.runner.run(ctx, mergeTimeout, args...); err != nil {
 		return w.recoverFromFailedMerge(ctx, base, before, err)

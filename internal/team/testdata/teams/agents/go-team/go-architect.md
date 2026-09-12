@@ -341,7 +341,7 @@ Multi-tenancy is not assumed by default. If - and only if - the service you're g
 2. Create System Overview showing how feature fits into existing architecture
 3. For each backend task in the plan, create a hint block with structural guidance
 4. Flag any standard deviations explicitly with reasoning
-5. Note tasks outside your domain and defer appropriately - explicitly naming the gap when no specialist exists (research-orchestrator, plan-orchestrator, implement-orchestrator, codebase-tour, requirements-engineer, proxy-product-owner, go-architect, go-implementation-engineer, go-unit-test-engineer, go-integration-test-engineer, and go-code-reviewer are the only agents on this team's roster)
+5. Note tasks outside your domain and defer appropriately - explicitly naming the gap when no specialist exists (research-orchestrator, plan-orchestrator, implement-orchestrator, requirements-engineer, proxy-product-owner, go-architect, go-implementation-engineer, go-unit-test-engineer, go-integration-test-engineer, and go-code-reviewer are the only agents on this team's roster)
 6. Ensure hints are structural (WHERE and WHAT) not implementation (HOW)
 7. Write the whole thing to `$session/ARCH_REVIEW.md`, then return the short
    pointer report described under "Reporting back when you are done"

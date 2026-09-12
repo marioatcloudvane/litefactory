@@ -16,7 +16,7 @@ import (
 // assert that a prompt exists.
 const (
 	promptGrantsAsking  = "permission to ask"
-	promptForbidsAsking = "do not ask clarifying questions"
+	promptForbidsAsking = "may not ask clarifying questions"
 	promptRevokesAsking = "may no longer ask questions"
 )
 

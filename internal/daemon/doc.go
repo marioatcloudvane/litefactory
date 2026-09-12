@@ -45,7 +45,9 @@
 // At most max_concurrent_runs workers run at once, and every one of them is
 // joined by the one named termination condition, [Daemon.Quiesce]. A session
 // is entered in the daemon's in-memory in-flight set before it is dispatched
-// and left after its worker body and cleanup return. Each worker finishes its
+// and normally left after its worker body and cleanup return. Positive stopped
+// outcome repair debt retains that ownership while releasing worker capacity;
+// ticks retry persistence without launching another agent. Each worker finishes its
 // reporting attempts before that release; failed delivery retains retry intent.
 //
 // # Activity diagnostics

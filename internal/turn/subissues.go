@@ -116,6 +116,16 @@ func fileStoryIssues(
 	}
 	// The managed forge uses only the explicit Plan handoff. Legacy file
 	// discovery must never publish an old plan during another mode.
+	//
+	// In production this gate always fires: the only SubIssueCreator ever
+	// wired into Options (internal/daemon/setup.go, opts.SubIssueCreator:
+	// client) is *github.Client, and *github.Client satisfies PlanForge. So
+	// everything below this point — locateSessionDir, buildSubIssueSpecs,
+	// report.Reporter.RenderSubIssue and the rest of this legacy
+	// file-discovery phase — is unreachable outside a test that substitutes a
+	// SubIssueCreator not satisfying PlanForge. The live sub-issue creation
+	// path is turn.PublishPlan -> report.Reporter.RenderCompleteStory, taken
+	// for both the legacy and typed content contracts.
 	if _, managed := opts.SubIssueCreator.(PlanForge); managed {
 		return result
 	}

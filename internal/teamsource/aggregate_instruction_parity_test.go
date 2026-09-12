@@ -43,8 +43,6 @@ const claudeStructuredProtocolHandoff = "## Structured protocol handoff\n\n" +
 // operator would rather than deriving expectations from either tree itself.
 func bothTreeMapping() []struct{ name, source, claude, codex string } {
 	return []struct{ name, source, claude, codex string }{
-		{"codebase-tour", "teams/source/agents/shared/codebase-tour.md", ".claude/agents/codebase-tour.md", ".codex/skills/codebase-tour/SKILL.md"},
-		{"web-researcher", "teams/source/agents/shared/web-researcher.md", ".claude/agents/web-researcher.md", ".codex/skills/web-researcher/SKILL.md"},
 		{"requirements-engineer", "teams/source/agents/shared/requirements-engineer.md", ".claude/agents/requirements-engineer.md", ".codex/skills/requirements-engineer/SKILL.md"},
 		{"proxy-product-owner", "teams/source/agents/shared/proxy-product-owner.md", ".claude/agents/proxy-product-owner.md", ".codex/skills/proxy-product-owner/SKILL.md"},
 		{"research-orchestrator", "teams/source/agents/shared/research-orchestrator.md", ".claude/agents/research-orchestrator.md", ".codex/skills/research-orchestrator/SKILL.md"},
@@ -72,7 +70,7 @@ func bothTreeMapping() []struct{ name, source, claude, codex string } {
 // catalog rendering does not byte-generate these legacy copies." A
 // paragraph-inclusion check against that short native template would fail
 // against the deliberately different, expanded installed wrapper text for
-// every one of these twelve roles; TestBothInstructionTrees_
+// every mapped role; TestBothInstructionTrees_
 // StructuredProtocolHandoffPointsAtOwnTreeOnly below is what actually proves
 // each wrapper still carries the shared contract obligation forward.
 func TestBothInstructionTrees_SharedSourceParity(t *testing.T) {
@@ -118,6 +116,9 @@ func TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly(t *te
 	wantCodex := normalizeWhitespace(structuredProtocolHandoff)
 
 	for _, row := range bothTreeMapping() {
+		if row.name == "research-orchestrator" {
+			continue // Research has no story submission contract; tested separately.
+		}
 		t.Run(row.name, func(t *testing.T) {
 			t.Parallel()
 			claudeText := normalizeWhitespace(readRepoFile(t, row.claude))
@@ -241,15 +242,15 @@ const rootRouting = "`- Mode: X` in the prompt header is authoritative: never cl
 	"\x00Plan | `plan-orchestrator`" +
 	"\x00Implement | `implement-orchestrator`" +
 	"\x00Validate | `go-code-reviewer`, read-only contract" +
-	"\x00Spike | nobody — read `.claude/modes/spike.md` and do it here" +
-	"\x00Outside Validate, scaffold `$session` per `.claude/modes/session.md` first" +
+	"\x00Spike | nobody — read `docs/workflow/spike.md` and do it here" +
+	"\x00Outside Validate, scaffold `$session` per `docs/workflow/session.md` first" +
 	"\x00Validate reuses the supplied session and frozen scope read-only." +
 	"\x00Do not scaffold a directory or MANIFEST, write artifacts, or require artifact existence to route or finish Validate." +
 	"\x00Validate finishes with structured runner findings, not an artifact" +
 	"\x00Invoke once, read the result once, check the artifact once. Never poll for status." +
 	"\x00Do not read source, search the repo or form a view on the design" +
 	"\x00Never `git add`, `commit`, `stash` or `push`" +
-	"\x00Lifecycle, managed stories, Plan continuation and the story protocol are in\n%s."
+	"\x00modes, lifecycle, managed stories, Plan continuation and the story protocol are in\n%s."
 
 // TestRootInstructionFilesShareRoutingBehaviour pins CLAUDE.md against
 // AGENTS.md.

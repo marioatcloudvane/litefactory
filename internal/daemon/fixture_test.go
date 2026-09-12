@@ -165,7 +165,10 @@ type forgeServer struct {
 	// of the wire, and no test depends on the wall clock.
 	now func() time.Time
 
-	mu sync.Mutex
+	mu             sync.Mutex
+	quotaRemaining int
+	quotaReset     int64
+	quotaNow       func() time.Time
 	// repos is keyed on "owner/name". Every registered repository gets an
 	// entry lazily, through [forgeServer.state], the first time anything
 	// touches it — including a repository nothing is ever added to, which is
@@ -176,7 +179,11 @@ type forgeServer struct {
 	nextCommentID int64
 
 	// Recorded traffic.
-	sinceValues      []string
+	sinceValues []string
+	// issueReads counts single-issue GETs per number. Listings are bounded by
+	// the repository count; this is the cost that scales with whatever the
+	// daemon re-reads, which is where a standing per-tick leak shows up.
+	issueReads       map[int]int
 	listIssues       int
 	listComments     int
 	listRepoComments int
@@ -246,7 +253,7 @@ func (f *forgeServer) issueOfComment(id int64) int {
 func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 	t.Helper()
 
-	f := &forgeServer{t: t, now: now, repos: make(map[string]*repoState), nextCommentID: 500_000}
+	f := &forgeServer{t: t, now: now, repos: make(map[string]*repoState), nextCommentID: 500_000, quotaRemaining: 4999}
 
 	// Every route is keyed on {owner}/{repo} rather than the one repository
 	// this package used to hard-code, so that a second registered repository
@@ -271,7 +278,26 @@ func newForgeServer(t *testing.T, now func() time.Time) *forgeServer {
 		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
 	})
 
-	f.server = httptest.NewServer(mux)
+	// Real client budget observations come from the HTTP boundary, including
+	// an ordinary issue probe returning 404. Keep one stable quota window.
+	f.quotaReset = now().Add(time.Hour).Unix()
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Limit", "5000")
+		f.mu.Lock()
+		remaining := f.quotaRemaining
+		if f.quotaNow != nil {
+			at := f.quotaNow()
+			if at.Unix() >= f.quotaReset {
+				f.quotaReset = at.Add(time.Hour).Unix()
+			}
+		}
+		reset := f.quotaReset
+		f.mu.Unlock()
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+		w.Header().Set("X-RateLimit-Resource", "core")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+		mux.ServeHTTP(w, r)
+	}))
 	t.Cleanup(f.server.Close)
 	return f
 }
@@ -412,6 +438,10 @@ func (f *forgeServer) handleGetIssue(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.issueReads == nil {
+		f.issueReads = make(map[int]int)
+	}
+	f.issueReads[number]++
 	for _, issue := range f.state(r.PathValue("owner"), r.PathValue("repo")).issues {
 		if issue.Number == number {
 			writeJSON(w, http.StatusOK, issue)
@@ -467,6 +497,7 @@ func (f *forgeServer) handlePostComment(w http.ResponseWriter, r *http.Request) 
 			ID:        id,
 			Body:      payload.Body,
 			User:      bot(),
+			HTMLURL:   fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", r.PathValue("owner"), r.PathValue("repo"), number, id),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		})
@@ -562,6 +593,7 @@ func (f *forgeServer) addCommentIn(
 	rs.comments = append(rs.comments, fakeComment{
 		ID: id, Body: body, User: author, CreatedAt: at, UpdatedAt: at, issue: issue,
 		IssueURL: fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d", owner, name, issue),
+		HTMLURL:  fmt.Sprintf("https://github.com/%s/%s/issues/%d#issuecomment-%d", owner, name, issue, id),
 	})
 	for i := range rs.issues {
 		if rs.issues[i].Number == issue {
@@ -647,6 +679,14 @@ func (f *forgeServer) counts() (issues, comments, posts, reactions int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.listIssues, f.listComments, len(f.postedBodies), f.reactionCalls
+}
+
+// issueReadsOf is how many times one issue was read on its own, as opposed to
+// arriving inside a listing.
+func (f *forgeServer) issueReadsOf(number int) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.issueReads[number]
 }
 
 // repoCommentListings is how many times the repo-level comment listing was
@@ -742,6 +782,12 @@ func (c *testClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.now = c.now.Add(time.Second)
+	return c.now
+}
+
+func (c *testClock) peek() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.now
 }
 
@@ -949,6 +995,7 @@ func newFixture(t *testing.T) *fixture {
 
 	clock := newTestClock()
 	forge := newForgeServer(t, clock.Now)
+	forge.quotaNow = clock.peek
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	token := secrets.NewToken(testToken)
@@ -1025,6 +1072,9 @@ func (f *fixture) newDaemon(overrides daemon.Options) *daemon.Daemon {
 		Logger:        f.logger,
 		Now:           f.clock.Now,
 		ShutdownGrace: 500 * time.Millisecond,
+	}
+	if overrides.Now != nil {
+		opts.Now = overrides.Now
 	}
 	if overrides.DB != nil {
 		opts.DB = overrides.DB
@@ -1499,4 +1549,46 @@ type labelFixtureForge interface {
 	daemon.Forge
 	AddIssueLabel(context.Context, github.Repo, int, string) error
 	RemoveIssueLabel(context.Context, github.Repo, int, string) error
+}
+
+// restorePendingReport models a remotely accepted report whose response was
+// lost. The immutable saved bytes supply exact trusted lookup evidence; merely
+// clearing an HTTP error would not establish whether delivery occurred.
+func (f *fixture) restorePendingReport(triggerID int64) {
+	f.t.Helper()
+	session := f.session()
+	delivery, found, err := f.db.FindPendingReportDelivery(f.t.Context(), session.ID, triggerID)
+	if err != nil || !found {
+		f.t.Fatalf("pending report: found=%v err=%v", found, err)
+	}
+	f.forge.addCommentAt(testIssue, 900000+triggerID, bot(), delivery.Body, f.clock.Now())
+	recovery, err := f.db.GetReportRecovery(f.t.Context(), fmt.Sprintf("source:%d:%d", session.ID, triggerID))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	now := f.clock.Now()
+	if recovery.NextAt.After(now) {
+		f.clock.advance(recovery.NextAt.Sub(now))
+	}
+}
+
+// bootstrapIssues waits through admitted discovery ticks before tests publish
+// new commands. A deferred first history must not turn a new command into old
+// history merely because a fixture assumed every worker could list at once.
+func (f *fixture) bootstrapIssues(repo store.Repo, issues ...int) {
+	f.t.Helper()
+	for range 20 {
+		complete := true
+		for _, issue := range issues {
+			if f.watermarkIn(repo, issue) < 0 {
+				complete = false
+			}
+		}
+		if complete {
+			return
+		}
+		f.clock.advance(testInterval)
+		f.settle()
+	}
+	f.t.Fatalf("bootstrap did not complete for %s/%s issues%v\n%s", repo.Owner, repo.Name, issues, f.logs)
 }

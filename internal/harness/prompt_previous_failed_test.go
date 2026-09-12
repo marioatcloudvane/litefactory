@@ -40,7 +40,7 @@ func TestResumeHeaderUnchangedWhenPredecessorSucceeded(t *testing.T) {
 			mode:         InferMode,
 			previousMode: "spike",
 			want: strings.Replace(runAndMode, "%s", InferMode, 1) + `
-This run was started by a comment that named no command, so working out what kind of work it is forms part of the task. If this repository's CLAUDE.md defines modes, a routing scheme or a way of classifying a request, follow it and choose the one this request calls for. If it does not, simply do what is asked. Put any documents you produce under the feature slug named above, wherever this repository keeps them. Say which mode you chose in your final message.
+This run was started by a comment that named no command, so working out what kind of work it is forms part of the task. If the supplied project instructions define modes, a routing scheme or a way of classifying a request, follow it and choose the one this request calls for. If it does not, simply do what is asked. Put any documents you produce under the feature slug named above, wherever this repository keeps them. Say which mode you chose in your final message.
 `,
 		},
 		{
