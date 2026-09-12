@@ -7,7 +7,7 @@
 ## Modes
 
 - [x] Research — complete; see RESEARCH_BRIEF.md
-- [ ] Plan
+- [x] Plan — proposal prepared; publication/save pending
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
@@ -23,3 +23,7 @@
 
 - Research lifecycle paths and a simple retirement policy; no implementation or cleanup authorized in this run.
 - Run 0002 settled daily cadence and made closure-check/cleanup logging explicit. No blocking questions; remaining policy details stay recommendations for Plan.
+
+- 2026-09-12: Plan run 0003 prepared feature-spec.md, ARCH_REVIEW.md, typed three-story proposal and plan_brief.md. No owner questions. Narrow Git capability-contract amendment is included within explicit branch-retirement scope. Factory preflight/submission status follows; no implementation or cleanup performed.
+
+- Plan preflight: valid=true, complete=true, no diagnostics/unchecked paths. Submitted request 2fb324ee0a95e5358ed0e901e87b3213: InputState valid; EngineeringState/AcceptanceState/EffectState not_applicable; PlanState pending. Input durably recorded; publication, Story Index links, readiness and factory save are not yet confirmed.

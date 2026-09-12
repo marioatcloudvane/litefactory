@@ -1,0 +1,431 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Three medium stories add an inspectable retirement preview, guarded cleanup with recovery, and a bounded daily sweep. Only freshly verified closed owners qualify; local-only content and unmerged history remain protected. Existing logs explain closure checks, decisions and outcomes. No manual apply, archive tags, dashboard or new scheduler framework.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "create",
+        "title": "Preview safe retirement of registered task resources",
+        "user_story": {
+          "actor": "litefactory operator",
+          "want": "inspect which completed task resources can be retired and why others must stay",
+          "benefit": "I can review cleanup before it removes anything, without mistaking closed work for safely preserved work",
+          "notes": [
+            "Size: M. Evidence is collected during Implement; this Plan does not claim passing execution.",
+            "Evidence inventory AC-001\u2013AC-006: unit cases and captured CLI output; real temporary bare-origin/worktree fixtures and controlled httptest GitHub responses for closure/ref/file handling. Sources: existing internal/gittest, CLI/daemon/GitHub test patterns; new cases required. Bounds: installed Git and current repository, synthetic forge handling only; no claim about hosted availability. Missing prerequisite: Implement must execute and retain these checks."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "The preview command litefactory task retire enumerates registered canonical resource owners, including externally closed tasks, remote-only resources and owners missing from open-issue polling. It prints deterministic exact path/ref, proposed action and reason. Shared resources use their parent owner; lf/* naming alone never proves ownership."
+          },
+          {
+            "id": "AC-002",
+            "text": "Only a successful individual GitHub issue response matching the expected repository/issue identity and state closed permits eligibility. Open, 404, timeout, rate limit, null, malformed, unknown or mismatched responses produce explicit keep/unknown decisions. Validation/PR merge flags and closure reason cannot replace closure or commit proof."
+          },
+          {
+            "id": "AC-003",
+            "text": "Worktree expiry uses the last completed run finish time, successful or failed, plus configured worktree_retain_days; no-run owners may use a valid creation timestamp only with certain ownership. Preserve the 14-day default and existing bounds. Never use lock-mutated UpdatedAt. Active/prelaunch work and checkout-dependent pending operations remain ineligible."
+          },
+          {
+            "id": "AC-004",
+            "text": "Fresh successful fetch/prune and a verified remote base are required. Owned expired worktrees qualify only when tracked/staged, untracked and ignored content are absent and their local tip is reachable from the fresh remote task tip or remote base. Dirty or locally unpreserved tasks defer all resource retirement; missing upstream alone proves nothing."
+          },
+          {
+            "id": "AC-005",
+            "text": "Each local and remote branch requires its own exact-tip ancestry into the fresh remote base. Keep unmerged or only squash/rebase/cherry-pick-equivalent history. Remote branch eligibility is independent of worktree retention; a local branch stays while any worktree uses it. Protect configured base/default branches, wrong/detached/locked paths and uncertain/manual resources."
+          },
+          {
+            "id": "AC-006",
+            "text": "Preview uses the shared evaluator, never deletes resources, clears ownership, records successful retirement or advances the automatic schedule. Fetch updates are allowed; results are explicitly advisory and cannot authorize later mutations. Evaluation produces structured evidence for logging, including observation time, issue state/error, retention evidence and relevant SHAs."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement the behavior and architectural safeguards defined by this story.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run focused decision/error/logging unit tests using narrow fakes; retain criterion-attributed results.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write and run ordinary Go tests with temporary real dependencies for the stated evidence inventory; retain executed outcomes.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse existing packages and focused consumer interfaces; avoid a new framework. Evidence inventory AC-001\u2013AC-006: unit cases and captured CLI output; real temporary bare-origin/worktree fixtures and controlled httptest GitHub responses for closure/ref/file handling. Sources: existing internal/gittest, CLI/daemon/GitHub test patterns; new cases required. Bounds: installed Git and current repository, synthetic forge handling only; no claim about hosted availability. Missing prerequisite: Implement must execute and retain these checks.",
+          "components": [
+            {
+              "name": "internal/cli",
+              "responsibility": "Expose preview through existing task command/output conventions without starting a polling daemon."
+            },
+            {
+              "name": "internal/daemon",
+              "responsibility": "Shared deterministic eligibility evaluator, registered owner inventory and structured decisions."
+            },
+            {
+              "name": "internal/github and internal/git",
+              "responsibility": "Existing issue client plus narrowly scoped fresh observations and preservation probes."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "EvaluateRetirement",
+              "input": "Registered owner, supplied time, issue/Git/run observations",
+              "output": "Per-resource advisory action, reason and evidence"
+            }
+          ],
+          "constraints": [
+            "All Git execution stays in internal/git; all SQL stays in internal/store with ctx-first accessors, embedded migrations and the existing one-connection pool.",
+            "Do not change workflow acceptance, issue state or delivery decisions. Do not edit protected instruction trees.",
+            "Use ordinary Go tests without build tags, integration suffixes, production deletion or nested agents."
+          ],
+          "decisions": [
+            {
+              "decision": "A preview-only operator command; no manual apply path",
+              "reason": "The daemon remains the sole new mutation entry point."
+            },
+            {
+              "decision": "Exact ancestry and conservative ignored-file skips",
+              "reason": "Protect original history and local-only files without content-equivalence heuristics."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "create",
+        "title": "Retire eligible resources with guarded deletion and recovery",
+        "user_story": {
+          "actor": "litefactory operator",
+          "want": "have eligible worktrees and merged branches removed safely",
+          "benefit": "finished checkouts stop consuming space while local-only work and unfinished history remain recoverable",
+          "notes": [
+            "Size: M. Evidence is collected during Implement; this Plan does not claim passing execution.",
+            "Evidence inventory AC-001\u2013AC-008: unit failure/closure/log capture and source/surface review; temporary real migrated SQLite, bare Git origin/worktrees and httptest lifecycle cases for locking, exact-head races, intent/crash windows and recreation. Sources: existing internal/gittest/store/daemon patterns; new feature tests required. Bounds: installed Git/current repository; fixture forge responses prove handling only. Record Git version and scratch probe for new external Git behavior. Missing prerequisite: execute and retain criterion-attributed checks during Implement."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Only the daemon executor performs new retirement mutations. Acquire existing canonical task/managed-parent ownership before the clone gate, re-read active/prelaunch and required pending-effect state under coordination, and skip unsafe ownership. Recheck the issue through GetIssue with WithoutConditionalCache immediately before mutation; reopened or unverifiable issues cancel deletion."
+          },
+          {
+            "id": "AC-002",
+            "text": "Revalidate exact registered path/ref identity and fresh Git preservation before deletion; perform unforced worktree removal only after explicit tracked/staged/untracked/ignored checks. Remove qualifying worktree before its local branch. Never recursively delete guessed paths, force worktree removal, delete another worktree's branch or remove the configured base/default branch."
+          },
+          {
+            "id": "AC-003",
+            "text": "Independently guard each local and remote branch deletion against the previously verified exact head; a changed head rejects mutation and is reported for retry. Real Git tests demonstrate remote server-side expected-head rejection and local compare-and-delete rejection. Remote-only and already-removed-worktree owners remain supported without modifying the registered clone checkout, index or HEAD."
+          },
+          {
+            "id": "AC-004",
+            "text": "Persist minimal per-resource intent including owner, original path/ref, expected SHAs and intended action before each deletion. Intent write failure prohibits deletion. Confirm effects before reporting removed/clearing a worktree path; failed confirmation or outcome persistence leaves a distinguishable uncertain retryable record, never claimed success. Store transactions do not span Git/HTTP/filesystem I/O."
+          },
+          {
+            "id": "AC-005",
+            "text": "On retry/restart, reacquire coordination and reconcile only exact owned resources, including already absent paths/refs and stale owned worktree registrations. A retained old intent does not authorize deletion of a recreated checkout or advanced branch. Preserve session/branch identity, run reports, acceptance and delivery records throughout partial or complete cleanup."
+          },
+          {
+            "id": "AC-006",
+            "text": "Reopening after full or partial cleanup recreates the checkout on the next authorized run through existing EnsureWorktree behavior: surviving local branch, remote branch, then fresh remote base. Regression cases cover factory/external closure, won't-do/duplicate abandonment, open merged issue, absent upstream, shared children, active work, local-only files/commits and partial retirement."
+          },
+          {
+            "id": "AC-007",
+            "text": "Every initial/final closure observation and resource decision/mutation emits structured retirement logs at normal visibility: sweep/task/repository/issue, timestamp/source/phase, returned state/reason or error, path/ref, preview/apply, relevant retention/SHAs, action/reason and actual outcome. Distinguish would_remove, removed, kept, already_absent, failed and unknown. Ordinary decisions are Info, unavailable verification Warn, mutation/storage failures Error; omit credentials, bodies and file contents."
+          },
+          {
+            "id": "AC-008",
+            "text": "Deliberately amend the SEC-7/S-6 exact Git capability contract, package comments and surface tests only as necessary for owned task-branch maintenance and required read-only probes. Permit exact-head guarded retirement without checkout/commit/reset/pull of the registered clone; preserve clone checkout/index/HEAD and base/default protection tests. This narrow policy amendment is part of the explicitly requested branch-retirement scope."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement the behavior and architectural safeguards defined by this story.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006",
+              "AC-007",
+              "AC-008"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run focused decision/error/logging unit tests using narrow fakes; retain criterion-attributed results.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006",
+              "AC-007",
+              "AC-008"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write and run ordinary Go tests with temporary real dependencies for the stated evidence inventory; retain executed outcomes.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006",
+              "AC-007",
+              "AC-008"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse existing packages and focused consumer interfaces; avoid a new framework. Evidence inventory AC-001\u2013AC-008: unit failure/closure/log capture and source/surface review; temporary real migrated SQLite, bare Git origin/worktrees and httptest lifecycle cases for locking, exact-head races, intent/crash windows and recreation. Sources: existing internal/gittest/store/daemon patterns; new feature tests required. Bounds: installed Git/current repository; fixture forge responses prove handling only. Record Git version and scratch probe for new external Git behavior. Missing prerequisite: execute and retain criterion-attributed checks during Implement.",
+          "components": [
+            {
+              "name": "internal/daemon",
+              "responsibility": "Guarded executor using evaluator plus existing ownership/clone coordination."
+            },
+            {
+              "name": "internal/store",
+              "responsibility": "Minimal retirement intent/outcome records through a next-numbered embedded migration and short accessors."
+            },
+            {
+              "name": "internal/git",
+              "responsibility": "Narrow task-branch maintenance capability and owned registration reconciliation with expected-head protection."
+            },
+            {
+              "name": ".aiteam/APP_CONSTRAINTS.md and Git package/surface contracts",
+              "responsibility": "Deliberate narrow retirement amendment to SEC-7/S-6; no general clone mutation authority."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "ExecuteRetirement",
+              "input": "Owner and fresh evidence under existing locks",
+              "output": "Confirmed, kept, failed or unknown per-resource results"
+            },
+            {
+              "name": "RecordRetirementIntent/Outcome",
+              "input": "Exact resource identity/action/SHAs and observed result",
+              "output": "Durable recovery record"
+            },
+            {
+              "name": "GuardedBranchRetirement",
+              "input": "Owned task ref and expected head with verified base",
+              "output": "Deleted, already absent or changed-head refusal"
+            }
+          ],
+          "constraints": [
+            "All Git execution stays in internal/git; all SQL stays in internal/store with ctx-first accessors, embedded migrations and the existing one-connection pool.",
+            "Do not change workflow acceptance, issue state or delivery decisions. Do not edit protected instruction trees.",
+            "Use ordinary Go tests without build tags, integration suffixes, production deletion or nested agents."
+          ],
+          "decisions": [
+            {
+              "decision": "Owner branch-retirement request authorizes the narrow Git contract amendment",
+              "reason": "Existing exact allowlist cannot support remote-only branch retirement; make the change explicit rather than bypass the guard."
+            },
+            {
+              "decision": "Minimal durable intent/outcome, not event sourcing",
+              "reason": "Preserve uncertain side effects across crashes while existing logs serve history."
+            },
+            {
+              "decision": "Reuse existing worktree recreation",
+              "reason": "Avoid a second recovery setup implementation."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "create",
+        "title": "Run daily retirement and explain its outcomes",
+        "user_story": {
+          "actor": "litefactory operator",
+          "want": "have cleanup run daily with visible results and an inspectable preview",
+          "benefit": "I can rely on the retention setting and understand what was removed or deferred",
+          "notes": [
+            "Size: M. Evidence is collected during Implement; this Plan does not claim passing execution.",
+            "Evidence inventory AC-001\u2013AC-005: fake-clock/channel unit tests, captured logs/help review, temporary real SQLite/Git and controlled forge restart/lifecycle tests; aggregate make check. Sources: existing daemon/store/Git test utilities and config/help files, feature tests to be written. Bounds: repository/offline dependency behavior, not production deletion or hosted availability. Missing prerequisite: Implement execution and retained outcomes."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "After normal startup recovery, daemon Tick admits a due sweep and processes bounded batches using supplied daemon time, without a new scheduler goroutine or synchronous full scan every tick/startup. Daily means 24 elapsed hours after a completed pass; preserve due/progress state across restart so repeated restarts do not restart full scans."
+          },
+          {
+            "id": "AC-002",
+            "text": "Persist stable sweep identity, owner cursor/pass boundary and due state using minimal store state. Progress fairly through registered owners; an owner failure/deferment does not starve later owners, and deferred owners are reconsidered next pass. Respect existing GitHub request budgets/backoff, normal polling capacity, cancellation and shutdown with bounded batch contexts."
+          },
+          {
+            "id": "AC-003",
+            "text": "Route automatic decisions/deletions through the shared evaluator and guarded executor. Emit default-visible retirement summaries with sweep identity, duration, action/outcome counts and deferred/incomplete work, including zero-candidate passes. Interrupted or storage-failed passes are not labelled completed or advanced as successful."
+          },
+          {
+            "id": "AC-004",
+            "text": "Update config template, task clean help and operator documentation so worktree_retain_days truthfully describes active daily cleanup and last-completed-run retention, including no-run fallback. Explain task retire preview, existing logs --all --grep retirement, ignored-content skips, strict ancestry limitations, external closure/abandonment behavior and the residual reopen race after the final GitHub read. Preserve existing manual task clean behavior."
+          },
+          {
+            "id": "AC-005",
+            "text": "Executed lifecycle tests cover first due pass, 24-hour boundary, restart continuation, zero candidates, owner errors, backoff, shutdown and task/clone contention using controlled time/synchronization and temporary real store/Git dependencies where needed. Run and retain passing make check for the complete feature; never build into dist or use integration tags/names."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement the behavior and architectural safeguards defined by this story.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run focused decision/error/logging unit tests using narrow fakes; retain criterion-attributed results.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write and run ordinary Go tests with temporary real dependencies for the stated evidence inventory; retain executed outcomes.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse existing packages and focused consumer interfaces; avoid a new framework. Evidence inventory AC-001\u2013AC-005: fake-clock/channel unit tests, captured logs/help review, temporary real SQLite/Git and controlled forge restart/lifecycle tests; aggregate make check. Sources: existing daemon/store/Git test utilities and config/help files, feature tests to be written. Bounds: repository/offline dependency behavior, not production deletion or hosted availability. Missing prerequisite: Implement execution and retained outcomes.",
+          "components": [
+            {
+              "name": "internal/daemon/tick.go and focused retirement scheduling",
+              "responsibility": "Bounded due/pass continuation through existing daemon lifecycle."
+            },
+            {
+              "name": "internal/store",
+              "responsibility": "Minimal sweep scheduling/progress state, reusing retirement migration/access patterns."
+            },
+            {
+              "name": "Configuration template, CLI help and operator docs",
+              "responsibility": "Explain active retention, preview, logging and conservative limitations."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "RunRetirementBatch",
+              "input": "Daemon time, due/cursor state, request capacity/context",
+              "output": "Bounded progress plus persisted continuation or next due time"
+            }
+          ],
+          "constraints": [
+            "All Git execution stays in internal/git; all SQL stays in internal/store with ctx-first accessors, embedded migrations and the existing one-connection pool.",
+            "Do not change workflow acceptance, issue state or delivery decisions. Do not edit protected instruction trees.",
+            "Use ordinary Go tests without build tags, integration suffixes, production deletion or nested agents."
+          ],
+          "decisions": [
+            {
+              "decision": "Once per elapsed 24 hours, with bounded continuation",
+              "reason": "Avoid per-tick scans, restart storms and configurable cron machinery."
+            },
+            {
+              "decision": "Use existing logs as history",
+              "reason": "No new dashboard, recurring issue comment or history command."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}
