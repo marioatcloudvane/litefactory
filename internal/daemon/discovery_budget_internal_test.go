@@ -63,16 +63,21 @@ func budgetDrainTo(t *testing.T, b *discoveryBudget, target int) {
 }
 
 func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
+	// remaining is given as an offset from that limit's floor, so the cases
+	// keep their meaning when discoveryQuotaDivisor is retuned.
+	floorOf := func(limit int) int { return limit - limit/discoveryQuotaDivisor }
+	// Headroom above the floor is exactly what may be spent, one scalar each,
+	// so the allowance is the offset rather than a separate literal.
 	for _, tt := range []struct {
-		name                      string
-		limit, remaining, allowed int
+		name              string
+		limit, aboveFloor int
 	}{
-		{"exact_floor", 5000, 4000, 0}, {"one_above", 5000, 4001, 1}, {"fractional_floor", 7, 7, 1}, {"small_limit", 4, 4, 0},
+		{"exact_floor", 5000, 0}, {"one_above", 5000, 1}, {"fractional_floor", 7, 7 - floorOf(7)}, {"small_limit", 4, 4 - floorOf(4)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b, _ := budgetFixture(tt.limit, tt.remaining)
-			for i := 0; i < tt.allowed; i++ {
+			b, _ := budgetFixture(tt.limit, floorOf(tt.limit)+tt.aboveFloor)
+			for i := 0; i < tt.aboveFloor; i++ {
 				r := budgetAcquire(t, b, "scalar", 1, false)
 				budgetRequest(b, r, 200, true)
 				r.finish()
@@ -83,7 +88,8 @@ func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ConcurrentReservations(t *testing.T) {
-	b, _ := budgetFixture(5000, 4100)
+	// Exactly one listing of headroom above the floor, however the share is set.
+	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+discoveryListBound)
 	var wg sync.WaitGroup
 	reservations := make(chan *discoveryReservation, 32)
 	for i := 0; i < 32; i++ {
@@ -157,7 +163,11 @@ func TestDiscoveryBudget_UnusedReservations(t *testing.T) {
 
 func TestDiscoveryBudget_BackgroundSpendCap(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
-	for i := range 10 {
+	// Exhaust the background share exactly: whole listings, then scalars for
+	// the remainder, since the share need not divide into discoveryListBound.
+	share := 5000 / discoveryQuotaDivisor
+	listings := share / discoveryListBound
+	for i := range listings {
 		b.tick(now.Add(time.Duration(i) * time.Minute))
 		b.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: http.StatusNotModified, Authenticated: true})
 		r := budgetAcquire(t, b, "history", 100, false)
@@ -166,7 +176,12 @@ func TestDiscoveryBudget_BackgroundSpendCap(t *testing.T) {
 		}
 		r.finish()
 	}
-	b.tick(now.Add(10 * time.Minute))
+	b.tick(now.Add(time.Duration(listings) * time.Minute))
+	for range share % discoveryListBound {
+		r := budgetAcquire(t, b, "scalar", 1, false)
+		budgetRequest(b, r, 200, true)
+		r.finish()
+	}
 	// A late same-window header cannot renew either remaining quota or spending allowance.
 	b.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: 304, Authenticated: true})
 	budgetDenied(t, b, "history", 1, false)
@@ -217,7 +232,7 @@ func TestDiscoveryBudget_StaleAndProbeCadence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
-	b, now := budgetFixture(5000, 4000)
+	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor)
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
 	// Passing reset does not fabricate a fresh allowance.
@@ -232,7 +247,7 @@ func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_MissingMetadataPreservesReserve(t *testing.T) {
-	b, now := budgetFixture(5000, 4001)
+	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+1)
 	b.observe(github.RequestObservation{StatusCode: 200})
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
@@ -275,7 +290,7 @@ func TestDiscoveryBudget_FreshnessBoundary(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ForegroundObservationPreservesFloor(t *testing.T) {
-	b, _ := budgetFixture(5000, 4100)
+	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+100)
 	// Foreground requests don't acquire background reservations, but consume real quota.
 	for range 100 {
 		b.observe(github.RequestObservation{StatusCode: 200, Authenticated: true})
