@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` + per-story sub-issues *(not started)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed iteration)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -85,5 +85,32 @@ asked for; nothing here licenses starting the next one.
   and only the pre-existing, explicitly non-blocking git-history residual
   gap remaining, `RESEARCH_BRIEF.md` now states the brief is ready to hand
   to Plan mode.
+- 2026-09-12 — Plan run completed. `requirements-engineer` produced a ready
+  `feature-spec.md` directly from `RESEARCH_BRIEF.md` with no further
+  questions (all five prior Research rounds had already resolved scope);
+  `go-architect` reviewed it and wrote `ARCH_REVIEW.md`, judging the scope
+  proportionate to the owner's simplicity constraint and adding a small
+  number of structural corrections (retract the old delivery pin as part of
+  the store mutation; return the mutated in-memory segment, not a stale
+  copy; compute the Claude-resume fact separately from `previousRun` rather
+  than narrowing it). Given how small and interdependent the change is (one
+  store accessor, one restructured branch in `internal/turn/delivery.go`,
+  one narrowed refusal condition and one resume-decision refinement in
+  `internal/turn/prepare.go`, comment rewrites, test rewrites, and one
+  deleted script — none independently shippable or valuable on its own),
+  synthesized into a single story, `switch-agent-by-label`, rather than
+  splitting it across several. Wrote `plan_brief.md` (link-only Story
+  Index) and submitted the completed typed Plan contribution via
+  `litefactory submission preflight` (clean: valid, complete, no
+  diagnostics) then `litefactory submission submit`
+  (request id `db6d4e3c3f7633216ea25ad948638421`, input state `valid`,
+  plan state `pending` — the factory's issue creation/link-fill is an
+  asynchronous step that happens after this run; readiness for Implement is
+  set by the factory once that publication completes, not by this run).
+  No material questions remained; no assumptions needed owner sign-off
+  beyond what Research had already resolved.
 
 ## Notes
+
+- Plan submission request id (for correlation if a reply is ever lost):
+  `db6d4e3c3f7633216ea25ad948638421`.
