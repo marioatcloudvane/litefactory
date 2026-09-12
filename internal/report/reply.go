@@ -598,9 +598,8 @@ func commandSpan(command string) (string, bool) {
 // maxConflictPathEntries caps how many accepted conflicting paths
 // [conflictsBlock] quotes in a comment. It is a display rule, not a security
 // rule (US-5): the full list, after rejection, is trimmed with a remainder
-// count the same way [filesSection] trims the files-touched list, and does
-// not substitute for [conflictPathPattern]'s rejection check, which runs
-// first and independently of it.
+// count, and does not substitute for [conflictPathPattern]'s rejection check,
+// which runs first and independently of it.
 const maxConflictPathEntries = 20
 
 // conflictPathPattern is the shape a conflicting path must have to be quoted

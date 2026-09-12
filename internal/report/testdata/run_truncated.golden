@@ -2,56 +2,47 @@
 
 ### litefactory · run 2 · succeeded
 
-- **Branch:** `lf/123-add-dry-run-to-task-clean`
-- **Commit:** `9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1` (pushed)
-- **Research brief:** [`.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md`](https://github.com/acme/acme-api/blob/9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1/.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md) — pinned to this run's commit; 404s until a Research run writes one
-- **Exit status:** `0`
-- **Duration:** 1m33s
-- **Cost:** $0.4213
-- **Model:** `claude-sonnet-4-5`
-- **Log:** `litefactory logs 123 --run 2` — the file is `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl` (unredacted, on the machine that ran it)
-
-_Replying? A plain comment is enough. Quoting this one back with GitHub's quote-reply is fine — the `> ` keeps litefactory's hidden marker from matching — but a marker pasted back at the start of a line makes litefactory read your comment as its own and drop it._
+- **Research brief:** [`.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md`](https://github.com/acme/acme-api/blob/9c1e0a4b7d2f8e6a5c3b1d09f8e7a6b5c4d3e2f1/.aiteam/lf-123-add-dry-run-to-task-clean/2026-05-20/add-dry-run-to-task-clean/RESEARCH_BRIEF.md)
 
 **Result**
 
-Added a `--dry-run` flag to `litefactory task clean` and a test that asserts it removes nothing.
+a distinguishable line of the run's final message [line 0001]
+a distinguishable line of the run's final message [line 0002]
+a distinguishable line of the run's final message [line 0003]
+a distinguishable line of the run's final message [line 0004]
+a distinguishable line of the run's final message [line 0005]
+a distinguishable line of the run's final message [line 0006]
+a distinguishable line of the run's final message [line 0007]
+a distinguishable line of the run's final message [line 0008]
+a distinguishable line of the run's final message [line 0009]
+a distinguishable line of the run's final message [line 0010]
+a distinguishable line of the run's final message [line 0011]
+a distinguishable line of the run's final message [line 0012]
+a distinguishable line of the run's final message [line 0013]
+a distinguishable line of the run's final message [line 0014]
+a distinguishable line of the run's final message [line 0015]
+a distinguishable line of the run's final message [line 0016]
+a distinguishable line of the run's final message [line 0017]
+a distinguishable line of the run's final message [line 0018]
+a distinguishable line of the run's final message [line 0019]
+a distinguishable line of the run's final message [line 0020]
+a distinguishable line of the run's final message [line 0021]
+a distinguishable line of the run's final message [line 0022]
+a distinguishable line of the run's final message [line 0023]
+a distinguishable line of the run's final message [line 0024]
+a distinguishable line of the run's final message [line 0025]
+a distinguishable line of the run's final message [line 0026]
+a distinguishable line of the run's final message [line 0027]
+a distinguishable line of the run's final message [line 0028]
+a distinguishable line of the run's final message [line 0029]
+a distinguishable line of the run's final message [line 0030]
+a distinguishable line of the run's final message [line 0031]
+a distinguishable line of the run's final message [line 0032]
+a distinguishable line of the run's final message [line 0033]
+a distinguishable line of the run's final message [line 0034]
+a distinguishable line of the run's final message [line 0035]
+a distinguishable line of the run's final message [line 0036]
+a distinguishable line of the run's final message [line 0037]
+a distinguishable line of the run's final message [line 0038]
 
-**Files touched (3)**
-
-```
-modified internal/cli/task.go
-untracked internal/cli/task_clean_test.go
-renamed internal/cli/clean.go -> internal/cli/task_clean.go
-```
-
-<details>
-<summary>Run output — last 40 lines, with the middle removed to fit the comment size limit</summary>
-
-```text
-worker: applying edit to internal/cli/task.go [line 0021]
-worker: applying edit to internal/cli/task.go [line 0022]
-worker: applying edit to internal/cli/task.go [line 0023]
-worker: applying edit to internal/cli/task.go [line 0024]
-worker: applying edit to internal/cli/task.go [line 0025]
-worker: applying edit to internal/cli/task.go [line 0026]
-worker: applying edit to internal/cli/task.go [line 0027]
-worker: applying edit to internal/cli/task.go [line 0028]
-worker: applying edit to internal/cli/task.go [line 0029]
-worker: applying edit to internal/cli/task.go [line 0030]
-
-[litefactory: 20 lines / 1160 bytes of output removed here to fit the comment size limit. The full output is at /Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl]
-
-worker: applying edit to internal/cli/task.go [line 0051]
-worker: applying edit to internal/cli/task.go [line 0052]
-worker: applying edit to internal/cli/task.go [line 0053]
-worker: applying edit to internal/cli/task.go [line 0054]
-worker: applying edit to internal/cli/task.go [line 0055]
-worker: applying edit to internal/cli/task.go [line 0056]
-worker: applying edit to internal/cli/task.go [line 0057]
-worker: applying edit to internal/cli/task.go [line 0058]
-worker: applying edit to internal/cli/task.go [line 0059]
-worker: applying edit to internal/cli/task.go [line 0060]
-```
-
-</details>
+_[litefactory: cut to fit the comment size limit. The full run is at `/Users/mario/.litefactory/logs/runs/github/acme/acme-api/123/0002.jsonl`.]_

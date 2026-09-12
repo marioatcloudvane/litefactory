@@ -30,3 +30,32 @@ func TestCompleteStoryPreservesDetailOrRefuses(t *testing.T) {
 		t.Fatal("oversize story silently truncated")
 	}
 }
+
+// TestRenderCompleteStoryOmitsReplyAdvisory. turn.PublishPlan (the live
+// sub-issue creation path, taken for both the legacy and typed content
+// contracts) calls RenderCompleteStory, never the legacy RenderSubIssue that
+// TestSubIssueTellsTheReaderHowToReply shows does append
+// [report.ReplyPlainlyNotice]. A managed sub-issue is a durably tracked,
+// forge-reconciled artefact rather than a one-shot comment, so it must not
+// carry that advisory — a quote-reply guard written for a body nobody
+// reconciles against.
+func TestRenderCompleteStoryOmitsReplyAdvisory(t *testing.T) {
+	rep, err := report.New(report.Options{Redactor: redact.New(redact.Options{Environ: []string{}}), Limit: 65536})
+	if err != nil {
+		t.Fatal(err)
+	}
+	story := testStory()
+
+	sub, err := rep.RenderCompleteStory(t.Context(), story)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := sub.Body.String()
+
+	if strings.Contains(body, report.ReplyPlainlyNotice) {
+		t.Errorf("RenderCompleteStory's body carries the legacy reply advisory:\n%s", body)
+	}
+	if strings.Contains(body, "Replying?") {
+		t.Errorf("RenderCompleteStory's body carries a %q advisory sentence:\n%s", "Replying?", body)
+	}
+}

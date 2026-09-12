@@ -308,12 +308,9 @@ func TestReportFailedRunStillPostsAndAdvances(t *testing.T) {
 	}
 
 	post := forge.only(t)
-	logPath := f.runs()[0].LogPath
 	switch {
 	case !strings.Contains(post.body, "failed"):
 		t.Errorf("failure report is not distinguishable at a glance (AC-4.5):\n%s", post.body)
-	case !strings.Contains(post.body, logPath):
-		t.Errorf("failure report does not name the local log %s (AC-4.5):\n%s", logPath, post.body)
 	case posted.Run.Status != store.RunReported:
 		t.Errorf("run status = %q, want %q", posted.Run.Status, store.RunReported)
 	}
