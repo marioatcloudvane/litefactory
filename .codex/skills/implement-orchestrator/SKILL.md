@@ -67,6 +67,17 @@ engineering and executed tests passing plus aggregate gates. Leave save/commit/p
 confirmation to the factory. Suggest Validate only with complete engineering, test
 and save evidence; never dispatch it.
 
+**Aggregate gates run once, after the last story lands — never per story.** The
+full-package and whole-repository suites are yours alone; specialists verify their
+own story with targeted `-run` selections. Re-running a suite per story multiplies
+the slowest package by the number of stories in flight and yields no new signal.
+
+Keep every gate inside one `Bash` call's ceiling of roughly ten minutes: never
+pass `-timeout` above `8m`, never combine `-race` with the whole repository, and
+run `make check` separately from the suites. A killed gate returns exit code 143
+and no evidence, so raising the timeout after a kill only repeats the loss —
+narrow the scope instead.
+
 Write `TEST_REPORT.md`, `notes.md` and `DRIFT_REPORT.md` in the current session
 and update `MANIFEST.md` with honest completed/partial status. Do not alter
 completed stories. Instruction maintenance is isolated: Codex edits `.claude/**`,

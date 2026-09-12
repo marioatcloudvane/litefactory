@@ -186,9 +186,18 @@ if resp.StatusCode != 403 && resp.StatusCode != 404 {
 ## Running
 
 ```bash
-go test -tags=integration ./... -run Integration -v
-go test -tags=integration ./... -run Integration -race
+go test -tags=integration ./internal/<package> -run Integration -v
+go test -tags=integration ./internal/<package> -run Integration -race
 ```
+
+Name the packages your stories touched. `./...` belongs to the orchestrator's
+single aggregate gate: real dependencies make these the slowest tests in the
+repository, and running them repo-wide once per story is the most expensive way
+to learn nothing new.
+
+Keep each run inside one `Bash` call's ceiling of roughly ten minutes and never
+pass `-timeout` above `8m`. A killed run returns exit code 143 and no evidence, so
+retrying it with a longer timeout only repeats the loss.
 
 ## Progress and reporting
 

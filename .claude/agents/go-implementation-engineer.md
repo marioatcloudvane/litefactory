@@ -208,6 +208,11 @@ request/response structs suffixed `Request`/`Response`.
   discarding one that matters.
 - `go vet` clean, no unused imports or variables, no commented-out code, no
   `TODO`/`FIXME`, no stray `fmt.Println`, no hardcoded values belonging in config.
+- Tests you ran are scoped to your own story — `go test ./internal/<package> -run
+  'TestName'` — never `./...` and never `make check`. Those are the orchestrator's
+  single end-of-run gate; running them here repeats the slowest package once per
+  story. Never pass `-timeout` above `8m`: `Bash` kills a command at roughly ten
+  minutes, returning exit code 143 and no evidence.
 
 **5. Report.**
 

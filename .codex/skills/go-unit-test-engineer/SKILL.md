@@ -164,10 +164,17 @@ workaround.
 ## Running
 
 ```bash
-go test ./... -run '^Test' -short -race -cover
+go test ./internal/<package> -run 'TestOne|TestTwo' -short -race -cover
 ```
 
-Scope `./...` down to the packages your stories touched when the module is large.
+Name your own packages and your own tests. `./...` belongs to the orchestrator's
+single aggregate gate, not here: it re-tests every package your stories never
+touched and repeats the slowest one for every story in flight. Widen only when a
+targeted run cannot show the criterion is met.
+
+Keep each run inside one `Bash` call's ceiling of roughly ten minutes and never
+pass `-timeout` above `8m`. A killed run returns exit code 143 and no evidence, so
+retrying it with a longer timeout only repeats the loss.
 
 ## Progress and reporting
 
