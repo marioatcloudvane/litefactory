@@ -52,6 +52,17 @@ asked for; nothing here licenses starting the next one.
   `docs/decisions/nested-agent-evidence.md`'s sandbox boundary). No material
   owner questions; the pending `PlanState` from the prior entry is restated as
   a process note, not a Research finding.
+- 2026-09-12 (run 0003) — Research run triggered by an owner comment ("Start
+  it, very wasy job" — typo for "easy", characterizing scope as small, not
+  new scope). Checked whether anything invalidates the run 0002
+  `RESEARCH_BRIEF.md` rather than re-running the investigation: `git log
+  576208a2e541f9f2b44ce6a812ecddf2dd87c957..HEAD` shows no commits touching
+  `internal/turn`, `internal/harness`, `internal/naming`, `internal/planbrief`,
+  `internal/store`, `internal/daemon`, or
+  `docs/decisions/nested-agent-evidence.md`; working tree is clean and matches
+  `origin/lf/253-fresh-coding-agent-per-mode`. Confirmed-current, not
+  re-derived: `RESEARCH_BRIEF.md` is unchanged, no new investigation was
+  performed, and no new owner questions were raised.
 
 ## Notes
 
@@ -69,4 +80,5 @@ asked for; nothing here licenses starting the next one.
   not weakened, and must not be marked proven by an offline test suite alone.
 - Research (run 0002) independently confirmed the same mechanism and the same
   two unsatisfied evidence obligations from source directly; see
-  `RESEARCH_BRIEF.md`.
+  `RESEARCH_BRIEF.md`. Research (run 0003) confirmed that brief remains
+  current with no repository changes since; no re-derivation was needed.
