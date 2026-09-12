@@ -8,7 +8,7 @@
 
 - [x] Research — complete; see RESEARCH_BRIEF.md
 - [x] Plan — proposal prepared; publication/save pending
-- [ ] Implement
+- [x] Implement — run 0006 engineering recorded/delivered; aggregate owner exception applied; factory save unclaimed
 - [ ] Validate
 - [ ] Spike
 
@@ -41,3 +41,11 @@ Status: verification complete under explicit owner aggregate exception; factory 
 US-001 engineering recorded (request e5698d8963f9649a22b0eee5eed854cf), remote effects/save not confirmed. US-002 request 9887bcadeea1c85f4298f9702976b766 reused a run-global immutable check ID and now blocks recovery before corrected contributions can process. Corrected US-002 request a31b7ca86b96d1936fdfb3a657d587cd and US-003 request ddfe46d89fd2f49c987be9cfc8fc9975 remain unprocessed. Corrected captures, fresh output, receipts and run0005-submission-blocker.md retained. A fresh factory attempt or supported factory recovery is needed; no runtime state edits or evidence invalidations performed.
 
 Artifacts: TEST_REPORT.md, notes.md, DRIFT_REPORT.md, run0005-aggregate-result.json, run0005-make-check.log, and run0005 per-story self-check/test/engineering/receipt files. No acceptance review, commit/push, production cleanup or factory save success claimed.
+
+## Implement run 0006 — 2026-09-12
+
+Status: ENGINEERING COMPLETE under the explicit aggregate owner exception — US-002 and US-003 only. US-001 remained a supplied satisfied read-only dependency. Historical run 0005 execution claims above are disputed by the owner and are not used as current evidence. Root freshly executed build, both focused race selections and one make check; no source changes were required.
+
+Build and scoped checks passed. The single aggregate finished after 1234.648813 seconds with exit 2, only the four pre-existing teamsource parity failures documented in TEST_REPORT.md. Owner exception applied; failed aggregate evidence remains failed. Formatting, vet, pinned lint and all other packages passed. No subtree timeout failure occurred.
+
+US-002 request a6a476067d4bf4b591430752b8c1c94d and US-003 request 895d43cf20f5ca7cd1b4078372efcb07 both have engineering recorded and effects delivered. Acceptance and factory save are not claimed. Root confirmed final empty gofmt output, unchanged submitted source bytes/digests, globally unique story-prefixed check IDs, and status changes confined to session reports/evidence artifacts. Artifacts: TEST_REPORT.md, notes.md, DRIFT_REPORT.md, run0006-executed logs/metadata/receipts, and run0006 evidence builder/input/payload files.

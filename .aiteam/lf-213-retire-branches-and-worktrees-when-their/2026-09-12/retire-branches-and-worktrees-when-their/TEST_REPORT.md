@@ -1,25 +1,36 @@
-# Test report — Implement run 0005
+# Implement run 0006 test report
 
-Fresh execution against merged HEAD 7d037854a135602e6200c178ecb1d18fc12db2a1. Existing implementation commit 57dbe11 was independently confirmed as an ancestor. No production/test code changed. Prior-run passing claims are not substituted for these executions.
+Only root-executed commands from this run supply evidence. Previous run execution claims and outputs are not reused. No production or test source edits were required. US-001 is a supplied satisfied read-only dependency and was not resubmitted.
 
-| Check | Actual result | Evidence |
-|---|---|---|
-| go build ./... | PASS, exit 0 | run0005-build.log |
-| US-001 focused race tests: evaluator, HTTP responses, real preservation, CLI preview, owner inventory | PASS: daemon 39.016s, CLI 1.776s, store 4.005s | run0005-us001-check.log, run0005-us001.md |
-| US-001 structured logging unit race tests | PASS: 2 top-level tests, 0 failures; reused for US-002 AC-007 | run0005-us001-unit.log/.md, run0005-us002-unit.md |
-| US-001 real Git guard fixtures | PASS: five safety subcases plain and race; 19.287s / 21.361s | run0005-us001-real-plain.log, run0005-us001-real-race.log, run0005-us001-real.md |
-| US-002 lifecycle and exact-head/capability race selections | PASS: 12 top-level tests, 21 subcases, zero failures; daemon 118.213s, Git 9.512s | run0005-us002-real.log/.md |
-| US-003 budget/help unit race selection | PASS: 3 test functions, 8 leaf cases, 0 failures | run0005-us003-unit.log/.md |
-| US-003 real sweep lifecycle race selection | PASS: daemon 44.001s | run0005-us003-real.log/.md |
+## Fresh executed checks
 
-Only targeted -run selections were executed per story. No whole-package reruns were performed per story. Real dependencies are temporary Git/SQLite and controlled HTTP fixtures; no hosted availability or production deletion is claimed. Installed Git 2.50.1 (Apple Git-155) and actual expected-head rejection output are retained in US-002 evidence. The final real-sweep selection was executed by the orchestrator after the agent thread limit refused another specialist.
+- `go build ./...`: exit 0, silent compiler output. `run0006-executed/build-result.json` records the actual command, timestamps and exit.
+- US-002 focused `-race -count=1 -timeout=8m` checks: exit 0; daemon 112.089s, git 30.609s. Selection covers execution/retry/storage failure, canonical coordination, logging, exact-head races, clone safeguards and worktree recreation. Exact executed command and actual output: `run0006-executed/us002-tests-result.json` and `us002-tests.log`.
+- US-003 focused `-race -count=1 -timeout=8m` checks: exit 0; daemon 47.331s, cli 1.883s. Selection covers daily/restart lifecycle, budgets/backoff/shutdown/storage failure and operator help. Exact command and output: `run0006-executed/us003-tests-result.json` and `us003-tests.log`.
+- Root executed `git --version`: git version 2.50.1 (Apple Git-155). Feature fixtures exercise real temporary Git and SQLite, with controlled forge responses; they do not claim hosted availability or production deletion.
 
-## Aggregate gate
+## Single aggregate gate: FAILED, owner exception applied
 
-One `make check` invocation: run0005-make-check.log. Formatting, vet and pinned lint passed; lint reports `0 issues`. Lint also emitted cache-write warnings because its default cache location is outside writable roots, without failing lint. The full race stage includes passing daemon (722.212s), CLI (339.753s), store (298.621s), Git (144.630s) and other package results. Final result: exit 2; only internal/teamsource failed. The turn package passed in 1113.534s. No subtree-timeout failure occurred. The single aggregate gate completed without being killed or restarted. Under the explicit owner exception the observed parity failures do not block engineering; the raw make check result remains FAILED, not PASS. See run0005-aggregate-result.json.
+Root executed one `make check`, which completed with raw exit 2 after 1234.648813 seconds. Formatting, vet and pinned golangci-lint v2.13.1 succeeded; lint reported zero issues. Every tested package except `internal/teamsource` passed. Relevant aggregate timings: daemon 782.708s, git 179.365s, store 325.780s, turn 1145.872s and cli 351.264s.
 
-The owner explicitly waives only pre-existing internal/teamsource instruction-parity failures and TestRunTimeoutKillsTheWholeSubtree under parallel load. Those remain recorded failures if observed, not passing checks. Observed final result: four top-level teamsource parity tests and 23 failing subtest lines. No retirement scoped failure was observed. No attempt was made to fix protected instructions or chase the waived tests.
+Only these four aggregate top-level teamsource tests failed:
 
-## Publication state
+- TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly
+- TestCodexSkills_SharedSourceParity
+- TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree
+- TestCodexSkills_AC003GuardClausesPreserved
 
-US-001 input valid, engineering recorded, acceptance not applicable, effects pending when observed. US-002/003 fresh scoped engineering is ready but factory evidence recording is blocked by recovery of the first US-002 request, which reused a run-global immutable check ID. Corrected payloads pass preflight. See run0005-submission-blocker.md for exact request correlation and safe recovery. Pending is not success. No acceptance review, factory save or remote-effect success is claimed.
+These fall within the owner's explicit pre-existing instruction-parity exception. `TestRunTimeoutKillsTheWholeSubtree` did not fail; its separate owner exception was not needed. The aggregate remains FAILED with an applied owner exception, never a fabricated pass. Exact raw output and exit metadata are preserved in `run0006-executed/make-check.log` and `make-check-result.json`.
+
+## Factory engineering evidence
+
+Root independently verified story-prefixed unique check references, exact equality to fresh logs, decoded snapshot bytes against current files and the sorted manifest digest before each contribution. Both preflights returned valid and complete with no diagnostics.
+
+| Story | Request | Engineering | Remote effects |
+|---|---|---|---|
+| US-002 | a6a476067d4bf4b591430752b8c1c94d | recorded | delivered |
+| US-003 | 895d43cf20f5ca7cd1b4078372efcb07 | recorded | delivered |
+
+Check references are `us002-build-r6`, `us002-scoped-r6`, `us003-build-r6`, and `us003-scoped-r6`. The failed aggregate is documented here and is not included as a passing capture check. Actual preflight, submission and receipt outputs are under `run0006-executed`; the final US-003 observation is `us003-receipt-final.json`.
+
+Engineering execution is complete under the precise owner exception. Acceptance was not assessed; no code/architecture/plan review or factory save/commit/push is claimed. Root's final checks passed: gofmt -l . returned exit 0 with empty output; both decoded submitted snapshots and SHA256s match final current files; all four check references are unique and story-prefixed. Final git status showed only session reports and run0006 evidence artifacts changed, with zero source/test edits.
