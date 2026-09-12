@@ -1,6 +1,12 @@
 # Agent–litefactory communication inventory
 
-Status: Complete — Research only.
+Status: Follow-up incomplete — awaiting clarification for run 0002. Run 0001 inventory remains complete; Research only.
+
+## Run 0002 clarification
+
+The follow-up says only “Check this” and includes no attachment, link, target or specific concern. It could request verification of the previous communication inventory against the code, or refer to an omitted item. These interpretations change the investigation scope, so no new source investigation has begun. The prior findings below are preserved and have not been reverified in this run.
+
+Unresolved question: Should I recheck the communication inventory above against the code, or did you mean to include a specific item to review?
 
 Issue: #258, `rework-communication`. Inspected revision: `3e55019712df03bcae8176a3c774855e66013861`, on 2026-09-12 in the supplied local worktree. All source references below belong to that revision.
 
@@ -8,7 +14,7 @@ Issue: #258, `rework-communication`. Inspected revision: `3e55019712df03bcae8176
 
 Inventory the mechanisms agents currently use to communicate with litefactory, then list the concrete paths by mode and explain how data returns. This is a source-based inventory, not a redesign or implementation. “Path” means a communication contract, not each Go return statement, retry, error branch or individual payload field.
 
-The request is sufficiently clear to proceed. Include both coding-agent adapters, persisted compatibility contracts, and factory advisory invocations. Distinguish agent–factory communication from internal specialist delegation and from the factory's subsequent GitHub reporting. No owner decision is needed to finish this inventory.
+The original run 0001 request was sufficiently clear to proceed. Include both coding-agent adapters, persisted compatibility contracts, and factory advisory invocations. Distinguish agent–factory communication from internal specialist delegation and from the factory's subsequent GitHub reporting. No owner decision was needed to finish that inventory; the run 0002 follow-up needs the clarification above.
 
 ## Mechanisms overview
 
@@ -66,8 +72,9 @@ The key risk for a communication rework is conflating transport, payload shape a
 
 Options for the next phase are to standardize only structured workflow contributions or to redesign the entire boundary, including ordinary reports, questions, advisory invocations and telemetry. Recommendation: use these tables as the starting inventory and decide that scope in Plan; preserve explicit version compatibility and Validate's read-only boundary. No redesign option is selected or implemented here.
 
-Open decisions for this Research request: none. The future redesign scope is a subsequent planning decision, not a blocker to this inventory.
+Open decisions for the original run 0001 Research request: none. The future redesign scope is a subsequent planning decision, not a blocker to that inventory. Run 0002 remains incomplete pending clarification of what to check.
 
 ## History
 
 - 2026-09-12, run 0001: Completed the two-level communication inventory with production/compatibility distinctions and source references; no implementation or mode transition.
+- 2026-09-12, run 0002: Preserved the completed inventory and recorded the ambiguous “Check this” follow-up as incomplete pending clarification. No new source investigation, source changes or tests.

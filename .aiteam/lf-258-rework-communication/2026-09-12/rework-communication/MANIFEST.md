@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [x] Research
+- [ ] Research
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -16,6 +16,7 @@
 
 - 2026-09-12: Started Research for issue #258, inventorying agent–litefactory communication.
 - 2026-09-12: Completed Research in RESEARCH_BRIEF.md at revision 3e55019712df03bcae8176a3c774855e66013861: mechanisms and per-mode paths, including compatibility and advisory boundaries. No implementation or tests executed; no unresolved inventory questions.
+- 2026-09-12, run 0002: Follow-up Research incomplete pending clarification of “Check this”; preserved the completed run 0001 inventory in RESEARCH_BRIEF.md. No new source investigation, source changes or tests.
 
 ## Notes
 
