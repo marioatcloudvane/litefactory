@@ -169,6 +169,11 @@ func TestPermissionIsRecoveredFromThePreviousTrigger(t *testing.T) {
 		body       string
 		wantGrant  bool
 		wantRevoke bool
+		// wantPath defaults to harness.PathResume: every case here replies to
+		// an ongoing conversation. The mode-changed case is the exception
+		// (US-253): an admitted mode that differs from the previous run's
+		// starts a new segment, so that reply is cold instead.
+		wantPath harness.RunPath
 	}{
 		{
 			name:         "tagged, then not: permission is withdrawn out loud",
@@ -203,10 +208,18 @@ func TestPermissionIsRecoveredFromThePreviousTrigger(t *testing.T) {
 			// The previous run was a spike, so it never had permission however
 			// its comment was written. Announcing a withdrawal here would be
 			// litefactory telling a conversation about a state it was never in.
+			//
+			// It also never reaches the point of announcing anything: the
+			// admitted mode here falls back to [harness.InferMode] (req.Mode
+			// is cleared below, and the reply names no command), which
+			// differs from the previous run's recorded spike mode and so
+			// starts a fresh segment (US-253, AC-001) — a cold run with no
+			// previous conversation to recover permission from at all.
 			name:         "a tagged spike never had permission to lose",
 			previousBody: "/spike try it\n" + AskTag,
 			previousMode: store.ModeSpike,
 			body:         "yes, use the second one",
+			wantPath:     harness.PathCold,
 		},
 	}
 	for _, tc := range tests {
@@ -234,9 +247,13 @@ func TestPermissionIsRecoveredFromThePreviousTrigger(t *testing.T) {
 			}
 
 			sent := runner.requests[0]
-			// AC-A1.16: the owner's reply continues the same conversation.
-			if sent.Path != harness.PathResume {
-				t.Fatalf("run path = %s, want %s", sent.Path, harness.PathResume)
+			wantPath := tc.wantPath
+			if wantPath == "" {
+				// AC-A1.16: the owner's reply continues the same conversation.
+				wantPath = harness.PathResume
+			}
+			if sent.Path != wantPath {
+				t.Fatalf("run path = %s, want %s", sent.Path, wantPath)
 			}
 			if got := strings.Contains(sent.Prompt, promptGrantsAsking); got != tc.wantGrant {
 				t.Errorf("permission granted = %t, want %t:\n%s", got, tc.wantGrant, sent.Prompt)
