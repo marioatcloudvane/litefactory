@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research
+- [x] Research
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -21,3 +21,5 @@
 ## Notes
 
 - Scope: current communication mechanisms and detailed paths by mode; no implementation.
+
+- 2026-09-12, run 0003: Research complete at revision 64561b62ba20040c0b6ee823cc51e9f96c00c14c. Run 0002 ambiguity resolved; assessed legacy protocol retirement, standardized messages and MCP/status options in RESEARCH_BRIEF.md. Source and primary MCP specification review only; no implementation, tests, runtime-state access or mode transition.

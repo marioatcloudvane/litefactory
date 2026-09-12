@@ -1,12 +1,12 @@
 # Agent–litefactory communication inventory
 
-Status: Follow-up incomplete — awaiting clarification for run 0002. Run 0001 inventory remains complete; Research only.
+Status: Complete through run 0003 — legacy retirement and communication standardization assessed; Research only.
 
 ## Run 0002 clarification
 
 The follow-up says only “Check this” and includes no attachment, link, target or specific concern. It could request verification of the previous communication inventory against the code, or refer to an omitted item. These interpretations change the investigation scope, so no new source investigation has begun. The prior findings below are preserved and have not been reverified in this run.
 
-Unresolved question: Should I recheck the communication inventory above against the code, or did you mean to include a specific item to review?
+Historical run 0002 question (resolved by run 0003): Should I recheck the communication inventory above against the code, or did you mean to include a specific item to review? Run 0003 supplies concrete questions about legacy retirement, standardization and MCP; no further clarification is needed.
 
 Issue: #258, `rework-communication`. Inspected revision: `3e55019712df03bcae8176a3c774855e66013861`, on 2026-09-12 in the supplied local worktree. All source references below belong to that revision.
 
@@ -72,9 +72,87 @@ The key risk for a communication rework is conflating transport, payload shape a
 
 Options for the next phase are to standardize only structured workflow contributions or to redesign the entire boundary, including ordinary reports, questions, advisory invocations and telemetry. Recommendation: use these tables as the starting inventory and decide that scope in Plan; preserve explicit version compatibility and Validate's read-only boundary. No redesign option is selected or implemented here.
 
-Open decisions for the original run 0001 Research request: none. The future redesign scope is a subsequent planning decision, not a blocker to that inventory. Run 0002 remains incomplete pending clarification of what to check.
+Open decisions for the original run 0001 Research request: none. The future redesign scope is a subsequent planning decision, not a blocker to that inventory. Run 0002 was incomplete at that time; run 0003 resolves its scope below.
 
 ## History
 
 - 2026-09-12, run 0001: Completed the two-level communication inventory with production/compatibility distinctions and source references; no implementation or mode transition.
 - 2026-09-12, run 0002: Preserved the completed inventory and recorded the ambiguous “Check this” follow-up as incomplete pending clarification. No new source investigation, source changes or tests.
+
+
+## Run 0003 — legacy retirement, standardization and MCP
+
+Status: Complete. The owner's concrete questions resolve run 0002's ambiguous follow-up. This is an assessment and recommendation, not authorization to implement or change modes. Inspected revision: `64561b62ba20040c0b6ee823cc51e9f96c00c14c`, 2026-09-12. References in this section belong to this revision; the original inventory above retains its original revision.
+
+### Findings: legacy is present and partly live
+
+**Yes: legacy protocols remain. Some can be cleaned up independently; the active compatibility contracts require a deliberate retirement boundary.** New managed features already choose content/submission v2 and separated workflow v2 (`internal/turn/plan_handoff.go:22`). Existing persisted generations keep their contract. Migration 0028 defaults existing feature contracts to v1 (`internal/store/migrations/0028_submission_contracts.sql:2`); generation bindings are immutable (`internal/store/submission_contracts.go:38`). Therefore new-feature defaults do not prove that old support is unused.
+
+| Legacy path | Current reachability / gating | Retirement assessment |
+|---|---|---|
+| Agent-written Plan outcome/proposal JSON and discussion context files | Existing content/submission v1 generations; no typed broker when generation contract is absent or submission version is not 2. `internal/turn/submissions.go:76`, `internal/turn/plan_handoff.go:129`, `internal/harness/prompt.go:401` | Remove v1 agent instructions/parsers after old active scopes are completed or explicitly upgraded. Do not delete all Plan handoff files: v2 still writes internal handoffs and shares publication/document processing. |
+| `.litefactory-story-events/<run>/<sequence>.json` incremental input | Instructions suppressed for submission v2 (`internal/harness/stories.go:41`), but registration and ingestion are not gated there by submission version (`internal/turn/harvest.go:48`, `internal/turn/story_progress.go:173`, `internal/turn/story_progress.go:232`). | Gate filesystem ingestion to the intended old contract first, then retire the reader after its old streams and pending effects drain. This is live compatibility code, not a dead reader. |
+| Version-1 Validate final assessment JSON | Fallback harvest runs for managed validation unless typed terminal validation already succeeded. `internal/turn/validation.go:89`, `internal/turn/submission_runner.go:83` | Retire the old output schema/parser with old submission contracts. Keep final-output transport available: current v2 Validate also uses it because shell helpers are forbidden. |
+| Legacy combined verification/acceptance workflow | `WorkflowLegacy = 1` is separate from content/submission version. A v2 broker uses stage `legacy` when workflow is 1. `internal/store/managed_stories.go:11`, `internal/turn/submissions.go:98` | Cannot be removed merely by upgrading transport/content. Retiring combined acceptance is a separate workflow migration or finish-old-work decision. |
+| Markdown `plan_brief.md` / `US-*.md` discovery and implicit subissue creation | Explicitly production-unreachable: production `SubIssueCreator` satisfies `PlanForge`, and the phase returns before discovery. Test doubles can reach it. `internal/turn/subissues.go:113` | Best immediate cleanup candidate. Remove dead phase and tests/interfaces exclusively supporting it, after checking callers. Preserve shared helpers: `locateSessionDir` is used by live `internal/turn/plan_handoff.go:181`. |
+
+Do not confuse deleting an input adapter with deleting the underlying workflow machinery. V2 `recordEngineering` creates the existing story event/effect records (`internal/turn/submission_records.go:14`, `internal/turn/submission_records.go:82`; `internal/store/submission_progress.go:12`). `StoryProgress` also owns recovery and remote delivery (`internal/turn/submission_recovery.go:12`, `internal/turn/story_progress.go:211`). Deleting the whole service would break current v2 operation.
+
+### Existing upgrade route and practical retirement order
+
+Fact: the owner command `litefactory story-contract upgrade <parent-ref> --preview` exists; preview is the default, and explicit `--apply` publishes conversion (`internal/cli/cmd_story_contract.go:25`; `docs/story-contract.md:123`). It upgrades the entire unfinished cohort using exact issue revisions. Safety checks require planning state, content/submission v1, no active parent/story attempt, and no pending legacy effects (`internal/store/story_contract_upgrade.go:74`). Conservative conversion rejects ambiguous legacy source instead of guessing; completed children are excluded from conversion (`internal/turn/story_contract_upgrade.go:119`). Partial publication has retained resumable intent (`internal/turn/story_contract_upgrade_test.go:195`).
+
+Fact: completion selects a new v2 generation, preserves historical generations and the workflow version, and leaves readiness false (`internal/store/story_contract_upgrade.go:195`). The next Plan must be published and approved. It is not an in-place version flip, nor a route around frozen-scope restrictions. Features with no unfinished cohort cannot use this conversion (`internal/turn/story_contract_upgrade.go:137`).
+
+Recommendation:
+
+1. Remove the production-unreachable Markdown publication phase as an independent cleanup, retaining its shared live helpers.
+2. Establish an explicit supported-upgrade boundary: inventory unfinished v1 scopes, active/recoverable attempts and undelivered effects through supported operator/store tooling. Complete frozen old work, or move it through authorized existing planning admission and preview/apply conversion; resolve conversion conflicts before retrying. Do not rewrite persisted versions by hand.
+3. Once no supported execution/recovery can require v1 input, remove v1 prompt contracts, filesystem ingress, output parsers and their exclusive wiring. Update canonical team instructions, rendered bundles, docs and tests together. Preserve common v2 handoff/publication/effect code and historical reads/migrations needed to open and explain existing databases.
+4. Treat combined workflow v1 retirement separately. The existing content upgrade intentionally leaves it unchanged; either finish those workflows or design an explicit workflow migration.
+
+Inference: if the operator accepts a release that refuses unfinished old scopes until migration, retirement can be more direct, but that is an intentional compatibility policy requiring a clear upgrade error/path. This investigation does not establish that the deployed database is already free of legacy work. No daemon runtime state was inspected or changed. The recommendation is feasible in code; immediate production-safe deletion of every legacy branch is not established by repository evidence alone.
+
+### What standardization buys
+
+**The useful standard is a shared application contract with explicit meaning, not forcing every byte through one transport.** A substantial foundation already exists: the custom transport has method/request ID/payload and correlated replies (`internal/submission/protocol.go:16`); contributions have stage/outcome and stage-specific content (`internal/agent/contribution.go:23`); the factory supplies trusted run/generation/revision/attempt identities, and receipts separate validation, engineering, acceptance and remote effects (`internal/turn/submission_runner.go:73`, `internal/turn/submissions.go:225`). Standardization should extend this existing boundary, not discard its guarantees.
+
+| Proposed improvement | What it would buy | What it would not establish |
+|---|---|---|
+| One validated, versioned application event family with typed payloads | Common parsing, diagnostics and adapter tests across modes/runners; fewer incompatible handoffs and prompts | One universal payload for reports, progress, evidence and acceptance |
+| Factory-bound identity plus correlation and explicit retry rules | Reliable attribution, duplicate handling, traceability and recovery across helper/MCP/final-output adapters | The agent supplying authoritative run IDs or revision claims |
+| Explicit distinction between progress, questions, artifacts, results and workflow contributions | UI/reporting can display partial activity and requested input without inferring it from prose | A progress claim proving tests, readiness or acceptance |
+| Separate retained input, decided outcome and delivery status | Accurate operator visibility when recording succeeds but GitHub publication remains pending | Exactly-once remote effects merely because JSON was accepted |
+| Shared machine-readable question/result fields alongside narrative | More reliable continuation/status rendering; final prose remains readable | A new interactive wait-for-answer contract without product/workflow changes |
+
+Recommended initial scope: keep the existing v2 contribution/receipt semantics, add an explicit advisory progress payload and normalized final outcome/question metadata where needed, and share validation across transport adapters. Factory envelope metadata belongs to the receiving boundary; agents author the payload and approved selectors. Files remain suitable for code and larger artifacts, final stdout for a read-only terminal handoff, and runtime stdout/transcripts for vendor telemetry. Avoid turning every artifact or token-usage event into a workflow submission.
+
+A possible *conceptual* progress payload is `kind: progress`, a short message, optional authorized story selector and phase. The factory adds run/attempt identity, receipt time and ordering/deduplication metadata. This is a recommendation, not a finished schema. Keep progress advisory: no issue closure, acceptance, fabricated percentage, or run-success override. Rate-limit/coalesce display updates; define retention and stale-after-exit behavior. Silence alone does not prove a hung process. Owner replies should retain today's next-run semantics unless explicitly redesigned.
+
+### During-run updates and MCP
+
+Fact: current helper methods are only `preflight`, `submit` and `receipt`; all non-receipt input goes through contribution validation (`internal/turn/submissions.go:187`). `Contribution` has no general run-status message (`internal/agent/contribution.go:23`). Existing story progress means durable engineering/verification/invalidation and its delivery, not arbitrary “investigating X” telemetry. Also, broker startup currently requires a managed Plan/story/validation scope (`internal/turn/submissions.go:65`); supporting Research and Spike status requires extending run-scoped capability lifecycle, not only adding a new method name.
+
+| Option | Benefit | Cost / fit |
+|---|---|---|
+| Add a progress operation to the current helper/service | Smallest extension for run status; existing local authentication, attempt lifetime and runner integration can be reused | Still requires shell helper access and run-scoped support outside managed submissions; no automatic tool discovery |
+| Add a thin MCP adapter over the same application service | Discoverable tools and input/output schemas; structured correction feedback; could expose narrowly permitted status tools without general shell access | Requires explicit per-run MCP configuration, capability binding, host permissions, adapter/lifecycle tests and actual Claude/Codex compatibility validation |
+| Replace the broker and all output paths with MCP | One advertised tool interface | Largest change; still needs application durability, receipts, authority and artifact handling; cannot safely erase read-only final-output support by assumption |
+
+Recommendation: **yes to standardized application messages and explicit during-run progress; MCP is useful as an optional thin adapter if native tool discovery or restricted-shell access is a product goal. Do not make MCP a prerequisite for status updates alone.** Keep one underlying validation/receipt service, avoid maintaining independent MCP and CLI business rules, and initially keep existing final-output handling for Validate. An MCP tool can be designed to preserve read-only review while permitting telemetry, but that is a new explicitly scoped profile, not something currently enabled.
+
+Repository integration facts: Claude uses strict MCP configuration and supplies no server (`internal/harness/runner.go:572`, `internal/harness/runner.go:629`). Codex Validate explicitly disables shell and multi-agent features (`internal/codex/runner.go:408`); typed Validate is currently instructed to return final JSON rather than invoke shell helpers (`internal/turn/submission_runner.go:78`). Neither fact proves a new MCP adapter is impossible; both require deliberate integration rather than ambient configuration assumptions.
+
+External evidence was checked against the pinned **2025-11-25 MCP specification**, not asserted to be the latest revision or the version supported by installed hosts:
+
+- MCP tools provide discovery, input schemas, optional output schemas and structured results. These could make factory calls easier for an agent to discover and correct. They do not define litefactory's durable acceptance/remote-effect semantics. [MCP tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+- MCP progress notifications belong to an active request with a progress token; sending them is optional and they end with the request (with task-related lifetime provisions). **They are not a generic unsolicited agent-run status feed.** With the runtime as client and litefactory as server, reporting overall agent work is naturally an agent call such as `status_update` (design inference), rather than assuming server progress notifications run in that direction. [MCP progress](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress)
+- Standard MCP transports are JSON-RPC over stdio or Streamable HTTP. A stdio MCP server is a child of the MCP client; that is a separate stream from the existing coding-runner event stdout. A thin local stdio server could bridge to the existing service; “both use stdio” does not make existing runtime events MCP. [MCP transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+
+### Evidence limits and next step
+
+Focused test definitions read: `internal/turn/aggregate_lifecycle_test.go:79` (both workflow versions), `internal/turn/aggregate_lifecycle_test.go:517` (v1 skips typed broker), `internal/turn/submissions_test.go:201` (legacy decision recovery), `internal/store/story_contract_upgrade_test.go:50` and `:138` (history/admission/safety), `internal/turn/story_contract_upgrade_test.go:112`, `:195`, `:253`, `:299` (preview/apply, restart, completed legacy dependencies and frozen generation dispatch). These corroborate intended behavior; no tests or installed-host probes were run.
+
+No source code changed, no upgrade applied, no daemon state inspected and no automatic mode transition. Research answers are complete. Future Plan decisions are the supported legacy upgrade boundary and whether native MCP tool access is needed beyond status visibility; neither blocks this assessment.
+
+- 2026-09-12, run 0003: Resolved run 0002 clarification through concrete follow-up; assessed live/dead legacy paths, supported migration prerequisites, shared-code removal boundaries, standardization benefits and MCP fit using repository evidence and pinned primary specification sources.
