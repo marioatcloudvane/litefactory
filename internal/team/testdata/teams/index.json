@@ -1,18 +1,6 @@
 {
   "schema_version": 2,
   "shared": {
-    "codebase-tour": {
-      "desc": "Inspect the repository and report code evidence.",
-      "path": "agents/shared/codebase-tour.md",
-      "tier": "balanced",
-      "skills": []
-    },
-    "web-researcher": {
-      "desc": "Research external technical facts using authoritative sources.",
-      "path": "agents/shared/web-researcher.md",
-      "tier": "balanced",
-      "skills": []
-    },
     "requirements-engineer": {
       "desc": "Turn the feature request into a concise specification.",
       "path": "agents/shared/requirements-engineer.md",
@@ -26,10 +14,12 @@
       "skills": []
     },
     "research-orchestrator": {
-      "desc": "Coordinate research and produce a research brief.",
+      "desc": "Research repository and external evidence and write the research brief.",
       "path": "agents/shared/research-orchestrator.md",
       "tier": "balanced",
-      "skills": []
+      "skills": [
+        "research-evidence"
+      ]
     },
     "plan-orchestrator": {
       "desc": "Coordinate planning and produce a plan brief.",
@@ -50,12 +40,6 @@
       "research": [
         {
           "ref": "research-orchestrator"
-        },
-        {
-          "ref": "codebase-tour"
-        },
-        {
-          "ref": "web-researcher"
         }
       ],
       "plan": [

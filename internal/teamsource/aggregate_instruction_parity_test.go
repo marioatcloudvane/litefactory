@@ -43,8 +43,6 @@ const claudeStructuredProtocolHandoff = "## Structured protocol handoff\n\n" +
 // operator would rather than deriving expectations from either tree itself.
 func bothTreeMapping() []struct{ name, source, claude, codex string } {
 	return []struct{ name, source, claude, codex string }{
-		{"codebase-tour", "teams/source/agents/shared/codebase-tour.md", ".claude/agents/codebase-tour.md", ".codex/skills/codebase-tour/SKILL.md"},
-		{"web-researcher", "teams/source/agents/shared/web-researcher.md", ".claude/agents/web-researcher.md", ".codex/skills/web-researcher/SKILL.md"},
 		{"requirements-engineer", "teams/source/agents/shared/requirements-engineer.md", ".claude/agents/requirements-engineer.md", ".codex/skills/requirements-engineer/SKILL.md"},
 		{"proxy-product-owner", "teams/source/agents/shared/proxy-product-owner.md", ".claude/agents/proxy-product-owner.md", ".codex/skills/proxy-product-owner/SKILL.md"},
 		{"research-orchestrator", "teams/source/agents/shared/research-orchestrator.md", ".claude/agents/research-orchestrator.md", ".codex/skills/research-orchestrator/SKILL.md"},
@@ -72,7 +70,7 @@ func bothTreeMapping() []struct{ name, source, claude, codex string } {
 // catalog rendering does not byte-generate these legacy copies." A
 // paragraph-inclusion check against that short native template would fail
 // against the deliberately different, expanded installed wrapper text for
-// every one of these twelve roles; TestBothInstructionTrees_
+// every mapped role; TestBothInstructionTrees_
 // StructuredProtocolHandoffPointsAtOwnTreeOnly below is what actually proves
 // each wrapper still carries the shared contract obligation forward.
 func TestBothInstructionTrees_SharedSourceParity(t *testing.T) {

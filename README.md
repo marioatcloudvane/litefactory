@@ -40,9 +40,9 @@ Conflicting shared definitions used by another installed team are refused.
 Overrides are operator-global and copied into central storage:
 
 ```sh
-litefactory team manage shared:codebase-tour set source=/absolute/path/to/agent.md
-litefactory team manage shared:codebase-tour show --json
-litefactory team manage shared:codebase-tour unset
+litefactory team manage shared:research-orchestrator set source=/absolute/path/to/agent.md
+litefactory team manage shared:research-orchestrator show --json
+litefactory team manage shared:research-orchestrator unset
 litefactory team manage team:go-team:go-architect show
 ```
 

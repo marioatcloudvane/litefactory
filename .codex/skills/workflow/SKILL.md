@@ -18,6 +18,23 @@ description: Preserve litefactory session artifacts and headless worktree owners
 >   between both harnesses and describe session layout and the Validate and
 >   Spike modes; read them there. They are not a Claude-only tree.
 
+## Read only your range
+
+This file is protocol, not prose, and most of it belongs to one mode. Read the
+sections your role needs and stop. Seek by heading, never by line number — these
+shift whenever the file is edited.
+
+| Role | Reads |
+|---|---|
+| Research — orchestrator, tour | everything above `## Persisted workflow version`, then stop |
+| Plan | the same opening, plus `## Structured content and submission contract` |
+| Implement, Validate, engineers | the whole file |
+| Any role editing a protected instruction tree | plus `## Independent instruction maintenance` |
+
+Research opens no stories, submits no contributions and closes nothing, so
+nothing below `## Persisted workflow version` reaches it — about five sixths of
+this file.
+
 The daemon chooses the mode; do not classify or open another mode. Work in the
 supplied worktree and session. Preserve repository project instructions, including
 AGENTS.md, CLAUDE.md, APP_CONTEXT.md and relevant APP_CONSTRAINTS.md sections when
@@ -106,14 +123,6 @@ harness with the exact opposite-harness handoff, leaving independent work ready
 for a manual switch. Temporary installed-tree parity drift does not block an
 individual story; reserve cross-tree parity for the aggregate feature gate.
 
-For you, running as Codex, the tree you may edit is `.claude/**`. This tree —
-`.codex/**` — is the one you must not write, and a story that requires changing
-it is not yours to finish. When you are handed such a story, do not attempt to
-widen permissions, retry under a different sandbox setting, or edit the shared
-source as a substitute. Report that the story requires the Claude harness, name
-the exact paths it needs to change, and stop. Other independently ready stories
-in the same run remain selectable, and the operator performs the switch manually.
-
 ## Structured content and submission contract
 
 Content/submission versions are persisted separately from workflow. Existing
@@ -175,3 +184,13 @@ invocation, same-run correction and authoritative receipt observation from BOTH
 actual Claude and Codex remain an unsatisfied external prerequisite until supplied
 by a separately authorized operator. Never widen permissions, launch paid nested
 agents or substitute a successful synthetic fixture for that observation.
+
+## Which tree you may edit
+
+For you, running as Codex, the tree you may edit is `.claude/**`. This tree —
+`.codex/**` — is the one you must not write, and a story that requires changing
+it is not yours to finish. When you are handed such a story, do not attempt to
+widen permissions, retry under a different sandbox setting, or edit the shared
+source as a substitute. Report that the story requires the Claude harness, name
+the exact paths it needs to change, and stop. Other independently ready stories
+in the same run remain selectable, and the operator performs the switch manually.
