@@ -49,11 +49,22 @@ recorded in `.aiteam/AC_AMENDMENTS.md`.
 - **SEC-5** — Report renderers MUST revalidate echoed input locally. `profileNamePattern` and `commandSpan` remain renderer-owned; `commandSpan` MUST stop at the first disallowed rune. Tool-refusal types without label fields MUST retain that boundary.
 
 - **SEC-6** — Redaction MUST remain hygiene, not the subprocess secret boundary. Outbound bodies MUST use `redact.Redactor.Apply` and typed `redact.Body` mutation signatures; callers MUST NOT bypass them. Local `$LF_HOME/logs` copies MUST NOT be redacted.
-- **SEC-7 [enforced]** — litefactory MUST NOT write inside a registered clone.
-  `git.Clone`'s method set *is* the S-6 allowlist (`Fetch WorktreeAdd
-  WorktreeList WorktreeRemove RevParse RemoteURL ConfigGet ShowRef` + `Path`).
-  There MUST be no `Commit`, `Checkout`, `Reset`, `Merge` or `Pull` on it, so
-  mutating a registered clone stays a compile error.
+- **SEC-7 [enforced]** — litefactory MUST NOT mutate a registered clone's
+  checkout, index or HEAD. `git.Clone`'s method set is the S-6 allowlist
+  (`Fetch WorktreeAdd WorktreeList WorktreeRemove RevParse RemoteURL ConfigGet
+  ShowRef` + `Path`). There MUST be no `Commit`, `Checkout`, `Reset`, `Merge`
+  or `Pull` on it. The narrow package-level `ObserveRetirement`,
+  `GuardedRetirement` and `RetirementAbsent` capabilities MAY perform owned task
+  maintenance: fresh fetch/prune, `merge-base --is-ancestor`, `ls-remote`
+  (including `--symref origin HEAD` and exact task-ref absence), optional-locks-
+  disabled status including ignored/untracked content, and `ls-files --stage -z`;
+  unforced exact worktree removal (including stale owned registrations), local
+  `update-ref --no-deref -d <task-ref> <expected-head>` and remote deletion with
+  explicit `--force-with-lease=<task-ref>:<expected-head>`. The daemon MUST verify
+  canonical ownership, closed issue and preservation under task/parent/clone
+  coordination before these mutations. Each branch tip MUST be an ancestor of
+  the fresh remote base; configured base/default branches and branches used by
+  other worktrees MUST remain protected. No general clone mutation is authorized.
 - **SEC-8** — Identity MUST be compared numerically, never by renameable handle (`internal/github/doc.go`, D-I).
 - **SEC-9 [enforced]** — `gh` MUST be used for identity discovery only, reached
   only by `litefactory init`, with `GITHUB_TOKEN`/`GH_TOKEN` stripped from its

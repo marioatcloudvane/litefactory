@@ -27,3 +27,9 @@
 - 2026-09-12: Plan run 0003 prepared feature-spec.md, ARCH_REVIEW.md, typed three-story proposal and plan_brief.md. No owner questions. Narrow Git capability-contract amendment is included within explicit branch-retirement scope. Factory preflight/submission status follows; no implementation or cleanup performed.
 
 - Plan preflight: valid=true, complete=true, no diagnostics/unchecked paths. Submitted request 2fb324ee0a95e5358ed0e901e87b3213: InputState valid; EngineeringState/AcceptanceState/EffectState not_applicable; PlanState pending. Input durably recorded; publication, Story Index links, readiness and factory save are not yet confirmed.
+
+## Implement run 0004 — 2026-09-12
+
+Status: INCOMPLETE — all three frozen stories coded and scoped-tested; aggregate make check exceeded bounded execution after two fix/retest cycles. Formatting, vet, pinned lint, build and CLI race package passed. Earlier snapshots were explicitly invalidated after later integration/lint changes; final engineering is not complete.
+
+Artifacts: TEST_REPORT.md, notes.md, DRIFT_REPORT.md, BUG_ESCALATION.md; per-story evidence and incomplete receipts retained. No acceptance assessment, commit/push or save success claimed. Resume Implement verification before considering Validate.

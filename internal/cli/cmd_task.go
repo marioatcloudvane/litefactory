@@ -33,9 +33,9 @@ func newTaskCleanCommand() *Command {
 		Short: "Remove the worktree for an issue",
 		Long: "Remove the git worktree created for <issue> and clear its recorded path.\n" +
 			"Refuses to touch a worktree with uncommitted changes unless --force is given.\n\n" +
-			"Nothing removes a worktree automatically: worktree_retain_days is recorded\n" +
-			"for a future sweep and no sweep runs yet, so this command is the only way a\n" +
-			"worktree goes away.",
+			"The daemon checks closed issues daily. worktree_retain_days counts from the\n" +
+			"last completed run, or creation for a certainly owned task with no runs.\n" +
+			"Use task retire to preview conservative automatic cleanup and its skips.",
 		Args: ArgSpec{Names: []string{"issue"}, Min: 1},
 	}
 	cmd.New = func(fs *flag.FlagSet) Handler {
@@ -151,12 +151,9 @@ func dirtyWorktreeError(dirty *git.WorktreeDirtyError, session store.Session) er
 	return errors.New(b.String())
 }
 
-// writeRetentionNote states the retention setting and that nothing acts on it
-// (AC-3.26, D-5). Printing it here is what keeps the promise visible: the key is
-// read and validated at startup, and a user who sees it in the config file is
-// entitled to know that no sweep is coming to honour it yet.
+// writeRetentionNote explains the active automatic policy alongside manual cleanup.
 func writeRetentionNote(out io.Writer, retainDays int) {
-	fmt.Fprintf(out, "worktree_retain_days is %d, recorded only: no worktree is ever removed automatically\n",
+	fmt.Fprintf(out, "worktree_retain_days is %d, days after the last completed run (creation for certainly owned tasks with no runs); the daemon checks closed issues daily; preview with task retire\n",
 		retainDays)
 }
 

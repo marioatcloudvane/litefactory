@@ -1,0 +1,3 @@
+ok  	github.com/cloudvane/litefactory/internal/daemon	0.778s [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/store	1.197s [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/git	1.145s
