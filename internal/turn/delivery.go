@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -296,8 +297,19 @@ func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
 // last segment is a switch, not a refusal: the tail of this function
 // reconciles the stale-agent row to the newly resolved tool in place — same
 // id, same ordinal — via [reconcileSegmentAgent], writes a bundle rendered
-// for the new tool, and re-pins delivery for it. Only a change in effective
-// instructions under the *same* tool still rotates to a new segment.
+// for the new tool, and re-pins delivery for it. This is checked first, ahead
+// of anything mode-related, so it also decides the one turn where the agent
+// *and* the admitted mode change together: the switch wins outright and the
+// mode change is absorbed into it rather than separately rotating, which is
+// what keeps this ladder from ever producing two new segments for one turn.
+// Only a same-*agent* turn reaches the mode comparison at all: it rotates to
+// a new segment (next ordinal, a distinct session_ref, no resume token, a
+// freshly written bundle if one is configured) when either the effective
+// instruction-bundle identity or the admitted mode ([Request.mode]) differs
+// from what the segment's last terminal, non-refused run ([previousRun])
+// recorded; a candidate with no such run is never rotated for a mode change,
+// since there is nothing to compare against. Everything else — same agent,
+// same identity, same mode — reuses and resumes the existing segment.
 func prepareDeliverySegment(ctx context.Context, opts Options, req Request, session store.Session, ref naming.Ref, firstRef string, p *deliveryPlan) (store.Segment, *agent.Delivery, error) {
 	if req.Continuation != nil {
 		segment, err := opts.DB.GetSegment(ctx, req.Continuation.SegmentID)
@@ -321,20 +333,12 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		delivery, err := verifyDelivery(segment.DeliveryRoot, p)
 		return segment, delivery, err
 	}
-	if p == nil {
-		hadDelivery, err := opts.DB.HasSessionDelivery(ctx, session.ID)
-		if err != nil {
-			return store.Segment{}, nil, err
-		}
-		if !hadDelivery {
-			segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, firstRef, string(req.Agent))
-			if err != nil {
-				return store.Segment{}, nil, err
-			}
-			segment, err = reconcileSegmentAgent(ctx, opts, segment, string(req.Agent))
-			return segment, nil, err
-		}
-	}
+	// No p==nil/HasSessionDelivery fast path here: a bundleless repository's
+	// segment still has to clear the mode comparison below on every turn, not
+	// just the vendor-switch reconciliation, so it goes through the same
+	// ListSegments ladder as a bundle-configured one — the identity check
+	// just degenerates to "always empty" for it, per this function's doc
+	// comment.
 	segments, err := opts.DB.ListSegments(ctx, session.ID)
 	if err != nil {
 		return store.Segment{}, nil, err
@@ -350,6 +354,11 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		if err != nil {
 			return store.Segment{}, nil, err
 		}
+		previous, found, err := previousRun(ctx, opts, session, last)
+		if err != nil {
+			return store.Segment{}, nil, err
+		}
+		modeChanged := found && previous.Mode != req.mode()
 		switch {
 		case last.Agent != string(req.Agent):
 			// A switch: keep this row's ordinal and the session_ref that was
@@ -358,9 +367,12 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 			// same tail every other path uses — it writes a bundle already
 			// rendered for the new agent, finds this same row again, and
 			// reconciles it. Never the rotation case below, which is only
-			// for a same-agent instruction change.
+			// for a same-agent instruction or mode change: checking the
+			// agent first here means a turn that changes both the agent and
+			// the mode together still only reconciles, it never also
+			// rotates for the mode.
 			ordinal, sessionRef = last.Ordinal, last.SessionRef
-		case last.DeliveryIdentity == identity:
+		case last.DeliveryIdentity == identity && !modeChanged:
 			if p == nil {
 				return last, nil, nil
 			}
@@ -372,6 +384,15 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 			if err != nil {
 				return store.Segment{}, nil, err
 			}
+			// Only this case is an actual rotation — the switch case above
+			// keeps last.Ordinal and never reaches here through anything but
+			// a real mode-or-identity-driven rotation, so the log line stays
+			// inside it rather than after the switch.
+			opts.Logger.Info("rotating conversation segment for a mode or instruction-bundle change",
+				slog.String("previous_mode", previous.Mode),
+				slog.String("admitted_mode", req.mode()),
+				slog.Int("old_ordinal", last.Ordinal),
+				slog.Int("new_ordinal", ordinal))
 		}
 	}
 	var delivery *agent.Delivery
