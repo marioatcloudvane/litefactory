@@ -26,3 +26,5 @@
 - Prior run left only an untracked manifest in the 2026-09-10 session; preserved untouched. Prior failure is not evidence of completed research.
 
 - 2026-09-12 — Run 0004 direct Research investigation completed. Read-only runtime reconciliation assigns children to run 5, identifies runs 6–8 aggregate mislabel, confirms Claude refused resume and current deletion of comment meter metadata. Saved sanitized RUNTIME_EVIDENCE.json and refreshed Q-01–Q-12. No implementation, checks, backfill, runtime changes or automatic mode transition. Current HEAD 13c265c is 4 ahead/0 behind local origin/main; supersedes historical divergence note.
+
+- 2026-09-12 — Run 0005 Research assessment completed: distinguished checked arithmetic, observed live coverage, historical coverage and invoice limits; calculated run-5 observed coverage as 43.26%; recommended controlled historical correction, explicit refused-attempt evidence, CLI lower-bound wording and executable collector assurance. Reused runtime snapshot and confirmed relevant source unchanged at c02be04e. Updated RESEARCH_BRIEF.md only plus this history; no code/runtime edits, checks or mode transition.
