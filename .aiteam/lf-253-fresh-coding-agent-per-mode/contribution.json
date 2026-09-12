@@ -1,0 +1,113 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Fresh coding agent per mode (issue #253, superseding #227's seven-story plan). One story, three tasks: (1) extend the existing segment-selection predicate ladder in internal/turn.prepareDeliverySegment so a run whose admitted mode differs from the last terminal, non-refused run of its segment gets a freshly rotated segment (new ordinal, new session_ref, empty resume token) consistently for both delivery configurations (with and without an instruction bundle) and both agents (Claude, Codex), while same-mode replies keep resuming exactly as today; (2) point a reset run's prompt at the task's existing session artifact directory and the brief relevant to the admitted mode, via a new internal/turn/session_artifacts.go and two optional string fields on harness.PromptInput rendered only on the cold path; (3) focused, fully offline regression tests covering both. No new schema, artifact-binding subsystem, generalized handoff system, instruction-tree rollout, or live-agent evidence project. Two evidence obligations -- that a live Claude/Codex conversation actually resets, and that a reset agent actually reads the named brief -- remain explicitly unsatisfied per docs/decisions/nested-agent-evidence.md and must not be marked proven by an offline suite.",
+    "stories": [
+      {
+        "key": "fresh-coding-agent-per-mode",
+        "intent": "create",
+        "title": "Fresh coding agent per mode",
+        "user_story": {
+          "actor": "an owner running litefactory across mode switches on the same task",
+          "want": "each admitted mode change to start a fresh coding-agent conversation while replies within the same mode keep resuming the existing one, and for a reset run to be told where the task's existing session artifacts are",
+          "benefit": "so a new role reasons from a clean transcript and its own written brief instead of fighting the previous mode's transcript and instructions, without losing the worktree, artifacts, comment history, approved inputs or existing workflow gates",
+          "notes": [
+            "Supersedes issue #227's seven-story plan; this is an independent, from-scratch story and imports nothing from that plan.",
+            "Applies identically to Claude and Codex, and to repositories with and without an external instruction bundle (delivery configuration).",
+            "Unwritten context that was never saved to an artifact or a comment is accepted as lost at a mode change; this limitation is accepted and not mitigated here.",
+            "Two evidence obligations stay explicitly unsatisfied and must never be marked proven by an offline test alone: that a live Claude/Codex conversation actually resets (AC-005 live-behavior half), and that a reset agent actually reads the named brief (AC-009 comprehension half); see docs/decisions/nested-agent-evidence.md."
+          ]
+        },
+        "acceptance_criteria": [
+          {"id": "AC-001", "text": "A run admitted in a mode different from the mode of the last terminal, non-refused run recorded against the current segment is prepared against a newly created segment: next ordinal, a distinct session_ref, and an empty resume token."},
+          {"id": "AC-002", "text": "A run admitted in the same mode as that last run is prepared against the existing segment and takes agent.PathResume whenever it does today."},
+          {"id": "AC-003", "text": "AC-001 holds with no instruction bundle configured (deliveryPlan == nil) -- the configuration that has no reset today."},
+          {"id": "AC-004", "text": "AC-001 holds with an instruction bundle configured: a simultaneous mode change and bundle-identity change produce exactly one new segment, and previously retained bundle bytes are left unmodified."},
+          {"id": "AC-005", "text": "AC-001 and AC-002 hold for both claude and codex, with the resulting run taking agent.PathCold on reset and agent.PathResume on same-mode continuation for both agents."},
+          {"id": "AC-006", "text": "A requested agent that differs from the segment's recorded agent still produces the existing agentSwitchRefusal, with no new segment created and no run allocated, regardless of whether the mode also changed."},
+          {"id": "AC-007", "text": "A candidate segment with no terminal, non-refused run is never reset -- covering both the first run of a task and a re-prepared prelaunch allocation."},
+          {"id": "AC-008", "text": "A continuation run reuses its recorded segment, resumes it, and still refuses with the existing message when the instruction bundle identity changed."},
+          {"id": "AC-009", "text": "A reset run's prompt names the located session artifact directory, repository-relative with forward slashes, and instructs the run to read the mode-relevant brief."},
+          {"id": "AC-010", "text": "When no session directory can be located, harness.BuildPrompt returns bytes identical to those it returns today for the same input."},
+          {"id": "AC-011", "text": "A resumed prompt is unchanged: no artifact section is written on the resume path."},
+          {"id": "AC-012", "text": "The artifact section reaches both runners through harness.BuildPrompt alone, with no runner-specific construction."},
+          {"id": "AC-013", "text": "A reset leaves the worktree, branch, base-sync outcome, attachments, recorded comment history, approved/frozen story context and every existing workflow gate behaving exactly as they do for any other cold run."},
+          {"id": "AC-014", "text": "No migration is added and no store schema changes; store.Migrate output is unchanged."},
+          {"id": "AC-015", "text": "Focused regression tests cover AC-001 through AC-013 offline, with no network and no coding-agent subprocess, and make check passes."}
+        ],
+        "tasks": [
+          {
+            "id": "T-1",
+            "description": "Consistent mode-change resets: extend the existing predicate ladder in prepareDeliverySegment (internal/turn/delivery.go) so segment selection compares the admitted mode (req.mode()) against the last terminal, non-refused run of the candidate segment (via the existing previousRun helper) in addition to the existing bundle-identity check. Fold the deliveryPlan == nil early return into the common ListSegments path so repositories without an instruction bundle follow the same ladder as those with one. Order: continuation reuse -> vendor-mismatch refusal (return the stored segment unchanged) -> rotate when bundle identity changed OR mode changed (one new segment: ordinal = last.Ordinal+1, new session_ref, empty resume token) -> otherwise reuse. Update the function's doc comment to describe the new rule, and log a rotation once at info via the injected *slog.Logger naming previous mode, admitted mode, old and new ordinal. No new package, store accessor, schema, migration, interface or dependency.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-006", "AC-007", "AC-008", "AC-014"],
+            "depends_on": []
+          },
+          {
+            "id": "T-2",
+            "description": "Existing-artifact pointer in the prompt: add a new internal/turn/session_artifacts.go that reuses the existing findSessionDir locator to resolve the repository-relative session directory for the current run and, from a fixed marker/brief mapping (MANIFEST.md, planbrief.FileName, naming.ResearchBriefName -- tried in that order, first resolved directory wins) picks the brief relevant to the admitted mode (research -> RESEARCH_BRIEF.md; plan -> RESEARCH_BRIEF.md if present else plan_brief.md; implement/validate -> plan_brief.md; spike/infer -> directory only, no brief), naming a brief only when that file is actually present via the same rooted, symlink-refusing checks the locator already uses. Add one new exported constant for MANIFEST.md in internal/naming alongside naming.ResearchBriefName. Add two optional plain string fields to harness.PromptInput (directory, brief name) populated by prepare on every path; harness.BuildPrompt renders an additional section only when !in.Resume, writing nothing (no heading, no blank line, no trailing newline) when both fields are empty. Leave the now-unreachable PreviousMode branch in writeResumeHeader in place but correct its doc comment (and prepareDeliverySegment's) to say it is unreachable and why.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-009", "AC-010", "AC-011", "AC-012", "AC-013"],
+            "depends_on": []
+          },
+          {
+            "id": "T-3",
+            "description": "Focused regression tests: table-driven, in-package tests (internal/turn, internal/harness) using stdlib testing, hand-written fakes and the existing real-git + migrated-SQLite + fake-runner fixtures -- no new test harness, no sleeps or polling. Cover: mode-change reset creates a new segment with the next ordinal, distinct session_ref and empty resume token, for both agents and both delivery configurations (with and without an instruction bundle) including that a simultaneous bundle+mode change yields exactly one new segment and unmodified retained bundle bytes; same-mode reuse and resume unchanged; a segment with no terminal non-refused run (first run, re-prepared prelaunch) never resets; vendor mismatch still refuses with no segment created and no run allocated regardless of mode; a continuation still reuses and resumes its recorded segment and still refuses on bundle-identity change; a research->plan->implement sequence and a return to an earlier mode produce forward-only, distinct, recomputable ordinals/session_refs; the artifact section appears only on the cold path, is byte-identical to today's prompt when nothing is located (compared via two BuildPrompt calls, never a hand-copied literal), and reaches both runners through harness.BuildPrompt alone; store.Migrate output and the existing migration inventory are unchanged. Run make check (fmt, vet, pinned golangci-lint v2, race) as the completion gate, never a real claude or Codex subprocess and never the network.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009", "AC-010", "AC-011", "AC-012", "AC-013", "AC-014", "AC-015"],
+            "depends_on": ["T-1", "T-2"]
+          }
+        ],
+        "architecture": {
+          "summary": "Two existing seams change, both already on the single turn-preparation path used by every mode. internal/turn.prepareDeliverySegment (internal/turn/delivery.go) is the only place a conversation segment is selected; it already rotates the segment when the effective instruction-bundle identity changes, and this story extends the same predicate ladder to also rotate when the admitted mode (req.mode(), the same string allocateRun records as runs.mode) differs from the last terminal, non-refused run of the candidate segment (the existing turn.previousRun helper). A rotated segment has no terminal run and no resume token, so the existing resumeDecision naturally yields agent.PathCold for both Claude and Codex with no new branch in either runner. Separately, internal/harness.BuildPrompt -- the single prompt-construction point both runner adapters already go through -- gains one optional section naming the task's existing session artifact directory (located by the existing internal/turn.findSessionDir locator) and the brief relevant to the admitted mode, written only on the cold path so a resumed prompt stays exactly the delta it is today. No new package, database table, migration, accessor, interface, dependency or goroutine is introduced; no protected instruction tree (.claude/** or .codex/**) is touched.",
+          "components": [
+            {"name": "internal/turn.prepareDeliverySegment", "responsibility": "Single segment-selection site for every run; now rotates the segment both when bundle identity changes (existing) and when the admitted mode differs from the last terminal, non-refused run of the candidate segment (new)."},
+            {"name": "internal/turn/session_artifacts.go (new file)", "responsibility": "Resolves the repository-relative session artifact directory and the mode-relevant brief file name for the current run, reusing the existing findSessionDir locator and its rooted, symlink-refusing checks."},
+            {"name": "internal/harness.PromptInput / BuildPrompt", "responsibility": "Carries the two new optional strings and renders an optional existing-session-artifacts section on the cold path only, reaching both the Claude and Codex runners through the one shared construction point."},
+            {"name": "internal/naming (aiteam.go)", "responsibility": "Adds one exported constant naming MANIFEST.md alongside the existing ResearchBriefName constant; naming stays pure and I/O-free."}
+          ],
+          "interfaces": [
+            {"name": "prepareDeliverySegment(ctx, opts, ...) -- unchanged signature", "input": "candidate segment's stored delivery identity, the last terminal non-refused run's recorded mode, the requested agent, and req.mode()", "output": "the existing segment reused, or a newly created segment with the next ordinal, a distinct session_ref and an empty resume token"},
+            {"name": "harness.PromptInput -- two new optional fields", "input": "a repository-relative session directory string and a brief file name string, empty meaning absent", "output": "one additional prompt section written only when !Resume; bytes identical to today's output when both fields are empty"},
+            {"name": "findSessionDir -- unchanged, reused", "input": "worktree directory, branch, issue, day, marker name, logger", "output": "the resolved session directory or not-found, established only through rooted, symlink-refusing checks"}
+          ],
+          "constraints": [
+            "No new database schema, migration, table or column; store.Migrate output must be unchanged (AC-014).",
+            "No new package, store accessor, interface or dependency; segment selection stays solely in internal/turn.prepareDeliverySegment and prompt assembly stays solely in internal/harness.BuildPrompt, the one construction point both runner adapters already share.",
+            "Presence checks for the session directory and its brief must use only the locator's existing rooted, symlink-refusing checks (findSessionDir plus Lstat/IsRegular); never a bare os.Stat (SEC-21).",
+            "The prompt may only carry a repository-relative, forward-slash path; never an absolute worktree path or a path under $LF_HOME (CFG-8).",
+            "No change to daemon/mode.go, store/modes.go, mode admission, label handling, bundle construction, planDelivery's identity inputs, or the incidental mode component of bootstrap.md.",
+            "No change to .claude/**, .codex/** or teams/source/**; this story is entirely Go source under internal/ and needs no protected-tree companion story.",
+            "Evidence inventory per docs/decisions/nested-agent-evidence.md -- AC-001, AC-002, AC-003, AC-004, AC-006, AC-007, AC-008: proof method is offline Go assertions over internal/turn and internal/store using existing in-repo SQLite fixtures (segment rows, ordinals, session refs, agent.RunPath read back directly); source available in repository; bounded to Go 1.26, offline, no subprocess; no missing prerequisite.",
+            "Evidence inventory -- AC-005 routing half (each agent kind produces the expected agent.RunPath and argv shape): proof method is offline assertions via the existing runner fixtures (internal/harness/runner_test.go, internal/codex/runner_test.go); available in repository; bounded to argv/flag construction only; no missing prerequisite.",
+            "Evidence inventory -- AC-005 live-behavior half (that real Claude and real Codex actually begin a new conversation on reset and continue the old one on same-mode replies): proof method would require live nested observation of both agents inside a managed run; UNAVAILABLE under the current sandbox per docs/decisions/nested-agent-evidence.md; Claude and Codex versions unknown and no authorized external capture supplied; disposition is an unsatisfied obligation, retained rather than dropped -- proof stays limited to litefactory's own invocation inputs (path, session id, absent resume token); no synthetic fixture may close this.",
+            "Evidence inventory -- AC-009, AC-010, AC-011, AC-012 (prompt-construction half): proof method is offline byte assertions over harness.BuildPrompt including the empty-input byte-identity case; available in repository (internal/harness/prompt_test.go); bounded to prompt construction only; no missing prerequisite.",
+            "Evidence inventory -- AC-009 comprehension half (that a reset agent in fact opens and uses the named brief): proof method would require live nested agent observation; UNAVAILABLE under the current sandbox; agent versions unknown; disposition is an unsatisfied obligation, retained -- the criterion is met by the prompt naming the directory and brief, not by observed agent behavior.",
+            "Evidence inventory -- AC-013: proof method is offline assertions that a reset turn's prepared values (sync outcome, attachments, history, approved context) match an equivalent cold turn's, via offline synthetic git fixtures (internal/gittest); available in repository; no missing prerequisite.",
+            "Evidence inventory -- AC-014: proof method is the existing offline migration inventory assertion (internal/store/migrate_test.go); available in repository; no missing prerequisite.",
+            "Evidence inventory -- AC-015: proof method is make check output (fmt, vet, pinned golangci-lint v2, race tests); runs offline; no missing prerequisite.",
+            "Unwritten conversation context -- anything never saved to an artifact or a comment -- is accepted as lost at a mode change; this is not mitigated by this story."
+          ],
+          "decisions": [
+            {"decision": "Fold the deliveryPlan == nil early return into the common ListSegments path inside prepareDeliverySegment.", "reason": "That early return is today's no-reset-ever bug for repositories without an instruction bundle; folding it makes both delivery configurations traverse the same predicate ladder without changing the non-reset outcome for a first run."},
+            {"decision": "Fix the predicate order in prepareDeliverySegment to: continuation reuse -> vendor-mismatch refusal (return the stored segment unchanged) -> rotate when bundle identity changed OR mode changed -> otherwise reuse.", "reason": "The OR is what makes a simultaneous bundle-and-mode change produce exactly one new segment rather than two; keeping the vendor-mismatch check first is what keeps the existing agentSwitchRefusal true without ever comparing mode on that path."},
+            {"decision": "Use the existing turn.previousRun helper, compared against req.mode(), as the sole evidence of the last run that actually used this conversation; add no new column or store accessor.", "reason": "runs.mode is already the only recorded run mode, and previousRun already defines this exact concept for resumeDecision -- reusing it needs no schema or accessor change."},
+            {"decision": "Re-run previousRun against the post-rotation segment inside prepare; never cache or reuse the pre-rotation lookup.", "reason": "A rotated segment must read back as having no previous run so the existing resumeDecision naturally yields agent.PathCold for both agents with no new branch in either runner; caching the old result would silently resume a fresh conversation."},
+            {"decision": "Add no idempotency flag for the rotation.", "reason": "The candidate segment has no terminal, non-refused run is already the correct idempotency key -- it is what lets a re-prepared prelaunch attempt safely reuse the just-created segment without any new state."},
+            {"decision": "Put the locator and the mode-to-brief mapping in a new internal/turn/session_artifacts.go; give harness.PromptInput two plain optional strings (directory, brief name), not a pre-rendered section.", "reason": "turn owns the worktree and filesystem; harness owns prompt wording and framing. There is no per-artifact vocabulary to keep out of harness the way internal/attach's is, so two plain strings are enough."},
+            {"decision": "Populate the new PromptInput fields on every prepared run; render the artifact section in harness.BuildPrompt only when !in.Resume.", "reason": "Keeps the existing resume-refused rerun path correct with no edit to it, and keeps a resumed prompt exactly the delta it is today."},
+            {"decision": "When no session directory or brief is located, write no heading, no section and no trailing newline.", "reason": "Matches the existing writeAttachments discipline in harness.BuildPrompt and is the entirety of the byte-identity requirement for the no-match case."},
+            {"decision": "Establish directory/brief presence only through the locator's existing rooted, symlink-refusing checks; never a bare os.Stat.", "reason": "A symlinked or non-regular marker must read as not-found, never as an error or a refusal."},
+            {"decision": "Log the rotation once at info via the injected *slog.Logger, naming the previous mode, the admitted mode, and the old and new ordinal.", "reason": "An unexpected reset -- for example a mode label removed mid-task -- is otherwise invisible until someone diffs two transcripts."},
+            {"decision": "Leave the now-unreachable PreviousMode branch in writeResumeHeader (and prepareDeliverySegment's own doc comment) in place, but correct both comments to state the case is unreachable and why.", "reason": "Deleting the branch is tidy-up beyond the three named tasks; but leaving its comment describing live behavior that no longer occurs would leave a false comment in place, which is not acceptable either."}
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}

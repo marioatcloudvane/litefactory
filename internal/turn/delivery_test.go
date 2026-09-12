@@ -168,7 +168,7 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, nil)
 	opts, req, snapshot := deliveryFixture()
-	opts.DB, opts.Paths = f.db, f.paths
+	opts.DB, opts.Paths, opts.Logger = f.db, f.paths, f.opts.Logger
 	req.SessionID = f.session.ID
 	p, err := planDelivery(opts, req, snapshot, t.TempDir())
 	if err != nil {
