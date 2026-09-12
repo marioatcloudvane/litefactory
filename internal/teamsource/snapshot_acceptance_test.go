@@ -30,7 +30,7 @@ func TestSnapshotModeIsolationIgnoresUnselectedSources(t *testing.T) {
 		t.Fatal("unselected sources changed research content or digest")
 	}
 	for p := range after.Files {
-		if strings.HasPrefix(p, "skills/") || strings.Contains(p, "implement") {
+		if strings.HasPrefix(p, "skills/go-constraints/") || strings.Contains(p, "implement") {
 			t.Fatalf("unselected source included: %s", p)
 		}
 	}

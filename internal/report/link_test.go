@@ -139,6 +139,20 @@ func TestAnUnpushedRunLinksNothing(t *testing.T) {
 				return run
 			},
 		},
+		{
+			// The third of briefLink's three refusal gates (Pushed, SHAAfter,
+			// BriefPath), exercised on its own: Pushed is true and BriefPath is
+			// set, but the worktree was never inspected after the run, so there
+			// is no sha to pin a permalink to. TestClaudeCommittedForItselfStillLinksARealSHA
+			// covers the sibling case where SHAAfter is present and CommitSHA is
+			// not; this is the one where SHAAfter itself is empty.
+			name: "pushed, but sha_after was never recorded",
+			run: func() report.Run {
+				run := successRun()
+				run.SHAAfter = ""
+				return run
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -415,8 +429,8 @@ func TestAgentMarkdownCannotBreakTheReport(t *testing.T) {
 		t.Errorf("the body leaves %d code fence(s) open, so everything below the summary is swallowed:\n%s",
 			open, body)
 	}
-	if !strings.HasSuffix(strings.TrimRight(body, "\n"), "</details>") {
-		t.Errorf("the body does not end with the report's own closing </details>:\n%s", body)
+	if !strings.HasSuffix(strings.TrimRight(body, "\n"), "```") {
+		t.Errorf("the body does not end with the fence [closeOpenFence] closed:\n%s", body)
 	}
 
 	// The report's own callout is still the report's: the agent's text sits

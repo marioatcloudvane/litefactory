@@ -7,8 +7,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/gittest"
 	"github.com/cloudvane/litefactory/internal/harness"
@@ -301,79 +304,490 @@ func TestExecuteReleasesTheLockOnAFailedRun(t *testing.T) {
 	}
 }
 
-// TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState is issue #120's
-// regression pin (US-4, AC-4.1): a session whose segment already belongs to a
-// different coding-agent tool than the one on the incoming request must come
-// back out of Execute exactly as it went in. The session starts idle (the
-// fixture's default) and the assertion reads the row back from the real
-// database, not the in-memory Result, because a struct field would still read
-// "idle" even if the store write that used to fire before this refusal came
-// back.
-func TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState(t *testing.T) {
+// TestExecuteSwitchesTheSegmentInPlaceWhenTheResolvedAgentChanges is #228's
+// replacement for #120's old blanket refusal (AC-013, AC-014, AC-015): a
+// session whose last segment already belongs to a different coding-agent tool
+// than the one this turn resolves to no longer refuses at all — it switches
+// the segment in place and runs to completion. The session's only segment was
+// left by an earlier Codex run; this turn's own label resolves to Claude,
+// which is why the fixture's runner (registered only for Claude, via
+// [runnerSet]) is itself part of the proof: if the switch had left the run
+// addressed to Codex, or had refused it the old way, this stub would never be
+// reached and the assertions on result and disposition below would already
+// have failed.
+func TestExecuteSwitchesTheSegmentInPlaceWhenTheResolvedAgentChanges(t *testing.T) {
 	t.Parallel()
 
-	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("claude ran despite an agent-switch refusal")
-		return nil, errors.New("must not be reached")
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, f.paths.Home()), nil
 	})
-	f := newFixture(t, runner)
+	f = newFixture(t, runner)
+
 	// The request below resolves to store.AgentClaude; seeding the session's
-	// only segment under a different agent is what makes GetOrCreateSegment's
-	// stored-row-wins semantics return a mismatch (see prepare.go).
-	if _, err := f.db.GetOrCreateSegment(
-		t.Context(), f.session.ID, store.FirstSegmentOrdinal, "codex-session-id", store.AgentCodex,
-	); err != nil {
+	// only segment under a different agent, with a run already recorded
+	// against it, is what makes the switch (rather than a fresh conversation)
+	// the thing under test.
+	const oldSessionRef = "codex-session-id"
+	segment, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, oldSessionRef, store.AgentCodex,
+	)
+	if err != nil {
 		t.Fatalf("seed the segment under a different agent: %v", err)
+	}
+	const priorTrigger = testComment - 1
+	priorRun, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{
+		SessionID: f.session.ID, SegmentID: segment.ID, Mode: store.ModeSpike,
+		Agent: store.AgentCodex, TriggerCommentID: priorTrigger,
+		LogPath: func(int) string { return filepath.Join(f.paths.Home(), "logs", "prior.jsonl") },
+	})
+	if err != nil {
+		t.Fatalf("seed a prior Codex run: %v", err)
+	}
+	exitCode := int64(0)
+	if _, err = f.db.FinishRun(t.Context(), priorRun.ID, store.RunOutcome{Status: store.RunSucceeded, ExitCode: &exitCode}); err != nil {
+		t.Fatalf("finish the prior Codex run: %v", err)
 	}
 
 	result := f.execute(f.request())
 
-	if result.Disposition != DispositionAgentSwitchRefused {
-		t.Errorf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
+	if !result.Succeeded() {
+		t.Fatalf("switched turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
 	}
-	if state := f.reloadSession().State; state != store.SessionIdle {
-		t.Errorf("session state after a refused switch = %q, want %q (the refusal touched no state)",
-			state, store.SessionIdle)
+	switch {
+	case result.Disposition != DispositionRan:
+		t.Errorf("disposition = %s, want %s", result.Disposition, DispositionRan)
+	case runner.callCount() != 1:
+		t.Errorf("claude runner invoked %d times, want 1: the switch must dispatch to the newly resolved agent", runner.callCount())
 	}
-	if runs := f.runs(); len(runs) != 0 {
-		t.Errorf("allocated %d runs on a refused switch, want 0", len(runs))
+
+	segments, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil || len(segments) != 1 {
+		t.Fatalf("segments = %+v (err %v), want exactly the one row switched in place, not a second segment", segments, err)
+	}
+	switched := segments[0]
+	switch {
+	case switched.ID != segment.ID:
+		t.Errorf("segment id = %d, want the original %d: a switch must not start a new row", switched.ID, segment.ID)
+	case switched.Ordinal != store.FirstSegmentOrdinal:
+		t.Errorf("segment ordinal = %d, want %d", switched.Ordinal, store.FirstSegmentOrdinal)
+	case switched.Agent != string(store.AgentClaude):
+		t.Errorf("segment agent = %q, want %q", switched.Agent, store.AgentClaude)
+	case switched.ResumeToken != "":
+		t.Errorf("segment resume token = %q, want it cleared by the switch", switched.ResumeToken)
+	case switched.SessionRef == "" || switched.SessionRef == oldSessionRef:
+		t.Errorf("segment session ref = %q, want a fresh value this row never held before", switched.SessionRef)
+	}
+
+	runs := f.runs()
+	if len(runs) != 2 {
+		t.Fatalf("runs = %+v, want 2: the prior Codex run and the switched Claude run", runs)
+	}
+	for _, run := range runs {
+		switch run.TriggerCommentID {
+		case priorTrigger:
+			if run.Agent != string(store.AgentCodex) {
+				t.Errorf("the pre-switch run's agent = %q, want it to stay %q", run.Agent, store.AgentCodex)
+			}
+		case testComment:
+			if run.Agent != string(store.AgentClaude) {
+				t.Errorf("the switched run's agent = %q, want %q", run.Agent, store.AgentClaude)
+			}
+		default:
+			t.Errorf("unexpected run trigger comment %d", run.TriggerCommentID)
+		}
+	}
+
+	if len(runner.requests) != 1 {
+		t.Fatalf("harness saw %d requests, want 1", len(runner.requests))
+	}
+	seen := runner.requests[0]
+	switch {
+	case seen.Session.Ref != switched.SessionRef:
+		t.Errorf("harness session ref = %q, want the switched segment's %q", seen.Session.Ref, switched.SessionRef)
+	case seen.Session.Resume != "":
+		t.Errorf("harness resume token = %q, want empty: a switch always cold-starts", seen.Session.Resume)
+	case seen.Path != agent.PathCold:
+		t.Errorf("harness path = %v, want %v: a switch always cold-starts", seen.Path, agent.PathCold)
 	}
 }
 
-// TestExecuteRefusesAnAgentSwitchWithoutClearingAFailure is
-// TestExecuteRefusesAnAgentSwitchWithoutTouchingSessionState's other half
-// (US-4, AC-4.2): the refusal must not invent a state transition in either
-// direction, so a session already sitting at failed before the turn is still
-// failed afterwards rather than being nudged back to idle by a refusal that
-// never should have touched sessions.state at all.
-func TestExecuteRefusesAnAgentSwitchWithoutClearingAFailure(t *testing.T) {
+// TestExecuteMakesNoSegmentWriteWhenTheAgentAlreadyMatches is AC-016's
+// regression pin: a turn whose label resolves to the agent already pinned on
+// the segment is not a switch at all, and must not touch the segment row —
+// agent, session ref and resume token all read back exactly as seeded — the
+// same as before this feature existed.
+func TestExecuteMakesNoSegmentWriteWhenTheAgentAlreadyMatches(t *testing.T) {
 	t.Parallel()
 
-	runner := newStubRunner(func(context.Context, harness.Request) (*harness.RunResult, error) {
-		t.Error("claude ran despite an agent-switch refusal")
-		return nil, errors.New("must not be reached")
+	var f *fixture
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, f.paths.Home()), nil
 	})
-	f := newFixture(t, runner)
-	if _, err := f.db.GetOrCreateSegment(
-		t.Context(), f.session.ID, store.FirstSegmentOrdinal, "codex-session-id", store.AgentCodex,
-	); err != nil {
-		t.Fatalf("seed the segment under a different agent: %v", err)
+	f = newFixture(t, runner)
+
+	const claudeSessionRef = "claude-session-id"
+	seeded, err := f.db.GetOrCreateSegment(
+		t.Context(), f.session.ID, store.FirstSegmentOrdinal, claudeSessionRef, store.AgentClaude,
+	)
+	if err != nil {
+		t.Fatalf("seed the segment under the resolved agent: %v", err)
 	}
-	if err := f.db.SetSessionState(t.Context(), f.session.ID, store.SessionFailed); err != nil {
-		t.Fatalf("seed a prior failure: %v", err)
+	if err := f.db.SetSegmentResumeToken(t.Context(), seeded.ID, "claude-thread-1"); err != nil {
+		t.Fatalf("seed a resume token: %v", err)
+	}
+	seeded, err = f.db.GetSegment(t.Context(), seeded.ID)
+	if err != nil {
+		t.Fatalf("reload the seeded segment: %v", err)
 	}
 
 	result := f.execute(f.request())
 
+	if !result.Succeeded() {
+		t.Fatalf("turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
+	}
+
+	segments, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil || len(segments) != 1 {
+		t.Fatalf("segments = %+v (err %v), want exactly 1", segments, err)
+	}
+	unchanged := segments[0]
+	switch {
+	case unchanged.ID != seeded.ID:
+		t.Errorf("segment id = %d, want the seeded %d", unchanged.ID, seeded.ID)
+	case unchanged.Agent != seeded.Agent:
+		t.Errorf("agent = %q, want it untouched at %q", unchanged.Agent, seeded.Agent)
+	case unchanged.SessionRef != seeded.SessionRef:
+		t.Errorf("session ref = %q, want it untouched at %q", unchanged.SessionRef, seeded.SessionRef)
+	case unchanged.ResumeToken != seeded.ResumeToken:
+		t.Errorf("resume token = %q, want it untouched at %q", unchanged.ResumeToken, seeded.ResumeToken)
+	}
+	if len(runner.requests) != 1 || runner.requests[0].Session.Ref != seeded.SessionRef {
+		t.Errorf("harness saw %+v, want a single request against the unchanged session ref %q",
+			runner.requests, seeded.SessionRef)
+	}
+}
+
+// TestExecuteSwitchAlwaysColdStartsRegardlessOfPriorSameAgentHistory is
+// AC-017: a coding-agent switch always cold-starts the newly resolved agent,
+// in either direction, even switching back to a tool this same segment used
+// before an earlier switch away from it. Three turns run in sequence on the
+// one segment — Claude, then Codex, then Claude again — and the assertion
+// that matters is on the third: without [store.Segment.AgentSwitched] this
+// would look like an ordinary resume (a prior terminal run exists on this
+// segment and segment.Agent is Claude again), but the switch back must still
+// mint a fresh session id, never reused from the first turn, and dispatch
+// cold.
+func TestExecuteSwitchAlwaysColdStartsRegardlessOfPriorSameAgentHistory(t *testing.T) {
+	t.Parallel()
+
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		return succeeded(req, req.WorktreePath), nil
+	})
+	f := newFixture(t, nil)
+	f.opts.Runners = RunnerSet{
+		agent.Kind(store.AgentClaude): runner,
+		agent.Kind(store.AgentCodex):  runner,
+	}
+
+	first := f.request()
+	first.Agent = agent.Kind(store.AgentClaude)
+	if result := f.execute(first); !result.Succeeded() {
+		t.Fatalf("first (Claude) turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
+	}
+
+	second := f.request()
+	second.Agent = agent.Kind(store.AgentCodex)
+	second.Trigger.CommentID = testComment + 1
+	if result := f.execute(second); !result.Succeeded() {
+		t.Fatalf("second (Codex) turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
+	}
+
+	third := f.request()
+	third.Agent = agent.Kind(store.AgentClaude)
+	third.Trigger.CommentID = testComment + 2
+	if result := f.execute(third); !result.Succeeded() {
+		t.Fatalf("third (Claude again) turn did not succeed: %+v\nlogs:\n%s", result, f.logs)
+	}
+
+	if got := len(runner.requests); got != 3 {
+		t.Fatalf("runner invoked %d times, want 3", got)
+	}
+	firstRef := runner.requests[0].Session.Ref
+	secondReq, thirdReq := runner.requests[1], runner.requests[2]
+
+	if secondReq.Path != agent.PathCold || secondReq.Session.Resume != "" {
+		t.Errorf("second (switched to Codex) request = path %v resume %q, want a cold start",
+			secondReq.Path, secondReq.Session.Resume)
+	}
+	if thirdReq.Path != agent.PathCold || thirdReq.Session.Resume != "" {
+		t.Errorf("third (switched back to Claude) request = path %v resume %q, want a cold start",
+			thirdReq.Path, thirdReq.Session.Resume)
+	}
+	if thirdReq.Session.Ref == "" || thirdReq.Session.Ref == firstRef {
+		t.Errorf("third session ref = %q, want a fresh value distinct from the first turn's %q",
+			thirdReq.Session.Ref, firstRef)
+	}
+
+	segments, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil || len(segments) != 1 {
+		t.Fatalf("segments = %+v (err %v), want exactly one row across all three turns", segments, err)
+	}
+	if segments[0].Agent != string(store.AgentClaude) {
+		t.Errorf("final segment agent = %q, want %q", segments[0].Agent, store.AgentClaude)
+	}
+}
+
+// raceGate wraps a [CloneGate] and runs hook synchronously, exactly once, the
+// first time Acquire succeeds. [prepareClone] takes the gate as its first
+// step, so this deterministically places an arbitrary side effect inside the
+// single-threaded window between [validateContinuation]'s own read of the
+// named segment, at the very top of [prepare], and [prepareDeliverySegment]'s
+// later, independent re-read of the same row — without needing real
+// goroutines or a genuine concurrent writer.
+type raceGate struct {
+	CloneGate
+	once sync.Once
+	hook func()
+}
+
+func (g *raceGate) Acquire(ctx context.Context, path string) (func(), error) {
+	release, err := g.CloneGate.Acquire(ctx, path)
+	if err == nil {
+		g.once.Do(g.hook)
+	}
+	return release, err
+}
+
+// TestExecuteRefusesAnAgentSwitchOnlyForAContinuation is the narrowed half of
+// the old blanket refusal (AC-020): an ordinary turn's mismatch is a switch
+// now, handled in place, but an automatic-recovery continuation still names
+// the exact segment it is continuing, and that lookup deliberately does not
+// reconcile a stale agent the way an ordinary turn's does — recovery has to
+// land on the same conversation it was continuing, not a freshly switched
+// one.
+//
+// Because a switch always mints a fresh session_ref together with the new
+// agent ([store.DB.SetSegmentAgent]), no legitimate sequence of ordinary
+// turns can present [prepare] with a stale segment.Agent while
+// [validateContinuation] still accepts the continuation's saved resume
+// identity — that identity check would already have failed first. The one
+// window where this still matters is the race the code comments call
+// "defence in depth, not the primary defence": the segment changes
+// underneath the continuation between validateContinuation's read at the top
+// of prepare() and prepareDeliverySegment's own later re-read of the exact
+// segment the continuation names. [raceGate] reproduces that window
+// deterministically, in one goroutine, by switching the segment the instant
+// the clone gate is first acquired — after validateContinuation has already
+// passed and before prepareDeliverySegment reads the row again.
+func TestExecuteRefusesAnAgentSwitchOnlyForAContinuation(t *testing.T) {
+	t.Parallel()
+
+	var f *fixture
+	calls := 0
+	runner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		calls++
+		res := succeeded(req, f.paths.Home())
+		if calls == 1 {
+			res.Outcome = agent.OutcomeInterrupted
+			res.Interruption = &agent.Interruption{
+				Precision:  agent.ResetExact,
+				ResetBound: res.FinishedAt.Add(time.Hour),
+				DueAt:      res.FinishedAt.Add(time.Hour + time.Minute),
+			}
+			return res, nil
+		}
+		t.Error("claude ran despite a refused automatic-recovery continuation")
+		return nil, errors.New("must not be reached")
+	})
+	f = newFixture(t, runner)
+	f.opts.AutoResumeOnSessionLimit = true
+	f.execute(f.request())
+
+	pending, err := f.db.ListPendingContinuations(t.Context(), f.session.ID)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	c, ok, err := f.db.ReserveContinuation(t.Context(), pending[0].ID, pending[0].DueAt)
+	if err != nil || !ok {
+		t.Fatalf("reserve=%v %v", ok, err)
+	}
+
+	req := f.request()
+	req.Continuation = &c
+	req.Trigger = Trigger{CommentID: c.TriggerID(), Body: c.Context.Request, Author: req.Trigger.Author}
+	req.Command = Command{Kind: KindFreeText, Text: c.Context.Request}
+
+	f.opts.CloneGate = &raceGate{CloneGate: f.opts.CloneGate, hook: func() {
+		if err := f.db.SetSegmentAgent(t.Context(), c.SegmentID, string(store.AgentCodex), "codex-raced-in-session-id"); err != nil {
+			t.Fatalf("switch the segment mid-flight: %v", err)
+		}
+	}}
+
+	before := f.reloadSession()
+	result := f.execute(req)
+
 	if result.Disposition != DispositionAgentSwitchRefused {
-		t.Errorf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
+		t.Fatalf("disposition = %s, want %s", result.Disposition, DispositionAgentSwitchRefused)
 	}
-	if state := f.reloadSession().State; state != store.SessionFailed {
-		t.Errorf("session state after a refused switch = %q, want %q (the refusal must not clear a failure)",
-			state, store.SessionFailed)
+	if result.AgentOwning != string(store.AgentCodex) || result.AgentRequested != string(store.AgentClaude) {
+		t.Errorf("owning/requested = %q/%q, want %q/%q",
+			result.AgentOwning, result.AgentRequested, store.AgentCodex, store.AgentClaude)
 	}
-	if runs := f.runs(); len(runs) != 0 {
-		t.Errorf("allocated %d runs on a refused switch, want 0", len(runs))
+	if calls != 1 {
+		t.Errorf("claude invoked %d times, want 1 (only the original interrupted run)", calls)
+	}
+	if runs := f.runs(); len(runs) != 1 {
+		t.Errorf("runs = %d, want the original 1: the refused continuation allocated none", len(runs))
+	}
+	if after := f.reloadSession(); after.State != before.State {
+		t.Errorf("session state = %q, want it left exactly at %q", after.State, before.State)
+	}
+}
+
+// TestExecuteInFlightTurnFinishesUnderOldAgentThenTheNextTurnSwitches is
+// US-2.1 / D-2 / BR-3 of the coding-agent-switching story: a turn already in
+// flight when the issue's `Coding Agent:` label changes is unaffected by that
+// change, and the switch is only ever observable on the *next* dispatched
+// turn.
+//
+// The reason that is true needs no new mechanism to prove (per ARCH_REVIEW's
+// US-2.1 note): the switch mutation lives entirely inside [prepare]
+// (delivery.go's prepareDeliverySegment / reconcileSegmentAgent), which never
+// runs before [Execute] has acquired the session's lock
+// (execute.go:AcquireSessionLock) and never runs again after that same call's
+// deferred release. A turn holding the lock for its whole dispatch window
+// therefore cannot have a switch land underneath it — there is no window
+// where a second call to prepare could even begin, let alone reconcile the
+// segment, until the first one's Execute call has returned. That is a fact
+// about one exclusive database row (lock_owner IS NULL), not about timing, so
+// the honest way to pin it is the sequential one ARCH_REVIEW calls for: drive
+// turn A to completion first and read its outcome back from the real
+// database, then dispatch turn B with a different resolved agent kind and
+// show that B is the one that switches. No goroutine, channel or sleep is
+// involved, and none is needed — the property holds because of what a single
+// call to Execute can and cannot overlap with, not because of anything this
+// test arranges concurrently.
+func TestExecuteInFlightTurnFinishesUnderOldAgentThenTheNextTurnSwitches(t *testing.T) {
+	t.Parallel()
+
+	claudeRunner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeInWorktree(t, req, "claude.go", "package api // turn A ran under claude\n")
+		return succeeded(req, ""), nil
+	})
+	codexRunner := newStubRunner(func(_ context.Context, req harness.Request) (*harness.RunResult, error) {
+		writeInWorktree(t, req, "codex.go", "package api // turn B ran under codex\n")
+		return succeeded(req, ""), nil
+	})
+	f := newFixture(t, nil)
+	f.opts.Runners = RunnerSet{
+		agent.Kind(store.AgentClaude): claudeRunner,
+		agent.Kind(store.AgentCodex):  codexRunner,
+	}
+
+	// Turn A: the label reads `Coding Agent: claude`. This is the segment's
+	// first turn, so there is nothing to switch away from yet. It is driven
+	// fully to completion — Execute has returned and released the lock —
+	// before turn B is even constructed below.
+	reqA := f.request()
+	reqA.Agent = agent.Kind(store.AgentClaude)
+	resultA := f.execute(reqA)
+	if !resultA.Succeeded() || resultA.Disposition != DispositionRan {
+		t.Fatalf("turn A did not run to completion: %+v\nlogs:\n%s", resultA, f.logs)
+	}
+	if got, want := claudeRunner.callCount(), 1; got != want {
+		t.Fatalf("claude runner calls after turn A = %d, want %d", got, want)
+	}
+	if got := codexRunner.callCount(); got != 0 {
+		t.Fatalf("codex runner calls after turn A = %d, want 0: it must not have run before the label ever named it", got)
+	}
+
+	segmentsAfterA, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil || len(segmentsAfterA) != 1 {
+		t.Fatalf("segments after turn A = %+v, err=%v, want exactly one", segmentsAfterA, err)
+	}
+	segmentAfterA := segmentsAfterA[0]
+	if segmentAfterA.Agent != string(store.AgentClaude) {
+		t.Fatalf("segment agent after turn A = %q, want %q: an unswitched turn must own no other tool",
+			segmentAfterA.Agent, store.AgentClaude)
+	}
+	runsAfterA := f.runs()
+	if len(runsAfterA) != 1 || runsAfterA[0].Agent != string(store.AgentClaude) {
+		t.Fatalf("runs after turn A = %+v, want exactly one claude run", runsAfterA)
+	}
+
+	// The label changes on the issue between turn A's report and turn B's
+	// dispatch. litefactory has no state that models the edit itself — the
+	// daemon's per-turn label read is the only trigger (BR-1) — so the change
+	// is represented, exactly as it is for the daemon, by what req.Agent
+	// resolves to on this next, freshly dispatched turn.
+	reqB := f.request()
+	reqB.Agent = agent.Kind(store.AgentCodex)
+	// A fresh trigger comment: AC-3.4's replay guard refuses a second run
+	// against the comment turn A already consumed, and that guard is not
+	// what this test is about.
+	reqB.Trigger.CommentID = testComment + 1
+
+	resultB := f.execute(reqB)
+	if !resultB.Succeeded() || resultB.Disposition != DispositionRan {
+		t.Fatalf("turn B did not run to completion: %+v\nlogs:\n%s", resultB, f.logs)
+	}
+
+	// Turn B, and only turn B, switched: the codex runner ran exactly once,
+	// and turn A's earlier claude call was never repeated, retried or undone.
+	if got, want := claudeRunner.callCount(), 1; got != want {
+		t.Errorf("claude runner calls after turn B = %d, want %d: turn A must not have re-run", got, want)
+	}
+	if got, want := codexRunner.callCount(), 1; got != want {
+		t.Errorf("codex runner calls after turn B = %d, want %d", got, want)
+	}
+
+	segmentsAfterB, err := f.db.ListSegments(t.Context(), f.session.ID)
+	if err != nil || len(segmentsAfterB) != 1 {
+		t.Fatalf("segments after turn B = %+v, err=%v, want still exactly one row (D-1: no rotation)", segmentsAfterB, err)
+	}
+	segmentAfterB := segmentsAfterB[0]
+	switch {
+	case segmentAfterB.ID != segmentAfterA.ID:
+		t.Errorf("switch rotated to a new segment id %d, want the same row %d (D-1)", segmentAfterB.ID, segmentAfterA.ID)
+	case segmentAfterB.Ordinal != segmentAfterA.Ordinal:
+		t.Errorf("switch changed the ordinal %d -> %d, want unchanged (D-1)", segmentAfterA.Ordinal, segmentAfterB.Ordinal)
+	case segmentAfterB.Agent != string(store.AgentCodex):
+		t.Errorf("segment agent after turn B = %q, want %q: turn B is the one that must switch", segmentAfterB.Agent, store.AgentCodex)
+	case segmentAfterB.SessionRef == segmentAfterA.SessionRef:
+		t.Errorf("switch kept the old session_ref %q, want a freshly minted one (cold start, BR-5)", segmentAfterB.SessionRef)
+	}
+
+	// Turn A's own already-completed run row is exactly as it was before turn
+	// B ever ran: the switch turn B performed is not retroactive.
+	runsAfterB := f.runs()
+	if len(runsAfterB) != 2 {
+		t.Fatalf("runs after turn B = %+v, want two", runsAfterB)
+	}
+	var runA, runB store.Run
+	for _, run := range runsAfterB {
+		switch run.TriggerCommentID {
+		case testComment:
+			runA = run
+		case testComment + 1:
+			runB = run
+		}
+	}
+	switch {
+	case runA.ID != runsAfterA[0].ID:
+		t.Errorf("turn A's run row id changed after turn B: %d, want %d", runA.ID, runsAfterA[0].ID)
+	case runA.Agent != string(store.AgentClaude):
+		t.Errorf("turn A's run row agent after turn B = %q, want unchanged %q", runA.Agent, store.AgentClaude)
+	case runA.SegmentID != segmentAfterA.ID:
+		t.Errorf("turn A's run row segment id after turn B = %d, want unchanged %d", runA.SegmentID, segmentAfterA.ID)
+	case runB.SegmentID != segmentAfterB.ID:
+		t.Errorf("turn B's run row segment id = %d, want %d (same row, D-1)", runB.SegmentID, segmentAfterB.ID)
+	case runB.Agent != string(store.AgentCodex):
+		t.Errorf("turn B's run row agent = %q, want %q", runB.Agent, store.AgentCodex)
+	}
+
+	if !f.originHas(testBranch) {
+		t.Fatal("origin does not carry the branch after both turns")
 	}
 }
 

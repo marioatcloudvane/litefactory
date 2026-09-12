@@ -41,6 +41,18 @@ type discoveryHTTPFixture struct {
 	logs       bytes.Buffer
 }
 
+// budgetAtOneList leaves traffic for exactly one maximum history plus the
+// scalar reads around it, and never for two, so a test asserting that a second
+// concurrent list defers says what it means whatever discoveryBurst is set to.
+// Without it such a test silently stops testing anything the moment the burst
+// grows large enough to fund two lists at once. Call it immediately before the
+// first list: earlier, and the setup's own scalar reads eat the margin.
+func (f *discoveryHTTPFixture) budgetAtOneList() {
+	f.d.discovery.mu.Lock()
+	defer f.d.discovery.mu.Unlock()
+	f.d.discovery.tokens = float64(discoveryListBound + discoveryListBound/2)
+}
+
 func newDiscoveryHTTPFixture(t *testing.T) *discoveryHTTPFixture {
 	t.Helper()
 	f := &discoveryHTTPFixture{now: time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC), histories: map[string]int{}, versions: map[string]int{}, statuses: map[int]int{}, actorID: 42}
@@ -228,6 +240,7 @@ func TestDiscoveryHTTP_MaximumHistoryDefersThenResumesAcrossRepositories(t *test
 	a, sa := f.task(t, "long")
 	b, sb := f.task(t, "short")
 	f.histories["/repos/acme/long/issues/200/comments"] = 100
+	f.budgetAtOneList()
 	if err := f.discover(t, a, sa); err != nil {
 		t.Fatal(err)
 	}
@@ -319,6 +332,7 @@ func TestDiscoveryHTTP_RefinementRotationRetainsSuccessfulChildProgress(t *testi
 		t.Fatal(err)
 	}
 	f.actorID = 7 // Non-owner comments still advance discovery, without active work.
+	f.budgetAtOneList()
 	f.histories["/repos/acme/a/issues/200/comments"] = 100
 	handled, err := f.d.refineStories(f.d.discoveryContext(t.Context()), parent)
 	if !handled || !errors.Is(err, ErrDiscoveryDeferred) {

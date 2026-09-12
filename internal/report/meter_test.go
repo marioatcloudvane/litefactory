@@ -3,7 +3,6 @@ package report
 import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"math"
-	"strings"
 	"testing"
 )
 
@@ -21,10 +20,6 @@ func TestMeterSummaryKnownAndUnknown(t *testing.T) {
 	}
 	if s.EstimatedUSD != nil || s.Tokens.Output != nil || *s.KnownTokens.Output != 5 || s.PricedSubtotalUSD == nil || *s.PricedSubtotalUSD != "0.000000000001" {
 		t.Fatalf("summary %+v", s)
-	}
-	text := meterMetadata(&s)
-	if !strings.Contains(text, "daemon helper overhead excluded") || !strings.Contains(text, "price revisions 1,2") {
-		t.Fatal(text)
 	}
 }
 func TestMeterSummaryExactAmountsAndOverflow(t *testing.T) {

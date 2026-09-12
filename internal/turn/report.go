@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/redact"
@@ -391,13 +392,14 @@ func (r *Reporter) ReportTurn(ctx context.Context, result Result) (Posted, error
 }
 
 // reportAgentSwitchRefusal answers a [DispositionAgentSwitchRefused] turn
-// (US-3): a run whose resolved coding-agent tool does not own this session's
-// segment. No session-state transition has occurred and no runs row has been
-// allocated; the worktree already exists on disk and sessions.worktree_path
-// already records it, and both are idempotent and reused by the next turn.
-// Because no run was allocated, this takes the reply shape every other
-// label-driven refusal uses ([ReplyRequest]/[ReportReply]) rather than the
-// run-report one.
+// (US-3): an automatic-recovery continuation whose resolved coding-agent tool
+// no longer owns the segment it named, because the label changed between
+// when the continuation was recorded and when it was dispatched. No
+// session-state transition has occurred and no runs row has been allocated;
+// the worktree already exists on disk and sessions.worktree_path already
+// records it, and both are idempotent and reused by the next turn. Because no
+// run was allocated, this takes the reply shape every other label-driven
+// refusal uses ([ReplyRequest]/[ReportReply]) rather than the run-report one.
 //
 // The issue-body trigger is the one path that posts nothing, mirroring
 // [Daemon.refuseAgent] and its siblings in internal/daemon exactly: a run
@@ -808,6 +810,11 @@ func (r *Reporter) runInput(ctx context.Context, result Result) (report.Run, err
 		// the session directory's date is knowable only from the filesystem —
 		// see report.Run.BriefPath for what deriving it used to get wrong.
 		BriefPath: briefPath(result, r.log),
+		// Best-effort like BriefPath: nil on any path that cannot cheaply and
+		// safely answer the question, never propagated as an error — a
+		// reporting path must never fail to post for want of a count
+		// (S-2, AC-016).
+		Stories: storyTally(ctx, result, r.db, r.log),
 	}, nil
 }
 
@@ -830,6 +837,60 @@ func briefPath(result Result, log *slog.Logger) string {
 		return ""
 	}
 	return path.Join(dir, naming.ResearchBriefName)
+}
+
+// storyTally computes the story-completion tally for a finished run's managed
+// feature (S-2), for [report.Run.Stories]'s "partial" callout — best-effort,
+// like [briefPath]: it returns nil rather than an error on every path that
+// cannot answer the question, because a reporting path must never fail to
+// post a comment for want of a count (AC-016).
+//
+// The gate is result.Run.Mode == [agent.ModeImplement], not any inference
+// from the request or the harness result: it is the one signal durable
+// enough to survive a resumed or recovered run, and it is what makes a
+// Plan-mode run — which only ever publishes stories, never implements one —
+// structurally unable to render a false partial (AC-013).
+func storyTally(ctx context.Context, result Result, db *store.DB, log *slog.Logger) *report.StoryTally {
+	if result.Run.Mode != string(agent.ModeImplement) {
+		return nil
+	}
+
+	parent := result.Ref.String()
+	feature, err := db.GetManagedFeature(ctx, parent)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.WarnContext(ctx, "story tally: read the managed feature failed; reporting no tally",
+				slog.String("parent", parent), slog.Any("error", err))
+		}
+		return nil
+	}
+
+	stories, err := db.ListManagedStories(ctx, parent, feature.Generation)
+	if err != nil {
+		log.WarnContext(ctx, "story tally: list the managed stories failed; reporting no tally",
+			slog.String("parent", parent), slog.Int("generation", feature.Generation), slog.Any("error", err))
+		return nil
+	}
+
+	var done int
+	for _, s := range stories {
+		if storyDone(s) {
+			done++
+		}
+	}
+	return &report.StoryTally{Done: done, Total: len(stories)}
+}
+
+// storyDone reports whether a managed story counts as finished for the
+// partial-run tally (AC-015): EngineeringComplete covers the separated
+// workflow's deliverable — recorded as engineering_complete=1, state=frozen —
+// and a legacy verified or completed state covers workflow version 1.
+// [store.PendingEngineering]'s predicate is this one's near-exact inverse;
+// counting only verified/completed here would report every successful
+// separated-workflow Implement run as 0-of-N, so the two are unioned rather
+// than the legacy pair alone. blocked, or any other state, does not count.
+func storyDone(s store.ManagedStory) bool {
+	return s.EngineeringComplete || s.State == "verified" || s.State == "completed"
 }
 
 // turnFailure is the failure that was not the run's own, as the report should

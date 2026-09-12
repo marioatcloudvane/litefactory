@@ -3,6 +3,23 @@ name: workflow
 description: Preserve litefactory session artifacts and headless worktree ownership.
 ---
 
+## Read only your range
+
+This file is protocol, not prose, and most of it belongs to one mode. Read the
+sections your role needs and stop. Seek by heading, never by line number — these
+shift whenever the file is edited.
+
+| Role | Reads |
+|---|---|
+| Research — use research-evidence instead | everything above `## Persisted workflow version`, then stop |
+| Plan | the same opening, plus `## Structured content and submission contract` |
+| Implement, Validate, engineers | the whole file |
+| Any role editing a protected instruction tree | plus `## Independent instruction maintenance` |
+
+Research opens no stories, submits no contributions and closes nothing, so
+nothing below `## Persisted workflow version` reaches it — about five sixths of
+this file.
+
 The daemon chooses the mode; do not classify or open another mode. Work in the
 supplied worktree and session. Preserve repository project instructions, including
 AGENTS.md, CLAUDE.md, APP_CONTEXT.md and relevant APP_CONSTRAINTS.md sections when

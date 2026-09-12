@@ -150,6 +150,15 @@ type SubIssue struct {
 //
 // The returned bodies have been through the S-7 pass and are within the
 // configured limit.
+//
+// This renderer is dormant in production. The only caller is
+// internal/turn/subissues.go's legacy file-discovery phase, and that phase
+// returns before reaching this call whenever its SubIssueCreator satisfies
+// turn.PlanForge — which the one SubIssueCreator ever wired into
+// turn.Options (internal/daemon/setup.go's *github.Client) always does. The
+// live sub-issue creation path, reached for both the legacy and typed
+// content contracts, is turn.PublishPlan calling [Reporter.RenderCompleteStory]
+// instead.
 func (r *Reporter) RenderSubIssue(ctx context.Context, story Story) (SubIssue, error) {
 	if err := story.Ref.Validate(); err != nil {
 		return SubIssue{}, fmt.Errorf("report: %w: %w", ErrInvalidArgument, err)

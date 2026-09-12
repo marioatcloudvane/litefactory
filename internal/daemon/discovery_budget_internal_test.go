@@ -41,17 +41,43 @@ func budgetRequest(b *discoveryBudget, r *discoveryReservation, status int, auth
 	r.observe(o)
 }
 
+// budgetDrainTo spends traffic down to target with authenticated 304 scalars,
+// which are refunded their primary charge and so move nothing but the token
+// bucket. Tests that care about what a refill restores call this instead of
+// assuming the bucket started at any particular size, so discoveryBurst can be
+// retuned without rewriting them. The waiter queue must be empty: a queued head
+// reserves its own cost and would refuse these scalars.
+func budgetDrainTo(t *testing.T, b *discoveryBudget, target int) {
+	t.Helper()
+	// Bounded, because a refund bug makes the loop condition unreachable: a
+	// finish that returned traffic it never used would spin here forever rather
+	// than fail, and a test helper that hangs reports nothing at all.
+	for i := 0; b.tokens > float64(target); i++ {
+		if i > discoveryBurst {
+			t.Fatalf("draining to %d did not converge: tokens=%v after %d scalars", target, b.tokens, i)
+		}
+		r := budgetAcquire(t, b, "drain", 1, false)
+		budgetRequest(b, r, http.StatusNotModified, true)
+		r.finish()
+	}
+}
+
 func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
+	// remaining is given as an offset from that limit's floor, so the cases
+	// keep their meaning when discoveryQuotaDivisor is retuned.
+	floorOf := func(limit int) int { return limit - limit/discoveryQuotaDivisor }
+	// Headroom above the floor is exactly what may be spent, one scalar each,
+	// so the allowance is the offset rather than a separate literal.
 	for _, tt := range []struct {
-		name                      string
-		limit, remaining, allowed int
+		name              string
+		limit, aboveFloor int
 	}{
-		{"exact_floor", 5000, 4000, 0}, {"one_above", 5000, 4001, 1}, {"fractional_floor", 7, 7, 1}, {"small_limit", 4, 4, 0},
+		{"exact_floor", 5000, 0}, {"one_above", 5000, 1}, {"fractional_floor", 7, 7 - floorOf(7)}, {"small_limit", 4, 4 - floorOf(4)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			b, _ := budgetFixture(tt.limit, tt.remaining)
-			for i := 0; i < tt.allowed; i++ {
+			b, _ := budgetFixture(tt.limit, floorOf(tt.limit)+tt.aboveFloor)
+			for i := 0; i < tt.aboveFloor; i++ {
 				r := budgetAcquire(t, b, "scalar", 1, false)
 				budgetRequest(b, r, 200, true)
 				r.finish()
@@ -62,7 +88,8 @@ func TestDiscoveryBudget_QuotaFloor(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ConcurrentReservations(t *testing.T) {
-	b, _ := budgetFixture(5000, 4100)
+	// Exactly one listing of headroom above the floor, however the share is set.
+	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+discoveryListBound)
 	var wg sync.WaitGroup
 	reservations := make(chan *discoveryReservation, 32)
 	for i := 0; i < 32; i++ {
@@ -106,7 +133,9 @@ func TestDiscoveryBudget_TrafficAndRefunds(t *testing.T) {
 			if b.spent != tt.primary {
 				t.Fatalf("primary spending %d, want %d", b.spent, tt.primary)
 			}
-			// Every network response consumes traffic even if its primary charge is free.
+			// Every network response consumes traffic even if its primary charge is
+			// free: the fully used reservation above refunded none of it.
+			budgetDrainTo(t, b, 20)
 			budgetDenied(t, b, "history", 100, false)
 			b.tick(now.Add(39 * time.Second))
 			budgetDenied(t, b, "history", 100, false)
@@ -134,7 +163,11 @@ func TestDiscoveryBudget_UnusedReservations(t *testing.T) {
 
 func TestDiscoveryBudget_BackgroundSpendCap(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
-	for i := range 10 {
+	// Exhaust the background share exactly: whole listings, then scalars for
+	// the remainder, since the share need not divide into discoveryListBound.
+	share := 5000 / discoveryQuotaDivisor
+	listings := share / discoveryListBound
+	for i := range listings {
 		b.tick(now.Add(time.Duration(i) * time.Minute))
 		b.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: http.StatusNotModified, Authenticated: true})
 		r := budgetAcquire(t, b, "history", 100, false)
@@ -143,7 +176,12 @@ func TestDiscoveryBudget_BackgroundSpendCap(t *testing.T) {
 		}
 		r.finish()
 	}
-	b.tick(now.Add(10 * time.Minute))
+	b.tick(now.Add(time.Duration(listings) * time.Minute))
+	for range share % discoveryListBound {
+		r := budgetAcquire(t, b, "scalar", 1, false)
+		budgetRequest(b, r, 200, true)
+		r.finish()
+	}
 	// A late same-window header cannot renew either remaining quota or spending allowance.
 	b.observe(github.RequestObservation{CoreRateValid: true, Limit: 5000, Remaining: 5000, Reset: now.Add(time.Hour), StatusCode: 304, Authenticated: true})
 	budgetDenied(t, b, "history", 1, false)
@@ -194,7 +232,7 @@ func TestDiscoveryBudget_StaleAndProbeCadence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
-	b, now := budgetFixture(5000, 4000)
+	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor)
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
 	// Passing reset does not fabricate a fresh allowance.
@@ -209,7 +247,7 @@ func TestDiscoveryBudget_ResetRequiresFreshEvidence(t *testing.T) {
 }
 
 func TestDiscoveryBudget_MissingMetadataPreservesReserve(t *testing.T) {
-	b, now := budgetFixture(5000, 4001)
+	b, now := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+1)
 	b.observe(github.RequestObservation{StatusCode: 200})
 	b.tick(now.Add(2 * time.Minute))
 	budgetDenied(t, b, "probe", 1, true)
@@ -223,6 +261,7 @@ func TestDiscoveryBudget_FairHistoryPriority(t *testing.T) {
 		budgetRequest(b, r, 304, true)
 	}
 	r.finish()
+	budgetDrainTo(t, b, 20)
 	budgetDenied(t, b, "org/first/comments/1", 100, false)
 	// A different parent's short work must not spend tokens needed by the waiting history.
 	budgetDenied(t, b, "org/second/issue/2", 1, false)
@@ -251,7 +290,7 @@ func TestDiscoveryBudget_FreshnessBoundary(t *testing.T) {
 }
 
 func TestDiscoveryBudget_ForegroundObservationPreservesFloor(t *testing.T) {
-	b, _ := budgetFixture(5000, 4100)
+	b, _ := budgetFixture(5000, 5000-5000/discoveryQuotaDivisor+100)
 	// Foreground requests don't acquire background reservations, but consume real quota.
 	for range 100 {
 		b.observe(github.RequestObservation{StatusCode: 200, Authenticated: true})
@@ -272,7 +311,7 @@ func TestDiscoveryBudget_BurstIsCappedAfterLongRefill(t *testing.T) {
 	b, now := budgetFixture(5000, 5000)
 	b.tick(now.Add(time.Minute))
 	first := budgetAcquire(t, b, "first", 100, false)
-	second := budgetAcquire(t, b, "second", 20, false)
+	second := budgetAcquire(t, b, "second", discoveryBurst-100, false)
 	budgetDenied(t, b, "third", 1, false)
 	first.finish()
 	second.finish()
@@ -292,7 +331,8 @@ func TestDiscoveryBudget_ConcurrentRefunds(t *testing.T) {
 		t.Fatalf("after authenticated refunds: spent=%d reserved=%d", b.spent, b.reserved)
 	}
 	// All 100 refunds restore primary admission but not the network burst.
-	r := budgetAcquire(t, b, "twenty", 20, false)
+	r := budgetAcquire(t, b, "short", 20, false)
+	budgetDrainTo(t, b, 0)
 	budgetDenied(t, b, "one_more", 1, false)
 	r.finish()
 }

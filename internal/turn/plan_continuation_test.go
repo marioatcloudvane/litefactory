@@ -28,7 +28,7 @@ func TestPlanQuestionPermissionCurrentAndPrevious(t *testing.T) {
 		{"Plan no clarifying", "plan", "No clarifying questions", false},
 		{"Plan no further", "plan", "No further questions", false},
 		{"Plan no follow-up", "plan", "No follow-up questions", false}, {"quoted prohibition", "plan", "> do not ask\nProceed", true}, {"fenced prohibition", "plan", "```\nno questions\n```\nProceed", true},
-		{"plain Research", "research", "Investigate", false}, {"tagged Research", "research", "Investigate\nlf: ask", true}, {"Research explicit prohibition", "research", "Do not ask\nlf: ask", false}, {"Implement tagged", "implement", "Build\nlf: ask", false}, {"Spike tagged", "spike", "Try\nlf: ask", false}, {"Validate tagged", "validate", "Check\nlf: ask", false},
+		{"plain Research", "research", "Investigate", true}, {"Research plain answer", "research", "Use canonical labels", true}, {"Research proceed", "research", "Proceed with your assumptions", false}, {"Research quoted prohibition", "research", "> no questions\nInvestigate", true}, {"tagged Research", "research", "Investigate\nlf: ask", true}, {"Research explicit prohibition", "research", "Do not ask\nlf: ask", false}, {"Implement tagged", "implement", "Build\nlf: ask", false}, {"Spike tagged", "spike", "Try\nlf: ask", false}, {"Validate tagged", "validate", "Check\nlf: ask", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

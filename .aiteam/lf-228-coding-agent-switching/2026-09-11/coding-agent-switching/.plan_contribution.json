@@ -1,0 +1,206 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Reverse the deliberate refusal of mid-conversation coding-agent switching so that changing a GitHub issue's Coding Agent label actually moves that issue's work to the newly named tool (Claude or Codex), effective on the next dispatched turn, with no daemon restart, no forced cancellation of in-flight work, and no new label-watching infrastructure. The pin is overwritten in place on the existing segments.agent row, matching the existing manual switch-agent.sh script's behavior, so that script is deleted once the automatic path lands. This ships as a single, tightly-scoped story: one new store accessor, one restructured branch in delivery preparation, one narrowed refusal condition, one resume-decision refinement, updated tests, and the removed script.",
+    "stories": [
+      {
+        "key": "switch-agent-by-label",
+        "intent": "create",
+        "title": "Switch the coding agent in place when the issue label changes",
+        "user_story": {
+          "actor": "issue owner",
+          "want": "changing my GitHub issue's Coding Agent label to actually move that issue's work to the newly named tool, starting with the next turn",
+          "benefit": "so I never have to SSH into the daemon host, run a manual script, or restart litefactory to switch between Claude and Codex",
+          "notes": [
+            "A turn that is already running when the label changes finishes under the old tool untouched; the switch only takes effect on the next dispatched turn, so nothing in-flight is cancelled.",
+            "Run history keeps recording which tool actually executed each past run, even across repeated switches back and forth.",
+            "Once this ships, the manual switch-agent.sh script and its SSH workaround are removed, leaving one way to switch agents instead of two."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "A session whose last segment is pinned to codex and whose turn resolves to claude (and the reverse) completes with turn.Execute returning DispositionRan, the runner for the newly resolved kind invoked, and no DispositionAgentSwitchRefused produced."
+          },
+          {
+            "id": "AC-002",
+            "text": "After that turn, the segments row is the same row (same id, ordinal, session_ref) with agent set to the resolved kind and resume_token empty; no second segment is created for the session."
+          },
+          {
+            "id": "AC-003",
+            "text": "The runs row allocated by the switched turn has agent equal to the new kind; runs rows written before the switch keep the old kind unchanged."
+          },
+          {
+            "id": "AC-004",
+            "text": "A turn whose label already matches the currently pinned agent performs no segment write and behaves exactly as it did before this change (regression pin)."
+          },
+          {
+            "id": "AC-005",
+            "text": "Switching away from a tool always starts that tool cold. Switching back to Claude on a segment with a prior terminal Claude run resumes that earlier conversation. Switching to Claude on a segment that never ran Claude starts cold. No path ever passes Claude a session id that a prior Claude run on that same segment already used."
+          },
+          {
+            "id": "AC-006",
+            "text": "When a team instruction snapshot is configured, the switched turn's outgoing request carries a non-nil delivery bundle, and the segment's recorded delivery identity matches the bundle rendered for the new agent, not the old one."
+          },
+          {
+            "id": "AC-007",
+            "text": "switch-agent.sh no longer exists in the repository, and nothing else in the tree references it."
+          },
+          {
+            "id": "AC-008",
+            "text": "A turn that is an automatic continuation (not a fresh dispatch) whose segment's pinned agent differs from the resolved kind is still refused (DispositionAgentSwitchRefused), allocates no run, and leaves session state unchanged."
+          },
+          {
+            "id": "AC-009",
+            "text": "The existing tests that previously asserted every agent mismatch is refused are rewritten: one asserts the switch on an ordinary turn, one asserts the narrowed continuation refusal. No test in the tree still asserts that an ordinary (non-continuation) agent mismatch is refused."
+          },
+          {
+            "id": "AC-010",
+            "text": "Every code comment stating that a segment's agent is fixed at creation, or that a conversation never changes tools, is rewritten to describe the new switching behavior accurately, including the rendered reply text shown to the issue owner."
+          },
+          {
+            "id": "AC-011",
+            "text": "No literal claude or codex string is introduced anywhere in the new switching logic; the set of switchable tools is whatever the existing runner registry already holds."
+          },
+          {
+            "id": "AC-012",
+            "text": "make check (formatting, vet, golangci-lint v2, and the race-enabled test suite) passes with the change applied."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T1",
+            "description": "Add a SetSegmentAgent accessor to internal/store/segments.go, placed immediately after SetSegmentResumeToken as its deliberate opposite: within one transaction, update the segment's agent column, clear resume_token, and delete that segment's row from segment_deliveries (so the ordinary SetSegmentDelivery accessor can re-pin without violating its own immutability check). Reject a zero segment id or empty kind; return ErrNotFound for a missing row; no claude/codex literal.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-002", "AC-011"],
+            "depends_on": []
+          },
+          {
+            "id": "T2",
+            "description": "Restructure prepareDeliverySegment in internal/turn/delivery.go so that both the agent-mismatch branch and the p == nil / !hadDelivery reuse branch call SetSegmentAgent, keep the existing segment's ordinal and session_ref unchanged (no rotation), and update the in-memory store.Segment struct's Agent and ResumeToken fields before the existing tail renders the bundle for the newly resolved agent and pins it via SetSegmentDelivery. Rewrite this function's doc comment, which currently states the opposite invariant.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-001", "AC-002", "AC-006", "AC-011"],
+            "depends_on": ["T1"]
+          },
+          {
+            "id": "T3",
+            "description": "Narrow the switch refusal in internal/turn/prepare.go so it only fires when req.Continuation is non-nil (an automatic recovery attempt), leaving ordinary dispatched turns free to switch. Rewrite report.ReplyAgentSwitchRefused's rendered text and every affected doc comment (store/segments.go, delivery.go, prepare.go, execute.go, report.go, report/reply.go, errors.go) so none of them still claim an agent is fixed at creation or that a conversation never changes tools. Keep the refusal type, disposition, and reply kind themselves unchanged.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-008", "AC-010"],
+            "depends_on": ["T2"]
+          },
+          {
+            "id": "T4",
+            "description": "In internal/turn/prepare.go, compute alongside previousRun's existing (tool-agnostic) result a separate fact: whether a prior terminal, non-refused run exists on this segment whose recorded agent equals the resolved kind. Feed only that fact into resumeDecision's Claude arm, which today resumes on any prior run's mere presence; do not change previousRun's own return value or its use in prompt-context fields.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-005"],
+            "depends_on": ["T2"]
+          },
+          {
+            "id": "T5",
+            "description": "Delete switch-agent.sh from the repository root in the same change that lands the narrowed refusal, not before, so the manual escape hatch and the automatic path never need to coexist. Confirm no Makefile target, doc, or test still references it.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": ["AC-007"],
+            "depends_on": ["T3", "T4"]
+          },
+          {
+            "id": "T6",
+            "description": "Rewrite the two pinned agent-switch invariant tests in internal/turn/execute_test.go so one asserts the switch (same segment row, agent and resume_token updated, runs.agent history correct across the switch, delivery identity matching a bundle rendered for the new agent) and the other asserts the narrowed continuation refusal; remove any remaining assertion that an ordinary agent mismatch is refused. Add table-driven coverage in internal/turn for both switch directions and the cold/resume cases from AC-005, asserting against the request handed to the stub runner (Delivery, Session.Ref, Session.Resume). Add accessor-level tests for SetSegmentAgent in internal/store/store_test.go against real SQLite, beside the existing SetSegmentResumeToken tests. Run make check and fix any fallout from the comment rewrites in T2-T4.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-008", "AC-009", "AC-012"],
+            "depends_on": ["T1", "T2", "T3", "T4"]
+          },
+          {
+            "id": "T7",
+            "description": "Add a sequential (no sleeps, no polling) test in internal/turn using the existing stub-runner fixture that proves a turn already holding the session lock completes under the old agent regardless of a label change arriving mid-flight, and that a switch dispatched on the next turn afterward is the one that takes effect. No new production code and no daemon-level test.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": ["AC-002", "AC-003"],
+            "depends_on": ["T2"]
+          }
+        ],
+        "architecture": {
+          "summary": "The existing pipeline is unchanged end to end: daemon/tick.go resolves the label fresh every turn, turn.Execute calls turn.prepare, which calls prepareDeliverySegment to get the session's last segment and its delivery bundle, then allocateRun copies the segment's agent into the new runs row before dispatch. This story touches exactly three points on that line, all inside internal/turn and internal/store: prepareDeliverySegment stops handing back a stale-agent segment on a mismatch and instead rewrites it in place at the same ordinal with a bundle rendered for the new agent; the refusal in turn.prepare narrows to the automatic-continuation path only; and resumeDecision's Claude arm is refined to require a prior run under the same agent on that segment, not merely any prior run. Nothing in internal/daemon changes: the label is already re-read fresh every turn, an ambiguous or unregistered label is already refused before prepare runs, and a pending automatic continuation whose label changed is already cancelled upstream.",
+          "components": [
+            {
+              "name": "store.SetSegmentAgent (internal/store/segments.go)",
+              "responsibility": "Atomically rewrite a segment's pinned agent, clear its resume token, and retract its delivery pin in one transaction, so the ordinary delivery-pin accessor can re-pin for the new agent without its immutability check firing."
+            },
+            {
+              "name": "turn.prepareDeliverySegment (internal/turn/delivery.go)",
+              "responsibility": "Detect that the last segment's pinned agent differs from the turn's resolved agent, route that case through the switch instead of an early return, and let the existing bundle-render-and-pin tail produce and record a bundle for the new agent at the same ordinal and session_ref."
+            },
+            {
+              "name": "turn.prepare / resumeDecision (internal/turn/prepare.go)",
+              "responsibility": "Narrow the switch refusal to automatic-recovery continuations only, and decide cold-start versus resume for the resolved agent based on that segment's own run history rather than on any prior run regardless of tool."
+            },
+            {
+              "name": "report.ReplyAgentSwitchRefused text (internal/report/reply.go)",
+              "responsibility": "Describe the narrowed refusal accurately to the issue owner: an automatic-recovery attempt that cannot follow a label change, not a general prohibition on switching."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "store.SetSegmentAgent",
+              "input": "ctx context.Context, segmentID int64, kind string",
+              "output": "error; ErrNotFound if the segment row does not exist"
+            },
+            {
+              "name": "turn.prepareDeliverySegment (existing signature, changed behavior)",
+              "input": "ctx, opts, req (carries the turn's resolved agent), the session's last store.Segment",
+              "output": "the store.Segment to use for this turn, now reflecting any switch (updated Agent and cleared ResumeToken), plus a delivery bundle rendered for that same resolved agent"
+            },
+            {
+              "name": "turn.resumeDecision (existing signature, changed behavior)",
+              "input": "the segment, the resolved agent kind, and whether a prior terminal non-refused run on this segment used that same kind",
+              "output": "bool: whether to resume the existing conversation for this agent versus start cold"
+            }
+          ],
+          "constraints": [
+            "No new package, interface, config key, goroutine, or polling/reconciliation loop; this is a small, tightly-scoped change per the owner's explicit and repeated simplicity constraint.",
+            "A switch must reuse the existing segment's ordinal and session_ref; it must never rotate to a new segment.",
+            "No cancellation of an in-flight subprocess; the mutation only ever happens inside prepare, under the existing per-session lock, so a switch cannot land underneath a turn that is already running.",
+            "switch-agent.sh is deleted in this same change, not kept as a fallback and not deleted in an earlier, separate change.",
+            "No new literal claude or codex string; the switchable set is whatever turn.RunnerSet already holds.",
+            "No new reply kind or issue comment for a successful switch; the existing refusal type, disposition, and reply kind are narrowed in meaning, not removed.",
+            "No test may spawn a real claude or codex process; no time.Sleep or wall-clock polling in any new test."
+          ],
+          "decisions": [
+            {
+              "decision": "Retract the old delivery pin (delete the segment's segment_deliveries row) inside the same transaction that rewrites the agent, rather than relaxing SetSegmentDelivery's own immutability check.",
+              "reason": "SetSegmentDelivery refuses a differing re-pin by design; weakening that check for the switch case would remove the guarantee for every ordinary caller too, not just this one."
+            },
+            {
+              "decision": "Continue the switch at the existing segment's ordinal and session_ref instead of rotating to a new segment.",
+              "reason": "Matches the owner's explicit decision and switch-agent.sh's own existing in-place update; rotation was considered and declined during Research."
+            },
+            {
+              "decision": "Return the mutated store.Segment (new agent, cleared resume token) from prepareDeliverySegment rather than a stale copy of the row read before the switch.",
+              "reason": "resumeDecision, allocateRun, the outgoing agent request, and the resume-token-write guard downstream all read this in-memory struct directly, not a fresh database read; a stale struct would silently misdirect the rest of the turn onto the old agent."
+            },
+            {
+              "decision": "Compute the Claude-resume fact (a prior terminal, non-refused run on this segment under this same agent) as a separate value alongside previousRun's existing result, instead of narrowing previousRun itself.",
+              "reason": "previousRun also feeds prompt-context fields that are deliberately agent-agnostic; narrowing it directly would change unrelated behavior outside this story's scope."
+            },
+            {
+              "decision": "Keep the existing refusal type, its disposition, and its reply kind; narrow only the condition that triggers them to automatic-recovery continuations.",
+              "reason": "Removing the type would churn pinned reply-kind inventories in existing tests for no behavioral gain, and the refusal is still genuinely reachable on the continuation path."
+            },
+            {
+              "decision": "Leave allocateRun's existing prelaunch-guard condition untouched.",
+              "reason": "The stale-prelaunch-row-plus-label-change interaction is a pre-existing class of edge case that already exists for mode changes; fixing it here would expand this change beyond the owner's explicit simplicity constraint."
+            },
+            {
+              "decision": "Do not clean up the previous agent's bundle directory after a switch.",
+              "reason": "This matches the existing retention behavior for same-agent bundle rotations, and the codebase already deliberately forbids age-based deletion of retained bundles."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}

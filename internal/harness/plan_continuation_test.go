@@ -50,7 +50,7 @@ func TestPlanContinuationPromptAcrossPoliciesAndPaths(t *testing.T) {
 					if !strings.Contains(prompt, "Batch your questions") {
 						t.Fatal("allowed Plan does not permit asynchronous questions")
 					}
-				} else if !strings.Contains(prompt, "do not ask clarifying questions") && !strings.Contains(prompt, "This run may no longer ask questions") {
+				} else if !strings.Contains(prompt, "may not ask clarifying questions") && !strings.Contains(prompt, "This run may no longer ask questions") {
 					t.Fatal("explicit no-question policy missing")
 				}
 			})

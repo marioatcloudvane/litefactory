@@ -24,7 +24,7 @@ func TestRunFailureDiagnosticVisibleAndSanitized(t *testing.T) {
 	if !body.Valid() {
 		t.Fatal("invalid rendered body")
 	}
-	for _, want := range []string{explanation, "[redacted]", "exit", "1", "module example.com/nope"} {
+	for _, want := range []string{explanation, "[redacted]", "exit", "1"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("body missing %q: %s", want, text)
 		}

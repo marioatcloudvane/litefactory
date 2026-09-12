@@ -1,22 +1,6 @@
 {
   "schema_version": 2,
   "shared": {
-    "codebase-tour": {
-      "desc": "Locate existing code owners and report scoped evidence.",
-      "path": "agents/shared/codebase-tour.md",
-      "tier": "balanced",
-      "skills": [
-        "research-evidence"
-      ]
-    },
-    "web-researcher": {
-      "desc": "Resolve external questions from authoritative sources.",
-      "path": "agents/shared/web-researcher.md",
-      "tier": "balanced",
-      "skills": [
-        "research-evidence"
-      ]
-    },
     "requirements-engineer": {
       "desc": "Write a concise, evidence-backed feature specification.",
       "path": "agents/shared/requirements-engineer.md",
@@ -34,7 +18,7 @@
       ]
     },
     "research-orchestrator": {
-      "desc": "Coordinate research specialists and write the research brief.",
+      "desc": "Research repository and external evidence and write the research brief.",
       "path": "agents/shared/research-orchestrator.md",
       "tier": "balanced",
       "skills": [
@@ -64,12 +48,6 @@
       "research": [
         {
           "ref": "research-orchestrator"
-        },
-        {
-          "ref": "codebase-tour"
-        },
-        {
-          "ref": "web-researcher"
         }
       ],
       "plan": [

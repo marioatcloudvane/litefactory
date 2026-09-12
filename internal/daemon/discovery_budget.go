@@ -17,9 +17,21 @@ import (
 var ErrDiscoveryDeferred = errors.New("background discovery deferred")
 
 const (
-	discoveryBurst      = 120
+	discoveryBurst      = 400
 	discoveryListBound  = 100
 	discoveryQueueBound = 4096
+	// discoveryQuotaDivisor sets background discovery's share of the forge
+	// rate limit: it may spend limit/discoveryQuotaDivisor requests per reset
+	// window, and may never take remaining below the rest, which stays
+	// reserved for execution and reporting.
+	//
+	// The floor and the spend cap are two statements of the same share and
+	// must move together. At the original 5 they left discovery 1000 of 5000
+	// requests an hour, which a one-minute tick over eighteen managed
+	// features exhausts well inside the window — and a listing costs
+	// discoveryListBound, so discovery stops a further 100 short of the floor
+	// rather than at it.
+	discoveryQuotaDivisor = 2
 )
 
 type discoveryWaiter struct {
@@ -122,7 +134,7 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 			return deny()
 		}
 		// An observed depleted allowance is not permission to probe before reset.
-		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.limit/5) {
+		if b.limit > 0 && b.now.Before(b.reset) && (b.remaining <= b.floorLocked() || b.spent >= b.discoveryShareLocked()) {
 			return deny()
 		}
 	} else {
@@ -134,11 +146,11 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 			// scalar identity read. Permit it only while preserving the head
 			// operation's entire traffic and primary reservation.
 			head := b.waiters[0].cost
-			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-head < b.floorLocked() || b.spent+b.reserved+cost+head > b.limit/5 {
+			if cost != 1 || b.tokens-float64(cost) < float64(head) || b.remaining-b.reserved-cost-head < b.floorLocked() || b.spent+b.reserved+cost+head > b.discoveryShareLocked() {
 				return deny()
 			}
 		}
-		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.limit/5 {
+		if b.remaining-b.reserved-cost < b.floorLocked() || b.spent+b.reserved+cost > b.discoveryShareLocked() {
 			return deny()
 		}
 	}
@@ -158,7 +170,11 @@ func (b *discoveryBudget) acquire(key string, cost int, probe bool) (*discoveryR
 	}
 	return &discoveryReservation{budget: b, bound: cost, reset: b.reset, probe: probe}, nil
 }
-func (b *discoveryBudget) floorLocked() int { return b.limit - b.limit/5 }
+func (b *discoveryBudget) floorLocked() int { return b.limit - b.discoveryShareLocked() }
+
+// discoveryShareLocked is how many requests of the current window background
+// discovery may spend, the complement of [discoveryBudget.floorLocked].
+func (b *discoveryBudget) discoveryShareLocked() int { return b.limit / discoveryQuotaDivisor }
 
 func (r *discoveryReservation) observe(o github.RequestObservation) {
 	b := r.budget
