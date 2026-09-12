@@ -63,4 +63,12 @@ asked for; nothing here licenses starting the next one.
   `switch-agent.sh`) remain unresolved — this run was a verification pass,
   not a scope conversation, so they were not asked about or answered.
 
+- 2026-09-12 — Fourth Research run, owner request: "show me the details
+  about the open questions please!" — a report-only pass, no new
+  investigation or scope change. `RESEARCH_BRIEF.md` already had full detail
+  for every open question (Open Questions 5-9), so it was left unchanged on
+  disk; this run's job was to surface that existing detail back to the owner
+  in the final message, laid out as one question per block with its
+  solution options and tradeoffs, per the later-run reporting format.
+
 ## Notes
