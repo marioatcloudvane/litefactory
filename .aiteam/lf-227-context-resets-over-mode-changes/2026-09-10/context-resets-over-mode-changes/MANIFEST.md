@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete; run 0004 simplified recommendation)*
-- [ ] **Plan** — run 0006 explanatory discussion; narrowed spec and architecture ready, replacement publication blocked by existing indexed cohort. Earlier `plan_brief.md` is superseded historical scope, not current readiness.
+- [ ] **Plan** — run 0007 replacement and retirement explicitly authorized; narrow spec and architecture ready, current factory preflight still rejects removal of indexed stories. Earlier `plan_brief.md` is superseded historical scope, not current readiness.
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -56,3 +56,14 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - Owner requested a brief explanation of mode-change detection; no scope change or new product question. Answer based on retained architecture: compare admitted mode with last actual use of the candidate conversation, allocate forward on differences, preserve eligible same-mode resume.
 - Updated saved context and prepared typed discussion contribution for the current authorized helper handoff. No completed proposal retried; prior seven-story reconciliation blocker remains unresolved.
 - No code changes, tests, commits or pushes. Submission receipt remains to be recorded by the dispatcher.
+
+## Plan run 0007 — 2026-09-12
+
+- Owner explicitly authorized finalizing the simple plan and retiring the old user stories. No further product decision or permission is required. Existing one-story, three-task, five-criterion specification and architecture remain the intended scope.
+- Current read-only protocol review confirms only create/update/unchanged intents (`docs/story-contract.md:57`, `internal/planbrief/typed_content.go:181`); no whole-story retirement collection exists. Omission is rejected by `internal/turn/typed_plan.go:280`. Criterion-ID retirement is not story retirement.
+- Current-bound one-story replacement preflight: valid=false, complete=true, no unchecked paths. Diagnostic `$.plan`, `typed_plan`: `story US-002: preserve indexed and completed dependencies`. No completed proposal submitted; no old story retired.
+- Saved explicit retirement authorization and exact blocker in PLAN_CONTEXT.json; prepared typed discussion contribution for root helper submission. Input acknowledgment, publication, effects and readiness remain distinct; root records returned receipt separately.
+- Required next step: factory-supported retirement/reconciliation of superseded unfinished indexed scope, preserving historical acceptance, then a fresh bound Plan publication. No invented command or manual daemon-state/forge workaround.
+- No implementation, test execution, commits or pushes. Existing historical Story Index remains intact.
+
+- Run 0007 discussion submission: request `f0fb4e6cc470ed53ed1dd0b91c774355`; receipt states: {"InputState": "valid", "EngineeringState": "not_applicable", "AcceptanceState": "not_applicable", "EffectState": "not_applicable", "PlanState": "discussion"}. No retirement or replacement publication performed.
