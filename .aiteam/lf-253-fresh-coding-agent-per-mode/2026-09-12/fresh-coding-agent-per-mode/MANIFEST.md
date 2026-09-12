@@ -4,8 +4,9 @@
 
 ## Modes
 
-- [x] **Research** — `RESEARCH_BRIEF.md` *(skipped — Plan started with no prior Research run for this feature)*
-- [x] **Plan** — `plan_brief.md` + one typed story submitted *(completed this run)*
+- [x] **Research** — `RESEARCH_BRIEF.md` *(completed this run — see history; an
+  earlier Plan run had proceeded with Research recorded as skipped)*
+- [x] **Plan** — `plan_brief.md` + one typed story submitted *(completed earlier run)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -35,6 +36,22 @@ asked for; nothing here licenses starting the next one.
   not observed as complete within this run. Readiness for Implement is not yet
   established; do not assume it until a later check shows `PlanState`
   advanced past `pending` with a story link present.
+- 2026-09-12 (run 0002) — Research run completed at owner request ("Do it")
+  after the Plan run above. `RESEARCH_BRIEF.md` written: independently
+  re-derived the mode/segment/prompt mechanism directly from source at commit
+  `576208a2e541f9f2b44ce6a812ecddf2dd87c957` (`internal/turn/delivery.go`
+  `prepareDeliverySegment`, `internal/turn/prepare.go` `previousRun` /
+  `resumeDecision` / `allocateRun`, `internal/harness/prompt.go` `BuildPrompt` /
+  `PromptInput`, `internal/turn/sessiondir.go` `findSessionDir`,
+  `internal/naming`, `internal/planbrief`) and confirmed it matches, without
+  contradiction, the design already frozen into `feature-spec.md` (BR-1..BR-18)
+  and `ARCH_REVIEW.md` (D-1..D-10). No materially different design surfaced; no
+  Plan decision was reopened. Carried forward, not newly found: the two
+  unsatisfied evidence obligations (live conversation-lifecycle behavior and
+  agent comprehension of the artifact pointer are unverifiable under
+  `docs/decisions/nested-agent-evidence.md`'s sandbox boundary). No material
+  owner questions; the pending `PlanState` from the prior entry is restated as
+  a process note, not a Research finding.
 
 ## Notes
 
@@ -50,3 +67,6 @@ asked for; nothing here licenses starting the next one.
   real Claude/Codex conversation actually resets) and AC-009's comprehension
   half (that a reset agent actually reads the named brief). Both are retained,
   not weakened, and must not be marked proven by an offline test suite alone.
+- Research (run 0002) independently confirmed the same mechanism and the same
+  two unsatisfied evidence obligations from source directly; see
+  `RESEARCH_BRIEF.md`.
