@@ -6,7 +6,8 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed iteration, revised)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(done — `switch-agent-by-label`, all 7 tasks; see
+  `TEST_REPORT.md`, `DRIFT_REPORT.md`, `notes.md`)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -154,6 +155,27 @@ asked for; nothing here licenses starting the next one.
   intent `update`) — see Notes for the new request id and states. No
   material question remained open for the owner; the sixth run's research
   was sufficient to resolve the apparent conflict without asking.
+
+- 2026-09-12 — Implement run completed for `switch-agent-by-label` (issue #252,
+  revision `75fcd752b8f4b40986f1af3a9994afaaf59abab5f0599229559a45b801635054`),
+  separated-workflow path. All 7 tasks landed: the new `store.SetSegmentAgent`
+  accessor, the in-place switch in `prepareDeliverySegment`, the narrowed
+  continuation-only refusal, the unconditional forced-cold resume decision on
+  a switch turn, deletion of `switch-agent.sh`, rewritten/added unit tests in
+  `internal/turn/execute_test.go` / `internal/turn/delivery_test.go` /
+  `internal/store/store_test.go`, and a sequential (no-sleep) integration pin
+  proving an in-flight turn finishes under the old agent. Aggregate gates:
+  `go build`, `go vet`, `gofmt -l`, `golangci-lint run` all clean whole-repo;
+  `go test -race` green for `internal/store`, `internal/report`,
+  `internal/naming`, and a targeted race-enabled superset of `internal/turn`
+  covering every test this story touched; whole-repo `go test` (minus
+  `internal/turn`, run separately due to its size) green except one
+  pre-existing, unrelated `internal/teamsource` instruction-parity failure
+  (confirmed untouched by this story's diff). Full unscoped `internal/turn`
+  suite does not fit the run's gate timeout ceiling (pre-existing, ~200 tests,
+  many spawn real git subprocesses) — narrowed to a targeted `-run` superset
+  per the run's own instructions rather than raising the timeout. See
+  `TEST_REPORT.md`, `DRIFT_REPORT.md`, `notes.md`. Suggest Validate next.
 
 ## Notes
 

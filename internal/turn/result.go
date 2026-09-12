@@ -49,13 +49,16 @@ const (
 	// [Result.Reason] still has to be posted, because silence is not an outcome.
 	DispositionPrepareFailed
 
-	// DispositionAgentSwitchRefused means the turn's resolved agent does not
-	// own this session's segment (US-3): a prior run started this
-	// conversation under one coding-agent tool, and this run's labels
-	// resolved to a different one. Nothing was created and nothing was
-	// mutated — [Result.AgentOwning] and [Result.AgentRequested] carry the
-	// two closed-set names the reply names, and [Reporter.ReportTurn]
-	// answers with [report.ReplyAgentSwitchRefused] rather than a run report.
+	// DispositionAgentSwitchRefused means an automatic-recovery continuation's
+	// resolved agent no longer owns the segment it named (US-3): the label
+	// changed between when the continuation was recorded and when it was
+	// dispatched. An ordinary turn whose resolved agent differs from its
+	// segment's is a switch, not a refusal — the segment is rewritten to the
+	// newly resolved tool in place and the turn runs. Nothing was created and
+	// nothing was mutated here — [Result.AgentOwning] and
+	// [Result.AgentRequested] carry the two closed-set names the reply names,
+	// and [Reporter.ReportTurn] answers with [report.ReplyAgentSwitchRefused]
+	// rather than a run report.
 	DispositionAgentSwitchRefused
 
 	// DispositionSyncRefused means the turn's task branch could not be merged
