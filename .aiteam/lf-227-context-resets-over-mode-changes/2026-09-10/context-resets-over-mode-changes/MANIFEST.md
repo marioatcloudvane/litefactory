@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete; run 0004 simplified recommendation)*
-- [x] **Plan** — `plan_brief.md` + typed story contribution *(planning iteration complete; factory publication and save pending)*
+- [ ] **Plan** — run 0005 saved discussion; narrowed spec and architecture ready, replacement publication blocked by existing indexed cohort. Earlier `plan_brief.md` is superseded historical scope, not current readiness.
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -34,3 +34,19 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - Publication, story links, save and readiness remain factory-owned and pending at subprocess completion.
 
 - 2026-09-12 — Research completed for run 0004: rechecked current code at c8b7bf0e42b8209aa13f745bc678a7909f8d5ab1; recommendation reduced to mode-aware existing segment selection plus an existing-session prompt pointer. Prior seven-story Plan direction is superseded by this research recommendation; its artifacts and factory state were not modified. A later explicit Plan iteration must reconcile scope. No implementation, tests, forge mutations, commits or pushes.
+
+## Plan run 0005 — 2026-09-12
+
+- Owner approved the simplified direction. Requirements and architecture now describe one bounded story, three tasks and five candidate criteria; no product questions remain.
+- Updated `feature-spec.md`, `ARCH_REVIEW.md` and `PLAN_CONTEXT.json`. Earlier `plan_brief.md` and its Story Index remain historical factory-published scope; they were not overwritten to simulate retirement.
+- Completed-candidate preflight: invalid, complete inspection, no unchecked paths. Diagnostic at `$.plan`, code `typed_plan`: `story US-001: preserve indexed and completed dependencies`. Candidate was not submitted and its transient file was removed.
+- Source review confirms omission cannot retire indexed stories and the current contract has create/update/unchanged only. Safe completion requires factory-supported reconciliation/replacement of superseded unfinished scope and refreshed authoritative context. No invented retirement CLI, no-op story workaround or retained unwanted scope.
+- Saved discussion contribution handed to the root for authorized helper preflight/submission. Publication and readiness are not established.
+- No implementation, test execution, forge mutations, commits or pushes.
+
+## Factory submission — run 0005
+
+- Replacement proposal preflight rejected: `story US-001: preserve indexed and completed dependencies`. No completed proposal submitted.
+- Discussion preflight passed: valid and complete, no diagnostics or unchecked paths.
+- Discussion request: `d443bfae6108c68a145833fa72da666b`; input valid, Plan discussion; engineering/acceptance/effects not applicable.
+- Simplified scope saved as working context; replacement publication and readiness remain blocked on factory reconciliation of prior indexed stories.

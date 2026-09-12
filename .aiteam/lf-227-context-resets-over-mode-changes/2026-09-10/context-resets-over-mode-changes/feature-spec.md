@@ -1,97 +1,83 @@
 # Feature Spec: context-resets-over-mode-changes
 # Status: APPROVED
-# Date: 2026-09-11
+# Date: 2026-09-12
 
 ## Goal
-- Give the owner fresh native coding-agent conversations after admitted mode changes while preserving durable task knowledge and existing workflow authority.
+- Start each admitted new mode with a fresh coding-agent conversation and direction to reuse the task's existing written work.
 
 ## Decisions and Assumptions
 | Kind | Statement | Basis |
 |---|---|---|
-| Owner decision | Reset on every admitted change among Research, Plan, Implement, Validate and Spike, including returning to an earlier mode, for both agents and all supported delivery configurations. | Run 0003 “Ok looks good, plan it out!” adopts research recommendations D1–D3. |
-| Owner decision | Retain bounded recorded issue comments alongside the current instruction and handoff. | D2 adoption. |
-| Owner decision | Do not require outgoing completion for a permitted transition; continue from available reliable inputs, explicitly report omissions, and stop only work requiring missing or ambiguous authoritative inputs. | D3 adoption. |
-| Assumption | Same-mode continuation and interrupted-run recovery preserve their existing rules and independent reset reasons. | D1 and existing recovery contracts. |
-| Assumption | Reset changes native conversation identity; worktree, task identity, artifact session, frozen scope and retained evidence survive. | Research engineering defaults and existing session separation. |
-| Assumption | Explicit handoff delivery and bounded missing-input diagnostics are sufficient; automatic summarization of an unrecorded outgoing transcript is not required. | Research identifies saved artifacts as the handoff and cannot recover unsaved reasoning. |
-| Assumption | Existing supported workflow/content versions remain independent and unchanged. | Existing managed workflow and submission contracts. |
+| Owner scope | Replace the oversized seven-story direction with existing conversation rotation plus an artifact-directory pointer. | Run 0004 simplicity request and run 0005 “Ok, re-plan this!” |
+| Retained decision | Reset on admitted mode changes, including returns to earlier modes, for Claude and Codex with and without external team delivery. | Current RESEARCH_BRIEF.md and previously accepted recommendations. |
+| Retained decision | Preserve bounded issue-comment history and existing admission/approval/evidence gates; incomplete research alone does not prohibit Plan. | Current research's retained decisions. |
+| Assumption | Same-mode replies remain resumable under existing eligibility rules; existing independent reset reasons and interrupted recovery remain valid. | Existing segments and recovery contracts summarized by research. |
+| Assumption | Reset native conversation history only; retain the task, worktree, existing artifact files, frozen stories and retained evidence. | Original goal and narrowed research recommendation. |
+| Assumption | A supplied directory and read-brief instruction are sufficient scope; arbitrary model comprehension and recovery of unwritten reasoning are not guaranteed. | Research explicitly rejects generalized handoff machinery. |
 
 ## User Stories
 | ID | Story |
 |---|---|
-| US-1 | As the owner, I want every admitted mode change to begin a fresh conversation so previous role instructions and native history do not carry over. |
-| US-2 | As the receiving agent, I want the same explicitly identified artifact session and appropriate saved inputs so I can continue across modes, dates and process restarts. |
-| US-3 | As the owner, I want missing handoff information reported without unnecessary transition restrictions so incomplete research and detours remain useful. |
-| US-4 | As the owner, I want demonstrable cross-agent behavior and documented evidence limits so offline checks are not mistaken for live lifecycle proof. |
+| US-1 | As the owner, I want an admitted mode change to start a fresh conversation that can read existing task briefs, so stale conversation context does not accumulate across phases. |
 
 ## Data Model
 | Entity | Field | Type | Required | Constraints |
 |---|---|---|---|---|
-| Admitted run | Selected mode | Existing mode value | Yes | Factory authority; rejected requests do not establish a new active conversation. |
-| Conversation | Native identity and resume handle | Existing adapter session values | Yes where supported | New identity after mode change; cannot select an old conversation when returning to its mode. |
-| Task handoff | Artifact session binding | Validated task-bound path/reference | Yes when a session exists | Same task/worktree; survive dates and fresh starts; ambiguity is explicit. |
-| Task handoff | Saved content and source references | Existing artifacts and retained records | By receiving mode | Clearly distinguish instructions, authoritative frozen inputs, evidence, decisions, assumptions and untrusted background. |
-| Task handoff | Missing-input diagnostics | Bounded structured or rendered findings | On omissions | Identify unavailable or ambiguous input and affected work; never imply successful reconstruction. |
+| Existing run | Mode and launch/outcome evidence | Existing stored fields | Existing rules | Compare actual conversation use, not merely a rejected or prelaunch attempt. |
+| Existing conversation segment | Ordinal and session identity | Existing stored fields | Existing rules | Allocate a new segment for a changed mode; never resurrect an earlier mode's conversation. |
+| Prompt context | Task artifact directory | Optional path | When safely resolved | Reuse existing rooted discovery and known Plan session; no persisted binding or new schema. |
 
 ### Relationships
-- Admitted task run → selected conversation segment and retained artifact session.
-- Receiving mode → appropriate existing saved artifacts and factory-authoritative scope/evidence.
-- Corrective Implement → relevant retained blocking Validate findings and their affected scope/evidence references.
+- Existing runs and segments remain attached to the existing task.
+- Existing artifacts remain in the existing session directory across date changes and conversation resets.
 
 ## API / Interface Changes
-| Method | Action | Auth | Notes |
+| Method | Endpoint / Action | Auth | Notes |
 |---|---|---|---|
-| Existing owner commands / canonical labels | Select next mode | Existing owner and admission checks | No new command, permission or automatic mode chain. |
-| Shared runner input | Supply reset decision, bound session and explicit handoff | Factory-owned input | Both adapters, cold/resumed/fallback preparation; preserve current comment bounds. |
-| Agent report | Disclose missing handoff inputs | Existing reporting path | Identify affected work without inventing lost context. |
+| Existing runner preparation | Select conversation segment | Existing admission | Apply mode-change reset consistently across delivery configurations. |
+| Existing common prompt | Supply artifact path and read instruction | Existing worktree read access | Read relevant existing brief/context; frozen factory inputs remain authoritative. |
+- No new command, configuration setting, permission, endpoint or database migration.
 
 ## Business Rules
-- Retain existing bounded comment history policy; comments are background and cannot replace frozen requirements or select tools/permissions.
-- Research → Plan explicitly makes the research brief available for consumption; reuse saved Plan working context when applicable.
-- Plan → Implement explicitly supplies shared planning decisions/non-goals alongside complete factory-frozen stories, identities, revisions and dependencies.
-- Implement → Validate continues to use retained immutable engineering evidence and checks; Validate remains read-only and runs no fresh checks.
-- Validate → Implement explicitly carries relevant actionable blocking findings and retained evidence references; history alone is insufficient.
-- Research, Plan and Spike transitions preserve available findings, decisions, assumptions, unresolved work and artifact provenance without requiring an outgoing completion ceremony.
-- Reset behavior is independent of external instruction delivery; delivery changes retain their existing independent reset behavior.
-- Persisted task session discovery remains backward compatible; validate legacy candidates and refuse ambiguity rather than silently selecting another task/session.
-- Receiving agents must be explicitly instructed to consume the required available handoff; path discovery alone is insufficient.
-- Shared instructions and installed copies must express the same handoff contract; protected installed-tree maintenance is independently scoped by harness, with aggregate parity checked afterward.
+- Compare the admitted mode against the previous actually used conversation mode using existing recorded evidence.
+- Research → Plan → Research produces successive new conversations; ordinary replies in a mode can resume the latest eligible conversation.
+- Preserve external-delivery identity changes as existing reset reasons.
+- Render a known task-session directory and short instruction to read relevant existing work in the shared prompt used by both adapters.
+- Prefer an established identity-bound Plan session; otherwise reuse existing rooted discovery for this task's MANIFEST/phase artifacts, including earlier dates.
+- Missing artifacts do not invent a handoff or force a completed outgoing phase; preserve ordinary setup and existing prerequisite rules.
 
 ## Edge Cases & Error Handling
-- Return to an earlier mode → allocate another fresh conversation, never resurrect the earlier native history.
-- Repeated same-mode replies → preserve resume eligibility, subject to existing interruption and delivery identity rules.
-- Transition denied by existing gates → retain those gates and do not treat denial as a successful mode execution/reset.
-- Partial or absent research → Plan may reconstruct from authoritative inputs and report gaps.
-- Missing approved implementation scope → affected implementation does not proceed.
-- Missing/stale/misattributed validation evidence → criterion remains unverified; failed evidence remains failed.
-- Multiple plausible artifact sessions, cross-task binding or unsafe artifact path → explicit diagnostic; no silent guess or unauthorized read.
-- Restart/fallback after admitting a new mode → preserve the new mode boundary and existing attempt recovery rules without reusing the outgoing transcript.
-- Handoff exceeding existing input limits → retain authoritative requirements and explicit omissions/references; never silently truncate into a claim of completeness.
+- First run → retain existing cold-start behavior.
+- Refused or prelaunch attempt → does not change the last actually used mode or consume a populated conversation as a fresh one.
+- Interrupted automatic recovery → preserve saved-segment rules; do not rotate solely because recovery occurs.
+- Multiple conflicting session candidates without an authoritative selection → disclose ambiguity; do not claim continuity or arbitrarily select another task's artifacts.
+- Path outside the task worktree or unsafe resolution → reject the candidate using existing rooted checks.
+- Missing brief → use available inputs and ordinary setup; missing required approved scope/evidence still follows existing gates.
 
 ## Out of Scope
-- Deleting comments, files, worktrees or retained evidence; resetting task identity; guaranteeing zero loss of unsaved reasoning.
-- New automatic phase chaining, weaker readiness/approval gates, configuration-dependent reset opt-out, or changes to managed contract versions.
-- Live nested coding-agent launches, sandbox expansion, fallback agent introduction, or requiring live paid-agent capture in CI.
-- Recovery of unrelated historical evidence obligations or publication of a team catalog release.
+- New persisted artifact binding, schema, epochs, migration or mode-state subsystem.
+- Generalized handoff bundles, automatic transcript summaries or complete validation-feedback transport.
+- Shared/installed instruction-tree rollout, cross-tree parity project or new authentic-agent observation gate.
+- Guaranteed model comprehension, recovery of unwritten reasoning, token-saving measurements or live nested-agent launches.
+- Implementation during Plan or local retirement of factory-managed stories outside the supplied submission protocol.
 
-## Candidate Acceptance Criteria
-- [ ] AC-001: Every admitted mode change selects a fresh native conversation across both adapters and supported delivery paths, including reverse transitions; same-mode continuation and existing independent resets/recovery retain their behavior.
-- [ ] AC-002: The receiving run retains an explicit validated task artifact-session binding across dates, restarts and fallback; unsafe or ambiguous candidates are diagnosed without a silent substitution.
-- [ ] AC-003: Receiving-mode input explicitly delivers the applicable Research/Plan/Spike knowledge, frozen implementation scope, retained validation evidence and corrective blocking findings, with bounded recorded comments and proper authority distinctions.
-- [ ] AC-004: Incomplete handoffs do not add a blanket admission gate; missing authoritative inputs prevent only dependent work and produce actionable omissions without weakening approval or acceptance.
-- [ ] AC-005: Shared and installed instructions consistently require handoff consumption and preservation; independently scoped installed-tree checks and final aggregate parity establish their documented contract.
-- [ ] AC-006: Separately authorized external observations demonstrate actual fresh conversations and usable handoffs for both actual adapters at representative forward and reverse transitions; absent authentic evidence remains explicitly unverified.
+## Acceptance Criteria
+- [ ] AC-101: Preparation of a newly admitted different-mode run selects a distinct conversation identity and cold invocation for both adapters, with and without external team delivery, including Research → Plan → Research.
+- [ ] AC-102: Same-mode eligible replies retain resume behavior; first-run, independent delivery resets, refused/prelaunch attempts and saved-segment interrupted recovery retain established behavior without accidental reuse of a populated old conversation as fresh.
+- [ ] AC-103: When an existing task-session directory is safely resolved, the common prompt for both adapters includes that directory and a short instruction to read relevant existing brief/context, including reuse across dates and fresh conversations.
+- [ ] AC-104: Missing, conflicting and unsafe artifact candidates follow the documented edge-case behavior; neither incorrect continuity nor a new mandatory completed-phase gate is introduced.
+- [ ] AC-105: Existing bounded comments, authoritative frozen implementation inputs and retained validation inputs continue to reach their established prompt paths; reset does not replace the task/worktree or alter admission/approval rules.
 
-## Candidate Evidence Inventory
+## Candidate Evidence Obligations
 | Criterion | Proof method | Source availability | Version/context bounds | Missing prerequisite / disposition |
 |---|---|---|---|---|
-| AC-001 | Offline turn/store/adapter command-construction and recovery regression checks; actual runtime component tracked separately in AC-006. | Existing delivery, prepare, adapter and continuation code/test sources identified in RESEARCH_BRIEF.md; new checks required. | Repository behavior and constructed invocations only; no native runtime claim. | Implement and retain executed checks; no checks executed by requirements. |
-| AC-002 | Offline binding/discovery fixtures covering dates, restart, ambiguity and unsafe paths. | Existing sessiondir and plan_context sources; additional fixtures required. | Controlled filesystem/task fixtures only. | Implement and retain checks. |
-| AC-003 | Offline prompt/input assertions across modes and cold/resume/fallback, including exact frozen data and findings attribution. | Existing approved_context, validation and prompt tests; additional transition fixtures required. | Delivery contract only; cannot prove arbitrary model comprehension or completeness of unsaved knowledge. | Implement and retain checks; authentic receiving behavior remains AC-006. |
-| AC-004 | Offline admission/input-failure assertions and source review. | Existing gate and retained-evidence behavior; new omission cases required. | Repository policy enforcement only. | Implement and retain checks. |
-| AC-005 | Scoped documentation review plus offline rendering/contract checks, then aggregate parity. | Shared sources and installed trees available. | Documented instructions and rendered bytes only, not agent compliance. | Independent opposite-harness installed-tree execution if needed; retain checks and scoped review. |
-| AC-006 | Separately authorized operator observation outside managed nested-agent execution, with sanitized provenance, native identities, mode sequence and supplied/consumed handoff evidence. | Authentic feature-specific capture unavailable. | Record exact agent versions, host/sandbox, feature revision and transition/configuration represented; historical capture proves only its recorded context. | External observation remains an unsatisfied acceptance obligation; synthetic fixtures cannot satisfy it and CI must not launch live agents. |
+| AC-101 | Offline segment/request and adapter command-argument assertions. | Existing delivery/mode-transition tests and harness/Codex runner tests; focused extensions required. | Repository-selected identity and invocation contract at implemented revision; no live-provider or comprehension claim. | Implement and retain passing regressions. |
+| AC-102 | Offline run-history and saved-recovery fixtures. | Existing delivery, prepare and continuation tests. | Controlled recorded states, retaining actual-launch distinctions. | Add focused regressions and run applicable existing checks. |
+| AC-103 | Offline filesystem and shared-prompt assertions. | Existing sessiondir, plan-context and prompt test infrastructure. | Fixture paths, dates and prompt bytes only. | Add cases proving both adapter request paths carry the pointer. |
+| AC-104 | Offline missing/conflicting/unsafe path fixtures and source review. | Existing rooted discovery helpers and tests. | Controlled filesystem cases; no new persistence contract. | Add changed selection/error cases. |
+| AC-105 | Existing gate/input regression tests and focused prompt review. | Approved-context, validation, mode-transition and prompt sources/tests. | Repository input/admission behavior; bounded comments do not promise all historical feedback. | Run relevant regressions and required make check during implementation. |
 
 ## Readiness
-- Owner questions: none; D1–D3 are adopted and ordinary engineering choices remain for architecture.
-- Ready for architecture and typed story authoring; preserve candidate evidence inventories when assigning final story-local criterion IDs.
+- Owner questions: none; narrowed outcome, scope and success criteria are settled.
+- Ready for architecture and typed authoring as one bounded slice; factory reconciliation of superseded unfinished published scope remains necessary before implementation.
+- This replaces the earlier broad local spec; it does not claim previous factory obligations are retired or accepted.
