@@ -67,3 +67,12 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - No implementation, test execution, commits or pushes. Existing historical Story Index remains intact.
 
 - Run 0007 discussion submission: request `f0fb4e6cc470ed53ed1dd0b91c774355`; receipt states: {"InputState": "valid", "EngineeringState": "not_applicable", "AcceptanceState": "not_applicable", "EffectState": "not_applicable", "PlanState": "discussion"}. No retirement or replacement publication performed.
+
+## Plan run 0008 — 2026-09-12
+
+- Owner asked whether manual issue closure is required. Answer from retained protocol evidence: closing the GitHub issues alone does not remove indexed factory scope or resolve replacement validation. No new product or permission question; explicit retirement authorization remains settled.
+- Updated PLAN_CONTEXT.json and prepared a typed discussion contribution for the current root helper handoff. No repeated requirements/architecture work or completed-candidate preflight.
+- Factory-supported retirement/replan reconciliation remains the technical prerequisite. No verified operator workaround is known; none was invented. Publication/readiness remain unestablished.
+- No code changes, tests, forge/state edits, commits or pushes. Root records the discussion receipt separately.
+
+- Run 0008 discussion request `c553941bf2e5fb1ac5e2391262577178`: {"InputState": "valid", "EngineeringState": "not_applicable", "AcceptanceState": "not_applicable", "EffectState": "not_applicable", "PlanState": "discussion"}. No stories closed or retired.
