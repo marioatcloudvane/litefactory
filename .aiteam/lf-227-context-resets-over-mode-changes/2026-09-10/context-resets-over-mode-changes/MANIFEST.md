@@ -76,3 +76,14 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - No code changes, tests, forge/state edits, commits or pushes. Root records the discussion receipt separately.
 
 - Run 0008 discussion request `c553941bf2e5fb1ac5e2391262577178`: {"InputState": "valid", "EngineeringState": "not_applicable", "AcceptanceState": "not_applicable", "EffectState": "not_applicable", "PlanState": "discussion"}. No stories closed or retired.
+
+## Plan run 0009 — 2026-09-12
+
+- Owner requested every manual recovery step and will file a long-term fix issue separately. No scope change or new product question.
+- Bounded factual research at 0d87cbad706107f5b10f6c45df52c4c4e2a6bbe8 verified a supported bypass: wait for current report/save, close obsolete parent #227 then stories #240–246 as not planned, create an independent complete owner-assigned new issue whose body starts with `/plan <instruction>`, canonical `Mode: Plan`, no initial comments, then review successful Plan publication/save before `/implement <instruction>`.
+- Closing prevents future dispatch and clears relevant backlog/managed parent registry; it does not retire indexed scope or cancel a running process. Scheduled records remain pending and are skipped while closed. No old sub-issues should be attached to the new parent.
+- First discovery skips preexisting comments; automatic body execution requires an open owner-assigned issue with nonempty body and no comments. Create it fully prepared rather than creating unassigned and adding an early command comment.
+- Evidence: internal/daemon/tick.go:485,1092,1235,1281,1330; internal/daemon/schedules.go:81; internal/daemon/mode.go:15,164; internal/turn/command.go:210; internal/cli/commands.go:8. No per-task pause/cancel command found; no daemon restart needed.
+- Saved discussion context and prepared current typed contribution. No code/test/forge/runtime-state edits, commits or pushes. Root records helper receipt separately.
+
+- Run 0009 discussion request `95423b5875ae3b77a97c0b8fccb34675`: {"InputState": "valid", "EngineeringState": "not_applicable", "AcceptanceState": "not_applicable", "EffectState": "not_applicable", "PlanState": "discussion"}. Manual workaround documented; no external issue/state mutations.
