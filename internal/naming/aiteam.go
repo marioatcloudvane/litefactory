@@ -18,6 +18,14 @@ const (
 	// directory, and the artefact a run report links to.
 	ResearchBriefName = "RESEARCH_BRIEF.md"
 
+	// ManifestName is the session-lifecycle file every mode writes into a
+	// session directory first, before either brief exists: a spike or a
+	// greenfield run has one when it has nothing else. It is tried before
+	// [ResearchBriefName] and planbrief.FileName when locating a task's
+	// session directory, so a session that never ran Research or Plan is
+	// still found.
+	ManifestName = "MANIFEST.md"
+
 	// SessionDateLayout is the date component of a session directory. It is
 	// YYYY-MM-DD, which is what CLAUDE.md's `date +%Y-%m-%d` produces.
 	SessionDateLayout = "2006-01-02"

@@ -393,6 +393,10 @@ func prepare(
 	} else if !errors.Is(contractErr, store.ErrNotFound) {
 		return nil, contractErr
 	}
+	// Populated on every path, cold or resumed (harness itself renders the
+	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
+	promptInput.SessionArtifactDir, promptInput.SessionArtifactBrief =
+		existingSessionArtifacts(worktree.Path(), branch, ref.Issue, run.StartedAt, req.mode(), logger)
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)

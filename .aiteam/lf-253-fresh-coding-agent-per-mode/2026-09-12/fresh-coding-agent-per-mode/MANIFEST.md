@@ -7,7 +7,7 @@
 - [x] **Research** — `RESEARCH_BRIEF.md` *(completed this run — see history; an
   earlier Plan run had proceeded with Research recorded as skipped)*
 - [x] **Plan** — `plan_brief.md` + one typed story submitted *(completed earlier run)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(completed this run, see history)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -82,3 +82,37 @@ asked for; nothing here licenses starting the next one.
   two unsatisfied evidence obligations from source directly; see
   `RESEARCH_BRIEF.md`. Research (run 0003) confirmed that brief remains
   current with no repository changes since; no re-derivation was needed.
+- 2026-09-12 (run 0004) — Implement run completed for story
+  "fresh-coding-agent-per-mode" (issue #254, revision
+  3487862efecaba6d36c5383c083ebc29ba42fd9c07c5a892865b994a4ff4f502): T-1
+  (mode-change segment rotation in `internal/turn/delivery.go`), T-2
+  (existing-artifact prompt pointer via new `internal/turn/session_artifacts.go`,
+  `naming.ManifestName`, and two new `harness.PromptInput` fields rendered only
+  on the cold path), and T-3 (focused regression tests, new
+  `internal/turn/mode_reset_test.go` plus additions in
+  `internal/turn/session_artifacts_test.go` /
+  `internal/harness/prompt_session_artifacts_test.go`) all implemented by
+  go-implementation-engineer. Aggregate gates run by the orchestrator: `make
+  fmt vet lint` clean (0 issues); full `internal/turn` package passes
+  functionally (479s, no race); full-package race runs green for
+  `internal/harness`, `internal/naming`, `internal/planbrief`, `internal/codex`,
+  `internal/store` (store confirms AC-014's migration inventory unchanged);
+  `internal/daemon` confirmed functionally green (83s) after a race-batch
+  timeout traced to pre-existing package cost, unrelated to this story. One
+  genuinely pre-existing, out-of-scope failure remains in
+  `internal/teamsource` (instruction-tree parity across `.claude`/`.codex`
+  files this story is barred from touching) — noted, not fixed. Engineering
+  submission recorded via `submission preflight` (valid=true, complete=true,
+  diagnostics=[]) then `submission submit`: `InputState: valid`,
+  `EngineeringState: recorded`, `EffectState: pending`, request_id
+  `e2b07543f1ff3141f5e9c310769327a5`, contribution ID 53, run 364.
+- Implement (run 0004) notes: two pre-existing repository conditions surfaced while
+  running the aggregate test gates, both unrelated to this story's files and
+  left as-is per scope: `internal/teamsource`'s
+  `TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly` fails
+  on files this story is barred from touching (`.claude/agents/**`,
+  `.codex/skills/**`); and `internal/daemon`'s full-package race suite exceeds
+  an 8-minute timeout when bundled with the rest of the repository under
+  `-race` (confirmed to pass functionally without `-race` in 83s), a
+  pre-existing package-size/race-overhead condition, not a regression from
+  this story's code.

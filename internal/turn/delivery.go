@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -290,8 +291,20 @@ func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
 	return &d, nil
 }
 
-// The task lock owns this read/create sequence. Vendor switches remain refusals;
-// only changes in effective instructions start another same-vendor segment.
+// The task lock owns this read/create sequence. Vendor switches remain
+// refusals, checked and returned before mode ever enters the decision.
+// Otherwise the candidate segment — the session's most recent one, whether or
+// not an instruction bundle is configured — rotates to a new segment (next
+// ordinal, a distinct session_ref, no resume token) when either the effective
+// instruction-bundle identity or the admitted mode ([Request.mode]) differs
+// from what the segment's last terminal, non-refused run ([previousRun])
+// recorded; a candidate with no such run is never rotated for a mode change,
+// since there is nothing to compare against. A rotated segment is looked up
+// fresh, so it always reads back with no previous run, which is what keeps the
+// resume/prompt layer's PreviousMode-driven cold path unreachable from a mode
+// change going through here. Repositories with no instruction bundle configured
+// follow this same ladder; only the identity comparison degenerates to "always
+// empty" for them.
 func prepareDeliverySegment(ctx context.Context, opts Options, req Request, session store.Session, ref naming.Ref, firstRef string, p *deliveryPlan) (store.Segment, *agent.Delivery, error) {
 	if req.Continuation != nil {
 		segment, err := opts.DB.GetSegment(ctx, req.Continuation.SegmentID)
@@ -315,16 +328,6 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		delivery, err := verifyDelivery(segment.DeliveryRoot, p)
 		return segment, delivery, err
 	}
-	if p == nil {
-		hadDelivery, err := opts.DB.HasSessionDelivery(ctx, session.ID)
-		if err != nil {
-			return store.Segment{}, nil, err
-		}
-		if !hadDelivery {
-			segment, err := opts.DB.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, firstRef, string(req.Agent))
-			return segment, nil, err
-		}
-	}
 	segments, err := opts.DB.ListSegments(ctx, session.ID)
 	if err != nil {
 		return store.Segment{}, nil, err
@@ -343,7 +346,12 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		if last.Agent != string(req.Agent) {
 			return last, nil, nil
 		}
-		if last.DeliveryIdentity == identity {
+		previous, found, err := previousRun(ctx, opts, session, last)
+		if err != nil {
+			return store.Segment{}, nil, err
+		}
+		modeChanged := found && previous.Mode != req.mode()
+		if last.DeliveryIdentity == identity && !modeChanged {
 			if p == nil {
 				return last, nil, nil
 			}
@@ -355,6 +363,11 @@ func prepareDeliverySegment(ctx context.Context, opts Options, req Request, sess
 		if err != nil {
 			return store.Segment{}, nil, err
 		}
+		opts.Logger.Info("rotating conversation segment for a mode or instruction-bundle change",
+			slog.String("previous_mode", previous.Mode),
+			slog.String("admitted_mode", req.mode()),
+			slog.Int("old_ordinal", last.Ordinal),
+			slog.Int("new_ordinal", ordinal))
 	}
 	var delivery *agent.Delivery
 	if p != nil {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -97,13 +98,21 @@ func TestResumeDecisionComesFromTheRunsTable(t *testing.T) {
 			want: harness.PathResume,
 		},
 		{
-			// A different conversation is not evidence about this one. M0 has
-			// one segment per task, so this is the case that stops the filter
-			// from quietly becoming "any prior run" when segments multiply.
+			// A different conversation is not evidence about this one. This
+			// is the state a rotation leaves behind (US-253): the run lives
+			// on the segment it actually belongs to, and the session has
+			// since moved on to a later segment with no run of its own yet.
 			name: "a prior run on a different segment",
 			seed: func(f *fixture) {
-				f.seedRun(store.FirstSegmentOrdinal+1, "11111111-2222-5333-8444-555555555555",
+				f.seedRun(store.FirstSegmentOrdinal, storedClaudeSessionID,
 					seededComment, store.ModeSpike, store.RunSucceeded)
+				nextRef, err := naming.SessionRef(f.ref(), store.FirstSegmentOrdinal+1)
+				if err != nil {
+					f.t.Fatalf("derive next segment ref: %v", err)
+				}
+				if _, err := f.db.GetOrCreateSegment(f.t.Context(), f.session.ID, store.FirstSegmentOrdinal+1, nextRef, store.AgentClaude); err != nil {
+					f.t.Fatalf("seed segment %d: %v", store.FirstSegmentOrdinal+1, err)
+				}
 			},
 			want: harness.PathCold,
 		},
