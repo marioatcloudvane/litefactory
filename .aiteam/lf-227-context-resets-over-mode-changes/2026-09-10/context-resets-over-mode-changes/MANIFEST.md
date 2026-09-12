@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete; run 0004 simplified recommendation)*
-- [ ] **Plan** — run 0005 saved discussion; narrowed spec and architecture ready, replacement publication blocked by existing indexed cohort. Earlier `plan_brief.md` is superseded historical scope, not current readiness.
+- [ ] **Plan** — run 0006 explanatory discussion; narrowed spec and architecture ready, replacement publication blocked by existing indexed cohort. Earlier `plan_brief.md` is superseded historical scope, not current readiness.
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -50,3 +50,9 @@ Modes do not follow on from one another. A box is ticked by a run that a human a
 - Discussion preflight passed: valid and complete, no diagnostics or unchecked paths.
 - Discussion request: `d443bfae6108c68a145833fa72da666b`; input valid, Plan discussion; engineering/acceptance/effects not applicable.
 - Simplified scope saved as working context; replacement publication and readiness remain blocked on factory reconciliation of prior indexed stories.
+
+## Plan run 0006 — 2026-09-12
+
+- Owner requested a brief explanation of mode-change detection; no scope change or new product question. Answer based on retained architecture: compare admitted mode with last actual use of the candidate conversation, allocate forward on differences, preserve eligible same-mode resume.
+- Updated saved context and prepared typed discussion contribution for the current authorized helper handoff. No completed proposal retried; prior seven-story reconciliation blocker remains unresolved.
+- No code changes, tests, commits or pushes. Submission receipt remains to be recorded by the dispatcher.
