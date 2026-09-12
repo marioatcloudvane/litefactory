@@ -1,7 +1,7 @@
-# Drift report — run 0004
+# Drift report — Implement run 0005
 
-Verdict: CLEAN scope, INCOMPLETE verification. Based on implementation and test specialist reports, all three frozen stories were implemented as planned: advisory preview; guarded, recoverable retirement with structured logs; bounded durable daily sweep and operator documentation. No added product scope, dropped behavior or architectural redesign reported.
+Scope: US-001 (#255), US-002 (#256), US-003 (#257), supplied frozen revisions. Current engineering self-checks and targeted tests verified the existing implementation at merged HEAD 7d03785. No production/test code was changed, reimplemented, added or dropped. No acceptance/code/architecture/plan review was performed.
 
-Conservative implementation assumptions are recorded in notes.md. Final lint maintenance preserved behavior and exact Git-capability assertions. No acceptance/code/architecture/plan review was performed.
+Verdict: no implementation scope drift identified by engineering task reports. Conservative submodule and ignored-content preservation remains as implemented. The explicit owner exception for only the named teamsource parity and load-sensitive subtree timeout tests is retained separately from passing checks.
 
-Required aggregate make check did not complete within the bounded runs. Therefore implementation completion and Validate readiness are not claimed. Resume verification and refresh final engineering snapshots before declaring done.
+Delivery limitation: fresh US-001 engineering was recorded. A run-global check-ID collision introduced in the initial US-002 contribution left a pending request that the helper retries before any corrected submission. Consequently US-002 and US-003 recording remains incomplete despite passing fresh scoped checks. This is submission transport/evidence recovery, not a need to redesign retirement. See run0005-submission-blocker.md and retained payloads/receipts. No factory save or remote effect success is claimed.

@@ -1,0 +1,23 @@
+{
+  "command": "make check",
+  "exit_code": 2,
+  "passed": false,
+  "format_passed": true,
+  "vet_passed": true,
+  "pinned_lint_passed": true,
+  "lint_output": "0 issues.",
+  "failed_packages": [
+    "github.com/cloudvane/litefactory/internal/teamsource"
+  ],
+  "failed_top_level_tests": [
+    "TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly",
+    "TestCodexSkills_SharedSourceParity",
+    "TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree",
+    "TestCodexSkills_AC003GuardClausesPreserved"
+  ],
+  "failed_subtest_lines": 23,
+  "owner_exception_applied": true,
+  "exception_scope": "Only pre-existing internal/teamsource instruction-parity failures and TestRunTimeoutKillsTheWholeSubtree under parallel load. Only teamsource parity failures observed; subtree timeout not observed.",
+  "other_packages_passed": true,
+  "log_sha256": "fdd34cb66033415b06b0876587375c9046b38dfec6d6e562182b458d9d1a3729"
+}

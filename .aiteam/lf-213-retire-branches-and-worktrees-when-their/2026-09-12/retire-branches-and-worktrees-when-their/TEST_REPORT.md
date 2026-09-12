@@ -1,25 +1,25 @@
-# Implement run 0004 — incomplete aggregate verification
+# Test report — Implement run 0005
 
-All three frozen stories are implemented and story-specific checks passed. Final engineering is not complete: aggregate make check did not finish within two 590-second bounded executions, and earlier snapshots predate final integration/lint edits. No aggregate pass or acceptance is claimed.
+Fresh execution against merged HEAD 7d037854a135602e6200c178ecb1d18fc12db2a1. Existing implementation commit 57dbe11 was independently confirmed as an ancestor. No production/test code changed. Prior-run passing claims are not substituted for these executions.
 
-## Passed scoped checks
+| Check | Actual result | Evidence |
+|---|---|---|
+| go build ./... | PASS, exit 0 | run0005-build.log |
+| US-001 focused race tests: evaluator, HTTP responses, real preservation, CLI preview, owner inventory | PASS: daemon 39.016s, CLI 1.776s, store 4.005s | run0005-us001-check.log, run0005-us001.md |
+| US-001 structured logging unit race tests | PASS: 2 top-level tests, 0 failures; reused for US-002 AC-007 | run0005-us001-unit.log/.md, run0005-us002-unit.md |
+| US-001 real Git guard fixtures | PASS: five safety subcases plain and race; 19.287s / 21.361s | run0005-us001-real-plain.log, run0005-us001-real-race.log, run0005-us001-real.md |
+| US-002 lifecycle and exact-head/capability race selections | PASS: 12 top-level tests, 21 subcases, zero failures; daemon 118.213s, Git 9.512s | run0005-us002-real.log/.md |
+| US-003 budget/help unit race selection | PASS: 3 test functions, 8 leaf cases, 0 failures | run0005-us003-unit.log/.md |
+| US-003 real sweep lifecycle race selection | PASS: daemon 44.001s | run0005-us003-real.log/.md |
 
-- US-001: six fake-unit test functions and 24 real dependency cases passed, including race runs. Criteria mapping/output: us001-unit-report.md, us001-unit-output.txt, us001-engineering.json. Temporary real Git origins, SQLite and HTTP only.
-- US-002: two logging unit functions/ten cases and 31 real-dependency leaf cases passed, including race. Criteria/output: us002-unit-report.md, us002-unit-output.txt, US-002-real-evidence.md, US-002-real-plain.log, US-002-real-safety-plain.log, US-002-real-race.log. Real local and remote expected-head rejection demonstrated.
-- US-003: five unit functions passed with race; real combined regression passed 16 top-level tests plus 29 subtests (121.206s plain, 176.662s race); manual clean help regression passed (2.143s). Criteria/output: US-003-unit-evidence.md, US-003-real-tests.md, US-003-real-plain.log, US-003-real-race.log, US-003-real-help.log. Includes prior executor/closure regression after integration changes.
-- Final Git lint fixes: focused tests passed (30.406s), pinned scoped lint 0 issues, formatting clean. Output: us003-aggregate-git-fix-test.log, us003-aggregate-git-fix-lint.log.
-- go build ./... passed. Final aggregate formatting, go vet and pinned golangci-lint v2.13.1 passed with 0 issues.
+Only targeted -run selections were executed per story. No whole-package reruns were performed per story. Real dependencies are temporary Git/SQLite and controlled HTTP fixtures; no hosted availability or production deletion is claimed. Installed Git 2.50.1 (Apple Git-155) and actual expected-head rejection output are retained in US-002 evidence. The final real-sweep selection was executed by the orchestrator after the agent thread limit refused another specialist.
 
-## Aggregate attempts and diagnostic
+## Aggregate gate
 
-1. make-check.log: stopped at external global linter lock; no code failure. Isolated TMPDIR and cache resolved this.
-2. make-check-retry1.log: four lint findings; fixed equivalent conditional style and exact function-signature assertions.
-3. make-check-final.log: formatting/vet/lint passed; race suite terminated at 590 seconds (exit 143). No full-suite result.
-4. aggregate-cli-diagnostic.log: narrowed CLI race package timeout at 180 seconds while existing fixture tests were progressing; no assertion failure established.
-5. make-check-bounded-concurrency.log: GOFLAGS=-p=4, GOMAXPROCS=2, run-specific TMPDIR/cache. Formatting/vet/lint passed and full CLI race package passed in 355.801s. Remaining suite incomplete at 590-second gate (exit 143).
+One `make check` invocation: run0005-make-check.log. Formatting, vet and pinned lint passed; lint reports `0 issues`. Lint also emitted cache-write warnings because its default cache location is outside writable roots, without failing lint. The full race stage includes passing daemon (722.212s), CLI (339.753s), store (298.621s), Git (144.630s) and other package results. Final result: exit 2; only internal/teamsource failed. The turn package passed in 1113.534s. No subtree-timeout failure occurred. The single aggregate gate completed without being killed or restarted. Under the explicit owner exception the observed parity failures do not block engineering; the raw make check result remains FAILED, not PASS. See run0005-aggregate-result.json.
 
-Two aggregate fix/retest cycles exhausted (lint correction, reduced concurrency). No timeout increase or third aggregate rerun. Resume by partitioning remaining slow package checks into bounded commands, obtaining full aggregate success and recapturing current source evidence. Do not treat killed gates as passing.
+The owner explicitly waives only pre-existing internal/teamsource instruction-parity failures and TestRunTimeoutKillsTheWholeSubtree under parallel load. Those remain recorded failures if observed, not passing checks. Observed final result: four top-level teamsource parity tests and 23 failing subtest lines. No retirement scoped failure was observed. No attempt was made to fix protected instructions or chase the waived tests.
 
-## Submission state
+## Publication state
 
-Initial scoped engineering checkpoints recorded for US-001/002/003. Later integration and lint changes required refreshing snapshots; final verification did not complete, so explicit invalidated contributions preserve honest status. Latest receipts show input valid, engineering rejected, acceptance not applicable, remote effects pending. Exact receipts retained in us001-incomplete-receipt.json, us002-incomplete-receipt.json, us003-incomplete-receipt.json. This is not acceptance review or a save confirmation.
+US-001 input valid, engineering recorded, acceptance not applicable, effects pending when observed. US-002/003 fresh scoped engineering is ready but factory evidence recording is blocked by recovery of the first US-002 request, which reused a run-global immutable check ID. Corrected payloads pass preflight. See run0005-submission-blocker.md for exact request correlation and safe recovery. Pending is not success. No acceptance review, factory save or remote-effect success is claimed.
