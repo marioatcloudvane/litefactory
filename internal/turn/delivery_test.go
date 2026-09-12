@@ -11,6 +11,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/render"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/team"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -167,7 +168,7 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t, nil)
 	opts, req, snapshot := deliveryFixture()
-	opts.DB, opts.Paths = f.db, f.paths
+	opts.DB, opts.Paths, opts.Logger = f.db, f.paths, f.opts.Logger
 	req.SessionID = f.session.ID
 	p, err := planDelivery(opts, req, snapshot, t.TempDir())
 	if err != nil {
@@ -211,5 +212,72 @@ func TestDeliverySegmentRetainsAndRotatesExactIdentity(t *testing.T) {
 	}
 	if _, _, err := prepareDeliverySegment(t.Context(), opts, req, f.session, testRef(t), "delivery-session", changed); err == nil {
 		t.Fatal("resume accepted missing retained resource")
+	}
+}
+
+// TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent is AC-018: when a
+// team snapshot is configured, a coding-agent switch re-pins delivery for the
+// newly resolved agent on the very same segment row — agent.Request.Delivery
+// comes back non-nil, and the identity recorded against the segment is
+// exactly what [planDelivery] produces for the new agent, not a leftover
+// pin from the agent the segment previously belonged to.
+func TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, nil)
+
+	claudeOpts, claudeReq, claudeSnapshot := deliveryFixture()
+	claudeOpts.Tiers.ModelByTier["claude"] = map[config.Tier]string{"balanced": "claude-model"}
+	claudeOpts.DB, claudeOpts.Paths = f.db, f.paths
+	claudeReq.SessionID = f.session.ID
+	claudeReq.Agent, claudeReq.CodexSandbox = "claude", ""
+	claudePlan, err := planDelivery(claudeOpts, claudeReq, claudeSnapshot, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, firstDelivery, err := prepareDeliverySegment(
+		t.Context(), claudeOpts, claudeReq, f.session, testRef(t), "claude-session-ref", claudePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Agent != string(store.AgentClaude) || firstDelivery == nil {
+		t.Fatalf("seeded segment = %+v delivery=%v, want a Claude segment with a delivery pinned", first, firstDelivery)
+	}
+
+	codexOpts, codexReq, codexSnapshot := deliveryFixture()
+	codexOpts.DB, codexOpts.Paths = f.db, f.paths
+	codexReq.SessionID = f.session.ID
+	codexPlan, err := planDelivery(codexOpts, codexReq, codexSnapshot, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexPlan.identity == claudePlan.identity {
+		t.Fatal("fixture bug: the two agents' plans must not already share an identity")
+	}
+
+	switched, switchedDelivery, err := prepareDeliverySegment(
+		t.Context(), codexOpts, codexReq, f.session, testRef(t), "claude-session-ref", codexPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if switched.ID != first.ID {
+		t.Fatalf("switch started a new segment: first=%d switched=%d", first.ID, switched.ID)
+	}
+	if switched.Agent != string(store.AgentCodex) {
+		t.Fatalf("switched segment agent = %q, want %q", switched.Agent, store.AgentCodex)
+	}
+	if switchedDelivery == nil {
+		t.Fatal("agent.Request.Delivery is nil after a switch with a team snapshot configured")
+	}
+	if switchedDelivery.Identity != codexPlan.identity {
+		t.Errorf("delivered identity = %q, want the new agent's planDelivery identity %q",
+			switchedDelivery.Identity, codexPlan.identity)
+	}
+
+	identity, root, err := f.db.SegmentDelivery(t.Context(), switched.ID)
+	if err != nil {
+		t.Fatalf("read the segment's recorded delivery: %v", err)
+	}
+	if identity != codexPlan.identity || root != switchedDelivery.Root {
+		t.Errorf("recorded delivery = %q/%q, want %q/%q", identity, root, codexPlan.identity, switchedDelivery.Root)
 	}
 }

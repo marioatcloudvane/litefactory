@@ -218,21 +218,31 @@ func prepare(
 	// layer never invents a vendor-specific fallback.
 	resolvedKind := req.Agent
 
-	// The task lock serializes segment selection and creation. Effective
-	// instruction changes rotate same-vendor segments; vendor changes still
-	// return the stored segment unchanged for the refusal below.
+	// The task lock serializes segment selection and creation. An ordinary
+	// turn whose label resolved to a different coding-agent tool than the one
+	// already owning this session's segment is a switch, not a refusal:
+	// prepareDeliverySegment reconciles the segment to the newly resolved
+	// tool in place and segment.Agent always agrees with resolvedKind by the
+	// time control reaches here. Only an automatic-recovery continuation can
+	// still disagree, because its segment lookup never reconciles (see below).
 	segment, delivery, err := prepareDeliverySegment(ctx, opts, req, session, ref, sessionRef, deliveryPlan)
 	if err != nil {
 		return nil, fmt.Errorf("record the conversation segment of task %s: %w", ref, err)
 	}
-	if segment.Agent != string(resolvedKind) {
-		// A session with no segment yet always matches — GetOrCreateSegment
-		// just created one under resolvedKind — so this is reachable only
-		// when a prior run already committed this conversation to a
-		// different tool (AC-3.3, AC-3.1). No session-state transition has
-		// occurred and no runs row has been allocated; the worktree already
-		// exists on disk and sessions.worktree_path already records it, and
-		// both are idempotent and reused by the next turn.
+	if req.Continuation != nil && segment.Agent != string(resolvedKind) {
+		// Automatic recovery names the exact segment it is continuing
+		// (req.Continuation.SegmentID) and that lookup deliberately does not
+		// reconcile a stale agent the way an ordinary turn's does — recovery
+		// has to land on the same conversation it was continuing, not a
+		// freshly switched one. A label change since the continuation was
+		// recorded is the only way this segment still disagrees with
+		// resolvedKind here, and the daemon already cancels a pending
+		// continuation whose label changed
+		// (daemon/continuation_dispatch.go); this is defence in depth, not
+		// the primary defence. No session-state transition has occurred and
+		// no runs row has been allocated; the worktree already exists on
+		// disk and sessions.worktree_path already records it, and both are
+		// idempotent and reused by the next turn.
 		return nil, &agentSwitchRefusal{owning: segment.Agent, requested: string(resolvedKind)}
 	}
 	kind := agent.Kind(segment.Agent)
@@ -260,12 +270,14 @@ func prepare(
 		return nil, err
 	}
 	// Tool-aware, and evaluated on its own rather than trusted from the
-	// switch-refusal check above (US-3, AC-3.4): a segment whose agent does
-	// not match resolvedKind never reaches this line today, because that
-	// mismatch already returned an *agentSwitchRefusal — but resumeDecision
-	// reads segment.Agent for itself rather than assuming that invariant, so
-	// the resume decision stays correct even if the two checks are ever
-	// reordered or one of them is reused on its own.
+	// checks above (US-3, AC-3.4): a segment whose agent does not match
+	// resolvedKind never reaches this line — an ordinary turn's segment was
+	// just reconciled to resolvedKind by prepareDeliverySegment, and an
+	// automatic-recovery continuation whose segment still disagrees was
+	// refused just above — but resumeDecision reads segment.Agent for itself
+	// rather than assuming that invariant, so the resume decision stays
+	// correct even if the two checks are ever reordered or one of them is
+	// reused on its own.
 	resume := resumeDecision(found, segment, resolvedKind)
 	if req.Continuation != nil {
 		if segment.ID != req.Continuation.SegmentID {
@@ -393,6 +405,10 @@ func prepare(
 	} else if !errors.Is(contractErr, store.ErrNotFound) {
 		return nil, contractErr
 	}
+	// Populated on every path, cold or resumed (harness itself renders the
+	// pointer only on the cold path — see [harness.PromptInput.SessionArtifactDir]).
+	promptInput.SessionArtifactDir, promptInput.SessionArtifactBrief =
+		existingSessionArtifacts(worktree.Path(), branch, ref.Issue, run.StartedAt, req.mode(), logger)
 	prompt, err := harness.BuildPrompt(promptInput)
 	if err != nil {
 		return nil, fmt.Errorf("assemble the prompt for run %d of task %s: %w", run.Ordinal, ref, err)
@@ -980,17 +996,25 @@ func syncBase(
 	return sync, nil
 }
 
-// previousRun finds the last run of this segment that claude was actually
-// invoked for — one of the three things [resumeDecision] weighs to answer
+// previousRun finds the last run of this segment that a coding-agent tool was
+// actually invoked for — one of the things [resumeDecision] weighs to answer
 // "is there a conversation to continue?" (US-3, AC-3.4).
 //
+// It answers that question tool-agnostically, on purpose: this segment's row
+// can have been switched to a different coding-agent tool since an earlier
+// run in this result set (store.DB.SetSegmentAgent), same id and ordinal, so
+// a hit here is not by itself proof that resolvedKind's tool has a resumable
+// conversation — [resumeDecision] is what applies that further test, and it
+// forces a cold start unconditionally on the turn that just performed a
+// switch, without walking this history a second time by agent.
+//
 // The evidence is the runs table and nothing else. A row on this segment in a
-// terminal status means a subprocess was started with the segment's claude
-// session id, and claude keeps a transcript for every session id it is given —
-// so a conversation should exist and this run can resume it. There is no column
-// for this and there does not need to be one: runs.segment_id and runs.status
-// already say it, and a column would be a second copy of the same fact to keep
-// in step.
+// terminal status means a subprocess was started with the segment's
+// session id at the time, and a coding-agent tool keeps a transcript for
+// every session id it is given — so a conversation should exist and this run
+// can resume it. There is no column for this and there does not need to be
+// one: runs.segment_id and runs.status already say it, and a column would be
+// a second copy of the same fact to keep in step.
 //
 // A row still marked running is not evidence, and the argument for that has to
 // be made against the real concurrency model rather than the one this code was
@@ -1044,9 +1068,22 @@ func previousRun(
 	return previous, found, nil
 }
 
-// resumeDecision is the tool-aware cold-vs-resume decision (US-3, AC-3.4):
-// this run continues the previous run's conversation only when all three
-// hold —
+// resumeDecision is the tool-aware cold-vs-resume decision (US-3, AC-3.4).
+//
+// A turn whose segment was just switched to resolvedKind by this same call to
+// prepareDeliverySegment ([store.Segment.AgentSwitched]) always cold-starts,
+// unconditionally, before anything else here is even weighed: no history
+// lookup, no per-agent matching. That covers every direction a switch can
+// go, including switching back to a tool this same segment (same id, same
+// ordinal) used before an earlier switch away from it — the row's session_ref
+// and resume_token were both just replaced with values it has never held
+// before ([store.DB.SetSegmentAgent]), so a resumed run would either fail
+// outright or, worse, silently resume a stale conversation left over from
+// before that earlier switch. Cold-starting is always safe here and is the
+// only allowed outcome.
+//
+// Otherwise this run continues the previous run's conversation only when all
+// three hold —
 //
 //   - found: a prior terminal run exists for this segment ([previousRun]);
 //   - segment.Agent equals resolvedKind: this run addresses the same
@@ -1055,13 +1092,16 @@ func previousRun(
 //     conversation handle to resume, which only a real run leaves behind.
 //
 // Any one of them failing means a cold start. The agent check is read
-// directly off segment rather than trusted as an invariant [prepare]'s
-// switch-refusal check already established earlier in the same function —
-// a session whose segment does not match resolvedKind is refused before this
-// is ever called today, but this function answers correctly on its own,
-// which is what makes it independently testable (T-3.3) rather than a claim
-// about call order.
+// directly off segment rather than trusted as an invariant established
+// earlier in the same function — [prepare]'s narrowed switch-refusal check
+// only ever fires for an automatic-recovery continuation now, not for an
+// ordinary turn — but this function answers correctly on its own, which is
+// what makes it independently testable (T-3.3) rather than a claim about
+// call order.
 func resumeDecision(found bool, segment store.Segment, resolvedKind agent.Kind) bool {
+	if segment.AgentSwitched {
+		return false
+	}
 	if !found || segment.Agent != string(resolvedKind) {
 		return false
 	}
@@ -1533,10 +1573,14 @@ func allocateRun(
 		SegmentID: segment.ID,
 		Mode:      req.mode(),
 		// The segment's own value, never req.Agent recomputed: by the time
-		// this is called, [prepare] has already confirmed the two agree —
-		// segment.Agent is what the switch-refusal check compared resolvedKind
-		// against — and the segment is the record a resume reads back later
-		// (US-3).
+		// this is called, segment.Agent is already guaranteed to equal
+		// resolvedKind — prepareDeliverySegment reconciles an ordinary turn's
+		// segment to the newly resolved tool (a switch overwrites this same
+		// row in place rather than starting a new one), and the narrower
+		// switch-refusal check above catches the one case that does not
+		// reconcile, an automatic-recovery continuation. This runs row's own
+		// agent is what a later run reads back to decide whether it, too,
+		// still belongs to the tool that ran it (US-3).
 		Agent:            segment.Agent,
 		TriggerCommentID: req.Trigger.CommentID,
 		LogPath: func(ordinal int) string {
