@@ -1,3 +1,13 @@
+## Run 0006 — S-4 engineering notes (2026-09-12)
+
+Selected only S-4 (#250), frozen revision 029f46d4e9d07d64686388b0c59b1cdc7bbcccc8a891483b51171d48dc42d963, with no dependencies. S-1, S-2, S-3 and S-5 remain satisfied, read-only engineering dependencies.
+
+Assumption: the request to mirror the Implement wording does not remove the frozen requirement to add Plan wording as well. Both Claude files received the existing corresponding Codex completion sections. No generators, shared-source edits, protected Codex edits, or production Go changes were needed.
+
+The required make check normally specifies a 20-minute test deadline. A temporary supplemental makefile changes only that deadline to 8 minutes; formatting, vet, pinned lint and the full race suite remain enabled. This honors the explicit end-of-run gate while bounding execution. Repository Makefile is unchanged. Lint emitted cache-write permission warnings but continued successfully.
+
+The engineering receipt records valid input, recorded engineering and a delivered remote effect; acceptance is not applicable. Request ID: 146e61e3b6b91c997fcf167984b01606. No Validate review or issue closure was performed. Save, commit and push remain with the factory.
+
 # Implement notes — S-1, S-2, S-3, S-5
 # Branch: lf/229-improvements-to-planning-workflow-and
 # Date: 2026-09-12 (run started 2026-09-11)

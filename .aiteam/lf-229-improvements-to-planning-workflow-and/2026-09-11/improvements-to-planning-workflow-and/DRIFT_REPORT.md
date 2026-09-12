@@ -1,3 +1,9 @@
+## Run 0006 — S-4 scope disposition
+
+Delivered as planned: shared plain-language final-message rule and ordered Plan/Implement rules in both Claude instruction files; early-stop reporting remains dominant. Existing Codex wording was mirrored exactly. No scope additions, dropped S-4 requirements, architectural changes or generator runs.
+
+Implementation scope verdict: CLEAN. Overall run remains PARTIAL because aggregate tests fail on pre-existing cross-tree instruction expectations and two package deadlines. Repairing broad instruction maintenance, including the protected Codex tree, exceeds S-4. Historical completed stories and their evidence remain unchanged. No acceptance assessment performed.
+
 # Drift Report — Slimmer run-completion and story comments (S-1, S-2, S-3, S-5)
 # Branch: lf/229-improvements-to-planning-workflow-and | Date: 2026-09-12
 

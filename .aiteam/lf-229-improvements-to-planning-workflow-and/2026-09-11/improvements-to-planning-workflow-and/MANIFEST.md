@@ -1,3 +1,9 @@
+## Current run 0006 — Implement partial (2026-09-12)
+
+S-4 engineering is complete and durably recorded; aggregate checks did not pass. The story's two Claude completion-message sections and targeted checks are complete. Build, format, vet and lint passed. The final make check failed on pre-existing instruction-parity mismatches and daemon/turn package deadlines. Both tests interrupted by those deadlines passed isolated retries; this does not turn the aggregate failure into a pass. Scope fixes would exceed S-4. S-1/2/3/5 remain unchanged, engineering-complete.
+
+Current report: S4_RUN_REPORT.md. Evidence: S4_IMPLEMENTATION_REPORT.md, S4_TEST_REPORT.md, S4_ENGINEERING_RECEIPT.json, S4_AGGREGATE_OUTPUT.txt, S4_GATE_ANALYSIS.md, S4_TIMEOUT_RETEST.md. No acceptance review, commit or push performed.
+
 # Manifest
 # Branch: lf/229-improvements-to-planning-workflow-and
 # Session: 2026-09-11
