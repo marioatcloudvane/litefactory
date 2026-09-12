@@ -586,3 +586,113 @@ item is the pre-existing, explicitly non-blocking residual gap on the
 original design-rationale paper trail (Question 2's residual, git-history
 access), which does not require a decision before Plan proceeds. **This
 brief is ready to hand to Plan mode.**
+
+## Addendum (2026-09-12) — "always cold, never resume" vs. fixed `session_ref`
+
+Narrow fact-finding pass during a Plan iteration, prompted by the owner
+changing the requirement from "resume Claude on switch-back" (BR-5/R-1/D-D
+above) to "every switch, either direction, always cold-starts the newly
+selected agent — never resume, even the same agent's own earlier
+conversation." The owner was explicit this does not reopen "same row, no
+rotation" — the row is still overwritten in place, but with a "new session
+id."
+
+**Evidence gathered:**
+
+1. Cold Claude invocation: `internal/harness/runner.go:584-598` builds
+   `--session-id <value>` where `<value>` is `req.Session.Ref`, which
+   `internal/turn/prepare.go:489-491` sets to `segment.SessionRef` — the
+   stored column, not a re-derivation. `segment.SessionRef` is written once,
+   at row creation, from `naming.SessionRef(ref, ordinal)`
+   (`prepare.go:211`, `naming/session.go:62-76`), a pure function of exactly
+   those two inputs — nothing else feeds it, and it takes no discriminator
+   today.
+2. The "already in use" condition (`runner.go:544-559`,
+   `runner_test.go:1144-1147`, `turn/harness_test.go:236-238`) is
+   documentation of Claude CLI behavior, not something litefactory's own code
+   parses or matches on — litefactory never inspects the stderr text
+   (`runner.go:860-866`, "decided structurally... never matched on"). Per
+   that documentation, the collision is keyed to the transcript Claude keeps
+   **on disk** for that exact id, permanently, not to whether a process is
+   presently live — i.e., any second-ever cold `--session-id` for a
+   previously-used id collides regardless of elapsed time or intervening
+   resumes. This fact itself is only as reliable as litefactory's own
+   comments/tests describing another project's binary; live nested-agent
+   verification is unavailable in this environment
+   (`docs/decisions/nested-agent-evidence.md`), a limitation the prior plan
+   iteration already flagged for this exact evidence line.
+   Litefactory's own classifier (`resumeRefused`, `runner.go:884-889`) only
+   ever fires when `req.Path.Resuming()` is true; a cold-path collision is
+   never classified as `ErrSessionNotResumable` and is never auto-retried
+   (`TestRunDoesNotReportARefusalOnTheColdPath`,
+   `runner_test.go:1144-1158`) — it surfaces as one ordinary failed run
+   (`OutcomeFailed`), not a daemon crash or an infinite loop.
+3. Codex's cold path (`internal/codex/runner.go:441-447`) passes no
+   identifier at all on a cold start (`return append(args, "-")`); Codex
+   mints its own thread id, reported later via a `thread.started` event
+   (`runner.go:335`, `528-529`) and recorded as `ResumeToken`. Codex has no
+   deterministic-id collision risk by construction — nothing to fix there.
+4. `naming.SessionRef` takes only `(ref, segmentOrdinal)` — no generation
+   counter, timestamp or other discriminator exists on `store.Segment`
+   today (`internal/store/segments.go:19-51`: `ID, SessionID, Ordinal,
+   SessionRef, Agent, ResumeToken, CreatedAt` — `CreatedAt` is set once at
+   row creation and does not change on a switch, so it cannot serve as a
+   per-switch discriminator without also being touched, which is itself a
+   schema-adjacent behavior change even without a migration).
+5. Load-bearing finding: **`segments.session_ref` is a plain mutable NOT
+   NULL column with no uniqueness constraint** (`store/migrations/
+   0003_agent.sql:16-43`, plain `ALTER TABLE ... RENAME COLUMN`) and nothing
+   in the codebase enforces that the stored value must keep matching
+   `naming.SessionRef(ref, ordinal)` after row creation —
+   `GetOrCreateSegment` (`store/segments.go:62-100`) only uses the derived
+   value on `INSERT`; an existing row's stored value is authoritative and
+   the doc comments on both `naming.SessionRef`
+   (`naming/session.go:59-61`) and `GetOrCreateSegment`
+   (`store/segments.go:59-61`) already say so explicitly ("if they ever
+   disagree, the stored value wins, because it is the one the tool has
+   already seen"). Nothing downstream requires `agent.Request.Session.Ref`
+   to equal a specific derivation — only that it equal whatever
+   `segment.SessionRef` currently holds, because that is its sole source
+   (`prepare.go:489-491`). The automatic session-limit continuation path
+   also keys strictly off `segment.SessionRef` read fresh from the store at
+   both write time (`turn/continuations.go:28-31`, `45`) and dispatch time
+   (`daemon/continuation_dispatch.go:121-133`) — a mismatch between the two
+   reads (e.g., because a switch landed in between) already causes a clean,
+   pre-existing `cancel("conversation identity unavailable or changed")`,
+   not a crash or a wrong resume.
+
+**Direct answer to the tension:** "always cold, never resume" and "same
+row, no rotation (same id/ordinal)" are reconcilable **only if the switch
+mutation also assigns a fresh value into that same row's `session_ref`
+column**, not just `agent` and `resume_token`. Forcing `resumeDecision` to
+cold on every switch (a same-turn boolean, no persistence needed) is
+necessary but not sufficient by itself: with `session_ref` left fixed, a
+forced-cold switch-back to Claude would still hand Claude an id its own
+on-disk transcript has already claimed, and would still collide — the
+collision is a property of the id, not of the resume/cold decision. Once
+the switch mutation also regenerates `session_ref` (e.g., a freshly
+generated random UUID — not a re-derivation of `naming.SessionRef`, since
+that function has no per-switch input to vary), no schema or migration
+change is needed: the column already accepts and is documented to tolerate
+an arbitrary stored value diverging from the deterministic derivation.
+
+**What would need to change (implementation-sized, not schema-sized):**
+- Extend whatever replaces the switch mutation (`SetSegmentAgent` in the
+  prior plan) to also write a freshly generated `session_ref` into the same
+  row, same transaction, alongside `agent` and clearing `resume_token`.
+- Force `resumeDecision` to cold whenever this turn's `prepare` call just
+  performed a switch (a local fact already available where the mutation is
+  applied), so a switch never even attempts `--resume` before falling back
+  cold to avoid a wasted refused subprocess.
+- Correct the doc comments that currently assert `session_ref` is fixed for
+  a segment's lifetime / always recomputable from `(ref, ordinal)`
+  (`naming/session.go:44-61`, `store/segments.go:29-40`, and this session's
+  own `feature-spec.md`/`ARCH_REVIEW.md` BR-2/BR-5/D-1/D-D wording) —
+  this is a wording correction to match the owner's new decision, not a
+  discovered contradiction in the design.
+- No migration, no new column, no rotation (`ordinal`/row id unchanged).
+
+This addendum does not re-open or re-resolve Open Questions 5-9; it answers
+a new, narrower question raised after the Plan iteration that produced
+`feature-spec.md`/`ARCH_REVIEW.md`, for the owner/Plan to decide whether to
+adopt the "regenerate `session_ref` on switch" change.

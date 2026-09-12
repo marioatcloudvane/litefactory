@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed iteration)*
+- [x] **Plan** — `plan_brief.md` + per-story sub-issues *(completed iteration, revised)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
@@ -110,7 +110,59 @@ asked for; nothing here licenses starting the next one.
   No material questions remained; no assumptions needed owner sign-off
   beyond what Research had already resolved.
 
+- 2026-09-12 — Sixth run (narrow fact-finding pass during the Plan
+  iteration, not a full Research pass): the owner changed the requirement
+  from "resume Claude on switch-back" to "every switch, either direction,
+  always cold-starts, never resumes" while keeping "same row, no rotation."
+  Traced the exact cold-Claude call path, the "already in use" collision's
+  actual trigger (permanent, keyed to the on-disk transcript for that id —
+  not concurrency-scoped), Codex's collision-free-by-construction cold path,
+  and confirmed `segments.session_ref` is a plain mutable NOT NULL column
+  with no uniqueness constraint and no enforced tie to
+  `naming.SessionRef(ref, ordinal)` after row creation. Conclusion: the new
+  requirement is achievable with no schema/migration change and no
+  rotation, but only if the switch mutation also regenerates
+  `session_ref` itself (not just `agent`/`resume_token`) and
+  `resumeDecision` is forced cold on a same-turn switch. Appended an
+  additive addendum to `RESEARCH_BRIEF.md`; did not reopen Open Questions
+  5-9 or touch `plan_brief.md`/`feature-spec.md`/`ARCH_REVIEW.md`.
+
+- 2026-09-12 — Seventh run: Plan revision to `switch-agent-by-label`,
+  triggered by the owner's illustrated comment ("Agent A -> Id 1223, switch
+  to Agent B, Database then carries Agent B -> Id asdf... we should not
+  know which session to switch back to anyways") reaffirming the sixth
+  run's conclusion. Confirmed the sixth run's fact-finding fully resolves
+  the tension (no schema change, no rotation needed) and revised the single
+  story accordingly rather than reopening a question to the owner: dropped
+  the prior iteration's "resume Claude on switch-back if it ran there
+  before" refinement (`resumeDecision`/`previousRun` runs.agent-aware arm,
+  BR-5/D-D in the superseded draft) and replaced it with an unconditional
+  "force cold on any switch turn" rule; extended the store accessor's
+  contract so a switch's single-transaction overwrite also regenerates
+  `session_ref` to a value never held by that row before, alongside the
+  existing `agent` overwrite and `resume_token` clear; updated the affected
+  acceptance criteria (notably AC-002 and AC-005) and doc-comment cleanup
+  scope (AC-010) to match; carried forward an explicit evidence-obligation
+  inventory per `docs/decisions/nested-agent-evidence.md`, including the
+  still-unsatisfied, non-blocking obligation for live external observation
+  of the Claude CLI's collision behavior. `plan_brief.md` rewritten in place
+  (same single-story Story Index link; Out of Scope's "no new session-id
+  scheme" bullet corrected, since regenerating the id in the same row is now
+  exactly the mechanism used, not something declined). Preflight was clean
+  (valid, complete, no diagnostics) and the revised completed Plan
+  contribution was submitted for the same story key (`switch-agent-by-label`,
+  intent `update`) — see Notes for the new request id and states. No
+  material question remained open for the owner; the sixth run's research
+  was sufficient to resolve the apparent conflict without asking.
+
 ## Notes
 
-- Plan submission request id (for correlation if a reply is ever lost):
+- Plan submission request id, first completed iteration (superseded by the
+  revision below; kept for correlation history):
   `db6d4e3c3f7633216ea25ad948638421`.
+- Plan submission request id, revised iteration (current):
+  `8420de915c13e414404edea6d8d86736` — input state `valid`, plan state
+  `pending` at submit time (factory ID 45, run 359, attempt
+  `fb8aac73a79ff2b012bb94a229d20488`). The factory's issue update/link-fill is
+  an asynchronous step after this run; readiness for Implement is set by the
+  factory once that publication completes, not by this run.
