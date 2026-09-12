@@ -176,7 +176,7 @@ retry invisibly. Never substitute your own guess for a child's findings.
 resolves to `general-purpose`, which carries none of this team's instructions and
 reports `DONE` anyway, so the substitution is invisible in the log. Valid here:
 `requirements-engineer`, `go-architect`, `proxy-product-owner`,
-`research-orchestrator`, `codebase-tour`. An agent name, never a note or
+`research-orchestrator`. An agent name, never a note or
 placeholder.
 
 ## Choreography

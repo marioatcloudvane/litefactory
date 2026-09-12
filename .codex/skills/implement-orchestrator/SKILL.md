@@ -221,8 +221,7 @@ never invoked `go-implementation-engineer` at all; the reports read `DONE`, so
 nothing looked wrong. Never set a Claude `subagent_type`, tool list or model
 name. Roster: `go-implementation-engineer`, `go-unit-test-engineer`,
 `go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
-`proxy-product-owner`, `codebase-tour`, `requirements-engineer`,
-`web-researcher`.
+`proxy-product-owner`, `requirements-engineer`.
 
 The task message carries the skill path and the work, never an aside to
 yourself. A run on #33 passed `"TodoWrite is not a Task tool; ignore"` where the

@@ -21,8 +21,6 @@ var goTeamSpecialistKeys = []string{
 // (its .claude/agents/app-context-updater.md source no longer exists) and is
 // deliberately excluded — see internal/team/embedded.go's package comment.
 var sharedGenericKeys = []string{
-	"codebase-tour",
-	"web-researcher",
 	"requirements-engineer",
 	"proxy-product-owner",
 	"research-orchestrator",

@@ -32,7 +32,6 @@ below is a pure relabelling of the `model:` value the file already had.
 
 | Specialist file | Tier | Claude model (unchanged) |
 |---|---|---|
-| `codebase-tour.md` | balanced | sonnet |
 | `go-architect.md` | flagship | opus |
 | `go-code-reviewer.md` | balanced | sonnet |
 | `go-implementation-engineer.md` | balanced | sonnet |
@@ -43,7 +42,6 @@ below is a pure relabelling of the `model:` value the file already had.
 | `proxy-product-owner.md` | balanced | sonnet |
 | `requirements-engineer.md` | flagship | opus |
 | `research-orchestrator.md` | balanced | sonnet |
-| `web-researcher.md` | balanced | sonnet |
 
 No specialist is currently assigned `fast` — nothing in the current roster
 needs a model cheaper than `balanced`. `fast` stays in the vocabulary

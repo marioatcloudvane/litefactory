@@ -189,7 +189,7 @@ retry invisibly. Never substitute your own guess for a child's findings.
 nothing else. A spawn with no skill path gets an agent carrying none of this
 team's instructions that reports `DONE` anyway, so the substitution is invisible
 in the log. Valid here: `requirements-engineer`, `go-architect`,
-`proxy-product-owner`, `research-orchestrator`, `codebase-tour`. Never set a
+`proxy-product-owner`, `research-orchestrator`. Never set a
 Claude `subagent_type`, tool list or model name.
 
 ## Choreography

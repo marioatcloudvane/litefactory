@@ -207,8 +207,7 @@ dispatched every implementation agent that way and never invoked
 `go-implementation-engineer` at all; the reports read `DONE`, so nothing looked
 wrong. Roster: `go-implementation-engineer`, `go-unit-test-engineer`,
 `go-integration-test-engineer`, `go-code-reviewer`, `go-architect`,
-`proxy-product-owner`, `codebase-tour`, `requirements-engineer`,
-`web-researcher`.
+`proxy-product-owner`, `requirements-engineer`.
 
 The field takes an agent name and nothing else — never a note or an aside. A run
 on #33 passed `"TodoWrite is not a Task tool; ignore"` as the agent name and

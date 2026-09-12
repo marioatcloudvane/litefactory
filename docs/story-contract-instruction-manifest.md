@@ -20,8 +20,6 @@ source in each row, plus those declared skills, determines the affected contract
 
 | Source under `teams/source/agents/` | US-010 Claude target | US-011 Codex target |
 |---|---|---|
-| shared/codebase-tour.md | .claude/agents/codebase-tour.md | .codex/skills/codebase-tour/SKILL.md |
-| shared/web-researcher.md | .claude/agents/web-researcher.md | .codex/skills/web-researcher/SKILL.md |
 | shared/requirements-engineer.md | .claude/agents/requirements-engineer.md | .codex/skills/requirements-engineer/SKILL.md |
 | shared/proxy-product-owner.md | .claude/agents/proxy-product-owner.md | .codex/skills/proxy-product-owner/SKILL.md |
 | shared/research-orchestrator.md | .claude/agents/research-orchestrator.md | .codex/skills/research-orchestrator/SKILL.md |
@@ -64,7 +62,7 @@ not launch an agent. Repeating with the same captured bytes/settings is the
 reproducible source procedure; production model bindings may differ.
 
 Native source-to-output names are exactly `plugin/agents/<role>.md` for Claude
-and `roles/<role>.toml` for Codex, for the 12 role names in the table. Those are
+and `roles/<role>.toml` for Codex, for the role names in the table. Those are
 in-memory return values, not installed-tree destinations. Captured transitive
 skills retain their relative `skills/<name>/SKILL.md` source paths in snapshot
 files. Snapshot/render validity and installed legacy-copy parity are separate

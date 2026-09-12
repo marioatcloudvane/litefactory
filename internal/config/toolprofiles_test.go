@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,6 +77,15 @@ func TestCanonicalPermissionMatrix(t *testing.T) {
 			t.Errorf("profile %q incomplete", name)
 		}
 	}
+	for _, name := range []string{"research", "plan", "implement", "validate"} {
+		p := cfg.ToolProfiles.Permissions[name]
+		for _, tool := range []string{"WebSearch", "WebFetch"} {
+			want := name == "research"
+			if slices.Contains(p.Claude.Tools, tool) != want || slices.Contains(p.Claude.AllowedTools, tool) != want {
+				t.Errorf("%s direct web permission for %s, want %t", name, tool, want)
+			}
+		}
+	}
 	validate := cfg.ToolProfiles.Permissions["validate"]
 	for _, tool := range validate.Claude.Tools {
 		if tool == "Bash" || tool == "Write" || tool == "Edit" {
@@ -85,6 +95,30 @@ func TestCanonicalPermissionMatrix(t *testing.T) {
 	if validate.Codex.Sandbox != "read-only" {
 		t.Errorf("validate sandbox=%q", validate.Codex.Sandbox)
 	}
+	for _, explicit := range []bool{false, true} {
+		t.Run("legacy ceiling explicit="+strconv.FormatBool(explicit), func(t *testing.T) {
+			body := string(DefaultFileContents())
+			ceiling := ""
+			if explicit {
+				ceiling = yamlList(4, "tool_ceiling", defaultTools())
+			}
+			body = strings.Replace(body, yamlList(4, "tool_ceiling", DefaultClaude().ToolCeiling), ceiling, 1)
+			for _, tool := range []string{"WebSearch", "WebFetch"} {
+				body = strings.ReplaceAll(body, "          - "+strconv.Quote(tool)+"\n", "")
+			}
+			legacy, err := Decode(strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := legacy.Validate(); err != nil {
+				t.Fatalf("persisted non-web profiles rejected: %v", err)
+			}
+			if !slices.Equal(effectiveToolCeiling(legacy.Agents.Claude), defaultTools()) {
+				t.Fatal("legacy ceiling widened")
+			}
+		})
+	}
+
 }
 
 func TestCanonicalAttachmentPermissionsAndOverrides(t *testing.T) {
@@ -136,6 +170,7 @@ func TestPermissionMatrixRejectsMissingExtraAndAgentMismatch(t *testing.T) {
 			c.ToolProfiles.Permissions["research"] = p
 		}, "codex"},
 		{"claude widens ceiling", func(c *Config) {
+			c.Agents.Claude.ToolCeiling = defaultTools()
 			p := c.ToolProfiles.Permissions["validate"]
 			p.Claude.Tools = []string{"Read", "WebFetch"}
 			c.ToolProfiles.Permissions["validate"] = p

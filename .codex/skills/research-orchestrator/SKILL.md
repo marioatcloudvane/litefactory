@@ -10,13 +10,7 @@ description: Orchestrates Research mode. Use when the user needs to understand a
 > - **Tools are not restricted for you.** Claude runs this orchestrator with a
 >   fixed tool list and the harness holds that boundary. Codex gives every agent
 >   the same tools, so the list is a rule you keep, not a wall you will hit.
->   Permitted here: `Read, Write, Edit, Task, TodoWrite`.
-> - **Delegation is `collaboration.spawn_agent`, not `Task`.** Where this file
->   says to invoke a specialist, spawn a sub-agent and give it that specialist's
->   SKILL.md path to follow: `.codex/skills/codebase-tour/SKILL.md` or
->   `.codex/skills/web-researcher/SKILL.md`. Never set a Claude `subagent_type`,
->   tool list or model name — Codex receives the skill path in the task message.
->   `collaboration.wait_agent` may wait for delivery; it is not a status poll.
+>   Permitted here: `Read, Write, Edit, Glob, Grep, Bash, WebSearch, WebFetch, TodoWrite`.
 > - **Report by returning your findings as your final message.** There is no
 >   separate reply channel to send them down.
 > - Claude runs this on `sonnet`; Codex chooses its own model.
@@ -47,7 +41,8 @@ The dispatcher passes the request, the feature tag and `$session`, with
 `$session/MANIFEST.md` already scaffolded.
 
 `$session` is `.aiteam/<branch>/<date>/<feature>/`. It is a boundary: read and
-write inside it and nowhere else under `.aiteam/`. Never glob across sessions and
+write only inside it under `.aiteam/`. Read `.aiteam/APP_CONTEXT.md` and relevant
+`APP_CONSTRAINTS.md` sections as repository guidance. Never glob across sessions and
 never open another session's artifacts — see `.claude/modes/session.md`.
 
 | Output | Register | Procedure |
@@ -60,65 +55,18 @@ never open another session's artifacts — see `.claude/modes/session.md`.
 The report is an **addition, not a replacement**. Nothing leaves the brief to make
 room for it, and the brief is written on every run.
 
-## You read structure, never content
+## Research
 
-Orchestrating needs three things, none of them content: **existence** (a `Read`
-that succeeds or fails), **structure** (an index), **verdicts** (the sub-agent's
-return message).
-
-- **You hold no `Glob` or `Grep`.** Deliberate. Do not ask for them, and do not
-  use `Task` to have another agent run a search you wanted to run yourself.
-- **Never read a file to check an agent's work.** It told you what it did;
-  re-reading its artifact is reviewing, which is another agent's job.
-- **Never read something in order to pass it on.** Every sub-agent reads what it
-  needs. A file you forward is paid for twice and only the second copy works.
-- **Do not read `.aiteam/APP_CONTEXT.md`.** You orchestrate; you do not research.
-- The procedure files above are the exception: read one when its step arrives.
-
-Reading your own current-session brief for continuity is allowed.
-
-## Sub-agents
-
-You hold no web access. Questions about this codebase go to `codebase-tour`;
-questions the repository cannot answer go to `web-researcher`. You own the brief;
-they own the finding out.
-
-| Agent | Invoke when | Pass it |
-|---|---|---|
-| `codebase-tour` | the request involves existing code — building on it, beside it, or changing it. Skip for pure greenfield. | the question; the scope (repo, module or directory — default whole repo); the feature tag; `.aiteam/rulebook.md` if it exists |
-| `web-researcher` | the question turns on anything outside this repository — library semantics, versions, a specification, upstream state, prior art | the specific factual questions **stated as questions**, one per thing to settle; any known version constraints |
-
-Both return findings inline and write no files. Pull their findings and open
-questions into the brief **carrying their uncertainty with them**.
-
-**A `web-researcher` no-access report with no attempted call is a bug, not a
-finding.** Its web access comes from the run's resolved mode, so a refusal is
-credible only when it names the call that was refused. Send it back once. If the
-retry also comes back refused, write the unanswered questions into Open Questions
-and say in your report that the run's profile is missing `WebFetch`/`WebSearch`.
-Never answer them from memory.
-
-## Sub-agents are foreground operations
-
-litefactory disables background tasks. `Task` returns the terminal report
-directly. Invoke each agent once; never poll, poke or resume for status.
-Independent calls may go in one batch; continue only after both have returned. A
-missing, failed or blocked report is an explicit research failure, not a reason
-to retry invisibly. Never substitute your own guess for a child's findings.
-
-**Every spawn names the specialist's SKILL.md path**, and nothing else —
-`.codex/skills/codebase-tour/SKILL.md` or `.codex/skills/web-researcher/SKILL.md`.
-A spawn with no skill path gets an agent carrying none of this team's
-instructions that reports back as if it did. Never set a Claude `subagent_type`,
-tool list or model name; Codex reads the path from the task message and picks its
-own model.
+Research directly. Follow `teams/source/skills/research-evidence/SKILL.md` for
+repository and web evidence. Read relevant code, callers and tests; use
+upstream sources for facts the repository cannot establish. Keep the question
+bounded, cite evidence and record uncertainty. Read your current-session brief
+for continuity and the output procedures when their steps arrive.
 
 ## Choreography
 
-1. Classify: existing codebase work, new domain exploration, or user-facing
-   feature.
-2. Invoke the sub-agents that apply — where both do, **in the same message** so
-   they run concurrently. Wait for every report before synthesising.
+1. Identify the research question and relevant repository scope.
+2. Gather repository and external evidence directly.
 3. Read `.claude/skills/shared/research-brief.md` and keep
    `$session/RESEARCH_BRIEF.md` up to date. Read it first when present; create it
    on a first run, update it on a later one. It is written on every run.
@@ -162,11 +110,11 @@ Route by what the question actually is:
 | The question | Where it goes |
 |---|---|
 | Needs human judgment — what gets built, a trade-off with no technical answer, scope | **The factory.** Read `.claude/skills/shared/asking.md`. |
-| A fact someone could establish by looking | **A specialist.** Invoke `codebase-tour` or `web-researcher`. |
+| A fact someone could establish by looking | **Research directly.** Inspect the code or authoritative web sources. |
 | Genuinely unresolvable right now | **The brief.** Log it as an open question and continue — unknowns are the work of Research mode. |
 
 The middle row is the common case and the one most often got wrong: reaching for
-a human is not diligence when a specialist has the tools to settle it.
+a human is not diligence when available evidence can settle it.
 
 Research asking is **opt-in** under `.aiteam/APP_CONSTRAINTS.md` (CONC-23). When
 it is not enabled, record unresolved owner decisions in the brief and report

@@ -88,7 +88,7 @@ agents:
     # model_tier selects one centrally configured value under tiers below.
     model_tier: %q
     autocompact: %q
-%s%s    # tools is the hard --tools boundary. allowed_tools becomes
+%s%s%s    # tools is the hard --tools boundary. allowed_tools becomes
     # --allowedTools and is defence in depth, NOT the boundary. --settings
     # prevents ambient permissions from the operator's personal settings.
     # An omitted tool_ceiling defaults to exactly tools.
@@ -131,7 +131,7 @@ tool_profiles:
 		d.Settings.ConflictContentMaxBytes, MinConflictContentMaxBytes, MaxConflictContentMaxBytes,
 		d.Providers.GitHub.APIBase,
 		claude.Binary, claude.ModelTier, claude.AutoCompact,
-		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools),
+		yamlList(4, "tools", claude.Tools), yamlList(4, "allowed_tools", claude.AllowedTools), yamlList(4, "tool_ceiling", claude.ToolCeiling),
 		claude.SettingsPath, claude.TimeoutSeconds, claude.ForwardAnthropicEnv,
 		codex.Binary, codex.ModelTier, codex.TimeoutSeconds,
 		renderModelByTier(d.Tiers.ModelByTier),

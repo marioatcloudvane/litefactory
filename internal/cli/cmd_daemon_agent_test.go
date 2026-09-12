@@ -108,6 +108,11 @@ func withCanonicalProfiles(t *testing.T, body string) string {
 		t.Fatal("default config has no tool_profiles section")
 	}
 	profiles := defaults[i:]
+	// These legacy agent fragments omit the generated web ceiling. Keep their
+	// appended profiles within the original ceiling instead of widening it.
+	for _, tool := range []string{"WebSearch", "WebFetch"} {
+		profiles = strings.ReplaceAll(profiles, "          - "+strconv.Quote(tool)+"\n", "")
+	}
 	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"workspace-write\"\n", "")
 	profiles = strings.ReplaceAll(profiles, "      codex:\n        sandbox: \"read-only\"\n", "")
 	return body + "\n" + profiles
