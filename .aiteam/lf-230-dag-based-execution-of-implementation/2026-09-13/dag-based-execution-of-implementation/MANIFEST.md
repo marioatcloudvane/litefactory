@@ -22,6 +22,8 @@
 
 - 2026-09-13 (run 0004): Completed primary-source graph/workflow format comparison; recorded clarification as an optional branch and superseded provisional YAML. Recommended SCXML for the first embedded Research slice, with BPMN as the visual-authoring alternative. Final format/library choice remains open, without blocking this bounded research. No implementation, tests, publication or mode transition.
 
+- 2026-09-13 (run 0005): Completed DOT/Go/license research and Temporal runtime comparison. Recommended a bounded DOT profile with Gonum AST parsing for the first Research slice; deferred Temporal for the local deployment. Recorded pinned Graphviz license distinction and untested runtime/library limits. No blocking questions, implementation, tests, publication or mode transition.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.

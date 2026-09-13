@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the bounded Research passes through run 0004. No implementation or Plan started. The run 0004 findings supersede earlier provisional YAML notation and clarify optional owner clarification; run 0003 supersedes single-file packaging and Implement-first suggestions. Earlier findings are retained as history, not current format decisions.
+Status: complete for the bounded Research passes through run 0005. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
 
 ## Request and answered decision
 
@@ -235,3 +235,106 @@ Unverified topics remain: suitable maintained Go interpreter or parser, complian
 No owner question is required to complete this comparison. Choosing the final format remains a future decision; this run supplies a reasoned shortlist rather than silently accepting the provisional YAML.
 
 - 2026-09-13 (run 0004): Accepted optional clarification and Research-first/mode-file direction; compared dedicated statechart, process and graph formats from primary sources; recommended SCXML for the embedded text-reviewed first slice, with BPMN for stronger visual-authoring requirements. Research complete for this bounded pass. No implementation, tests, publication or mode transition.
+
+
+## Run 0005: DOT authoring, Go implementations, licenses and Temporal
+
+### Request, conclusion and evidence boundary
+
+The owner asks for deeper DOT investigation, license implications, Go implementations, and whether Temporal would be excessive. The request is clear; no clarification question or mode change is needed. The owner accepts that durability must be built into the execution layer. The observation that people like DOT is owner-reported preference; this pass does not measure popularity.
+
+**Recommendation: use DOT as the authoring format for the first Research workflow, parse it with Gonum into a small validated litefactory model, and initially execute that model through the existing local runtime. Keep Temporal on the runtime shortlist, but defer adopting it for this first slice.** This replaces the prior SCXML preference because concise graph authoring now has explicit owner support and custom runtime semantics are an accepted responsibility. DOT and Temporal can coexist: one describes the graph, the other can run durable orchestration.
+
+Primary documentation and tagged upstream source were inspected on 2026-09-13. Pinned versions below are inspected examples, not claims of latest releases or selected dependency versions. Existing litefactory architecture findings above were reused without another source audit. No dependency was installed, no candidate library or workflow was compiled or executed, no tests or benchmarks ran, and no implementation, executable graph or policy changed. A few web cache misses were resolved through read-only HTTP retrieval of the same official raw source URLs. Source bytes and billed tokens were not measured. The license observations concern the inspected components; they are not a complete distribution/dependency audit.
+
+### What DOT provides and what litefactory must define
+
+DOT describes directed graphs (`digraph`), including cycles, through node IDs, edges and attributes. It supports defaults, repeated statements, subgraphs, ports, quoted IDs and HTML-like labels. `strict` means no parallel edges; it does not mean acyclic. A node can be introduced implicitly by an edge. Defaults apply according to declaration order, and subgraph endpoints can expand into several edges. These are useful drawing conveniences but need careful handling when the file controls execution. [Official DOT grammar](https://graphviz.org/doc/info/lang.html)
+
+Parsing produces topology and data. Graphviz’s `dot` engine computes layout, and output plugins render formats such as SVG or PNG. Those steps do not execute agents or supply retries, owner interaction, durable state or workflow validation. [Graphviz dot layout engine](https://graphviz.org/docs/layouts/dot/), [output formats](https://graphviz.org/docs/outputs/)
+
+Proposed execution profile, deliberately smaller than all legal DOT:
+
+- One directed graph per mode file, stable explicit node IDs, one declared entry, explicit terminal nodes, and a versioned `lf_` attribute vocabulary. Actions reference existing registered capabilities and task instructions; keep prompts and runtime state outside the graph.
+- Edges select typed results through `lf_on`. A source/outcome pair has exactly one destination. Do not interpret edge order, color, position or display labels as execution priority. Multiple differently named outcomes may target the same node; retain them as separate transitions.
+- Initially reject subgraphs, edge chains, ports, implicit nodes, repeated node definitions, duplicate attribute keys and inherited execution attributes. Allow a small documented set of visual attributes. Report unsupported constructs rather than silently dropping them. This limits authoring conveniences in exchange for reviewable execution meaning; it does not claim full DOT compatibility.
+- Accept directed loops but require explicit bounded automatic refinement and separately bounded technical retries. Validate entry/terminal reachability, action references, required result coverage and ambiguous transitions before starting any action. Serial Research needs no invented fork/join semantics; defer concurrency until the Implement slice.
+- Parse into an AST, validate, then normalize into a typed internal graph. Keep original definition bytes, digest and profile version with the instance. Runtime progress belongs in the database, and presentation changes must not redefine result routing.
+
+The following is **illustrative DOT text, not an implemented schema**. `lf_` names and action bindings are proposed litefactory semantics; standard DOT only carries them. The first agent action includes the clarity assessment, so a clear request skips the owner branch without a separate clarification-only invocation.
+
+```dot
+digraph research {
+  graph [lf_profile="research-v1", lf_entry="reason"];
+  reason  [lf_action="agent", lf_task="research_scope"];
+  inspect [lf_action="agent", lf_task="research_evidence"];
+  draft   [lf_action="agent", lf_task="research_synthesis"];
+  owner   [lf_action="owner_pause"];
+  report  [lf_action="save_and_report"];
+  done    [lf_terminal="complete"];
+  stopped [lf_terminal="incomplete"];
+
+  reason -> inspect [lf_on="clear"];
+  reason -> owner   [lf_on="needs_input"];
+  inspect -> draft [lf_on="done"];
+  inspect -> owner [lf_on="needs_input"];
+  draft -> report  [lf_on="done"];
+  draft -> inspect [lf_on="refine", lf_limit="2"];
+  draft -> owner   [lf_on="needs_input"];
+  owner -> reason  [lf_on="reply.scope"];
+  owner -> inspect [lf_on="reply.evidence"];
+  owner -> draft   [lf_on="reply.synthesis"];
+  report -> done   [lf_on="done"];
+  reason -> stopped  [lf_on="blocked"];
+  inspect -> stopped [lf_on="blocked"];
+  draft -> stopped   [lf_on="blocked"];
+}
+```
+
+For this sketch, the runtime records the originating node before entering `owner`, saves questions/report intent, then ends the run. Only a correlated owner reply emits the matching `reply.*` outcome. It does not keep an agent running or wait for a response in the current run. The profile would define technical failure, invalid output and refinement-exhaustion handling as recorded incomplete/failure outcomes; those common paths are omitted from the drawing. The candidate limit of two remains provisional. A terminal `done` is reached only after report effects are safely retained; an interrupted delivery is reconciled on recovery. No automatic transition to another mode is introduced.
+
+### Go implementation options
+
+| Inspected option | Parsing / writing / rendering | Deployment and license | Recommendation |
+|---|---|---|---|
+| **Gonum v0.16.0**, `graph/formats/dot` and `graph/encoding/dot` | AST parsing; separate graph marshaling/unmarshaling APIs. These packages do not provide Graphviz layout or workflow execution. | Go parser with generated Go lexer/parser; no Graphviz binary or C binding in this path. Gonum BSD-3-Clause; inspected parser files additionally offer CC0. Module declares Go 1.23.0. | First candidate for the execution-definition loader; use AST validation before constructing the runtime model. |
+| **goccy/go-graphviz v0.2.9** | DOT parsing/writing plus Graphviz layouts and SVG/PNG/JPG rendering. | Embeds Graphviz compiled to WASM, run through wazero; no separate Graphviz installation required. Module declares Go 1.22.0. Wrapper MIT, embedded Graphviz separately EPL. | Credible optional renderer, heavier than a topology parser; not a workflow engine. |
+| **emicklei/dot v1.10.0** | Go graph-building/writing API and Mermaid output; documented image example pipes DOT to the external `dot` executable. | MIT. | Useful for producing diagrams, not the documented solution for loading edited workflow files. No workflow execution is supplied. |
+
+Pinned Gonum evidence: [AST entry points and file license](https://github.com/gonum/gonum/blob/v0.16.0/graph/formats/dot/dot.go), [generated Go parser](https://github.com/gonum/gonum/blob/v0.16.0/graph/formats/dot/internal/parser/parser.go), [decoder](https://github.com/gonum/gonum/blob/v0.16.0/graph/encoding/dot/decode.go), [module](https://github.com/gonum/gonum/blob/v0.16.0/go.mod), [license](https://github.com/gonum/gonum/blob/v0.16.0/LICENSE). Pinned goccy evidence: [README](https://github.com/goccy/go-graphviz/blob/v0.2.9/README.md), [module](https://github.com/goccy/go-graphviz/blob/v0.2.9/go.mod), [license](https://github.com/goccy/go-graphviz/blob/v0.2.9/LICENSE). Pinned emicklei evidence: [README](https://github.com/emicklei/dot/blob/v1.10.0/README.md), [license](https://github.com/emicklei/dot/blob/v1.10.0/LICENSE).
+
+Two concrete decoder concerns strengthen the AST recommendation. Gonum’s decoder copies attributes only when destination values implement the relevant setter interfaces, and ignores standalone graph attribute statements in its `ast.Attr` case. A valid parse into a generic graph therefore does not establish preservation of workflow metadata. Its separate `UnmarshalMulti` API also signals the distinction between a simple graph and a graph with parallel edges. [Pinned decoder source](https://github.com/gonum/gonum/blob/v0.16.0/graph/encoding/dot/decode.go)
+
+For litefactory, `node -> next [lf_on="done"]` and another edge to the same `next` with a different outcome must not collapse. Avoid `strict digraph` for this proposed multi-transition profile and avoid a simple-graph carrier that silently merges edges. Read the AST directly or use a carefully implemented multigraph. Verify quoted IDs, attribute retention, invalid input and self-loops in a later implementation probe; no claim of complete parser conformance or production readiness follows from this source review.
+
+### License findings: language, parser and renderer are different choices
+
+Writing an original `.dot` workflow and using a Go parser does not itself bundle Graphviz. The official Graphviz license identifies the software it covers; choosing the language should not be described as automatically importing the renderer’s license. The proposed Gonum path is evaluated against Gonum’s own license. No blanket conclusion about all possible derived code or distribution arrangements is made.
+
+Gonum’s BSD-3-Clause license permits source and binary redistribution with retained copyright/conditions/disclaimer and a non-endorsement condition. MIT licenses for the two other Go wrappers require retention of their copyright and permission notices. These observations support a straightforward parser dependency choice, subject to checking the actual chosen release and shipped dependencies. [Gonum v0.16.0 license](https://github.com/gonum/gonum/blob/v0.16.0/LICENSE), [goccy v0.2.9 license](https://github.com/goccy/go-graphviz/blob/v0.2.9/LICENSE), [emicklei v1.10.0 license](https://github.com/emicklei/dot/blob/v1.10.0/LICENSE)
+
+**A version-sensitive distinction matters:** the current Graphviz website publishes **EPL-2.0**, but goccy v0.2.9 pins **Graphviz 12.1.2**, whose actual tagged `LICENSE` says **EPL-1.0**. Its wrapper README explicitly states that embedded `graphviz.wasm` follows Graphviz’s license. Therefore describing the bundled library as “MIT only” or automatically assigning today’s EPL-2.0 webpage to that historical WASM would be inaccurate. [Current Graphviz license page](https://graphviz.org/license/), [goccy pinned Graphviz version](https://github.com/goccy/go-graphviz/blob/v0.2.9/graphviz.version), [Graphviz 12.1.2 license](https://gitlab.com/graphviz/graphviz/-/blob/12.1.2/LICENSE)
+
+EPL-1.0 §3 imposes conditions on object-code redistribution, including informing recipients how to obtain the Program’s source; source distribution retains the agreement and notices. Its definition of Contributions distinguishes separate non-derivative modules. These terms concern the licensed Program and relevant modifications; this research does not conclude that all litefactory code must be relicensed. Packaging an embedded Graphviz renderer would require following the exact upstream version’s terms and checking bundled components. Keeping rendering optional avoids making that software part of the execution loader. [Graphviz 12.1.2 license §§1, 3](https://gitlab.com/graphviz/graphviz/-/blob/12.1.2/LICENSE)
+
+### Temporal: useful durability, a separate deployment decision
+
+Temporal has an official Go SDK. Workflow code can coordinate Activities and receive Signals or Updates from outside; Queries read workflow state. That maps naturally to agent/test invocations and owner replies. The SDK requires deterministic orchestration: direct external I/O belongs in Activities, and normal nondeterministic Go scheduling/map iteration cannot drive replay decisions. [Official Go SDK](https://github.com/temporalio/sdk-go), [workflow package](https://pkg.go.dev/go.temporal.io/sdk/workflow), [Go message passing](https://docs.temporal.io/develop/go/workflows/message-passing)
+
+A possible future adapter is a deterministic Go workflow interpreter consuming a pinned, normalized DOT definition. Registered actions become Activities and correlated owner replies become Signals/Updates. Keep both graph/profile identity and interpreter compatibility stable across replay. This is a proposed integration, not an existing Temporal DOT interpreter verified in this pass. DOT file choice need not determine whether the backend is local or Temporal.
+
+Temporal persists workflow history and supports retrying Activities, but an Activity’s external action can occur before its completion is recorded. Applications still need idempotent effects or reconciliation for agent launches, tests and GitHub publication; the engine cannot guarantee that a shell command or issue comment happens exactly once simply by wrapping it. Worktree ownership, credentials, artifact availability and routing jobs to the correct host also remain litefactory concerns. [Temporal Activity definition](https://docs.temporal.io/activity-definition)
+
+Production Temporal means an operated service or Temporal Cloud alongside workers. Self-hosting adds persistence configuration, schemas and service operation. It need not mean Kubernetes. Temporal also documents embedding a server through Go, but the embedded SQLite setup is explicitly for testing/development; its production guidance points to MySQL, PostgreSQL or Cassandra. It is therefore inaccurate both to call Temporal impossible to embed and to treat its embedded SQLite example as a supported production replacement for litefactory’s local store. [Self-hosted deployment](https://docs.temporal.io/self-hosted-guide/deployment), [embedded server guidance](https://docs.temporal.io/self-hosted-guide/embedded-server)
+
+The inspected Temporal server `main` and Go SDK `master` license files are MIT; retain their notices when applicable. These are moving-branch inspections on the stated date, not pinned release audits. Cloud service terms and all transitive dependency licenses were outside this bounded check. [Server license](https://github.com/temporalio/temporal/blob/main/LICENSE), [Go SDK license](https://github.com/temporalio/sdk-go/blob/master/LICENSE)
+
+**Assessment:** for the current local daemon/SQLite architecture and Research-first scope, Temporal is likely more operational machinery than this first slice warrants. That is a deployment-fit judgment, not a performance benchmark or a claim that durability is easy. Reconsider it if multi-host workers, shared service operation, durable timers/cancellation/visibility at scale, or the maintenance cost of custom recovery become central requirements. If production infrastructure is acceptable, buying that runtime behavior may cost less overall than expanding a local engine indefinitely.
+
+### Next bounded slice and remaining limits
+
+Next investigate the DOT profile and durable action boundary through one Research example: clear scope proceeds immediately; missing input saves and ends; a correlated reply resumes the correct node after restart; uncertain report/agent completion is reconciled without blindly replaying effects. Compare the local recovery responsibilities with a Temporal-backed outline before expanding to Implement concurrency. Keep stable operation identities, persisted intent/results, reply deduplication, definition pinning and explicit incomplete outcomes in either design.
+
+Library compatibility with the selected litefactory toolchain, full DOT edge-case conformance, memory limits, binary size, parser diagnostics, renderer packaging and real restart correctness remain untested. These are next-slice verification tasks, not unanswered owner decisions blocking this research. No final dependency version or executable profile has been approved or implemented.
+
+- 2026-09-13 (run 0005): Completed DOT syntax/profile and Go implementation assessment, distinguished current Graphviz EPL-2.0 from the EPL-1.0 Graphviz version embedded in inspected goccy release, and compared local durability with Temporal. Recommended Gonum AST plus a bounded DOT profile for the first Research slice, with Temporal deferred as a possible runtime backend. Preserved optional clarification, prior decisions and all history; no implementation, tests, publication or mode transition.
