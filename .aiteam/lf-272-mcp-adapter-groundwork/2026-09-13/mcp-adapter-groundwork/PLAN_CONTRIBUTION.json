@@ -1,0 +1,737 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Five stories add a provider-neutral stdio MCP adapter over the delivered JSON communication service, live per-launch authorization, enforced mode profiles, owner-controlled factory-held creation grants and recovery proof. Creation approval expires 30 minutes after the trusted owner comment, never slides and is clamped to attempt expiry. Assumed caps: one batch/up to five artifacts per attempt and twenty per repository per rolling 24 hours. Implementation waits for #263/#264; #273 tool business logic and #274 native host wiring remain separate.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "create",
+        "title": "Bind every MCP operation to a live launch",
+        "user_story": {
+          "actor": "operator",
+          "want": "each launch to receive fresh, bounded communication authority",
+          "benefit": "an old or cancelled agent cannot continue reading or submitting work",
+          "notes": [
+            "Source: feature-spec Attempt authority, Data Model, Business Rules and Edge Cases."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "After the #263/#264 prerequisites land, cold, resume, failed-resume fallback and cold fallback each receive a distinct capability bound to the adopted factory launch identity, broker instance, immutable repository/task/mode/frozen scope and bounded attempt expiry; no competing attempt identity or new universal 30-minute run limit is introduced."
+          },
+          {
+            "id": "AC-002",
+            "text": "Every MCP discovery, preflight, submit, receipt/status and exact duplicate/replay request refuses replaced, expired, cancelled, closed, wrong-broker or otherwise foreign launch authority before accessing the shared service, including historical reads. Refuse at now >= attempt expiry using fresh bookkeeping time, not turn-start time."
+          },
+          {
+            "id": "AC-003",
+            "text": "Caller-supplied selectors cannot replace or widen the factory repository, task, mode, permission digest, frozen revisions or authorized targets; cross-attempt and wrong-scope requests are denied without backend effects."
+          },
+          {
+            "id": "AC-004",
+            "text": "Authority is rechecked transactionally at mutation admission. Revocation before admission prevents the operation; after durable admission it denies subsequent calls and cancels outstanding contexts while preserving already-recorded work for reconciliation. Revocation does not wait for a slow external effect."
+          },
+          {
+            "id": "AC-005",
+            "text": "A broker/daemon restart generates a fresh instance identity and never restores old descriptors or grants as live authority. Independently authorized factory recovery retains historical result/replay semantics; stricter MCP guards do not globally revoke legitimate internal historical reads."
+          },
+          {
+            "id": "AC-006",
+            "text": "Real temporary SQLite and private-socket tests cover each operation against active/replaced/expired/cancelled/closed/restarted authority, launch replacement and selector isolation, with synchronized admission/revocation races and exact expiry boundaries."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Extend the adopted lifecycle binding and store authority checks per feature-spec Data Model, Business Rules and Edge Cases; preserve internal history semantics.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Prove attempt isolation, freshness and admission/revocation with real temporary storage/socket tests per feature-spec Candidate Evidence Obligations.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Extend the adopted launch binding with a live MCP guard; preserve shared JSON authority and internal recovery owners.",
+          "components": [
+            {
+              "name": "turn.AttemptGuard",
+              "responsibility": "Checks trusted live launch state before every MCP service call."
+            },
+            {
+              "name": "store capability lease extension",
+              "responsibility": "Persists broker instance, permission scope, deadline and revocation against the existing launch."
+            },
+            {
+              "name": "adopted launch wrapper and submission broker",
+              "responsibility": "Mint fresh launch capability and cancel/join work on replacement or close."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "CheckLiveAttempt",
+              "input": "Authenticated descriptor binding and operation selector",
+              "output": "Trusted scoped launch or refusal"
+            },
+            {
+              "name": "AdmitMutation",
+              "input": "Trusted launch and operation with current authoritative state",
+              "output": "Atomic admission or refusal"
+            },
+            {
+              "name": "RevokeAttempt",
+              "input": "Existing launch identity and terminal reason",
+              "output": "Durable revocation and cancellation signal"
+            }
+          ],
+          "constraints": [
+            "All SQL stays in internal/store; extend #264 equivalent records instead of duplicating them.",
+            "Use fresh store bookkeeping time and deterministic test seams; daemon retains scheduling; turn gets no polling clock.",
+            "No transaction spans remote I/O; keep the one-connection SQLite invariant.",
+            "Evidence inventory AC-001: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "Evidence inventory AC-002: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "Evidence inventory AC-003: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "Evidence inventory AC-004: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "Evidence inventory AC-005: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "Evidence inventory AC-006: proof method: real SQLite/private-socket tables and channel-synchronized races; source availability: existing broker_test.go, submissions_test.go and result binding/service patterns; new tests required; version/context bounds: offline factory launch authority only; missing prerequisite/disposition: landed #263/#264 launch seam must be inspected before implementation.",
+            "External implementation prerequisite: #263 shared communication contract and #264 production lifecycle integration must be landed and rechecked before this story starts. This attempt does not authorize external issue dependency bindings; retain this prerequisite explicitly without inventing bound issue identities."
+          ],
+          "decisions": [
+            {
+              "decision": "Guard before shared-service history/replay",
+              "reason": "Existing result readers intentionally permit historical access; MCP liveness is a stronger outer requirement."
+            },
+            {
+              "decision": "Recheck #264 before implementation",
+              "reason": "The current checkout still documents the newer result service as unwired; #272 must not absorb prerequisite adoption."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "create",
+        "title": "Enforce mode-scoped tools over the shared JSON service",
+        "user_story": {
+          "actor": "workflow owner",
+          "want": "discovery and tool execution to use the same mode and scope rules",
+          "benefit": "agents can communicate results without gaining extra workflow authority",
+          "notes": [
+            "Source: feature-spec Scoped service dispatch, Permissions, Business Rules and Compatibility."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "An immutable registered-tool catalog is the single allowlist for tools/list and tools/call. Unknown tools, missing mode/effect classifications and unassigned permissions deny by default; only executable registered handlers appear, with no placeholder future family tools."
+          },
+          {
+            "id": "AC-002",
+            "text": "Initial communication_preflight, communication_submit and communication_receipt handlers delegate exactly once to the adopted shared JSON services and lifecycle bridge. Preserve input bytes, validation diagnostics, durable application request correlation and separate input/engineering/acceptance/remote-effect receipt states; do not introduce a second validator or independently submit the same content to old and new services."
+          },
+          {
+            "id": "AC-003",
+            "text": "Research and Spike may communicate their own applicable results; Plan its discussion/completed input under existing lifecycle timing; Implement its authorized frozen-scope results/checkpoints; Validate its retained assessment/result and permitted receipts only. Direct calls outside these operation/selector profiles fail even if a client retained an earlier tool list."
+          },
+          {
+            "id": "AC-004",
+            "text": "Validate refuses fresh execution capture, shell/test execution, creation, waiver, acceptance override, dispatch, mode change and broader scope. Retained assessment communication succeeds without granting self-acceptance. No mode receives shell, execution, waiver, dispatch, arbitrary forge, mode-change or acceptance-override tools."
+          },
+          {
+            "id": "AC-005",
+            "text": "Creation effect classification follows actual effects, including aliases and deferred publication initiated through communication submission. MCP-origin input cannot create issues later by dropping its policy constraint: persist a factory-stamped origin/effect restriction through recovery, retaining truthful pending input or refusing an unsafe route. Existing terminal/helper Plan publication policy remains unchanged."
+          },
+          {
+            "id": "AC-006",
+            "text": "Tests exercise discovery and direct invocation for every mode, selector denial, Validate retained versus fresh evidence, backend call counts and initial shared-service compatibility. A deterministic deferred-publication test proves MCP input cannot bypass creation restrictions after acceptance or recovery."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement neutral catalog and guarded dispatch into adopted JSON services per feature-spec API, Permissions and Business Rules, including durable indirect-effect restrictions.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write profile, selector, Validate and effect-policy matrix unit tests with handwritten backends per feature-spec Evidence Obligations.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Verify shared-service mapping and deferred-publication policy retention with real temporary storage per feature-spec Compatibility and Permissions.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Keep neutral metadata in submission and authoritative workflow composition in turn; carry trusted effect restrictions to deferred work.",
+          "components": [
+            {
+              "name": "submission.ToolSpec and ToolProfile",
+              "responsibility": "Immutable names, schema references, effect classes and mode/selector allowlists."
+            },
+            {
+              "name": "turn.ToolDispatcher",
+              "responsibility": "Guard discovery/calls and delegate to adopted application services."
+            },
+            {
+              "name": "adopted deferred publication state",
+              "responsibility": "Retains trusted MCP origin/effect restrictions across recovery."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "ListTools",
+              "input": "Trusted live launch profile",
+              "output": "Sorted registered allowed tool specifications"
+            },
+            {
+              "name": "CallTool",
+              "input": "Trusted launch, name and exact arguments",
+              "output": "Shared domain diagnostics/receipt or refusal"
+            },
+            {
+              "name": "DeferredEffectPolicy",
+              "input": "Factory-authenticated origin and effect restriction",
+              "output": "Durable restriction checked before publication"
+            }
+          ],
+          "constraints": [
+            "MCP request IDs never replace application journal IDs.",
+            "Policy is server-side and applies before replay or history; discovery alone grants nothing.",
+            "No submission-to-turn dependency; submission metadata has no SQL or forge access.",
+            "Evidence inventory AC-001: proof method: table-driven mode/selector tests with service-call counters; source availability: existing scope tests and new handwritten backend fixtures; version/context bounds: offline server authorization; not native host isolation; missing prerequisite/disposition: new tests required; #274 retains host evidence obligation.",
+            "Evidence inventory AC-003: proof method: table-driven mode/selector tests with service-call counters; source availability: existing scope tests and new handwritten backend fixtures; version/context bounds: offline server authorization; not native host isolation; missing prerequisite/disposition: new tests required; #274 retains host evidence obligation.",
+            "Evidence inventory AC-004: proof method: table-driven mode/selector tests with service-call counters; source availability: existing scope tests and new handwritten backend fixtures; version/context bounds: offline server authorization; not native host isolation; missing prerequisite/disposition: new tests required; #274 retains host evidence obligation.",
+            "Evidence inventory AC-002: proof method: real adopted-service assertions and persisted deferred-effect fault tests; source availability: delivered JSON/service tests and existing publication/recovery seams; version/context bounds: offline shared-service compatibility, no live forge; missing prerequisite/disposition: landed #264 bridge must support safe effect separation; unsafe route must refuse.",
+            "Evidence inventory AC-005: proof method: real adopted-service assertions and persisted deferred-effect fault tests; source availability: delivered JSON/service tests and existing publication/recovery seams; version/context bounds: offline shared-service compatibility, no live forge; missing prerequisite/disposition: landed #264 bridge must support safe effect separation; unsafe route must refuse.",
+            "Evidence inventory AC-006: proof method: real adopted-service assertions and persisted deferred-effect fault tests; source availability: delivered JSON/service tests and existing publication/recovery seams; version/context bounds: offline shared-service compatibility, no live forge; missing prerequisite/disposition: landed #264 bridge must support safe effect separation; unsafe route must refuse.",
+            "External implementation prerequisite: #263 shared communication contract and #264 production lifecycle integration must be landed and rechecked before this story starts. This attempt does not authorize external issue dependency bindings; retain this prerequisite explicitly without inventing bound issue identities."
+          ],
+          "decisions": [
+            {
+              "decision": "Future creation eligibility remains Research-only",
+              "reason": "The approved scope has not assigned creation permission to Plan/Implement/Spike; Validate denies categorically."
+            },
+            {
+              "decision": "Retain input without implying publication when safe",
+              "reason": "Receipt dimensions remain truthful and the normal helper workflow is not silently changed."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "create",
+        "title": "Expose a bounded provider-neutral stdio MCP adapter",
+        "user_story": {
+          "actor": "agent host integrator",
+          "want": "a standard local tool endpoint for existing communication operations",
+          "benefit": "hosts can connect without handling factory credentials or workflow logic",
+          "notes": [
+            "Source: feature-spec Stdio adapter, API / Interface Changes and Business Rules."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "litefactory mcp serve --descriptor <path> starts a credential-free stdio adapter using the existing private submission client/broker. It exposes initialize/initialized, tools/list and tools/call against the documented MCP 2025-11-25 target contract, advertises only tools capability, and enforces negotiated initialization state and supported-version behavior."
+          },
+          {
+            "id": "AC-002",
+            "text": "JSON-RPC uses newline-delimited UTF-8 JSON with protocol-only stdout and bounded diagnostics on stderr. The private socket keeps its distinct existing framed protocol; malformed JSON, duplicate keys, invalid method/parameters, duplicate active IDs, unsupported protocol state and excessive size/depth receive bounded protocol failure without forwarding."
+          },
+          {
+            "id": "AC-003",
+            "text": "Input/output frame size, nesting, active requests and workers have explicit documented bounds compatible with current contribution/frame limits plus envelope overhead. Responses are rejected before unbounded buffering, stdout writes are serialized, and a blocked output or EOF/cancel cannot leak workers; each worker has an owned cancellation/join path."
+          },
+          {
+            "id": "AC-004",
+            "text": "Calls preserve exact application contribution payload and journal correlation independently of string/numeric MCP connection-local IDs. Tool/domain rejection projects actionable shared diagnostics; structural failures use JSON-RPC errors. Structured results and compatible JSON text preserve pending receipt dimensions without reporting workflow success."
+          },
+          {
+            "id": "AC-005",
+            "text": "notifications/cancelled cancels only its matching active request in that connection, propagates through the client socket to the handler, ignores unknown/completed IDs and never cancels initialization or another run. Same-live-attempt reconnect requires a new handshake and fresh broker authorization, without minting capability."
+          },
+          {
+            "id": "AC-006",
+            "text": "Pipe-driven protocol tests and a real private-socket path cover handshake/list/call, numeric/string IDs, malformed/state/version/size/depth/concurrency cases, stdout purity, blocked-output/EOF joins, cancellation races and shared receipt projection. No provider subprocess, new Go module or host-specific configuration is required."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement the stdlib protocol edge, neutral CLI and explicit existing broker/client list/call extension per feature-spec API and Business Rules.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write deterministic pipe-driven protocol edge tests with Backend fake per feature-spec transport evidence.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Verify the real stdio-to-private-socket path and worker shutdown per feature-spec transport and recovery criteria.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Implement a narrow stdlib MCP edge with a consumer-owned Backend interface; reuse the current socket transport.",
+          "components": [
+            {
+              "name": "mcpadapter.Server",
+              "responsibility": "Protocol handshake, bounded framing, calls and connection-local cancellation."
+            },
+            {
+              "name": "mcpadapter.Backend",
+              "responsibility": "Small consumer-owned list/call seam for production bridge and test fake."
+            },
+            {
+              "name": "submission client/broker extension",
+              "responsibility": "Explicit authenticated list/call forwarding using existing descriptor and journal."
+            },
+            {
+              "name": "cli mcp command",
+              "responsibility": "Provider-neutral descriptor flag and stdio lifecycle wiring."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Server.Run",
+              "input": "Context, input/output streams and Backend",
+              "output": "Joined session completion or bounded protocol error"
+            },
+            {
+              "name": "Backend.List / Backend.Call",
+              "input": "Authenticated fixed descriptor, tool name and argument bytes",
+              "output": "Allowed catalog or structured application result"
+            }
+          ],
+          "constraints": [
+            "No adapter credentials, SQL handles, store access or workflow acceptance logic.",
+            "No new module under TEST-2; use stdlib and existing strict JSON helpers.",
+            "No HTTP listener, resources/prompts/sampling/elicitation/MCP Tasks, host installation or paid nested probes.",
+            "Evidence inventory AC-001: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "Evidence inventory AC-002: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "Evidence inventory AC-003: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "Evidence inventory AC-004: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "Evidence inventory AC-005: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "Evidence inventory AC-006: proof method: pipe-driven protocol fixtures, deterministic cancellation barriers and real private socket; source availability: existing bounded broker/client patterns; new MCP fixtures required; version/context bounds: documented MCP 2025-11-25 subset using stdlib; offline service behavior only; missing prerequisite/disposition: implementation fixtures required; authentic host compatibility and isolation remain #274.",
+            "External implementation prerequisite: #263 shared communication contract and #264 production lifecycle integration must be landed and rechecked before this story starts. This attempt does not authorize external issue dependency bindings; retain this prerequisite explicitly without inventing bound issue identities."
+          ],
+          "decisions": [
+            {
+              "decision": "Target MCP 2025-11-25 and document supported behavior",
+              "reason": "Saved research establishes the protocol target; fixtures and contract are pinned instead of adding an SDK."
+            },
+            {
+              "decision": "Separate connection IDs from durable request correlation",
+              "reason": "Disconnects must not turn retries into new application operations."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-004",
+        "intent": "create",
+        "title": "Authorize one exact creation batch with a 30-minute owner approval",
+        "user_story": {
+          "actor": "repository owner",
+          "want": "to approve an exact proposed batch publicly without distributing a secret",
+          "benefit": "creation stays limited to reviewed content for a short time and cannot multiply through retries",
+          "notes": [
+            "Source: feature-spec Owner creation authorization, Data Model, Expiry and Volume Policy.",
+            "Planning assumptions for owner review: one batch/up to five artifacts per attempt; twenty artifacts per repository per rolling 24 hours."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "settings.allow_mcp_story_creation defaults false in strict settings and the documented template, loads once without hot reload and gates discovery and execution of every creation-class MCP path, including aliases/indirect effects. False hides/refuses creation in every mode; true alone grants nothing. No production creation tool is advertised until a real family handler exists."
+          },
+          {
+            "id": "AC-002",
+            "text": "The daemon accepts only a whole exact /mcp-create <proposal-hash> linked or /mcp-create <proposal-hash> attach command with trusted numeric owner ID and GitHub comment ID/creation timestamp on the matching source issue/repository. Require a retained immutable exact proposal with matching relationship context. Refuse non-owner/bot/copied/quoted commands, absent or changed proposal, wrong source/mode, supplied author claims and stale approval; commands neither enable config nor change mode."
+          },
+          {
+            "id": "AC-003",
+            "text": "Persist one immutable owner intent per authenticated comment before consuming it. Repeated ingestion cannot mint another intent, and edits cannot alter recorded approval; a changed batch requires a fresh explicit approval. Consume an intent into at most one eligible next launch; no polling control loop is added to active runs."
+          },
+          {
+            "id": "AC-004",
+            "text": "Approval expires exactly 30 minutes after the trusted approval comment creation timestamp. Intent must be consumed before that deadline; grant expires at min(original deadline, attempt expiry) and refuses at now >= expiry. Processing delay, edits, launch allocation, retries and reconnects never extend it. A consumed grant cannot transfer to resume/fallback/replacement launches, and fresh approval is required after expiry."
+          },
+          {
+            "id": "AC-005",
+            "text": "Creation authorization requires a live eligible Research attempt, enabled gate and matching factory-held grant for the canonical versioned exact content, repository, source task, artifact count and relationship targets. Recompute the digest of the canonical envelope; caller-supplied hash/IDs alone authorize nothing. No elevated bearer token is exposed in descriptors, prompts, MCP arguments/results or public notices, and credentials remain in their existing factory-held flow."
+          },
+          {
+            "id": "AC-006",
+            "text": "In one short store transaction, recheck authority/grant/content/quota and reserve at most one batch/grant and five new artifact units per attempt, with twenty units per repository per rolling 24 hours. Count each issue/sub-issue. Confirmed units count within the window; pending/uncertain reservations remain charged regardless of age. Exact duplicates add zero units. Refuse overflow immediately, without queued retry; repositories have isolated budgets."
+          },
+          {
+            "id": "AC-007",
+            "text": "One grant binds to one durable creation operation and dispatch owner. Concurrent duplicates/retries return that same operation; changed content, foreign attempts, missing/expired/reused grants or a second batch refuse. Reservation happens before external I/O, no transaction spans it, and duplicate transport must not obtain a second dispatch permit. A recorded definitively never-dispatched failure may release quota without reopening the grant; delayed dispatch revalidates its reservation."
+          },
+          {
+            "id": "AC-008",
+            "text": "Config/parser and real migrated SQLite tests cover gate-off/gate-only, all owner-provenance refusals, comment edit/replay, exact TTL boundary/attempt clamp, absent/foreign/mismatched/expired/reused grants, valid concurrent retries, five/twenty limits, rolling boundaries, unresolved old reservations, cross-repository isolation and absence of elevated-secret serialization. Use a deterministic internal creation handler; no actual issue publication is added."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Add immutable false-default config and exact trusted owner-control intake per feature-spec API, Permissions and Expiry policy.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Implement factory-held grant, canonical digest and atomic durable operation/quota primitive per feature-spec Data Model, Expiry and Business Rules.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-004",
+              "AC-005",
+              "AC-006",
+              "AC-007"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write strict config, parser/provenance and secret-output unit tests per feature-spec Grant policy and Evidence Obligations.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Prove grant refusal, single-use concurrency, TTL/quota boundaries and persistence against real migrated SQLite per feature-spec evidence.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006",
+              "AC-007",
+              "AC-008"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Owner approval is private factory authorization state bound to exact reviewed content, not an elevated model credential.",
+          "components": [
+            {
+              "name": "config.Settings.AllowMCPStoryCreation",
+              "responsibility": "Loaded false-default permission ceiling."
+            },
+            {
+              "name": "daemon owner command admission and turn.OwnerGrantCommand",
+              "responsibility": "Trusted actor/comment provenance separated from exact public syntax."
+            },
+            {
+              "name": "turn.CreationAuthorizer",
+              "responsibility": "Matches live attempt and grant, recomputes digest and asks store for one reservation."
+            },
+            {
+              "name": "store creation intent/grant/operation records",
+              "responsibility": "Persist immutable approvals, single-use binding, quota and durable dispatch ownership."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "AdmitOwnerGrantIntent",
+              "input": "Trusted numeric actor/comment/timestamp and retained proposal reference/context",
+              "output": "Immutable next-launch intent or refusal"
+            },
+            {
+              "name": "BindCreationGrant",
+              "input": "Live eligible launch and unconsumed unexpired owner intent",
+              "output": "Factory-held attempt grant with original deadline clamp"
+            },
+            {
+              "name": "ReserveCreation",
+              "input": "Authenticated attempt and canonical versioned content envelope",
+              "output": "Refusal, existing operation or internal reserved permit"
+            },
+            {
+              "name": "RecordOperationOutcome",
+              "input": "Factory-owned operation identity and justified result transition",
+              "output": "Durable pending/confirmed/failed/uncertain state and quota treatment"
+            }
+          ],
+          "constraints": [
+            "Canonical envelope includes exact publishable content and all target relationships; #273 owns normalization/rendering, #272 hashes the supplied versioned envelope.",
+            "No model-facing grant minting/read API and no additional public TTL/quota settings.",
+            "Private file modes are not proof of same-UID sandbox isolation; #274 owns that evidence.",
+            "Expiry applies to issue-creation authority; base attempt lease policy remains #264-owned.",
+            "Evidence inventory AC-001: proof method: strict config/parser tests and trusted metadata/refusal fixtures; source availability: existing config/followup precedents; new synthetic command fixtures; version/context bounds: proves local admission and serialization, not authentic live GitHub retrieval; missing prerequisite/disposition: new tests required; no live forge prerequisite.",
+            "Evidence inventory AC-002: proof method: strict config/parser tests and trusted metadata/refusal fixtures; source availability: existing config/followup precedents; new synthetic command fixtures; version/context bounds: proves local admission and serialization, not authentic live GitHub retrieval; missing prerequisite/disposition: new tests required; no live forge prerequisite.",
+            "Evidence inventory AC-003: proof method: strict config/parser tests and trusted metadata/refusal fixtures; source availability: existing config/followup precedents; new synthetic command fixtures; version/context bounds: proves local admission and serialization, not authentic live GitHub retrieval; missing prerequisite/disposition: new tests required; no live forge prerequisite.",
+            "Evidence inventory AC-005: proof method: strict config/parser tests and trusted metadata/refusal fixtures; source availability: existing config/followup precedents; new synthetic command fixtures; version/context bounds: proves local admission and serialization, not authentic live GitHub retrieval; missing prerequisite/disposition: new tests required; no live forge prerequisite.",
+            "Evidence inventory AC-004: proof method: real migrated SQLite, fresh-time seams and synchronized concurrent reservation tests; source availability: existing store/recovery patterns; new grant/operation fixtures required; version/context bounds: offline factory primitive; cap constants 1 batch / 5 artifacts / 20 per 24h, TTL 30 minutes; missing prerequisite/disposition: new tests required; #273 supplies actual batch effect/reconciliation proof.",
+            "Evidence inventory AC-006: proof method: real migrated SQLite, fresh-time seams and synchronized concurrent reservation tests; source availability: existing store/recovery patterns; new grant/operation fixtures required; version/context bounds: offline factory primitive; cap constants 1 batch / 5 artifacts / 20 per 24h, TTL 30 minutes; missing prerequisite/disposition: new tests required; #273 supplies actual batch effect/reconciliation proof.",
+            "Evidence inventory AC-007: proof method: real migrated SQLite, fresh-time seams and synchronized concurrent reservation tests; source availability: existing store/recovery patterns; new grant/operation fixtures required; version/context bounds: offline factory primitive; cap constants 1 batch / 5 artifacts / 20 per 24h, TTL 30 minutes; missing prerequisite/disposition: new tests required; #273 supplies actual batch effect/reconciliation proof.",
+            "Evidence inventory AC-008: proof method: real migrated SQLite, fresh-time seams and synchronized concurrent reservation tests; source availability: existing store/recovery patterns; new grant/operation fixtures required; version/context bounds: offline factory primitive; cap constants 1 batch / 5 artifacts / 20 per 24h, TTL 30 minutes; missing prerequisite/disposition: new tests required; #273 supplies actual batch effect/reconciliation proof.",
+            "External implementation prerequisite: #263 shared communication contract and #264 production lifecycle integration must be landed and rechecked before this story starts. This attempt does not authorize external issue dependency bindings; retain this prerequisite explicitly without inventing bound issue identities."
+          ],
+          "decisions": [
+            {
+              "decision": "Use a non-sliding approval window beginning at trusted comment creation",
+              "reason": "Owner requested a slim approximately 30-minute expiry; waiting or replay must not refresh permission."
+            },
+            {
+              "decision": "Initial caps: one batch, five artifacts per attempt; twenty per repository rolling day",
+              "reason": "Conservative recorded planning assumptions bound volume without widening the configuration surface."
+            },
+            {
+              "decision": "Release only provably never-dispatched quota without reminting grant",
+              "reason": "Unknown remote outcomes cannot safely free volume or authorize another creation."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-005",
+        "intent": "create",
+        "title": "Preserve truthful outcomes through cancellation and restart",
+        "user_story": {
+          "actor": "operator",
+          "want": "interrupted calls to retain their recorded outcomes and original operation identity",
+          "benefit": "recovery neither duplicates creation nor presents an uncertain result as success",
+          "notes": [
+            "Source: feature-spec Recovery and boundary proof, Edge Cases, Compatibility and Evidence Obligations."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Host EOF/disconnect and MCP cancellation propagate through the adapter/client/broker and join bounded workers. Cancellation before admission leaves no accepted mutation; cancellation after local admission preserves its request/operation identity and truthful pending/confirmed/failed/uncertain outcome, without claiming rollback or success from channel closure."
+          },
+          {
+            "id": "AC-002",
+            "text": "Same-live-attempt reconnect authenticates again and resolves the same durable application request or operation after a lost reply. Expired/replaced/cancelled/closed attempts and expired creation grants refuse new calls and exact creation replays; separately live and scoped receipt authority may inspect already-admitted history without creating again."
+          },
+          {
+            "id": "AC-003",
+            "text": "Broker/daemon restart leaves old capability and grant authority dead while retaining operation ownership and quota. Factory-internal reconciliation can observe recorded work; it cannot elect a second dispatcher or automatically repeat uncertain/partial creation. Deferred MCP-origin effect restrictions survive restart."
+          },
+          {
+            "id": "AC-004",
+            "text": "Fault tests at before reservation, after reservation, before dispatch, after simulated remote create before acknowledgment and partial-batch interruption cover cancel, close, replacement and restart. A deterministic fake creation handler plus real temporary pipes/socket/SQLite proves one durable operation, one reservation and one dispatch owner under concurrent/retry/lost-response calls; it does not claim remote GitHub exactly-once delivery."
+          },
+          {
+            "id": "AC-005",
+            "text": "Compatibility tests exercise original JSON/helper paths and the adopted shared service alongside MCP, preserving domain validation, independent receipt states and legitimate internal historical recovery. Retained assessment-only Validate communication remains usable with server-side denials and no shell authority."
+          },
+          {
+            "id": "AC-006",
+            "text": "Document the neutral adapter contract, mode/effect policies, public owner approval flow without secrets, fixed 30-minute expiry, quota constants, revocation/recovery states and #273/#274 consumer boundaries. Execute appropriate focused race tests and repository make check; retain actual outcomes for later read-only Validate. No live provider probes, new modules, integration tags, daemon restart or dist writes are used."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Complete application-level cancellation/recovery joins and consumer/operator contract documentation per feature-spec Edge Cases and Out of Scope.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-006"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run cross-boundary fault, compatibility and aggregate checks with real temporary dependencies per feature-spec Candidate Evidence Obligations.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Use existing durable journals and factory recovery ownership to reconcile channel failure separately from operation outcome.",
+          "components": [
+            {
+              "name": "adopted turn/store recovery seams",
+              "responsibility": "Retain admitted request identity, effect restriction, reservation and uncertain outcome."
+            },
+            {
+              "name": "adapter/submission worker lifecycle",
+              "responsibility": "Propagate cancellation and join bounded connection work."
+            },
+            {
+              "name": "operator and consumer documentation",
+              "responsibility": "Define implemented foundation and exact handoff to tool families/hosts."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "RecoverRecordedOperation",
+              "input": "Factory-authorized operation state and independent observation",
+              "output": "Truthful state update, no restored agent authority"
+            },
+            {
+              "name": "QueryAuthorizedReceipt",
+              "input": "Live scoped request reference",
+              "output": "Existing receipt projection without implicit retry permission"
+            }
+          ],
+          "constraints": [
+            "No new recovery engine or rollback fiction; daemon owns reconciliation scheduling.",
+            "No live GitHub publication logic or native host configuration belongs here.",
+            "Focused tests plus make check are future implementation evidence; this Plan executes no source tests.",
+            "Evidence inventory AC-001: proof method: deterministic fault barriers, real pipes/private socket/SQLite reopen and fake creation dispatch; source availability: existing receipt/recovery patterns; new cross-boundary tests required; version/context bounds: offline operation ownership and state preservation only; missing prerequisite/disposition: new tests required; #273 real forge reconciliation remains separate.",
+            "Evidence inventory AC-002: proof method: deterministic fault barriers, real pipes/private socket/SQLite reopen and fake creation dispatch; source availability: existing receipt/recovery patterns; new cross-boundary tests required; version/context bounds: offline operation ownership and state preservation only; missing prerequisite/disposition: new tests required; #273 real forge reconciliation remains separate.",
+            "Evidence inventory AC-003: proof method: deterministic fault barriers, real pipes/private socket/SQLite reopen and fake creation dispatch; source availability: existing receipt/recovery patterns; new cross-boundary tests required; version/context bounds: offline operation ownership and state preservation only; missing prerequisite/disposition: new tests required; #273 real forge reconciliation remains separate.",
+            "Evidence inventory AC-004: proof method: deterministic fault barriers, real pipes/private socket/SQLite reopen and fake creation dispatch; source availability: existing receipt/recovery patterns; new cross-boundary tests required; version/context bounds: offline operation ownership and state preservation only; missing prerequisite/disposition: new tests required; #273 real forge reconciliation remains separate.",
+            "Evidence inventory AC-005: proof method: adopted JSON/helper compatibility tests, scoped documentation review, focused race tests and make check; source availability: existing service/helper tests and repository check target; version/context bounds: current supported repository environment; no authentic host claim; missing prerequisite/disposition: landed #264 bridge and executed passing evidence required; #274 authentic host evidence remains separate.",
+            "Evidence inventory AC-006: proof method: adopted JSON/helper compatibility tests, scoped documentation review, focused race tests and make check; source availability: existing service/helper tests and repository check target; version/context bounds: current supported repository environment; no authentic host claim; missing prerequisite/disposition: landed #264 bridge and executed passing evidence required; #274 authentic host evidence remains separate.",
+            "External implementation prerequisite: #263 shared communication contract and #264 production lifecycle integration must be landed and rechecked before this story starts. This attempt does not authorize external issue dependency bindings; retain this prerequisite explicitly without inventing bound issue identities."
+          ],
+          "decisions": [
+            {
+              "decision": "Separate admission, dispatch ownership and external outcome",
+              "reason": "Local exactly-once reservation cannot establish remote exactly-once effects."
+            },
+            {
+              "decision": "Keep real host evidence outside #272",
+              "reason": "#274 must independently prove authentic host delivery and same-UID isolation; synthetic tests cannot replace it."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-003",
+            "US-004"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}
