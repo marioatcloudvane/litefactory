@@ -171,6 +171,7 @@ func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterF
 	summary := report.MeterSummary{CollectionStatus: "unknown", PricingStatus: "unknown", HelperOverhead: "excluded"}
 	rows := []store.MeterRow{}
 	groups := map[string]*meterGroup{}
+	refusals := map[string]bool{}
 	for {
 		page, e := snapshot.Next(ctx, 256)
 		if e != nil {
@@ -180,6 +181,9 @@ func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterF
 			break
 		}
 		for _, row := range page {
+			if row.ProviderReportedZeroCostRefusal {
+				refusals[row.AttemptID] = true
+			}
 			if row.CollectionStatus != "complete" || row.PricingStatus != "priced" {
 				row.EstimatedUSD = nil
 			}
@@ -217,8 +221,13 @@ func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterF
 			Details []store.MeterRow    `json:"details,omitempty"`
 		}{summary, ordered, rows})
 	}
-	if _, err = fmt.Fprintf(out, "Collection: %s; pricing: %s; daemon helper overhead excluded\nLocal estimated USD: %s; observed priced subtotal USD: %s\nPrice revisions: %v\n", summary.CollectionStatus, summary.PricingStatus, meterAmount(summary.EstimatedUSD), meterAmount(summary.PricedSubtotalUSD), summary.PriceRevisions); err != nil {
+	if _, err = fmt.Fprintf(out, "Collection: %s; pricing: %s; daemon helper overhead excluded\n%s\nPrice revisions: %v\n", summary.CollectionStatus, summary.PricingStatus, meterCostText(summary.EstimatedUSD, summary.PricedSubtotalUSD, summary.CollectionStatus, summary.PricingStatus), summary.PriceRevisions); err != nil {
 		return err
+	}
+	if len(refusals) > 0 {
+		if _, err = fmt.Fprintf(out, "Provider-reported zero-cost refusals: %d attempts; token-derived pricing remains unknown\n", len(refusals)); err != nil {
+			return err
+		}
 	}
 	fields := []struct {
 		name         string
@@ -235,8 +244,8 @@ func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterF
 		}
 	}
 	for _, r := range rows {
-		if _, err = fmt.Fprintf(out, "%s #%d run %d attempt %s invocation %s parent %s model %s (%s): collection %s / pricing %s; price revision %d; local estimated USD %s; observed priced subtotal USD %s; input_uncached %s cache_read %s cache_write %s cache_write_5m_subset %s cache_write_1h_subset %s output %s reasoning_subset %s; diagnostics %s\n",
-			r.Project, r.Issue, r.Run, r.AttemptID, r.InvocationID, r.ParentInvocationID, meterAmount(r.ActualModel), r.ModelProvenance, r.CollectionStatus, r.PricingStatus, r.PriceRevisionID, meterAmount(r.EstimatedUSD), meterAmount(r.PricedSubtotalUSD), meterCount(r.Tokens.InputUncached), meterCount(r.Tokens.CacheRead), meterCount(r.Tokens.CacheWrite), meterCount(r.Tokens.CacheWrite5m), meterCount(r.Tokens.CacheWrite1h), meterCount(r.Tokens.Output), meterCount(r.Tokens.Reasoning), strings.Join(r.Diagnostics, ";")); err != nil {
+		if _, err = fmt.Fprintf(out, "%s #%d run %d attempt %s invocation %s parent %s model %s (%s): collection %s / pricing %s; price revision %d; %s; input_uncached %s cache_read %s cache_write %s cache_write_5m_subset %s cache_write_1h_subset %s output %s reasoning_subset %s; diagnostics %s\n",
+			r.Project, r.Issue, r.Run, r.AttemptID, r.InvocationID, r.ParentInvocationID, meterAmount(r.ActualModel), r.ModelProvenance, r.CollectionStatus, r.PricingStatus, r.PriceRevisionID, meterRowCostText(r), meterCount(r.Tokens.InputUncached), meterCount(r.Tokens.CacheRead), meterCount(r.Tokens.CacheWrite), meterCount(r.Tokens.CacheWrite5m), meterCount(r.Tokens.CacheWrite1h), meterCount(r.Tokens.Output), meterCount(r.Tokens.Reasoning), strings.Join(r.Diagnostics, ";")); err != nil {
 			return err
 		}
 	}
@@ -265,4 +274,22 @@ type meterGroup struct {
 	CodingAgent string              `json:"coding_agent"`
 	Model       *string             `json:"actual_model"`
 	Summary     report.MeterSummary `json:"summary"`
+}
+
+// meterCostText describes stored values without converting unknown totals to zero.
+func meterCostText(estimate, subtotal *string, collection, pricing string) string {
+	if collection == "complete" && pricing == "priced" && estimate != nil {
+		return "Complete local estimate USD: " + *estimate + " at recorded rates"
+	}
+	if subtotal != nil {
+		return "Observed lower bound USD: " + *subtotal + " at recorded rates; total unknown"
+	}
+	return "Local estimated USD: unknown; observed priced subtotal USD: unknown"
+}
+func meterRowCostText(row store.MeterRow) string {
+	text := meterCostText(row.EstimatedUSD, row.PricedSubtotalUSD, row.CollectionStatus, row.PricingStatus)
+	if row.ProviderReportedZeroCostRefusal {
+		return "Provider-reported zero-cost refusal (USD 0); token-derived pricing remains unknown; " + text
+	}
+	return text
 }

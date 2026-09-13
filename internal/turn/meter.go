@@ -58,10 +58,11 @@ func runMetered(ctx context.Context, prep *preparation, logger *slog.Logger) (*a
 	if ctx.Err() != nil {
 		outcome = "cancelled"
 	}
+	zeroCostRefusal := result != nil && result.ProviderReportedZeroCostRefusal && outcome == "failure"
 	finish := context.WithoutCancel(ctx)
-	if err := prep.meterDB.FinishMeterAttempt(finish, attempt.ID, outcome, status, version, format, codes); err != nil {
+	if err := prep.meterDB.FinishMeterAttemptWithRefusal(finish, attempt.ID, outcome, status, version, format, codes, zeroCostRefusal); err != nil {
 		prep.stoppedRepairs = append(prep.stoppedRepairs, func(c context.Context) error {
-			return prep.meterDB.FinishMeterAttempt(c, attempt.ID, outcome, status, version, format, codes)
+			return prep.meterDB.FinishMeterAttemptWithRefusal(c, attempt.ID, outcome, status, version, format, codes, zeroCostRefusal)
 		})
 		logger.Error("meter attempt finalization failed", slog.String("attempt_id", attempt.ID), slog.Any("error", err))
 		if result != nil {

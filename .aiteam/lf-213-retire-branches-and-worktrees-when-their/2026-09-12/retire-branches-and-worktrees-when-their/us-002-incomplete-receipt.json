@@ -1,0 +1,19 @@
+{
+  "request_id": "781b1b7b7a5166041f589d8cb38e7919",
+  "result": {
+    "ID": 51,
+    "RunID": 365,
+    "Attempt": "5ef24306ed2318f00629fb3676f06dbd",
+    "RequestID": "781b1b7b7a5166041f589d8cb38e7919",
+    "RequestHash": "1a22cce7782675f82ed67e77e1d583a07c521386ba049119cb9660e6ebd51087",
+    "Story": "US-002",
+    "Revision": "74f54d211ddd90390ea775cb7a7729a273c749aa6834059558afacb38ddefed9",
+    "Sequence": 5,
+    "StoryAttempt": 2,
+    "InputState": "valid",
+    "EngineeringState": "rejected",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

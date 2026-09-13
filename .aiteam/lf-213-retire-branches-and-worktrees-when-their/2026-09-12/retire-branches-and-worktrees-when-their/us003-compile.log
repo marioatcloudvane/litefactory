@@ -1,0 +1,4 @@
+ok  	github.com/cloudvane/litefactory/internal/daemon	0.867s [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/store	(cached) [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/cli	0.466s [no tests to run]
+ok  	github.com/cloudvane/litefactory/internal/config	(cached) [no tests to run]

@@ -50,6 +50,15 @@ func meterAttemptDiagnostic(ctx context.Context, tx *sql.Tx, id, code string) er
 // Persistence owns the bounded deadline; callers can detach cancellation after
 // their subprocess has stopped without extending the subprocess lifetime.
 func (db *DB) FinishMeterAttempt(ctx context.Context, id, outcome, status, version, format string, codes []string) error {
+	return db.FinishMeterAttemptWithRefusal(ctx, id, outcome, status, version, format, codes, false)
+}
+
+// FinishMeterAttemptWithRefusal atomically retains a provider-affirmed refusal
+// alongside finalization. The fact never upgrades collection or token pricing.
+func (db *DB) FinishMeterAttemptWithRefusal(ctx context.Context, id, outcome, status, version, format string, codes []string, zeroCostRefusal bool) error {
+	if zeroCostRefusal && outcome != "failure" {
+		return errors.New("store: refusal requires failed attempt")
+	}
 	if outcome != "success" && outcome != "failure" && outcome != "cancelled" && outcome != "abandoned" {
 		return errors.New("store: invalid attempt outcome")
 	}
@@ -60,7 +69,7 @@ func (db *DB) FinishMeterAttempt(ctx context.Context, id, outcome, status, versi
 		if err != nil {
 			return err
 		}
-		r, err := tx.ExecContext(bounded, `UPDATE meter_attempts SET finished_at=?,outcome=?,collection_status=?,agent_version=?,source_format=?,diagnostic_codes_json=? WHERE id=? AND finished_at IS NULL`, FormatTime(nowUTC()), outcome, mergedStatus, nullString(version), nullString(format), diagnostics, id)
+		r, err := tx.ExecContext(bounded, `UPDATE meter_attempts SET finished_at=?,outcome=?,collection_status=?,agent_version=?,source_format=?,diagnostic_codes_json=?,provider_reported_zero_cost_refusal=? WHERE id=? AND finished_at IS NULL`, FormatTime(nowUTC()), outcome, mergedStatus, nullString(version), nullString(format), diagnostics, zeroCostRefusal, id)
 		if err != nil {
 			return err
 		}

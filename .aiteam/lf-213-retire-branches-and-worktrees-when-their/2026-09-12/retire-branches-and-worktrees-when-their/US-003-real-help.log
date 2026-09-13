@@ -1,0 +1,4 @@
+=== RUN   TestTaskCleanReportsTheRetentionSetting
+--- PASS: TestTaskCleanReportsTheRetentionSetting (1.51s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/cli	2.143s

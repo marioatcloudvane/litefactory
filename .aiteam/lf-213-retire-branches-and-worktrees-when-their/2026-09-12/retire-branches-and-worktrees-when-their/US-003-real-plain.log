@@ -1,0 +1,92 @@
+=== RUN   TestRetirementSweepRealRestartAndDailyBoundary
+--- PASS: TestRetirementSweepRealRestartAndDailyBoundary (9.75s)
+=== RUN   TestRetirementSweepRealZeroCandidates
+--- PASS: TestRetirementSweepRealZeroCandidates (0.92s)
+=== RUN   TestRetirementSweepRealFailureFairness
+=== RUN   TestRetirementSweepRealFailureFairness/http_failure
+=== RUN   TestRetirementSweepRealFailureFairness/task_contention
+--- PASS: TestRetirementSweepRealFailureFairness (12.91s)
+    --- PASS: TestRetirementSweepRealFailureFairness/http_failure (6.07s)
+    --- PASS: TestRetirementSweepRealFailureFairness/task_contention (6.83s)
+=== RUN   TestRetirementSweepRealBudgetAndBackoff
+--- PASS: TestRetirementSweepRealBudgetAndBackoff (5.22s)
+=== RUN   TestRetirementSweepRealShutdownDuringCloneContention
+--- PASS: TestRetirementSweepRealShutdownDuringCloneContention (5.01s)
+=== RUN   TestRetirementSweepRealStorageFailure
+--- PASS: TestRetirementSweepRealStorageFailure (2.07s)
+=== RUN   TestRetirementSweepRealRateLimitPreservesCursor
+--- PASS: TestRetirementSweepRealRateLimitPreservesCursor (1.07s)
+=== RUN   TestRetirementExecutionRealLifecycle
+=== RUN   TestRetirementExecutionRealLifecycle/merged_external
+=== RUN   TestRetirementExecutionRealLifecycle/abandoned_unmerged
+=== RUN   TestRetirementExecutionRealLifecycle/open_merged
+=== RUN   TestRetirementExecutionRealLifecycle/reopened_final
+=== RUN   TestRetirementExecutionRealLifecycle/unavailable_final
+=== RUN   TestRetirementExecutionRealLifecycle/ignored
+=== RUN   TestRetirementExecutionRealLifecycle/untracked
+=== RUN   TestRetirementExecutionRealLifecycle/unpushed
+=== RUN   TestRetirementExecutionRealLifecycle/missing_upstream
+=== RUN   TestRetirementExecutionRealLifecycle/missing_registration
+=== RUN   TestRetirementExecutionRealLifecycle/stale_registration
+=== RUN   TestRetirementExecutionRealLifecycle/remote_only
+=== RUN   TestRetirementExecutionRealLifecycle/owner_locked
+=== RUN   TestRetirementExecutionRealLifecycle/active
+=== RUN   TestRetirementExecutionRealLifecycle/stale_intent
+--- PASS: TestRetirementExecutionRealLifecycle (53.05s)
+    --- PASS: TestRetirementExecutionRealLifecycle/merged_external (6.98s)
+    --- PASS: TestRetirementExecutionRealLifecycle/abandoned_unmerged (5.03s)
+    --- PASS: TestRetirementExecutionRealLifecycle/open_merged (1.83s)
+    --- PASS: TestRetirementExecutionRealLifecycle/reopened_final (2.64s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unavailable_final (2.76s)
+    --- PASS: TestRetirementExecutionRealLifecycle/ignored (1.78s)
+    --- PASS: TestRetirementExecutionRealLifecycle/untracked (2.61s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unpushed (2.15s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_upstream (3.02s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_registration (5.16s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_registration (6.64s)
+    --- PASS: TestRetirementExecutionRealLifecycle/remote_only (4.40s)
+    --- PASS: TestRetirementExecutionRealLifecycle/owner_locked (1.44s)
+    --- PASS: TestRetirementExecutionRealLifecycle/active (1.06s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_intent (5.53s)
+=== RUN   TestRetirementExecutionRealUncertainRetry
+--- PASS: TestRetirementExecutionRealUncertainRetry (7.79s)
+=== RUN   TestRetirementExecutionRealStorageFailures
+=== RUN   TestRetirementExecutionRealStorageFailures/intent
+=== RUN   TestRetirementExecutionRealStorageFailures/outcome
+--- PASS: TestRetirementExecutionRealStorageFailures (6.89s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/intent (2.58s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/outcome (4.31s)
+=== RUN   TestRetirementExecutionRealCoordination
+=== RUN   TestRetirementExecutionRealCoordination/parent_busy
+=== RUN   TestRetirementExecutionRealCoordination/clone_busy_cancellation
+--- PASS: TestRetirementExecutionRealCoordination (2.40s)
+    --- PASS: TestRetirementExecutionRealCoordination/parent_busy (1.40s)
+    --- PASS: TestRetirementExecutionRealCoordination/clone_busy_cancellation (1.00s)
+=== RUN   TestRetirementExecutionRealSharedChild
+--- PASS: TestRetirementExecutionRealSharedChild (1.21s)
+=== RUN   TestRetirementExecutionRealRecreatedCheckout
+--- PASS: TestRetirementExecutionRealRecreatedCheckout (7.71s)
+=== RUN   TestRetirementExecutionRealRemoteReopen
+--- PASS: TestRetirementExecutionRealRemoteReopen (3.82s)
+=== RUN   TestRetirementExecutionRealIntentPathIsolation
+--- PASS: TestRetirementExecutionRealIntentPathIsolation (0.91s)
+=== RUN   TestRetirementRealIssueResponses
+=== RUN   TestRetirementRealIssueResponses/open
+=== RUN   TestRetirementRealIssueResponses/not_found
+=== RUN   TestRetirementRealIssueResponses/rate_limit
+=== RUN   TestRetirementRealIssueResponses/null
+=== RUN   TestRetirementRealIssueResponses/malformed
+=== RUN   TestRetirementRealIssueResponses/unknown_state
+=== RUN   TestRetirementRealIssueResponses/wrong_number
+=== RUN   TestRetirementRealIssueResponses/wrong_repository
+--- PASS: TestRetirementRealIssueResponses (0.01s)
+    --- PASS: TestRetirementRealIssueResponses/open (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/not_found (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/rate_limit (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/null (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/malformed (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/unknown_state (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/wrong_number (0.00s)
+    --- PASS: TestRetirementRealIssueResponses/wrong_repository (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	121.206s

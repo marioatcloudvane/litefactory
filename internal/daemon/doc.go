@@ -1,7 +1,7 @@
 // Package daemon is litefactory's sense of time.
 //
 // It owns the tick loop, the singleton lock, rate-limit backoff, cursor
-// persistence and shutdown. It owns no business logic at all: what to do about
+// persistence, safe retirement and shutdown. What to do about
 // one comment belongs to internal/turn, which has no clock and no signals in
 // it. The split is a named M0 invariant — daemon is about *when* a turn
 // happens, turn is about *what* one turn does — and it is what keeps the whole
@@ -49,6 +49,14 @@
 // outcome repair debt retains that ownership while releasing worker capacity;
 // ticks retry persistence without launching another agent. Each worker finishes its
 // reporting attempts before that release; failed delivery retains retry intent.
+//
+// # Daily retirement
+//
+// After normal dispatch, Tick visits at most one registered resource owner with
+// a bounded context and the existing background request budget. A durable pass
+// boundary and cursor survive restart; completed passes become due after 24 hours.
+// The shared evaluator and guarded executor preserve closure and Git evidence,
+// while normal-visible resource logs and sweep summaries explain every outcome.
 //
 // # Activity diagnostics
 //

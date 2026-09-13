@@ -24,28 +24,29 @@ type MeterFilter struct {
 
 // MeterRow is an exclusive measurement or a non-additive coverage row.
 type MeterRow struct {
-	Project             string      `json:"project"`
-	Issue               int64       `json:"issue"`
-	Run                 int         `json:"run"`
-	AttemptID           string      `json:"attempt_id"`
-	AttemptStartedAt    string      `json:"attempt_started_at"`
-	AttemptFinishedAt   string      `json:"attempt_finished_at"`
-	CodingAgent         string      `json:"coding_agent"`
-	Mode                string      `json:"mode"`
-	InvocationID        string      `json:"invocation_id"`
-	ParentInvocationID  string      `json:"parent_invocation_id"`
-	ActualModel         *string     `json:"actual_model"`
-	ModelProvenance     string      `json:"model_provenance"`
-	Tokens              MeterTokens `json:"tokens"`
-	PriceRevisionID     int64       `json:"price_revision_id"`
-	MeasurementID       int64       `json:"measurement_id"`
-	MeasurementRevision int64       `json:"measurement_revision"`
-	EstimatedUSD        *string     `json:"estimated_usd"`
-	PricedSubtotalUSD   *string     `json:"priced_subtotal_usd"`
-	PricingStatus       string      `json:"pricing_status"`
-	CollectionStatus    string      `json:"collection_status"`
-	Diagnostics         []string    `json:"diagnostic_codes"`
-	RowKind             string      `json:"row_kind"`
+	ProviderReportedZeroCostRefusal bool        `json:"provider_reported_zero_cost_refusal,omitempty"`
+	Project                         string      `json:"project"`
+	Issue                           int64       `json:"issue"`
+	Run                             int         `json:"run"`
+	AttemptID                       string      `json:"attempt_id"`
+	AttemptStartedAt                string      `json:"attempt_started_at"`
+	AttemptFinishedAt               string      `json:"attempt_finished_at"`
+	CodingAgent                     string      `json:"coding_agent"`
+	Mode                            string      `json:"mode"`
+	InvocationID                    string      `json:"invocation_id"`
+	ParentInvocationID              string      `json:"parent_invocation_id"`
+	ActualModel                     *string     `json:"actual_model"`
+	ModelProvenance                 string      `json:"model_provenance"`
+	Tokens                          MeterTokens `json:"tokens"`
+	PriceRevisionID                 int64       `json:"price_revision_id"`
+	MeasurementID                   int64       `json:"measurement_id"`
+	MeasurementRevision             int64       `json:"measurement_revision"`
+	EstimatedUSD                    *string     `json:"estimated_usd"`
+	PricedSubtotalUSD               *string     `json:"priced_subtotal_usd"`
+	PricingStatus                   string      `json:"pricing_status"`
+	CollectionStatus                string      `json:"collection_status"`
+	Diagnostics                     []string    `json:"diagnostic_codes"`
+	RowKind                         string      `json:"row_kind"`
 }
 
 // MeterSnapshotOptions allows the output layer's canonical serializer to supply
@@ -87,7 +88,7 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 		// concurrent collection invisible until the complete snapshot is captured.
 		predicate, args := meterPredicates(f)
 		// #nosec G202 -- predicate contains constant SQL fragments only; all selectors are bound parameters.
-		query := `SELECT p.forge||':'||p.owner||'/'||p.name,s.issue_number,r.ordinal,a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,r.mode,COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]') FROM meter_attempts a JOIN runs r ON r.id=a.run_id JOIN sessions s ON s.id=r.session_id JOIN repos p ON p.id=s.repo_id LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
+		query := `SELECT p.forge||':'||p.owner||'/'||p.name,s.issue_number,r.ordinal,a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,r.mode,COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal FROM meter_attempts a JOIN runs r ON r.id=a.run_id JOIN sessions s ON s.id=r.session_id JOIN repos p ON p.id=s.repo_id LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
 		count, total := 0, options.HeaderBytes
 		lastFilteredInvocation := [2]string{}
 		if total < 0 || total > 256<<20 {
@@ -174,7 +175,7 @@ func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
 	for rows.Next() {
 		var r MeterRow
 		var a, i, m, ad, id, md string
-		err := rows.Scan(&r.Project, &r.Issue, &r.Run, &r.AttemptID, &r.AttemptStartedAt, &r.AttemptFinishedAt, &r.CodingAgent, &r.Mode, &r.InvocationID, &r.ParentInvocationID, &r.ActualModel, &r.ModelProvenance, &r.Tokens.InputUncached, &r.Tokens.CacheRead, &r.Tokens.CacheWrite, &r.Tokens.CacheWrite5m, &r.Tokens.CacheWrite1h, &r.Tokens.Output, &r.Tokens.Reasoning, &r.PriceRevisionID, &r.MeasurementID, &r.MeasurementRevision, &a, &i, &m, &ad, &id, &md)
+		err := rows.Scan(&r.Project, &r.Issue, &r.Run, &r.AttemptID, &r.AttemptStartedAt, &r.AttemptFinishedAt, &r.CodingAgent, &r.Mode, &r.InvocationID, &r.ParentInvocationID, &r.ActualModel, &r.ModelProvenance, &r.Tokens.InputUncached, &r.Tokens.CacheRead, &r.Tokens.CacheWrite, &r.Tokens.CacheWrite5m, &r.Tokens.CacheWrite1h, &r.Tokens.Output, &r.Tokens.Reasoning, &r.PriceRevisionID, &r.MeasurementID, &r.MeasurementRevision, &a, &i, &m, &ad, &id, &md, &r.ProviderReportedZeroCostRefusal)
 		if err != nil {
 			return nil, err
 		}

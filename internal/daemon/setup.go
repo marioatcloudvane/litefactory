@@ -256,6 +256,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	sharedCloneGate := newCloneGate()
 	turnOpts := turn.Options{
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,
@@ -267,7 +268,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		// validates it as required, so this line going missing is a
 		// startup error rather than a quietly unserialised daemon
 		// (AC-PAR-3.1).
-		CloneGate:  newCloneGate(),
+		CloneGate:  sharedCloneGate,
 		Paths:      s.Paths,
 		Tiers:      copyDeliveryTiers(s.Config.Tiers),
 		InstanceID: instanceID,
@@ -309,6 +310,7 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 
 	daemon, err := New(Options{
+		Retirement:               RetirementExecutionOptions{CloneGate: sharedCloneGate, LockDir: s.Paths.StoryProgressLocksDir(), RetainDays: s.Config.Settings.WorktreeRetainDays},
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		DB:                       s.DB,
 		Forge:                    client,

@@ -232,6 +232,14 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return result, fmt.Errorf("count outstanding scheduled work: %w", err)
 	}
 
+	// Retirement runs after normal admission and never blocks a full scan here.
+	if retirementErr := d.RunRetirementBatch(ctx, startedAt); retirementErr != nil {
+		d.log.ErrorContext(ctx, "retirement batch incomplete", slog.Bool("completed", false))
+		if ctx.Err() != nil {
+			return result, ctx.Err()
+		}
+	}
+
 	// The cursor is a pure watermark now: it advances to this tick's start time
 	// on every tick that completed, whatever any worker went on to do (T-PAR-13).
 	// Holding it back to the oldest issue that did not finish was the only way

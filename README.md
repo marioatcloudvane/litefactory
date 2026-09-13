@@ -204,3 +204,7 @@ its contract. Completed history and persisted workflow remain unchanged.
 shared-source targets, isolated rendering and the manual opposite-harness handoff.
 Authentic helper/correction/receipt evidence from both harnesses remains a separate
 operator prerequisite; synthetic checks do not establish that runtime capability.
+
+Daily cleanup of finished task worktrees and merged branches, the advisory
+`task retire` preview, and retirement logs are described in
+[Retiring finished work](docs/retirement.md).

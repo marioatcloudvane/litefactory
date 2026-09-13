@@ -1,0 +1,122 @@
+[
+  {
+    "path": "docs/meter-provider-sources.md",
+    "sha256": "188c355c057b57dc214b842f09f6d8f5279d9bd9f2b6b91281c18c5d2dc7a545"
+  },
+  {
+    "path": "docs/meter.md",
+    "sha256": "1b0decbfa913edecc9bff60bcf7d2c50d221059388ff182ae0188c333aa81d17"
+  },
+  {
+    "path": "internal/agent/result.go",
+    "sha256": "69a1b664977b44dd15df8659610b8d1397a3755f8de2f3e07424be25cf5b0586"
+  },
+  {
+    "path": "internal/cli/cmd_meter.go",
+    "sha256": "5b54ab7844bb757b0c75043f1674ce3d3b27df9aac4a78e584130b85830411a9"
+  },
+  {
+    "path": "internal/cli/cmd_meter_recover.go",
+    "sha256": "4f46f1b547f9eb074d54a5ec4cb62accbaf1d362af953bd96f82fa6fec8b3f16"
+  },
+  {
+    "path": "internal/cli/commands.go",
+    "sha256": "b714aab7959839a44d4a76838506a2d0af8a7217c39f3d1117c712a78ff51202"
+  },
+  {
+    "path": "internal/cli/meter_csv.go",
+    "sha256": "3b81098b7e1364eb339ddc55113df313a767d393216f08e7107c935a79988871"
+  },
+  {
+    "path": "internal/cli/meter_presentation_test.go",
+    "sha256": "7a26b9da5cfe8d2c91a72b3c9a5e681d820fdcd8437ab8ce7f6bd2a9ba869d88"
+  },
+  {
+    "path": "internal/cli/meter_recovery_reconcile.go",
+    "sha256": "f8e31ab3ca5dddc682484150adc332557fc529a5e1049b38f2bcaaa245d6e1d2"
+  },
+  {
+    "path": "internal/cli/meter_recovery_test.go",
+    "sha256": "ebb6dbeab82141ef0bdf6c6fd86e81bf39c1139fd6a01df63cde19beb4d6e329"
+  },
+  {
+    "path": "internal/codex/usage.go",
+    "sha256": "c562f5e82fcd8918ba7e8ea99a7b10dfa8bfed915e38d6f502a67a87ac361e82"
+  },
+  {
+    "path": "internal/codex/usage_evidence_test.go",
+    "sha256": "dbdacbc717c9c62b7a14a8805f7d49a54694076719f4223bed0f5dbec22d3241"
+  },
+  {
+    "path": "internal/codex/usage_filesystem_evidence_test.go",
+    "sha256": "e24badca40ec994971cb91041a208f5053004e791584afd5c7523952bdd5bb92"
+  },
+  {
+    "path": "internal/codex/usage_historical.go",
+    "sha256": "7fc98a6b9fa2834268c759e479e60b7ea0bb065b95834bd306ebc3ae40c2597c"
+  },
+  {
+    "path": "internal/codex/usage_rollout.go",
+    "sha256": "4cf1873af9f319a3a7a5c96cae64797e023cceb9c355ddff4e7c7513542e7b68"
+  },
+  {
+    "path": "internal/harness/refusal.go",
+    "sha256": "1c5703ee0be1636a2cc9b788c904492ded2f838efb0199ce84325e2b15684659"
+  },
+  {
+    "path": "internal/harness/refusal_test.go",
+    "sha256": "d62197aff6e193525974d70b5d531dba3c4777b73fc13adcae61a121ee7bf858"
+  },
+  {
+    "path": "internal/harness/runner.go",
+    "sha256": "ee443fbf3494c557d6e3ff222b4733844e651cbb6b3817d47d3e1babcc54b4c1"
+  },
+  {
+    "path": "internal/harness/stream.go",
+    "sha256": "d2500b084ef06c2e32655db721a810b465ca1566309904bb6f86b313b634b110"
+  },
+  {
+    "path": "internal/report/report_test.go",
+    "sha256": "0f194b0304891b4058526ef5820d8896f45843517094f8d106eade771e1e26f4"
+  },
+  {
+    "path": "internal/store/meter.go",
+    "sha256": "94402a38f6f3ede69ff493c1523a9ac8221beeb6ac4ccab910f6992b5fbe9d11"
+  },
+  {
+    "path": "internal/store/meter_coverage.go",
+    "sha256": "8757e1ac4e0fee08e7c2a7cefd9e88639e090315f2cde9167ef4020007cd65e0"
+  },
+  {
+    "path": "internal/store/meter_recovery.go",
+    "sha256": "68e0743a086e7028991f4e1cd94f4c933f5157951b7c210802e47992806dc04f"
+  },
+  {
+    "path": "internal/store/meter_recovery_test.go",
+    "sha256": "e1d72d33fd7d77d831193c7ee6e7ede200d885bfe148b5595b1d4d0ca5652546"
+  },
+  {
+    "path": "internal/store/meter_refusal_test.go",
+    "sha256": "9523de4dd12c84046612f192cac11f61de16dc8f443f1253bcb76da2936ca60f"
+  },
+  {
+    "path": "internal/store/meter_snapshot.go",
+    "sha256": "e458aea91425b1cde8c046a4ee1236d90d26e4d58841a85326cb3ba089e7b968"
+  },
+  {
+    "path": "internal/store/migrations/0037_meter_refusal.sql",
+    "sha256": "08104fc727f4f6c89c3cfd53276faebf04e8fda04473143f5e57eb733450e6ce"
+  },
+  {
+    "path": "internal/store/testdata/meter_recovery_history.json",
+    "sha256": "e2c115d1f3bce7ad5998e31e68c15ee08cb0f6d99b3ad556c4bba43dfbcbe422"
+  },
+  {
+    "path": "internal/store/testdata/meter_recovery_history.md",
+    "sha256": "7fa56c39a28975cb8b8ce0ad005de5c51c5ba0d7bf149d2a724bc0d4d9bb258a"
+  },
+  {
+    "path": "internal/turn/meter.go",
+    "sha256": "800020a4e4acf1e0a266c5afa50ba011ba949e11861d970b6ea406b304f07e0c"
+  }
+]

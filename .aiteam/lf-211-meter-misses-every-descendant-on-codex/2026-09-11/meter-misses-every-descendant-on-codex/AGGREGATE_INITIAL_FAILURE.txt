@@ -1,0 +1,11 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+internal/store/meter_recovery.go:42:1: exported: exported method DB.MeterRecoveryScope should have comment or be unexported (revive)
+func (db *DB) MeterRecoveryScope(ctx context.Context, attempt string) (scope MeterRecoveryScope, err error) {
+^
+internal/store/meter_recovery.go:147:6: exported: exported type MeterRecoveryResult should have comment or be unexported (revive)
+type MeterRecoveryResult struct {
+     ^
+2 issues:
+* revive: 2
+make: *** [lint] Error 1
