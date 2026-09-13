@@ -2,17 +2,17 @@
 
 2026-09-13 · Research run 0001 · source revision `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb`
 
-## Current handoff — confirmed in run 0008
+## Current handoff — approved in run 0009
 
 **Judgement:** retain the agreed contract direction. The health check usefully identified unfinished decisions and example coverage, but its recommendation to defer the library, all-mode updates and progress would remove explicit #263 requirements. This section supersedes run 0006's scope/readiness recommendation; earlier entries remain history.
 
 **Settled:** factory-owned `meta`, agent-authored `result`, common recommendation `{text, action?}`, optional unused fields and small updates. Plan can accumulate story detail without inventing a workflow engine; completed content and evidence still meet existing obligations. The shared Go library remains required. No need to reopen these agreements.
 
-**Only unresolved owner choices:**
+**Owner decisions — all approved in run 0009:**
 
-1. **Patch format:** explicit stable-ID operations (recommended) or merge-patch? Examples demonstrate the recommendation; the owner's common-shape approval did not choose the format.
-2. **Result lifetime:** one logical result across authorized same-mode continuations (recommended), or a new result each run? Under the recommendation, every revision retains originating run/attempt, old attempts lose authority, and changed mode/scope cannot silently inherit permission.
-3. **Auxiliary scope:** include classification/scheduling/conflict as small typed variants now, or keep their current adapters separate? Recommend the latter for the first delivery: retain the inventory and focus implementation on the five work modes plus required advisory progress. This is an explicit proposed boundary for owner confirmation, not an approved deferral. No new generic event framework is needed either way.
+1. **Patch format:** use explicit operations targeting stable IDs. Merge-patch is not the selected format.
+2. **Result lifetime:** retain one logical result across authorized same-mode continuations. Preserve every revision and its originating run/attempt; require fresh attempt authorization, revoke old attempt authority, and never silently carry authority across changed mode/scope.
+3. **Auxiliary scope:** keep classification, scheduling and conflict-advice adapters separate initially. The first delivery covers the five work modes and required advisory progress; retain the auxiliary inventory as future reference.
 
 **Technical work to resolve in Plan, not additional owner questions:**
 
@@ -25,7 +25,7 @@
 
 **Evidence and corrections:** supplied issue #263 explicitly requires the library, all five modes, progress and finalization skill. At source revision `7ed7c63a6c0e8a3231b8ef108a50c463f84bb2c9`, `internal/harness/stories.go:29` requires aggregate checks and `:36` describes event-free aggregate recovery; `internal/agent/contribution.go:275` requires check references and `:316`–`:325` binds them to story/revision/snapshot/digest. These focused reads confirm a real aggregate mapping gap. The seven session JSON documents confirm the coverage distinction above. Normalized illustrative `US-1` identifiers to `US-001` in mode and exchange examples; the previous mismatch was cosmetic across examples, not observed runtime identity corruption.
 
-MCP findings are preserved separately in `MCP_FOLLOWUP.md` for transfer to its story; no external story was edited or posted in this run. Research remains **incomplete for the three owner choices above**. Bounded evaluation is complete; no Plan or implementation started.
+MCP findings are preserved separately in `MCP_FOLLOWUP.md` for transfer to its story; no external story was edited or posted in this run. Research is **complete**: the bounded investigation and all three material owner decisions are resolved. The handoff is ready for Plan; no Plan or implementation has started. Technical details below remain delivery work, not unanswered owner choices.
 
 ## Request and scope (original run 0001)
 
@@ -292,3 +292,7 @@ Owner asks only what remains to choose. No new investigation, decision or scope 
 3. **Whether to include the small advisor calls now.** Classification proposes a mode, scheduling proposes future work, and conflict advice proposes resolutions. Including these now adds three typed variants to the shared contract; keeping their existing adapters separate limits this delivery to the five work modes and required advisory progress. Recommend keeping them separate initially.
 
 These are recommendations awaiting owner choice, not newly approved semantics. Research remains incomplete. No production code, examples or MCP scope changed; only the brief and manifest were updated.
+
+## Run 0009: owner decisions approved; Research complete
+
+The owner explicitly approved all three run 0008 recommendations: explicit stable-ID update operations, continuing logical results across authorized same-mode runs with preserved history and fresh attempt authority, and keeping classification/scheduling/conflict adapters separate initially. Updated the current handoff to record settled choices and marked Research complete. Aggregate evidence mapping, allowed edits and optional-field removal, full mode fixtures, library/finalization skill and advisory progress remain delivery requirements for Plan. MCP remains excluded with its separate local handoff. No source investigation, production implementation, Plan start or further questions were needed; historical incomplete entries describe their earlier runs.
