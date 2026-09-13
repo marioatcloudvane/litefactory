@@ -20,6 +20,10 @@
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
+          "action": "action.moveto.planmode"
+        },
         "artifacts": [],
         "payload": {
           "research": {
@@ -48,8 +52,7 @@
                 "id": "A-1",
                 "text": "Field ordering and the first shape remain open to owner review."
               }
-            ],
-            "recommendation": "Review the proposed JSON structure before implementation."
+            ]
           }
         }
       }
@@ -94,6 +97,9 @@
             "recommended_option_id": "O-1"
           }
         ],
+        "recommendation": {
+          "text": "Review the proposed JSON structure before implementation."
+        },
         "artifacts": [],
         "payload": {
           "research": {
@@ -122,8 +128,7 @@
                 "id": "A-1",
                 "text": "Field ordering and the first shape remain open to owner review."
               }
-            ],
-            "recommendation": "Review the proposed JSON structure before implementation."
+            ]
           }
         },
         "reason": "Further work remains."
@@ -151,6 +156,9 @@
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the proposed JSON structure before implementation."
+        },
         "artifacts": [],
         "payload": {
           "research": {
@@ -179,8 +187,7 @@
                 "id": "A-1",
                 "text": "Field ordering and the first shape remain open to owner review."
               }
-            ],
-            "recommendation": "Review the proposed JSON structure before implementation."
+            ]
           }
         },
         "reason": "Required retained evidence or baseline is unavailable."
@@ -208,6 +215,9 @@
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the proposed plan before authorizing implementation."
+        },
         "artifacts": [],
         "payload": {
           "plan": {
@@ -299,6 +309,9 @@
             "recommended_option_id": "O-1"
           }
         ],
+        "recommendation": {
+          "text": "Review the proposed plan before authorizing implementation."
+        },
         "artifacts": [],
         "payload": {
           "plan": {
@@ -335,6 +348,9 @@
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the proposed plan before authorizing implementation."
+        },
         "artifacts": [],
         "payload": {
           "plan": {
@@ -371,6 +387,9 @@
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review retained engineering evidence and remaining work."
+        },
         "artifacts": [],
         "payload": {
           "implement": {
@@ -412,6 +431,9 @@
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review retained engineering evidence and remaining work."
+        },
         "artifacts": [],
         "payload": {
           "implement": {
@@ -449,6 +471,9 @@
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review retained engineering evidence and remaining work."
+        },
         "artifacts": [],
         "payload": {
           "implement": {
@@ -486,6 +511,9 @@
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review assessment findings before deciding acceptance."
+        },
         "artifacts": [],
         "payload": {
           "validate": {
@@ -571,6 +599,9 @@
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review assessment findings before deciding acceptance."
+        },
         "artifacts": [],
         "payload": {
           "validate": {
@@ -655,6 +686,9 @@
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review assessment findings before deciding acceptance."
+        },
         "artifacts": [],
         "payload": {
           "validate": {
@@ -739,6 +773,9 @@
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the result before requesting larger work."
+        },
         "artifacts": [],
         "payload": {
           "spike": {
@@ -752,8 +789,7 @@
             "decisions": [],
             "not_done": [
               "Production adoption."
-            ],
-            "recommendation": "Review the result before requesting larger work."
+            ]
           }
         }
       }
@@ -780,6 +816,9 @@
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the result before requesting larger work."
+        },
         "artifacts": [],
         "payload": {
           "spike": {
@@ -793,8 +832,7 @@
             "decisions": [],
             "not_done": [
               "Production adoption."
-            ],
-            "recommendation": "Review the result before requesting larger work."
+            ]
           }
         },
         "reason": "Further work remains."
@@ -822,6 +860,9 @@
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
         "questions": [],
+        "recommendation": {
+          "text": "Review the result before requesting larger work."
+        },
         "artifacts": [],
         "payload": {
           "spike": {
@@ -835,8 +876,7 @@
             "decisions": [],
             "not_done": [
               "Production adoption."
-            ],
-            "recommendation": "Review the result before requesting larger work."
+            ]
           }
         },
         "reason": "Required retained evidence or baseline is unavailable."

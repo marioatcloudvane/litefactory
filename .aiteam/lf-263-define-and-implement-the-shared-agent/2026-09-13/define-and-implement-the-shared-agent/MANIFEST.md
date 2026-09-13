@@ -32,3 +32,6 @@
 - Validation: all three JSON documents parsed; mode/outcome matrix and common-shape checks passed. Illustrations are not production-valid fixtures. No Go code changed or tests executed.
 
 - Run 0002: Verified sample.json exists in local HEAD; corrected issue-facing delivery by including the full JSON inline. Remote publication unverified. Research remains open for owner review.
+
+- Run 0003: Answered metadata and common-versus-mode-specific field questions against focused current sources. Updated all JSON work examples to common optional `result.recommendation` with human-readable `text` and optional advisory `action`; example token `action.moveto.planmode` never authorizes a transition. Existing metadata retained for review, with conditional applicability and simplification options explained. Shared-library requirement retained; no implementation started. Research remains incomplete for owner contract review; no new blocking question is required for this bounded revision.
+- Run 0003 validation: all three JSON files parsed; 15 mode/outcome cases and recommendation placement/token consistency checked; creation result matches sample. No production tests executed.

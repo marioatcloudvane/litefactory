@@ -6,6 +6,10 @@
       "outcome": "completed",
       "comment": "Illustrative result for contract review.",
       "questions": [],
+      "recommendation": {
+        "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
+        "action": "action.moveto.planmode"
+      },
       "artifacts": [
         {
           "id": "ART-1",
@@ -41,8 +45,7 @@
               "id": "A-1",
               "text": "Field ordering and the first shape remain open to owner review."
             }
-          ],
-          "recommendation": "Review the proposed JSON structure before implementation."
+          ]
         }
       }
     }
@@ -55,7 +58,7 @@
       {
         "op": "replace",
         "path": "/comment",
-        "value": "Updated recommendation; other fields remain unchanged."
+        "value": "Updated summary; other fields remain unchanged."
       },
       {
         "op": "update_item",
