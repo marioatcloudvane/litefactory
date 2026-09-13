@@ -63,12 +63,40 @@ type initEvent struct {
 // true, so branching on it silently reports failed runs as successful (SD-3).
 // The only trustworthy field is .is_error.
 type resultEvent struct {
-	SessionID    string  `json:"session_id"`
-	IsError      bool    `json:"is_error"`
-	Result       string  `json:"result"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	DurationMS   int64   `json:"duration_ms"`
-	NumTurns     int     `json:"num_turns"`
+	SessionID    string          `json:"session_id"`
+	IsError      bool            `json:"is_error"`
+	Result       string          `json:"result"`
+	TotalCostUSD float64         `json:"total_cost_usd"`
+	HasCost      bool            `json:"-"`
+	HasNumTurns  bool            `json:"-"`
+	Usage        json.RawMessage `json:"usage"`
+	ModelUsage   json.RawMessage `json:"modelUsage"`
+	DurationMS   int64           `json:"duration_ms"`
+	NumTurns     int             `json:"num_turns"`
+}
+
+// UnmarshalJSON preserves affirmative zero separately from absent or null facts.
+func (e *resultEvent) UnmarshalJSON(data []byte) error {
+	type plain resultEvent
+	var decoded struct {
+		*plain
+		Cost  *float64 `json:"total_cost_usd"`
+		Turns *int     `json:"num_turns"`
+	}
+	*e = resultEvent{}
+	decoded.plain = (*plain)(e)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if decoded.Cost != nil {
+		e.HasCost = true
+		e.TotalCostUSD = *decoded.Cost
+	}
+	if decoded.Turns != nil {
+		e.HasNumTurns = true
+		e.NumTurns = *decoded.Turns
+	}
+	return nil
 }
 
 // eventStream consumes claude's stdout: it persists every line verbatim and

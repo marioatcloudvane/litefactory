@@ -1,6 +1,6 @@
 # Meter provider source collection
 
-The collectors read usage from the launched process and its associated local session files. They never infer actual models from the configured default, import historical logs into old runs, or change provider credentials and permissions.
+The collectors read usage from the launched process and its associated local session files. They never infer actual models from the configured default or change provider credentials and permissions. Live collection excludes historical consumption; the separate preview-first `meter recover` command can append evidenced missing historical descendants to a selected finalized attempt.
 
 ## Claude
 
@@ -21,3 +21,29 @@ Both collectors use bounded read-only discovery, descriptor type and identity ch
 Claude limits associated discovery to 4,096 files, 8,192 entries and depth 8, with separate 128 MiB budgets for prelaunch baseline reads and final reads. Codex limits discovery to 100,000 entries and 4,096 source files, individual records to 2 MiB and total reads to 256 MiB; historical response identity tracking is bounded at 100,000 entries.
 
 These are implemented source integrations, not a claim of completed provider qualification. Run 19 intentionally did not execute tests or paid provider probes, following the owner's instruction. Version-pinned real root, parallel, nested, failed-child, model-switch and resume captures remain deferred. Until that evidence is available, reported completeness remains qualified. Source inspection and successful build/static analysis are recorded separately from real-execution evidence.
+
+
+## Historical recovery and refusal evidence
+
+Recovery shares Codex response parsing and exact model context with live
+collection, but bounds attribution by original attempt windows and verifies
+exclusive ownership before append. An unchanged ancestor remains available for
+ancestry even when it contributes no new usage. Final live discovery drains
+persisted delayed records for at most two seconds; an exhausted drain deadline
+is not itself request cancellation. Late/missing sources remain incomplete.
+
+The retained Codex 0.153.4 historical facts from 2026-09-09 are exercised in
+isolated SQLite/source tests: run 5 gains $6.754276 and reaches an observed
+$11.903026 at original recorded rates, without altering later resumed runs.
+[Fixture provenance](../internal/store/testdata/meter_recovery_history.md) records
+source hashes and extracted response facts; the minimal source envelopes and
+nested/delayed/limit topologies are synthetic. This is offline historical
+reconciliation, not an authentic current-hierarchy or invoice certification.
+
+The retained Claude resume refusal reports zero turns and zero cost. Its process
+version is independently unknown; the successful fallback reported 2.1.267.
+Presence-aware refusal classification requires structural refusal and affirmative
+terminal zeros with no contradictory activity. It preserves unknown model/token
+pricing and separate fallback facts. Missing, interrupted, nonzero or conflicting
+cases are never relabelled as proven zero-cost. No paid nested capture or live
+runtime repair was performed to develop these changes.

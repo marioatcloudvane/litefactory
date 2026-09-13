@@ -20,6 +20,7 @@ func Commands() []*Command {
 		newLogsCommand(),
 		newMeterCommand(),
 		newMeterExportCommand(),
+		newMeterRecoverCommand(),
 		newMeterPricesCommand(),
 		newMeterPricesListCommand(),
 		newMeterPricesSetCommand(),

@@ -1,0 +1,345 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Deliver a materially closer local estimate in three stories: safely recover evidenced missing historical descendants and exercise the shared collector; classify proven zero-cost refusals; make incomplete costs clear and document recovery. Quantitative target: recover $6.754276 for historical run 5, moving observed subtotal from $5.148750 to $11.903026 without changing later runs. No invoice perfection, multipliers or redesign.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "create",
+        "title": "Recover missing descendant costs safely",
+        "user_story": {
+          "actor": "operator",
+          "want": "preview and apply missing historical child usage and have the supported descendant cases collected correctly",
+          "benefit": "my estimate includes evidenced work without charging resumed attempts twice",
+          "notes": [
+            "Evidence AC-001: offline exact valuation/preview assertion; available session RUNTIME_EVIDENCE.json and RESEARCH_BRIEF.md retain authentic metadata/counters and source hashes. Codex 0.153.4, 2026-09-09 run 5, $10/$1/$50 per-million rates. Minimal source envelopes are reconstructed/synthetic. Missing prerequisite: executed fixture test plus provenance manifest; do not commit original private transcripts.",
+            "Evidence AC-002: isolated real-store apply/replay/interruption assertions over the same extracted historical windows and later root totals; retry schedules synthetic. Bounds: historical attribution and offline current-code behavior. Missing: executed transaction tests; actual live backfill remains a later explicit operator action.",
+            "Evidence AC-003: synthetic malformed/ambiguous/replaced/unsupported sources and selector tests plus safe-source review. Bounds: offline negative behavior only. Missing: executed tests; absent source stays unresolved.",
+            "Evidence AC-004: available authentic three-parallel-child extracts ground minimal envelopes; nested/delayed/unchanged-ancestor/limit topologies are synthetic. Bounds: Codex 0.153.4 historical shape and enumerated offline behavior. Missing: executed regressions. Authentic current full-hierarchy capture is unavailable and remains unverified, not discharged by fixtures. No nested paid capture is authorized."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "A read-only preview over the retained run-5 facts and an isolated historical store shows one root and three correctly parented/model-attributed children, $6.754276 additional observed usage and $11.903026 resulting subtotal at the recorded rates. Preview creates or changes no records, including schema/checkpoint/coverage records."
+          },
+          {
+            "id": "AC-002",
+            "text": "Explicit apply atomically yields the previewed attribution and subtotal using the original attempt price catalog, preserves existing measurements and attempt identity/outcome/timestamps, and is idempotent across repeat and interrupted/retried application. Runs 6, 7 and 8 remain $1.746696, $0.326984 and $0.558352. Concurrent state/source changes and overlap that cannot be proved exclusive refuse or remain unresolved without partial successful application; active attempts cannot be repaired."
+          },
+          {
+            "id": "AC-003",
+            "text": "Invalid selectors fail before mutation. Ambiguous, missing, replaced, malformed or unsupported evidence produces explicit unresolved/skipped reasons without guessed usage, model, ownership or false completeness. Recovery is scoped, bounded, preview by default and explicit apply only; safe source access and current-state/evidence revalidation are retained."
+          },
+          {
+            "id": "AC-004",
+            "text": "Executed shared-collector regression cases cover parallel and nested descendants, resumed deltas, inherited/foreign records, unchanged ancestors with active grandchildren, delayed discovery and scan limits. Each observable own-attempt response is charged once; historical/unrelated responses are excluded; unsupported/incomplete cases retain diagnostics. Include an Implement-labelled case on the shared path and fix demonstrated failures, without unbounded polling or claiming authentic present-day hierarchy certification."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Implement bounded provider-owned historical discovery and CLI preview using existing selectors, safe rollout access, observation identities and original attempt windows. Reuse source interpretation with live collection; parentage or filenames alone are insufficient.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-003"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Add a narrow finalized-attempt historical append operation and explicit apply. Reuse pure reconciliation and original catalogs; atomically revalidate/deduplicate the candidate batch. Keep live observation APIs rejecting finalized attempts; do source I/O outside transactions.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Fix shared collector failures demonstrated by the enumerated regressions, including ancestry visibility independent of measurable activity; retain bounded drains and diagnostics.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-004"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-004",
+            "description": "Write and execute deterministic collector/negative evidence tests and provenance-preserving sanitized fixtures. Distinguish authentic extracted counters from synthetic envelopes and topology scheduling.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-003"
+            ]
+          },
+          {
+            "id": "T-005",
+            "description": "Write and execute ordinary Go tests using migrated temporary SQLite stores and isolated source files for exact preview/apply totals, original catalogs, replay/interruption/concurrent changes, no-mutation preview, active-attempt rejection and unaffected later runs. No integration tags or live database.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse the existing owners and accounting ledger; deliver bounded, evidence-backed behavior without new services.",
+          "components": [
+            {
+              "name": "internal/codex",
+              "responsibility": "Bounded safe source parsing, ancestry and own-attempt attribution"
+            },
+            {
+              "name": "internal/cli",
+              "responsibility": "Scoped preview/apply orchestration and results"
+            },
+            {
+              "name": "internal/store",
+              "responsibility": "Atomic historical append, original catalog and durable replay protection"
+            },
+            {
+              "name": "internal/meter",
+              "responsibility": "Existing pure reconciliation/valuation"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Historical candidate collection",
+              "input": "Selected finalized attempt/root/time context plus bounded source access",
+              "output": "Neutral observations, parent links, source digests and unresolved reasons"
+            },
+            {
+              "name": "Historical append",
+              "input": "Validated candidate batch and expected current ledger state",
+              "output": "Atomic applied/no-op/unresolved result with original-rate snapshot"
+            }
+          ],
+          "constraints": [
+            "Preserve unknown versus zero, exclusive usage, exact recorded-rate arithmetic and original attempt attribution.",
+            "No paid nested provider execution, permission expansion, live runtime repair during development, or protected instruction-tree edits.",
+            "All SQL remains in store; ctx-first accessors and one SQLite connection. Additive numbered migrations only when needed."
+          ],
+          "decisions": [
+            {
+              "decision": "Add a narrow historical append path; retain normal finalization fence",
+              "reason": "Existing live observation APIs intentionally reject finalized attempts."
+            },
+            {
+              "decision": "No filesystem work or output inside transactions",
+              "reason": "Preserves single-connection correctness and atomic mutation."
+            },
+            {
+              "decision": "Quantitative target is observed subtotal, not certified total",
+              "reason": "Retained evidence accounts for $11.903026 but does not certify all spend."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "create",
+        "title": "Explain proven zero-cost resume refusals",
+        "user_story": {
+          "actor": "operator",
+          "want": "distinguish an evidenced zero-cost refused resume from an unmeasured failure",
+          "benefit": "a known no-work refusal does not look like unexplained missing spend",
+          "notes": [
+            "Evidence AC-005: offline positive assertion over retained RUNTIME_EVIDENCE.json refusal terminal facts, plus synthetic negative cases and real isolated-store persistence. Successful fallback reports Claude 2.1.267; refused process version is independently unknown. Missing: executed classification/persistence tests. Historical refusal proves only its recorded case; do not invent model/version provenance."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-005",
+            "text": "The retained Claude refusal is persisted and exposed as provider-reported zero-cost refusal only with structural resume refusal, affirmative terminal zero turns and zero cost, and no contrary work evidence. Preserve its separate attempt/fallback relationship and unknown actual model. Missing/nonzero cost, interrupted, actual-work and conflicting negative cases are not classified as proven zero-cost refusals. Preserve independent fallback/coverage diagnostics and unknown token-derived pricing."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Carry presence-aware affirmative terminal refusal facts from the existing harness outcome through neutral agent facts and turn/store persistence into snapshots. Do not infer cost from error prose, invent model/token zeros, or change fallback semantics.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and execute positive historical-fact and synthetic missing/nonzero/interrupted/real-work/conflicting classification tests; assert separate fallback, unknown model and surviving diagnostics.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Verify durable refusal fact round-trip and backward-compatible unknown cases using ordinary tests with a migrated temporary SQLite store; validate any additive migration and original attempt preservation.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse the existing owners and accounting ledger; deliver bounded, evidence-backed behavior without new services.",
+          "components": [
+            {
+              "name": "internal/harness and internal/agent",
+              "responsibility": "Presence-aware structural refusal and affirmative terminal cost facts"
+            },
+            {
+              "name": "internal/turn and internal/store",
+              "responsibility": "Persist separate refusal fact and existing fallback relationships"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Refusal evidence",
+              "input": "Structural refusal, presence-aware zero-turn/zero-cost terminal evidence and contrary-activity checks",
+              "output": "Explicit provider-reported refusal fact separate from model/token pricing"
+            },
+            {
+              "name": "Meter snapshot",
+              "input": "Persisted attempt/refusal/fallback facts",
+              "output": "Additive explanatory data with existing nullable fields preserved"
+            }
+          ],
+          "constraints": [
+            "Preserve unknown versus zero, exclusive usage, exact recorded-rate arithmetic and original attempt attribution.",
+            "No paid nested provider execution, permission expansion, live runtime repair during development, or protected instruction-tree edits.",
+            "All SQL remains in store; ctx-first accessors and one SQLite connection. Additive numbered migrations only when needed."
+          ],
+          "decisions": [
+            {
+              "decision": "Provider-reported zero is separate from token valuation",
+              "reason": "Unknown model or counters cannot honestly become priced token zeros."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "create",
+        "title": "Show useful partial estimates and document recovery",
+        "user_story": {
+          "actor": "operator",
+          "want": "see a useful partial number with clear uncertainty and simple recovery instructions",
+          "benefit": "I can use the improved estimate without mistaking it for complete or invoice-accurate spend",
+          "notes": [
+            "Evidence AC-006: executed synthetic complete/partial/unknown fixtures plus retained historical refusal facts on current output surfaces. No reconstruction of removed historical comments required. Missing: output/structured-value tests; unrelated uncertainty must survive.",
+            "Evidence AC-007: scoped documentation/provenance review against session historical records and retained executed checks. Bounds: recorded historical versions, refused version unknown, reconstructed source envelopes synthetic. Missing: final documentation/provenance review. Offline tests never prove authentic present-day hierarchy capability."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-006",
+            "text": "Executed complete, partial, wholly unknown and confirmed-refusal CLI summary/detail cases distinguish complete estimate, observed lower bound at recorded rates with total unknown, and provider-reported zero. Incomplete all-in estimate remains null; wholly unknown is not zero; unrelated diagnostics survive. Existing JSON/CSV fields retain semantics with only necessary additive refusal facts. Removed run-comment meter metadata stays absent."
+          },
+          {
+            "id": "AC-007",
+            "text": "Operator documentation provides scoped preview/apply instructions, provenance and uncertainty limits, and the historical $5.148750 to $11.903026 observed improvement. Explain separate explicit operator application after delivery, original-rate estimates and unknown totals. Fixture provenance and reports distinguish authentic historical facts from synthetic envelopes/topologies; make no fleet-wide, present-day runtime or invoice-accuracy certification."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Render prepared meter/refusal facts through existing CLI/report surfaces; use explicit observed lower-bound-at-recorded-rates wording for known incomplete subtotals. Preserve machine-readable null/status semantics and absent run-comment meter metadata.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-006"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Update existing meter/operator/provider-source documentation with scoped preview/apply examples, safe retry behavior, bounded evidence and exact historical improvement. Explain installation versus later operator repair and no general accuracy guarantee.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-007"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-003",
+            "description": "Write and execute output/compatibility assertions for complete, partial, wholly unknown, confirmed-refusal and unrelated fallback diagnostics; verify JSON/CSV semantics and absent run-comment metadata. Check documentation/fixture provenance against retained historical evidence and actual checks.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-006",
+              "AC-007"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse the existing owners and accounting ledger; deliver bounded, evidence-backed behavior without new services.",
+          "components": [
+            {
+              "name": "internal/cli and internal/report",
+              "responsibility": "Prepared-value human and machine output"
+            },
+            {
+              "name": "docs/meter.md and provider-source documentation",
+              "responsibility": "Operator recovery steps and bounded accuracy claims"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Meter presentation",
+              "input": "Existing snapshots with additive refusal fact",
+              "output": "Clear complete/partial/unknown/refusal text and compatible structured output"
+            }
+          ],
+          "constraints": [
+            "Preserve unknown versus zero, exclusive usage, exact recorded-rate arithmetic and original attempt attribution.",
+            "No paid nested provider execution, permission expansion, live runtime repair during development, or protected instruction-tree edits.",
+            "All SQL remains in store; ctx-first accessors and one SQLite connection. Additive numbered migrations only when needed."
+          ],
+          "decisions": [
+            {
+              "decision": "Label a known partial number explicitly as an observed lower bound at recorded rates",
+              "reason": "Provides the useful number without implying complete or invoice-perfect spend."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}

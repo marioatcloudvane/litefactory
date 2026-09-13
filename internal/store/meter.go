@@ -24,12 +24,13 @@ type MeterTokens struct {
 
 // MeterAttempt identifies one execution, including an unsuccessful launch.
 type MeterAttempt struct {
-	Outcome         string
-	ID              string
-	RunID           int64
-	Ordinal         int
-	CodingAgent     string
-	PriceRevisionID int64
+	ProviderReportedZeroCostRefusal bool
+	Outcome                         string
+	ID                              string
+	RunID                           int64
+	Ordinal                         int
+	CodingAgent                     string
+	PriceRevisionID                 int64
 }
 
 // MeterInvocation is a node in an attempt-local ancestry tree.
@@ -233,84 +234,90 @@ func (db *DB) ApplyMeterObservation(ctx context.Context, o MeterObservation, rec
 		if err := meterOpen(ctx, tx, o.AttemptID); err != nil {
 			return err
 		}
-		state, err := readMeterLedger(ctx, tx, o)
-		if err != nil {
-			return err
-		}
-		next, err := reconcile(state)
-		if err != nil {
-			return err
-		}
-		if err := validateMeterValuation(ctx, tx, o, state, next); err != nil {
-			return err
-		}
-		if err := validateMeterMutation(ctx, tx, o, next); err != nil {
-			return err
-		}
-		if next.Duplicate {
-			if state.AcceptedDigest == "" || state.AcceptedDigest != o.Digest {
-				return errors.New("store: invalid replay classification")
-			}
-			return nil
-		}
-		if state.AcceptedDigest != "" {
-			return meterAttemptDiagnostic(ctx, tx, o.AttemptID, "conflicting_event")
-		}
-		validation := "accepted"
-		if next.Rejection != "" {
-			validation = "rejected"
-			diagnostics, err = meterDiagnostics([]string{next.Rejection})
-			if err != nil {
-				return err
-			}
-		}
-		var observationID int64
-		err = tx.QueryRowContext(ctx, `INSERT INTO meter_observations(attempt_id,source_id,event_key,invocation_id,recorded_at,semantics,counter_epoch,actual_model,model_provenance,dimensions_json,payload_sha256,validation_status,diagnostic_codes_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`, o.AttemptID, o.SourceID, o.EventKey, nullString(o.InvocationID), FormatTime(nowUTC()), o.Semantics, o.CounterEpoch, o.ActualModel, o.ModelProvenance, meterJSON(o.Tokens), o.Digest, validation, diagnostics).Scan(&observationID)
-		if err != nil {
-			return err
-		}
-		if next.Rejection != "" {
-			return meterAttemptDiagnostic(ctx, tx, o.AttemptID, next.Rejection)
-		}
-		if next.Checkpoint != nil {
-			_, err = tx.ExecContext(ctx, `INSERT INTO meter_checkpoints(attempt_id,source_id,counter_key,counter_epoch,invocation_id,model_key,baseline_dimensions_json,last_dimensions_json,last_observation_id,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(attempt_id,source_id,counter_key,counter_epoch) DO UPDATE SET last_dimensions_json=excluded.last_dimensions_json,last_observation_id=excluded.last_observation_id,updated_at=excluded.updated_at`, o.AttemptID, o.SourceID, o.CounterKey, o.CounterEpoch, nullString(o.InvocationID), o.ModelKey, meterJSON(o.Tokens), meterJSON(*next.Checkpoint), observationID, FormatTime(nowUTC()))
-			if err != nil {
-				return err
-			}
-		}
-		if next.Measurement == nil {
-			return nil
-		}
-		var previousProvenance, previousCodes, previousStatus string
-		err = tx.QueryRowContext(ctx, `SELECT model_provenance,diagnostic_codes_json,collection_status FROM meter_measurements WHERE attempt_id=? AND invocation_id=? AND model_key=?`, o.AttemptID, o.InvocationID, o.ModelKey).Scan(&previousProvenance, &previousCodes, &previousStatus)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		provenance, err := mergeMeterProvenance(previousProvenance, o.ModelProvenance)
-		if err != nil {
-			return err
-		}
-		diagnostics, err = mergeMeterDiagnostics(previousCodes, o.Diagnostics)
-		if err != nil {
-			return err
-		}
-		if previousStatus == "partial" || previousCodes != "" && previousCodes != "[]" && previousCodes != "null" {
-			o.Status = "partial"
-		}
-		t := *next.Measurement
-		_, err = tx.ExecContext(ctx, `INSERT INTO meter_measurements(attempt_id,invocation_id,model_key,actual_model,model_provenance,input_uncached_tokens,cache_read_tokens,cache_write_tokens,cache_write_5m_tokens,cache_write_1h_tokens,output_tokens,reasoning_tokens,collection_status,diagnostic_codes_json,last_observation_id,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(attempt_id,invocation_id,model_key) DO UPDATE SET model_provenance=excluded.model_provenance,input_uncached_tokens=excluded.input_uncached_tokens,cache_read_tokens=excluded.cache_read_tokens,cache_write_tokens=excluded.cache_write_tokens,cache_write_5m_tokens=excluded.cache_write_5m_tokens,cache_write_1h_tokens=excluded.cache_write_1h_tokens,output_tokens=excluded.output_tokens,reasoning_tokens=excluded.reasoning_tokens,collection_status=excluded.collection_status,diagnostic_codes_json=excluded.diagnostic_codes_json,last_observation_id=excluded.last_observation_id,revision=meter_measurements.revision+1,updated_at=excluded.updated_at`, o.AttemptID, o.InvocationID, o.ModelKey, o.ActualModel, provenance, t.InputUncached, t.CacheRead, t.CacheWrite, t.CacheWrite5m, t.CacheWrite1h, t.Output, t.Reasoning, meterStatus(o.Status), diagnostics, observationID, FormatTime(nowUTC()))
-		if err != nil {
-			return err
-		}
-		if next.Valuation != nil {
-			var measurementID, revision int64
-			if err := tx.QueryRowContext(ctx, `SELECT id,revision FROM meter_measurements WHERE attempt_id=? AND invocation_id=? AND model_key=?`, o.AttemptID, o.InvocationID, o.ModelKey).Scan(&measurementID, &revision); err != nil {
-				return err
-			}
-			return writeMeterValuation(ctx, tx, measurementID, revision, state.Catalog.RevisionID, *next.Valuation)
+		return applyMeterObservation(ctx, tx, o, diagnostics, reconcile)
+	})
+}
+
+// applyMeterObservation is shared by live collection and atomic historical
+// append. Callers must enforce their respective lifecycle fence first.
+func applyMeterObservation(ctx context.Context, tx *sql.Tx, o MeterObservation, diagnostics string, reconcile func(MeterLedgerState) (MeterMutation, error)) error {
+	state, err := readMeterLedger(ctx, tx, o)
+	if err != nil {
+		return err
+	}
+	next, err := reconcile(state)
+	if err != nil {
+		return err
+	}
+	if err := validateMeterValuation(ctx, tx, o, state, next); err != nil {
+		return err
+	}
+	if err := validateMeterMutation(ctx, tx, o, next); err != nil {
+		return err
+	}
+	if next.Duplicate {
+		if state.AcceptedDigest == "" || state.AcceptedDigest != o.Digest {
+			return errors.New("store: invalid replay classification")
 		}
 		return nil
-	})
+	}
+	if state.AcceptedDigest != "" {
+		return meterAttemptDiagnostic(ctx, tx, o.AttemptID, "conflicting_event")
+	}
+	validation := "accepted"
+	if next.Rejection != "" {
+		validation = "rejected"
+		diagnostics, err = meterDiagnostics([]string{next.Rejection})
+		if err != nil {
+			return err
+		}
+	}
+	var observationID int64
+	err = tx.QueryRowContext(ctx, `INSERT INTO meter_observations(attempt_id,source_id,event_key,invocation_id,recorded_at,semantics,counter_epoch,actual_model,model_provenance,dimensions_json,payload_sha256,validation_status,diagnostic_codes_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`, o.AttemptID, o.SourceID, o.EventKey, nullString(o.InvocationID), FormatTime(nowUTC()), o.Semantics, o.CounterEpoch, o.ActualModel, o.ModelProvenance, meterJSON(o.Tokens), o.Digest, validation, diagnostics).Scan(&observationID)
+	if err != nil {
+		return err
+	}
+	if next.Rejection != "" {
+		return meterAttemptDiagnostic(ctx, tx, o.AttemptID, next.Rejection)
+	}
+	if next.Checkpoint != nil {
+		_, err = tx.ExecContext(ctx, `INSERT INTO meter_checkpoints(attempt_id,source_id,counter_key,counter_epoch,invocation_id,model_key,baseline_dimensions_json,last_dimensions_json,last_observation_id,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(attempt_id,source_id,counter_key,counter_epoch) DO UPDATE SET last_dimensions_json=excluded.last_dimensions_json,last_observation_id=excluded.last_observation_id,updated_at=excluded.updated_at`, o.AttemptID, o.SourceID, o.CounterKey, o.CounterEpoch, nullString(o.InvocationID), o.ModelKey, meterJSON(o.Tokens), meterJSON(*next.Checkpoint), observationID, FormatTime(nowUTC()))
+		if err != nil {
+			return err
+		}
+	}
+	if next.Measurement == nil {
+		return nil
+	}
+	var previousProvenance, previousCodes, previousStatus string
+	err = tx.QueryRowContext(ctx, `SELECT model_provenance,diagnostic_codes_json,collection_status FROM meter_measurements WHERE attempt_id=? AND invocation_id=? AND model_key=?`, o.AttemptID, o.InvocationID, o.ModelKey).Scan(&previousProvenance, &previousCodes, &previousStatus)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	provenance, err := mergeMeterProvenance(previousProvenance, o.ModelProvenance)
+	if err != nil {
+		return err
+	}
+	diagnostics, err = mergeMeterDiagnostics(previousCodes, o.Diagnostics)
+	if err != nil {
+		return err
+	}
+	if previousStatus == "partial" || previousCodes != "" && previousCodes != "[]" && previousCodes != "null" {
+		o.Status = "partial"
+	}
+	t := *next.Measurement
+	_, err = tx.ExecContext(ctx, `INSERT INTO meter_measurements(attempt_id,invocation_id,model_key,actual_model,model_provenance,input_uncached_tokens,cache_read_tokens,cache_write_tokens,cache_write_5m_tokens,cache_write_1h_tokens,output_tokens,reasoning_tokens,collection_status,diagnostic_codes_json,last_observation_id,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?) ON CONFLICT(attempt_id,invocation_id,model_key) DO UPDATE SET model_provenance=excluded.model_provenance,input_uncached_tokens=excluded.input_uncached_tokens,cache_read_tokens=excluded.cache_read_tokens,cache_write_tokens=excluded.cache_write_tokens,cache_write_5m_tokens=excluded.cache_write_5m_tokens,cache_write_1h_tokens=excluded.cache_write_1h_tokens,output_tokens=excluded.output_tokens,reasoning_tokens=excluded.reasoning_tokens,collection_status=excluded.collection_status,diagnostic_codes_json=excluded.diagnostic_codes_json,last_observation_id=excluded.last_observation_id,revision=meter_measurements.revision+1,updated_at=excluded.updated_at`, o.AttemptID, o.InvocationID, o.ModelKey, o.ActualModel, provenance, t.InputUncached, t.CacheRead, t.CacheWrite, t.CacheWrite5m, t.CacheWrite1h, t.Output, t.Reasoning, meterStatus(o.Status), diagnostics, observationID, FormatTime(nowUTC()))
+	if err != nil {
+		return err
+	}
+	if next.Valuation != nil {
+		var measurementID, revision int64
+		if err := tx.QueryRowContext(ctx, `SELECT id,revision FROM meter_measurements WHERE attempt_id=? AND invocation_id=? AND model_key=?`, o.AttemptID, o.InvocationID, o.ModelKey).Scan(&measurementID, &revision); err != nil {
+			return err
+		}
+		return writeMeterValuation(ctx, tx, measurementID, revision, state.Catalog.RevisionID, *next.Valuation)
+	}
+	return nil
 }
 
 func readMeterLedger(ctx context.Context, tx *sql.Tx, o MeterObservation) (MeterLedgerState, error) {
@@ -353,6 +360,6 @@ func readMeterLedger(ctx context.Context, tx *sql.Tx, o MeterObservation) (Meter
 // GetMeterAttempt reads an attempt outcome without reconstructing run logs.
 func (db *DB) GetMeterAttempt(ctx context.Context, id string) (MeterAttempt, error) {
 	var a MeterAttempt
-	err := db.sql.QueryRowContext(ctx, `SELECT id,run_id,ordinal,coding_agent,price_revision_id,outcome FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome)
+	err := db.sql.QueryRowContext(ctx, `SELECT id,run_id,ordinal,coding_agent,price_revision_id,outcome,provider_reported_zero_cost_refusal FROM meter_attempts WHERE id=?`, id).Scan(&a.ID, &a.RunID, &a.Ordinal, &a.CodingAgent, &a.PriceRevisionID, &a.Outcome, &a.ProviderReportedZeroCostRefusal)
 	return a, err
 }
