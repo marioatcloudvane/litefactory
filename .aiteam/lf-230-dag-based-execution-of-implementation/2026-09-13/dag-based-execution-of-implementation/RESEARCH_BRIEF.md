@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the bounded Research passes through run 0005. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
+Status: complete for the bounded Research passes through run 0006. Run 0006 adds a concrete illustrative Research DOT file, minimal actions, proposed local execution/recovery mechanics, and BSD/Apache commercial-use guidance. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
 
 ## Request and answered decision
 
@@ -338,3 +338,118 @@ Next investigate the DOT profile and durable action boundary through one Researc
 Library compatibility with the selected litefactory toolchain, full DOT edge-case conformance, memory limits, binary size, parser diagnostics, renderer packaging and real restart correctness remain untested. These are next-slice verification tasks, not unanswered owner decisions blocking this research. No final dependency version or executable profile has been approved or implemented.
 
 - 2026-09-13 (run 0005): Completed DOT syntax/profile and Go implementation assessment, distinguished current Graphviz EPL-2.0 from the EPL-1.0 Graphviz version embedded in inspected goccy release, and compared local durability with Temporal. Recommended Gonum AST plus a bounded DOT profile for the first Research slice, with Temporal deferred as a possible runtime backend. Preserved optional clarification, prior decisions and all history; no implementation, tests, publication or mode transition.
+
+
+## Run 0006: Research actions, shipped DOT and local execution
+
+### Request and recommendation
+
+The owner asks for a Research action sketch, an example of the shipped workflow, execution-engine placement, and whether the BSD dependency conflicts with an intended Apache-2.0 core plus proprietary commercial extensions. These are clear bounded Research questions; no further owner decision is needed. Previous decisions stand: one file per mode, DOT, optional clarification, durable local orchestration, no automatic mode change. This section and the adjacent `RESEARCH_WORKFLOW_EXAMPLE.dot` are design examples, not implemented configuration, a final engineering plan or an approval to implement.
+
+Recommend three action types for the first slice: `agent`, `owner_pause`, and `save_report`. Parsing, output validation, evidence retention, transition choice, retry bookkeeping and failure checkpointing are runtime functions; they do not need model invocations or independent graph nodes. The sample has two bounded reasoning tasks to make evidence collection and synthesis separately resumable. Their separation is a provisional cost/observability tradeoff: a future small-request profile could combine them. A graph node does not imply another owner-triggered run, commit, publication or issue comment.
+
+| Action | Inputs and responsibility | Results |
+|---|---|---|
+| `agent` | Resolved roster role plus bounded task instructions, original request, accumulated answers, accepted evidence/brief revision and optional focused refinement request. The evidence task assesses clarity before substantial investigation, then investigates immediately in the same call if clear. The synthesis task develops options/recommendation and a final draft. | `done`, `needs_input`, `blocked`; synthesis additionally permits `refine`. Engine transport/schema errors are separate from these reasoning outcomes. |
+| `owner_pause` | Accepted partial result, questions, originating node and stable question identity. Save partial brief and pending report intent, use the existing factory reporting channel, end the current run and release the worker. | No immediate transition while waiting. One authorized correlated reply emits `reply.investigate` or `reply.synthesize`, chosen by the saved originating node, never by free-form agent routing. |
+| `save_report` | Accepted brief/report content or retained partial content and a concrete stop reason; requested completion status. Persist the brief/history and report effect, deliver through the existing factory channel. | `done` only after durable completion/acknowledgement. The complete and incomplete node variants reuse this action. |
+
+There is no compulsory clarification-only call. The evidence agent starts by assessing scope. Clear instructions continue directly into evidence collection; material ambiguity yields `needs_input` before choosing consequential assumptions. Either reasoning node can request input. Agents are still responsible for quality of evidence and conclusions; deterministic validation checks structure and attribution rather than claiming to judge correctness.
+
+### Concrete shipped example and its execution profile
+
+The complete illustrative file is [RESEARCH_WORKFLOW_EXAMPLE.dot](RESEARCH_WORKFLOW_EXAMPLE.dot). Its normal path is `investigate → synthesize → publish → complete`; missing input detours through `owner`, and targeted refinement revisits investigation. `publish` here means reporting Research through the existing task channel, not creating user stories or starting Plan.
+
+The file's `lf_*` vocabulary is a proposed litefactory profile carried by standard DOT. Graphviz does not supply these semantics. All nodes are explicit, edges are single directed edges, and display styling is omitted. A loader must reject unknown execution attributes, ambiguous outcomes, missing destinations, implicit nodes, unsupported constructs and unbounded automatic cycles. Declared `owner` loops are externally gated and consume no automatic retry budget.
+
+Common behavior, explicitly defined rather than omitted from the example:
+
+- `lf_on_blocked="partial"`: any agent `blocked` result retains its reason and partial brief, then routes to the incomplete-report action. It is not a technical retry or a request for approval.
+- `lf_limit="2"` allows at most two automatic `refine` traversals during the current owner-triggered run. Attempting a third uses `lf_on_limit="partial"`, retaining the unresolved question/evidence gap. Technical retries and process restarts never reset this count. A new authorized owner continuation starts a new reasoning budget while preserving prior history and answers; duplicate input events do not.
+- `lf_on_error="stopped"`: invalid structured output, unavailable bindings, irrecoverable execution failure or exhausted safe retry policy records a failure checkpoint and terminates as failed. The factory attempts its ordinary failure report from retained data; failed delivery remains pending for bounded reconciliation, not an infinite recursive failure-report node. A definition that fails validation never starts an instance action.
+- `lf_retry_policy="research-safe-v1"` is an engine-owned named policy, not arbitrary script text. Proposed first policy: at most one automatic technical retry, only for failures proved to occur before an effect or for a reconciled idempotent effect. Agent runs with uncertain completion are not automatically relaunched. Database failure prevents further effects; restart recovery must inspect the durable record before retrying. The exact numeric budget is illustrative.
+- `owner_pause` is a suspended state, not a long-lived agent or blocked worker. The runtime persists the originating node and question ID. A duplicate reply is ignored; an unrelated comment does not emit a reply transition. Current owner-command and mode-selection rules remain authoritative. Reply correlation is not inferred from a DOT label.
+- `save_report` retains content before external delivery. Delivery uncertainty leaves a pending effect; it must not erase the saved brief, silently complete, or blindly post again. `partial` sets Research incomplete; `publish` sets Research complete only after the report operation has been reconciled. Cancellation preserves the current checkpoint as interrupted; it is neither a domain `blocked` result nor successful completion.
+
+A production loader would normalize these common paths into explicit transitions in its internal model and generated diagrams, so implicit error routes remain inspectable. No expression evaluator, shell command execution, dynamic Go loading, fork/join semantics or renderer is needed for this Research profile. The mode file cannot expand agent permissions or select arbitrary external commands.
+
+### Typed agent handoff
+
+Illustrative content submitted by the reasoning action:
+
+```json
+{
+  "schema": "research-result-v1",
+  "outcome": "needs_input",
+  "summary": "The migration boundary changes the recommendation.",
+  "brief": {"artifact": "research/attempt-004/brief.md"},
+  "evidence": [{"source": "internal/turn/execute.go", "revision": "<commit>", "lines": "20-41"}],
+  "questions": [{"id": "migration", "text": "Must existing sessions migrate?"}]
+}
+```
+
+The runtime supplies and verifies workflow instance, definition digest, node, attempt and input-event identity; the agent cannot invent a resume destination or authoritative attempt identity. Artifact references are resolved only inside the owned session, content-hashed and retained before acceptance. `needs_input` requires nonempty actionable questions and a partial brief; `refine` requires a focused evidence request; `blocked` requires a reason; `done` requires the task's declared output. Unknown outcomes, escaped paths and missing or mismatched outputs are errors. Evidence cites source/revision and separates observation from inference. JSON here is an action-result transport example, not a replacement for the DOT definition.
+
+Accepted immutable content or equivalent recoverable bytes must be durable. A path/hash alone is insufficient if a later run can overwrite or delete the only copy. The human-readable RESEARCH_BRIEF.md and MANIFEST.md are projections of accepted retained content and can be recreated after interruption. Exact database tables and transport API remain implementation-design work.
+
+### How it would ship
+
+Recommend shipping `workflows/research.dot` in the standard distribution/catalog, alongside versioned task/role resources. A management operation installs the standard definition; an explicit managed edit/import later replaces the definition used for new instances. The workflow is text-editable DOT, while roles and skills stay in their existing source format. Task references `research_evidence` and `research_synthesis` in the sample are proposed bounded assignments to the resolved Research role, not claims that these task IDs are registered today. The current research-orchestrator role could supply their reasoning initially, with scheduling instructions removed as the engine takes over.
+
+**Current-source correction:** earlier APP_CONTEXT and research described embedded/static/repository fallback for team sources. At this run's revision, `internal/teamsource/resolve.go:35` explicitly resolves only the centrally installed catalog and reports a missing catalog as an installation error; `internal/teamsource/snapshot.go:47` captures the central team/mode closure. Do not copy the older fallback design into workflow loading. If defaults are embedded in the binary for distribution convenience, use those bytes as an explicit management-install source; do not silently fall back during execution. Whether release assets or Go embedding carry those install bytes is a packaging choice, not a second runtime source of truth.
+
+On new instance creation, resolve one installed definition and its role/task resources, validate them, and pin immutable bytes, profile version, content digest and engine compatibility identity. Do not reread an editable file on every node. Existing instances resume the frozen bundle after edits or upgrades; incompatibility must produce an explicit migration requirement rather than silent reinterpretation. A management edit governs new instances, not an in-flight owner's pending reply. Runtime paths must be added through `config.Paths`; no manual changes to the live daemon state were made in this Research run.
+
+### Execution engine inside litefactory
+
+Proposed ownership extends current boundaries rather than introducing an external service:
+
+| Component | Proposed responsibility | Existing evidence at current revision |
+|---|---|---|
+| New small pure `internal/workflow` package | Gonum AST loading, supported-profile validation, normalized nodes/transitions, deterministic next-step decisions from supplied state/events; no database, clock, runner or GitHub I/O. | A proposed package, not an existing runtime claim. |
+| `internal/turn` adapter | Assemble bounded action inputs, invoke registered runners, validate results, coordinate store updates, session artifacts and existing reporting. | Runner abstraction and registry in `internal/turn/execute.go:20` and `:32`; runner submission in `internal/turn/submission_runner.go:20`. |
+| `internal/store` | Definition snapshots, instance/node/attempt state, accepted results, input deduplication, suspended questions and durable external-effect intent/acknowledgements. New SQL remains here. | Store ownership/single-connection invariant in `internal/store/store.go:19`; transactions at `:168`. Never hold a transaction during agent execution or network calls. |
+| `internal/daemon` | Admit ready work, enforce existing task/worktree ownership, provide time and retry scheduling, receive authorized owner events, recover unfinished work after restart. | Worker lifetime/admission in `internal/daemon/worker.go:59`; existing mode persistence remains the outer boundary. |
+| Config/catalog delivery | Resolve installed workflow/role resources and snapshot them together; define managed runtime paths. | `internal/config/paths.go:28`, `internal/teamsource/resolve.go:35`, `internal/teamsource/snapshot.go:35`. |
+
+Operational cycle:
+
+1. Receive the owner event through existing admission. Deduplicate it, preserve the selected Research mode and find the active workflow or create an instance with its frozen definition/resources.
+2. Load current accepted state. The pure transition component decides whether an action is ready, the workflow is waiting, or it is terminal. Claim ready work with a persisted instance generation/attempt so two dispatchers cannot start it concurrently.
+3. Commit the action intent and exact inputs before launching external work. Execute the agent or report outside the database transaction under existing process/worktree ownership and permission controls.
+4. Validate outputs and retain recoverable content. Atomically accept the result, mark its attempt complete and record the next node/state. A repeated delivery of that same result must not advance the graph twice.
+5. Run another immediately ready node within the same authorized run if appropriate. A pause records questions and ends the run; terminal completion ends Research. There is no orchestrator model continuously selecting the next worker.
+6. On restart, reconcile pending attempts/effects before scheduling. Completed accepted nodes are not rerun; waiting workflows remain waiting; due technical retries are selected by the daemon with persisted counts. Engine compatibility and the frozen definition must still match.
+
+A compact persisted snapshot plus an append-only attempt/effect history is sufficient as a first design; a full event-sourcing framework is not required. Store calls update short transactions, not a database lock held across the whole workflow. Snapshot and immutable result storage must agree before downstream work starts. No measured token saving follows from the sketch, but transition selection/validation contains no model calls.
+
+### Recovery cases the design must handle
+
+| Interruption window | Required recovery |
+|---|---|
+| Intent saved, action definitely not started | Start the recorded attempt once under renewed ownership. |
+| Agent started, result not accepted | Reconcile the existing runner/session/job and retained result. If its state is unknowable, mark interrupted/uncertain and stop for recovery rather than duplicate expensive work. A durable intent alone cannot provide exactly-once process launch. |
+| Result accepted, next node not dispatched | Resume the recorded next node; never rerun the accepted result. |
+| Question/report posted, acknowledgement not stored | Use a stable operation marker and existing reporting reconciliation to find the effect before retrying. If the external API cannot deduplicate or establish absence reliably, retain uncertainty instead of promising exactly once. |
+| Reply received twice or daemon restarts mid-consumption | Deduplicate by stable event identity; atomically record consumption and resume the saved originating node. |
+| Workflow or role source edited while paused | Resume frozen bytes/resources and compatible engine semantics, not the newly edited definition. |
+
+The minimum next verification slice is an isolated parser/runner/recovery prototype covering clear scope, owner pause/reply, bounded refine, malformed output and the crash windows above. That is a recommendation for subsequent work, not tests executed here. Temporal remains a possible future backend for the normalized action contract; it would not remove application effect reconciliation or worktree ownership responsibilities.
+
+### BSD-3-Clause with Apache-2.0 and commercial extensions
+
+General license reading: **the inspected Gonum BSD-3-Clause license does not conflict merely because litefactory has an Apache-2.0 core and proprietary commercial additions.** BSD-3-Clause permits use, modification and source/binary redistribution with or without modification. It does not require publishing your source or prohibit charging for software. Its three conditions are preserving the copyright/conditions/disclaimer in source distributions, reproducing them in documentation/materials for binary distributions, and not using the author's or contributors' names to endorse derived products without permission. [Gonum v0.16.0 LICENSE](https://raw.githubusercontent.com/gonum/gonum/v0.16.0/LICENSE), [OSI BSD-3-Clause text](https://opensource.org/license/bsd-3-clause)
+
+For the owner's intended arrangement, license your own core under Apache-2.0 and your own separate commercial extension under the chosen commercial terms, while retaining Gonum's BSD terms/notices for Gonum. You are not relicensing the dependency itself. One practical packaging approach is an Apache-2.0 LICENSE for the core and a THIRD_PARTY_NOTICES or licenses/gonum.txt containing the full BSD notice/text, also shipped with binary/install materials. Those filenames are suggestions, not license-mandated names.
+
+Apache-2.0 also permits commercial use and distribution; its redistribution conditions include a license copy, notices identifying modified files, retention of applicable attribution notices, and preserving relevant NOTICE content when provided. Its derivative-work definition excludes separable works and works that merely link/bind to its interfaces. Combining or modifying core code must still follow the applicable Apache terms; closed commercial code is not automatically required to become open because it uses BSD or Apache dependencies. [Apache License 2.0 §§1–4](https://www.apache.org/licenses/LICENSE-2.0) The Apache Software Foundation lists BSD-3-Clause among Category A licenses allowed in ASF products, corroborating compatibility, although ASF project policy does not govern litefactory. [ASF resolved license questions, Category A](https://www.apache.org/legal/resolved.html)
+
+This concerns the inspected Gonum dependency and the owner's stated intended Apache license, not verification of the repository's current license or a complete audit of a future commercial distribution. Each additional dependency and any other contractual obligations must be assessed on their own terms. No commercial licensing or attribution files were changed in this run.
+
+### Evidence limits and history
+
+Focused current source inspection was in the supplied macOS worktree at revision `90eeab1b4cc1526387f5542f41bce858df024f05`, on 2026-09-13. Older sections retain their original revision and may describe prior behavior; the current catalog-source correction above supersedes that earlier loading recommendation. A broad initial location search produced excess output and two missing candidate paths; focused actual files supplied the cited evidence, and missing guesses were not treated as evidence of absence. Source bytes and billed input tokens were not measured.
+
+Primary license sources were checked on 2026-09-13, with Gonum pinned to v0.16.0 as previously inspected; no dependency version was selected or installed. The sample was inspected as research text only: no parser, Graphviz, Go build, tests, workflow execution or recovery experiment ran. Only this session's brief, manifest and illustrative DOT were written. No source implementation, policy, daemon state, external publication or mode transition occurred.
+
+- 2026-09-13 (run 0006): Completed minimal Research actions, illustrative DOT/profile with common failures, shipped catalog/snapshot model, runtime ownership and crash-recovery sketch; corrected outdated catalog-fallback assumptions against current source; explained BSD-3-Clause compatibility with intended Apache-2.0 core and proprietary additions. No blocking owner question; Research complete for this bounded request.

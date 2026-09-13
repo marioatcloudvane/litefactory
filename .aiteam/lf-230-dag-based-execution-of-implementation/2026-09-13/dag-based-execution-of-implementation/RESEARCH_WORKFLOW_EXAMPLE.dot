@@ -1,0 +1,26 @@
+// Illustrative proposed litefactory research-v1 profile, NOT executable today.
+// lf_* attributes carry proposed semantics defined in RESEARCH_BRIEF.md run 0006.
+digraph research {
+  graph [lf_profile="research-v1", lf_version="1", lf_entry="investigate",
+         lf_on_error="stopped", lf_on_blocked="partial",
+         lf_on_limit="partial", lf_retry_policy="research-safe-v1"];
+
+  investigate [lf_action="agent", lf_task="research_evidence"];
+  synthesize  [lf_action="agent", lf_task="research_synthesis"];
+  owner       [lf_action="owner_pause"];
+  publish     [lf_action="save_report", lf_status="complete"];
+  partial     [lf_action="save_report", lf_status="incomplete"];
+  complete    [lf_terminal="complete"];
+  incomplete  [lf_terminal="incomplete"];
+  stopped     [lf_terminal="failed"];
+
+  investigate -> synthesize [lf_on="done"];
+  investigate -> owner      [lf_on="needs_input"];
+  synthesize  -> publish    [lf_on="done"];
+  synthesize  -> investigate [lf_on="refine", lf_limit="2"];
+  synthesize  -> owner      [lf_on="needs_input"];
+  owner       -> investigate [lf_on="reply.investigate"];
+  owner       -> synthesize  [lf_on="reply.synthesize"];
+  publish     -> complete   [lf_on="done"];
+  partial     -> incomplete [lf_on="done"];
+}

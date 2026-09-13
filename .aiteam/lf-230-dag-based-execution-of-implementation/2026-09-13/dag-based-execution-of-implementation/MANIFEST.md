@@ -24,6 +24,10 @@
 
 - 2026-09-13 (run 0005): Completed DOT/Go/license research and Temporal runtime comparison. Recommended a bounded DOT profile with Gonum AST parsing for the first Research slice; deferred Temporal for the local deployment. Recorded pinned Graphviz license distinction and untested runtime/library limits. No blocking questions, implementation, tests, publication or mode transition.
 
+- 2026-09-13 (run 0006): Completed action and execution-engine sketch; saved illustrative RESEARCH_WORKFLOW_EXAMPLE.dot, defined optional clarification, common failure/recovery paths and managed distribution; corrected current catalog loading behavior; researched BSD/Apache commercial compatibility. Research only, no tests or implementation.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.
+
+Illustrative workflow: RESEARCH_WORKFLOW_EXAMPLE.dot (proposed profile; not executable by current litefactory).
