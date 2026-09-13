@@ -27,3 +27,7 @@
 - 2026-09-13, run 0004: Research complete at revision fd09d62440bd730fabc2a35f7fb85f94636d0f69. Explored meta/result envelope, stable-ID revision-bound sparse updates, full-snapshot validation/storage, token tradeoffs and deferred serialization skill. Preserved prior findings; no implementation, tests, skill creation or mode transition.
 
 - 2026-09-13, run 0005: Research complete using run 0003/0004 evidence. Recommended three issue boundaries: shared contract/service/skill, production adoption and conditional legacy retirement, then scoped MCP adapter. Saved titles, scope, exclusions, dependencies and completion conditions; no new source investigation, issue creation, implementation, tests or mode transition.
+
+- 2026-09-13, run 0006: Explicit owner authorization received to create the three agreed issues using marioatcloudvane and then close #258. Parent verified connector account and open umbrella state. Publication incomplete: GitHub create_issue rejected with “MCP tool call requires approval, but approval policy is never”. No issues created; #258 remains open. Research scopes preserved; no implementation, tests or mode transition.
+
+- 2026-09-13, run 0006 outcome: Completed research preserved. External publication blocked by execution approval policy despite explicit owner authorization. Parent preserves ready drafts ISSUE_1.md, ISSUE_2.md and ISSUE_3.md; no invented issue numbers, bypass attempts or repeated confirmation. Resume publication with GitHub write-capable approval configuration, then close #258 only after successful creation.

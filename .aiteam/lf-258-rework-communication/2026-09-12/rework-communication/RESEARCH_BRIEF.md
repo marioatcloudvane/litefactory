@@ -1,6 +1,6 @@
 # Agent–litefactory communication inventory
 
-Status: Complete through run 0005 — recommended three-issue delivery split assessed; Research only.
+Status: Research complete; run 0006 publication incomplete because the GitHub write tool requires approval and the execution policy forbids approval.
 
 ## Run 0002 clarification
 
@@ -296,3 +296,33 @@ The finalization skill and factory gate have distinct responsibilities. The skil
 Open contract choices belong in issue 1: final exact field names and mode variants, merge-patch versus explicit operations, optional field/null/deletion policy, result revision scope, retention, and how incomplete/questioning outcomes are represented. The owner’s proposed issue boundaries do not settle these details. These are work items for the first issue, not blockers to recommending the split.
 
 No GitHub issues created, no formal stories or Plan proposal produced, no implementation or skill edits, no tests, and no mode transition. Run 0005 Research is complete.
+
+
+## Run 0006 — authorized publication of the agreed issue split
+
+Date: 2026-09-13. Status: Publication incomplete — execution-policy blocker. The owner explicitly instructed: “Ok, create the issues here, as discussed. We then close this one. Use my account (marioatcloudvane) to create the issues”. This authorizes publishing the three agreed issues and closing #258 after successful creation, using the requested account. It overrides the earlier research-only restriction on opening issues for this specific publishing action; it does not authorize implementation or change the selected Research mode.
+
+The parent agent verified the GitHub connector login as `marioatcloudvane` and issue #258 as open. Publication is performed by that agent; this research worker makes no GitHub calls. The GitHub `create_issue` call returned `isError=true`: “MCP tool call requires approval, but approval policy is never”. No mutation occurred; no issues were created and #258 remains open. No issue numbers or URLs have been invented.
+
+The agreed scopes remain:
+
+1. **Shared communication contract and service:** exact contract decisions, factory-owned metadata, typed mode payloads, sparse updates and baseline revisions, complete semantic validation, progress semantics, fixtures and a reusable finalization skill. No live routing changes.
+2. **Adopt the contract and retire obsolete handoffs:** integration across modes/adapters, explicit prior-state delivery, terminal validation and read-only Validate preservation, plus migration/removal with separate rollout and retirement milestones. Any undrainable legacy retirement must become an explicit follow-up scope change, not a false completion claim.
+3. **Scoped MCP interface:** a thin adapter over the shared service, with run/attempt identity and lifetime, per-profile permissions and in-flight status across managed and unmanaged modes. No duplicate business contract.
+
+Delivery order remains 1 → 2 → 3; MCP development can begin after the shared service stabilizes, with activation depending on relevant run lifecycle integration. #258 serves as the research/decision record and is to close only after the three deliverables are successfully published.
+
+No new source investigation, implementation, tests, commits or runtime-state changes were performed. Only publication tracking artifacts were updated by this worker.
+
+
+### Run 0006 publication outcome and recovery
+
+The owner’s authorization remains explicit and sufficient; this is an execution-policy limitation, not a missing user decision. No alternate transport was attempted to bypass the restriction, and no repeated confirmation is requested. A later run requires a GitHub write-capable approval configuration before it can publish the agreed issues using `marioatcloudvane`, then close #258 after successful creation.
+
+The parent is preserving the exact ready-to-publish drafts in this session:
+
+- [ISSUE_1.md](ISSUE_1.md) — shared communication contract and service.
+- [ISSUE_2.md](ISSUE_2.md) — adoption and obsolete-handoff retirement.
+- [ISSUE_3.md](ISSUE_3.md) — scoped MCP interface.
+
+Dependencies use titles/placeholders until real issue numbers are assigned. The research and agreed decomposition remain complete; only external publication and subsequent umbrella closure are incomplete.
