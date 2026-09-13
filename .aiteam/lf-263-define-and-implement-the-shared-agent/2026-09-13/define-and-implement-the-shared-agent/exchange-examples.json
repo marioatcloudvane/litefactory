@@ -1,0 +1,292 @@
+{
+  "note": "Proposed application exchanges; meta is assembled by the factory. These are not accepted by the current v2 helper. All identities and retained checks are illustrative.",
+  "create_submission": {
+    "action": "create",
+    "result": {
+      "outcome": "completed",
+      "comment": "Illustrative result for contract review.",
+      "questions": [],
+      "artifacts": [
+        {
+          "id": "ART-1",
+          "kind": "research_brief",
+          "path": "session/RESEARCH_BRIEF.md",
+          "description": "Evidence and proposed contract choices."
+        }
+      ],
+      "payload": {
+        "research": {
+          "request": "Inventory current communication and propose a first JSON shape.",
+          "findings": [
+            {
+              "id": "F-1",
+              "text": "Mode results and execution outcomes have different owners.",
+              "evidence": [
+                {
+                  "path": "internal/agent/result.go",
+                  "line": 81,
+                  "revision": "6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb"
+                }
+              ]
+            }
+          ],
+          "decisions": [
+            {
+              "id": "D-1",
+              "text": "Retain the need for a reusable shared Go library."
+            }
+          ],
+          "assumptions": [
+            {
+              "id": "A-1",
+              "text": "Field ordering and the first shape remain open to owner review."
+            }
+          ],
+          "recommendation": "Review the proposed JSON structure before implementation."
+        }
+      }
+    }
+  },
+  "sparse_update_submission": {
+    "action": "update",
+    "result_id": "result-research-1",
+    "expected_revision": 1,
+    "operations": [
+      {
+        "op": "replace",
+        "path": "/comment",
+        "value": "Updated recommendation; other fields remain unchanged."
+      },
+      {
+        "op": "update_item",
+        "path": "/payload/research/findings",
+        "id": "F-1",
+        "changes": {
+          "text": "Mode results, execution outcomes and publication status have different owners."
+        }
+      }
+    ]
+  },
+  "stale_revision_diagnostic": {
+    "request_id": "factory-request-2",
+    "valid": false,
+    "complete": true,
+    "diagnostics": [
+      {
+        "path": "$.expected_revision",
+        "code": "stale_revision",
+        "expected": "2",
+        "actual": "1",
+        "message": "Read the current result or selected items, then resubmit against its revision."
+      }
+    ],
+    "unchecked_paths": []
+  },
+  "receipt": {
+    "request_id": "factory-request-1",
+    "result_id": "result-research-1",
+    "result_revision": 1,
+    "received": true,
+    "input_state": "valid",
+    "snapshot_state": "recorded",
+    "engineering_state": "not_applicable",
+    "acceptance_state": "not_applicable",
+    "plan_state": "not_applicable",
+    "publication_state": "pending",
+    "diagnostics": []
+  },
+  "progress_submission": {
+    "action": "progress",
+    "sequence": 1,
+    "topic": "inventory",
+    "message": "Located the current result contracts."
+  },
+  "factory_retained_progress": {
+    "meta": {
+      "schema_version": "0.1-draft",
+      "operation": "progress",
+      "task": "github:example/project#42",
+      "run_id": 1001,
+      "attempt_id": "factory-attempt-1",
+      "received_at": "2026-09-13T12:00:00Z"
+    },
+    "result": {
+      "sequence": 1,
+      "topic": "inventory",
+      "message": "Located the current result contracts."
+    }
+  },
+  "auxiliary_payloads": {
+    "classify": {
+      "selected_mode": "research"
+    },
+    "schedule_proposal": {
+      "items": [
+        {
+          "payload": "/research inspect the retry path",
+          "due_at": "2026-09-14T10:00:00Z"
+        }
+      ]
+    },
+    "conflict_proposal": {
+      "version": 1,
+      "files": [
+        {
+          "path": "example.txt",
+          "regions": [
+            {
+              "id": "factory-region-1",
+              "resolution": "resolved text\n"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "current_capture_shape": {
+    "implementation_digest": "factory-verified-manifest-sha256",
+    "files": [
+      {
+        "path": "example.txt",
+        "content": "ZXhhbXBsZQo=",
+        "sha256": "sha256-of-decoded-bytes",
+        "deleted": false
+      }
+    ],
+    "checks": [
+      {
+        "id": "check-1",
+        "name": "scoped command",
+        "passed": true,
+        "evidence": "Agent-reported executed check; not independently observed.",
+        "implementation_digest": "same-manifest-sha256"
+      }
+    ]
+  },
+  "legacy_verified_story": {
+    "story": "US-1",
+    "outcome": "verified",
+    "engineering": {
+      "snapshot_id": "retained-snapshot-1",
+      "check_ids": [
+        "check-1"
+      ]
+    },
+    "assessment": {
+      "snapshot_id": "retained-snapshot-1",
+      "criteria": [
+        {
+          "name": "AC-001",
+          "status": "satisfied",
+          "classification": "blocking",
+          "evidence": [
+            {
+              "check_ids": [
+                "check-1"
+              ],
+              "summary": "Retained decoder test rejects an unknown field."
+            }
+          ]
+        }
+      ],
+      "reviews": [
+        {
+          "name": "code",
+          "status": "satisfied",
+          "classification": "blocking",
+          "evidence": [
+            {
+              "check_ids": [],
+              "summary": "Retained source supports the code review."
+            }
+          ]
+        },
+        {
+          "name": "architecture",
+          "status": "satisfied",
+          "classification": "blocking",
+          "evidence": [
+            {
+              "check_ids": [],
+              "summary": "Retained source supports the architecture review."
+            }
+          ]
+        },
+        {
+          "name": "plan",
+          "status": "satisfied",
+          "classification": "blocking",
+          "evidence": [
+            {
+              "check_ids": [],
+              "summary": "Retained source supports the plan review."
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "invalidated_story": {
+    "story": "US-1",
+    "outcome": "invalidated",
+    "reason": "Later edits changed the implementation; prior evidence cannot cover rework."
+  },
+  "invalid_update_cases": [
+    {
+      "case": "unauthorized factory field",
+      "request": {
+        "action": "update",
+        "result_id": "result-research-1",
+        "expected_revision": 1,
+        "operations": [
+          {
+            "op": "replace",
+            "path": "/meta/mode",
+            "value": "implement"
+          }
+        ]
+      },
+      "expected": "Reject; operations target only authorized result fields."
+    },
+    {
+      "case": "merged dependency breaks",
+      "request": {
+        "action": "update",
+        "result_id": "result-plan-1",
+        "expected_revision": 1,
+        "operations": [
+          {
+            "op": "update_item",
+            "path": "/payload/plan/stories",
+            "id": "US-1",
+            "changes": {
+              "dependencies": {
+                "story_keys": [
+                  "US-missing"
+                ],
+                "issue_refs": []
+              }
+            }
+          }
+        ]
+      },
+      "expected": "Reject entire update because merged Plan references an unknown story."
+    },
+    {
+      "case": "null is not deletion",
+      "request": {
+        "action": "update",
+        "result_id": "result-research-1",
+        "expected_revision": 1,
+        "operations": [
+          {
+            "op": "replace",
+            "path": "/comment",
+            "value": null
+          }
+        ]
+      },
+      "expected": "Reject wrong type; null has no delete meaning."
+    }
+  ]
+}

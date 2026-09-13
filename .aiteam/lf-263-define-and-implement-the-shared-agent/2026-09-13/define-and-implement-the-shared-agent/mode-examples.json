@@ -1,0 +1,846 @@
+[
+  {
+    "case": "research.completed",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "research",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-research-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-research-1"
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "research": {
+            "request": "Inventory current communication and propose a first JSON shape.",
+            "findings": [
+              {
+                "id": "F-1",
+                "text": "Mode results and execution outcomes have different owners.",
+                "evidence": [
+                  {
+                    "path": "internal/agent/result.go",
+                    "line": 81,
+                    "revision": "6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb"
+                  }
+                ]
+              }
+            ],
+            "decisions": [
+              {
+                "id": "D-1",
+                "text": "Retain the need for a reusable shared Go library."
+              }
+            ],
+            "assumptions": [
+              {
+                "id": "A-1",
+                "text": "Field ordering and the first shape remain open to owner review."
+              }
+            ],
+            "recommendation": "Review the proposed JSON structure before implementation."
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": "research.incomplete",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "research",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-research-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-research-1"
+      },
+      "result": {
+        "outcome": "incomplete",
+        "comment": "Illustrative result for contract review.",
+        "questions": [
+          {
+            "id": "Q-1",
+            "text": "Which update shape should the draft use?",
+            "options": [
+              {
+                "id": "O-1",
+                "label": "Explicit operations",
+                "description": "Identify collection items by stable ID."
+              },
+              {
+                "id": "O-2",
+                "label": "Merge patch",
+                "description": "Replace arrays or redesign them as maps."
+              }
+            ],
+            "recommended_option_id": "O-1"
+          }
+        ],
+        "artifacts": [],
+        "payload": {
+          "research": {
+            "request": "Inventory current communication and propose a first JSON shape.",
+            "findings": [
+              {
+                "id": "F-1",
+                "text": "Mode results and execution outcomes have different owners.",
+                "evidence": [
+                  {
+                    "path": "internal/agent/result.go",
+                    "line": 81,
+                    "revision": "6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb"
+                  }
+                ]
+              }
+            ],
+            "decisions": [
+              {
+                "id": "D-1",
+                "text": "Retain the need for a reusable shared Go library."
+              }
+            ],
+            "assumptions": [
+              {
+                "id": "A-1",
+                "text": "Field ordering and the first shape remain open to owner review."
+              }
+            ],
+            "recommendation": "Review the proposed JSON structure before implementation."
+          }
+        },
+        "reason": "Further work remains."
+      }
+    }
+  },
+  {
+    "case": "research.blocked",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "research",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-research-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-research-1"
+      },
+      "result": {
+        "outcome": "blocked",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "research": {
+            "request": "Inventory current communication and propose a first JSON shape.",
+            "findings": [
+              {
+                "id": "F-1",
+                "text": "Mode results and execution outcomes have different owners.",
+                "evidence": [
+                  {
+                    "path": "internal/agent/result.go",
+                    "line": 81,
+                    "revision": "6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb"
+                  }
+                ]
+              }
+            ],
+            "decisions": [
+              {
+                "id": "D-1",
+                "text": "Retain the need for a reusable shared Go library."
+              }
+            ],
+            "assumptions": [
+              {
+                "id": "A-1",
+                "text": "Field ordering and the first shape remain open to owner review."
+              }
+            ],
+            "recommendation": "Review the proposed JSON structure before implementation."
+          }
+        },
+        "reason": "Required retained evidence or baseline is unavailable."
+      }
+    }
+  },
+  {
+    "case": "plan.completed",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "plan",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-plan-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-plan-1"
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "plan": {
+            "summary": "Illustrative typed Plan; not an approved delivery plan for #263.",
+            "stories": [
+              {
+                "key": "US-1",
+                "intent": "create",
+                "title": "Validate submitted results",
+                "user_story": {
+                  "actor": "factory adapter",
+                  "want": "validate a result through a shared library",
+                  "benefit": "consistent semantics across transports",
+                  "notes": []
+                },
+                "acceptance_criteria": [
+                  {
+                    "id": "AC-001",
+                    "text": "An unknown agent-authored field is rejected."
+                  }
+                ],
+                "tasks": [
+                  {
+                    "id": "T-1",
+                    "description": "Implement strict decoding.",
+                    "owner_role": "go-implementation-engineer",
+                    "criterion_ids": [
+                      "AC-001"
+                    ],
+                    "depends_on": []
+                  }
+                ],
+                "architecture": {
+                  "summary": "Use the shared validation boundary.",
+                  "components": [],
+                  "interfaces": [],
+                  "constraints": [
+                    "The agent cannot assign factory identity."
+                  ],
+                  "decisions": []
+                },
+                "dependencies": {
+                  "story_keys": [],
+                  "issue_refs": []
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": "plan.incomplete",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "plan",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-plan-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-plan-1"
+      },
+      "result": {
+        "outcome": "incomplete",
+        "comment": "Illustrative result for contract review.",
+        "questions": [
+          {
+            "id": "Q-1",
+            "text": "Which update shape should the draft use?",
+            "options": [
+              {
+                "id": "O-1",
+                "label": "Explicit operations",
+                "description": "Identify collection items by stable ID."
+              },
+              {
+                "id": "O-2",
+                "label": "Merge patch",
+                "description": "Replace arrays or redesign them as maps."
+              }
+            ],
+            "recommended_option_id": "O-1"
+          }
+        ],
+        "artifacts": [],
+        "payload": {
+          "plan": {
+            "context": {
+              "scope": "Shared communication contract",
+              "decisions": "Keep factory identity separate.",
+              "assumptions": "Names remain provisional.",
+              "questions": "Choose the update representation."
+            }
+          }
+        },
+        "reason": "Further work remains."
+      }
+    }
+  },
+  {
+    "case": "plan.blocked",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "plan",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-plan-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-plan-1"
+      },
+      "result": {
+        "outcome": "blocked",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "plan": {
+            "context": {
+              "scope": "Shared communication contract",
+              "decisions": "Keep factory identity separate.",
+              "assumptions": "Names remain provisional.",
+              "questions": "None"
+            }
+          }
+        },
+        "reason": "Required retained evidence or baseline is unavailable."
+      }
+    }
+  },
+  {
+    "case": "implement.completed",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "implement",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-implement-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-implement-1"
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "implement": {
+            "stories": [
+              {
+                "story": "US-1",
+                "outcome": "engineering_complete",
+                "engineering": {
+                  "snapshot_id": "retained-snapshot-1",
+                  "check_ids": [
+                    "check-1"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": "implement.incomplete",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "implement",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-implement-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-implement-1"
+      },
+      "result": {
+        "outcome": "incomplete",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "implement": {
+            "stories": [
+              {
+                "story": "US-1",
+                "outcome": "blocked",
+                "reason": "Further work remains."
+              }
+            ]
+          }
+        },
+        "reason": "Further work remains."
+      }
+    }
+  },
+  {
+    "case": "implement.blocked",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "implement",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-implement-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-implement-1"
+      },
+      "result": {
+        "outcome": "blocked",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "implement": {
+            "stories": [
+              {
+                "story": "US-1",
+                "outcome": "blocked",
+                "reason": "Required retained evidence or baseline is unavailable."
+              }
+            ]
+          }
+        },
+        "reason": "Required retained evidence or baseline is unavailable."
+      }
+    }
+  },
+  {
+    "case": "validate.completed",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "validate",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-validate-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-validate-1"
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "validate": {
+            "stories": [
+              {
+                "story": "US-1",
+                "snapshot_id": "retained-snapshot-1",
+                "criteria": [
+                  {
+                    "name": "AC-001",
+                    "status": "satisfied",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [
+                          "check-1"
+                        ],
+                        "summary": "Retained decoder test rejects an unknown field."
+                      }
+                    ]
+                  }
+                ],
+                "reviews": [
+                  {
+                    "name": "code",
+                    "status": "satisfied",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Retained source supports the code review."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "architecture",
+                    "status": "satisfied",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Retained source supports the architecture review."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "plan",
+                    "status": "satisfied",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Retained source supports the plan review."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": "validate.incomplete",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "validate",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-validate-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-validate-1"
+      },
+      "result": {
+        "outcome": "incomplete",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "validate": {
+            "stories": [
+              {
+                "story": "US-1",
+                "snapshot_id": "",
+                "criteria": [
+                  {
+                    "name": "AC-001",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  }
+                ],
+                "reviews": [
+                  {
+                    "name": "code",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "architecture",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "plan",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "reason": "Further work remains."
+      }
+    }
+  },
+  {
+    "case": "validate.blocked",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "validate",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-validate-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-validate-1"
+      },
+      "result": {
+        "outcome": "blocked",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "validate": {
+            "stories": [
+              {
+                "story": "US-1",
+                "snapshot_id": "",
+                "criteria": [
+                  {
+                    "name": "AC-001",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  }
+                ],
+                "reviews": [
+                  {
+                    "name": "code",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "architecture",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  },
+                  {
+                    "name": "plan",
+                    "status": "unverified",
+                    "classification": "blocking",
+                    "evidence": [
+                      {
+                        "check_ids": [],
+                        "summary": "Required retained evidence is unavailable."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "reason": "Required retained evidence or baseline is unavailable."
+      }
+    }
+  },
+  {
+    "case": "spike.completed",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "spike",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-spike-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-spike-1"
+      },
+      "result": {
+        "outcome": "completed",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "spike": {
+            "request": "Check whether a bounded change is feasible.",
+            "work_done": [
+              "Inspected a local fixture."
+            ],
+            "findings": [
+              "The approach is feasible."
+            ],
+            "decisions": [],
+            "not_done": [
+              "Production adoption."
+            ],
+            "recommendation": "Review the result before requesting larger work."
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": "spike.incomplete",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "spike",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-spike-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-spike-1"
+      },
+      "result": {
+        "outcome": "incomplete",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "spike": {
+            "request": "Check whether a bounded change is feasible.",
+            "work_done": [
+              "Inspected a local fixture."
+            ],
+            "findings": [
+              "The approach is feasible."
+            ],
+            "decisions": [],
+            "not_done": [
+              "Production adoption."
+            ],
+            "recommendation": "Review the result before requesting larger work."
+          }
+        },
+        "reason": "Further work remains."
+      }
+    }
+  },
+  {
+    "case": "spike.blocked",
+    "snapshot": {
+      "meta": {
+        "schema_version": "0.1-draft",
+        "operation": "work",
+        "task": "github:example/project#42",
+        "run_id": 1001,
+        "attempt_id": "factory-attempt-1",
+        "mode": "spike",
+        "workflow_version": 2,
+        "submission_contract_version": 2,
+        "result_id": "result-spike-1",
+        "result_revision": 1,
+        "scope_ref": "factory-scope-1",
+        "request_id": "request-spike-1"
+      },
+      "result": {
+        "outcome": "blocked",
+        "comment": "Illustrative result for contract review.",
+        "questions": [],
+        "artifacts": [],
+        "payload": {
+          "spike": {
+            "request": "Check whether a bounded change is feasible.",
+            "work_done": [
+              "Inspected a local fixture."
+            ],
+            "findings": [
+              "The approach is feasible."
+            ],
+            "decisions": [],
+            "not_done": [
+              "Production adoption."
+            ],
+            "recommendation": "Review the result before requesting larger work."
+          }
+        },
+        "reason": "Required retained evidence or baseline is unavailable."
+      }
+    }
+  }
+]
