@@ -2,7 +2,7 @@
 
 2026-09-13 · Research run 0001 · source revision `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb`
 
-## Current handoff — run 0007
+## Current handoff — confirmed in run 0008
 
 **Judgement:** retain the agreed contract direction. The health check usefully identified unfinished decisions and example coverage, but its recommendation to defer the library, all-mode updates and progress would remove explicit #263 requirements. This section supersedes run 0006's scope/readiness recommendation; earlier entries remain history.
 
@@ -282,3 +282,13 @@ Recommendation: **partially ready for Plan**. Lock in the common envelope, outco
 ## Run 0007: focused health-check evaluation
 
 Reconciled run 0006 with the original issue and recorded owner agreements. Preserved genuinely open patch/lifetime/auxiliary decisions with recommendations; separated engineering details and missing fixture coverage from owner choices. Corrected the proposed library/progress/all-mode deferrals and the claim that Implement already has an update example. Saved a separate local MCP handoff and normalized illustrative story keys. All seven JSON files parse, the 15 mode/outcome cases remain covered, and Research/Implement sample equality checks pass. Documentation only; no Go tests or production implementation. Research remains incomplete pending the recorded owner decisions.
+
+## Run 0008: remaining choices explained
+
+Owner asks only what remains to choose. No new investigation, decision or scope change. The three recorded choices are:
+
+1. **How to send a small change.** Explicit operations say “change the title of US-001” or “remove criterion AC-002.” Merge-patch sends a partial JSON object; changing an item in an array normally requires resending that whole array. Recommend explicit operations with stable IDs because stories and criteria are edited individually.
+2. **What happens when the next run continues the same work.** A continuing result keeps one document identity and adds revisions after each authorized same-mode run. A per-run result creates a new document each time, with prior work carried forward as its baseline. Recommend continuing identity for iterative Plan reviews; previous revisions and run reports remain preserved, and every new attempt still needs factory authorization.
+3. **Whether to include the small advisor calls now.** Classification proposes a mode, scheduling proposes future work, and conflict advice proposes resolutions. Including these now adds three typed variants to the shared contract; keeping their existing adapters separate limits this delivery to the five work modes and required advisory progress. Recommend keeping them separate initially.
+
+These are recommendations awaiting owner choice, not newly approved semantics. Research remains incomplete. No production code, examples or MCP scope changed; only the brief and manifest were updated.
