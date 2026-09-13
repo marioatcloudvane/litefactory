@@ -187,7 +187,7 @@
             "summary": "Illustrative typed Plan; not an approved delivery plan for #263.",
             "stories": [
               {
-                "key": "US-1",
+                "key": "US-001",
                 "intent": "create",
                 "title": "Validate submitted results",
                 "user_story": {
@@ -466,7 +466,7 @@
           "implement": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
                 "outcome": "blocked",
                 "reason": "Required retained evidence or baseline is unavailable."
               }
@@ -504,7 +504,7 @@
           "validate": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
                 "snapshot_id": "retained-snapshot-1",
                 "criteria": [
                   {
@@ -590,7 +590,7 @@
           "validate": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
                 "snapshot_id": "",
                 "criteria": [
                   {
@@ -675,7 +675,7 @@
           "validate": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
                 "snapshot_id": "",
                 "criteria": [
                   {

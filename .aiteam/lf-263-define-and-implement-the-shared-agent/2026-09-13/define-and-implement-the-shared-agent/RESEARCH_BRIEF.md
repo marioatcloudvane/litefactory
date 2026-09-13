@@ -2,7 +2,32 @@
 
 2026-09-13 · Research run 0001 · source revision `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb`
 
-## Request and scope
+## Current handoff — run 0007
+
+**Judgement:** retain the agreed contract direction. The health check usefully identified unfinished decisions and example coverage, but its recommendation to defer the library, all-mode updates and progress would remove explicit #263 requirements. This section supersedes run 0006's scope/readiness recommendation; earlier entries remain history.
+
+**Settled:** factory-owned `meta`, agent-authored `result`, common recommendation `{text, action?}`, optional unused fields and small updates. Plan can accumulate story detail without inventing a workflow engine; completed content and evidence still meet existing obligations. The shared Go library remains required. No need to reopen these agreements.
+
+**Only unresolved owner choices:**
+
+1. **Patch format:** explicit stable-ID operations (recommended) or merge-patch? Examples demonstrate the recommendation; the owner's common-shape approval did not choose the format.
+2. **Result lifetime:** one logical result across authorized same-mode continuations (recommended), or a new result each run? Under the recommendation, every revision retains originating run/attempt, old attempts lose authority, and changed mode/scope cannot silently inherit permission.
+3. **Auxiliary scope:** include classification/scheduling/conflict as small typed variants now, or keep their current adapters separate? Recommend the latter for the first delivery: retain the inventory and focus implementation on the five work modes plus required advisory progress. This is an explicit proposed boundary for owner confirmation, not an approved deferral. No new generic event framework is needed either way.
+
+**Technical work to resolve in Plan, not additional owner questions:**
+
+- Bind `aggregate_checks` to retained final implementation bytes, the selected frozen story revisions, and attributable executed checks. Preserve aggregate-only recovery with no new story events. Specify the capture/retention mapping and reject stale, missing or misattributed proof before freezing this part of the schema; keep it within #263.
+- Finish update examples and valid/invalid executable fixtures for every mode using the chosen common patch rules. Validate/Spike have snapshots but no patch round trips; **Implement also lacks a revision-checked update example** (its exchange file contains contributions and recovery). This is coverage work, not evidence that those payloads need a new owner decision. Verify merged Validate findings against frozen criteria and evidence; keep old assessments/receipts immutable. Resolve optional-field removal and the allowed-edit matrix along with the common patch specification.
+- Implement the shared decoder, semantic validator and patch application; match the reusable finalization skill and fixtures to it. Define snapshot/receipt history, version distinctions and retries without routing cutover. Lack of implementation during Research is expected, not a health defect.
+- Keep transport-independent advisory progress semantics in scope: attribution, order/deduplication, bounded retention/coalescing, no authority over readiness or acceptance. Concrete limits remain engineering choices. Keep future workflow orchestration and automatic transitions outside this issue. Measure representative total input/output and retries before claiming token savings; MCP is not required for a contract-level comparison.
+
+**Suggested handoff organization (not approved stories):** contract and mode validation → revisions/history/receipts with aggregate evidence binding → matching skill, complete fixture coverage and cost evaluation. Progress is a bounded part of the contract, not a separate framework. This preserves the original completion criteria while making the implementation discussion smaller.
+
+**Evidence and corrections:** supplied issue #263 explicitly requires the library, all five modes, progress and finalization skill. At source revision `7ed7c63a6c0e8a3231b8ef108a50c463f84bb2c9`, `internal/harness/stories.go:29` requires aggregate checks and `:36` describes event-free aggregate recovery; `internal/agent/contribution.go:275` requires check references and `:316`–`:325` binds them to story/revision/snapshot/digest. These focused reads confirm a real aggregate mapping gap. The seven session JSON documents confirm the coverage distinction above. Normalized illustrative `US-1` identifiers to `US-001` in mode and exchange examples; the previous mismatch was cosmetic across examples, not observed runtime identity corruption.
+
+MCP findings are preserved separately in `MCP_FOLLOWUP.md` for transfer to its story; no external story was edited or posted in this run. Research remains **incomplete for the three owner choices above**. Bounded evaluation is complete; no Plan or implementation started.
+
+## Request and scope (original run 0001)
 
 The owner asks to inventory how agents currently communicate with litefactory and produce a first JSON schema/sample for review and possible reordering. A reusable shared Go library must eventually hide the complexity. This run delivers a **provisional field schema and concrete JSON examples**, not a standards-based executable JSON Schema, implementation, approved Plan, or production transport change. No shared library, finalization skill, migration or MCP server is implemented here. The larger issue describes later work; the current instruction deliberately starts with the shape.
 
@@ -253,3 +278,7 @@ Genuinely open, not resolved by any run to date: (1) explicit stable-ID operatio
 Recommendation: **partially ready for Plan**. Lock in the common envelope, outcome/reason/recommendation rules, optional-field conventions and the Plan/Implement payload shapes with their sparse-update model — these are well-evidenced and internally consistent. Before or as part of Plan story-writing, explicitly scope out (or defer to later stories) the aggregate_checks binding, Validate/Spike update semantics, and the MCP/library implementation, and treat progress/auxiliary-operation/workflow-engine ideas as separate, non-blocking follow-ups rather than folding them into v1 stories. Fix the US-1/US-001 key inconsistency in the sample files first so Plan does not inherit mismatched fixtures.
 
 - 2026-09-13, run 0006: Sanity-checked the accumulated brief and all seven JSON artifacts against the recorded comment history; confirmed core common-shape/Plan/Implement claims hold and `create_submission`/`sample` equality still holds; found one internal artifact inconsistency (US-1 vs US-001 story-key style) and reconfirmed five previously-flagged items remain genuinely unresolved. No new design proposed. Research remains incomplete pending owner's Plan-mode decision.
+
+## Run 0007: focused health-check evaluation
+
+Reconciled run 0006 with the original issue and recorded owner agreements. Preserved genuinely open patch/lifetime/auxiliary decisions with recommendations; separated engineering details and missing fixture coverage from owner choices. Corrected the proposed library/progress/all-mode deferrals and the claim that Implement already has an update example. Saved a separate local MCP handoff and normalized illustrative story keys. All seven JSON files parse, the 15 mode/outcome cases remain covered, and Research/Implement sample equality checks pass. Documentation only; no Go tests or production implementation. Research remains incomplete pending the recorded owner decisions.

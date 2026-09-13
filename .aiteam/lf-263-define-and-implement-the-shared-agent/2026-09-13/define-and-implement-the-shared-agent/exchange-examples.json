@@ -160,7 +160,7 @@
     ]
   },
   "legacy_verified_story": {
-    "story": "US-1",
+    "story": "US-001",
     "outcome": "verified",
     "engineering": {
       "snapshot_id": "retained-snapshot-1",
@@ -223,7 +223,7 @@
     }
   },
   "invalidated_story": {
-    "story": "US-1",
+    "story": "US-001",
     "outcome": "invalidated",
     "reason": "Later edits changed the implementation; prior evidence cannot cover rework."
   },
@@ -254,7 +254,7 @@
           {
             "op": "update_item",
             "path": "/payload/plan/stories",
-            "id": "US-1",
+            "id": "US-001",
             "changes": {
               "dependencies": {
                 "story_keys": [

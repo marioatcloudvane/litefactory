@@ -16,6 +16,10 @@
 
 - 2026-09-13: Research run 0001 started; inventory current agent communication and propose a reviewable JSON contract sample.
 
+## Current status — run 0007
+
+Research evaluation delivered; Research remains incomplete pending patch format, result lifetime and auxiliary-scope decisions. The current handoff at the top of RESEARCH_BRIEF.md supersedes run 0006's deferral recommendation. Library, all-mode validation, aggregate evidence mapping, progress semantics and finalization skill remain #263 scope. MCP is excluded; MCP_FOLLOWUP.md holds a local transfer note, with no external story update performed. No Plan or implementation started.
+
 ## Notes
 
 - A reusable shared library must eventually encapsulate contract complexity.
@@ -43,3 +47,5 @@
 - Run 0005 validation: all seven JSON files parsed; 15 mode/outcome cases, sample equality, optional common lists, mixed sibling preservation and aggregate-only recovery shapes checked. Examples are illustrative and do not claim actual test execution. No production tests run.
 
 - Run 0006: Owner-requested sanity check of the accumulated brief and all seven JSON artifacts, no new design. Confirmed core common-shape/outcome/recommendation/Plan/Implement claims hold and are internally consistent; found one cosmetic artifact inconsistency (US-1 vs US-001 story-key style across `mode-examples.json` and the other sample files); reconfirmed patch-vs-merge, result lifetime, `aggregate_checks`, Validate/Spike update semantics and MCP/library implementation remain open. Judgement: partially ready for Plan. Research remains incomplete pending the owner's Plan-mode decision.
+
+- Run 0007: Re-evaluated only open health-check findings; distinguished owner choices from technical mapping/fixture work and corrected scope reductions. Added current handoff and MCP_FOLLOWUP.md, normalized US-001 examples in mode/exchange files. Seven JSON files parse; 15 mode/outcome combinations and Research/Implement sample consistency checks pass. No production code changed or Go tests run; Research remains incomplete for recorded choices.
