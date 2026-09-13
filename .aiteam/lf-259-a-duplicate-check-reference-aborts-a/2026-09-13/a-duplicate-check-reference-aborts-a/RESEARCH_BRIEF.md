@@ -1,7 +1,7 @@
 # Research brief — duplicate checks and cross-run failure (#259)
 
-Status: complete, Research only. Date: 2026-09-13.
-Source revision: `60187208d9a9bcadcca8f01edb39ec11cac23c3e`.
+Status: complete, Research only, including run 0002 follow-up. Date: 2026-09-13.
+Initial source revision: `60187208d9a9bcadcca8f01edb39ec11cac23c3e`. Follow-up source revision: `5c4bf0b9ce3b32ea66f633280556d57420e42893`.
 
 ## Request and scope
 
@@ -9,7 +9,7 @@ Investigate the reported submission collision, unrelated-run failure, misleading
 
 ## Findings and evidence
 
-All repository citations below refer to the revision above. Historical run IDs, timing, receipt 57 and outcomes in the issue are owner-supplied reports, not independently inspected production telemetry.
+Repository citations in the original investigation refer to the initial revision; the run 0002 section cites the follow-up revision. Historical run IDs, timing, receipt 57 and outcomes in the issue are owner-supplied reports, not independently inspected production telemetry.
 
 ### 1. The collision is real; validation and storage disagree about identity
 
@@ -81,3 +81,66 @@ Relevant boundaries: SQL and migrations remain in store; retain its one-connecti
 - Settled from supplied context: investigate all four linked concerns and recommend solutions; remain in Research.
 - No material questions for the owner. Historical database replay is optional corroboration, not a prerequisite for the source-level conclusion.
 - 2026-09-13: Completed source tracing, corrected the fatal attribution and Plan overstatement, ran existing focused tests, and saved this handoff. Suggested next step: Plan a coordinated store identity, recovery isolation, diagnostics and receipt-lifecycle change; Plan was not started.
+
+## Run 0002 — story/issue identity and the communication contract in #258
+
+Request: establish whether the proposed check key also needs a user-story reference and issue ID; inspect parallel #258 and evaluate its actual contract proposal against this bug. This is a bounded research extension, not approval to implement or begin Plan. No owner clarification is needed to answer it.
+
+### Identity: necessary context, but not extra columns in this check key
+
+The story and issue are relevant and already enforced through the ownership chain:
+
+| Identity | Current source and scope | Recommended contract treatment |
+|---|---|---|
+| Run | `Run.ID` is the database surrogate; `Run.Ordinal` is only the number within a task (`internal/store/runs.go:100`, `:106`). | Use the actual factory-bound run ID. The prompt's `run 0002` is not a globally unique ID. A portable envelope also carries the canonical task reference; cross-installation exchange would need a factory namespace. |
+| Parent issue/task | Run → session → canonical `github:owner/repo#number` (`internal/store/runs.go:102`; `internal/store/sessions.go:26`, `:35`, `:64`). Attempt admission verifies this relationship (`internal/store/submission_receipts.go:48`). | Factory-supplied task reference distinguishes repository and issue. Bare `#259` is insufficient outside repository context. |
+| Story and its issue | Attempt scope stores story key, forge issue ID and frozen revision; binding validates the mapping against managed stories (`internal/store/submission_receipts.go:13`, `:67`, `:87`, `:189`). | Story is the agent's authorized selector. Factory resolves its issue ID, generation and revision. Distinguish parent task issue from the story's child issue; `US-001` is not globally unique. Plan/Research reports may have no story, and newly proposed Plan stories may not yet have child issue IDs. |
+| Snapshot | `(run_id, reference)` uniquely binds parent, generation, story, revision and immutable bytes (`internal/store/migrations/0028_submission_contracts.sql:43`; `internal/store/submission_evidence.go:77`, `:91`). | Reference an exact retained snapshot. The same reference in the same run cannot describe another story or revision. |
+| Check | Store resolves snapshot → story/revision, then checks active attempt authority (`internal/store/submission_evidence.go:139`, `:143`). | `(run_id, snapshot_ref, check_ref)` is sufficient under the current snapshot invariant. Check IDs are local to that snapshot, so each story can use `build`. |
+
+Adding story and issue to the check primary key would duplicate facts already determined by the snapshot. It would not repair cross-run recovery, and inconsistent redundant values would need extra validation. Replacing the snapshot with story/issue would lose the distinction between successive snapshots of the same story. Preserve these fields in canonical correlation, receipts and diagnostics; enforce them through trusted binding and foreign-key relationships.
+
+There is a separate naming hazard: two stories using the same snapshot name still conflict because snapshot references themselves are run-wide. The bounded check-key fix does not change that. For #258, explicitly define snapshot identity as well: prefer a factory-issued immutable handle (with an optional agent label), or deliberately introduce story-scoped snapshot references and migrate every dependent lookup/key. Merely adding story to the check key while snapshots remain run-wide does not solve the snapshot collision. Existing evidence records should remain immutable; changing execution under the same snapshot/check identity needs a new check reference, and changed snapshot bytes need a new snapshot.
+
+### What #258 actually proposes
+
+Read #258's issue body and all six comments through the GitHub connector on 2026-09-13. Its original request is a communication-path inventory, not an implemented replacement. The latest owner comment proposes JSON with sibling `meta` and `result` objects, text for the issue comment plus mode-specific fields, editing only changed fields of a prior result, token efficiency, and loading the contract skill only when a run finishes. Source: [owner's contract proposal](https://github.com/marioatcloudvane/litefactory/issues/258#issuecomment-5652059930).
+
+The preceding research recommends common validation/correlation/retry semantics, separate received/accepted/published states, and an optional thin MCP adapter over the existing submission service. These are recommendations in the discussion, not settled owner decisions or implemented capabilities. Source: [#258 prior research](https://github.com/marioatcloudvane/litefactory/issues/258#issuecomment-5648178928). No other session directory or linked archived research artifact was opened.
+
+JSON is a good fit for this proposal because current contributions and receipts already use it. Use a valid object with `meta` and `result` as siblings; use a versioned, mode/message-specific schema rather than one permissive bag of optional fields. Schema shape alone is insufficient: namespace, authority, retry, failure ownership and lifecycle rules must be part of the contract.
+
+The key authority constraint already exists: agent contributions intentionally forbid factory-owned run, issue, generation, revision, attempt and receipt fields (`internal/agent/contribution.go:22`; `internal/agent/contribution_schema.go:234`, `:285`). `internal/turn/submissions.go:229` resolves the story selector through the authorized map. Therefore, an outer `meta` envelope should be assembled by the factory/adapter or verified against its binding if echoed by an agent. It must not let agent-authored IDs select another run or manufacture scope. Do not simply add these fields to current contribution JSON and weaken its validation. Current parsers will reject the new envelope; adopting it requires an explicitly versioned adapter/migration.
+
+An illustrative factory-assembled message could have `meta` containing contract version, message kind, canonical task, actual run ID, attempt, mode and request ID; `result` could carry report text and stage-specific contributions with story selector, snapshot reference and local check IDs. Canonical receipts/logs should enrich each story contribution with its resolved child issue ID, generation and revision. Identity shared by a batch need only appear once; each story-specific entry retains its own scope. This is a recommendation, not an agreed schema.
+
+### How that contract addresses this incident
+
+| #259 defect | Contract rule needed | Code change still required |
+|---|---|---|
+| `build` collides across stories | Document check identity as snapshot-local; reject changed facts under the same full identity with a typed diagnostic identifying the affected story/snapshot/check. Align preflight and durable validation. | New check-table migration, exact-context reads, retention and replay changes. An envelope alone cannot alter the SQL key. |
+| Run A's receipt fails run B | Every receipt and failure has factory-bound task/run/attempt/request scope. A submission operation affects only its scope; global recovery emits independently attributed outcomes. | Scope submit/Close recovery, preserve daemon-wide maintenance and ordered/locked parent effects. Merely attaching IDs to an error still leaves propagation broken. |
+| Successful execution reported as not started | Separate process execution outcome from submission/finalization/publication outcome. Use phase, stable error code, retryability and affected correlation; preserve actual exit/output/usage. | Correct error propagation, metering/harvest classification and result preservation. A human comment can explain both outcomes truthfully. |
+| Plan receipt remains pending | Define valid state transitions by stage, including `not_applicable`, terminal rejection and uncertain publication recovery. Acknowledged/received is distinct from engineered, accepted and published. | Stage-aware orphan handling with publication guards. Do not abandon a normal Plan at broker Close before harvest publishes it. |
+
+Deterministic identity conflicts should produce terminal rejection for that request with actionable diagnostics; retryable infrastructure errors keep recoverable state. Retrying the same request must return the original result, not create new evidence. Current allocation already binds request identity to payload, attempt, story and revision (`internal/store/submission_receipts.go:131`, `:143`), and the helper journals request IDs (`internal/submission/client.go:50`, `:111`). Preserve that distinction: a request ID identifies delivery/idempotency, while a check ID identifies evidence. A corrected payload is a new request; an unchanged replay retains its request ID.
+
+### Partial changes, token efficiency and finish-time loading
+
+For the owner's Plan-edit example, recommend a new typed change request with a base proposal revision and explicit changes addressed by stable story/criterion IDs. The factory verifies the expected base, applies only authorized changes to its canonical document, validates the complete resulting proposal, then creates a new immutable proposal revision and receipt. Define omission as unchanged and deletion explicitly. Reject stale-base changes instead of overwriting a newer plan; unchanged replay returns the prior receipt. Published/approved story changes must still pass the existing generation/readiness/approval workflow. Existing full contribution submissions are not already a patch API, and immutable check/receipt history must never be edited in place. A patch is a new operation, not a content-changing retry of an old request.
+
+For tokens, keep common metadata factory-owned, omit inactive fields, reference retained snapshots/receipts rather than returning their complete content again, and load only the relevant mode schema and changed Plan item plus necessary dependencies. Keep descriptive field names unless measurement shows shortening helps; token savings from a schema or late loading were not measured here. “Only changed fields” reduces output but does not remove the need for sufficient current context or full validation after applying the patch.
+
+Loading the full contract only at the final report fits final-only serialization, but is too late for incremental Implement submissions, early preflight, questions/status during a run, or deciding what execution evidence to retain. Current instructions explicitly request preflight and submit, generic local check names and request retention during execution (`internal/turn/submission_runner.go:73`, `:77`), while Validate uses final JSON under its read-only profile (`:79`). Recommend a small initial contract pointer plus essential obligations and identity scope; load the appropriate schema on first use (which may be at finish for Research or Validate). Load final-report formatting at finish. Do not replace each story's immediate receipt with one end-of-run submission, because that would lose existing incremental acknowledgment and early failure visibility.
+
+A lazy skill is an instruction-discovery mechanism, not server-side enforcement. It also does not guarantee previously loaded data is removed from model context. Enforce the contract in the common receiver and store independently of whether an agent loaded the skill. No MCP adoption is required for these fixes; if #258 later chooses it, use the same scoped service/validation/receipts through the adapter. Transport selection remains separate from the proposed data contract.
+
+### Recommendation, verification and history
+
+Use #259 to implement the narrow identity, recovery isolation, truthful diagnostics and Plan lifecycle repairs once moved to Plan/Implement. Coordinate #258 around the same identity namespaces, authority model, stage-aware receipts and error taxonomy; make #259's regression scenarios conformance cases for every future adapter. A broad communication overhaul is not a prerequisite to fixing the current defects. Resolve factory-issued versus story-scoped snapshot handles and full-result versus typed-change operations when designing #258, without silently expanding #259's storage migration.
+
+Additional regression cases for that future contract: spoofed run/story/issue metadata is rejected; same story label across different issues cannot redirect evidence; stale attempts and proposal bases fail; same request replay is idempotent while changed payload under that ID conflicts; omission/deletion semantics preserve untouched fields; final-only and incremental adapters yield identical canonical authority/receipt outcomes. Retain the original #259 cases for collisions and cross-run failure attribution.
+
+Follow-up verification: read focused source at revision `5c4bf0b9ce3b32ea66f633280556d57420e42893`, compared changed paths with the initial revision, and fetched current #258 body/comments. Relevant submission identity/runner/receipt sources retain the traced behavior; other code, including metering, has changed since the original test baseline. No tests were rerun and the original baseline is not claimed as verification of this newer revision. A measured ten-file source corpus is 131,574 bytes on disk, partly read; this is not input-token usage or exact transmitted bytes. Billed token counts are unavailable. Some initial guessed filenames did not exist; their actual owners were located and read. No network/permission blocker occurred; no production telemetry was accessed.
+
+- 2026-09-13, run 0002: Answered that story/issue identity is required for trusted correlation and already bound, but redundant in the proposed check key under current snapshot uniqueness. Evaluated the latest #258 owner proposal, its authority/versioning implications, partial changes and on-demand loading; saved this extension. Research complete, no material unanswered owner question. No source code or runtime state changed, no commit/push, and Plan was not started.

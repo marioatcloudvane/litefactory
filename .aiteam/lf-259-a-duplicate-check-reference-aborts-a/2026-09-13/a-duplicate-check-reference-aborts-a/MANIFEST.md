@@ -21,3 +21,5 @@
 ## Notes
 
 - Research reported check-reference collisions, cross-run reconciliation failures, error wording, and Plan receipt recovery.
+
+- 2026-09-13, run 0002: Research complete. Verified run/task and snapshot/story/issue binding at revision 5c4bf0b9ce3b32ea66f633280556d57420e42893; fetched #258 body and six comments, including the latest owner JSON/meta/result proposal. Extended RESEARCH_BRIEF.md with check-key sufficiency versus trusted correlation, schema authority/versioning, scoped errors and stage receipts, Plan change requests, token efficiency and first-use contract loading. No material unresolved questions; future #258 design choices identified as recommendations. No implementation or repeated tests; prior test baseline retained with revision limits.
