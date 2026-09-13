@@ -1,0 +1,71 @@
+=== RUN   TestRetirementExecutionRealLifecycle
+=== RUN   TestRetirementExecutionRealLifecycle/merged_external
+=== RUN   TestRetirementExecutionRealLifecycle/abandoned_unmerged
+=== RUN   TestRetirementExecutionRealLifecycle/open_merged
+=== RUN   TestRetirementExecutionRealLifecycle/reopened_final
+=== RUN   TestRetirementExecutionRealLifecycle/unavailable_final
+=== RUN   TestRetirementExecutionRealLifecycle/ignored
+=== RUN   TestRetirementExecutionRealLifecycle/untracked
+=== RUN   TestRetirementExecutionRealLifecycle/unpushed
+=== RUN   TestRetirementExecutionRealLifecycle/missing_upstream
+=== RUN   TestRetirementExecutionRealLifecycle/missing_registration
+=== RUN   TestRetirementExecutionRealLifecycle/stale_registration
+=== RUN   TestRetirementExecutionRealLifecycle/remote_only
+=== RUN   TestRetirementExecutionRealLifecycle/owner_locked
+=== RUN   TestRetirementExecutionRealLifecycle/active
+=== RUN   TestRetirementExecutionRealLifecycle/stale_intent
+--- PASS: TestRetirementExecutionRealLifecycle (46.69s)
+    --- PASS: TestRetirementExecutionRealLifecycle/merged_external (5.74s)
+    --- PASS: TestRetirementExecutionRealLifecycle/abandoned_unmerged (4.80s)
+    --- PASS: TestRetirementExecutionRealLifecycle/open_merged (1.74s)
+    --- PASS: TestRetirementExecutionRealLifecycle/reopened_final (3.18s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unavailable_final (2.03s)
+    --- PASS: TestRetirementExecutionRealLifecycle/ignored (2.27s)
+    --- PASS: TestRetirementExecutionRealLifecycle/untracked (1.99s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unpushed (1.82s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_upstream (2.93s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_registration (3.80s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_registration (3.75s)
+    --- PASS: TestRetirementExecutionRealLifecycle/remote_only (5.28s)
+    --- PASS: TestRetirementExecutionRealLifecycle/owner_locked (1.65s)
+    --- PASS: TestRetirementExecutionRealLifecycle/active (1.63s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_intent (4.09s)
+=== RUN   TestRetirementExecutionRealUncertainRetry
+--- PASS: TestRetirementExecutionRealUncertainRetry (6.64s)
+=== RUN   TestRetirementExecutionRealStorageFailures
+=== RUN   TestRetirementExecutionRealStorageFailures/intent
+=== RUN   TestRetirementExecutionRealStorageFailures/outcome
+--- PASS: TestRetirementExecutionRealStorageFailures (6.02s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/intent (2.39s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/outcome (3.63s)
+=== RUN   TestRetirementExecutionRealCoordination
+=== RUN   TestRetirementExecutionRealCoordination/parent_busy
+=== RUN   TestRetirementExecutionRealCoordination/clone_busy_cancellation
+--- PASS: TestRetirementExecutionRealCoordination (3.31s)
+    --- PASS: TestRetirementExecutionRealCoordination/parent_busy (1.76s)
+    --- PASS: TestRetirementExecutionRealCoordination/clone_busy_cancellation (1.55s)
+=== RUN   TestRetirementExecutionRealSharedChild
+--- PASS: TestRetirementExecutionRealSharedChild (1.57s)
+=== RUN   TestRetirementExecutionRealRecreatedCheckout
+--- PASS: TestRetirementExecutionRealRecreatedCheckout (7.12s)
+=== RUN   TestRetirementExecutionRealRemoteReopen
+--- PASS: TestRetirementExecutionRealRemoteReopen (3.77s)
+=== RUN   TestRetirementExecutionRealIntentPathIsolation
+--- PASS: TestRetirementExecutionRealIntentPathIsolation (1.39s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	77.079s
+=== RUN   TestRetirementExactHeadRaces
+=== RUN   TestRetirementExactHeadRaces/local_branch
+    retirement_guard_internal_test.go:29: scratch probe: git version 2.50.1 (Apple Git-155); local_branch expected 52002ea0bb1571cc4088d8623f57520b0541471a rejects concurrent fca59cfa8bdafa2848402fd62bdadefc3bd33032
+    retirement_guard_internal_test.go:62: actual rejection: /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRaceslocal_branch519629644/002/git-wrapper update-ref --no-deref -d refs/heads/lf/213-retire 52002ea0bb1571cc4088d8623f57520b0541471a: exit status 1: error: cannot lock ref 'refs/heads/lf/213-retire': is at fca59cfa8bdafa2848402fd62bdadefc3bd33032 but expected 52002ea0bb1571cc4088d8623f57520b0541471a
+=== RUN   TestRetirementExactHeadRaces/remote_branch
+    retirement_guard_internal_test.go:29: scratch probe: git version 2.50.1 (Apple Git-155); remote_branch expected 52002ea0bb1571cc4088d8623f57520b0541471a rejects concurrent fca59cfa8bdafa2848402fd62bdadefc3bd33032
+    retirement_guard_internal_test.go:62: actual rejection: /usr/bin/git push --force-with-lease=refs/heads/lf/213-retire:52002ea0bb1571cc4088d8623f57520b0541471a -- origin :refs/heads/lf/213-retire: exit status 1: remote: error: cannot lock ref 'refs/heads/lf/213-retire': is at fca59cfa8bdafa2848402fd62bdadefc3bd33032 but expected 52002ea0bb1571cc4088d8623f57520b0541471a        
+        To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRacesremote_branch1135528849/001/origin.git
+         ! [remote rejected] lf/213-retire (failed to update ref)
+        error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRacesremote_branch1135528849/001/origin.git'
+--- PASS: TestRetirementExactHeadRaces (5.85s)
+    --- PASS: TestRetirementExactHeadRaces/local_branch (3.23s)
+    --- PASS: TestRetirementExactHeadRaces/remote_branch (2.62s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/git	6.530s

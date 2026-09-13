@@ -25,6 +25,7 @@ func Commands() []*Command {
 		newMeterPricesListCommand(),
 		newMeterPricesSetCommand(),
 		newTaskCleanCommand(),
+		newTaskRetireCommand(),
 		newStoryContractUpgradeCommand(),
 		newTeamListCommand(),
 		newTeamShowCommand(),

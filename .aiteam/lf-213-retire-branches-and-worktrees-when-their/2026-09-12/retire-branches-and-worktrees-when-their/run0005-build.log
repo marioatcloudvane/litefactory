@@ -1,0 +1,3 @@
+Command: go build ./...
+Worktree HEAD: 7d03785 (factory merged main)
+Result: exit 0; no output. Executed in run 0005.

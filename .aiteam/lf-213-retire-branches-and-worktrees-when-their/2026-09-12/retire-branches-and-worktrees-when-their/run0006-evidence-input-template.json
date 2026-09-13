@@ -1,0 +1,47 @@
+{
+  "run_started_unix": null,
+  "stories": {
+    "US-002": {
+      "files": [
+        ".aiteam/APP_CONSTRAINTS.md",
+        "internal/daemon/retirement.go",
+        "internal/daemon/retirement_execute.go",
+        "internal/daemon/retirement_execution_real_test.go",
+        "internal/daemon/retirement_log.go",
+        "internal/daemon/retirement_logging_unit_test.go",
+        "internal/git/doc.go",
+        "internal/git/retirement_guard_internal_test.go",
+        "internal/git/retirement_observe.go",
+        "internal/git/retirement_remove.go",
+        "internal/git/surface_test.go",
+        "internal/git/worktree.go",
+        "internal/git/worktree_test.go",
+        "internal/store/migrations/0037_retirement.sql",
+        "internal/store/retirement_intents.go",
+        "internal/store/retirement_owners.go"
+      ],
+      "checks": []
+    },
+    "US-003": {
+      "files": [
+        "docs/retirement.md",
+        "internal/cli/cmd_task_retire.go",
+        "internal/cli/cmd_task_test.go",
+        "internal/cli/retirement_help_unit_test.go",
+        "internal/config/template.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/doc.go",
+        "internal/daemon/retirement.go",
+        "internal/daemon/retirement_sweep.go",
+        "internal/daemon/retirement_sweep_real_test.go",
+        "internal/daemon/retirement_sweep_unit_test.go",
+        "internal/daemon/setup.go",
+        "internal/daemon/tick.go",
+        "internal/store/migrations/0038_retirement_sweep.sql",
+        "internal/store/retirement_owners.go",
+        "internal/store/retirement_sweep.go"
+      ],
+      "checks": []
+    }
+  }
+}
