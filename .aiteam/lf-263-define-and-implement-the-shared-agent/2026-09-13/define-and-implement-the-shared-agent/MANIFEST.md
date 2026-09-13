@@ -7,7 +7,7 @@
 ## Modes
 
 - [x] Research
-- [ ] Plan
+- [x] Plan
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
@@ -16,14 +16,24 @@
 
 - 2026-09-13: Research run 0001 started; inventory current agent communication and propose a reviewable JSON contract sample.
 
-## Current status — run 0009
+## Current status — run 0010
 
-Research complete. The owner approved explicit stable-ID operations, continuing logical results across authorized same-mode runs with preserved history/fresh attempt authority, and separate classification/scheduling/conflict adapters initially. The current handoff in RESEARCH_BRIEF.md records the approved direction and supersedes historical incomplete statuses and run 0006's scope recommendation. Library, all-mode validation, aggregate evidence mapping, progress semantics and finalization skill remain #263 scope. MCP remains excluded; MCP_FOLLOWUP.md holds its local transfer note. Ready for Plan; no Plan or implementation started.
+Plan iteration completed and typed six-story proposal submitted. Factory preflight returned valid=true, complete=true, no diagnostics and no unchecked paths. Durable request ID: `839744d827a5c7c4a3b738608a3c87ef`; receipt input state `valid`, Plan state `pending`, engineering/acceptance/effect states `not_applicable`. This records accepted input, not publication or readiness; factory terminal success, publication and save remain pending. No owner questions remain and no implementation started. The approved Research choices and full issue scope are preserved; MCP and live adoption remain excluded.
+
+## Plan artifacts — run 0010
+
+- `feature-spec.md`: ready requirements, explicit engineering assumptions and evidence obligations.
+- `ARCH_REVIEW.md`: ready architectural review, no deviations; additive contract/store/service design and concrete update/progress/evidence policies.
+- `plan_brief.md`: shared decisions, dependencies and link-only Story Index awaiting factory-filled child links.
+- Completed typed proposal: six stories, 26 explicit criteria, full typed sections/arrays, rostered tasks and criterion evidence inventories; durable content retained through the supplied submission helper. No per-story local Markdown source was created.
+- Planned sequence: contract/create; patch/scoped reads; history/receipts; aggregate evidence; advisory progress; finalization guidance/cost comparison and final aggregate checks.
+- Evidence limits: offline fixtures and isolated source rendering establish contract behavior only; live agent loading, MCP delivery and billed-token savings are not claimed. Actual engineering checks remain future implementation obligations.
+- Recommended next owner command after factory publication/save: `/implement the six planned stories in dependency order`.
 
 ## Notes
 
 - A reusable shared library must eventually encapsulate contract complexity.
-- Current scope is research and initial schema/sample design for owner review; no production implementation or routing changes.
+- Research is retained as design provenance; run 0010 completes Plan only, with no production implementation or routing changes.
 
 - 2026-09-13: Research run 0001 inventory and first draft completed. Research remains incomplete pending owner's JSON shape/order review; no implementation started.
 
