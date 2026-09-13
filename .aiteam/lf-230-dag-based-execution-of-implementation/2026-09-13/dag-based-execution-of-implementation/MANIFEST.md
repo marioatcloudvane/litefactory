@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research
+- [x] Research
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -15,6 +15,8 @@
 ## History
 
 - 2026-09-13: Research opened; saved supplied scope and one unresolved mode-label decision before substantial investigation. Await owner reply; no implementation or publication.
+
+- 2026-09-13 (run 0002): Owner confirmed first duplicated heading means Research. Completed shallow current-workflow/runtime research and graph recommendation; preserved compatibility conflicts and deferred design topics. No implementation, tests, publication or mode transition.
 
 ## Notes
 
