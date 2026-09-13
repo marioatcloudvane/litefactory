@@ -1,3 +1,63 @@
+# Scoping/decomposition analysis — run 0007
+
+Status: bounded Research complete. Date: 2026-09-13. Owner asked whether the approved #265 scope should stay one issue with user stories, or be split into multiple sibling issues, using a rule of thumb of fewer than 6 sub-issues (stories) per main issue.
+
+**Recommendation: split into sibling issues. The approved scope does not fit comfortably under a single issue at the stated story-count rule of thumb.**
+
+## What "the approved scope" means here
+
+#265 is already node 3 of 3 in an existing issue graph: #258 (source research) decomposed into #263 (shared communication contract / "JSON rework"), #264 (run lifecycle integration) and #265 (this MCP adapter), with #265 depending on #263 and #264. Every prior run in this session recorded that real MCP implementation work is explicitly gated on #263/#264 finishing first (run 0001 "Recommended handoff", run 0002/0003/0005/0006 restated prerequisite). So #265's *own* remaining scope, once #263/#264 land, is the adapter itself: transport, attempt/permission binding, mode-scoped tool profiles, the five tool families (Feedback/Issues/Evidence/Activity/Receipts) built on top of the by-then-existing shared service, restart/reconnect/cancellation/recovery handling, and native Claude/Codex host integration plus verification. This analysis estimates story count for that remaining scope, not for #263/#264's own work.
+
+## Story-count estimate if planned as one issue
+
+Reading the approved surface against this repo's actual story granularity (checked empirically, not assumed): `docs/story-contract.md`'s typed Plan shape requires each story to carry its own user_story, acceptance_criteria, tasks and architecture section, and `.claude/skills/shared/task-decomposer.md` caps a single task at one day of work — so a story here is a cohesive, independently reviewable increment, not a single line item. Comparable past features in this repo landed in this range: `.aiteam/lf-195-move-validation-to-the-mode-validate/.../plan_brief.md` (a comparably cross-cutting mode-behavior rework) used 9 stories (US-001..US-009); `.aiteam/lf-207-acceptance-criteria-should-be-structured/.../plan_brief.md` used 12; `.aiteam/lf-141-treat-github-subissues-as-single-source/.../plan_brief.md` used 6; a narrowly scoped trim (`.aiteam/lf-229-.../plan_brief.md`) used only 3. #265's approved scope is broader than any of these single-issue examples: it spans a new transport layer, a new authorization/binding layer, five distinct tool-family surfaces (one of them — Issues — already has three to four separate operations by itself: list, get, comment, and possibly create_batch), a recovery/reconnection contract, and two independent host integrations that both need authentic verification (an evidence gap explicitly flagged in `docs/story-contract.md`'s "Evidence and delivery boundaries" section and in run 0001's risk #3/#8 and testing-gap notes).
+
+Mapping the approved surface to natural story-sized units:
+
+1. Stdio JSON-RPC transport wiring tools/list and tools/call into the existing broker (`internal/submission/broker.go`, `internal/submission/client.go`), starting from the already-supported preflight/submit/receipt methods.
+2. Attempt/permission binding — fresh binding per cold/resume/fallback launch; deny replaced/expired/closed attempts on every operation (run 0001 risk #1).
+3. Mode-scoped tool profiles — the visibility table per mode (Research/Spike/Plan/Implement/Validate), including Validate's explicitly narrow, no-shell profile (run 0001's "Minimal proposed surface" table; `internal/codex/runner.go:407` already disables shell for Validate as precedent).
+4. Restart/reconnect/cancellation/recovery semantics — host disconnect, broker-restart-must-not-resurrect-old-authority, MCP cancellation reconciled at the application level (run 0001 risk #2; `internal/submission/broker.go:238`, `internal/turn/submission_recovery.go:12`).
+5. Feedback family (`feedback_preflight`).
+6. Issues family reads (`issues_list`, `issues_get`) with open/closed filtering, open default, pagination and repository-local issue-number targeting (run 0004/0005 approved detail).
+7. Issues family write (`issues_comment` with durable receipts and retry/reconciliation to prevent duplicate publication; possibly `issues_create_batch`).
+8. Evidence family (`evidence_submit` for engineering/assessment checkpoints and invalidation).
+9. Activity family (`activity_update`, optionally `activity_get`).
+10. Receipts family (`receipts_get` generalized lookup/recovery).
+11. Native Claude Code host integration (per-attempt `--mcp-config` generation alongside the existing `--strict-mcp-config` flag at `internal/harness/runner.go:629`).
+12. Native Codex CLI host integration (`mcp_servers` command/args/env/`enabled_tools` injection alongside `internal/codex/runner.go:398`).
+13. Authentic cross-host verification — both Claude and Codex actually invoking the helper through MCP, discovering tools, completing a preflight-repair loop and observing a correlated decision before exit. This specific evidence is called out as currently unavailable in `docs/story-contract.md` ("Evidence and delivery boundaries") and in run 0001's risk #3.
+
+That is 11-13 story-sized units for #265 alone if it stayed one issue — roughly the size of the largest single-issue precedent in this repo (lf-207 at 12) or larger, and well above "below 6."
+
+## Judgment against the rule of thumb
+
+Cohesion argument for staying as one issue: every family shares one adapter process, one JSON-RPC handler and one broker; a single issue keeps the tool registry and mode-profile table next to the families that populate it, avoiding a coordination seam. This is real but does not require single-issue packaging — issue-to-issue dependencies (`dependencies.issue_refs` in the typed Plan shape) already express exactly this kind of "must land first" relationship, and #265 is itself living proof the owner already uses sibling issues with dependencies for this project (#258 -> #263/#264/#265).
+
+Independent-deliverability argument for splitting: the four seams below are each reviewable and mergeable without waiting on the others once the groundwork lands, and each maps to a materially different kind of risk (authorization/lifecycle correctness vs. per-family business semantics vs. external host behavior with no current live-host certification). Splitting also keeps each issue's review surface focused on one risk class instead of mixing transport/auth bugs with tool-family business logic and with unverified host-version behavior.
+
+**Recommendation: split #265 into three sibling issues**, each depending on the groundwork issue, each sized under the rule of thumb:
+
+| Sibling issue | Scope | Stories (approx.) | Depends on |
+|---|---|---|---|
+| MCP adapter groundwork | Stdio transport + tools/list/tools/call routed to the existing broker; attempt/permission binding; mode-scoped tool profiles incl. Validate's narrow profile; restart/reconnect/cancellation/recovery semantics | 4 | #263, #264 |
+| MCP tool families | Feedback (folded into groundwork's transport story as the first exposed tool, or kept here as a thin story); Issues reads; Issues write (comment, receipts-backed); Evidence; Activity; Receipts | 5 (Feedback absorbed into groundwork's S1 to keep this at 5, not 6) | groundwork issue |
+| Native host integration and verification | Claude Code adapter config/launch wiring; Codex CLI adapter config/launch wiring; authentic cross-host verification (and, if not folded into groundwork, Validate narrow-profile verification) | 3-4 | groundwork issue; benefits from tool-families issue being done first so there is something real to verify, but the two host-wiring stories can start once groundwork alone exists |
+
+This keeps every sibling issue at 4-5 stories (strictly below 6) and totals 12-14 stories overall for the same approved scope — consistent with the single-issue estimate above, distributed instead of concentrated. If "below 6" is read inclusively (6 allowed), the tool-families issue could instead keep Feedback as its own story (6 total) without materially changing this recommendation.
+
+Sequencing: groundwork must land first everywhere. The tool-families issue and the two host-config stories in the third issue can proceed in parallel once groundwork exists; the cross-host verification story is most useful last, once real tools exist to exercise. None of this changes the existing hard prerequisite: #263/#264 (the JSON rework and lifecycle integration) still gate all three siblings, unchanged from every prior run in this session.
+
+## What this run did and did not do
+
+This run read the full approved brief (runs 0001-0006) and the repository's Plan-mode story contract (`docs/story-contract.md`), delivery/owner-exception docs (`docs/workflow/delivery.md`, `docs/workflow/owner-exceptions.md`) and task-decomposer conventions (`.claude/skills/shared/task-decomposer.md`) to ground story granularity, then sampled five past features' actual `plan_brief.md` story counts for calibration (lf-141: 6, lf-160: 5, lf-195: 9, lf-207: 12, lf-229: 3). No repository-wide policy caps story count per issue; "below 6" is the owner's stated rule of thumb for this decision, not a codified constraint found in `.aiteam/APP_CONSTRAINTS.md` (checked, no match). No source was modified, no issues were read/created/commented on, no tests were run, no implementation was performed, and no product decision from runs 0001-0006 was changed — this is a scoping/decomposition judgment layered on top of the already-approved content below.
+
+## Continuation result
+
+No clarification is required to answer the owner's question; the estimate and recommendation above are the answer. If the owner wants a different split point (e.g., two sibling issues instead of three, or folding host integration into the tool-families issue), that is a follow-up preference, not a blocker to this bounded research.
+
+---
+
 # Sanity-check record — run 0006
 
 Status: Research complete. Date: 2026-09-13. Owner asked to sanity-check the approved brief against current repository state.
@@ -50,7 +110,7 @@ This approval settles the targeting, default-filter and pagination recommendatio
 
 # Research discussion — issue discovery, reads and comments
 
-Status: bounded Research complete. Run 0004, 2026-09-13. Revision inspected: `c6efb21fce3152bc2a15cb3a85e9a98dcf14b448`.
+Status: bounded Research complete; naming and detailed issue taxonomy remain discussion choices. Run 0004, 2026-09-13. Revision inspected: `c6efb21fce3152bc2a15cb3a85e9a98dcf14b448`.
 
 ## Settled additions
 

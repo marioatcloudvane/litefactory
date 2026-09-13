@@ -52,3 +52,10 @@
 - Re-read every load-bearing file:line citation (issues.go, comments.go, followups.go, agent/mode.go, daemon/mode.go, submission/broker.go, submission/client.go, cli/cmd_submission.go, agent/story_progress.go, turn/typed_plan.go, turn/submissions.go, store/submission_progress.go, store/followups.go, harness/runner.go, codex/runner.go, APP_CONSTRAINTS.md CONC-9) against the live files; all match the brief's description.
 - Confirmed no MCP-adapter code and no JSON-rework/terminal-envelope groundwork exists anywhere in the tree, so the owner's implementation-blocking prerequisite is still correctly unmet.
 - No corrections were needed to the approved direction; no clarification required; no source modified, no issues read/created/commented on, no tests run, no implementation performed.
+
+## Run 0007 scoping/decomposition analysis
+
+- 2026-09-13: Owner asked whether approved #265 should stay one issue with user stories or split into sibling issues, given a "below 6 sub-issues per main issue" rule of thumb. Research complete.
+- Estimated 11-13 story-sized units for #265's remaining scope (adapter groundwork + binding + mode profiles + five tool families + restart/reconnect/recovery + two native host integrations + authentic cross-host verification), calibrated against this repo's actual plan_brief.md story counts (lf-141: 6, lf-160: 5, lf-195: 9, lf-207: 12, lf-229: 3).
+- Recommendation: split into three sibling issues, each under the 6-story rule of thumb — (1) MCP adapter groundwork (~4 stories), (2) MCP tool families (~5 stories), (3) native host integration and verification (~3-4 stories) — mirroring the existing #258 -> #263/#264/#265 sibling-issue precedent. No repo-wide policy caps story count; "below 6" is the owner's stated rule of thumb for this decision, not found in APP_CONSTRAINTS.md.
+- No source modified, no issues read/created/commented on, no tests run, no implementation performed, no prior approved product decision changed.
