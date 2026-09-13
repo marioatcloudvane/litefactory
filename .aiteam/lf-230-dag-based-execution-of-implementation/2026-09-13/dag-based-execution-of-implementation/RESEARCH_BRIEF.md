@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the requested surface-level Research passes, including run 0003's Research-first workflow sketch. No implementation or Plan started. The run 0003 refinement below supersedes the earlier single-file packaging and Implement-first next-step suggestions; prior findings are retained as history.
+Status: complete for the bounded Research passes through run 0004. No implementation or Plan started. The run 0004 findings supersede earlier provisional YAML notation and clarify optional owner clarification; run 0003 supersedes single-file packaging and Implement-first suggestions. Earlier findings are retained as history, not current format decisions.
 
 ## Request and answered decision
 
@@ -12,7 +12,7 @@ Plan should develop story descriptions/problems first, then prose acceptance int
 
 ## Evidence boundary
 
-All repository citations below refer to revision `0b756e3bdccf2c9c6cacf0b62e280610be050aab`, inspected in the supplied macOS worktree on 2026-09-13. Evidence is focused source, instruction and test inspection, not executed behavior. No builds, tests, paid agents, external services or web research were run. No token-cost or latency benchmark was performed; the owner's orchestration-cost concern is a reported motivation, not a measured saving. Source-byte counts and billed tokens are different measures; neither was measured here.
+All repository citations below refer to revision `0b756e3bdccf2c9c6cacf0b62e280610be050aab`, inspected in the supplied macOS worktree on 2026-09-13. Evidence is focused source, instruction and test inspection, not executed behavior. For runs 0001–0002, no builds, tests, paid agents, external services or web research were run. Run 0004 adds primary-source web research, documented below. No token-cost or latency benchmark was performed; the owner's orchestration-cost concern is a reported motivation, not a measured saving. Source-byte counts and billed tokens are different measures; neither was measured here.
 
 The prior incomplete brief recorded revision `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb` and inspected routing/session instructions only. Its mode-label uncertainty is now resolved.
 
@@ -40,7 +40,7 @@ Use a small, **durable directed workflow graph**, with a **DAG for story depende
 
 Keep three distinct responsibilities:
 
-1. **Workflow file:** stable node IDs, action types, input/output references, outcomes, allowed transitions and retry limits. Ship one standard definition containing the mode entry points. YAML is a reasonable human-editable candidate; syntax and location remain provisional.
+1. **Workflow file:** stable node IDs, action types, input/output references, outcomes, allowed transitions and retry limits. Ship one standard definition containing the mode entry points. Historical run-0002 suggestion: YAML was a provisional human-editable candidate. Superseded by the dedicated-format comparison in run 0004; YAML is not an agreed format.
 2. **litefactory runtime:** choose ready nodes, enforce transitions, execute tools/tests, record results, suspend for owner replies and recover effects. It owns the control flow.
 3. **Agent roles and skills:** perform bounded reasoning/writing tasks and return structured results. Keep the existing team roster, tier resolution and permission boundaries; remove duplicated scheduling instructions as the engine takes ownership.
 
@@ -174,3 +174,64 @@ These are proposed demonstration scenarios, not executed tests or published acce
 - Run 0003 recommendation: one definition file per mode, several nodes within each; Research is the first vertical slice. This is a recommendation responding to the owner's question, not a claim of approval to implement.
 - No blocking clarification is needed for this sketch. Schema, storage layout, retry count and call granularity remain explicitly provisional.
 - 2026-09-13 (run 0003): Preserved prior findings, refined file granularity, and sketched Research branching, bounded refinement, owner pause/resume and recovery. Research complete for this bounded request; no implementation changes, tests or publication.
+
+
+## Run 0004: dedicated workflow formats and optional clarification
+
+### Accepted direction and scope
+
+The owner accepts one definition file per mode and Research as the first slice. The owner explicitly requires clarification to be skipped when the reasoning agent finds the instructions clear, and asks for a comparison of established graph/workflow formats. The earlier YAML was unapproved illustrative notation; it is superseded, not a schema to implement. There is no material ambiguity blocking this bounded comparison. Visual editing has not been requested, and is treated as a possible future preference rather than an invented requirement.
+
+Clarification is a conditional branch, not an unconditional meeting or a separately required agent invocation. The first reasoning action can assess clarity while beginning useful work. Its structured result distinguishes `scope.clear` from `scope.needs_input`. Clear scope goes directly to investigation. Material gaps save context and questions, end the run, and resume on the owner's reply. Later reasoning steps retain the same ability to request missing input. Litefactory validates and routes these outcomes; it does not attempt to judge clarity from prose.
+
+```text
+initial reasoning --scope.clear-------> investigate -> synthesize -> save/report -> complete
+                 --scope.needs_input-> save questions -> await owner
+                                          owner reply -> resume saved reasoning
+investigate/synthesize --needs_input--> same saved pause/resume path
+synthesize --refine, within limit-----> investigate
+```
+
+This is a conceptual graph, not executable configuration. Automatic refinement remains bounded and runtime retry policy remains distinct from reasoning loops.
+
+### What the format must specify
+
+A serialization syntax alone does not define how a workflow runs. The important comparison is between a graph description language and a workflow/state-machine language with established transition semantics. YAML can serialize an established workflow language; replacing it with XML would not by itself remove a custom execution model. The earlier suggestion was premature because it invented workflow semantics before comparing established options.
+
+Assess against these needs: directed cycles; event/outcome-driven branches; asynchronous agent work; owner pause/reply; editable, versioned mode files; future parallel work; and a small runtime embedded in litefactory. Definition portability, action implementation, durable execution and visual editing are separate capabilities. None of the formats alone supplies litefactory's database recovery, issue-reply correlation, idempotent reporting, or existing permission boundaries.
+
+### Candidate comparison
+
+The external sources below were inspected on 2026-09-13. Versions are identified where available; this is not a claim that an inspected version is the newest release. Suitability and relative complexity are research judgments, not benchmark results.
+
+| Candidate | Established capabilities | Fit and cost for this project |
+|---|---|---|
+| **SCXML 1.0, `.scxml`** | XML statecharts with event transitions, hierarchy, history, parallel regions and external invocation. [W3C Recommendation, 1 September 2015](https://www.w3.org/TR/2015/REC-scxml-20150901/) | Leading candidate for the small event-driven Research runtime. Agent outcomes map to events and owner waiting to a state. Action bindings and durable persistence remain litefactory responsibilities. |
+| **BPMN 2.0.2 XML, `.bpmn`** | Process execution semantics, service/user/receive tasks, exclusive and parallel gateways, loop activities, XML interchange and diagram interchange. [OMG specification, December 2013 document](https://www.omg.org/spec/BPMN/2.0.2/PDF/) | Strong alternative, especially if graphical workflow authoring becomes central. More process concepts than the first Research slice needs; an embedded runtime still needs a clearly bounded supported element set and task bindings. |
+| **Graphviz DOT, `.dot`** | Concise directed edges, nodes, subgraphs and attributes in a graph language. [Official DOT grammar, page modified 28 September 2024](https://graphviz.org/doc/info/lang.html) | Excellent for generated diagrams and readable topology. Agent actions, event routing, waits, retries and joins would be a custom litefactory language layered on attributes. Does not eliminate the central semantics-design work. |
+| **GraphML 1.0, `.graphml`** | XML graph interchange, directed edges, graph/node/edge data and extensibility. [Official primer](https://graphml.graphdrawing.org/primer/graphml-primer.html), [normative schema reference](https://graphml.graphdrawing.org/specification/xsd.html) | Useful if interchange with general graph tools matters. More verbose than DOT, while workflow execution meanings would still need custom definitions. Low priority for canonical execution here. |
+| **Serverless Workflow DSL v1.0.0** | Task-oriented workflow language with calls, event listening, forks, branching, retries and named-task continuation. [Pinned official DSL reference](https://github.com/open-workflow-specification/specification/blob/v1.0.0/dsl-reference.md) | A real workflow-language alternative despite YAML-shaped examples. Its event/integration/task vocabulary may suit future actions, but adds surface beyond the small Research flow. Secondary candidate, not the recommended first format. The historical repository URL redirects to Open Workflow Specification; this comparison pins v1.0.0 rather than mixing current and older DSLs. |
+
+BPMN has a concrete browser editor/viewer option in [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) (toolkit page reports v18.16.0 on inspection). That is evidence of authoring tooling, not evidence of a compatible embedded Go execution engine. A BPMN task can represent owner work, or a receive task can represent the reply; litefactory must still implement the issue interaction and correlation. XML and standard diagram interchange make it a credible alternative rather than merely a presentation format.
+
+For GraphML, the official primer explicitly identifies itself as non-normative and points to schema definitions. The normative reference appeared in search, but direct retrieval returned an internal error; topology/data findings are supported by the inspected primer. No unsupported conclusion about tool availability follows from that retrieval failure.
+
+### Recommendation and boundaries
+
+**Prefer SCXML for the next Research sketch, with BPMN as the alternative if graphical authoring is a primary goal.** This recommendation assumes text-reviewed files and an embedded litefactory runtime remain the near-term priorities. It is a recommendation to investigate, not owner approval of a format or permission to implement.
+
+Use one mode definition such as `workflows/research.scxml`; keep runtime state outside it. Define a supported SCXML profile explicitly and reject unsupported constructs; do not claim full SCXML conformance. Long-running agent jobs should use asynchronous invocation/events: custom executable content must finish swiftly. SCXML history is state-machine history, not database crash recovery. Parallel regions do not create worker threads or solve story-dependency scheduling. JavaScript is not mandatory; data-model choices are explicit. [SCXML §§3, 4.10, 5.1, 6.4](https://www.w3.org/TR/2015/REC-scxml-20150901/)
+
+Retain the earlier runtime responsibilities: pin definition identity for each instance, record action attempts/results, validate typed agent output, persist owner-question state before reporting, correlate replies, and reconcile uncertain effects after restart. Keep mode selection human-controlled. Implement's dynamic dependency DAG and concurrent worktree ownership require a later design even if the outer mode is a statechart.
+
+Do not maintain a separately edited DOT/GraphML graph alongside the canonical workflow. If diagrams are useful, generate a view from the selected definition so two sources cannot disagree. Choosing BPMN later would change this authoring tradeoff: its standard explicitly includes model and diagram interchange.
+
+### Next bounded investigation and evidence limits
+
+The next useful Research artifact is the same small Research flow expressed in SCXML, with an explicit list of supported constructs and one typed agent-result/reply example. Compare a compact BPMN representation only if that helps assess authoring ergonomics. The example should demonstrate both a clear request bypassing clarification and a question/reply that survives restart. Do not select an engine merely because it parses the file.
+
+Unverified topics remain: suitable maintained Go interpreter or parser, compliance of any candidate library, action invocation bindings, restart correctness, rejection of unsupported elements, and the migration cost from existing contracts. No Go package, external engine, dependencies or executable workflow was installed or created. No source implementation or policy changed, no tests/builds ran, and no performance or token-saving claim was measured. This run read the supplied session and research contract and researched official external sources; earlier repository observations were preserved without re-auditing source. Source bytes and billed tokens were not measured.
+
+No owner question is required to complete this comparison. Choosing the final format remains a future decision; this run supplies a reasoned shortlist rather than silently accepting the provisional YAML.
+
+- 2026-09-13 (run 0004): Accepted optional clarification and Research-first/mode-file direction; compared dedicated statechart, process and graph formats from primary sources; recommended SCXML for the embedded text-reviewed first slice, with BPMN for stronger visual-authoring requirements. Research complete for this bounded pass. No implementation, tests, publication or mode transition.
