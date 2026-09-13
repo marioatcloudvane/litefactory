@@ -5,7 +5,7 @@
 ## Modes
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
-- [ ] **Plan** — `plan_brief.md` *(not started)*
+- [x] **Plan** — `plan_brief.md` *(run 0008 completed proposal; current valid input acknowledged, factory publication/readiness/save pending)*
 - [ ] **Implement** — code + tests *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -30,3 +30,9 @@
 - 2026-09-12 — Run 0005 Research assessment completed: distinguished checked arithmetic, observed live coverage, historical coverage and invoice limits; calculated run-5 observed coverage as 43.26%; recommended controlled historical correction, explicit refused-attempt evidence, CLI lower-bound wording and executable collector assurance. Reused runtime snapshot and confirmed relevant source unchanged at c02be04e. Updated RESEARCH_BRIEF.md only plus this history; no code/runtime edits, checks or mode transition.
 
 - 2026-09-12 — Run 0006 Research continuation completed: captured the objective of a materially closer useful estimate without invoice-perfect reconciliation; confirmed Plan readiness and recommended coverage-first bounded scope. Retained run-5 $5.148750 to $11.903026 as an evidence-backed proposed target, with no fleet-wide improvement guarantee. Reused retained evidence; no source/runtime investigation, tests, implementation, Plan artifacts or mode transition. Updated RESEARCH_BRIEF.md and this history.
+
+- 2026-09-12 — Run 0007 Plan: requirements and architecture complete, three typed stories prepared with per-criterion evidence inventories; no owner questions, implementation or live repair. Factory acknowledgment/publication state recorded after submission.
+
+- 2026-09-12 — Run 0007 completed Plan contribution passed full preflight with no diagnostics; durable request 455ab7bf5c5fae87ecdbcd7f08d0ce7b acknowledged InputState valid / PlanState pending. Engineering, acceptance and effects not applicable in this receipt. Publication, issue links, readiness and terminal save remain factory work; no claim of published stories or completed implementation.
+
+- 2026-09-13 — Run 0008 retry: independently checked retained artifacts and unchanged worktree HEAD c5ebc85688e6348a4f54cd69071e9dc55296f892; requirements and architecture remain ready without scope changes. Earlier run history above is retained attribution, not proof of prior success. Prior request lookup 455ab7bf5c5fae87ecdbcd7f08d0ce7b returned processing incomplete. Current authorized preflight passed valid/complete with no diagnostics; unchanged contribution submitted as request cac447774acf8e813577195b1e70aa5b, InputState valid / PlanState pending, other dimensions not_applicable. Refreshed brief, architecture verification and receipt. No published child identities, remote publication or readiness were confirmed; factory terminal publication/save remains pending. No code, runtime repair, engineering checks, commits or pushes in this run.

@@ -1,0 +1,38 @@
+{
+  "request_id": "cac447774acf8e813577195b1e70aa5b",
+  "preflight": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": [],
+    "unchecked_paths": []
+  },
+  "observed_submit_states": {
+    "InputState": "valid",
+    "EngineeringState": "not_applicable",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "not_applicable",
+    "PlanState": "pending"
+  },
+  "note": "Run 0008: current authorized helper accepted the unchanged typed contribution. This is input acknowledgment only; publication, story links, readiness and terminal save remain pending. No direct authenticated forge observation was available.",
+  "prior_request_lookup": {
+    "request_id": "455ab7bf5c5fae87ecdbcd7f08d0ce7b",
+    "error": "Request processing did not complete; retain this request ID and query its receipt."
+  },
+  "retained_prior_receipt_unverified": {
+    "request_id": "455ab7bf5c5fae87ecdbcd7f08d0ce7b",
+    "preflight": {
+      "valid": true,
+      "complete": true,
+      "diagnostics": [],
+      "unchecked_paths": []
+    },
+    "observed_submit_states": {
+      "InputState": "valid",
+      "EngineeringState": "not_applicable",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "not_applicable",
+      "PlanState": "pending"
+    },
+    "note": "Summary of authoritative helper response; durable Plan input only. Publication, readiness and terminal save pending."
+  }
+}
