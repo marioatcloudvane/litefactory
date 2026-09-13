@@ -8,7 +8,7 @@
 
 - [x] Research
 - [x] Plan
-- [ ] Implement
+- [x] Implement
 - [ ] Validate
 - [ ] Spike
 
@@ -69,3 +69,40 @@ Factory preflight returned valid=true and complete=true with no diagnostics or u
 - Run 0011: Answered owner schema-provenance concern and submitted explicit Research links/lineage for Story 1 (#266); preserved current criteria and other stories. Full typed preflight passed, revised publication pending as recorded above.
 
 - Run 0013: Owner approved the existing plan and requested publication. Complete unchanged proposal passed preflight and was durably submitted under request `49c3c211d7ee50afc0d6179973576807`; publication pending factory terminal/save. No implementation, code changes, commits or pushes.
+
+## Current status — run 0014
+
+Implement started against the complete frozen six-story scope supplied by the factory. US-001 is in development; later stories wait for engineering dependencies. Tests and aggregate checks are pending. No acceptance review, commit, push or publication is claimed.
+
+## Final status — run 0014
+
+Implement incomplete: US-001 through US-005 engineering recorded; US-006 source work and scoped tests delivered but blocked by final make check. No acceptance or mode transition.
+
+- US-001 receipt: c32c621bb6e429c86ffbfe87e61c6f93
+- US-002 receipt: 4f561c8df0ee2927892af4be45b85f5b
+- US-003 receipt: f6fc5e2929990702c6bb79cd41ec3170
+- US-004 receipt: b4a1edf7a2d71fc3258e7bddcb371758
+- US-005 receipt: 3af2917d375d203d407cf04470d137f4
+- US-006 blocked receipt: 0ce19b664e702c1fafaa756d19bc14ec (valid input; engineering rejected)
+
+Build, formatting, vet and pinned lint passed. Full race suites passed in all packages except four pre-existing installed-instruction parity tests in internal/teamsource. Their inputs are unchanged from HEAD; repair conflicts with US-006 installed-tree exclusion and read-only .codex permission. No aggregate pass is claimed.
+
+Artifacts: TEST_REPORT.md, notes.md, DRIFT_REPORT.md, US-006-aggregate-blocker.md, all six implementation/scoped test reports and logs, per-story contributions/preflights/receipts, aggregate-make-check-final.log, aggregate-build.log, aggregate-gofmt.log, aggregate-final-manifest.json and aggregate-final-snapshot.json. Final source digest: bc8f86a96484ca8ab61a8100d4c187ed25309fb6b7b6f63b737dacbd6c7e79da (140 files; rechecked unchanged).
+
+Next required work is separately scoped installed-instruction/parity repair, then rerun the required aggregate gate and complete US-006. This run does not ask for confirmation, change scope, commit, push or certify factory save/publication.
+
+## Run 0015 — Implement diagnosis, partial
+
+US-001–US-005 remain engineering complete and read-only. US-006 remains blocked on existing aggregate parity failures. Analysis-only findings are retained in BUG_REPORT.md; no tests rerun and no new engineering completion claimed. Separate authorization for installed-instruction repair is required before targeted parity tests, aggregate make check, and final snapshot evidence can complete US-006.
+
+
+## Run 0017 — Claude status check (2026-09-13)
+
+Status-only request; no repair performed. Fresh targeted instruction tests with race detection and uncached execution failed on the exact structured protocol handoff in all nine Claude role files. No Codex failures were reported. US-006 remains blocked; prior engineering-complete dependencies are unchanged. No aggregate run, acceptance review, or contribution submission occurred. Evidence: `run-0017-claude-status.md`.
+
+
+## Final status — run 0018
+
+Implement engineering complete. The authorized nine-file Claude repair passed targeted parity tests; focused US-006 checks, build, formatting and native make check passed. Earlier wrapper timeouts are retained honestly. All six stories now have engineering evidence; prior five dependencies were not resubmitted or modified. US-006 request `ca5c340c919238e6a385bad3debf2354`: valid input, engineering recorded, acceptance not_applicable, remote effects pending. No acceptance or successful factory save is claimed.
+
+Final report: `run-0018-completion-report.md`. Final 158-file digest: `de32b0012fac33c3ba532a83ef8f92259352f7953e8ed89ce4b91df07d463ecc`.

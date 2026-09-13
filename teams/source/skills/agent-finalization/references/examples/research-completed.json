@@ -1,0 +1,11 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "research": {
+        "request": "Inspect the contract."
+      }
+    }
+  }
+}

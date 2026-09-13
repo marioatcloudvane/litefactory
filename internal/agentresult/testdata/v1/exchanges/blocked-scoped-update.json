@@ -1,0 +1,26 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Investigation is blocked by unavailable authorized input."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "outcome"
+      },
+      "value": "blocked"
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "reason"
+      },
+      "value": "The required authorized baseline is unavailable."
+    }
+  ]
+}

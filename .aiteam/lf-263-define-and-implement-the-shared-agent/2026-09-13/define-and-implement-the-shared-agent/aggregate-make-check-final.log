@@ -1,0 +1,125 @@
+Command: make check
+Asynchronous execution; no artificial total timeout.
+GOLANGCI_LINT_CACHE=/private/tmp/lf-lint-cache-263
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=20m ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	(cached)
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	(cached)
+ok  	github.com/cloudvane/litefactory/internal/agentresult	(cached)
+ok  	github.com/cloudvane/litefactory/internal/attach	(cached)
+ok  	github.com/cloudvane/litefactory/internal/cli	(cached)
+ok  	github.com/cloudvane/litefactory/internal/codex	(cached)
+ok  	github.com/cloudvane/litefactory/internal/config	4.264s
+ok  	github.com/cloudvane/litefactory/internal/confirm	(cached)
+ok  	github.com/cloudvane/litefactory/internal/daemon	666.409s
+ok  	github.com/cloudvane/litefactory/internal/git	(cached)
+ok  	github.com/cloudvane/litefactory/internal/github	(cached)
+ok  	github.com/cloudvane/litefactory/internal/gittest	7.208s
+ok  	github.com/cloudvane/litefactory/internal/harness	(cached)
+ok  	github.com/cloudvane/litefactory/internal/identity	9.586s
+ok  	github.com/cloudvane/litefactory/internal/launchd	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logging	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/planbrief	(cached)
+ok  	github.com/cloudvane/litefactory/internal/redact	(cached)
+ok  	github.com/cloudvane/litefactory/internal/render	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)
+ok  	github.com/cloudvane/litefactory/internal/schedule	(cached)
+ok  	github.com/cloudvane/litefactory/internal/secrets	(cached)
+ok  	github.com/cloudvane/litefactory/internal/store	(cached)
+ok  	github.com/cloudvane/litefactory/internal/submission	1.938s
+ok  	github.com/cloudvane/litefactory/internal/team	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teampublish	5.933s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	(cached)
+--- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly (0.00s)
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/requirements-engineer (0.04s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/requirements-engineer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/requirements-engineer/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-code-reviewer (0.04s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-code-reviewer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/go-code-reviewer/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-unit-test-engineer (0.04s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-unit-test-engineer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/go-unit-test-engineer/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/proxy-product-owner (0.04s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/proxy-product-owner.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/proxy-product-owner/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-integration-test-engineer (0.05s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-integration-test-engineer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/go-integration-test-engineer/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-architect (0.05s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-architect.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/go-architect/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-implementation-engineer (0.06s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-implementation-engineer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/go-implementation-engineer/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/plan-orchestrator (0.07s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/plan-orchestrator.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/plan-orchestrator/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/implement-orchestrator (0.07s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/implement-orchestrator.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+        aggregate_instruction_parity_test.go:131: .codex/skills/implement-orchestrator/SKILL.md: missing the exact handoff pointing at .codex/skills/workflow/SKILL.md
+--- FAIL: TestCodexSkills_SharedSourceParity (0.00s)
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_requirements-engineer (0.02s)
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 0 missing or out of order: "Derive scope from the latest owner request and current code; prior briefs are evidence, not permission to retain superseded requirements. Separate decisions, as…"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 supply a Plan contribution with `stage: \"plan\"`, outcome discussion or completed, and `conte…"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 2 missing or out of order: "Each typed story supplies key, intent, title and all five sections: - user_story: actor, want, benefit, notes (string array). - acceptance_criteria: objects wit…"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 3 missing or out of order: "All required collections must be present, even when empty. Null, duplicate, unknown and incorrectly typed fields reject. Limits include 65,536 rendered story by…"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 4 missing or out of order: "Legacy contract 1 still uses the supplied version-1 full-body proposal and bound outcome transport. Its stories require level-2 User Story, Acceptance Criteria,…"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 5 missing or out of order: "Split protected-tree edits into independent stories: Codex owns `.claude/**`, Claude owns `.codex/**`, and shared-source work precedes either without depending …"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_proxy-product-owner (0.02s)
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 0 missing or out of order: "Derive scope from the latest owner request and current code; prior briefs are evidence, not permission to retain superseded requirements. Separate decisions, as…"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 supply a Plan contribution with `stage: \"plan\"`, outcome discussion or completed, and `conte…"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 2 missing or out of order: "Each typed story supplies key, intent, title and all five sections: - user_story: actor, want, benefit, notes (string array). - acceptance_criteria: objects wit…"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 3 missing or out of order: "All required collections must be present, even when empty. Null, duplicate, unknown and incorrectly typed fields reject. Limits include 65,536 rendered story by…"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 4 missing or out of order: "Legacy contract 1 still uses the supplied version-1 full-body proposal and bound outcome transport. Its stories require level-2 User Story, Acceptance Criteria,…"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 5 missing or out of order: "Split protected-tree edits into independent stories: Codex owns `.claude/**`, Claude owns `.codex/**`, and shared-source work precedes either without depending …"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_go-architect (0.02s)
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 0 missing or out of order: "Derive scope from the latest owner request and current code; prior briefs are evidence, not permission to retain superseded requirements. Separate decisions, as…"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 supply a Plan contribution with `stage: \"plan\"`, outcome discussion or completed, and `conte…"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 2 missing or out of order: "Each typed story supplies key, intent, title and all five sections: - user_story: actor, want, benefit, notes (string array). - acceptance_criteria: objects wit…"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 3 missing or out of order: "All required collections must be present, even when empty. Null, duplicate, unknown and incorrectly typed fields reject. Limits include 65,536 rendered story by…"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 4 missing or out of order: "Legacy contract 1 still uses the supplied version-1 full-body proposal and bound outcome transport. Its stories require level-2 User Story, Acceptance Criteria,…"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 5 missing or out of order: "Split protected-tree edits into independent stories: Codex owns `.claude/**`, Claude owns `.codex/**`, and shared-source work precedes either without depending …"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_plan-orchestrator (0.03s)
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 0 missing or out of order: "Derive scope from the latest owner request and current code; prior briefs are evidence, not permission to retain superseded requirements. Separate decisions, as…"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 supply a Plan contribution with `stage: \"plan\"`, outcome discussion or completed, and `conte…"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 2 missing or out of order: "Each typed story supplies key, intent, title and all five sections: - user_story: actor, want, benefit, notes (string array). - acceptance_criteria: objects wit…"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 3 missing or out of order: "All required collections must be present, even when empty. Null, duplicate, unknown and incorrectly typed fields reject. Limits include 65,536 rendered story by…"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 4 missing or out of order: "Legacy contract 1 still uses the supplied version-1 full-body proposal and bound outcome transport. Its stories require level-2 User Story, Acceptance Criteria,…"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 5 missing or out of order: "Split protected-tree edits into independent stories: Codex owns `.claude/**`, Claude owns `.codex/**`, and shared-source work precedes either without depending …"
+--- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree (0.00s)
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/proxy-product-owner/SKILL.md (0.02s)
+        codex_instruction_parity_test.go:184: .codex/skills/proxy-product-owner/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/requirements-engineer/SKILL.md (0.02s)
+        codex_instruction_parity_test.go:184: .codex/skills/requirements-engineer/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/go-unit-test-engineer/SKILL.md (0.02s)
+        codex_instruction_parity_test.go:184: .codex/skills/go-unit-test-engineer/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/go-integration-test-engineer/SKILL.md (0.02s)
+        codex_instruction_parity_test.go:184: .codex/skills/go-integration-test-engineer/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/go-architect/SKILL.md (0.02s)
+        codex_instruction_parity_test.go:184: .codex/skills/go-architect/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/go-code-reviewer/SKILL.md (0.01s)
+        codex_instruction_parity_test.go:184: .codex/skills/go-code-reviewer/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/go-implementation-engineer/SKILL.md (0.03s)
+        codex_instruction_parity_test.go:184: .codex/skills/go-implementation-engineer/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/plan-orchestrator/SKILL.md (0.03s)
+        codex_instruction_parity_test.go:184: .codex/skills/plan-orchestrator/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+    --- FAIL: TestCodexSkills_StructuredProtocolHandoffScopedToCodexTree/.codex/skills/implement-orchestrator/SKILL.md (0.04s)
+        codex_instruction_parity_test.go:184: .codex/skills/implement-orchestrator/SKILL.md: missing the exact structured protocol handoff block pointing at .codex/skills/workflow/SKILL.md
+--- FAIL: TestCodexSkills_AC003GuardClausesPreserved (0.00s)
+    --- FAIL: TestCodexSkills_AC003GuardClausesPreserved/go-code-reviewer_forbids_exit-as-acceptance (0.01s)
+        codex_instruction_parity_test.go:236: .codex/skills/go-code-reviewer/SKILL.md: missing guard clause "Successful process exit alone is not acceptance."
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamsource	16.531s
+ok  	github.com/cloudvane/litefactory/internal/turn	1086.073s
+FAIL
+make: *** [test] Error 1
+
+Exit code: 2

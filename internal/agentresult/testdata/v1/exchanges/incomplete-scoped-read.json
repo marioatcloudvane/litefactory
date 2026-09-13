@@ -1,0 +1,10 @@
+{
+  "selections": [
+    {
+      "field": "comment"
+    },
+    {
+      "field": "reason"
+    }
+  ]
+}

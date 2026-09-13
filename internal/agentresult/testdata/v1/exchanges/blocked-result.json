@@ -1,0 +1,44 @@
+{
+  "result": {
+    "outcome": "blocked",
+    "comment": "Investigation is blocked by unavailable authorized input.",
+    "reason": "The required authorized baseline is unavailable.",
+    "payload": {
+      "research": {
+        "request": "Inspect the shared communication boundary.",
+        "findings": [
+          {
+            "id": "F-1",
+            "text": "Authored results have a separate trusted context."
+          },
+          {
+            "id": "F-2",
+            "text": "Snapshot history retains source attribution across runs."
+          },
+          {
+            "id": "F-3",
+            "text": "Stable identities allow coordinated changes without indexes."
+          },
+          {
+            "id": "F-4",
+            "text": "Retained check references require exact frozen revisions."
+          },
+          {
+            "id": "F-5",
+            "text": "Progress cannot grant acceptance or publication."
+          },
+          {
+            "id": "F-6",
+            "text": "Preflight is distinct from durable submission."
+          }
+        ],
+        "decisions": [
+          {
+            "id": "D-1",
+            "text": "Keep lifecycle ownership at the factory."
+          }
+        ]
+      }
+    }
+  }
+}

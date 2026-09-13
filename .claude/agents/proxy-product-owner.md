@@ -8,10 +8,13 @@ color: yellow
 
 ## Structured protocol handoff
 
-Read `.claude/skills/shared/workflow.md` for the lifecycle. Follow
-`docs/story-contract-instruction-manifest.md`. Shared guidance does not widen
-this role's tools or scope. Pending receipts and synthetic fixtures never
-establish authentic runtime delivery.
+Read `.claude/skills/shared/workflow.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
 
 You return stories to the Plan orchestrator. You never write the proposal, per-
 story Markdown or anything on the forge — the orchestrator submits and the

@@ -1,0 +1,13 @@
+{
+  "selections": [
+    {
+      "field": "comment"
+    },
+    {
+      "field": "outcome"
+    },
+    {
+      "field": "reason"
+    }
+  ]
+}

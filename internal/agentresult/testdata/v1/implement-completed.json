@@ -1,0 +1,22 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "implement": {
+        "stories": [
+          {
+            "story": "US-001",
+            "outcome": "engineering_complete",
+            "engineering": {
+              "snapshot_id": "snapshot-1",
+              "check_ids": [
+                "check-1"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

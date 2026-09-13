@@ -1,0 +1,19 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Partial findings retained; further investigation remains."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "reason"
+      },
+      "value": "The scoped baseline needs additional authorized evidence."
+    }
+  ]
+}

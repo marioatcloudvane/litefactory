@@ -1,0 +1,12 @@
+{
+  "expected_revision": 2,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "The retained boundary findings are clarified."
+    }
+  ]
+}

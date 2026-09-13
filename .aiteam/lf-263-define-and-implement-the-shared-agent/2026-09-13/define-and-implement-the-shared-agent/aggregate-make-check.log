@@ -1,0 +1,20 @@
+Command: make check
+GOLANGCI_LINT_CACHE=/private/tmp/lf-lint-cache-263
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=20m ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	3.228s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.564s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	5.307s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.764s
+ok  	github.com/cloudvane/litefactory/internal/cli	375.246s
+ok  	github.com/cloudvane/litefactory/internal/codex	61.743s
+ok  	github.com/cloudvane/litefactory/internal/config	8.094s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.557s
+
+Gate timed out after 540 seconds; no pass claimed.
+
+Exit code: 124

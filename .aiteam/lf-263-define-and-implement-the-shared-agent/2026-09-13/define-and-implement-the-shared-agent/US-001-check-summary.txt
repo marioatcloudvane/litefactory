@@ -1,0 +1,201 @@
+Bounded final output excerpt. Complete log retained at US-001-unit-tests.log. Test specialist reports 148 passing test/subtest records, zero failures.
+ PASS: TestCreate_Questions/research/blocked/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/plan/completed/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/plan/completed/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/plan/incomplete/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/plan/incomplete/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/plan/blocked/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/plan/blocked/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/implement/completed/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/implement/completed/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/implement/incomplete/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/implement/incomplete/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/implement/blocked/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/implement/blocked/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/validate/completed/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/validate/completed/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/validate/incomplete/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/validate/incomplete/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/validate/blocked/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/validate/blocked/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/spike/completed/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/spike/completed/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/spike/incomplete/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/spike/incomplete/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/spike/blocked/permission=false (0.00s)
+    --- PASS: TestCreate_Questions/spike/blocked/permission=true (0.00s)
+    --- PASS: TestCreate_Questions/duplicate_question (0.00s)
+    --- PASS: TestCreate_Questions/duplicate_option (0.00s)
+    --- PASS: TestCreate_Questions/missing_option (0.00s)
+    --- PASS: TestCreate_Questions/invalid_ID (0.00s)
+=== RUN   TestCreate_ArtifactPaths
+=== RUN   TestCreate_ArtifactPaths/""
+=== RUN   TestCreate_ArtifactPaths/"."
+=== RUN   TestCreate_ArtifactPaths/".."
+=== RUN   TestCreate_ArtifactPaths/"../escape"
+=== RUN   TestCreate_ArtifactPaths/"/absolute"
+=== RUN   TestCreate_ArtifactPaths/"a/../b"
+=== RUN   TestCreate_ArtifactPaths/"a//b"
+=== RUN   TestCreate_ArtifactPaths/"a\\b"
+=== RUN   TestCreate_ArtifactPaths/"C:drive"
+=== RUN   TestCreate_ArtifactPaths/"a\x00b"
+--- PASS: TestCreate_ArtifactPaths (0.01s)
+    --- PASS: TestCreate_ArtifactPaths/"" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"." (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/".." (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"../escape" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"/absolute" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"a/../b" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"a//b" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"a\\b" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"C:drive" (0.00s)
+    --- PASS: TestCreate_ArtifactPaths/"a\x00b" (0.00s)
+=== RUN   TestCreate_StrictDecoding
+=== RUN   TestCreate_StrictDecoding/malformed
+=== RUN   TestCreate_StrictDecoding/trailing
+=== RUN   TestCreate_StrictDecoding/null_root
+=== RUN   TestCreate_StrictDecoding/duplicate
+=== RUN   TestCreate_StrictDecoding/unknown
+=== RUN   TestCreate_StrictDecoding/meta
+=== RUN   TestCreate_StrictDecoding/wrong_type
+=== RUN   TestCreate_StrictDecoding/null_optional
+=== RUN   TestCreate_StrictDecoding/owner_answers
+=== RUN   TestCreate_StrictDecoding/approval
+=== RUN   TestCreate_StrictDecoding/acceptance
+=== RUN   TestCreate_StrictDecoding/publication
+=== RUN   TestCreate_StrictDecoding/capability
+=== RUN   TestCreate_StrictDecoding/execution
+=== RUN   TestCreate_StrictDecoding/passed
+--- PASS: TestCreate_StrictDecoding (0.01s)
+    --- PASS: TestCreate_StrictDecoding/malformed (0.00s)
+    --- PASS: TestCreate_StrictDecoding/trailing (0.00s)
+    --- PASS: TestCreate_StrictDecoding/null_root (0.00s)
+    --- PASS: TestCreate_StrictDecoding/duplicate (0.00s)
+    --- PASS: TestCreate_StrictDecoding/unknown (0.00s)
+    --- PASS: TestCreate_StrictDecoding/meta (0.00s)
+    --- PASS: TestCreate_StrictDecoding/wrong_type (0.00s)
+    --- PASS: TestCreate_StrictDecoding/null_optional (0.00s)
+    --- PASS: TestCreate_StrictDecoding/owner_answers (0.00s)
+    --- PASS: TestCreate_StrictDecoding/approval (0.00s)
+    --- PASS: TestCreate_StrictDecoding/acceptance (0.00s)
+    --- PASS: TestCreate_StrictDecoding/publication (0.00s)
+    --- PASS: TestCreate_StrictDecoding/capability (0.00s)
+    --- PASS: TestCreate_StrictDecoding/execution (0.00s)
+    --- PASS: TestCreate_StrictDecoding/passed (0.00s)
+=== RUN   TestDecode_Boundaries
+=== RUN   TestDecode_Boundaries/bytes/4194304
+=== RUN   TestDecode_Boundaries/bytes/4194305
+=== RUN   TestDecode_Boundaries/depth/32
+=== RUN   TestDecode_Boundaries/depth/33
+--- PASS: TestDecode_Boundaries (1.05s)
+    --- PASS: TestDecode_Boundaries/bytes/4194304 (1.03s)
+    --- PASS: TestDecode_Boundaries/bytes/4194305 (0.01s)
+    --- PASS: TestDecode_Boundaries/depth/32 (0.00s)
+    --- PASS: TestDecode_Boundaries/depth/33 (0.00s)
+=== RUN   TestCreate_PlanCompletionAndGraphs
+=== RUN   TestCreate_PlanCompletionAndGraphs/summary
+=== RUN   TestCreate_PlanCompletionAndGraphs/actor
+=== RUN   TestCreate_PlanCompletionAndGraphs/benefit
+=== RUN   TestCreate_PlanCompletionAndGraphs/criteria
+=== RUN   TestCreate_PlanCompletionAndGraphs/tasks
+=== RUN   TestCreate_PlanCompletionAndGraphs/architecture
+=== RUN   TestCreate_PlanCompletionAndGraphs/unknown_role
+=== RUN   TestCreate_PlanCompletionAndGraphs/unknown_criterion
+=== RUN   TestCreate_PlanCompletionAndGraphs/cycle
+=== RUN   TestCreate_PlanCompletionAndGraphs/dangling
+=== RUN   TestCreate_PlanCompletionAndGraphs/duplicate
+=== RUN   TestCreate_PlanCompletionAndGraphs/rough_graph/US-001
+=== RUN   TestCreate_PlanCompletionAndGraphs/rough_graph/US-999
+--- PASS: TestCreate_PlanCompletionAndGraphs (0.03s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/summary (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/actor (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/benefit (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/criteria (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/tasks (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/architecture (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/unknown_role (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/unknown_criterion (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/cycle (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/dangling (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/duplicate (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/rough_graph/US-001 (0.00s)
+    --- PASS: TestCreate_PlanCompletionAndGraphs/rough_graph/US-999 (0.00s)
+=== RUN   TestCreate_EvidenceAuthority
+=== RUN   TestCreate_EvidenceAuthority/unknown_story
+=== RUN   TestCreate_EvidenceAuthority/unretained_snapshot
+=== RUN   TestCreate_EvidenceAuthority/unexecuted
+=== RUN   TestCreate_EvidenceAuthority/failed
+=== RUN   TestCreate_EvidenceAuthority/wrong_revision
+=== RUN   TestCreate_EvidenceAuthority/wrong_story
+=== RUN   TestCreate_EvidenceAuthority/wrong_digest
+=== RUN   TestCreate_EvidenceAuthority/assessment_in_separated
+=== RUN   TestCreate_EvidenceAuthority/missing_aggregate
+=== RUN   TestCreate_EvidenceAuthority/unresolved_aggregate_incomplete
+=== RUN   TestCreate_EvidenceAuthority/legacy_retains_complete_obligations
+=== RUN   TestCreate_EvidenceAuthority/complete_assessment/unmet
+=== RUN   TestCreate_EvidenceAuthority/complete_assessment/unverified
+--- PASS: TestCreate_EvidenceAuthority (0.01s)
+    --- PASS: TestCreate_EvidenceAuthority/unknown_story (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/unretained_snapshot (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/unexecuted (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/failed (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/wrong_revision (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/wrong_story (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/wrong_digest (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/assessment_in_separated (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/missing_aggregate (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/unresolved_aggregate_incomplete (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/legacy_retains_complete_obligations (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/complete_assessment/unmet (0.00s)
+    --- PASS: TestCreate_EvidenceAuthority/complete_assessment/unverified (0.00s)
+=== RUN   TestAssemble_CopiesBoundaryAndChecksMetadata
+--- PASS: TestAssemble_CopiesBoundaryAndChecksMetadata (0.00s)
+=== RUN   TestJSONSchema_AuthoredBoundary
+--- PASS: TestJSONSchema_AuthoredBoundary (0.01s)
+=== RUN   TestCreate_VersionedFixtures
+=== RUN   TestCreate_VersionedFixtures/implement-blocked.json
+=== RUN   TestCreate_VersionedFixtures/implement-completed.json
+=== RUN   TestCreate_VersionedFixtures/implement-incomplete.json
+=== RUN   TestCreate_VersionedFixtures/invalid-duplicate.json
+=== RUN   TestCreate_VersionedFixtures/invalid-meta.json
+=== RUN   TestCreate_VersionedFixtures/invalid-spike-question.json
+=== RUN   TestCreate_VersionedFixtures/plan-blocked.json
+=== RUN   TestCreate_VersionedFixtures/plan-completed.json
+=== RUN   TestCreate_VersionedFixtures/plan-incomplete.json
+=== RUN   TestCreate_VersionedFixtures/research-blocked.json
+=== RUN   TestCreate_VersionedFixtures/research-completed.json
+=== RUN   TestCreate_VersionedFixtures/research-incomplete.json
+=== RUN   TestCreate_VersionedFixtures/research-question.json
+=== RUN   TestCreate_VersionedFixtures/spike-blocked.json
+=== RUN   TestCreate_VersionedFixtures/spike-completed.json
+=== RUN   TestCreate_VersionedFixtures/spike-incomplete.json
+=== RUN   TestCreate_VersionedFixtures/validate-blocked.json
+=== RUN   TestCreate_VersionedFixtures/validate-completed.json
+=== RUN   TestCreate_VersionedFixtures/validate-incomplete.json
+--- PASS: TestCreate_VersionedFixtures (0.20s)
+    --- PASS: TestCreate_VersionedFixtures/implement-blocked.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/implement-completed.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/implement-incomplete.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/invalid-duplicate.json (0.00s)
+    --- PASS: TestCreate_VersionedFixtures/invalid-meta.json (0.00s)
+    --- PASS: TestCreate_VersionedFixtures/invalid-spike-question.json (0.00s)
+    --- PASS: TestCreate_VersionedFixtures/plan-blocked.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/plan-completed.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/plan-incomplete.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/research-blocked.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/research-completed.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/research-incomplete.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/research-question.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/spike-blocked.json (0.02s)
+    --- PASS: TestCreate_VersionedFixtures/spike-completed.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/spike-incomplete.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/validate-blocked.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/validate-completed.json (0.01s)
+    --- PASS: TestCreate_VersionedFixtures/validate-incomplete.json (0.01s)
+=== RUN   TestCreate_CompletedPlanOptionalNotes
+--- PASS: TestCreate_CompletedPlanOptionalNotes (0.00s)
+=== RUN   TestSnapshotJSONSchema_MetadataVersions
+--- PASS: TestSnapshotJSONSchema_MetadataVersions (0.01s)
+PASS
+coverage: 89.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.808s	coverage: 89.8% of statements
