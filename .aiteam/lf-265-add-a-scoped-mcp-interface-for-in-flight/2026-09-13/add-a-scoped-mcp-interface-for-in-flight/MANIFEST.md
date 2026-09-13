@@ -32,3 +32,9 @@
 - 2026-09-13: Bounded Research complete at 5028d988a9187383cd67136d4d8eab5f37bde9f3. Checked official MCP/Claude/Codex documentation and focused unchanged repository owners. Added request/result explanation, local stdio setup diagram, publication batch semantics and five tool families to the brief.
 - Settled: Research can request actual creation of smaller issues, exemplified by owner-reported #258 to #263/#264/#265. Supersedes draft-only framing and resolves run 0002's question about the primary proposal benefit. Litefactory publishes; no real MCP implementation before JSON rework completes.
 - Tentative: bugs/follow-ups from additional modes. Open details: taxonomy, eligible mode/type combinations, relationship defaults, names and activity presentation. No required research questions; no issues created or implementation performed.
+
+## Run 0004 continuation
+
+- 2026-09-13: Bounded Research complete at c6efb21fce3152bc2a15cb3a85e9a98dcf14b448. Added Issues list (open/closed), get by ID and comment by ID; both reads initially return title and optional mode labels. Recorded future Research relation discovery as motivation.
+- Recommended, not silently added to accepted content: a list targeting ID/opaque handle, bounded pagination with open default, and current-repository scope with explicit cross-issue comment capability. Distinguished repository issue number from database ID and durable comment receipts from remote confirmation.
+- JSON-before-implementation prerequisite and prior actual-publication direction preserved. No clarification required; no live issue reads, comments, publication, implementation or tests performed.

@@ -1,3 +1,70 @@
+# Research discussion — issue discovery, reads and comments
+
+Status: bounded Research complete. Run 0004, 2026-09-13. Revision inspected: `c6efb21fce3152bc2a15cb3a85e9a98dcf14b448`.
+
+## Settled additions
+
+The Issues family includes listing issues filtered by open/closed state, fetching one issue by ID, and commenting on an issue by ID. The initial content returned by both read operations is **title and mode labels, when set**. The motivating workflow is a future enhanced Research mode that inspects other issues for possible relationships deserving attention. This is a discovery surface: titles and modes help identify candidates; they do not establish a relationship conclusively.
+
+Earlier decisions remain: actual Research issue creation/decomposition; factory-owned publication; one local stdio MCP server organized into families; preflight as an ordinary request/result; terminal JSON as the default. JSON rework completes before implementation begins. The request adds cross-issue operations to the proposed product, not authorization to post a comment in this research run. Capability exposure in other modes remains a later policy choice.
+
+## Issues family additions
+
+Tool and field names below are illustrative. Required behavior is distinguished from recommended defaults.
+
+| Operation | Accepted input/behavior | Initial response | Recommended semantics |
+|---|---|---|---|
+| `issues_list` | Filter by `open` or `closed`; inspect issues in the authorized repository. | Entries containing title and optional mode labels. | Default to open if omitted; bounded pages with a continuation cursor. A page cursor belongs to the response envelope and filter. Recommend a minimal target ID on each entry, as explained below. |
+| `issues_get` | Fetch one issue by ID. | Title and optional mode labels, as with list entries. | Read the identified issue whether open or closed; return an explicit not-found/unauthorized result rather than inventing an empty issue. The caller already supplied the target, so echoing it is optional. |
+| `issues_comment` | Target issue ID and comment text. Litefactory publishes the comment. | Durable operation receipt and confirmed comment ID when available, or a truthful pending state. | Bind target repository and operation authority to the run. Retain request identity before publication and reconcile uncertain replies to prevent repeated comments. |
+| `issues_create_batch` (already settled) | Publish related smaller Research issues, or applicable bug/follow-up work. | Receipt plus confirmed item IDs/URLs and relationship states. | Preserve the prior batch keys, source relationships and recovery discussion. |
+
+### Small targeting recommendation
+
+The requested title/mode-label content stays minimal. For list results, recommend including **one target ID or opaque handle** as addressing metadata so the agent can immediately call get/comment for an entry. This is an explicit recommended addition, not silently accepted extra issue content. An alternative is a response-envelope mapping of handles to title/label entries. Without some identity mapping, duplicate titles cannot be reliably targeted.
+
+For this repository, the simplest recommendation is the repository-local issue number (for example 265) as the user-facing ID, with the repository supplied by the run. The current gateway already gets/comments using that number. GitHub's database ID is a different identifier, used for some relationship operations; litefactory should map these internally and name the public field unambiguously. Exact wire naming remains open, without blocking research.
+
+### Reads, labels and pagination
+
+Recommend open as the list default because the user specifically described checking other open issues; closed remains selectable. An additional all-states filter is not necessary for the stated requirement. Keep response content at title/optional mode labels; the state filter does not require adding state to every entry. A cursor and next-page control are transport metadata, with bounded page size and a consistent ordering. Ordinary live pagination is not a snapshot of concurrent repository changes; use targeting identities to avoid treating a repeated entry as a new issue.
+
+Return the issue's observed mode labels; omit the label field when none are set. Do not invent a mode from its title or assume every candidate has already been classified. If several mode labels are present, preserve that fact rather than arbitrarily selecting a mode. The existing canonical labels are `Mode: Research`, `Mode: Plan`, `Mode: Implement`, `Mode: Validate` and `Mode: Spike`. Precise malformed-label presentation can follow the existing validation vocabulary without widening the initial issue content.
+
+### Cross-issue comments
+
+The future Research workflow intentionally looks beyond its originating issue. Therefore a capability restricted to commenting only on the source issue would not satisfy the request. Recommend the current repository as the initial boundary, with read and comment capabilities explicitly covering authorized targets within it. The server checks repository, target and operation on every request; eligibility in Research does not automatically grant the same commenting surface to every mode.
+
+A comment such as “This issue may be related to the behavior investigated in #265; compare the shared dependency” is a possible workflow output when the run has enough evidence. Litefactory applies its existing outbound processing, posts through the bot gateway and returns a receipt. Identical text in a later intentional comment must remain distinguishable from retrying the same operation: use request identity plus immutable target/content, not text-only deduplication. After a timeout, query/reconcile the original operation before another publication attempt. Acknowledgment may confirm durable acceptance before remote confirmation, so the tool result must report which fact is known.
+
+## Updated category overview
+
+| Family | Illustrative tools | Purpose |
+|---|---|---|
+| Feedback | `feedback_preflight` | Validate contributions and publication requests; return repair diagnostics. |
+| Issues | `issues_list`, `issues_get`, `issues_comment`, `issues_create_batch` | Discover relevant issues, inspect minimal metadata, communicate a finding on a target issue, and publish decomposition/follow-up work. |
+| Evidence | `evidence_submit` | Record milestones, assessments and invalidation with stage-specific semantics. |
+| Activity | `activity_update`, optionally `activity_get` | Provide useful run visibility and scoped factory state. |
+| Receipts | `receipts_get` | Recover durable outcomes and confirmed publication identities. |
+
+## Focused repository evidence
+
+All references in this section use the run 0004 revision above.
+
+- `internal/github/issues.go:25` distinguishes database `ID` from repository `Number`; title, labels and state already exist on the internal value. Only the small requested projection should reach the read tool result.
+- `internal/github/issues.go:146` is the existing poll-oriented list owner and fixes state to open at `:159`; it also uses an update cursor and collects pages. `internal/github/followups.go:12` has an all-state listing for publication reconciliation. These are useful read owners, not a ready-made paginated open/closed agent API. Add suitable query semantics through the gateway when implementation is authorized.
+- `internal/github/issues.go:219` reads one issue by repository-local number. `internal/github/comments.go:230` posts by the same number using a processed `redact.Body`, and `:260` requires a returned comment ID.
+- `internal/agent/mode.go:35` produces canonical mode labels; `:50` parses exact canonical labels. `internal/daemon/mode.go:21` distinguishes absent, ambiguous and malformed mode labels. Read projections should preserve observations rather than silently performing workflow selection.
+- `internal/turn/followups.go:212` to `:226` demonstrates checking an exact marker and bot identity before publishing a notice. This is an existing comment recovery pattern to reuse through shared service semantics; the new general comment operation still needs its own durable request binding.
+
+## Continuation result
+
+No clarification is necessary to record these requirements. Accepted behavior is the three added operations and minimal read content. Recommended details are open-default pagination, repository-number/opaque-handle addressing, current-repository scope and receipt-based comment recovery. Mode exposure and exact field names remain design details. No tools were used to fetch live issues, post comments, create issues, run tests or implement code. Prior setup/protocol analysis is retained below; no additional web research was needed for these repository-local observations. Probe environment remains Darwin arm64. The five core files issues.go, comments.go, agent/mode.go, daemon/mode.go and turn/followups.go total 55,217 on-disk bytes; focused excerpts were inspected, so this is a corpus-size measurement rather than transmitted bytes or billed input tokens.
+
+---
+
+# Run 0003 retained setup and publication analysis
+
 # Research discussion — local MCP setup, publication and tool families
 
 Status: bounded Research complete; naming and detailed issue taxonomy remain discussion choices. Run 0003, 2026-09-13.
