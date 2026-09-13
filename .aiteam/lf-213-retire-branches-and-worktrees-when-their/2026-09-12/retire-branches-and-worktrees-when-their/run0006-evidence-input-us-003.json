@@ -1,0 +1,39 @@
+{
+  "run_started_unix": 1789246082.571583,
+  "stories": {
+    "US-003": {
+      "files": [
+        "docs/retirement.md",
+        "internal/cli/cmd_task_retire.go",
+        "internal/cli/cmd_task_test.go",
+        "internal/cli/retirement_help_unit_test.go",
+        "internal/config/template.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/doc.go",
+        "internal/daemon/retirement.go",
+        "internal/daemon/retirement_sweep.go",
+        "internal/daemon/retirement_sweep_real_test.go",
+        "internal/daemon/retirement_sweep_unit_test.go",
+        "internal/daemon/setup.go",
+        "internal/daemon/tick.go",
+        "internal/store/migrations/0038_retirement_sweep.sql",
+        "internal/store/retirement_owners.go",
+        "internal/store/retirement_sweep.go"
+      ],
+      "checks": [
+        {
+          "id": "us003-build-r6",
+          "name": "go build ./...",
+          "log": "/Users/mariomh/.lf-worktrees/litefactory/task-213/.aiteam/lf-213-retire-branches-and-worktrees-when-their/2026-09-12/retire-branches-and-worktrees-when-their/run0006-executed/build-result.json",
+          "exit_code": 0
+        },
+        {
+          "id": "us003-scoped-r6",
+          "name": "US-003 scoped race tests (fresh -count=1; full command in execution metadata)",
+          "log": "/Users/mariomh/.lf-worktrees/litefactory/task-213/.aiteam/lf-213-retire-branches-and-worktrees-when-their/2026-09-12/retire-branches-and-worktrees-when-their/run0006-executed/us003-tests.log",
+          "exit_code": 0
+        }
+      ]
+    }
+  }
+}

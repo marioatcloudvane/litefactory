@@ -171,6 +171,9 @@ type ScheduleProposalItem struct {
 // Options are the daemon's dependencies. [Open] builds one from the machine;
 // a test builds one with its own doubles.
 type Options struct {
+	// Retirement shares turn coordination; zero options disable automatic retirement.
+	Retirement RetirementExecutionOptions
+
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
@@ -330,6 +333,8 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	retirement RetirementExecutionOptions
+
 	db        *store.DB
 	forge     Forge
 	filter    Classifier
@@ -432,6 +437,7 @@ func New(opts Options) (*Daemon, error) {
 		confirmer:                opts.Confirmer,
 		conflictProposalTTL:      opts.ConflictProposalTTL,
 		instanceID:               opts.InstanceID,
+		retirement:               opts.Retirement,
 		autoResumeOnSessionLimit: opts.AutoResumeOnSessionLimit,
 		// Copied, like every other tool list that crosses a boundary in this
 		// feature: the caller keeps its own map and slice, and nothing here may

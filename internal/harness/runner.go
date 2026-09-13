@@ -825,11 +825,12 @@ func (r *Runner) exec(
 
 	if event := stream.result; event != nil {
 		result.HasResult = true
-		result.HasCost = true
+		result.HasCost = event.HasCost
 		result.ResultText = event.Result
 		result.CostUSD = event.TotalCostUSD
 		result.IsError = event.IsError
 		result.NumTurns = event.NumTurns
+		result.HasNumTurns = event.HasNumTurns
 	}
 
 	if !abandoned && !timedOut {
@@ -841,6 +842,7 @@ func (r *Runner) exec(
 	}
 	r.logCompletion(logger, result)
 
+	result.ProviderReportedZeroCostRefusal = provenZeroCostRefusal(req.Path.Resuming(), result, stream)
 	if resumeRefused(req.Path.Resuming(), result) {
 		logger.Warn("claude refused to resume the conversation",
 			slog.String("stderr", excerpt(result.Stderr)))

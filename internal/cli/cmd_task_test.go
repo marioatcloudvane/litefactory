@@ -172,9 +172,8 @@ func TestTaskCleanForceRemovesADirtyWorktree(t *testing.T) {
 	}
 }
 
-// TestTaskCleanReportsTheRetentionSetting is AC-3.26 and D-5: the key is read
-// and validated, and nothing sweeps. Saying so out loud is the only way a user
-// who has set worktree_retain_days learns that nothing is coming to honour it.
+// TestTaskCleanReportsTheRetentionSetting keeps manual cleanup output aligned
+// with active automatic retention (retirement US-003 AC-004).
 func TestTaskCleanReportsTheRetentionSetting(t *testing.T) {
 	newTaskCleanFixture(t)
 	router, stdout, stderr := newTestRouter(t)
@@ -182,7 +181,7 @@ func TestTaskCleanReportsTheRetentionSetting(t *testing.T) {
 	if code := router.Run(t.Context(), []string{"task", "clean", "123"}); code != ExitOK {
 		t.Fatalf("exit code = %d, want %d\nstderr: %s", code, ExitOK, stderr)
 	}
-	for _, want := range []string{"worktree_retain_days is 14", "no worktree is ever removed automatically"} {
+	for _, want := range []string{"worktree_retain_days is 14", "last completed run", "creation", "daemon checks closed issues daily", "task retire"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("stdout does not mention %q:\n%s", want, stdout)
 		}

@@ -1,6 +1,7 @@
 package git_test
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"slices"
@@ -185,4 +186,28 @@ func exportedMethods(typ reflect.Type) []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// The approved SEC-7/S-6 exception is three narrow package functions, never a
+// general Clone.Push, BranchDelete, UpdateRef or executor surface.
+func TestRetirementCapabilitySignatures(t *testing.T) {
+	t.Parallel()
+	for _, signature := range []struct {
+		name     string
+		actual   reflect.Type
+		expected reflect.Type
+	}{
+		{"ObserveRetirement", reflect.TypeOf(git.ObserveRetirement), reflect.TypeFor[func(context.Context, *git.Clone, string, string, string) (git.RetirementObservation, error)]()},
+		{"GuardedRetirement", reflect.TypeOf(git.GuardedRetirement), reflect.TypeFor[func(context.Context, *git.Clone, git.RetirementObservation, string, string) error]()},
+		{"RetirementAbsent", reflect.TypeOf(git.RetirementAbsent), reflect.TypeFor[func(context.Context, *git.Clone, string, string, string) (bool, error)]()},
+	} {
+		if signature.actual != signature.expected {
+			t.Errorf("%s signature = %v, want %v", signature.name, signature.actual, signature.expected)
+		}
+	}
+	for _, name := range []string{"BranchDelete", "UpdateRef", "Retire", "Run"} {
+		if slices.Contains(exportedMethods(reflect.TypeOf((*git.Clone)(nil))), name) {
+			t.Errorf("general clone maintenance method %s is forbidden", name)
+		}
+	}
 }

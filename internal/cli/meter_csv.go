@@ -40,6 +40,9 @@ func meterCSVBytes(r store.MeterRow) ([]byte, error) {
 		return strconv.FormatInt(*v, 10)
 	}
 	codes := slices.Clone(r.Diagnostics)
+	if r.ProviderReportedZeroCostRefusal {
+		codes = append(codes, "provider_reported_zero_cost_refusal")
+	}
 	slices.Sort(codes)
 	codes = slices.Compact(codes)
 	fields := []string{r.Project, strconv.FormatInt(r.Issue, 10), strconv.Itoa(r.Run), r.AttemptID, r.AttemptStartedAt, r.AttemptFinishedAt, r.CodingAgent, r.Mode, r.InvocationID, r.ParentInvocationID, nullable(r.ActualModel), r.ModelProvenance, number(r.Tokens.InputUncached), number(r.Tokens.CacheRead), number(r.Tokens.CacheWrite), number(r.Tokens.CacheWrite5m), number(r.Tokens.CacheWrite1h), number(r.Tokens.Output), number(r.Tokens.Reasoning), strconv.FormatInt(r.PriceRevisionID, 10), nullable(r.EstimatedUSD), nullable(r.PricedSubtotalUSD), r.PricingStatus, r.CollectionStatus, strings.Join(codes, ";"), r.RowKind}

@@ -1,0 +1,14 @@
+=== RUN   TestRetirementGuardRevalidatesSafety
+=== RUN   TestRetirementGuardRevalidatesSafety/dirty
+=== RUN   TestRetirementGuardRevalidatesSafety/locked
+=== RUN   TestRetirementGuardRevalidatesSafety/detached
+=== RUN   TestRetirementGuardRevalidatesSafety/advanced
+=== RUN   TestRetirementGuardRevalidatesSafety/protected_base
+--- PASS: TestRetirementGuardRevalidatesSafety (18.86s)
+    --- PASS: TestRetirementGuardRevalidatesSafety/dirty (3.64s)
+    --- PASS: TestRetirementGuardRevalidatesSafety/locked (3.07s)
+    --- PASS: TestRetirementGuardRevalidatesSafety/detached (4.31s)
+    --- PASS: TestRetirementGuardRevalidatesSafety/advanced (4.13s)
+    --- PASS: TestRetirementGuardRevalidatesSafety/protected_base (3.72s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/git	19.287s

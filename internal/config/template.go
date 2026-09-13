@@ -37,7 +37,7 @@ settings:
   feature_prefix: %q
   worktree_root: %q # empty means the per-repository sibling default
   team_config: %q # deprecated; central teams use teams.index_url above
-  worktree_retain_days: %d # informational; cleanup is currently explicit
+  worktree_retain_days: %d # daily cleanup of safe closed-task worktrees; days since last completed run
   log_level: %q # debug, info, warn or error
   # Attachment ingestion is additionally gated per workflow mode below.
   attachment_max_image_bytes: %d # valid range: %d..%d

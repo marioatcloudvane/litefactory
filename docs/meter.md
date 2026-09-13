@@ -9,6 +9,7 @@ additional consumption. Unknown values differ from measured zero.
 
 ```text
 litefactory meter [repository [task-id]] [--mode MODE] [--ca AGENT] [--model MODEL] [--json] [--details]
+litefactory meter recover <repository> <task-id> --attempt ID [--apply]
 litefactory meter prices list [--json]
 litefactory meter prices set MODEL --coding_agent AGENT --input RATE --output RATE [--cache_read RATE] [--cache_write RATE] [--cache_write_5m RATE] [--cache_write_1h RATE]
 litefactory meter export github:OWNER/REPO [--coding_agent AGENT] [--issue NUMBER] [--mode MODE] [--time_from RFC3339] [--time_to RFC3339]
@@ -103,8 +104,7 @@ response records and turn-context models, with prelaunch boundaries excluding
 historical work. Inclusive summaries and evidence lacking trustworthy baselines
 remain non-additive. Missing source/model/descendant evidence remains diagnosed as
 partial or unknown. See [provider sources](meter-provider-sources.md) for inspected
-source versions; authentic execution certification remains pending. No
-historical-log recovery script is part of this repository.
+source versions; authentic execution certification remains pending. Historical descendant recovery is an explicit, scoped operator command described below.
 
 ## Exact pricing arithmetic
 
@@ -143,3 +143,61 @@ reconcile exclusive measurements against available inclusive totals. Repeat this
 process whenever the supported version or source format changes. Until those
 captures establish complete attribution, no provider version is certified by this
 feature and the complete-descendant release checks remain open.
+
+
+## Recover missing historical descendants
+
+After installing the delivered version and completing normal database migration,
+inspect `litefactory meter <repository> <task-id> --details` for the finalized
+attempt ID. Recovery is preview by default and never migrates the database. The
+selected repository, issue and attempt must match. Only Codex attempts with a
+supported retained root identity and exclusive response evidence can be repaired.
+
+```sh
+litefactory meter recover github:acme/api 195 --attempt ATTEMPT_ID
+litefactory meter recover github:acme/api 195 --attempt ATTEMPT_ID --apply
+```
+
+The first command opens the ledger read-only and changes no schema, coverage,
+checkpoint or measurement records. Inspect `additional_observed_usd`,
+`resulting_observed_subtotal_usd` and `unresolved` before explicitly applying.
+`applied: false` is a preview or unresolved result, not a successful repair.
+The second command re-reads current sources and ledger state, then atomically
+appends supported missing descendants using the original attempt's price catalog.
+Existing measurements, outcome and timestamps are preserved. A repeat after
+success adds nothing; an interrupted transaction rolls back and can be retried.
+Changed source identities or state, overlapping attribution, active attempts,
+malformed/unsupported sources and ambiguous evidence refuse or remain unresolved.
+Resolve the cause and preview again; do not force attribution from a filename or
+shared parent alone. Discovery is bounded and never launches a provider.
+
+The retained 2026-09-09 Codex 0.153.4 case has three children with 63 exclusive
+responses. At the recorded $10/$1/$50 per-million input/cache-read/output rates,
+the observed historical run-5 subtotal improves from **$5.148750 to $11.903026**,
+adding **$6.754276**. The later resumed runs retain $1.746696, $0.326984 and
+$0.558352. Those numbers are established by isolated fixture tests; installing
+this change does not repair any operator data. Applying it to live data is a
+separate explicit operator action after delivery.
+
+The [fixture provenance](../internal/store/testdata/meter_recovery_history.md)
+distinguishes extracted historical counters, UTC windows and source hashes from
+synthetic JSONL envelopes and topology/scheduling cases. No original transcripts
+are shipped. These checks do not certify fleet-wide coverage, authentic current
+provider hierarchies or invoice accuracy. Missing source evidence remains unknown.
+
+## Reading incomplete estimates and refusals
+
+Complete, fully priced observations show a complete local estimate at recorded
+rates. A known incomplete subtotal is labelled **observed lower bound at recorded
+rates; total unknown**. The bound describes the recorded-rate estimate, not the
+provider invoice. Wholly unmeasured work remains unknown rather than zero.
+Existing JSON amounts and CSV numeric cells keep their null/blank semantics.
+
+A structurally refused resume is separately identified as provider-reported
+zero-cost only when terminal turns and cost are affirmatively zero with no
+contrary work evidence. The actual model and token-derived pricing remain unknown;
+other coverage and fallback diagnostics remain visible. JSON details add
+`provider_reported_zero_cost_refusal: true` only when proven; the existing CSV
+`diagnostic_codes` column carries `provider_reported_zero_cost_refusal` without
+changing the v1 columns. Summary text counts distinct refused attempts. Removed
+run-comment meter metadata remains absent.
