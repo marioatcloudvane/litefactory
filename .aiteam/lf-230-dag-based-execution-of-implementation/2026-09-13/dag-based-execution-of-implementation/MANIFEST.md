@@ -28,6 +28,8 @@
 
 - 2026-09-13 (run 0007): Completed mode-namespaced action sketch, recorded commercial-wrapper intent and addressed sample reviewability; preserved prior design and research history. Research only; no implementation, tests or mode transition.
 
+- 2026-09-13 (run 0008): Completed Apache/BSD permission research for a paid proprietary service orchestrating multiple litefactory instances and documented the Databricks/Spark analogy. Corrected derivative-status overemphasis; preserved workflow decisions. Research only; no implementation, tests or mode transition.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.

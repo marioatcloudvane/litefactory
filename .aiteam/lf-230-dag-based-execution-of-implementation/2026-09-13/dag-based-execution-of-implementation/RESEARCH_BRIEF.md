@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the bounded Research passes through run 0007. Run 0007 adopts mode-namespaced action IDs and records the owner’s commercial-wrapper intent; its reviewability and license findings are below. Run 0006 adds a concrete illustrative Research DOT file, minimal actions, proposed local execution/recovery mechanics, and BSD/Apache commercial-use guidance. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
+Status: complete for the bounded Research passes through run 0008. Run 0008 confirms the intended paid orchestration service is permitted under Apache-2.0/BSD-3-Clause and documents the Databricks/Spark comparison using primary sources. Run 0007 adopts mode-namespaced action IDs and records the owner’s commercial-wrapper intent; its reviewability and license findings are below. Run 0006 adds a concrete illustrative Research DOT file, minimal actions, proposed local execution/recovery mechanics, and BSD/Apache commercial-use guidance. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
 
 ## Request and answered decision
 
@@ -496,3 +496,34 @@ Apache-2.0 §1 specifically excludes separable works and works merely linking/bi
 This pass edits research artifacts only and reuses the earlier runtime design findings. The DOT remains a proposed authoring example, not currently executable by litefactory. No Go implementation, schema, dependencies, daemon state, tests/builds or mode transition changed. Source-byte counts and billed tokens were not measured.
 
 - 2026-09-13 (run 0007): Completed mode-namespaced action proposal, revised existing DOT, verified prior sample on the advertised task branch and provided reviewable inline delivery, and recorded separate commercial-wrapper intent against primary BSD/Apache license texts. No blocking question, implementation, tests or mode transition.
+
+
+## Run 0008: paid orchestration service and the Databricks comparison
+
+### Concrete answer and correction to earlier framing
+
+**Yes: under the intended Apache-2.0 core and BSD-3-Clause Gonum dependency, the owner may sell a hosted service that orchestrates multiple litefactory instances and keep that service’s source proprietary.** Examples include a commercial control plane for scheduling, fleet management, access management and billing over hosted or customer-operated litefactory instances. Charging customers and keeping these additions private do not conflict with either license. This conclusion assumes those are the applicable component licenses; it is not a complete dependency or commercial-contract audit.
+
+Earlier answers emphasized whether the wrapper is a derivative. That made permission appear narrower than it is. **The permission does not depend on proving the service is non-derivative.** Apache-2.0 also permits private modifications and commercial derivatives under its conditions. The ASF FAQ explicitly allows commercial use and selling or keeping improvements private; it does not require returning changes upstream. [ASF licensing FAQ](https://www.apache.org/foundation/license-faq.html)
+
+For this proposed arrangement:
+
+| What the owner does | Consequence under these licenses |
+|---|---|
+| Hosts a proprietary control plane that talks to litefactory instances | May charge for access and retain private source; network use alone creates no source-publication requirement. |
+| Runs Apache-2.0 litefactory and BSD-3-Clause Gonum on service infrastructure | May use them commercially; neither license imposes a per-instance royalty or requires opening the control plane. |
+| Delivers core binaries, container images or bundled software to customers | Apply redistribution requirements to the delivered components: license copies, applicable notices and Apache modified-file notices. This still does not require disclosure of the proprietary control plane’s source. |
+
+The hosted-service interpretation follows Apache-2.0’s granted rights and redistribution conditions, and BSD-3-Clause’s permission and notice conditions; neither contains a network-use source-disclosure clause. Open components retain their licenses while independently owned service code can use proprietary terms. [Apache-2.0 §§2–4](https://www.apache.org/licenses/LICENSE-2.0), [BSD-3-Clause](https://opensource.org/license/bsd-3-clause)
+
+### How Databricks and Spark fit
+
+Apache Spark’s published license is Apache-2.0. Databricks’ own documentation describes an optimized platform that deploys and configures Spark compute, and a Databricks Runtime containing proprietary extensions including Photon alongside Spark. Databricks also continues contributing features to open-source Spark. Its pricing page describes a charged service. [Spark license](https://raw.githubusercontent.com/apache/spark/master/LICENSE), [Databricks/Spark relationship](https://docs.databricks.com/aws/en/spark/faq), [Databricks pricing](https://www.databricks.com/product/pricing)
+
+The comparable business pattern is therefore **an open execution core plus a paid managed platform and additional proprietary capabilities**. In the owner’s proposed product, litefactory corresponds to the open execution component and the multi-instance orchestration service corresponds to the commercial management layer. This is a product-model analogy, not a claim that Databricks’ architecture is identical. The permissive Apache license already allows this model; a special commercial Spark license is not required to make such a product. The evidence establishes the public licenses and product relationship, not Databricks’ private agreements or historical legal decisions.
+
+### Evidence boundary and continuity
+
+Primary license, ASF, Spark and Databricks sources checked on 2026-09-13. This is a reading of the named licenses for the stated service model, not an audit of all future components or contracts. No change to the DOT profile, mode namespacing, optional clarification, durability ownership or deferred Temporal decision. No blocking question remains for this bounded pass. No code, dependencies, tests, daemon state or mode transition changed.
+
+- 2026-09-13 (run 0008): Completed concrete paid-service permission answer and Databricks/Spark comparison; corrected the earlier implication that proprietary commercialization requires avoiding derivative status. Research artifacts only.
