@@ -23,6 +23,8 @@ const StateOpen = "open"
 
 // Issue is a GitHub issue. Pull requests never appear here — see [Client.ListIssues].
 type Issue struct {
+	// APIURL binds individual observations to their repository and issue endpoint.
+	APIURL string
 	// ID is the issue's database id: the identifier GitHub mints for the
 	// object, which is not its number.
 	//
@@ -279,6 +281,7 @@ func convertIssue(payload *gogithub.Issue) Issue {
 		return Issue{}
 	}
 	return Issue{
+		APIURL:      payload.GetURL(),
 		ID:          payload.GetID(),
 		Number:      payload.GetNumber(),
 		Title:       payload.GetTitle(),

@@ -2,8 +2,8 @@
 //
 // # The boundary
 //
-// The product's most important guarantee is that litefactory never writes
-// inside the repository you registered. That guarantee is not a rule written
+// The product's most important guarantee is that litefactory never changes
+// the registered clone's checkout, index or HEAD. That guarantee is not a rule written
 // down somewhere for a reviewer to remember — it is the shape of the types in
 // this package.
 //
@@ -22,6 +22,17 @@
 //     only file in the module that imports os/exec for git. No other package
 //     may exec git; test fixtures are the single documented exception and live
 //     in internal/gittest.
+//
+// # Owned task retirement (S-6)
+//
+// [ObserveRetirement], [GuardedRetirement] and [RetirementAbsent] are the narrow
+// package-level maintenance capability, outside Clone's general method set.
+// They permit fresh ancestry/default-ref/status/index probes, exact unforced
+// worktree removal, local compare-and-delete and remote expected-head deletion.
+// The daemon supplies canonical ownership and final issue closure under shared
+// coordination; each mutator independently checks Git preservation and protects
+// base/default refs and worktree usage. None checks out, resets, commits or
+// writes the registered clone's index or HEAD.
 //
 // # Subprocess discipline
 //

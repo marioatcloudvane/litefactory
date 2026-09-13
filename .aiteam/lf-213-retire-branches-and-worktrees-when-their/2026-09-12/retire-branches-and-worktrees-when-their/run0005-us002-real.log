@@ -1,0 +1,90 @@
+$ git --version
+git version 2.50.1 (Apple Git-155)
+EXIT 0; elapsed 0.064s
+$ go test -race -count=1 -timeout=8m ./internal/daemon -run ^TestRetirementExecutionReal -v
+=== RUN   TestRetirementExecutionRealLifecycle
+=== RUN   TestRetirementExecutionRealLifecycle/merged_external
+=== RUN   TestRetirementExecutionRealLifecycle/abandoned_unmerged
+=== RUN   TestRetirementExecutionRealLifecycle/open_merged
+=== RUN   TestRetirementExecutionRealLifecycle/reopened_final
+=== RUN   TestRetirementExecutionRealLifecycle/unavailable_final
+=== RUN   TestRetirementExecutionRealLifecycle/ignored
+=== RUN   TestRetirementExecutionRealLifecycle/untracked
+=== RUN   TestRetirementExecutionRealLifecycle/unpushed
+=== RUN   TestRetirementExecutionRealLifecycle/missing_upstream
+=== RUN   TestRetirementExecutionRealLifecycle/missing_registration
+=== RUN   TestRetirementExecutionRealLifecycle/stale_registration
+=== RUN   TestRetirementExecutionRealLifecycle/remote_only
+=== RUN   TestRetirementExecutionRealLifecycle/owner_locked
+=== RUN   TestRetirementExecutionRealLifecycle/active
+=== RUN   TestRetirementExecutionRealLifecycle/stale_intent
+--- PASS: TestRetirementExecutionRealLifecycle (69.86s)
+    --- PASS: TestRetirementExecutionRealLifecycle/merged_external (6.81s)
+    --- PASS: TestRetirementExecutionRealLifecycle/abandoned_unmerged (6.60s)
+    --- PASS: TestRetirementExecutionRealLifecycle/open_merged (2.79s)
+    --- PASS: TestRetirementExecutionRealLifecycle/reopened_final (4.25s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unavailable_final (4.13s)
+    --- PASS: TestRetirementExecutionRealLifecycle/ignored (4.24s)
+    --- PASS: TestRetirementExecutionRealLifecycle/untracked (3.34s)
+    --- PASS: TestRetirementExecutionRealLifecycle/unpushed (3.47s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_upstream (5.20s)
+    --- PASS: TestRetirementExecutionRealLifecycle/missing_registration (5.93s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_registration (5.81s)
+    --- PASS: TestRetirementExecutionRealLifecycle/remote_only (6.27s)
+    --- PASS: TestRetirementExecutionRealLifecycle/owner_locked (2.24s)
+    --- PASS: TestRetirementExecutionRealLifecycle/active (2.06s)
+    --- PASS: TestRetirementExecutionRealLifecycle/stale_intent (6.71s)
+=== RUN   TestRetirementExecutionRealUncertainRetry
+--- PASS: TestRetirementExecutionRealUncertainRetry (8.97s)
+=== RUN   TestRetirementExecutionRealStorageFailures
+=== RUN   TestRetirementExecutionRealStorageFailures/intent
+=== RUN   TestRetirementExecutionRealStorageFailures/outcome
+--- PASS: TestRetirementExecutionRealStorageFailures (8.93s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/intent (4.05s)
+    --- PASS: TestRetirementExecutionRealStorageFailures/outcome (4.87s)
+=== RUN   TestRetirementExecutionRealCoordination
+=== RUN   TestRetirementExecutionRealCoordination/parent_busy
+=== RUN   TestRetirementExecutionRealCoordination/clone_busy_cancellation
+--- PASS: TestRetirementExecutionRealCoordination (5.30s)
+    --- PASS: TestRetirementExecutionRealCoordination/parent_busy (2.93s)
+    --- PASS: TestRetirementExecutionRealCoordination/clone_busy_cancellation (2.37s)
+=== RUN   TestRetirementExecutionRealSharedChild
+--- PASS: TestRetirementExecutionRealSharedChild (3.24s)
+=== RUN   TestRetirementExecutionRealRecreatedCheckout
+--- PASS: TestRetirementExecutionRealRecreatedCheckout (7.95s)
+=== RUN   TestRetirementExecutionRealRemoteReopen
+--- PASS: TestRetirementExecutionRealRemoteReopen (5.90s)
+=== RUN   TestRetirementExecutionRealIntentPathIsolation
+--- PASS: TestRetirementExecutionRealIntentPathIsolation (3.02s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	114.978s
+EXIT 0; elapsed 118.213s
+$ go test -race -count=1 -timeout=8m ./internal/git -run ^(TestRetirementExactHeadRaces|TestCloneMethodSetIsTheAllowlist|TestCloneCannotMutateTheRegisteredClone|TestRetirementCapabilitySignatures)$ -v
+=== RUN   TestRetirementExactHeadRaces
+=== RUN   TestRetirementExactHeadRaces/local_branch
+    retirement_guard_internal_test.go:29: scratch probe: git version 2.50.1 (Apple Git-155); local_branch expected 52002ea0bb1571cc4088d8623f57520b0541471a rejects concurrent fca59cfa8bdafa2848402fd62bdadefc3bd33032
+    retirement_guard_internal_test.go:62: actual rejection: /var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRaceslocal_branch1049546963/002/git-wrapper update-ref --no-deref -d refs/heads/lf/213-retire 52002ea0bb1571cc4088d8623f57520b0541471a: exit status 1: error: cannot lock ref 'refs/heads/lf/213-retire': is at fca59cfa8bdafa2848402fd62bdadefc3bd33032 but expected 52002ea0bb1571cc4088d8623f57520b0541471a
+=== RUN   TestRetirementExactHeadRaces/remote_branch
+    retirement_guard_internal_test.go:29: scratch probe: git version 2.50.1 (Apple Git-155); remote_branch expected 52002ea0bb1571cc4088d8623f57520b0541471a rejects concurrent fca59cfa8bdafa2848402fd62bdadefc3bd33032
+    retirement_guard_internal_test.go:62: actual rejection: /usr/bin/git push --force-with-lease=refs/heads/lf/213-retire:52002ea0bb1571cc4088d8623f57520b0541471a -- origin :refs/heads/lf/213-retire: exit status 1: remote: error: cannot lock ref 'refs/heads/lf/213-retire': is at fca59cfa8bdafa2848402fd62bdadefc3bd33032 but expected 52002ea0bb1571cc4088d8623f57520b0541471a        
+        To /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRacesremote_branch833962827/001/origin.git
+         ! [remote rejected] lf/213-retire (failed to update ref)
+        error: failed to push some refs to '/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestRetirementExactHeadRacesremote_branch833962827/001/origin.git'
+--- PASS: TestRetirementExactHeadRaces (6.45s)
+    --- PASS: TestRetirementExactHeadRaces/local_branch (3.49s)
+    --- PASS: TestRetirementExactHeadRaces/remote_branch (2.96s)
+=== RUN   TestCloneMethodSetIsTheAllowlist
+=== PAUSE TestCloneMethodSetIsTheAllowlist
+=== RUN   TestCloneCannotMutateTheRegisteredClone
+=== PAUSE TestCloneCannotMutateTheRegisteredClone
+=== RUN   TestRetirementCapabilitySignatures
+=== PAUSE TestRetirementCapabilitySignatures
+=== CONT  TestCloneCannotMutateTheRegisteredClone
+=== CONT  TestRetirementCapabilitySignatures
+=== CONT  TestCloneMethodSetIsTheAllowlist
+--- PASS: TestCloneCannotMutateTheRegisteredClone (0.00s)
+--- PASS: TestCloneMethodSetIsTheAllowlist (0.00s)
+--- PASS: TestRetirementCapabilitySignatures (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/git	8.044s
+EXIT 0; elapsed 9.512s

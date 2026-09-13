@@ -1,0 +1,5 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+Error: parallel golangci-lint is running
+The command is terminated due to an error: parallel golangci-lint is running
+make: *** [lint] Error 3

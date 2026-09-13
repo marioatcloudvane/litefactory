@@ -1,0 +1,18 @@
+Implementation-role executed checks (2026-09-12; feature tests are owned by specialists):
+
+$ go test ./internal/git ./internal/store ./internal/daemon -run '^TestRetirementCapabilitySignatures$' -count=1
+ok github.com/cloudvane/litefactory/internal/git 0.536s
+ok github.com/cloudvane/litefactory/internal/store 0.448s [no tests to run]
+ok github.com/cloudvane/litefactory/internal/daemon 0.832s [no tests to run]
+
+$ go vet ./internal/git ./internal/store ./internal/daemon
+[no output; exit 0]
+
+$ go test ./internal/git -run '^(TestRetirementCapabilitySignatures|TestCloneMethodSetIsTheAllowlist|TestCloneCannotMutateTheRegisteredClone|TestEnsureWorktreeReusesAnExistingBranch|TestEnsureWorktreeCreatesTheBranchFromTheBase|TestWorktreeRemoveRefusesUncommittedChangesUnlessForced)$' -count=1
+ok github.com/cloudvane/litefactory/internal/git 1.692s
+
+$ go test ./internal/daemon ./internal/store -run '^TestRetirement' -count=1
+ok github.com/cloudvane/litefactory/internal/daemon 42.675s
+ok github.com/cloudvane/litefactory/internal/store 1.144s
+
+The last test command overlapped a final small change adding exact resource identities to early verification/coordination logs. Aggregate checks must run on the final snapshot. No production retirement was executed. External Git race probes and lifecycle coverage remain specialist-owned requirements, not certified by this output.
