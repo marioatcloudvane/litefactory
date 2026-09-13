@@ -9,22 +9,16 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "research",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-research-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-research-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
           "action": "action.moveto.planmode"
         },
-        "artifacts": [],
         "payload": {
           "research": {
             "request": "Inventory current communication and propose a first JSON shape.",
@@ -46,12 +40,6 @@
                 "id": "D-1",
                 "text": "Retain the need for a reusable shared Go library."
               }
-            ],
-            "assumptions": [
-              {
-                "id": "A-1",
-                "text": "Field ordering and the first shape remain open to owner review."
-              }
             ]
           }
         }
@@ -68,12 +56,8 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "research",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-research-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-research-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "incomplete",
@@ -100,7 +84,6 @@
         "recommendation": {
           "text": "Review the proposed JSON structure before implementation."
         },
-        "artifacts": [],
         "payload": {
           "research": {
             "request": "Inventory current communication and propose a first JSON shape.",
@@ -121,12 +104,6 @@
               {
                 "id": "D-1",
                 "text": "Retain the need for a reusable shared Go library."
-              }
-            ],
-            "assumptions": [
-              {
-                "id": "A-1",
-                "text": "Field ordering and the first shape remain open to owner review."
               }
             ]
           }
@@ -145,21 +122,15 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "research",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-research-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-research-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the proposed JSON structure before implementation."
         },
-        "artifacts": [],
         "payload": {
           "research": {
             "request": "Inventory current communication and propose a first JSON shape.",
@@ -180,12 +151,6 @@
               {
                 "id": "D-1",
                 "text": "Retain the need for a reusable shared Go library."
-              }
-            ],
-            "assumptions": [
-              {
-                "id": "A-1",
-                "text": "Field ordering and the first shape remain open to owner review."
               }
             ]
           }
@@ -214,11 +179,9 @@
       "result": {
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the proposed plan before authorizing implementation."
         },
-        "artifacts": [],
         "payload": {
           "plan": {
             "summary": "Illustrative typed Plan; not an approved delivery plan for #263.",
@@ -312,15 +275,24 @@
         "recommendation": {
           "text": "Review the proposed plan before authorizing implementation."
         },
-        "artifacts": [],
         "payload": {
           "plan": {
-            "context": {
-              "scope": "Shared communication contract",
-              "decisions": "Keep factory identity separate.",
-              "assumptions": "Names remain provisional.",
-              "questions": "Choose the update representation."
-            }
+            "stories": [
+              {
+                "key": "US-001",
+                "title": "Create and validate a shared agent result",
+                "user_story": {
+                  "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+                }
+              },
+              {
+                "key": "US-002",
+                "title": "Update a saved agent result safely",
+                "user_story": {
+                  "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+                }
+              }
+            ]
           }
         },
         "reason": "Further work remains."
@@ -347,19 +319,27 @@
       "result": {
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the proposed plan before authorizing implementation."
         },
-        "artifacts": [],
         "payload": {
           "plan": {
-            "context": {
-              "scope": "Shared communication contract",
-              "decisions": "Keep factory identity separate.",
-              "assumptions": "Names remain provisional.",
-              "questions": "None"
-            }
+            "stories": [
+              {
+                "key": "US-001",
+                "title": "Create and validate a shared agent result",
+                "user_story": {
+                  "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+                }
+              },
+              {
+                "key": "US-002",
+                "title": "Update a saved agent result safely",
+                "user_story": {
+                  "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+                }
+              }
+            ]
           }
         },
         "reason": "Required retained evidence or baseline is unavailable."
@@ -386,11 +366,9 @@
       "result": {
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review retained engineering evidence and remaining work."
         },
-        "artifacts": [],
         "payload": {
           "implement": {
             "stories": [
@@ -430,11 +408,9 @@
       "result": {
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review retained engineering evidence and remaining work."
         },
-        "artifacts": [],
         "payload": {
           "implement": {
             "stories": [
@@ -470,11 +446,9 @@
       "result": {
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review retained engineering evidence and remaining work."
         },
-        "artifacts": [],
         "payload": {
           "implement": {
             "stories": [
@@ -510,11 +484,9 @@
       "result": {
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review assessment findings before deciding acceptance."
         },
-        "artifacts": [],
         "payload": {
           "validate": {
             "stories": [
@@ -598,11 +570,9 @@
       "result": {
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review assessment findings before deciding acceptance."
         },
-        "artifacts": [],
         "payload": {
           "validate": {
             "stories": [
@@ -685,11 +655,9 @@
       "result": {
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review assessment findings before deciding acceptance."
         },
-        "artifacts": [],
         "payload": {
           "validate": {
             "stories": [
@@ -762,21 +730,15 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "spike",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-spike-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-spike-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "completed",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the result before requesting larger work."
         },
-        "artifacts": [],
         "payload": {
           "spike": {
             "request": "Check whether a bounded change is feasible.",
@@ -805,21 +767,15 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "spike",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-spike-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-spike-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "incomplete",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the result before requesting larger work."
         },
-        "artifacts": [],
         "payload": {
           "spike": {
             "request": "Check whether a bounded change is feasible.",
@@ -849,21 +805,15 @@
         "run_id": 1001,
         "attempt_id": "factory-attempt-1",
         "mode": "spike",
-        "workflow_version": 2,
-        "submission_contract_version": 2,
         "result_id": "result-spike-1",
-        "result_revision": 1,
-        "scope_ref": "factory-scope-1",
-        "request_id": "request-spike-1"
+        "result_revision": 1
       },
       "result": {
         "outcome": "blocked",
         "comment": "Illustrative result for contract review.",
-        "questions": [],
         "recommendation": {
           "text": "Review the result before requesting larger work."
         },
-        "artifacts": [],
         "payload": {
           "spike": {
             "request": "Check whether a bounded change is feasible.",

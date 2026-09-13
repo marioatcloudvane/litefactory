@@ -6,17 +6,12 @@
     "run_id": 1001,
     "attempt_id": "factory-attempt-1",
     "mode": "research",
-    "workflow_version": 2,
-    "submission_contract_version": 2,
     "result_id": "result-research-1",
-    "result_revision": 1,
-    "scope_ref": "factory-scope-1",
-    "request_id": "request-research-1"
+    "result_revision": 1
   },
   "result": {
     "outcome": "completed",
     "comment": "Illustrative result for contract review.",
-    "questions": [],
     "recommendation": {
       "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
       "action": "action.moveto.planmode"
@@ -49,12 +44,6 @@
           {
             "id": "D-1",
             "text": "Retain the need for a reusable shared Go library."
-          }
-        ],
-        "assumptions": [
-          {
-            "id": "A-1",
-            "text": "Field ordering and the first shape remain open to owner review."
           }
         ]
       }

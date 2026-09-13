@@ -5,7 +5,6 @@
     "result": {
       "outcome": "completed",
       "comment": "Illustrative result for contract review.",
-      "questions": [],
       "recommendation": {
         "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
         "action": "action.moveto.planmode"
@@ -38,12 +37,6 @@
             {
               "id": "D-1",
               "text": "Retain the need for a reusable shared Go library."
-            }
-          ],
-          "assumptions": [
-            {
-              "id": "A-1",
-              "text": "Field ordering and the first shape remain open to owner review."
             }
           ]
         }
