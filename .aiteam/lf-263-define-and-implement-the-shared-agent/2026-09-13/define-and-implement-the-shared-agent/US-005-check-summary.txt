@@ -1,0 +1,2 @@
+Bounded final output excerpt. Full output retained at US-005-unit-tests.log.
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.003s	coverage: 90.5% of statements

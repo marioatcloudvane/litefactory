@@ -1,0 +1,12 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.plan.summary"
+      },
+      "value": "Refine the same draft"
+    }
+  ]
+}

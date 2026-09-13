@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "schema_version": "0.1-draft",
+    "mode": "plan",
+    "result_id": "result-plan-1",
+    "result_revision": 1
+  },
+  "result": {
+    "outcome": "incomplete",
+    "reason": "Plan remains a draft pending owner review and complete story details.",
+    "comment": "Review the proposed story boundaries before adding detail.",
+    "recommendation": {
+      "text": "Review these rough stories, then enrich the same stories with acceptance criteria."
+    },
+    "payload": {
+      "plan": {
+        "stories": [
+          {
+            "key": "US-001",
+            "title": "Create and validate a shared agent result",
+            "user_story": {
+              "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+            }
+          },
+          {
+            "key": "US-002",
+            "title": "Update a saved agent result safely",
+            "user_story": {
+              "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+            }
+          }
+        ]
+      }
+    }
+  }
+}

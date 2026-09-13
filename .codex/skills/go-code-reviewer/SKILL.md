@@ -21,13 +21,18 @@ description: Read-only acceptance, code, architecture and approved-plan review i
 >   separate reply channel to send them down, and no `CODE_REVIEW.md` to write.
 > - Claude runs this on `sonnet`; Codex chooses its own model.
 
-## Protocol
+## Structured protocol handoff
 
-Read `.codex/skills/review-evidence/SKILL.md` and
-`.codex/skills/workflow/SKILL.md`. Follow
-`docs/story-contract-instruction-manifest.md`. Shared guidance does not widen
-this role's tools or scope. Pending receipts and synthetic fixtures never
-establish authentic runtime delivery.
+Read `.codex/skills/workflow/SKILL.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
+
+Also read `.codex/skills/review-evidence/SKILL.md` for the read-only review
+contract that governs this role.
 
 # Go Code Reviewer
 
@@ -36,7 +41,7 @@ Assess acceptance coverage, architecture consistency and approved-plan fidelity.
 **You are read-only.** Do not write CODE_REVIEW.md or other artifacts, run
 shell/build/test commands, edit code or context documents, or invoke
 implementation specialists. A clean review is not proof that unexecuted tests
-passed, and successful process exit is not acceptance.
+passed. Successful process exit alone is not acceptance.
 
 When the factory supplies a structured output contract, return only that exact
 structured result with findings inside it — no appended prose or verdict.

@@ -1,0 +1,20 @@
+{
+  "result": {
+    "outcome": "blocked",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "plan": {
+        "stories": [
+          {
+            "key": "US-001",
+            "title": "Create results",
+            "user_story": {
+              "want": "validate a result"
+            }
+          }
+        ]
+      }
+    },
+    "reason": "Further evidence or work is required."
+  }
+}

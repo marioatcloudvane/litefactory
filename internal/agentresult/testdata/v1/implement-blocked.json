@@ -1,0 +1,18 @@
+{
+  "result": {
+    "outcome": "blocked",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "implement": {
+        "stories": [
+          {
+            "story": "US-001",
+            "outcome": "blocked",
+            "reason": "Required proof is unavailable."
+          }
+        ]
+      }
+    },
+    "reason": "Further evidence or work is required."
+  }
+}
