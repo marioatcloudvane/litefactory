@@ -5,7 +5,7 @@
 - Session date: 2026-09-13
 - Parent: https://github.com/marioatcloudvane/litefactory/issues/263
 - Citation base: `04f2898c83796d07c3041a063bc2f28f5971c5f3`
-- State: completed typed proposal passed factory preflight and is durably retained under request `839744d827a5c7c4a3b738608a3c87ef`; receipt input is valid and Plan publication is pending. Factory publication and successful save determine readiness.
+- State: run 0011 traceability correction passed complete factory preflight and is durably retained under request `60fa836aeb44ea13bdb2eb7305285fc9`; receipt input is valid and revised Plan publication is pending. Factory publication and successful save determine readiness.
 
 ## Shared Decisions
 
@@ -53,6 +53,8 @@ MCP server/tools or external follow-up edits; live routing cutover; production a
 
 ## Provenance
 
-The current Research handoff and run 0009 approvals are primary scope evidence; historical incomplete notes and run 0006 deferrals are superseded. `feature-spec.md` records requirement assumptions and `ARCH_REVIEW.md` records architectural decisions against the citation base above. Research JSON files remain illustrative inputs, not executable proof; implementation will produce normative schema and verified fixtures.
+The [approved Research handoff](https://github.com/marioatcloudvane/litefactory/blob/04f2898c83796d07c3041a063bc2f28f5971c5f3/.aiteam/lf-263-define-and-implement-the-shared-agent/2026-09-13/define-and-implement-the-shared-agent/RESEARCH_BRIEF.md#current-handoff--approved-in-run-0009) and run 0009 approvals are primary scope evidence; historical incomplete notes and run 0006 deferrals are superseded. `feature-spec.md` records requirement assumptions and `ARCH_REVIEW.md` records architectural decisions against the citation base above. Research JSON files remain illustrative inputs, not executable proof; implementation will produce normative schema and verified fixtures.
 
 Engineering must recheck changed package interfaces, next migration number and retained evidence helpers against its current base. This Plan records no executed engineering tests, live agent behavior, billing savings, remote publication or readiness. No material owner questions remain; numeric limits and source-only delivery are explicit engineering decisions within approved scope.
+
+Run 0011 adds explicit committed Research references and agreed-schema lineage to Story 1. This is a provenance correction: story keys, criterion IDs, acceptance obligations, dependencies and other story content are retained. The historical draft marker and auxiliary examples remain illustrative; Plan records integer schema version 1 and a work-only envelope as engineering refinements.

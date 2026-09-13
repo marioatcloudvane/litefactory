@@ -16,9 +16,11 @@
 
 - 2026-09-13: Research run 0001 started; inventory current agent communication and propose a reviewable JSON contract sample.
 
-## Current status — run 0010
+## Current status — run 0011
 
-Plan iteration completed and typed six-story proposal submitted. Factory preflight returned valid=true, complete=true, no diagnostics and no unchecked paths. Durable request ID: `839744d827a5c7c4a3b738608a3c87ef`; receipt input state `valid`, Plan state `pending`, engineering/acceptance/effect states `not_applicable`. This records accepted input, not publication or readiness; factory terminal success, publication and save remain pending. No owner questions remain and no implementation started. The approved Research choices and full issue scope are preserved; MCP and live adoption remain excluded.
+Focused Plan traceability correction completed: Story 1 now explicitly links the committed approved Research handoff and all seven schema/example artifacts, maps agreed semantics to its existing criteria and distinguishes historical drafts from recorded Plan refinements. US-001 is submitted as update; US-002–US-006 are unchanged. No story keys, criterion IDs, acceptance obligations or scope changed.
+
+Factory preflight: valid=true, complete=true, no diagnostics/unchecked paths. Durable request `60fa836aeb44ea13bdb2eb7305285fc9`: input valid; Plan pending; engineering/acceptance/effect not_applicable. Revised publication and readiness await factory terminal/save processing. Existing child links remain in the Story Index. No source implementation or tests were needed for this reference-only Plan correction.
 
 ## Plan artifacts — run 0010
 
@@ -63,3 +65,5 @@ Plan iteration completed and typed six-story proposal submitted. Factory preflig
 - Run 0008: Explained the same three outstanding choices with concrete consequences and recommendations: explicit stable-ID changes, continuing same-mode result identity, and separate auxiliary advisors initially. No choices settled, new investigation, implementation or scope changes. Research remains incomplete pending owner decisions. Documentation-only clarification; no tests run.
 
 - Run 0009: Owner approved all three recommendations. Recorded patch format, result lifetime and auxiliary scope as settled; marked Research complete and retained technical delivery work in the handoff. No new investigation, code, tests, Plan start or MCP scope change.
+
+- Run 0011: Answered owner schema-provenance concern and submitted explicit Research links/lineage for Story 1 (#266); preserved current criteria and other stories. Full typed preflight passed, revised publication pending as recorded above.
