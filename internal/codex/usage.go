@@ -26,6 +26,7 @@ type usageCollector struct {
 	sinkFailed bool
 	terminal   bool
 	rollouts   *rolloutUsage
+	window     *HistoricalWindow
 }
 
 func newUsageCollector(ctx context.Context, req agent.Request) *usageCollector {
@@ -168,9 +169,9 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 	// belongs to finalization only, not subprocess retry scheduling.
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-	for {
+	for drain.Err() == nil {
 		c.collectRollouts(true)
-		if c.rolloutsFinalized() || drain.Err() != nil {
+		if c.rollouts == nil || c.rollouts.disabled || drain.Err() != nil {
 			break
 		}
 		select {
@@ -178,6 +179,9 @@ func (c *usageCollector) finish() *agent.UsageCoverage {
 		case <-ticker.C:
 		}
 	}
+	// The drain deadline is not request cancellation. Restore the request
+	// context before diagnostics and the final sink write.
+	c.ctx = previousContext
 	c.diagnoseRollouts()
 	if c.rollouts == nil {
 		c.diagnostic("usage_source_unavailable")

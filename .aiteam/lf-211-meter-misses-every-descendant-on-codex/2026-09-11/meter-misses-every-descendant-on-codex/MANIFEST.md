@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(done)*
 - [x] **Plan** — `plan_brief.md` *(run 0008 completed proposal; current valid input acknowledged, factory publication/readiness/save pending)*
-- [ ] **Implement** — code + tests *(not started)*
+- [ ] **Implement** — code + tests *(run 0009: all three scoped engineering stories recorded; aggregate make check fails unchanged protected instruction parity; save/acceptance unconfirmed)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
 **Validate** returns read-only structured findings through runner output.
@@ -36,3 +36,5 @@
 - 2026-09-12 — Run 0007 completed Plan contribution passed full preflight with no diagnostics; durable request 455ab7bf5c5fae87ecdbcd7f08d0ce7b acknowledged InputState valid / PlanState pending. Engineering, acceptance and effects not applicable in this receipt. Publication, issue links, readiness and terminal save remain factory work; no claim of published stories or completed implementation.
 
 - 2026-09-13 — Run 0008 retry: independently checked retained artifacts and unchanged worktree HEAD c5ebc85688e6348a4f54cd69071e9dc55296f892; requirements and architecture remain ready without scope changes. Earlier run history above is retained attribution, not proof of prior success. Prior request lookup 455ab7bf5c5fae87ecdbcd7f08d0ce7b returned processing incomplete. Current authorized preflight passed valid/complete with no diagnostics; unchanged contribution submitted as request cac447774acf8e813577195b1e70aa5b, InputState valid / PlanState pending, other dimensions not_applicable. Refreshed brief, architecture verification and receipt. No published child identities, remote publication or readiness were confirmed; factory terminal publication/save remains pending. No code, runtime repair, engineering checks, commits or pushes in this run.
+
+- 2026-09-13 — Run 0009 Implement: built all three frozen meter stories and passed scoped tests plus all product package race tests. Recorded final engineering evidence; full make check exited 2 solely in unchanged internal/teamsource protected instruction-parity tests (four top-level failures). This is a partial run, not aggregate completion or acceptance. No live repair, protected-tree changes, commits or pushes. See TEST_REPORT.md, AGGREGATE_CHECK_OUTPUT.txt and ENGINEERING_US001_FINAL_RECEIPT.json.

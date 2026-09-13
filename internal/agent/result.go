@@ -146,6 +146,11 @@ type RunResult struct {
 	// NumTurns is the terminal event's turn count, when the tool reports
 	// one.
 	NumTurns int
+	// HasNumTurns distinguishes an affirmative terminal zero from missing evidence.
+	HasNumTurns bool
+	// ProviderReportedZeroCostRefusal is an evidenced no-work resume refusal.
+	// It does not assert token quantities, actual model, or token-derived pricing.
+	ProviderReportedZeroCostRefusal bool
 
 	// HasResult reports whether a terminal result arrived at all. When it
 	// is false, CostUSD, IsError, NumTurns and ResultText are all zero and

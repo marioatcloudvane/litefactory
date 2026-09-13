@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -55,10 +56,12 @@ type rolloutFile struct {
 	observations        int
 	associated          bool
 	seen                map[string][32]byte
+	digest              hash.Hash
 }
 type rolloutRecord struct {
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	Timestamp string          `json:"timestamp"`
+	Type      string          `json:"type"`
+	Payload   json.RawMessage `json:"payload"`
 }
 type rolloutMeta struct {
 	ID      string `json:"id"`
@@ -258,11 +261,9 @@ func (c *usageCollector) collectRollouts(final bool) {
 		if _, ok := r.files[path]; ok {
 			return nil
 		}
-		// Existing unrelated sessions cannot become new descendants implicitly.
-		// Their identities may still be explicitly linked by the managed stream.
-		if old, ok := r.baseline[path]; ok && old.size == info.Size() {
-			return nil
-		}
+		// Metadata remains visible even when an ancestor has no new bytes:
+		// active grandchildren still need its parent link. Byte baselines below
+		// continue to exclude its historical response records.
 		if len(r.files) >= rolloutFiles {
 			return fmt.Errorf("rollout file limit")
 		}
@@ -301,6 +302,7 @@ func (c *usageCollector) collectRollouts(final bool) {
 		// the same as measured zero.
 		decoded := json.Unmarshal(line, &record) == nil
 		if !decoded || record.Type != "session_meta" {
+			c.diagnostic("unsupported_rollout_metadata")
 			return nil
 		}
 		var meta rolloutMeta
@@ -319,6 +321,10 @@ func (c *usageCollector) collectRollouts(final bool) {
 			meta.ID, meta.Parent, meta.Version, meta.Fork = base.ID, base.Parent, base.Version, base.Fork
 		}
 		if !validUsageID(meta.ID) {
+			return nil
+		}
+		if meta.Parent != "" && meta.Source.SubAgent.ThreadSpawn.Parent != "" && meta.Parent != meta.Source.SubAgent.ThreadSpawn.Parent {
+			c.diagnostic("conflicting_parent")
 			return nil
 		}
 		if meta.Parent == "" {
@@ -424,6 +430,9 @@ func (c *usageCollector) readRollout(ctx context.Context, state *rolloutFile) er
 	if _, err = file.Seek(state.offset, io.SeekStart); err != nil {
 		return err
 	}
+	if state.digest == nil {
+		state.digest = sha256.New()
+	}
 	reader := bufio.NewReaderSize(file, rolloutLineBytes)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -441,6 +450,7 @@ func (c *usageCollector) readRollout(ctx context.Context, state *rolloutFile) er
 			c.rollouts.disabled = true
 			return fmt.Errorf("rollout byte limit")
 		}
+		_, _ = state.digest.Write(line)
 		start := state.offset
 		state.offset += int64(len(line))
 		var record rolloutRecord
@@ -448,7 +458,22 @@ func (c *usageCollector) readRollout(ctx context.Context, state *rolloutFile) er
 			c.diagnostic("malformed_usage_event")
 			continue
 		}
-		c.rolloutRecord(state, record, start < state.baseline)
+		historical := start < state.baseline
+		// The historical root already has a durable measurement. Read its
+		// bytes only to attest identity/content; never reinterpret its totals.
+		if c.window != nil && state.id == c.thread {
+			continue
+		}
+		if c.window != nil && record.Type == "token_usage_record" {
+			at, timeErr := time.Parse(time.RFC3339Nano, record.Timestamp)
+			if timeErr != nil {
+				c.diagnostic("historical_timestamp_missing")
+				historical = true
+			} else if at.Before(c.window.From) || !at.Before(c.window.To) {
+				historical = true
+			}
+		}
+		c.rolloutRecord(state, record, historical)
 	}
 }
 func (c *usageCollector) rolloutRecord(state *rolloutFile, record rolloutRecord, historical bool) {
@@ -544,31 +569,6 @@ func (c *usageCollector) rolloutRecord(state *rolloutFile, record rolloutRecord,
 		c.coverage.Version = state.version
 	}
 	c.emit(agent.UsageEvent{Observation: &agent.UsageObservation{AttemptID: c.capture.AttemptID, SourceID: state.id, EventKey: "response:" + response.Response, InvocationID: state.id, ActualModel: actual, ModelProvenance: provenance, Mode: agent.CounterIncremental, Scope: agent.UsageExclusive, Tokens: tokens, Coverage: coverage}})
-}
-
-func (c *usageCollector) rolloutsFinalized() bool {
-	if c.rollouts == nil || c.rollouts.disabled || c.thread == "" {
-		return true
-	}
-	found := make(map[string]bool, len(c.rollouts.files))
-	for _, file := range c.rollouts.files {
-		if !file.associated {
-			continue
-		}
-		if !file.terminal {
-			return false
-		}
-		found[file.id] = true
-	}
-	if !found[c.thread] {
-		return false
-	}
-	for id := range c.parents {
-		if !found[id] {
-			return false
-		}
-	}
-	return true
 }
 
 func (c *usageCollector) diagnoseRollouts() {
