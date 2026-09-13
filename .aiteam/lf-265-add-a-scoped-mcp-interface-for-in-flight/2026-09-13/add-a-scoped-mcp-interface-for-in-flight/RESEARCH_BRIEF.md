@@ -1,3 +1,23 @@
+# Research approval record — run 0005
+
+Status: Research complete. Date: 2026-09-13.
+
+The owner replied **“yes, approved!”** to the run 0004 Issues-family proposal. The following are now approved product decisions:
+
+- List issues with an open/closed filter, defaulting to open, with pagination.
+- Get one issue and comment on an issue using its repository-local issue number as the targeting ID. List entries carry that targeting identity alongside the minimal read content.
+- Both read operations return title and mode labels when present.
+- Research can discover candidate relationships across issues in the current repository and comment on an authorized target.
+- Litefactory publishes comments and returns durable receipts with confirmed comment identity when available; retry/reconciliation prevents duplicate publication after uncertain replies.
+
+This approval settles the targeting, default-filter and pagination recommendations in run 0004. Earlier Research issue-creation direction and other recorded decisions remain preserved. It does not settle tentative eligibility for every other mode, bug/follow-up taxonomy or other previously open details.
+
+**JSON rework must finish before MCP implementation begins.** This remains a Research run; approval records the product direction and does not start implementation or authorize live issue creation/commenting in this run. No clarification is needed. Only the session brief and manifest were updated; no new source/web investigation, tests or remote operations were performed.
+
+---
+
+# Run 0004 retained findings (recommendations approved above)
+
 # Research discussion — issue discovery, reads and comments
 
 Status: bounded Research complete. Run 0004, 2026-09-13. Revision inspected: `c6efb21fce3152bc2a15cb3a85e9a98dcf14b448`.

@@ -38,3 +38,9 @@
 - 2026-09-13: Bounded Research complete at c6efb21fce3152bc2a15cb3a85e9a98dcf14b448. Added Issues list (open/closed), get by ID and comment by ID; both reads initially return title and optional mode labels. Recorded future Research relation discovery as motivation.
 - Recommended, not silently added to accepted content: a list targeting ID/opaque handle, bounded pagination with open default, and current-repository scope with explicit cross-issue comment capability. Distinguished repository issue number from database ID and durable comment receipts from remote confirmation.
 - JSON-before-implementation prerequisite and prior actual-publication direction preserved. No clarification required; no live issue reads, comments, publication, implementation or tests performed.
+
+## Run 0005 approval
+
+- 2026-09-13: Owner approved the run 0004 proposal (“yes, approved!”). Research complete. Approved Issues list/get/comment, open/closed filtering with open default and pagination, repository-local issue-number targeting in list/get/comment, title plus optional mode labels for reads, and factory comment publication with durable receipts/retry reconciliation.
+- Current-repository Research relation discovery and authorized target comments recorded as approved direction. Tentative other-mode eligibility and bug/follow-up taxonomy remain open; no broader approval inferred.
+- JSON-before-MCP-implementation prerequisite remains. Artifact-only continuation; no implementation, tests, fresh source/web investigation, issue creation or commenting performed.
