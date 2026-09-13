@@ -1,3 +1,52 @@
+# Research discussion — positive in-flight MCP needs
+
+Status: bounded Research complete; product preferences below remain open for discussion. Run 0002, 2026-09-13.
+Current revision: `20ff75952c1253bca4db739406f607821a5248f2`. The eight focused source files cited in this continuation are unchanged from the run 0001 evidence revision `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb` (scoped git diff checked).
+
+**Settled prerequisite: no real MCP implementation work starts before the JSON rework is complete.** End-of-run JSON remains the standard communication path. This continuation discusses the positive reasons for communicating while useful work is still running. Recommendations are proposed behavior, not implementation authorization. The earlier evidence inventory is retained below as historical reference; its broad exclusion catalog and host details are not the agenda for this discussion.
+
+The useful decision is what becomes better because the communication happens before exit. Five cases stand out. The first two improve the running agent's work; the third makes those interactions reliable; the fourth helps the owner see what is happening; the fifth is conditional on how proposals are used.
+
+| Positive need | Concrete moment during a run | Who benefits, and what comes back? | Why communicate before exit? | Recommendation and tradeoff |
+|---|---|---|---|---|
+| Interactive preflight and repair | A planner has assembled several related stories; a reviewer has assembled findings. The factory identifies an invalid reference or incomplete contribution. | The agent receives precise diagnostics and repairs the content while its reasoning context is still available. | A correctable payload problem need not consume another full run. | Strong candidate. Use preflight for complex contributions and repair loops. It is optional for simple results; each call adds latency and validation cost. Recheck after meaningful changes rather than repeatedly validating identical drafts. |
+| Durable story milestones and invalidation | Story A has passing executed checks while B and C still need work. Later, a B change may require revisiting A. | The factory retains A's exact evidence and returns its record identity; the agent can refer to that checkpoint. The owner can see completed intermediate work. | A later interruption need not erase the durable milestone; subsequent edits may change the files that established it. If rework invalidates the milestone, record that transition when rework begins. | Strong candidate at story boundaries. Preserve useful milestones, then reference them from the final result. More checkpoints cost storage and coordination, so begin with completed story/check boundaries rather than every edit or command. |
+| Receipts for uncertain delivery | The agent submitted a checkpoint or proposal but the reply was lost. | The agent gets a known record and its current state, or a clear pending/unknown response. | Remaining work may depend on whether the submission was durably recorded; blindly resubmitting can duplicate effects. | Treat this as the reliability companion to other in-flight writes. Lookup when uncertainty occurs, preserve request identity and use bounded retries. Waiting for remote publication is useful only when its result is needed by the next action. |
+| Advisory activity updates | Research is still tracing an unfamiliar path; implementation is running checks; a long run encounters a blocker but can continue elsewhere. | Primarily the owner receives a phase, latest useful finding or blocker with its freshness. Acknowledgment to the agent is normally enough. | The value is visibility during the wait. A final report cannot provide that timely visibility. | Strong candidate for long runs, including Research and Spike. Prefer meaningful phase changes and a bounded cadence; choose delivery/display behavior so updates remain easy to follow. Agent reads of status are conditional: add them where a factory-observed fact actually changes the agent's next action. |
+| Draft issue or substory proposals | While working on A, the agent discovers separate work D or a useful split of a story, and then continues A. | The factory could return a stable proposal identity, validation feedback and, if supported, a match to an existing proposal. The owner could see the proposal before the run finishes. | Useful when factory acknowledgment/feedback is needed by subsequent work, multiple contributions need a shared identity, or early visibility lets the owner consider the proposal sooner. | Conditional candidate. Distinguish factory-retained drafts from ordinary saved notes. Begin with a concrete proposal containing title, intended work, source, rationale and relationship. Decide whether early feedback, shared retention or owner visibility is the actual desired benefit. |
+
+Source anchors for the table: preflight and snapshot checks at `internal/turn/submissions.go:200` and `:220`; immediate engineering milestones at `internal/agent/story_progress.go:243`, invalidation handling at `internal/turn/submissions.go:208`; correlation at `internal/submission/client.go:51`, receipts at `internal/turn/submissions.go:190`; internal activity observations at `internal/daemon/worker.go:40`; concrete follow-up proposals at `internal/turn/followups.go:112` and `:235`. These establish the existing building blocks. Advisory agent updates and a general draft-proposal operation are proposed extensions.
+
+## How these cases fit together
+
+Preflight and receipts solve different problems. Preflight asks whether a contribution is acceptable before recording it; a receipt answers what happened to a contribution already sent. A routine successful write returns its receipt directly. An extra lookup is primarily recovery from uncertainty, not a mandatory extra step after every call.
+
+A checkpoint should capture a meaningful unit of work. For example, after A's scoped checks pass, the agent records A and moves on to B. If B later requires changing A's checked implementation, it invalidates A's milestone, makes the change and records fresh checked evidence. This makes intermediate evidence useful even if the run stops later. The current instructions already give this timing significance (`internal/agent/story_progress.go:243`), so this is the clearest established in-flight need. Durable input remains separate from final aggregate outcome; a new attempt receives whatever retained work the factory deliberately supplies.
+
+Activity updates have a different audience. The owner benefits from “traced the submission path; checking recovery next” even when the agent gains no new information from sending it. For the first discussion, decide what the owner should see and where. An agent-facing status read is valuable when it supplies a fact the agent cannot obtain from its own work or existing receipt, such as a factory-confirmed milestone relevant to its next step. General status polling has no demonstrated additional benefit in the inspected paths.
+
+Issue and substory proposals deserve a concrete example before choosing their timing. Suppose an agent finds a separate defect halfway through a long task. Saving the finding in its working artifact already preserves an ordinary note. An MCP handoff becomes useful when the factory needs to acknowledge a shared draft now, validate the proposed relationship, provide a reusable identity, help reconcile an existing proposal, or make it visible for owner consideration while the agent continues. Reuse/matching is a potential product benefit, not a demonstrated existing generic operation. Current follow-ups supply evidence for concrete proposal retention; typed Plan uses local story keys and one retained valid outcome per attempt (`internal/turn/typed_plan.go:133`; `internal/planbrief/typed_content.go:28`). A new issue and a proposed story split can share the draft concept while carrying different intended relationships.
+
+Early publication has a further positive motivation only if the next useful action requires the actual remote issue identity or URL. That situation should be described separately from early draft retention because it adds observable remote effects and different recovery needs. Nothing in this discussion requires settling that choice before exploring the simpler draft use case.
+
+## Discussion choices, not blockers
+
+The research can finish while these product preferences remain open. They need not be answered in one questionnaire. Suggested discussion order:
+
+1. **Agree on the strongest operational cases:** interactive repair, per-story durable milestones and receipt recovery. Recommendation: retain all three as the core positive candidates after JSON rework.
+2. **Choose the owner experience for status:** latest activity versus a short milestone history, and the place the owner reads it. Recommendation: a concise current activity plus meaningful transitions, avoiding a separate issue comment for every update. Exact display surface remains open.
+3. **Clarify the proposal benefit with one example:** is the main value early owner visibility, factory-acknowledged retention/shared identity, or feedback required by the continuing agent? Recommendation: discuss this next, because it determines whether a mid-run draft handoff adds value beyond final JSON and saved context.
+
+A useful next question for the owner is: **For newly discovered issues or substories, which benefit matters most during the run: letting you see the proposal early, retaining it with a factory identity, or giving the agent feedback it needs before continuing?** These benefits can coexist; the purpose is to identify the primary scenario, not require a permanent exclusive choice.
+
+## Continuation record
+
+Run 0002 used the current session and retained run 0001 evidence. The scoped eight-file revision comparison showed no changes. No new source content, test execution, host probe, implementation, commit or remote publication was needed. Product discussion remains open; the bounded research is complete. The JSON prerequisite is settled and must not be re-asked. Source-byte/token measurements remain those documented in run 0001; the continuation does not infer cost savings.
+
+---
+
+# Run 0001 retained evidence and earlier broad analysis
+
 # Research brief — scoped in-flight MCP communication
 
 Status: Research complete. Date: 2026-09-13. Issue #265, run 0001.
