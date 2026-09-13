@@ -115,3 +115,7 @@ These are draft review choices, not requests to authorize implementation. Next s
 ## History
 
 - 2026-09-13, run 0001: Inventoried current source contracts and callers; produced initial field schema and 15 mode/outcome examples plus lifecycle/update/progress/auxiliary shapes. Shared-library requirement retained. Research incomplete pending owner shape review; no implementation started.
+
+## Run 0002: artifact visibility correction
+
+The owner reported that the previous JSON link returned Not Found. The sample exists, is Git-tracked, and is present in local HEAD; remote publication was not verified. The previous response used a workspace-relative Markdown link in an issue-facing report. This run reproduces the complete saved sample inline in the final report so review does not depend on repository links. No contract choices have changed; the previous review decisions remain open. No manual staging, commit or push was performed.

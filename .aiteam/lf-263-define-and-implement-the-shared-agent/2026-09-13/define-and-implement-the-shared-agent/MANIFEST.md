@@ -30,3 +30,5 @@
 - `mode-examples.json`: 15 completed/incomplete/blocked examples across all five modes.
 - `exchange-examples.json`: creation, sparse updates, stale/invalid cases, receipts, advisory progress, auxiliary calls and legacy/evidence variants.
 - Validation: all three JSON documents parsed; mode/outcome matrix and common-shape checks passed. Illustrations are not production-valid fixtures. No Go code changed or tests executed.
+
+- Run 0002: Verified sample.json exists in local HEAD; corrected issue-facing delivery by including the full JSON inline. Remote publication unverified. Research remains open for owner review.
