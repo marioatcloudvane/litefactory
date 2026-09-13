@@ -44,3 +44,11 @@
 - 2026-09-13: Owner approved the run 0004 proposal (“yes, approved!”). Research complete. Approved Issues list/get/comment, open/closed filtering with open default and pagination, repository-local issue-number targeting in list/get/comment, title plus optional mode labels for reads, and factory comment publication with durable receipts/retry reconciliation.
 - Current-repository Research relation discovery and authorized target comments recorded as approved direction. Tentative other-mode eligibility and bug/follow-up taxonomy remain open; no broader approval inferred.
 - JSON-before-MCP-implementation prerequisite remains. Artifact-only continuation; no implementation, tests, fresh source/web investigation, issue creation or commenting performed.
+
+## Run 0006 sanity check
+
+- 2026-09-13: Owner asked to sanity-check the approved brief against current repository state. Research complete; result is a confirmation, not a correction.
+- Verified no source drift: this branch's HEAD (3d39ca200edf7348ff7efa856fc51c4b1fd4620a) is five commits ahead of origin/main (still at 6e52c3e), and those five commits touch only this session's `.aiteam/` files — `git diff` for `internal/`, `docs/` and `.aiteam/APP_CONSTRAINTS.md` between the run 0001 revision and HEAD is empty.
+- Re-read every load-bearing file:line citation (issues.go, comments.go, followups.go, agent/mode.go, daemon/mode.go, submission/broker.go, submission/client.go, cli/cmd_submission.go, agent/story_progress.go, turn/typed_plan.go, turn/submissions.go, store/submission_progress.go, store/followups.go, harness/runner.go, codex/runner.go, APP_CONSTRAINTS.md CONC-9) against the live files; all match the brief's description.
+- Confirmed no MCP-adapter code and no JSON-rework/terminal-envelope groundwork exists anywhere in the tree, so the owner's implementation-blocking prerequisite is still correctly unmet.
+- No corrections were needed to the approved direction; no clarification required; no source modified, no issues read/created/commented on, no tests run, no implementation performed.

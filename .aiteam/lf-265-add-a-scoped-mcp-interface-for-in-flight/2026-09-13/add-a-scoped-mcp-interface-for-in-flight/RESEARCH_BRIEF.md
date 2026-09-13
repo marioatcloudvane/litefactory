@@ -1,3 +1,33 @@
+# Sanity-check record — run 0006
+
+Status: Research complete. Date: 2026-09-13. Owner asked to sanity-check the approved brief against current repository state.
+
+**Result: the brief's factual claims and assumptions hold. No drift found; no correction needed to the approved direction.**
+
+## What was checked
+
+- Revision comparison: this branch's HEAD (`3d39ca200edf7348ff7efa856fc51c4b1fd4620a`) is five commits ahead of `origin/main`, and every one of those five commits touches only this session's `.aiteam/` brief/manifest — `git diff` between `6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb` (the run 0001 revision, and also current `origin/main`) and HEAD is **empty** for `internal/`, `docs/` and `.aiteam/APP_CONSTRAINTS.md`. The source tree every prior run inspected has not changed at all since run 0001; there is no upstream drift to reconcile either.
+- Re-read every load-bearing citation against the live files rather than trusting the prior line numbers: `internal/github/issues.go` (Issue.ID vs Number at :41/:43, `ListIssues` fixing `State: StateOpen` at :146/:159, `GetIssue` by repository-local number at :219), `internal/github/comments.go` (`PostComment` at :230 posting a `redact.Body`, requiring a nonzero returned comment ID at :259-260), `internal/github/followups.go:12` (the existing `State: "all"` listing), `internal/agent/mode.go` (`Label()` at :35, `ParseModeLabel` at :50) and `internal/daemon/mode.go:21` (`resolveModeLabel`) all match the brief's description exactly.
+- Confirmed the shared local CLI/broker path is real and matches the described shape: `internal/cli/cmd_submission.go` is a thin wrapper that reads stdin JSON and calls `submission.Call`; `internal/submission/client.go` reads the private descriptor and dials the Unix socket (:19-:67 region); `internal/submission/broker.go` creates the socket/descriptor (:91-:120 region) and its request handler still accepts exactly `preflight`/`submit`/`receipt` (:216 region) — no fourth method exists yet, so an Issues family or Feedback/Evidence/Activity/Receipts split is still net-new work, not already partially wired.
+- Confirmed `internal/agent/story_progress.go`'s per-story engineering checkpoint contract (`EngineeringEventInstructions`, immediately after :243) is unchanged and still the clearest existing precedent for a durable in-flight checkpoint.
+- Confirmed typed validation/assessment plumbing is unchanged: `internal/turn/typed_plan.go` still retains exactly one valid Plan outcome per attempt (`state.receiptID` guard near :133); `internal/turn/submissions.go` still requires `contract.SubmissionVersion != 2` to short-circuit (matching the brief's ":84 requires submission version 2" claim); `internal/store/submission_progress.go` still writes the `{"submission_version":2,"findings_source":"submission_receipts"}` marker; `internal/store/followups.go:106`'s `ListFollowupAssessments` still reads that same `validation_assessments` table that `internal/turn/followups.go` parses as legacy JSON — the compatibility caveat in run 0001's risk #6 still applies unchanged.
+- Confirmed there is still **no MCP-adapter groundwork and no JSON-rework groundwork** anywhere in the tree: `grep -ril mcp internal/` only turns up Claude's `--strict-mcp-config` flag handling in `internal/harness/runner.go` (no server is configured — the comment at :572-:573 still says exactly that) and unrelated test/settings files; there is no `internal/mcp` package or similar. `internal/codex/runner.go`'s `args()` function (now at :398, `-c features.shell_tool=false` for Validate now at :407) still constructs Codex arguments with no litefactory MCP server entry. A repo-wide search for "JSON rework", "terminal envelope" and "final envelope" returns nothing — the JSON rework the owner named as a hard prerequisite has not been started, so the approved MCP direction remains correctly gated on work that doesn't exist yet.
+- Spot-checked one project-constraint citation outside `internal/`: `.aiteam/APP_CONSTRAINTS.md` CONC-9 still requires "explicit quiescent parent `replan` or `/plan`" to reopen unfinished scope, matching the brief's frozen-scope claim.
+
+## Open items (unchanged from run 0005, not new)
+
+Nothing material surfaced. The previously recorded open items remain genuinely open discussion points, not blockers to this sanity check:
+
+- Exact wire/tool names for the Issues family and the other four families (Feedback/Evidence/Activity/Receipts) are still illustrative, not committed.
+- Eligibility of Issues-family capabilities (and bug/follow-up creation) for modes other than Research remains tentative, per run 0004/0005.
+- No live host (Claude Code / Codex CLI) MCP integration has been built or verified against a real supported version; this was flagged as unverified in run 0001/0003 and remains unverified today because no implementation has started, consistent with the JSON-rework gate.
+
+## Continuation result
+
+No clarification is needed. This run re-verified citations by reading the live files and by a scoped `git diff`/`git log`/`git merge-base` comparison against `origin/main`; no new product decisions were made and none of the run 0004/0005 approved direction was changed. No source was modified, no issues were read/created/commented on, no tests were run, and no implementation was performed. Probe environment: supplied worktree on Darwin arm64.
+
+---
+
 # Research approval record — run 0005
 
 Status: Research complete. Date: 2026-09-13.
