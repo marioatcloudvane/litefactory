@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the bounded Research passes through run 0006. Run 0006 adds a concrete illustrative Research DOT file, minimal actions, proposed local execution/recovery mechanics, and BSD/Apache commercial-use guidance. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
+Status: complete for the bounded Research passes through run 0007. Run 0007 adopts mode-namespaced action IDs and records the owner’s commercial-wrapper intent; its reviewability and license findings are below. Run 0006 adds a concrete illustrative Research DOT file, minimal actions, proposed local execution/recovery mechanics, and BSD/Apache commercial-use guidance. No implementation or Plan started. Run 0005 recommends a bounded DOT profile and Go parser for the first Research slice, superseding run 0004’s SCXML preference in light of the owner’s DOT interest and explicit acceptance that durability belongs in the runtime. Temporal remains a possible runtime backend, deferred for the initial local slice. Optional clarification and one definition per mode remain settled. Earlier findings are retained as history, not current format decisions.
 
 ## Request and answered decision
 
@@ -346,7 +346,7 @@ Library compatibility with the selected litefactory toolchain, full DOT edge-cas
 
 The owner asks for a Research action sketch, an example of the shipped workflow, execution-engine placement, and whether the BSD dependency conflicts with an intended Apache-2.0 core plus proprietary commercial extensions. These are clear bounded Research questions; no further owner decision is needed. Previous decisions stand: one file per mode, DOT, optional clarification, durable local orchestration, no automatic mode change. This section and the adjacent `RESEARCH_WORKFLOW_EXAMPLE.dot` are design examples, not implemented configuration, a final engineering plan or an approval to implement.
 
-Recommend three action types for the first slice: `agent`, `owner_pause`, and `save_report`. Parsing, output validation, evidence retention, transition choice, retry bookkeeping and failure checkpointing are runtime functions; they do not need model invocations or independent graph nodes. The sample has two bounded reasoning tasks to make evidence collection and synthesis separately resumable. Their separation is a provisional cost/observability tradeoff: a future small-request profile could combine them. A graph node does not imply another owner-triggered run, commit, publication or issue comment.
+Historical run-0006 naming, superseded by run 0007: three action types for the first slice were `agent`, `owner_pause`, and `save_report`. Parsing, output validation, evidence retention, transition choice, retry bookkeeping and failure checkpointing are runtime functions; they do not need model invocations or independent graph nodes. The sample has two bounded reasoning tasks to make evidence collection and synthesis separately resumable. Their separation is a provisional cost/observability tradeoff: a future small-request profile could combine them. A graph node does not imply another owner-triggered run, commit, publication or issue comment.
 
 | Action | Inputs and responsibility | Results |
 |---|---|---|
@@ -453,3 +453,46 @@ Focused current source inspection was in the supplied macOS worktree at revision
 Primary license sources were checked on 2026-09-13, with Gonum pinned to v0.16.0 as previously inspected; no dependency version was selected or installed. The sample was inspected as research text only: no parser, Graphviz, Go build, tests, workflow execution or recovery experiment ran. Only this session's brief, manifest and illustrative DOT were written. No source implementation, policy, daemon state, external publication or mode transition occurred.
 
 - 2026-09-13 (run 0006): Completed minimal Research actions, illustrative DOT/profile with common failures, shipped catalog/snapshot model, runtime ownership and crash-recovery sketch; corrected outdated catalog-fallback assumptions against current source; explained BSD-3-Clause compatibility with intended Apache-2.0 core and proprietary additions. No blocking owner question; Research complete for this bounded request.
+
+
+## Run 0007: Mode-namespaced actions, reviewable example and commercial wrapper
+
+### Request and settled direction
+
+The owner clarifies the intended commercial product is a wrapper providing additional proprietary functionality around the Apache-2.0 core, not an intended derivative/fork. This records product intent; whether a particular implementation is legally a derivative is a separate question and is not determined by the word “wrapper.” The owner also reports that the previously linked sample was not checked in and cannot be reviewed, and proposes action names `lf_<mode>_*`. These are clear continuation requests; no new scope question or mode change is needed.
+
+### Action identifiers
+
+Adopt `lf_<mode>_<capability>` as the naming convention for **action values**. Keep common DOT schema keys such as `lf_action`, `lf_task`, `lf_on`, and `lf_status` shared across modes. Stable node IDs such as `investigate` identify a particular step; action IDs identify registered executable capabilities. Display labels are neither of those identities. No new parser syntax is needed: DOT already carries these strings as attribute values; their execution meaning remains the proposed litefactory profile.
+
+| Proposed action ID | Shared implementation responsibility |
+|---|---|
+| `lf_research_agent` | Run a bounded registered Research task, validate its outcome, retain accepted evidence/output. The task `research_evidence` or `research_synthesis` distinguishes the two agent nodes. |
+| `lf_research_owner_pause` | Save partial findings/questions and report intent; suspend and release the worker; resume only on a correlated authorized reply. |
+| `lf_research_save_report` | Retain the complete/incomplete brief and deliver through the factory reporting channel with effect reconciliation. |
+
+These names replace the generic action values in the current `RESEARCH_WORKFLOW_EXAMPLE.dot`. The run-0005 and run-0006 prose/excerpts remain historical; their generic IDs are not a second supported alias scheme. The proposed profile remains illustrative and unimplemented.
+
+Recommend an explicit action registry: exact action ID → allowed mode, shared handler, task/input/output contract, and permission requirements. For example, another mode's future `lf_plan_agent` can reuse the same Go agent-invocation handler with a Plan-specific contract. Mode namespacing does not require duplicated executor code or a separate engine for each mode. Registration should be explicit, not automatic dispatch based on splitting an arbitrary string.
+
+The loader rejects unknown action IDs and IDs registered for another mode. The registry validates allowed task references, required inputs and possible outcomes before execution. An `lf_research_*` prefix is descriptive, not permission: existing selected-mode authority, role resolution, runtime capability checks and inherited permission ceilings still apply. A renamed action cannot grant arbitrary shell access, publish stories or switch modes.
+
+The sample retains all previously settled behavior: direct investigation when instructions are clear, owner pause only for material gaps, persisted originating-node reply routing, bounded automatic refinement, separate safe technical retry policy, complete/incomplete reporting and explicit failed termination. No mandatory clarification call is introduced. The three named action kinds are capabilities implemented by litefactory; `owner_pause` and report bookkeeping do not need additional model calls.
+
+### Reviewability: committed sample versus local file link
+
+The owner could not review the earlier absolute filesystem link. Focused Git inspection in this run found the existing sample tracked, not ignored, and already present in local HEAD: `git ls-files` listed it, `git check-ignore` returned exit 1, and `git cat-file -e HEAD:<sample-path>` succeeded. Its last commit was `f557852227ead1b9c05926ceb2a1e6ec41bd140d`; read-only `git ls-remote origin` for the task branch advertised that same commit. The credential helper emitted a lock warning during that query, but the command completed with exit 0 and the matching branch ref. These facts establish presence on the advertised task branch, not on the default branch or accessibility to every reader.
+
+The previous committed sample can be reviewed through this [GitHub file link at the immutable commit](https://github.com/marioatcloudvane/litefactory/blob/f557852227ead1b9c05926ceb2a1e6ec41bd140d/.aiteam/lf-230-dag-based-execution-of-implementation/2026-09-13/dag-based-execution-of-implementation/RESEARCH_WORKFLOW_EXAMPLE.dot). That version predates this run's action renaming. The final report includes the revised DOT inline, making it reviewable from the issue before the factory commits this run. Only the existing session sample is maintained; no duplicate documentation copy is introduced. No agent ran `git add`, commit, stash or push; the factory owns committing the revised research artifacts after the run.
+
+### Licensing clarification for the intended wrapper
+
+The clarified intended arrangement is a separate proprietary commercial wrapper adding functionality through the Apache-2.0 core's interfaces. As a general reading of the inspected licenses, this is compatible with using a BSD-3-Clause dependency in the core; neither license imposes a general obligation to disclose source for those proprietary additions. BSD-3-Clause requires retained notices/conditions/disclaimer in the specified redistribution materials and prohibits using contributor names for endorsement without permission. [Official BSD-3-Clause text, checked 2026-09-13](https://opensource.org/license/bsd-3-clause)
+
+Apache-2.0 §1 specifically excludes separable works and works merely linking/binding to interfaces from its definition of Derivative Works. That supports the owner's proposed separation, without proving the legal classification of an unseen implementation. When distributing the core or its dependencies with the commercial product, their license-copy and applicable notice obligations still apply; proprietary wrapper terms do not replace the open-source components' terms. [Apache License 2.0 §§1, 4, checked 2026-09-13](https://www.apache.org/licenses/LICENSE-2.0) This records the intended boundary and general license reading, not an audit of an actual commercial package.
+
+### Evidence boundary
+
+This pass edits research artifacts only and reuses the earlier runtime design findings. The DOT remains a proposed authoring example, not currently executable by litefactory. No Go implementation, schema, dependencies, daemon state, tests/builds or mode transition changed. Source-byte counts and billed tokens were not measured.
+
+- 2026-09-13 (run 0007): Completed mode-namespaced action proposal, revised existing DOT, verified prior sample on the advertised task branch and provided reviewable inline delivery, and recorded separate commercial-wrapper intent against primary BSD/Apache license texts. No blocking question, implementation, tests or mode transition.

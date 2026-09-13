@@ -26,6 +26,8 @@
 
 - 2026-09-13 (run 0006): Completed action and execution-engine sketch; saved illustrative RESEARCH_WORKFLOW_EXAMPLE.dot, defined optional clarification, common failure/recovery paths and managed distribution; corrected current catalog loading behavior; researched BSD/Apache commercial compatibility. Research only, no tests or implementation.
 
+- 2026-09-13 (run 0007): Completed mode-namespaced action sketch, recorded commercial-wrapper intent and addressed sample reviewability; preserved prior design and research history. Research only; no implementation, tests or mode transition.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.
