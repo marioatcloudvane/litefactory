@@ -1,3 +1,89 @@
+# Research discussion — local MCP setup, publication and tool families
+
+Status: bounded Research complete; naming and detailed issue taxonomy remain discussion choices. Run 0003, 2026-09-13.
+Current revision: `5028d988a9187383cd67136d4d8eab5f37bde9f3`. Focused comparison with run 0001 found no changes in the submission package, submission service, Plan publication, follow-up publication, Claude runner or Codex runner used below.
+
+## Settled direction and clarification
+
+- JSON rework completes before real MCP implementation begins. Terminal JSON remains the standard result path.
+- Research should be able to request **actual issue creation** when an oversized researched issue should be split into digestible work. The owner supplied #258 → #263/#264/#265 as the concrete example; this example is owner-reported, not independently reconstructed here.
+- Litefactory performs forge publication; the agent invokes the scoped communication service and receives its result. This supersedes the earlier draft-only recommendation for this case.
+- Bug/follow-up creation from other modes is a desired direction with tentative breadth: exact kinds and eligible mode combinations remain to be defined. A published research decomposition establishes backlog work; implementation approval remains a later workflow decision.
+- This run researches that capability. It does not create issues or implement the interface.
+
+## Preflight is a normal tool call
+
+There is no need for litefactory to call an agent back or start a second model. The running agent calls a tool; litefactory validates the submitted data and returns diagnostics as that tool's result; the host delivers that result into the same agent conversation; the agent repairs its payload and can call again. The adapter does not make an LLM request to produce the diagnostics.
+
+Example: the agent calls `feedback_preflight` with a proposed batch. The result says an item references an unknown local dependency key and identifies the field. The agent fixes the reference, preflights again if useful, then calls the publication operation. Existing preflight already parses contributions, checks scoped semantics and returns JSON diagnostics (`internal/turn/submissions.go:187`, `:200`, `:220`). Preflight for issue publication would reuse the new shared contract's corresponding validation.
+
+The protocol supplies tools/call and a correlated result. That is sufficient for this loop. [MCP tools, version 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+
+## Recommended local setup
+
+Use one local stdio MCP adapter per host/attempt, connected to the daemon-owned service through the private local broker. This is a recommendation supported by the existing socket boundary, not an implemented or live-host-verified integration.
+
+```mermaid
+flowchart LR
+    A[Agent running in Claude or Codex] <-->|Tool call and tool result| H[Host MCP client]
+    H <-->|stdio JSON-RPC pipes| M[Litefactory MCP adapter]
+    M <-->|Private Unix socket| D[Litefactory daemon / shared service]
+    D <-->|Publication and confirmed identities| G[GitHub]
+```
+
+The host starts the adapter process and owns its stdin/stdout pipes. MCP messages use newline-delimited JSON-RPC; the adapter reserves stdout for protocol messages and sends logs to stderr. A local MCP HTTP listener is unnecessary for this design. GitHub publication still uses the daemon's normal network connection. These pipes are separate from the host process's final-output stream consumed by litefactory. [MCP transports, version 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+
+The local hop already exists: `submission.Call` reads a private descriptor and dials a Unix socket (`internal/submission/client.go:19`, `:36`, `:67`); the broker creates the socket and descriptor (`internal/submission/broker.go:91`, `:120`). The future adapter can translate MCP tools into that service boundary. The current method set is preflight/submit/receipt; issue and activity operations require their shared service support as part of the agreed work. The broker's socket protocol is an internal transport, not MCP itself.
+
+| Host | Officially documented setup capability | Litefactory recommendation |
+|---|---|---|
+| Claude Code | Local stdio commands are supported. `--strict-mcp-config` uses explicit `--mcp-config` servers. | Generate a private per-attempt config pointing at the adapter executable and descriptor; supply it at launch alongside the existing strict flag. |
+| Codex CLI | A named `mcp_servers` configuration supports `command`, `args`, environment settings and `enabled_tools`; command-line config overrides are supported. | Inject the current adapter command, descriptor and allowed tool names through factory-controlled launch configuration/overrides. |
+
+Sources: [Claude Code MCP](https://code.claude.com/docs/en/mcp), [OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), [OpenAI configuration precedence](https://learn.chatgpt.com/docs/config-file/config-basic). These are current documentation claims, checked 2026-09-13, not a certification of installed binary versions. The repo currently appends Claude's strict flag without an adapter config (`internal/harness/runner.go:629`) and constructs Codex overrides without a litefactory MCP entry (`internal/codex/runner.go:398`). Exact behavior with supported host versions remains an implementation verification step.
+
+Recommended lifetime: litefactory binds a fresh attempt and allowed operation set, starts its broker and supplies adapter startup data; the host launches the adapter, negotiates MCP initialization and discovers permitted tools. Resume/fallback launches receive a fresh attempt binding. Credentials consist of the private attempt capability/descriptor, not forge credentials in the model's tool arguments. Reconnecting within a still-active attempt can recover receipts; a replacement attempt does not inherit old authority. On host shutdown, the adapter exits and litefactory revokes the attempt while keeping durable receipts. The protocol uses transport closure for shutdown; stdio clients close child input and can terminate an unresponsive server process. [MCP lifecycle, version 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
+
+## Actual issue creation for a research decomposition
+
+The accepted use case is a tool such as `issues_create_batch`: after researching a large issue, the agent submits several concrete smaller issue bodies, their relationship to the source issue and dependencies between them. Litefactory validates and publishes the authorized batch, returning the real issue IDs and URLs plus a durable receipt. The agent can use those links while finishing the research and in its final report. Calling the same shared operation after final JSON remains appropriate when nothing needs the publication result earlier.
+
+Recommended request/result semantics:
+
+1. Use local item keys within a batch, such as `contract`, `lifecycle`, `mcp`; dependencies refer to those keys until litefactory resolves the new remote identities. Include complete proposed content and a rationale for the decomposition. These illustrate the owner's #258 example without claiming its historical mechanics.
+2. Express the intended relationship separately: a source link, a child relationship and a dependency are distinct facts. The factory binds the actual source/repository and validates the requested relationships against the attempt's scope. Recommended starting scope is the current repository and source issue.
+3. Preflight checks the complete batch before publication: references, cycles, content and relationships. The publication operation repeats applicable validation because preflight is an earlier observation.
+4. Persist an operation identity before remote effects. Return a per-item mapping from local key to confirmed issue ID/URL and individual creation/link/dependency states. A partially published batch remains recoverable; a later retry reconciles the same operation instead of creating another set. Changed content must not silently reuse an immutable request identity.
+5. A receipt that says pending is useful when GitHub confirmation takes longer than the tool deadline. The agent can continue independent work and later retrieve the receipt if it needs the resulting URLs. Previously confirmed publication remains a fact even if the parent agent subsequently fails.
+
+Existing publication owners demonstrate reusable mechanisms: `internal/turn/plan_publication.go:269` coordinates story publication and `:308` records durable create intent; follow-up creation uses durable attempted/identity state before attachment (`internal/turn/followups.go:262`, `:289`, `:308`, `:326`). The new Research action should reuse shared factory publication/reconciliation mechanisms while expressing research decomposition as its own operation. This recommendation does not assume managed Plan readiness or its terminal gating is the research action's meaning.
+
+The user has explicitly selected the publication capability. A further approval question is unnecessary to continue this discussion. Concrete run permissions should express that scoped capability; exact labels and bug/follow-up taxonomy can be chosen later. Publishing researched backlog issues does not imply that their implementation is approved or dispatched.
+
+## Tool families within one litefactory server
+
+These are organizational categories with proposed names, not committed API names. MCP lists individual named tools; it does not standardize a folder hierarchy for these categories. Prefixes, concise descriptions and mode-filtered discovery keep them understandable. Each service call still checks the authenticated attempt's authority. [MCP tool definitions and names](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+
+| Category | Illustrative tools | Positive purpose | Who uses it? |
+|---|---|---|---|
+| Feedback | `feedback_preflight` | Validate a proposed contribution or issue batch and return correction diagnostics. | Any mode with an applicable shared payload contract. |
+| Issues | `issues_create_batch` | Publish a researched decomposition; create a concrete bug or follow-up with source relationships when the mode has that capability. | Research definitely; other mode/type combinations follow the owner's tentative extension. |
+| Evidence | `evidence_submit` | Retain a story checkpoint, assessment or invalidation with its evidence and stage semantics. | Implement/Validate and applicable managed profiles. |
+| Activity | `activity_update`, optionally `activity_get` | Show phase/findings/blockers to the owner; retrieve scoped factory state when it changes the agent's next action. | Research, Spike and managed modes. |
+| Receipts | `receipts_get` | Recover the durable outcome and publication identities of an earlier operation after uncertainty or pending delivery. | Every profile with a receipted operation. |
+
+Multiple categorized tools can share the same validation and submission service. Favor concrete tool names over a universal arbitrary action dispatcher: schemas and descriptions remain visible to the host and agent. Categories organize the interface; profile filtering controls what a run needs to discover, and server-side authorization enforces what it may execute.
+
+## Remaining discussion and evidence limits
+
+No required question blocks this research result. Open preferences are exact category/tool names; labels and issue types for bug/follow-up creation; eligible other-mode/type combinations; default source-link versus child relationships; and owner-facing activity presentation. Recommended next product detail is the relationship expected for a Research decomposition (linked follow-ups or actual children), using #258 as the example. It need not delay the agreed transport or capability discussion.
+
+OpenAI Docs skill was used for Codex-specific setup. Only primary host/protocol documentation was browsed. Local probe environment remains Darwin arm64. Seven relevant source files total 127,889 on-disk bytes (wc -c); only focused excerpts were read, and that count is neither transmitted bytes nor billed tokens. No tests, nested host invocation, implementation, commits, daemon changes or issue publication were performed. Host documentation establishes support; actual litefactory integration remains unverified.
+
+---
+
+# Run 0002 retained discussion (publication direction superseded above)
+
 # Research discussion — positive in-flight MCP needs
 
 Status: bounded Research complete; product preferences below remain open for discussion. Run 0002, 2026-09-13.
