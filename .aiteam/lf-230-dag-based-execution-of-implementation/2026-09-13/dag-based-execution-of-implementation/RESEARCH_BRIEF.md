@@ -1,6 +1,6 @@
 # Research brief: file-defined execution workflows
 
-Status: complete for the requested first, surface-level Research pass. No implementation or Plan started.
+Status: complete for the requested surface-level Research passes, including run 0003's Research-first workflow sketch. No implementation or Plan started. The run 0003 refinement below supersedes the earlier single-file packaging and Implement-first next-step suggestions; prior findings are retained as history.
 
 ## Request and answered decision
 
@@ -87,3 +87,90 @@ This request deliberately changes current policies. `SEC-21` at `.aiteam/APP_CON
 Next Research iteration should narrow the action/result contract, stage completion and rewind semantics, test execution provenance, and migration/recovery behavior, ideally around one representative Implement story cycle. Measure orchestration-only calls, exclusive tokens and elapsed time against the current path before claiming savings. Provider adapters and source delivery need verification for direct factory specialist invocation; existing support for a root runner plus delivered specialists does not by itself prove that new action path.
 
 There are no unresolved questions blocking this bounded research result. Exact file placement/syntax, stage signals, retry policy and suite-failure reporting are intentionally deferred design topics. No stories were published and no source code or workflow policies were changed.
+
+## Run 0003: one file per mode; start with Research
+
+### Request and scope
+
+The owner asks whether to have one file per stage and whether Research is a good first workflow to sketch. **Yes: recommend one file per mode, with the steps/nodes inside that file.** Here “mode” means Research, Plan, Implement, Validate or Spike; “step” means clarify, investigate or synthesize within Research. This resolves the terminology explicitly without requiring another owner decision. Do not split every node into its own file initially: the complete flow should be readable in one place.
+
+Illustrative future layout: `workflows/research.yaml`, `plan.yaml`, `implement.yaml`, `validate.yaml`, and `spike.yaml` under the same directory. These paths are proposals, not files created by this research or existing executable configuration. Together they form the one shipped standard workflow set. A shared version/manifest can later tie the set together when needed; avoid building a variant registry or include language for the first slice.
+
+This refines the earlier suggestion of one definition containing all mode entry points. Keep mode-specific changes reviewable independently while retaining common action semantics in the runtime. Agent role/skill files still hold the reasoning instructions referenced by nodes; runtime progress, replies, outputs and attempts belong in durable instance state, never in the editable definition file. Pin the definition identity/digest for each instance, as recommended above.
+
+### Focused current-contract evidence
+
+New citations in this section refer to revision `6dca1442b19e846866e4c9005dc7e1bfd68a248e`, inspected on 2026-09-13 in the supplied macOS worktree. Earlier citations remain attributed to the earlier revision and were not all reverified in this continuation.
+
+- `teams/source/agents/shared/research-orchestrator.md:10` delegates the research work to the evidence contract and at line 14 returns after saving, without starting Plan.
+- `teams/source/skills/research-evidence/SKILL.md:21` defines the initial clarity check; line 28 defines grouped owner questions, incomplete state and an ended run; line 31 prohibits waiting/polling and requires reusing settled answers.
+- `teams/source/skills/research-evidence/SKILL.md:13` requires session reuse; line 49 requires maintained findings, decisions and history, with bounded completion at line 51.
+
+These observations support a small Research graph grounded in the existing behavior. They do not establish that node persistence, typed Research outcomes or an editable graph interpreter already exist. This continuation inspected those contracts and the supplied session only; no tests, builds, external research or runtime experiments were performed. Source-byte counts and billed tokens were not measured, and no performance improvement is claimed.
+
+### Proposed Research flow
+
+```text
+clarify -> investigate -> synthesize -> save/report -> complete
+                ^             |
+                +-- refine ---+  (bounded)
+
+Any reasoning step --needs_input--> save partial brief + questions -> end run
+Owner reply ---------------------> resume the saved reasoning step
+```
+
+`clarify` checks the request and existing answers, returning immediately when clear; it is not a mandatory owner meeting. `investigate` gathers only the evidence needed for the bounded question. `synthesize` produces options, a recommendation and uncertainties, requesting a further focused investigation only when needed. The factory handles outcome validation, durable state and reporting; bookkeeping and question delivery do not need separate agent calls. Logical node boundaries need not imply extra paid invocations solely to move data between steps; determine call granularity in the first runtime experiment.
+
+The following YAML is **illustrative design notation, not runnable configuration or an agreed/current schema**. It deliberately omits bindings and transport details:
+
+```yaml
+mode: research
+entry: clarify
+refinement_limit: 2  # candidate default; not a settled policy
+nodes:
+  clarify:
+    action: agent
+    task: clarify_scope
+    on: {done: investigate}
+  investigate:
+    action: agent
+    task: gather_focused_evidence
+    on: {done: synthesize}
+  synthesize:
+    action: agent
+    task: recommend_and_draft_brief
+    on: {done: finish, refine: investigate}
+  finish:
+    action: save_and_report
+    on: {done: complete}
+common_outcomes:
+  needs_input: save_questions_and_end_run
+  blocked: save_incomplete_result_and_end_run
+  failed: record_failure_and_end_run
+resume: saved_reasoning_node_with_owner_reply
+```
+
+Each agent result should have a typed outcome and artifact references, with questions for `needs_input` and a reason/focused evidence request for `refine`. The factory validates the result and chooses only allowed transitions; it must not infer progress from free-form prose. `done` means that node's work is complete, while Research completes only after its required brief/report is safely retained. Invalid or missing output becomes a recorded failure, never an implicit success.
+
+Keep automatic refinement bounded; the candidate two-round limit is a starting point for discussion. Exhaustion saves an incomplete result explaining the unresolved issue and ends the run. Technical retries are distinct from evidence-refinement loops. Owner replies are new authorized turns, so they must not be rejected merely because a prior automatic loop exhausted its budget.
+
+### The smallest useful runtime slice
+
+Research is a good first slice because it exercises agent invocation, typed branching, artifact retention, owner pause/resume and restart recovery without the test scheduling and shared-writer concerns of Implement. It proves the control-flow foundation, **not** story dependency scheduling, test execution provenance, fix-loop quality or concurrent implementation; those need a later Implement slice.
+
+The first slice should demonstrate:
+
+1. A clear request reaches a saved brief and report through the declared graph.
+2. A material question from any reasoning step saves the partial brief, records the resume node and ends the run. The owner reply resumes with the same session and settled answers.
+3. A bounded refinement revisits investigation; exhaustion or an action failure ends with honest incomplete/failure state.
+4. A restart retains definition identity, node/attempt, accepted output and question/report effect identity. Retried delivery reconciles the recorded effect rather than duplicating an owner question or report; a repeated reply event is not consumed twice.
+5. Completing Research ends Research. Starting Plan remains an explicit owner-controlled mode choice.
+
+These are proposed demonstration scenarios, not executed tests or published acceptance criteria. Persist pending question/report intent before delivery, then retain delivery acknowledgement; use the existing factory report channel. No new external message was sent by this research. Exact action envelope, persistence records and reply correlation are the next focused Research topic, with one pause/reply/restart example sufficient to keep it small. No implementation or mode transition is started here.
+
+### Decisions and history
+
+- Settled owner correction remains unchanged: the first original heading means Research; Implement is autonomous.
+- Run 0003 recommendation: one definition file per mode, several nodes within each; Research is the first vertical slice. This is a recommendation responding to the owner's question, not a claim of approval to implement.
+- No blocking clarification is needed for this sketch. Schema, storage layout, retry count and call granularity remain explicitly provisional.
+- 2026-09-13 (run 0003): Preserved prior findings, refined file granularity, and sketched Research branching, bounded refinement, owner pause/resume and recovery. Research complete for this bounded request; no implementation changes, tests or publication.
