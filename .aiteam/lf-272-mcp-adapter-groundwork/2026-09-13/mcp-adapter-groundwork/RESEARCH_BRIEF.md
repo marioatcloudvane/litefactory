@@ -1,6 +1,6 @@
 # MCP adapter groundwork: architecture research
 
-Status: **Research complete — architecture only.** Run 0001, 2026-09-13. Feature: `mcp-adapter-groundwork`, issue #272. Repository revision: `184f1df090a0569425880235ce2afdd24033c586`.
+Status: **Research complete — architecture and grant security/user-flow clarification.** Latest continuation: run 0003, 2026-09-13. Original architecture: run 0001. Feature: `mcp-adapter-groundwork`, issue #272. Repository revision: `184f1df090a0569425880235ce2afdd24033c586`.
 
 ## Recommendation and delivered baseline
 
@@ -55,7 +55,7 @@ For shared results, delegate to `AgentResultService.Preflight`, `.Submit`, `.Rec
 | `CreationAuthorizer` | `internal/turn/mcp_creation.go` | Validate normalized creation intent against gate, scope and grant; atomically reserve one operation through store, then return a permit or existing operation. No forge business logic. |
 | `CreationIntent`, `CreationPermit` | `internal/submission/creation.go` | Bounded immutable creation payload identity and opaque reserved-operation handle. Intent includes repository, exact content digest, item count and relationship scope. Permit is constructed only by factory authorization. |
 | `OwnerGrantCommand` | `internal/turn/mcp_grant_control.go` | Pure exact owner-command parser; trusted actor/comment identity is supplied separately by daemon, never parsed from prose. |
-| `GrantIntent`, `CreationGrant`, `CreationOperation` | `internal/store/mcp_creation.go` | Durable one-launch owner approval, attempt-bound token digest/expiry, reservations, dedup and effect-state identity. New embedded migration; all SQL stays in store. |
+| `GrantIntent`, `CreationGrant`, `CreationOperation` | `internal/store/mcp_creation.go` | Durable one-launch owner approval, attempt-bound grant identity/expiry, reservations, dedup and effect-state identity. New embedded migration; all SQL stays in store. |
 
 No separate repository abstraction, settings service, generic authorization framework or per-tool class hierarchy is needed. `CreationAuthorizer` can use function fields for concrete store operations instead of a large mock-oriented repository interface. Existing `config.Settings`, `daemon.Daemon`, `turn` launch wrapper, `submission.Broker` and `store.DB` are extended, not recreated.
 
@@ -100,7 +100,7 @@ classDiagram
         +State string
     }
     class CreationAuthorizer {
-        +Reserve(ctx, intent, token)
+        +Reserve(ctx, authenticatedAttempt, intent)
     }
     class CreationIntent {
         +Repository string
@@ -123,7 +123,7 @@ classDiagram
     }
     class CreationGrant {
         +AttemptID string
-        +TokenDigest string
+        +GrantID string
         +ContentHash string
         +ExpiresAt time
         +ConsumedOperation string
@@ -152,7 +152,7 @@ classDiagram
     CreationPermit --> CreationOperation
 ```
 
-Package direction remains `mcpadapter → submission` (or only its local backend interface), `turn → submission, agentresult, store, existing workflow owners`, `cli → mcpadapter, submission`, and `daemon → turn`. Neither submission nor mcpadapter imports turn, store or github. Config remains a leaf. Only existing github services perform forge I/O. The adapter's SQL-free boundary is essential: an agent-controlled process must not read grants or invoke owner-only minting directly.
+Package direction remains `mcpadapter → submission` (or only its local backend interface), `turn → submission, agentresult, store, existing workflow owners`, `cli → mcpadapter, submission`, and `daemon → turn`. Neither submission nor mcpadapter imports turn, store or github. Config remains a leaf. Only existing github services perform forge I/O. The adapter's SQL-free boundary is essential: it has no supported API to read the grant store or invoke owner-only minting. Actual isolation from a process running as the same local OS user additionally depends on host sandbox/OS controls; private file modes alone do not provide that isolation.
 
 ## Mode profiles and scope
 
@@ -206,13 +206,13 @@ Proposed grant flow:
 1. The owner reviews an immutable concrete creation proposal, including title/body/item keys/repository/relationships. #273 owns batch normalization and validation; #272 owns a versioned opaque digest contract. Preflight itself stays side-effect free. Retaining a reviewable proposal is an explicit result/proposal submission, not a hidden preflight write.
 2. An exact owner command, e.g. `/mcp-create <proposal-hash> linked|attach`, is parsed by the daemon's authenticated control path. Numeric owner identity and actual comment ID come from GitHub transport/filtering. Neither quoted prose, agent-authored comments, bot-generated notices nor identical text from another actor can mint a grant. A verified bot marker identifies a proposal/notice, not an owner approval.
 3. Persist an idempotent **next-launch grant intent**, bound to task, immutable proposal, expected mode/work context and owner comment. Consume it once when the factory allocates the expressly authorized launch. This is the recommended minimum owner channel because normal comment draining skips in-flight tasks (`daemon/tick.go:942`): adding a `/followup`-like handler alone does not deliver grants during an active run. The command can launch one bounded creation continuation using existing admission, without changing mode. No general ask/wait loop or live control polling is added.
-4. At that launch, revalidate loaded gate and intent context, mint an unpredictable token, and bind its digest to exact attempt, broker lease, content hash, authorized repository/relationship, item count and expiry. Deliver the token privately in the trusted launch context; never post it in a GitHub comment or return it from an MCP mint tool. A refused resume/fallback does not transfer or re-mint this grant automatically; consume-on-launch intentionally requires fresh owner intent for another launch.
-5. A creation call must supply the opaque token plus exact content. The factory recomputes the normalized digest; never trust an agent-provided hash. Include version, item keys, titles, bodies, relationships, target parent and repository. Hash deterministic publishable content after the defined normalization/redaction policy so authorization cannot silently refer to different published bytes. Any content-affecting change requires another review/hash/grant.
-6. A single short store transaction checks live authority and loaded gate, grant token/content/attempt/expiry, caps and existing operation identity. It reserves volume, consumes the grant into one operation, and persists immutable intent before any forge I/O. Return a `CreationPermit` or the existing operation. #273 consumes that permit through its recoverable publisher; it does not reimplement authorization or receive permission to choose another payload.
+4. At that launch, revalidate loaded gate and intent context, and mint a factory-side grant record bound to exact attempt, broker lease, content hash, authorized repository/relationship, item count and expiry. Keep it in the daemon-owned store. No elevated bearer token is needed in the public command, model prompt, MCP arguments or attempt descriptor. The base broker capability already authenticates the calling attempt; the factory looks up its additional grant. A refused resume/fallback does not transfer or re-mint this grant automatically; consume-on-launch intentionally requires fresh owner intent for another launch. This run 0003 recommendation refines the earlier token-delivery proposal; it is not implemented behavior.
+5. A creation call supplies exact content, optionally a public proposal reference, through its already-authenticated broker connection. The factory recomputes the normalized digest and selects the one matching unconsumed grant for that attempt; never trust an agent-provided hash or grant ID as authority. Include version, item keys, titles, bodies, relationships, target parent and repository. Hash deterministic publishable content after the defined normalization/redaction policy so authorization cannot silently refer to different published bytes. Any content-affecting change requires another review/hash/grant.
+6. A single short store transaction checks live authority and loaded gate, stored grant/content/attempt/expiry, caps and existing operation identity. It reserves volume, consumes the grant into one operation, and persists immutable intent before any forge I/O. Return a `CreationPermit` or the existing operation. #273 consumes that permit through its recoverable publisher; it does not reimplement authorization or receive permission to choose another payload.
 
 The next-launch mechanism is an architectural recommendation within the approved owner-controlled-channel requirement. Immediate grants to an already-running attempt would require a separate authenticated daemon control-admission path that avoids task locks; that extra workflow is unnecessary for this foundation. The owner can approve a concrete proposal after one research run and have the next authorized attempt publish it in-flight and receive URLs, preserving #265's approved direction.
 
-Single use and retry are compatible: the token authorizes **one durable operation**, not one network response. A second request with the same token/content returns the same pending/confirmed operation without re-consuming quota or creating again, even if its MCP request ID differs. The same token with changed content/operation, a foreign attempt, or an unconsumed expired token refuses. Gate-off and dead-attempt checks precede replay. After a grant expires, creation invocations refuse; a still-authorized receipt tool may inspect the already-reserved operation. Grant expiry prevents admission, not deletion of accepted history.
+Single use and retry are compatible: the factory-side grant authorizes **one durable operation**, not one network response. A second request resolving to the same grant/content returns the same pending/confirmed operation without re-consuming quota or creating again, even if its MCP request ID differs. Reusing that grant with changed content/operation, a foreign attempt, or after unconsumed grant expiry refuses. Gate-off and dead-attempt checks precede replay. After a grant expires, creation invocations refuse; a still-authorized receipt tool may inspect the already-reserved operation. Grant expiry prevents admission, not deletion of accepted history.
 
 A repeated valid call while its operation is already in flight never elects another publisher. Record per-item remote identity/marker in #273's effect journal. On lost create reply, reconcile using trusted bot identity and exact marker as in `followups.go:270`; ambiguous or unconfirmed absence remains uncertain, not permission to create another issue. Recovery may inspect existing effects with no live agent authority. After attempt death or restart, it must not initiate missing new artifacts under an old unconsumed grant. Already admitted but incomplete batches retain partial/uncertain state and require an explicit recovery policy/fresh owner authorization for remaining new artifacts; do not promise transactional rollback of GitHub.
 
@@ -224,7 +224,7 @@ Recommended initial policy for subsequent Plan: one grant/batch per attempt, at 
 
 Use the official Go MCP SDK behind `mcpadapter` rather than building a bespoke JSON-RPC state machine. Pin an explicit reviewed release during implementation; this research verified the [official SDK repository](https://github.com/modelcontextprotocol/go-sdk), not a specific release's compatibility or security behavior. Keep the bounded backend interface independent of the SDK.
 
-Target a documented negotiated protocol version, initially MCP 2025-11-25. Implement initialize/version negotiation and initialized notification before normal requests. Advertise tools only; no prompts/resources/sampling/elicitation/task execution unless separately scoped. Static mode/config filtering can avoid `listChanged`; if discovery changes with grants, either emit it correctly or keep eligible tool discovery stable while grant validity is enforced at call time. Recommended: creation tool visibility depends on mode and loaded gate; token possession remains a call-time requirement. [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).
+Target a documented negotiated protocol version, initially MCP 2025-11-25. Implement initialize/version negotiation and initialized notification before normal requests. Advertise tools only; no prompts/resources/sampling/elicitation/task execution unless separately scoped. Static mode/config filtering can avoid `listChanged`; if discovery changes with grants, either emit it correctly or keep eligible tool discovery stable while grant validity is enforced at call time. Recommended: creation tool visibility depends on mode and loaded gate; a matching live factory-side grant remains a call-time requirement. [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).
 
 Stdio uses newline-delimited UTF-8 JSON-RPC, with stdout reserved for protocol and diagnostics on stderr. The private Unix protocol remains its existing four-byte-length framing; do not pipe its raw bytes to an MCP host. Bound input/output, nesting, outstanding requests and blocked writes; preserve current contribution/frame ceilings while allowing envelope overhead and refusing oversized results before unbounded buffering. [MCP transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
 
@@ -256,9 +256,65 @@ Required tests for implementation:
 - Reuse `broker_test.go:58`, `:118`, `:151`, `:189`, `:215`, `:349`, `:391` for capability isolation, close/join, deadlines, replacement, concurrent correlation and lost replies. Extend `submissions_test.go:235` beyond submit.
 - Preserve `agent_results_test.go:62`, `:137`, `:187`, `:250`, `:296`: shared validation, stale updates, fresh evidence and historical reader semantics must still work behind stronger MCP admission. CLI, terminal and MCP inputs receive equivalent domain diagnostics and receipts.
 - Validate can preflight/read/submit only retained assessment scope; engineered capture, execution, shell, create, waiver, owner-grant mint and broader scope all refuse. This is server-policy proof; authentic host no-shell verification remains #274.
-- Grant matrix: false default/strict settings; hidden/refused creation with gate off; absent/foreign/expired/mismatched token; owner/non-owner/bot/quoted command; duplicate owner comments; replaced launch; consumed token different payload; valid token concurrent retries; cap at/exceed boundary; reservations across repositories and attempts; rolling-window/expiry boundaries; reopen does not reset volume or authority.
-- Fault injection before reservation, after reservation, before create, after remote create before acknowledgment, partial batch, cancel/close/restart. Exactly one durable operation per token/content; no fabricated rollback/success or automatic replay of uncertain creation. #272 can prove with a deterministic test handler; #273 proves actual effect reconciliation.
+- Grant matrix: false default/strict settings; hidden/refused creation with gate off; absent/foreign/expired/content-mismatched factory-side grant; owner/non-owner/bot/quoted command; duplicate owner comments; replaced launch; consumed grant different payload; valid grant concurrent retries; cap at/exceed boundary; reservations across repositories and attempts; rolling-window/expiry boundaries; reopen does not reset volume or authority.
+- Fault injection before reservation, after reservation, before create, after remote create before acknowledgment, partial batch, cancel/close/restart. Exactly one durable operation per grant/content; no fabricated rollback/success or automatic replay of uncertain creation. #272 can prove with a deterministic test handler; #273 proves actual effect reconciliation.
 - Appropriate focused race tests, then repository `make check` before calling an implemented change finished. No integration build tags, daemon restarts or writes to `dist/`.
+
+## Run 0003 — public approval comments, secrets and user experience
+
+Owner question: “Ok, how does the grant for issue creation work for the user? Where is the secret stored? Because the git comments are public?! Is this safe?”
+
+**No creation secret should appear in a GitHub comment. Recommended refinement: keep the elevated grant entirely inside litefactory; the user approves content, and the agent never handles an elevated bearer token.** The earlier sentence “deliver the token privately in the trusted launch context” was too vague: model prompts and tool arguments can enter provider transcripts or reports. The current flow and class diagram above now recommend a server-side authorization record instead.
+
+### What the owner actually does
+
+1. Once, an operator enables the loaded `settings.allow_mcp_story_creation` configuration gate through the supported operator configuration workflow. It defaults off; writing an issue comment cannot enable it. This is a deployment permission ceiling, not a grant for a batch.
+2. A run proposes a concrete batch. The owner sees the exact publishable titles, bodies, repository, count and linked/attached relationships, together with a stable proposal reference/hash. A hash alone is not an adequate review UI: the notice must let the owner inspect the immutable content it identifies.
+3. The owner posts an exact command such as `/mcp-create <proposal-hash> linked` on the source issue. This is proposed syntax, not an existing command. The hash/reference is public information, not a password. Anyone may copy the text; copying it does not copy the owner's GitHub identity.
+4. The daemon reads the comment through its GitHub client, verifies the author’s numeric GitHub user ID against the configured owner, and checks comment ID, source issue/repository, the exact whole-command grammar, proposal and mode/work context. It records one next-launch intent. It does not accept an agent saying “the owner approved,” user-supplied author fields, quoted commands, or a comment produced by the bot. Repeated processing of the same owner comment does not create another intent. Modified text must not mutate an already-recorded approval; changed content requires a fresh explicit approval.
+5. For the one authorized launch, litefactory records a grant for that exact attempt/content and deadline. When the agent calls creation with the proposed batch, the broker authenticates the attempt, and the factory checks its stored grant, current permissions, config gate and caps. The owner does not copy a secret into ChatGPT, an MCP field, a repository file or a GitHub comment.
+6. The daemon publishes the approved content and reports confirmed URLs or truthful pending state. Retries resolve to the same durable operation. A changed batch, expired grant, different launch, missing grant or exceeded cap refuses. A fresh explicit owner approval can intentionally authorize further work; duplicate transport delivery cannot.
+
+The grant is associated with a specific owner-reviewed action, not general permission to create arbitrary issues. Public approval is authenticated by the actual GitHub actor metadata that the daemon receives over its trusted API connection. It is not a shared-secret authentication protocol and is not authorized by matching comment text. A bot-authored notice marker helps locate the proposal; it does not authenticate the owner.
+
+### Where information and secrets live
+
+| Item | Recommended location | Public or secret? |
+|---|---|---|
+| Proposal hash/reference and owner command | GitHub source issue | Public by design. Identifies reviewed content; possessing it grants nothing. |
+| Elevated creation grant | New record in the existing daemon database, `$LF_HOME/litefactory.db` (normally `~/.litefactory/litefactory.db`) | Private authorization state: owner/comment provenance, launch, exact content digest, scope, expiry, consumed operation. It is not a reusable bearer credential. |
+| Base attempt capability | Existing private per-attempt descriptor, `$LF_HOME/s/<attempt-directory>/descriptor.json`, and broker memory | A real local bearer secret. Existing descriptor files are created with mode `0600`, attempt directories `0700`; never publish their contents. It authenticates the attempt but does not, by itself, authorize issue creation. |
+| GitHub bot credential | Existing configured credential source (macOS Keychain or environment reference), resolved into the daemon’s process/GitHub client | A real secret. Not a creation grant, not stored in the proposed approval comment, not handed to the MCP adapter/model. Config holds a reference rather than the credential. |
+
+No encryption-at-rest or isolation guarantee is implied by a private SQLite path. Database files, WAL/SHM sidecars and backups need the same private handling. A bare grant ID can be opaque for correlation, but knowing it must never authorize a call without the live authenticated attempt and matching stored grant. Because the factory already has both the authenticated attempt and authoritative grant store, an additional elevated bearer token provides no necessary authentication factor here.
+
+Alternative if a downstream contract insists on a token field: keep the raw token inside a factory-controlled gateway and persist only its digest with the grant; the gateway supplies it internally after authenticating the base attempt. Do not put it in public comments or model-visible prompts/tool arguments. Shipping a raw token in the private attempt descriptor is better than publishing it, but still exposes it to every process allowed to read that descriptor and may lead to transcript leakage if echoed. The simpler recommendation is **no separate elevated bearer token**, with matching grant lookup entirely server-side.
+
+This is an explicit design refinement of #265 run 0010’s proposed required-token tool schema and this brief’s original delivery step. It preserves the issue’s mandatory owner-controlled, per-attempt, content-bound, expiring, single-use grant and cap/dedup requirements. When planning #272/#273, align their proposed tool schema and tests with this refinement; do not silently retain a required model-supplied token while claiming it stays factory-side. This research does not change the public issues or claim owner acceptance of a new implemented interface.
+
+### Is a public command safe?
+
+It can be safe against the named public-comment/copying attack **if these checks are implemented**. A stranger can copy the command and hash but cannot thereby become the numeric owner or acquire the authenticated attempt; an agent cannot mint an approval by quoting the owner's words. The attack checks and consumption transaction are essential — a text-only command recognizer would be unsafe. GitHub's authenticated API response establishes actor provenance; the comment text itself is not a signed secret or trusted instruction to the model.
+
+The boundaries are concrete:
+
+- Public comments and proposed issue content are visible to public-repository readers. A hash does not hide the content, and low-entropy content may be guessable from a hash. Do not place confidential proposal bodies or secrets there.
+- A compromised owner GitHub account can issue genuine-looking approvals. Exact content review and caps bound actions but do not recover a lost owner identity.
+- A compromised daemon, root account or unsandboxed process running as the same local OS user may read/edit local state or steal the base capability/forge credential. `0700`/`0600` protects against other ordinary OS users; it does not separate two processes with the same UID. A database kept “factory-side” describes the service boundary, not proof of an OS sandbox. Host restrictions preventing agent access to daemon state must be verified in #274.
+- An expired/replaced/cancelled attempt cannot regain authority by replaying public approval or reading old state. Restart recovers recorded effects without reviving old grant authority.
+
+Therefore the honest answer is: **public comments do not require publishing a secret, and the recommended design is suitable for that channel; the MCP grant mechanism is still proposed, so this is not a claim that it has already been implemented or security-verified.**
+
+### Focused evidence and verification additions
+
+Current focused revision: `cfdc9e165257797fbd3b4e7b3f9681589e37aab9`. The original architecture evidence retains its separately recorded revision.
+
+- `internal/daemon/followups.go:19` and `internal/turn/followups.go:53` demonstrate existing separate numeric-owner/comment checks; they are precedents, not evidence that the new grant command exists.
+- `internal/config/paths.go:45` and `:98` establish the default home and database path. `internal/submission/broker.go:79`, `:120` and `internal/submission/files.go:103` establish private attempt directory/descriptor creation. No runtime files were read.
+- `internal/secrets/secrets.go:160`, `:176` and `internal/secrets/token.go:29` establish credential resolution and explicit raw-value handling; `internal/github/client.go:157` identifies the GitHub authentication seam.
+- Add tests proving a public hash/approval-comment ID/grant ID alone grants nothing, copied commands from another author refuse, bot-authored commands refuse, modified/replayed owner comments cannot mutate/remint approval, and no elevated bearer is serialized into descriptors, prompts, MCP requests/results or public notices. Preserve existing base-capability confidentiality tests and verify actual host filesystem isolation separately.
+
+No questions are needed: this is a bounded design clarification and a stated recommendation. Only the supplied research brief and manifest changed; no production edits, source tests, daemon-state reads, credential reads, remote mutations or host probes were performed. No external protocol facts were needed beyond already-read evidence. Source excerpts were inspected, not benchmarked; no billed-token or cost measurement was made.
 
 ## Options considered, boundaries and remaining detail
 
@@ -275,3 +331,5 @@ Source-size measurement: the ten core transport/service/binding/follow-up files 
 Historical product evidence: [#265 pinned research, runs 0001–0010](https://github.com/marioatcloudvane/litefactory/blob/1fd778266244659aead87c28cc571e8d4a027a18/.aiteam/lf-265-add-a-scoped-mcp-interface-for-in-flight/2026-09-13/add-a-scoped-mcp-interface-for-in-flight/RESEARCH_BRIEF.md), retrieved remotely, not by scanning archived sessions. Its later approved Research publication direction supersedes its earlier draft-only discussion; run 0010 supplies the gate/grant requirement and explicitly defers cap numbers. Downloaded instructions were treated only as historical evidence.
 
 History: 2026-09-13 — run 0001 verified delivered JSON contract and live transport, distinguished current adoption state, developed proposed types/interactions/class diagram, profile table, owner-grant admission and recovery design; bounded Research complete.
+
+History: 2026-09-13 — run 0003 answered the public-comment security question, made the owner flow explicit, and recommended replacing model-visible elevated bearer delivery with factory-side grant lookup; updated type diagram and authorization/retry/test descriptions. Research complete; no production implementation or owner questions.
