@@ -23,3 +23,5 @@
 - Scope: current communication mechanisms and detailed paths by mode; no implementation.
 
 - 2026-09-12, run 0003: Research complete at revision 64561b62ba20040c0b6ee823cc51e9f96c00c14c. Run 0002 ambiguity resolved; assessed legacy protocol retirement, standardized messages and MCP/status options in RESEARCH_BRIEF.md. Source and primary MCP specification review only; no implementation, tests, runtime-state access or mode transition.
+
+- 2026-09-13, run 0004: Research complete at revision fd09d62440bd730fabc2a35f7fb85f94636d0f69. Explored meta/result envelope, stable-ID revision-bound sparse updates, full-snapshot validation/storage, token tradeoffs and deferred serialization skill. Preserved prior findings; no implementation, tests, skill creation or mode transition.

@@ -1,6 +1,6 @@
 # Agent–litefactory communication inventory
 
-Status: Complete through run 0003 — legacy retirement and communication standardization assessed; Research only.
+Status: Complete through run 0004 — proposed result envelope, sparse updates and deferred serialization assessed; Research only.
 
 ## Run 0002 clarification
 
@@ -156,3 +156,116 @@ Focused test definitions read: `internal/turn/aggregate_lifecycle_test.go:79` (b
 No source code changed, no upgrade applied, no daemon state inspected and no automatic mode transition. Research answers are complete. Future Plan decisions are the supported legacy upgrade boundary and whether native MCP tool access is needed beyond status visibility; neither blocks this assessment.
 
 - 2026-09-12, run 0003: Resolved run 0002 clarification through concrete follow-up; assessed live/dead legacy paths, supported migration prerequisites, shared-code removal boundaries, standardization benefits and MCP fit using repository evidence and pinned primary specification sources.
+
+
+## Run 0004 — compact result contracts, mutable items and deferred serialization
+
+Status: Complete. Date: 2026-09-13. Inspected revision: `fd09d62440bd730fabc2a35f7fb85f94636d0f69`. This section explores the owner's proposed direction without implementing a schema, creating a skill or advancing to Plan. Prior sections retain their historical revisions.
+
+### Recommendation and concrete shape
+
+The proposed `meta` / `result` split is a useful direction. Recommend a factory-owned envelope, mode-specific result payloads, and sparse updates to an authoritative retained result. The largest likely token saving is avoiding repeated full story output and unnecessary schema injection; JSON by itself is not a measured token improvement.
+
+Illustrative **factory-stored result** (not a finalized executable schema):
+
+```json
+{
+  "meta": {
+    "schema_version": 1,
+    "run_id": 25804,
+    "mode": "plan",
+    "revision": "r17"
+  },
+  "result": {
+    "outcome": "completed",
+    "comment": "Updated the communication plan.",
+    "plan": {
+      "summary": "Standardize factory communication.",
+      "stories": {
+        "US-001": {
+          "title": "Return structured results"
+        }
+      }
+    }
+  }
+}
+```
+
+The story is abbreviated solely to show nesting. Existing required story fields—user story, criteria, tasks, architecture and dependencies—still belong to the retained full snapshot. Prefer the existing term `stories`; GitHub subissues are the factory's projection of those stories. `result.plan` is present only when appropriate to Plan; other modes have their own schema branch rather than a collection of unrelated optional fields. A completed Plan requires complete valid Plan content; a discussion requires context/questions instead. `outcome` is the agent's reported disposition, not an authoritative claim of publication, readiness or acceptance. Receipt dimensions remain separate.
+
+`meta` is supplied and checked by litefactory. Agents should not regenerate run ID, mode, issue identity, generation or authority. At most they echo an opaque expected revision for concurrency. `schema_version`, result `revision`, persisted content/submission version and workflow version are different concepts; do not reuse one integer for all four. In production, task/result scope is also bound by the authenticated attempt and durable storage identity; it need not be repeated in each agent-authored payload.
+
+A follow-up agent could send this **update**, using a named merge-patch operation:
+
+```json
+{
+  "base_revision": "r17",
+  "patch": {
+    "comment": "Clarified the first story title.",
+    "plan": {
+      "stories": {
+        "US-001": {
+          "title": "Return a structured result after every run"
+        }
+      }
+    }
+  }
+}
+```
+
+Here `patch` applies only to the editable retained result, not to `meta`. For a new result with no baseline, the agent submits full `result` instead. Exactly one of snapshot or patch should be accepted. The current run's outcome/comment should be explicitly supplied or reset by the receiver, so a prior run's completed outcome cannot silently become the next run's claim. The returned receipt supplies the new revision; the next owner request references that retained revision rather than relying on an old conversation copy.
+
+Distinguish the mutable Plan aggregate from immutable run history: updating a story creates a new Plan/result revision attributed to the new run. Do not overwrite the old run's report, receipt, frozen scope or acceptance evidence. A prior envelope's `run_id` is historical provenance, never authority for the new attempt.
+
+### Update semantics
+
+Recommendation: use standard JSON Merge Patch when schema fields do not require meaningful stored null values. State the operation explicitly; a bare sparse JSON object is ambiguous. [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) defines recursive object updates, omitted members unchanged, null members removed and arrays replaced in full.
+
+| Concern | Proposed semantics / reason |
+|---|---|
+| Prior state | Factory provides an authoritative revision-bound snapshot or scoped projection, with a compact index and retrieval reference when large. Read the changed item's actual baseline before editing. |
+| Item identity | Stable story keys; criteria retain AC identities. Objects keyed by identity make sparse updates smaller and less sensitive to list order. Ordered collections need a separately defined order if order is meaningful. |
+| Omitted field or item | Unchanged in a patch; never an implied deletion. Initial full snapshots must include required fields. |
+| Null / deletion | Under Merge Patch, null requests removal; it is not a literal null value. Required-field removal rejects. Story deletion must also pass domain rules and is not automatically permission to delete/close a GitHub issue. Initially reject story removal unless separately designed; current code preserves existing stories. |
+| Arrays | Merge Patch replaces the whole array. Either accept that cost for short lists or use stable-ID maps for independently editable collections. Do not pretend array indexes are stable item IDs. |
+| Nullable domain values | If literal null is needed, select explicit set/remove operations or JSON Patch instead; do not label custom null semantics RFC 7396. [RFC 6902](https://www.rfc-editor.org/rfc/rfc6902) is the explicit-operation alternative. |
+| Concurrency | Compare `base_revision` to the authoritative current revision; reject a stale patch with actionable diagnostics. For simplicity start with one aggregate revision. Per-item revision checks can come later if measured contention warrants them. |
+| Merge and validation | Apply to a copy, reconstruct a complete candidate and validate the full schema, dependencies, roles, criteria history, frozen/completed item restrictions, size and redaction before accepting anything. A locally valid changed field can invalidate another story. |
+| Storage / retries | Retain the accepted full snapshot plus patch/provenance as useful, with current receipt/correlation guarantees. Readers and recovery should not require replaying an unbounded chain of patches. |
+| Authority | Factory identities, revisions, approvals, acceptance and remote-effect state are read-only. Sparse updates must not bypass existing Plan admission or issue revision checks. |
+
+A stable ID identifies an entity, not permanent approval for any new meaning. Changed acceptance obligations must still follow current criterion retirement/clarification rules. Small transport patches do not make semantic requirement changes presentation-only. Similarly, changing result data cannot select a different work mode.
+
+### Existing support and gaps
+
+Facts from the inspected revision:
+
+- V2 already separates agent contribution values from the factory identity envelope (`internal/agent/contribution.go:23`; `internal/turn/typed_plan.go:196`). Existing issue IDs and observed title/body hashes are captured server-side (`internal/turn/typed_plan.go:73`). Reuse this authority split.
+- Typed Plan currently expects complete typed content, not sparse field updates. Parsing checks object shapes and complete story graph (`internal/planbrief/typed_content.go:115`); proposal building rejects missing existing stories and changes to completed dependencies (`internal/turn/typed_plan.go:271`). A patch adapter must merge before these validators; passing the example patch directly to today's endpoint would reject it.
+- Current typed projections retain exact issue revisions and typed content (`internal/store/submission_contracts.go:73`), while publication checks observed base hashes (`internal/turn/plan_publication.go:257`). These are useful foundations; an aggregate result revision and partial-update API are additional work, not existing features.
+- Plan setup constructs existing story context from current GitHub titles/bodies and expected hashes (`internal/turn/plan_handoff.go:85`), and saved working context is read separately (`internal/turn/plan_attempt.go:61`). This is not currently a canonical prior-result JSON patch baseline.
+- Narrow prompt-path finding: `PlanWorkingContext` and `PlanStoryContext` are rendered inside `SubmissionVersion != 2` in `internal/harness/prompt.go:425–451`; v2 callback instructions require full content but do not inject those fields (`internal/turn/typed_plan.go:196`). Therefore the new design should explicitly supply/retrieve its prior baseline rather than assuming these fields already guarantee v2 agents receive it. Prior conversation or other artifacts may still contain relevant context; this is a code-path observation, not a reproduced claim that all v2 continuation lacks context.
+
+The exact canonical prior result should live with factory-owned state. Giving an agent a read-only snapshot or scoped fetch is preferable to having it reconstruct state from final prose or independently reread GitHub. A scoped fetch may return only touched items and required context; the server must still validate the entire merged aggregate. If baseline data changes after the agent reads it, reject/rebase rather than silently use newer unseen bytes.
+
+### Token efficiency and the finish-time skill
+
+The owner’s idea works well for **serialization instructions**: keep a short always-visible requirement to finalize through the contract, then load the detailed schema/examples immediately before final submission. This also applies to questions/blocked/discussion exits, not only successful completion. Loading after the process actually finishes would be too late to correct malformed output.
+
+Official Codex skill documentation describes progressive disclosure: skill name/description/path are initially available; the full file is read when selected explicitly or implicitly. It does not promise deterministic finish-only activation or removal from context after reading. [Build skills](https://learn.chatgpt.com/docs/build-skills) (checked 2026-09-13). A skill alone is guidance, not an enforceable terminal protocol. A lifecycle validation/finalization gate is the stronger mechanism if every run must emit the contract; transport failure, cancellation and crashes still require factory-generated failure records.
+
+Keep these available during work, before finalization:
+
+- Actual scope, constraints, selected mode and the relevant existing items being changed.
+- Stable identity/base-revision rules and required artifact/evidence capture. A finishing skill cannot reconstruct missing executed checks or recover discarded evidence truthfully.
+- A small pointer to the finalization contract and the run's supported submission mechanism.
+
+Defer exhaustive field descriptions and serialization examples. Fetch only required baseline data when needed, avoid sending both rendered Markdown and equivalent typed JSON unless each is necessary, and send patches for small changes. Do not shorten useful field names or assume minified JSON universally costs fewer tokens without measurement. JSON escaping and patch bookkeeping have overhead, and full snapshots may be cheaper for small or mostly rewritten results. A separate finalizer invocation could isolate formatting context, but adds latency, tokens and a handoff; it is not necessary for the first version and must not invent evidence.
+
+No token counts or live model reliability measurements were performed. Future validation should compare representative current Plan full-output runs with baseline-plus-patch runs, including input, output, retries and schema reads; measure total cost and correction rate, not only final payload byte count.
+
+### Conclusion for this research iteration
+
+Recommend the envelope shape, factory-owned metadata, typed mode payloads, full stored snapshots and revision-bound sparse updates. Defer serialization schema to just before submission, while supplying domain constraints and edited item context when the work needs them. Start with a small shared contract and the existing validation/receipt service; neither MCP nor a separate finalizer is required to realize this design. Full schema, deletion policy and lifecycle enforcement remain subsequent design decisions, not facts implemented here.
+
+Research complete; no source edits, tests, skill creation, daemon-state access or mode transition. Run 0004 scope was sufficiently clear; no blocking owner questions remain.
