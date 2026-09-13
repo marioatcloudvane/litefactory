@@ -365,24 +365,30 @@
       },
       "result": {
         "outcome": "completed",
-        "comment": "Illustrative result for contract review.",
+        "comment": "Implemented US-001; scoped and aggregate engineering checks passed.",
         "recommendation": {
-          "text": "Review retained engineering evidence and remaining work."
+          "text": "Request Validate to assess the retained implementation and evidence."
         },
         "payload": {
           "implement": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
                 "outcome": "engineering_complete",
                 "engineering": {
-                  "snapshot_id": "retained-snapshot-1",
+                  "snapshot_id": "snapshot-story-1",
                   "check_ids": [
-                    "check-1"
+                    "check-story-1"
                   ]
                 }
               }
-            ]
+            ],
+            "aggregate_checks": {
+              "snapshot_id": "snapshot-run-1",
+              "check_ids": [
+                "check-aggregate-1"
+              ]
+            }
           }
         }
       }
@@ -407,22 +413,29 @@
       },
       "result": {
         "outcome": "incomplete",
-        "comment": "Illustrative result for contract review.",
-        "recommendation": {
-          "text": "Review retained engineering evidence and remaining work."
-        },
+        "reason": "US-002 remains blocked and aggregate checks have not completed.",
+        "comment": "Retained completed engineering for US-001; US-002 cannot finish.",
         "payload": {
           "implement": {
             "stories": [
               {
-                "story": "US-1",
+                "story": "US-001",
+                "outcome": "engineering_complete",
+                "engineering": {
+                  "snapshot_id": "snapshot-story-1",
+                  "check_ids": [
+                    "check-story-1"
+                  ]
+                }
+              },
+              {
+                "story": "US-002",
                 "outcome": "blocked",
-                "reason": "Further work remains."
+                "reason": "The required test dependency is unavailable; no passing execution evidence exists."
               }
             ]
           }
-        },
-        "reason": "Further work remains."
+        }
       }
     }
   },

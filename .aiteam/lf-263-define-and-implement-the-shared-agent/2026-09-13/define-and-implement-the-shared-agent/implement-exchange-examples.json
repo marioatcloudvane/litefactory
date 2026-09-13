@@ -1,0 +1,94 @@
+{
+  "note": "Proposed application examples, not current v2 input or actual executed evidence. Main sample assumes one selected story and required aggregate checks. IDs are illustrative. aggregate_checks is a new run-scoped reference proposal; existing v2 checks are story-scoped. Factory supplies meta and binds scope.",
+  "completed_submission": {
+    "result": {
+      "outcome": "completed",
+      "comment": "Implemented US-001; scoped and aggregate engineering checks passed.",
+      "recommendation": {
+        "text": "Request Validate to assess the retained implementation and evidence."
+      },
+      "payload": {
+        "implement": {
+          "stories": [
+            {
+              "story": "US-001",
+              "outcome": "engineering_complete",
+              "engineering": {
+                "snapshot_id": "snapshot-story-1",
+                "check_ids": [
+                  "check-story-1"
+                ]
+              }
+            }
+          ],
+          "aggregate_checks": {
+            "snapshot_id": "snapshot-run-1",
+            "check_ids": [
+              "check-aggregate-1"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "mixed_incomplete_submission": {
+    "result": {
+      "outcome": "incomplete",
+      "reason": "US-002 remains blocked and aggregate checks have not completed.",
+      "comment": "Retained completed engineering for US-001; US-002 cannot finish.",
+      "payload": {
+        "implement": {
+          "stories": [
+            {
+              "story": "US-001",
+              "outcome": "engineering_complete",
+              "engineering": {
+                "snapshot_id": "snapshot-story-1",
+                "check_ids": [
+                  "check-story-1"
+                ]
+              }
+            },
+            {
+              "story": "US-002",
+              "outcome": "blocked",
+              "reason": "The required test dependency is unavailable; no passing execution evidence exists."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "blocked_story": {
+    "story": "US-002",
+    "outcome": "blocked",
+    "reason": "The required test dependency is unavailable; no passing execution evidence exists."
+  },
+  "invalidated_story": {
+    "story": "US-001",
+    "outcome": "invalidated",
+    "reason": "Subsequent overlapping edits changed the implementation; prior checks do not cover the new bytes."
+  },
+  "aggregate_recovery_submission": {
+    "result": {
+      "outcome": "completed",
+      "comment": "Remaining aggregate engineering checks passed against the retained run snapshot.",
+      "payload": {
+        "implement": {
+          "aggregate_checks": {
+            "snapshot_id": "snapshot-run-2",
+            "check_ids": [
+              "check-aggregate-2"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "guidance": {
+    "capture": "Supply or collect exact snapshot bytes and actual check output before references can resolve. Omit capture only when evidence is already retained and attributable. The library should compute hashes and serialize bytes.",
+    "optional": "Omit unused recommendation, artifacts, and story records. Omitted update fields preserve existing values; completion checks still cover factory-selected obligations.",
+    "aggregate": "The factory must bind run-scoped checks to the final worktree snapshot and selected story set. Recovery carries no new story events. New capture/reference semantics must be specified before implementation.",
+    "legacy": "Workflow 1 continues to require verified with complete assessment plus engineering; separated workflow rejects assessment in Implement."
+  }
+}
