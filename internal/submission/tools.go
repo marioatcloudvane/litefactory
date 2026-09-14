@@ -7,7 +7,7 @@ import (
 	"slices"
 )
 
-// ToolSpec describes only this server's executable communication surface. It
+// ToolSpec describes only this server's executable tool surface. It
 // never supplies a host's native tool permissions.
 type ToolSpec struct {
 	Name        string          `json:"name"`
@@ -17,7 +17,11 @@ type ToolSpec struct {
 }
 
 // ToolProfile is immutable, deny by default, and independent of agent.Permissions.
-type ToolProfile struct{ mode string }
+type ToolProfile struct {
+	mode     string
+	families []string
+	creation bool
+}
 
 // NewToolProfile assigns only explicitly supported modes a server-local tool profile.
 func NewToolProfile(mode string) (ToolProfile, error) {
@@ -33,23 +37,30 @@ func (p ToolProfile) Allows(name string) bool {
 		return false
 	}
 	for _, tool := range p.List() {
-		if tool.Name == name && (tool.Effect == "read" || tool.Effect == "input") {
+		if tool.Name == name {
 			return true
 		}
 	}
 	return false
 }
 
-// List returns an independent copy of executable communication tool specifications.
+// List returns independent specifications for the installed, permitted catalog.
 func (p ToolProfile) List() []ToolSpec {
 	if p.mode == "" {
 		return []ToolSpec{}
 	}
-	return []ToolSpec{
+	tools := []ToolSpec{
 		{Name: "communication_preflight", Description: "Validate this attempt's shared JSON result without recording it.", InputSchema: json.RawMessage(`{"type":"object","description":"Exact shared agent-result create or update contribution."}`), Effect: "read"},
 		{Name: "communication_receipt", Description: "Read an existing application receipt; pending is not workflow success.", InputSchema: json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`), Effect: "read"},
 		{Name: "communication_submit", Description: "Record this attempt's shared JSON result; grants no execution, acceptance or publication.", InputSchema: json.RawMessage(`{"type":"object","description":"Exact shared agent-result create or update contribution."}`), Effect: "input"},
 	}
+	for _, name := range p.families {
+		spec, ok := familyTool(name)
+		if ok && familyAllowed(p.mode, p.creation, name) {
+			tools = append(tools, spec)
+		}
+	}
+	return tools
 }
 
 // ToolCall retains the contribution's bytes independently of connection IDs.

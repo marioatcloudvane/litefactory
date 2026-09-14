@@ -55,12 +55,19 @@ func Call(ctx context.Context, descriptorPath, method string, payload json.RawMe
 		switch call.Name {
 		case "communication_submit":
 			correlationMethod = "submit"
-		case "communication_receipt":
+		case "communication_receipt", "receipts_get":
 			correlationMethod = "receipt"
+		case "communication_preflight":
+			// Keep the original nonjournaled communication preflight contract.
+		default:
+			correlationMethod = "family"
+			// The private directory isolates attempts; the descriptor identity also
+			// isolates replacement descriptors and tool names isolate families.
+			correlationPayload = append([]byte("family-v1\x00"+d.Capability+"\x00"+call.Name+"\x00"), call.Arguments...)
 		}
 	}
 	switch correlationMethod {
-	case "submit":
+	case "submit", "family":
 		response.RequestID, err = journalRequest(root, correlationPayload)
 	case "receipt":
 		var lookup struct {

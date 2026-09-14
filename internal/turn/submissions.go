@@ -184,7 +184,13 @@ func (s *SubmissionSession) Close(ctx context.Context) error {
 	return errors.Join(closeErr, recoveryErr, s.options.DB.EndSubmissionAttempt(ctx, s.binding.RunID, s.binding.Attempt))
 }
 
-func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (output json.RawMessage, err error) {
+func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (json.RawMessage, error) {
+	return s.checkpoint(ctx, q)
+}
+
+// checkpoint is shared by the helper and family facade. It owns the session
+// lock, followed by the existing progress and cross-process parent ownership.
+func (s *SubmissionSession) checkpoint(ctx context.Context, q submission.Request) (output json.RawMessage, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if q.Method == "receipt" {
