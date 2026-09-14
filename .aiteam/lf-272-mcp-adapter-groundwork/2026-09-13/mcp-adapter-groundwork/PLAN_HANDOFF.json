@@ -1,7 +1,7 @@
 {
-  "request_id": "c0326db1fe8eb8421a2d07f35f9fc6fc",
+  "request_id": "9bebc924a36ac03ba36a27b5ea8cab83",
   "receipt": {
-    "RequestID": "c0326db1fe8eb8421a2d07f35f9fc6fc",
+    "RequestID": "9bebc924a36ac03ba36a27b5ea8cab83",
     "InputState": "valid",
     "EngineeringState": "not_applicable",
     "AcceptanceState": "not_applicable",
@@ -14,5 +14,6 @@
     "diagnostics": [],
     "unchecked_paths": []
   },
-  "note": "Factory-confirmed durable Plan input; publication/readiness await terminal success and save. External #263/#264 dependency bindings were not authorized by this attempt; prerequisites remain explicit in the plan and each story."
+  "note": "Run 0005 revised Plan input acknowledged; publication/readiness await terminal success and save. US-001 and US-004 unchanged; US-002/003/005 updated. Thirty-minute grants and quota assumptions unchanged.",
+  "receipt_observed": true
 }

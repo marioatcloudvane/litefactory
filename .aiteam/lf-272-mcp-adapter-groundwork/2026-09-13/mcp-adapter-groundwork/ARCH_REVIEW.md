@@ -1,7 +1,8 @@
 # Architect: Go Architect
 # Created: 2026-09-13
+# Updated: 2026-09-14 — Plan continuation run 0005
 
-Verdict: READY for typed Plan authoring, conditional on #263/#264 landing before implementation. No owner question is required. One mechanical spec correction is needed: the evidence row must not require adding an MCP SDK module; TEST-2 forbids a new module. Use the stdlib bounded protocol adapter described below. This changes no requested behavior.
+Verdict: READY for typed Plan authoring, conditional on #263/#264 landing before implementation. No owner question is required. The continued feature spec resolves additive tool scope and configurable automatic startup. Its evidence row now correctly uses a stdlib adapter under TEST-2.
 
 ## System Overview
 
@@ -13,6 +14,7 @@ The delivered JSON contract is reused, not reconstructed. Current source qualifi
 
 ### New Packages / Components
 
+- `agent.MCPLaunchSpec` (proposed neutral value): immutable command/arguments and fresh attempt descriptor reference for a host consumer; separate from `Request.Permissions`. Turn constructs it after binding and attaches it to the existing agent request. No provider-specific registration fields or credentials.
 - `mcpadapter.Server`: bounded JSON-RPC stdio session, initialization, tools/list, tools/call and request cancellation. Only protocol behavior belongs here.
 - `mcpadapter.Backend`: consumer-owned list/call interface with a fake for transport tests; the production bridge delegates to submission without exposing capabilities in response values.
 - `submission.ToolSpec` and `ToolProfile`: immutable neutral catalog metadata, input schema references, explicit mode/selector permissions and effect classification; discovery and dispatch use one policy source. Existing Call/protocol/client code remains the transport owner rather than introducing a second socket client.
@@ -58,7 +60,7 @@ The creation gate is loaded once as `settings.allow_mcp_story_creation: false`, 
 
 Effect classification covers indirect creation. In particular, accepting MCP Plan input must not smuggle automatic story publication around the grant gate. Preserve existing terminal/helper publication semantics while the MCP-origin path either retains input with truthful pending effects or refuses if the adopted bridge cannot safely separate acceptance from creation. Carry a factory-stamped origin/effect constraint to deferred publication, not a model field. #272 must prove no later recovery path drops that constraint.
 
-Creation eligibility initially remains Research-only for future registered handlers; Plan/Implement/Spike have no assumed creation permission, and Validate categorically denies. No shell, execute, waiver, dispatch, mode change or acceptance-override tools are registered. Validate only communicates retained assessments/results within existing scope and cannot submit fresh capture (SEC-21, CONC-11).
+Creation eligibility initially remains Research-only for future registered handlers; Plan/Implement/Spike have no assumed creation permission, and Validate categorically denies. No shell, execute, waiver, dispatch, mode change or acceptance-override tools are registered by this MCP server. Its ToolProfile is not the coding agent's global tool inventory. Native tools and unrelated MCP configuration already permitted by current host policy remain governed by that existing policy; the new catalog neither removes those tools nor enables previously restricted ones. Validate only communicates retained assessments/results within existing scope and cannot submit fresh capture (SEC-21, CONC-11).
 
 The command records one next-launch intent through ordinary daemon admission; it does not add live polling during active runs or silently switch mode. If no reviewed proposal exists, it refuses. Without #273 proposal production, tests seed retained immutable proposal records through factory-only seams; no placeholder public proposal tool is added.
 
@@ -67,9 +69,10 @@ The command records one next-launch intent through ordinary daemon admission; it
 1. Reuse #264 launch identity and #263 JSON semantics; stronger MCP admission precedes historical replay, with no duplicated validator.
 2. All authority and credentials stay factory-side; daemon verifies numeric owners and grants are stored authorization records, never model-visible elevated bearers.
 3. Grant deadline is non-sliding 30 minutes from trusted comment creation and clamped to attempt expiry; quota is reserved in artifact units with uncertain history retained.
-4. One authoritative profile/effect classification governs discovery and execution, including deferred indirect creation; Validate remains read-only in its evidence obligations.
+4. One authoritative profile/effect classification governs only this MCP server's discovery and execution, including deferred indirect creation. It does not replace agent Permissions or existing permitted tools; Validate's retained-evidence restrictions remain intact.
 5. Persistence separates authorization from operation outcome: restart revokes old authority, retained operation IDs and reservations survive, cancellation does not claim rollback or successful delivery.
-6. Implement the small supported MCP surface using stdlib and existing JSON helpers, not a new SDK dependency. TEST-2 says a new module MUST NOT be added; the optional research SDK preference and spec evidence wording cannot override it. Pin/document the supported protocol contract and fixtures instead. A future SDK adoption needs a separately approved rule amendment, not a silently weakened purity test.
+6. Automatic startup is a loaded true-default policy producing an optional neutral launch specification per fresh bound attempt. #274 owns native consumption, additive host registration and actual child startup/teardown; disabled automatic policy preserves explicit startup.
+7. Implement the small supported MCP surface using stdlib and existing JSON helpers, not a new SDK dependency. TEST-2 says a new module MUST NOT be added; the optional research SDK preference and spec evidence wording cannot override it. Pin/document the supported protocol contract and fixtures instead. A future SDK adoption needs a separately approved rule amendment, not a silently weakened purity test.
 
 ## Per-task Structural Hints
 
@@ -95,7 +98,7 @@ The feature spec has five areas but no frozen task IDs. IDs below are suggested 
 - **Pattern:** immutable allowlist catalog plus consumer-side dispatcher; borrow scoped validation, never parse a second application schema.
 - **Package placement:** neutral metadata in submission, policy/composition in turn.
 - **Key interfaces:** ToolSpec/Profile, authenticated list/call, adopted preflight/submit/receipt; factory-only effect/origin context on deferred paths.
-- **Watch out for:** Validate fresh-capture rejection and indirect Plan publication bypass; wrong frozen selectors must fail before service access.
+- **Watch out for:** Validate fresh-capture rejection and indirect Plan publication bypass; wrong frozen selectors must fail before service access. Keep the MCP ToolProfile distinct from `agent.Request.Permissions` and config native tool ceilings. Registration generation must preserve native permission bytes and existing allowed host configuration.
 - **Not in scope:** #273 tool families or shell tools.
 
 ### T-002.2: Profile and effect policy matrix
@@ -110,12 +113,13 @@ The feature spec has five areas but no frozen task IDs. IDs below are suggested 
 - **Key interfaces:** Server consumes Backend list/call; byte payloads and durable correlation preserved independently of MCP request IDs.
 - **Concurrency/context:** bounded workers, active-ID map, connection-local cancellation, serialized writes and join on EOF.
 - **Watch out for:** unsupported initialization/protocol state, duplicate JSON keys, oversized/deep payloads, response budget and stdout purity. No recover handler (SEC-11), no new SDK module (TEST-2).
-- **Not in scope:** native Claude/Codex host installation/configuration.
+- **Automatic policy integration:** add strict true-default `settings.mcp_auto_start`, template parity, and a neutral optional launch value on `agent.Request`, populated after each actual bound launch by turn. Keep flag arguments structured, use the resolved absolute factory executable, and copy argument slices (CONC-1). This produces registration data and starts no process by itself.
+- **Not in scope:** native Claude/Codex host installation/configuration, translating the launch value into host flags/config, or actual automatic process management (#274).
 
 ### T-003.2: Protocol edge tests
 **Agent:** go-unit-test-engineer
 - **Pattern:** pipe-driven handwritten client with Backend fake and deterministic cancellation barriers; no live provider subprocess.
-- **Watch out for:** duplicate active IDs, unknown/completed cancellation IDs, lost replies and numeric/string ID correlation; assert protocol versus domain result separation.
+- **Watch out for:** duplicate active IDs, unknown/completed cancellation IDs, lost replies and numeric/string ID correlation; assert protocol versus domain result separation. Add absent/true/false/invalid setting cases and cloned before/after agent-permission snapshots; enabled cold/resume/fallback must carry fresh launch references, disabled must omit them, and construction must cause no subprocess or config writes. Real explicit serve behavior with valid/invalid descriptors belongs in the pipe/socket tests.
 
 ### T-004.1: Gate and authenticated owner control
 **Agent:** go-implementation-engineer
@@ -186,4 +190,42 @@ The orchestrator must attach final criterion IDs to these obligations in each af
 
 ## Deviations
 
-No owner approval is needed for this architecture. The optional SDK choice is resolved in favor of the normative no-new-module rule; amend the spec evidence row accordingly before submitting the typed Plan. No other rule deviation is proposed.
+No owner approval is needed for this architecture. The optional SDK choice is resolved in favor of the normative no-new-module rule and the spec now reflects it. Additive scope preserves SEC-3/20/21 and existing host restrictions. True-default automatic startup is a recorded policy assumption consistent with CFG-1/2/3; CFG-9's false default is specific to automatic quota recovery, not a blanket rule for every setting. No rule deviation is proposed.
+
+
+## Run 0005 — Additive Tools and Automatic Startup Contract
+
+### Source seams verified
+
+`internal/agent/request.go` already carries `Permissions`, mode, `RunPath` and `SubmissionRoot`; it has no MCP launch value today. Use an optional provider-neutral value alongside these fields, not a new permissions representation. Any existing request clone/validation path must copy and validate the new value without aliasing argument slices or changing the permissions payload. `internal/turn/submission_runner.go` resolves the factory executable and obtains the fresh descriptor after binding; the adopted #264 equivalent is the construction seam. Do not reopen #264's lifecycle scope to manufacture adoption.
+
+`internal/config/config.go` has immutable Settings and Defaults, including both false-default AutoResumeOnSessionLimit and true-default AutoSyncBase. `mcp_auto_start` therefore follows strict load/default/template patterns with explicit false preserved. `allow_mcp_story_creation` stays an independent false-default setting.
+
+`internal/harness/runner.go` currently appends `--strict-mcp-config`; its documented effect is to ignore MCP configurations except those explicitly supplied. `internal/harness/settings.go` disables automatic project MCP enablement. Those existing restrictions must remain. Additive means preserving what is already allowed, not turning on ambient/project servers. #274 may register the factory-owned server explicitly while preserving native tool ceilings and restrictions; it must not replace them with this server's tool names. Actual allowed-host-config merge/collision behavior and version-specific flags are #274 work, not a guessed implementation in #272.
+
+### Concrete neutral policy behavior
+
+| Input state | #272 output | What it proves |
+|---|---|---|
+| Loaded setting absent or true, valid fresh bound attempt | Optional launch value containing absolute factory executable, fixed `mcp serve --descriptor` argument sequence, absolute private descriptor path and matching factory attempt reference | Factory prepared automatic-registration data; it does not prove host consumption or connection. |
+| Loaded setting false | No automatic launch value | Host consumer has no automatic registration request; explicit serve remains available with a live descriptor. |
+| No active bound attempt or idle daemon | No launch value and no stdio child | Enabling configuration alone does not allocate authority or start a background process. |
+| Fresh cold/resume/fallback | Newly constructed value from that actual attempt's binding | Previous descriptor/grant is not copied forward. |
+| Explicit serve, either setting value | Same normal descriptor and server authority checks | Auto-start is a convenience policy, not an authorization bypass or global disable switch. |
+
+The neutral value is factory-generated structured data, not a shell command string and not an agent-supplied override. It contains no raw capability or forge credential. Matching descriptor/attempt validation prevents accidental stale registration; the live broker remains the final authority after construction. Do not put native tools, unrelated server configuration, raw environment variables or sandbox broadening into this value.
+
+No host-support flag is inferred from the setting. The presence of a prepared value never authorizes a report saying MCP connected. Until #274 supplies native consumers and evidence, automatic host integration remains unavailable; existing helper/terminal communication continues under its current behavior. This does not block #272's neutral-contract completion, and it does block claiming #274 automatic startup complete.
+
+This neutral contract is additive by construction: it neither reads nor rewrites a complete host MCP registry. #272 tests request fields before and after adding/removing its optional launch value. #274 separately verifies that consuming that value preserves any already-permitted unrelated server entries and native tool access, handles its owned registration identity safely, and cleans up only its owned child/registration.
+
+### Evidence additions
+
+| Affected area | Proof method | Source availability | Bounds and prerequisite |
+|---|---|---|---|
+| #276 additive catalog | Policy unit tests plus immutable before/after Request.Permissions snapshots and source-boundary assertions | Existing request/permission and Validate tests; new neutral fixtures required | Offline proof that our profile and registration construction do not mutate global tool policy; real host inventory proof remains #274. |
+| #277 default/start policy | Strict config/default/template cases; enabled/disabled/no-attempt/cold/resume/fallback launch-value fixtures | Existing config settings, request and submission-runner patterns | No host subprocess launched; default true is a planning assumption, not runtime evidence. |
+| #277 explicit startup | Real local pipes/private socket and live/stale descriptor cases with auto-start disabled | Existing broker fixtures and planned stdio tests | Proves explicit neutral command works without automatic policy; no real Claude/Codex claim. |
+| #274 handoff | Source documentation review of neutral producer/consumer contract and unchanged permissions | This spec and existing native runner restrictions | Actual registration merge, supported versions, automatic startup/teardown and connection observation must be independently implemented and verified in #274. |
+
+The grant policy remains unchanged: absolute 30 minutes from trusted comment creation, earlier attempt-expiry clamp, one batch/five artifacts per attempt and twenty units per repository rolling 24 hours with unresolved reservations charged. Auto-start never mints or transfers approval. No implementation or tests were executed during this review.
