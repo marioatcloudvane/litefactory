@@ -1,0 +1,19 @@
+{
+  "request_id": "9bebc924a36ac03ba36a27b5ea8cab83",
+  "receipt": {
+    "RequestID": "9bebc924a36ac03ba36a27b5ea8cab83",
+    "InputState": "valid",
+    "EngineeringState": "not_applicable",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "not_applicable",
+    "PlanState": "pending"
+  },
+  "preflight": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": [],
+    "unchecked_paths": []
+  },
+  "note": "Run 0005 revised Plan input acknowledged; publication/readiness await terminal success and save. US-001 and US-004 unchanged; US-002/003/005 updated. Thirty-minute grants and quota assumptions unchanged.",
+  "receipt_observed": true
+}

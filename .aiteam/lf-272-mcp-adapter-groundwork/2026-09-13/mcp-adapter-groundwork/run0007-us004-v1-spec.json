@@ -1,0 +1,42 @@
+{
+  "story": "US-004",
+  "snapshot_id": "run0007-us004-v1",
+  "files": [
+    "internal/submission/creation.go",
+    "internal/submission/creation_test.go",
+    "internal/store/mcp_creation.go",
+    "internal/store/mcp_creation_test.go",
+    "internal/store/mcp_creation_serialization_test.go",
+    "internal/store/migrations/0043_mcp_creation.sql",
+    "internal/store/mcp_authority.go",
+    "internal/turn/mcp_creation.go",
+    "internal/turn/mcp_creation_unit_test.go",
+    "internal/turn/mcp_creation_db_test.go",
+    "internal/daemon/mcp_creation.go",
+    "internal/daemon/mcp_creation_test.go",
+    "internal/config/config.go",
+    "internal/config/template.go",
+    "internal/config/mcp_creation_test.go",
+    "docs/mcp-adapter.md"
+  ],
+  "checks": [
+    {
+      "id": "us004-unit",
+      "name": "go test ./internal/config ./internal/submission ./internal/turn ./internal/store -run 'TestMCPCreationSetting_|TestCanonicalCreation_|TestOwnerGrantCommand_|TestCreationAuthorizer_|TestCreationReservation_' -short -race -cover",
+      "passed": true,
+      "evidence": "Unit specialist: eight top-level tests passed. Config 2.055s, submission 1.641s, turn 1.776s, store 2.224s. Strict gate/parser/provenance early refusal, canonical content/relationship hash and nonserialized private permit."
+    },
+    {
+      "id": "us004-database",
+      "name": "go test ./internal/store ./internal/turn ./internal/daemon -run 'TestMCPCreationDB_|TestMCPOwnerIntake_|TestCreationAuthorizerDB_' -count=1",
+      "passed": true,
+      "evidence": "Integration specialist: nine top-level tests and all subcases PASS; store 2.631s, turn 1.544s, daemon 1.324s. Real migrated SQLite trusted provenance, immutable intent, exact expiry/clamp, gate/live authority, sixteen concurrent retries one permit, quota/rolling/old unresolved/cross-repo boundaries, release/delayed dispatch and physical reopen."
+    },
+    {
+      "id": "us004-database-race",
+      "name": "go test ./internal/store ./internal/turn ./internal/daemon -run 'TestMCPCreationDB_|TestMCPOwnerIntake_|TestCreationAuthorizerDB_' -count=1 -race",
+      "passed": true,
+      "evidence": "Integration specialist: PASS store 52.182s, turn 10.912s, daemon 4.116s. No production defects/data races. Synthetic GitHub metadata tests real trusted intake seam, no live retrieval/publication claim."
+    }
+  ]
+}

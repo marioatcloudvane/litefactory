@@ -1,0 +1,40 @@
+{
+  "story": "US-002",
+  "snapshot_id": "run0007-us002-v1",
+  "files": [
+    "internal/submission/tools.go",
+    "internal/submission/broker.go",
+    "internal/submission/client.go",
+    "internal/turn/mcp_tools.go",
+    "internal/turn/agent_results.go",
+    "internal/submission/tools_test.go",
+    "internal/agentresult/mcp_profile_contract_test.go",
+    "internal/turn/mcp_tools_test.go"
+  ],
+  "checks": [
+    {
+      "id": "us002-unit",
+      "name": "go test ./internal/submission ./internal/agentresult -run 'TestToolProfile_|TestDecodeToolCall_|TestMCPSharedContract_' -short -race -cover",
+      "passed": true,
+      "evidence": "Unit specialist: six tests with 23 table subtests passed; zero failures. Package coverage submission 11.2%, agentresult 18.9%. Tests establish catalog/profile policy and additive permission boundary."
+    },
+    {
+      "id": "us002-socket",
+      "name": "go test ./internal/turn -run 'TestMCPTools_' -count=1",
+      "passed": true,
+      "evidence": "Integration specialist: PASS 2.164s. Six test functions and eleven subtests. Real SQLite/socket mode dispatch, exact bytes/counters, duplicate receipts, authority/selector refusals, Plan recovery/publication refusal and Validate communication."
+    },
+    {
+      "id": "us002-socket-race",
+      "name": "go test ./internal/turn -run 'TestMCPTools_' -count=1 -race",
+      "passed": true,
+      "evidence": "Integration specialist: PASS 16.290s."
+    },
+    {
+      "id": "us002-compatibility",
+      "name": "go test ./internal/submission ./internal/turn -run 'TestAgentResultService|TestAgentResultReader|TestBroker' -count=1",
+      "passed": true,
+      "evidence": "Implementation specialist: PASS submission 0.646s; turn 1.791s."
+    }
+  ]
+}

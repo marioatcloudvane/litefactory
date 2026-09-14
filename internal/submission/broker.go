@@ -23,6 +23,8 @@ type Options struct {
 	Directory         string
 	AuthorizedStories []string
 	AllowPlan         bool
+	AllowTools        bool
+	AttemptReference  string
 	Handler           Handler
 	MaxWorkers        int
 	RequestTimeout    time.Duration
@@ -37,6 +39,8 @@ type Broker struct {
 	handler                         Handler
 	stories                         []string
 	allowPlan                       bool
+	allowTools                      bool
+	attemptReference                string
 	timeout                         time.Duration
 	cancel                          context.CancelFunc
 	done                            chan struct{}
@@ -59,7 +63,7 @@ func Start(ctx context.Context, o Options) (*Broker, error) {
 		}
 		seen[story] = true
 	}
-	if !o.AllowPlan && len(o.AuthorizedStories) == 0 {
+	if !o.AllowPlan && !o.AllowTools && len(o.AuthorizedStories) == 0 {
 		return nil, errors.New("submission: missing authorized scope")
 	}
 	base, _, err := openPrivateRoot(o.Directory)
@@ -129,7 +133,7 @@ func Start(ctx context.Context, o Options) (*Broker, error) {
 		return nil, errors.New("submission: descriptor unavailable")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
+	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
 	go b.serve(runCtx, o.MaxWorkers)
 	return b, nil
 }
@@ -213,11 +217,12 @@ func (b *Broker) handle(ctx context.Context, c *net.UnixConn) {
 		return
 	}
 	q.Capability = ""
-	if q.Method != "preflight" && q.Method != "submit" && q.Method != "receipt" {
+	isTool := q.Method == "tools/list" || q.Method == "tools/call"
+	if (isTool && !b.allowTools) || (!isTool && q.Method != "preflight" && q.Method != "submit" && q.Method != "receipt") {
 		b.respond(c, Response{Error: "Unsupported method."})
 		return
 	}
-	if len(q.RequestID) > 128 || (q.Method != "preflight" && q.RequestID == "") {
+	if len(q.RequestID) > 128 || ((q.Method == "submit" || q.Method == "receipt") && q.RequestID == "") {
 		b.respond(c, Response{Error: "Missing or invalid request correlation."})
 		return
 	}
@@ -225,7 +230,7 @@ func (b *Broker) handle(ctx context.Context, c *net.UnixConn) {
 		b.respond(c, Response{RequestID: q.RequestID, Error: "Invalid contribution JSON."})
 		return
 	}
-	if q.Method != "receipt" {
+	if !isTool && q.Method != "receipt" {
 		var selector struct {
 			Story string `json:"story"`
 			Stage string `json:"stage"`
@@ -268,4 +273,18 @@ func (b *Broker) respond(c net.Conn, r Response) {
 	if err := writeFrame(c, data); err != nil {
 		return
 	}
+}
+
+// LaunchReference exposes only live factory registration metadata, never the
+// descriptor capability. The caller must match it to the existing launch guard.
+func (b *Broker) LaunchReference() (string, string, error) {
+	select {
+	case <-b.done:
+		return "", "", errors.New("submission: broker closed")
+	default:
+	}
+	if !b.allowTools || b.attemptReference == "" || !b.current() {
+		return "", "", errors.New("submission: missing or stale launch reference")
+	}
+	return b.descriptorPath, b.attemptReference, nil
 }
