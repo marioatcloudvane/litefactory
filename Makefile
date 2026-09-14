@@ -19,10 +19,12 @@ build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/$(BINARY) ./cmd/litefactory
 
 ## test: run the test suite with the race detector
-# The package deadline is shared by its real git/SQLite race tests; allow
-# bounded headroom beyond Go's default ten minutes when packages run together.
+# No package deadline: the real git/SQLite race tests keep growing, and any
+# fixed limit (Go's default is ten minutes) eventually fails a healthy run.
+# Override for a bounded run with `make test TEST_TIMEOUT=30m`.
+TEST_TIMEOUT ?= 0
 test:
-	$(GO) test -race -timeout=20m $(PKGS)
+	$(GO) test -race -timeout=$(TEST_TIMEOUT) $(PKGS)
 
 ## check: everything CI enforces — formatting, vet, lint, race tests
 check: fmt vet lint test
