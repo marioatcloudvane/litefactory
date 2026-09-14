@@ -17,6 +17,10 @@ New requests receive stable, family- and scope-specific correlation before trans
 
 Creation reuses #272's server-held grant and private single-use permit, as agreed with the owner. Agent arguments, public content and comment volume cannot supply approval. Exact final redacted publication bytes, correlation markers and relationships precede approval hashing. Ordinary comments use explicitly authorized existing targets independently of creation policy. Durable ownership precedes outward publication; uncertain outcomes remain uncertain and permit bounded observation only.
 
+Preflight checks proposed input before submission; activity describes the agent’s current reported progress; receipts recover what the factory knows happened to a specific request. Passing preflight grants no approval, reported activity supplies no proof, and receipt lookup does not retry publication.
+
+Canonical content hashes bind reviewed creation bytes to approval. The existing creation primitive retains operation identity through its grant-scoped reservation, while stable journal request identity provides transport recovery. Receipt correlation references the authoritative operation; it does not replace that identity with a content-hash-only dedup key.
+
 ## Workflow
 
 Build the shared correlation/receipt foundation first. Family handlers then extend the same guarded dispatcher in independently testable steps. Evidence operations and feedback must share checkpoint validation rather than duplicate it. Publication families share durable outcome and recovery infrastructure while preserving separate ordinary-comment and creation-class authorization. The final feature gate checks the complete catalog, cross-family boundaries, cancellation and recovery, and records the production handoff.
@@ -63,4 +67,4 @@ Remote APIs cannot establish exactly-once publication from every uncertain respo
 
 The session research brief records the original issue and owner replies; the feature specification separates settled scope, assumptions, candidate criteria and evidence sources. The architecture review confirms current ownership seams and highlights immutable scope, exact approved bytes, cross-process dispatch and authoritative-record references. The issue's original caller-carried token wording is superseded by the owner's reuse direction and the landed private-permit contract.
 
-No implementation, test execution or authentic host observation occurred in this Plan run. Only a terminal successful factory publication and save establish readiness; a locally completed proposal or durable input acknowledgment does not.
+Run 0006 incorporates the verified run-0005 assessment into eight existing stories with 24 criteria. Existing criterion text and identities remain unchanged; additional regression coverage uses a new criterion identity with assigned tasks and evidence inventory. No implementation, test execution or authentic host observation occurred in this Plan run. Only a terminal successful factory publication and save establish readiness; a locally completed proposal or durable input acknowledgment does not.

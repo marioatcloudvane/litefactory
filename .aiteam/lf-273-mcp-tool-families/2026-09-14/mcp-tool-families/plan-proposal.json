@@ -2,11 +2,11 @@
   "stage": "plan",
   "outcome": "completed",
   "plan": {
-    "summary": "Implement all five MCP tool families in eight stories: scoped durable correlation and receipt recovery; shared feedback/profile enforcement; bounded repository-local issue reads; authorized receipted comments; exact reviewed creation through existing factory-held grants and private one-use permits; shared engineering/assessment checkpoints; advisory activity update/get; and composed offline verification with the #274 production handoff. Reuse landed #272; preserve existing communication behavior and engineering/acceptance separation. Include issues_create_batch and activity_get. Native host launches, trusted production approval intake/next-attempt wiring, production recovery scheduling and authentic host verification remain #274; no protected instruction-tree edits.",
+    "summary": "Implement all five MCP tool families in eight stories: scoped durable correlation and receipt recovery; shared feedback/profile enforcement; bounded repository-local issue reads; authorized receipted comments; exact reviewed creation through existing factory-held grants and private one-use permits; shared engineering/assessment checkpoints; advisory activity update/get; and composed offline verification with the #274 production handoff. Reuse landed #272; preserve existing communication behavior and engineering/acceptance separation. Include issues_create_batch and activity_get. Native host launches, trusted production approval intake/next-attempt wiring, production recovery scheduling and authentic host verification remain #274; no protected instruction-tree edits. Run 0006 incorporates the verified assessment: explicit default-off family regression coverage, canonical-content versus operation/request identity clarification, publication ownership pointers and clearer production handoff boundaries.",
     "stories": [
       {
         "key": "US-001",
-        "intent": "create",
+        "intent": "update",
         "title": "Recover scoped family request outcomes",
         "user_story": {
           "actor": "an authorized agent",
@@ -16,7 +16,8 @@
             "Source: feature-spec.md acceptance candidates AC-018, AC-020, Data model and validation, API and permission matrix, and Business rules and error handling.",
             "Evidence inventory AC-001 (spec AC-018): proof=Journal lost-reply/reopen and cross-family collision tests; source=Existing submission client fixtures; bounds=Actual local journal/socket, synthetic requests; prerequisite=Implement and retain executed checks.",
             "Evidence inventory AC-002 (spec AC-020): proof=Cross-scope/current-reader/revocation and secret-exclusion tests; source=Existing AttemptGuard/store fixtures; bounds=Trusted factory-supplied reader grants only; prerequisite=Implement and retain executed checks.",
-            "Evidence inventory AC-003: proof=SQLite-backed receipt projection and nonrecursive/no-effect assertions; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks."
+            "Evidence inventory AC-003: proof=SQLite-backed receipt projection and nonrecursive/no-effect assertions; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks.",
+            "Receipts recover what the factory knows happened to a specific request; lookup observes retained outcomes without retrying publication."
           ]
         },
         "acceptance_criteria": [
@@ -99,7 +100,9 @@
             "All SQL stays in internal/store; use migrated modernc SQLite with its existing single connection pool and context-first accessors. No transaction spans forge I/O.",
             "Record bounded read/preflight metadata rather than full catalogs. Reference underlying submission/creation truth instead of copying mutable decisions.",
             "Do not expose permits, descriptor secrets or unrelated payloads. A receipt read cannot mint authority, dispatch an effect or allocate its own recursive receipt.",
-            "Provide narrow registration/projection seams for incremental family handlers; aggregate story verifies the complete family catalog."
+            "Provide narrow registration/projection seams for incremental family handlers; aggregate story verifies the complete family catalog.",
+            "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274.",
+            "Extend submission.Call and its journal; project existing result/submission receipts and store.CreationOperation references under current reader authority."
           ],
           "decisions": [
             {
@@ -115,7 +118,7 @@
       },
       {
         "key": "US-002",
-        "intent": "create",
+        "intent": "update",
         "title": "Validate proposed input through bound tool profiles",
         "user_story": {
           "actor": "an authorized agent",
@@ -125,7 +128,8 @@
             "Source: feature-spec.md acceptance candidates AC-002, AC-003, Data model and validation, API and permission matrix, and Business rules and error handling.",
             "Evidence inventory AC-001 (spec AC-002): proof=Compatibility and immutable-digest regression tests; source=Existing communication/client/dispatcher tests; bounds=Existing communication contract retained; prerequisite=Implement and retain executed checks.",
             "Evidence inventory AC-002 (spec AC-003): proof=Shared-validator parity and no-domain-write assertions; source=Existing contribution and agent-result tests; batch validator; bounds=Current typed contract/workflow versions; no remote effect; prerequisite=Implement and retain executed checks.",
-            "Evidence inventory AC-003: proof=Table-driven discovery/direct-call and guard refusal fixtures; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks."
+            "Evidence inventory AC-003: proof=Table-driven discovery/direct-call and guard refusal fixtures; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks.",
+            "Preflight checks proposed input before submission and returns corrections; passing it does not approve or publish work, and submission validates again."
           ]
         },
         "acceptance_criteria": [
@@ -209,7 +213,8 @@
             "Reuse AgentResultService.Preflight, shared SubmissionSession checkpoint preflight and CanonicalCreation; adapter decoding must not duplicate business validation.",
             "Include catalog version, creation gate visibility, comment targets and historical receipt scope in immutable binding; mutable grant state remains freshly checked by its owner.",
             "Install family handlers incrementally; missing dependencies/inconsistent advertised profiles fail construction. Complete matrix verification belongs to US-008.",
-            "Plan/Spike retain communication-only behavior. New creation is Research-only and gate-visible; stage evidence uses Implement/Validate rules."
+            "Plan/Spike retain communication-only behavior. New creation is Research-only and gate-visible; stage evidence uses Implement/Validate rules.",
+            "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274."
           ],
           "decisions": [
             {
@@ -228,7 +233,7 @@
       },
       {
         "key": "US-003",
-        "intent": "create",
+        "intent": "update",
         "title": "Discover bounded repository-local issue summaries",
         "user_story": {
           "actor": "an authorized agent",
@@ -313,7 +318,8 @@
           "constraints": [
             "Repository comes only from the immutable factory binding. Successful discovery never extends comment targets.",
             "Rich forge representations remain internal for recovery; public projection strips bodies, comments, account details and unrecognized labels.",
-            "Update the pinned GitHub surface intentionally; a PR-only page may return empty issue items with next-page metadata rather than scan further pages."
+            "Update the pinned GitHub surface intentionally; a PR-only page may return empty issue items with next-page metadata rather than scan further pages.",
+            "Preserve github.Client.ListIssues for daemon polling; add a bounded page accessor and reuse github.Client.GetIssue for local-number lookup, applying the family state check and minimal projection."
           ],
           "decisions": [
             {
@@ -332,7 +338,7 @@
       },
       {
         "key": "US-004",
-        "intent": "create",
+        "intent": "update",
         "title": "Publish authorized comments with durable recovery",
         "user_story": {
           "actor": "an authorized agent",
@@ -426,7 +432,9 @@
             "Final content includes redaction and correlation marker before intent is persisted. Respect existing forge/redaction content limits.",
             "Cross-process durable reservation precedes network I/O; never rely solely on an in-memory mutex or hold SQL locks across HTTP.",
             "Observe numeric authenticated bot identity, exact target, marker and prepared content. Empty/incomplete scans after an ambiguous POST never authorize reposting.",
-            "Cancellation propagates; separately authorized observation may retain facts but cannot obtain fresh agent dispatch authority."
+            "Cancellation propagates; separately authorized observation may retain facts but cannot obtain fresh agent dispatch authority.",
+            "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274.",
+            "Publish through github.Client.PostComment with a redact.Body produced by the existing redactor (SEC-6). Extend comment dispatch persistence through a new embedded migration and internal/store accessors; reconciliation performs bounded observation only, with no retry loop or periodic worker in internal/turn (CONC-6). Production recovery scheduling belongs to #274."
           ],
           "decisions": [
             {
@@ -445,7 +453,7 @@
       },
       {
         "key": "US-005",
-        "intent": "create",
+        "intent": "update",
         "title": "Publish exactly reviewed creation batches using existing grants",
         "user_story": {
           "actor": "an authorized agent",
@@ -457,7 +465,8 @@
             "Evidence inventory AC-002 (spec AC-010): proof=Tool-profile and complete server refusal matrix; source=Existing authorizer/store tests; bounds=Trusted synthetic identities, public content treated as data; prerequisite=Implement and retain executed checks.",
             "Evidence inventory AC-003 (spec AC-011): proof=Expiry/content/provenance/reuse boundary assertions; source=Existing `mcp_creation_test.go` and serialization tests; bounds=Existing primitive, injected factory time; prerequisite=Implement and retain executed checks.",
             "Evidence inventory AC-004 (spec AC-012): proof=Quota/repository/retry/concurrency fixture assertions; source=Existing creation store fixtures; bounds=Fixed current caps and rolling-window semantics; prerequisite=Implement and retain executed checks.",
-            "Evidence inventory AC-005 (spec AC-013): proof=Real SQLite and HTTP fixture publication/partial/restart checks; source=Existing follow-up recovery precedents; family publisher to add; bounds=Simulated GitHub; no promise of remote exactly-once delivery; prerequisite=Implement and retain executed checks."
+            "Evidence inventory AC-005 (spec AC-013): proof=Real SQLite and HTTP fixture publication/partial/restart checks; source=Existing follow-up recovery precedents; family publisher to add; bounds=Simulated GitHub; no promise of remote exactly-once delivery; prerequisite=Implement and retain executed checks.",
+            "Evidence inventory AC-006: proof=omitted/false loaded-configuration cases through family discovery and direct-call refusal, including trusted otherwise-valid grant fixtures; source=existing config.Defaults, authorizer/store and bound dispatcher fixture facilities; bounds=current existing default-off primitive with synthetic factory bindings, no production host observation; prerequisite=Implement and retain executed regression checks."
           ]
         },
         "acceptance_criteria": [
@@ -480,6 +489,10 @@
           {
             "id": "AC-005",
             "text": "A valid fixture-bound grant publishes only reviewed artifacts and relationships, returns confirmed per-artifact identities, and persists partial/lost-response/restart outcomes without blind recreation or full-batch confirmation while unresolved."
+          },
+          {
+            "id": "AC-006",
+            "text": "When the loaded allow_mcp_story_creation setting is omitted or false, creation is hidden from discovery and refused server-side, including a direct call with an otherwise valid fixture-bound live grant. Reuse the existing default-off configuration and authorization primitive; family registration must not enable the gate implicitly."
           }
         ],
         "tasks": [
@@ -492,20 +505,22 @@
               "AC-002",
               "AC-003",
               "AC-004",
-              "AC-005"
+              "AC-005",
+              "AC-006"
             ],
             "depends_on": []
           },
           {
             "id": "T-002",
-            "description": "Verify gate/mode/provenance/expiry/reuse/content/source/relationship refusal matrix, malformed tokens and spam as non-authority, canonical bounds and exact reviewed bytes.",
+            "description": "Verify gate/mode/provenance/expiry/reuse/content/source/relationship refusal matrix, malformed tokens and spam as non-authority, canonical bounds and exact reviewed bytes. Include omitted and false loaded configuration, verifying discovery and direct refusal with otherwise-valid fixture grants.",
             "owner_role": "go-unit-test-engineer",
             "criterion_ids": [
               "AC-001",
               "AC-002",
               "AC-003",
               "AC-004",
-              "AC-005"
+              "AC-005",
+              "AC-006"
             ],
             "depends_on": [
               "T-001"
@@ -513,14 +528,15 @@
           },
           {
             "id": "T-003",
-            "description": "Run SQLite/HTTP fixtures with trusted grants for quotas, cross-repository budgets, duplicate/concurrent calls, partial relationships, accepted writes with lost responses, cancellation and reopened observation; count dispatch owners and POSTs.",
+            "description": "Run SQLite/HTTP fixtures with trusted grants for quotas, cross-repository budgets, duplicate/concurrent calls, partial relationships, accepted writes with lost responses, cancellation and reopened observation; count dispatch owners and POSTs. Exercise omitted/false gate variants through the bound transport and assert zero publication effects.",
             "owner_role": "go-integration-test-engineer",
             "criterion_ids": [
               "AC-001",
               "AC-002",
               "AC-003",
               "AC-004",
-              "AC-005"
+              "AC-005",
+              "AC-006"
             ],
             "depends_on": [
               "T-001"
@@ -564,7 +580,10 @@
             "RetainProposal, ReserveCreation, BeginDispatch, RecordOperationOutcome and ReconcileOperation remain authoritative; generic receipts never become a second authorization engine.",
             "Prepare marker correlation before hashing to avoid a self-referential marker/hash. Any redaction or relationship/content change after approval requires new proposal and approval.",
             "Trusted approval intake, next-attempt production grant binding and recovery scheduling remain #274; tests compose these existing primitives directly. No model-callable grant or retention shortcut.",
-            "Use existing parent-effect coordination for managed relationships; stop further dispatch after failure or unknown result. Partial/unknown effects retain original quota charges."
+            "Use existing parent-effect coordination for managed relationships; stop further dispatch after failure or unknown result. Partial/unknown effects retain original quota charges.",
+            "For AC-003, recompute the reviewed envelope canonical hash and exact bytes through submission.CanonicalCreation; caller-supplied hashes do not replace that check. The hash binds approval to content and is not an operation identity or grant.",
+            "For AC-004, exact-envelope retries under the same live grant recover the existing store.CreationOperation through the primitive grant-scoped reservation. Receipt correlation references that operation; keep stable journal request identity distinct and do not substitute a content-hash-only dedup key. Expired authority still refuses replay, while separately authorized receipt observation remains possible.",
+            "The omitted/false configuration case in AC-006 is family regression coverage of the landed default-off gate; no new configuration or authorization engine is required."
           ],
           "decisions": [
             {
@@ -588,7 +607,7 @@
       },
       {
         "key": "US-006",
-        "intent": "create",
+        "intent": "unchanged",
         "title": "Record engineering and assessment through shared checkpoints",
         "user_story": {
           "actor": "an authorized agent",
@@ -692,7 +711,7 @@
       },
       {
         "key": "US-007",
-        "intent": "create",
+        "intent": "update",
         "title": "Report bounded advisory activity",
         "user_story": {
           "actor": "an authorized agent",
@@ -701,7 +720,8 @@
           "notes": [
             "Source: feature-spec.md acceptance candidates AC-016, AC-017, Data model and validation, API and permission matrix, and Business rules and error handling.",
             "Evidence inventory AC-001 (spec AC-016): proof=Reducer parity, concurrent service calls and cleared-state assertions; source=Existing progress reducer tests; bounds=Injected time; explicitly process-local display; prerequisite=Implement and retain executed checks.",
-            "Evidence inventory AC-002 (spec AC-017): proof=Before/after workflow/authority invariants; source=Progress and store fixtures; bounds=No real host or timer-lifecycle claim; prerequisite=Implement and retain executed checks."
+            "Evidence inventory AC-002 (spec AC-017): proof=Before/after workflow/authority invariants; source=Progress and store fixtures; bounds=No real host or timer-lifecycle claim; prerequisite=Implement and retain executed checks.",
+            "Activity describes the agent\u2019s current reported progress; it does not establish evidence, complete a story, approve scope or extend authority."
           ]
         },
         "acceptance_criteria": [
@@ -782,7 +802,8 @@
           "constraints": [
             "Reuse ReduceProgress, MarkProgressTerminal and CleanTerminalProgress. No wall-clock reads, permanent goroutines or periodic scheduling in turn.",
             "Protect process-local state with a mutex and clone mutable returned values. Request recovery must not reapply an update or extend deadlines.",
-            "A durable update receipt does not promise durable display history; display may be unavailable after process restart."
+            "A durable update receipt does not promise durable display history; display may be unavailable after process restart.",
+            "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274."
           ],
           "decisions": [
             {
@@ -801,7 +822,7 @@
       },
       {
         "key": "US-008",
-        "intent": "create",
+        "intent": "unchanged",
         "title": "Verify every family contract and document the host handoff",
         "user_story": {
           "actor": "an authorized agent",
