@@ -136,7 +136,19 @@ func (s *AgentResultService) trustedContext(ctx context.Context) (agentresult.Co
 	}
 	return c, nil
 }
-func (s *AgentResultService) prepare(ctx context.Context, data []byte) (agentresult.PreparedUpdate, agentresult.UpdateDiagnostics, error) {
+func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidate agentresult.PreparedUpdate, diagnostics agentresult.UpdateDiagnostics, resultErr error) {
+	// MCP cannot initiate deferred issue creation. Refuse the fully assembled
+	// candidate, including updates to retained proposals, before durable admission.
+	// Ordinary helper/terminal callers retain the existing publication policy.
+	defer func() {
+		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
+		plan := candidate.Snapshot.Result.Payload.Plan
+		if restricted && diagnostics.Valid && plan != nil && (candidate.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
+			diagnostics.Valid = false
+			diagnostics.Diagnostics.Diagnostics = append(diagnostics.Diagnostics.Diagnostics, agentresult.Diagnostic{Path: "$.result.payload.plan", Code: "mcp_creation_refused", Expected: "discussion without publishable stories", Actual: "creation-capable Plan", Message: "MCP cannot submit a publishable Plan; use the owner-controlled Plan workflow. No proposal was accepted."})
+			candidate = agentresult.PreparedUpdate{}
+		}
+	}()
 	c, err := s.trustedContext(ctx)
 	if err != nil {
 		return agentresult.PreparedUpdate{}, agentresult.UpdateDiagnostics{}, err
@@ -164,7 +176,7 @@ func (s *AgentResultService) prepare(ctx context.Context, data []byte) (agentres
 	if !d.Valid {
 		return agentresult.PreparedUpdate{}, v, nil
 	}
-	candidate, v := agentresult.ApplyUpdate(snapshot, retired, input, c, s.editTargets)
+	candidate, v = agentresult.ApplyUpdate(snapshot, retired, input, c, s.editTargets)
 	if v.Valid {
 		candidate.Snapshot.Meta = s.metadata(candidate.Snapshot.Meta.ResultRevision)
 	}
@@ -189,7 +201,18 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	}
 	old, err := s.db.ReplayResultRequest(ctx, s.binding, requestID, data)
 	if err == nil {
-		return s.response(ctx, old)
+		restricted, _ := ctx.Value(mcpCommunicationKey{}).(bool)
+		response, responseErr := s.response(ctx, old)
+		if responseErr != nil {
+			return response, responseErr
+		}
+		if restricted && response.Snapshot != nil {
+			plan := response.Snapshot.Result.Payload.Plan
+			if plan != nil && (response.Snapshot.Result.Outcome == "completed" || len(plan.Stories) > 0) {
+				return AgentResultSubmission{}, fmt.Errorf("MCP cannot replay a publishable Plan; use receipt lookup")
+			}
+		}
+		return response, nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
 		return AgentResultSubmission{}, err

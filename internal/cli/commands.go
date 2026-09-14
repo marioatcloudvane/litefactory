@@ -11,6 +11,7 @@ func Commands() []*Command {
 		newSubmissionCommand("preflight"),
 		newSubmissionCommand("submit"),
 		newSubmissionCommand("receipt"),
+		newMCPServeCommand(),
 		newRepoAddCommand(),
 		newRepoListCommand(),
 		newDaemonRunCommand(),

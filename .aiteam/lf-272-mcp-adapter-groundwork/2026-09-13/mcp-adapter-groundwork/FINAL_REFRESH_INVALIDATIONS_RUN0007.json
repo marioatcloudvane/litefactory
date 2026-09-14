@@ -1,0 +1,119 @@
+[
+  {
+    "story": "US-002",
+    "reason": "Refresh affected unaccepted engineering after shared transport/config/authority and lint fixes. Initial snapshot predates final source; all final build/format/vet/lint/full-race checks now pass. Replacing it with the immutable final aggregate snapshot.",
+    "preflight": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "",
+        "result": {
+          "valid": true,
+          "complete": true,
+          "diagnostics": [],
+          "unchecked_paths": []
+        }
+      }
+    },
+    "submit": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "fad1754f8a80792da05fbf8bc91d2c92",
+        "result": {
+          "ID": 91,
+          "RunID": 429,
+          "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+          "RequestID": "fad1754f8a80792da05fbf8bc91d2c92",
+          "RequestHash": "eac9c79929d7150984ade09f271e5fc241a85e6d545837377a8947ac034b1dbe",
+          "Story": "US-002",
+          "Revision": "ac14c8f3efc72a7b4126389cc58165aef50d57f4567c9f22e13bf4dc0375523a",
+          "Sequence": 9,
+          "StoryAttempt": 2,
+          "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+          "InputState": "valid",
+          "EngineeringState": "rejected",
+          "AcceptanceState": "not_applicable",
+          "EffectState": "pending",
+          "PlanState": "not_applicable"
+        }
+      }
+    }
+  },
+  {
+    "story": "US-003",
+    "reason": "Refresh affected unaccepted engineering after shared transport/config/authority and lint fixes. Initial snapshot predates final source; all final build/format/vet/lint/full-race checks now pass. Replacing it with the immutable final aggregate snapshot.",
+    "preflight": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "",
+        "result": {
+          "valid": true,
+          "complete": true,
+          "diagnostics": [],
+          "unchecked_paths": []
+        }
+      }
+    },
+    "submit": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "4a854588c9981e56734bab11ef5d486f",
+        "result": {
+          "ID": 93,
+          "RunID": 429,
+          "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+          "RequestID": "4a854588c9981e56734bab11ef5d486f",
+          "RequestHash": "3cb045c1abb178ddf1b4db3ea46815eb67c9f424ea13b673921030aa09fb5a4b",
+          "Story": "US-003",
+          "Revision": "278cf863a7800a6cfee5bb38f4a88a674d1cb5daba61917e516d6493878da24b",
+          "Sequence": 11,
+          "StoryAttempt": 2,
+          "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+          "InputState": "valid",
+          "EngineeringState": "rejected",
+          "AcceptanceState": "not_applicable",
+          "EffectState": "pending",
+          "PlanState": "not_applicable"
+        }
+      }
+    }
+  },
+  {
+    "story": "US-004",
+    "reason": "Refresh affected unaccepted engineering after shared transport/config/authority and lint fixes. Initial snapshot predates final source; all final build/format/vet/lint/full-race checks now pass. Replacing it with the immutable final aggregate snapshot.",
+    "preflight": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "",
+        "result": {
+          "valid": true,
+          "complete": true,
+          "diagnostics": [],
+          "unchecked_paths": []
+        }
+      }
+    },
+    "submit": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "a31c310d8a267c52b4e03d31cb2bbecd",
+        "result": {
+          "ID": 95,
+          "RunID": 429,
+          "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+          "RequestID": "a31c310d8a267c52b4e03d31cb2bbecd",
+          "RequestHash": "c39e6cbb55f7e915b24afc800c216f7ecb8a00721e1bf11eed183778423bdfcc",
+          "Story": "US-004",
+          "Revision": "7fe2d1453415e2988eb510de1e1b48d47e6130544a6ab30da74b744d5eb07b2c",
+          "Sequence": 13,
+          "StoryAttempt": 2,
+          "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+          "InputState": "valid",
+          "EngineeringState": "rejected",
+          "AcceptanceState": "not_applicable",
+          "EffectState": "pending",
+          "PlanState": "not_applicable"
+        }
+      }
+    }
+  }
+]

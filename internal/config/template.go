@@ -47,6 +47,10 @@ settings:
   # Opt into bounded recovery for verified Claude Code and Codex quota limits.
   # Configuration is loaded at startup; changes require a daemon restart.
   auto_resume_on_session_limit: %t
+  # Prepare per-attempt MCP registration; native host consumption is separate.
+  mcp_auto_start: %t
+  # Creation also requires one exact, short-lived owner approval.
+  allow_mcp_story_creation: %t
   # Auto-sync keeps a feature branch caught up with its base without being
   # asked. It is on by default because staying behind quietly is the problem
   # this feature exists to fix, and blocking on conflict is on by default
@@ -125,6 +129,8 @@ tool_profiles:
 		d.Settings.AttachmentMaxTotalBytes, MinAttachmentBytes, MaxAttachmentBytes,
 		d.Settings.AttachmentMaxCount, MinAttachmentMaxCount, MaxAttachmentMaxCount,
 		d.Settings.AutoResumeOnSessionLimit,
+		d.Settings.MCPAutoStart,
+		d.Settings.AllowMCPStoryCreation,
 		d.Settings.AutoSyncBase, d.Settings.AutoSyncMaxBehind, d.Settings.AutoSyncMaxBehind, d.Settings.BlockRunOnConflict,
 		d.Settings.SuggestConflictResolution,
 		d.Settings.ConflictProposalTTLHours, MinConflictProposalTTLHours, MaxConflictProposalTTLHours,

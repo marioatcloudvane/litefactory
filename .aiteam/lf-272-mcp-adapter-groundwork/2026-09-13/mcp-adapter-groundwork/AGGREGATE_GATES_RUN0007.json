@@ -1,0 +1,45 @@
+{
+  "build": {
+    "command": "go build ./...",
+    "exit_code": 0,
+    "output": "Passed with no output."
+  },
+  "scoped_race": {
+    "command": "go test -race -timeout=8m ./internal/agent ./internal/agentresult ./internal/cli ./internal/config ./internal/daemon ./internal/mcpadapter ./internal/store ./internal/submission ./internal/turn -run 'TestMCP|TestToolProfile_|TestDecodeToolCall_|TestCanonicalCreation_|TestOwnerGrantCommand_|TestCreationAuthorizer|TestCreationReservation_' -count=1",
+    "exit_code": 0,
+    "output": "ok  \tgithub.com/cloudvane/litefactory/internal/agent\t1.610s\nok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t2.097s\nok  \tgithub.com/cloudvane/litefactory/internal/cli\t7.987s\nok  \tgithub.com/cloudvane/litefactory/internal/config\t2.884s\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t4.354s\nok  \tgithub.com/cloudvane/litefactory/internal/mcpadapter\t4.471s\nok  \tgithub.com/cloudvane/litefactory/internal/store\t55.513s\nok  \tgithub.com/cloudvane/litefactory/internal/submission\t4.325s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t55.002s\n"
+  },
+  "make_check": {
+    "command": "make check",
+    "exit_code": 2,
+    "phase": "lint",
+    "findings": 46,
+    "cache_warning_count": 2848,
+    "full_tests": "not_reached",
+    "fix_cycle": 1
+  },
+  "make_check_fix1": {
+    "command": "GOLANGCI_LINT_CACHE=/private/tmp/lf272-golangci-cache make check",
+    "exit_code": 2,
+    "lint": "0 issues",
+    "test_failure": "TestTurnImposesNoAmbientDeadline: AttemptAuthority.Bind context.WithDeadline",
+    "timeout": "internal/turn timed out after20m; other reported packages passed",
+    "fix_cycle": 2
+  },
+  "final_build": {
+    "command": "go build ./...",
+    "exit_code": 0,
+    "output": "Passed without output after deadline fix."
+  },
+  "final_format": {
+    "command": "gofmt -l .",
+    "exit_code": 0,
+    "output": "No files reported."
+  },
+  "make_check_fix2": {
+    "command": "GOFLAGS=-p=1 GOLANGCI_LINT_CACHE=/private/tmp/lf272-golangci-cache make check",
+    "exit_code": 0,
+    "output": "go vet ./...\ngolangci-lint v2.13.1 (installed)\n0 issues.\ngo test -race -timeout=20m ./...\nok  \tgithub.com/cloudvane/litefactory/cmd/litefactory\t(cached)\n?   \tgithub.com/cloudvane/litefactory/cmd/team-benchmark\t[no test files]\n?   \tgithub.com/cloudvane/litefactory/cmd/team-publish\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/agent\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/attach\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/cli\t257.793s\nok  \tgithub.com/cloudvane/litefactory/internal/codex\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/config\t4.005s\nok  \tgithub.com/cloudvane/litefactory/internal/confirm\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t672.893s\nok  \tgithub.com/cloudvane/litefactory/internal/git\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/github\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/gittest\t4.210s\nok  \tgithub.com/cloudvane/litefactory/internal/harness\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/identity\t6.732s\nok  \tgithub.com/cloudvane/litefactory/internal/launchd\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/logging\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/mcpadapter\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/meter\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/naming\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/planbrief\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/redact\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/render\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/report\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/repos\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/schedule\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/secrets\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/store\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/submission\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/team\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/teampublish\t2.219s\nok  \tgithub.com/cloudvane/litefactory/internal/teamremote\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/teamsource\t11.537s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t1166.347s\n",
+    "test_scheduling": "Packages serialized; no tests omitted and no timeout increased."
+  }
+}

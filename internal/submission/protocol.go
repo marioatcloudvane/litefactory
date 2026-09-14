@@ -10,7 +10,7 @@ import (
 )
 
 // MaxFrameBytes bounds request and response metadata, excluding shared snapshots.
-const MaxFrameBytes = 4 << 20
+const MaxFrameBytes = 16 << 20
 const maxDescriptorBytes = 4096
 
 // Request is the authenticated local call passed to the factory handler. The
@@ -127,3 +127,7 @@ func uniqueJSON(d *json.Decoder, depth int, requestEnvelope bool) error {
 	_, err = d.Token()
 	return err
 }
+
+// DecodeJSON shares strict envelope decoding (duplicate keys, depth and unknown
+// fields) with the MCP edge without duplicating application validation.
+func DecodeJSON(data []byte, out interface{}) error { return decodeStrict(data, out) }

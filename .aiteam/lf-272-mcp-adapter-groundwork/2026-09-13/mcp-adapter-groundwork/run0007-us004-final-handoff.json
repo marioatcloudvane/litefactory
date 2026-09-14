@@ -1,0 +1,39 @@
+{
+  "story": "US-004",
+  "snapshot_id": "run0007-us004-final",
+  "implementation_digest": "7085fcec10e13f442575ea7daae737aed961556b73964ab5adf3329d8c8c1331",
+  "preflight": {
+    "returncode": 0,
+    "stdout": "{\"request_id\": \"\", \"result\": {\"valid\": true, \"complete\": true, \"diagnostics\": [], \"unchecked_paths\": []}}",
+    "stderr": ""
+  },
+  "submit": {
+    "returncode": 0,
+    "stdout": "{\"request_id\": \"92ed75a57a7f984240de71efdade4fcb\", \"result\": {\"ID\": 96, \"RunID\": 429, \"Attempt\": \"0c58a76f05d074976e26084daf27ff1c\", \"RequestID\": \"92ed75a57a7f984240de71efdade4fcb\", \"RequestHash\": \"c79f21cb35b881462698774e6d68d11840626ae2f7498b858af1aae4d99f9726\", \"Story\": \"US-004\", \"Revision\": \"7fe2d1453415e2988eb510de1e1b48d47e6130544a6ab30da74b744d5eb07b2c\", \"Sequence\": 14, \"StoryAttempt\": 3, \"Diagnostics\": \"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\", \"InputState\": \"valid\", \"EngineeringState\": \"recorded\", \"AcceptanceState\": \"not_applicable\", \"EffectState\": \"pending\", \"PlanState\": \"not_applicable\"}}",
+    "stderr": ""
+  },
+  "receipt": {
+    "returncode": 0,
+    "response": {
+      "request_id": "92ed75a57a7f984240de71efdade4fcb",
+      "result": {
+        "ID": 96,
+        "RunID": 429,
+        "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+        "RequestID": "92ed75a57a7f984240de71efdade4fcb",
+        "RequestHash": "c79f21cb35b881462698774e6d68d11840626ae2f7498b858af1aae4d99f9726",
+        "Story": "US-004",
+        "Revision": "7fe2d1453415e2988eb510de1e1b48d47e6130544a6ab30da74b744d5eb07b2c",
+        "Sequence": 14,
+        "StoryAttempt": 3,
+        "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+        "InputState": "valid",
+        "EngineeringState": "recorded",
+        "AcceptanceState": "not_applicable",
+        "EffectState": "delivered",
+        "PlanState": "not_applicable"
+      }
+    },
+    "stderr": ""
+  }
+}

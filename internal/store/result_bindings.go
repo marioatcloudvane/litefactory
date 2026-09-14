@@ -130,6 +130,15 @@ func readResultBinding(ctx context.Context, tx *sql.Tx, runID int64, attempt str
 	return b, err
 }
 func checkResultAccess(ctx context.Context, tx *sql.Tx, b ResultBinding, write bool) error {
+	if lease, ok := ctx.Value(mcpLeaseKey{}).(MCPLease); ok {
+		if lease.Binding != b {
+			return ErrResultAuthority
+		}
+		if err := checkMCPLease(ctx, tx, lease, nowUTC()); err != nil {
+			return err
+		}
+		write = true // MCP never inherits the internal historical-reader exemption.
+	}
 	old, err := readResultBinding(ctx, tx, b.RunID, b.Attempt, write)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {

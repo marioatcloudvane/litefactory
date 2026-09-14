@@ -7,7 +7,7 @@
 ## Modes
 - [x] Research
 - [x] Plan
-- [ ] Implement
+- [x] Implement
 - [ ] Validate
 - [ ] Spike
 
@@ -25,3 +25,17 @@
 - Implementation must first verify landed #263/#264 lifecycle integration; this checkout still documents the newer service as unwired. The helper did not authorize external issue dependency bindings, so typed issue_refs arrays are empty and those prerequisites remain explicit in each story and shared plan. Publication will fill story issue links; no links or readiness were fabricated.
 
 - 2026-09-13: Research run 0001 complete; RESEARCH_BRIEF.md records architecture, class diagram, delivered JSON reuse, current adoption qualification, profile/grant/recovery contracts and test handoff. No implementation or open owner questions.
+
+## Implement run 0006 — 2026-09-14
+
+Status: BLOCKED before US-001 implementation. Mandatory #264 lifecycle integration is absent from this checkout; newer result binding has no production callers and the existing launch runner uses the older submission session. US-002–US-005 remain blocked by prerequisite/dependency order. Implement remains unchecked above. No production/test changes or executed checks; aggregate gates not reached. No acceptance or issue closure claimed.
+
+Artifacts: US-001-IMPLEMENTATION.md, TEST_REPORT.md, notes.md, DRIFT_REPORT.md, IMPLEMENT_HANDOFF.json. Five valid blocked contributions and their durable receipts are retained in IMPLEMENT_HANDOFF.json (engineering rejected, acceptance not_applicable, blocked-status effects delivered). Resume after completed #264 production adoption is present; no scope redesign performed.
+
+## Implement run 0007 — 2026-09-14
+
+Status: COMPLETE. All five stories engineered against delivered #263 before #264 wiring; final build/format/vet/lint/full-race checks passed and final engineering receipts are recorded with effects delivered. Prior blocked/invalidated receipts remain historical.
+
+### Run 0007 final outcome
+
+All five frozen stories engineered. Final make check passed with package serialization and unchanged repository tests/timeouts; build and gofmt -l passed. Two aggregate fix cycles resolved lint and turn deadline ownership; earlier failures remain retained. No acceptance review or issue closure; save/commit/push remains factory-owned. Final report: IMPLEMENT_REPORT_RUN0007.md; evidence: TEST_REPORT.md, AGGREGATE_GATES_RUN0007.json and IMPLEMENT_HANDOFF_RUN0007.json.

@@ -1,0 +1,148 @@
+Recorded output with repeated sandbox cache warnings collapsed: 2848 warnings.
+level=warning msg="[linters_context/goanalysis] Failed to persist facts to cache: failed to save data to low-level cache by key fact_deprecated/facts for package goarch: open /Users/mariomh/Library/Caches/golangci-lint/f9/f9f4cf1fc2e0c12e545d08a61d83e12060da3efab37feafd23eba54f94ee3710-a: operation not permitted"
+go vet ./...
+golangci-lint v2.13.1 (installed)
+internal/mcpadapter/server.go:261:5: ifElseChain: rewrite if-else to switch statement (gocritic)
+				if callErr != nil {
+				^
+internal/agent/mcp.go:37:2: variable copy has same name as predeclared identifier (predeclared)
+	copy := *s
+	^
+internal/agent/mcp_test.go:32:2: variable copy has same name as predeclared identifier (predeclared)
+	copy := spec.Clone()
+	^
+internal/agent/mcp.go:14:1: exported: exported function NewMCPLaunchSpec should have comment or be unexported (revive)
+func NewMCPLaunchSpec(executable, descriptor, attempt string) (*MCPLaunchSpec, error) {
+^
+internal/agent/mcp.go:21:1: exported: exported method MCPLaunchSpec.Validate should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) Validate() error {
+^
+internal/agent/mcp.go:27:1: exported: exported method MCPLaunchSpec.Executable should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) Executable() string       { return s.executable }
+^
+internal/agent/mcp.go:28:1: exported: exported method MCPLaunchSpec.DescriptorPath should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) DescriptorPath() string   { return s.descriptor }
+^
+internal/agent/mcp.go:29:1: exported: exported method MCPLaunchSpec.AttemptReference should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) AttemptReference() string { return s.attempt }
+^
+internal/agent/mcp.go:30:1: exported: exported method MCPLaunchSpec.Arguments should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) Arguments() []string {
+^
+internal/agent/mcp.go:33:1: exported: exported method MCPLaunchSpec.Clone should have comment or be unexported (revive)
+func (s *MCPLaunchSpec) Clone() *MCPLaunchSpec {
+^
+internal/mcpadapter/protocol.go:13:7: exported: exported const ProtocolVersion should have comment or be unexported (revive)
+const ProtocolVersion = "2025-11-25"
+      ^
+internal/mcpadapter/protocol.go:15:1: exported: comment on exported const MaxInputBytes should be of the form "MaxInputBytes ..." (revive)
+// Bounds include envelopes above the existing 4 MiB authored contribution.
+^
+internal/mcpadapter/protocol.go:17:7: exported: exported const MaxOutputBytes should have comment or be unexported (revive)
+const MaxOutputBytes = 64 << 20
+      ^
+internal/mcpadapter/protocol.go:18:7: exported: exported const MaxWorkers should have comment or be unexported (revive)
+const MaxWorkers = 4
+      ^
+internal/mcpadapter/protocol.go:19:7: exported: exported const MaxQueuedResponses should have comment or be unexported (revive)
+const MaxQueuedResponses = 8
+      ^
+internal/store/mcp_creation.go:15:7: exported: exported const MCPCreationApprovalTTL should have comment or be unexported (revive)
+const MCPCreationApprovalTTL = 30 * time.Minute
+      ^
+internal/store/mcp_creation.go:16:7: exported: exported const MCPCreationWindow should have comment or be unexported (revive)
+const MCPCreationWindow = 24 * time.Hour
+      ^
+internal/store/mcp_creation.go:17:7: exported: exported const MCPCreationAttemptLimit should have comment or be unexported (revive)
+const MCPCreationAttemptLimit = 5
+      ^
+internal/store/mcp_creation.go:18:7: exported: exported const MCPCreationRepositoryLimit should have comment or be unexported (revive)
+const MCPCreationRepositoryLimit = 20
+      ^
+internal/store/mcp_creation.go:20:5: exported: exported var ErrCreationAuthority should have comment or be unexported (revive)
+var ErrCreationAuthority = errors.New("store: creation authority refused")
+    ^
+internal/store/mcp_creation.go:21:5: exported: exported var ErrCreationQuota should have comment or be unexported (revive)
+var ErrCreationQuota = errors.New("store: creation volume limit exceeded")
+    ^
+internal/store/mcp_creation.go:22:5: exported: exported var ErrCreationConflict should have comment or be unexported (revive)
+var ErrCreationConflict = errors.New("store: immutable creation approval or content conflict")
+    ^
+internal/store/mcp_creation.go:32:1: exported: exported function NewCreationStore should have comment or be unexported (revive)
+func NewCreationStore(db *DB, now func() time.Time) (*CreationStore, error) {
+^
+internal/store/mcp_creation.go:72:6: exported: exported type CreationReservation should have comment or be unexported (revive)
+type CreationReservation struct {
+     ^
+internal/store/mcp_creation.go:77:1: exported: exported method CreationStore.RetainProposal should have comment or be unexported (revive)
+func (c *CreationStore) RetainProposal(ctx context.Context, p CreationProposal) error {
+^
+internal/store/mcp_creation.go:126:1: exported: exported method CreationStore.AdmitOwnerIntent should have comment or be unexported (revive)
+func (c *CreationStore) AdmitOwnerIntent(ctx context.Context, a CreationApproval, relationship string) (int64, error) {
+^
+internal/submission/creation.go:24:6: exported: exported type CreationArtifact should have comment or be unexported (revive)
+type CreationArtifact struct {
+     ^
+internal/submission/tools.go:22:1: exported: exported function NewToolProfile should have comment or be unexported (revive)
+func NewToolProfile(mode string) (ToolProfile, error) {
+^
+internal/submission/tools.go:28:1: exported: exported method ToolProfile.Allows should have comment or be unexported (revive)
+func (p ToolProfile) Allows(name string) bool {
+^
+internal/submission/tools.go:39:1: exported: exported method ToolProfile.List should have comment or be unexported (revive)
+func (p ToolProfile) List() []ToolSpec {
+^
+internal/submission/tools.go:56:1: exported: exported function DecodeToolCall should have comment or be unexported (revive)
+func DecodeToolCall(data []byte) (ToolCall, error) {
+^
+internal/submission/tools.go:69:1: exported: exported method Client.List should have comment or be unexported (revive)
+func (c Client) List(ctx context.Context) (Response, error) {
+^
+internal/submission/tools.go:72:1: exported: exported method Client.Call should have comment or be unexported (revive)
+func (c Client) Call(ctx context.Context, name string, arguments json.RawMessage) (Response, error) {
+^
+internal/turn/mcp_creation.go:16:1: exported: exported function ParseOwnerGrantCommand should have comment or be unexported (revive)
+func ParseOwnerGrantCommand(body string) (OwnerGrantCommand, error) {
+^
+internal/turn/mcp_creation.go:33:6: exported: exported type CreationAuthorizerOptions should have comment or be unexported (revive)
+type CreationAuthorizerOptions struct {
+     ^
+internal/turn/mcp_creation.go:47:1: exported: exported function NewCreationAuthorizer should have comment or be unexported (revive)
+func NewCreationAuthorizer(o CreationAuthorizerOptions) (*CreationAuthorizer, error) {
+^
+internal/turn/mcp_creation.go:73:1: exported: exported method CreationAuthorizer.AdmitOwnerGrantIntent should have comment or be unexported (revive)
+func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerGrantControl) (int64, error) {
+^
+internal/turn/mcp_creation.go:89:1: exported: exported method CreationAuthorizer.BindCreationGrant should have comment or be unexported (revive)
+func (a *CreationAuthorizer) BindCreationGrant(ctx context.Context, guard *AttemptGuard, intent int64) (int64, error) {
+^
+internal/turn/mcp_creation.go:100:1: exported: exported method CreationAuthorizer.ReserveCreation should have comment or be unexported (revive)
+func (a *CreationAuthorizer) ReserveCreation(ctx context.Context, guard *AttemptGuard, e submission.CreationEnvelope) (store.CreationReservation, error) {
+^
+internal/turn/mcp_creation.go:115:1: exported: exported method CreationAuthorizer.BeginDispatch should have comment or be unexported (revive)
+func (a *CreationAuthorizer) BeginDispatch(ctx context.Context, permit *store.CreationPermit) (store.CreationOperation, error) {
+^
+internal/turn/mcp_creation.go:121:1: exported: exported method CreationAuthorizer.RecordOperationOutcome should have comment or be unexported (revive)
+func (a *CreationAuthorizer) RecordOperationOutcome(ctx context.Context, permit *store.CreationPermit, outcome string) (store.CreationOperation, error) {
+^
+internal/turn/mcp_creation.go:124:1: exported: exported method CreationAuthorizer.ReconcileOperation should have comment or be unexported (revive)
+func (a *CreationAuthorizer) ReconcileOperation(ctx context.Context, id int64, outcome string) (store.CreationOperation, error) {
+^
+internal/turn/mcp_tools.go:51:1: exported: exported function NewToolDispatcher should have comment or be unexported (revive)
+func NewToolDispatcher(guard *AttemptGuard, service MCPResultService) (*ToolDispatcher, error) {
+^
+internal/store/mcp_creation_serialization_test.go:28:30: SA9005: struct type 'github.com/cloudvane/litefactory/internal/store.CreationPermit' doesn't have any exported fields, nor custom marshaling (staticcheck)
+	direct, err := json.Marshal(permit)
+	                            ^
+internal/submission/tools_test.go:145:31: SA1026: trying to marshal unsupported type func(context.Context, github.com/cloudvane/litefactory/internal/agent.UsageEvent) error, via x.Usage.Sink (staticcheck)
+		before, err := json.Marshal(request)
+		                            ^
+internal/submission/tools_test.go:155:30: SA1026: trying to marshal unsupported type func(context.Context, github.com/cloudvane/litefactory/internal/agent.UsageEvent) error, via x.Usage.Sink (staticcheck)
+		after, err := json.Marshal(request)
+		                           ^
+46 issues:
+* gocritic: 1
+* predeclared: 2
+* revive: 40
+* staticcheck: 3
+make: *** [lint] Error 1
