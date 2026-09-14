@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -43,9 +44,11 @@ func (s *AgentResultService) MCPPermissionDigest() string {
 // ToolDispatcher owns server-only authorization and calls each shared method
 // once. Neither discovery nor recording a result changes host permissions.
 type ToolDispatcher struct {
-	guard   *AttemptGuard
-	service MCPResultService
-	profile submission.ToolProfile
+	guard    *AttemptGuard
+	service  MCPResultService
+	profile  submission.ToolProfile
+	receipts *ReceiptService
+	families map[string]FamilyRegistration
 }
 
 // NewToolDispatcher requires a matching live binding and complete service permission digest.
@@ -82,6 +85,14 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 		return nil, errors.New("MCP dispatcher refuses non-tool operation")
 	}
 	call, err := submission.DecodeToolCall(q.Payload)
+	if d.receipts != nil {
+		if err != nil {
+			call = malformedFamilyCall(q.Payload)
+		}
+		if call.Name != "" && !communicationTool(call.Name) {
+			return d.dispatchFamily(live, q.RequestID, call, err)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +137,11 @@ func (d *ToolDispatcher) Handler(ctx context.Context, q submission.Request) (jso
 type mcpCommunicationKey struct{}
 
 func decodeMCPArguments(data []byte, out interface{}) error {
+	// encoding/json replaces malformed UTF-8 inside strings, so reject the raw
+	// bytes before decoding can hide invalid input from family validation.
+	if !utf8.Valid(data) {
+		return errors.New("invalid UTF-8 in MCP parameters")
+	}
 	// Reuse the transport's strict duplicate-key/depth checks without a new
 	// application validator. A temporary tool envelope validates raw parameters.
 	envelope := append([]byte(`{"name":"arguments","arguments":`), data...)

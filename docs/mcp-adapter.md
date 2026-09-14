@@ -1,5 +1,11 @@
 # MCP adapter foundation
 
+This document describes the #272 foundation and its original consumer boundary.
+The implemented #273 catalog, callable contracts and consolidated #274 production
+handoff are documented in [MCP tool families](mcp-tool-families.md). References
+below to future family handlers or the initial three-tool catalog describe that
+foundation stage, not the expanded family composition.
+
 `litefactory mcp serve --descriptor /absolute/private/descriptor.json` serves the current live launch over stdin/stdout. It checks the existing private broker before starting. Factory credentials remain outside this process. Only protocol JSON is written to stdout; errors returned to the CLI are fixed, bounded diagnostics.
 
 This endpoint implements the [MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle), [stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) and [tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) subset. Initialize negotiates the sole supported version, 2025-11-25, even when the client requests another version. A client unable to use that response must disconnect. An initialized notification is required before tools/list or tools/call. Only the tools capability is advertised. HTTP, prompts, resources, sampling, elicitation and Tasks are unavailable. Unknown requests and malformed state/parameters receive JSON-RPC errors; unknown notifications are ignored. IDs are strings or integer literals, at most 256 encoded bytes; fractional/exponent ID notation is unsupported.
