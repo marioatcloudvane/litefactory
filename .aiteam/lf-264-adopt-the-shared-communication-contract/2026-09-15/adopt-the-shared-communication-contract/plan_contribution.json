@@ -6,14 +6,14 @@
     "stories": [
       {
         "key": "US-001",
-        "intent": "create",
+        "intent": "update",
         "title": "Use shared results to finish every mode",
         "user_story": {
           "actor": "operator",
           "want": "have every mode finish through the same authoritative result path",
           "benefit": "I can distinguish accepted input from completed work and recover a failed run",
           "notes": [
-           "Scope trace: feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling; ARCH_REVIEW.md group A.",
+            "Scope trace: feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling; ARCH_REVIEW.md group A.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Production construction and adapter matrix; source availability: Existing runtime/submission seams; cutover assertions to add; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute all mode/transport combinations; authentic #274/#296 proof remains external.",
             "Evidence inventory AC-002: proof method: Service/callback source review and receipt state tests; source availability: Existing result, submission and Plan owners; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain executed authority and receipt assertions.",
@@ -37,7 +37,7 @@
           },
           {
             "id": "AC-004",
-            "text": "After nominal process success, absent or malformed required output records actionable incomplete/invalid finalization and prevents workflow success. Failure, cancellation and interruption preserve the original cause, valid checkpoints and resumable intent; valid input cannot turn them into success, and post-exit rejection remains available on the next authorized attempt."
+            "text": "After nominal process success, absent or malformed required output records actionable incomplete/invalid finalization and prevents workflow success. Failure, cancellation and interruption preserve the original cause, valid checkpoints and resumable intent; valid input cannot turn them into success, and post-exit rejection remains available on the next authorized attempt. The factory must not fabricate an automatic post-exit correction or acceptance."
           },
           {
             "id": "AC-005",
@@ -162,14 +162,14 @@
       },
       {
         "key": "US-002",
-        "intent": "create",
+        "intent": "update",
         "title": "Resume from authoritative results and evidence",
         "user_story": {
           "actor": "operator",
           "want": "receive the saved result and its revision when work resumes",
           "benefit": "I can update only what changed without losing state or inventing completion proof",
           "notes": [
-           "Scope trace: feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling; ARCH_REVIEW.md group B.",
+            "Scope trace: feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling; ARCH_REVIEW.md group B.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Cold/resume/restart launch assertions; source availability: Existing read and guidance seams; tests to extend; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain executed baseline coverage.",
             "Evidence inventory AC-002: proof method: Cross-scope and obsolete-attempt tests; source availability: Existing result history and receipt services; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute isolation and retired-ID checks.",
@@ -301,14 +301,14 @@
       },
       {
         "key": "US-003",
-        "intent": "create",
+        "intent": "update",
         "title": "Connect authorized publication and recovery",
         "user_story": {
           "actor": "operator",
           "want": "use the existing publication tools with their real permissions and recovery",
           "benefit": "approved comments and issue creation work without duplicate writes after uncertain replies",
           "notes": [
-           "Scope trace: feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group C.",
+            "Scope trace: feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group C.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Production catalog/target permission checks; source availability: Existing family/catalog and publication seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Add production-constructor assertions; hand-assembled catalogs are insufficient.",
             "Evidence inventory AC-002: proof method: Trusted owner intake and exact-content tests; source availability: Existing creation authorizer and retained proposals; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute approval mismatch and replay coverage.",
@@ -452,14 +452,14 @@
       },
       {
         "key": "US-004",
-        "intent": "create",
+        "intent": "update",
         "title": "Keep progress advisory and bounded to a run",
         "user_story": {
           "actor": "operator",
           "want": "see progress while a run is active and have it close cleanly",
           "benefit": "stale agents cannot keep updating status or turn progress into acceptance",
           "notes": [
-           "Scope trace: feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling; ARCH_REVIEW.md group D.",
+            "Scope trace: feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling; ARCH_REVIEW.md group D.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Profile/discovery/call assertions; source availability: Existing activity/runtime seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Add and execute Spike and Research permission coverage.",
             "Evidence inventory AC-002: proof method: Deterministic termination/replacement tests; source availability: Existing attempt guard and lifecycle seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute all listed terminal cases.",
@@ -556,26 +556,31 @@
             {
               "decision": "Keep advisory state process-local",
               "reason": "Durable receipts and recovery records have separate lifetime"
+            },
+            {
+              "decision": "Extend the runtime registration established by US-003 after its engineering completion",
+              "reason": "Publication and activity share internal/turn/mcp_runtime.go; explicit sequencing avoids conflicting composition work and preserves the owner-requested ascending order."
             }
           ]
         },
         "dependencies": {
           "story_keys": [
-            "US-001"
+            "US-001",
+            "US-003"
           ],
           "issue_refs": []
         }
       },
       {
         "key": "US-005",
-        "intent": "create",
+        "intent": "update",
         "title": "Align shared instructions and auxiliary conventions",
         "user_story": {
           "actor": "operator",
           "want": "read one current account of result submission and recovery",
           "benefit": "agents follow the production behavior and auxiliary callers retain clear typed errors",
           "notes": [
-           "Scope trace: feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group E.",
+            "Scope trace: feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group E.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Source/documentation contract review and render assertions; source availability: Shared-source contracts and current documentation available; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Update guidance and retain scoped checks.",
             "Evidence inventory AC-002: proof method: Caller inventory review and typed version/error tests; source availability: Current auxiliary owners available; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Record applicable mapping or explicit exclusion per caller.",
@@ -604,7 +609,7 @@
         "tasks": [
           {
             "id": "T-001",
-            "description": "Update canonical finalization, workflow, Research, planning/review guidance and current docs for settled routes (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions).",
+            "description": "Update canonical finalization, workflow, Research, planning/review guidance and current docs for settled routes (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions). Explicitly update docs/agent-evidence-capture.md to distinguish the implemented Claude/Codex integrations from historical deferred-status statements and still-outstanding authentic #274/#296 captures.",
             "owner_role": "go-implementation-engineer",
             "criterion_ids": [
               "AC-001",
@@ -623,7 +628,7 @@
           },
           {
             "id": "T-003",
-            "description": "Update exact source-to-installed manifest and isolated render assertions (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions).",
+            "description": "Update exact source-to-installed manifest and isolated render assertions (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions). In docs/story-contract-instruction-manifest.md, replace ambiguous prior-feature US-009/US-010/US-011/US-012 ownership references with this feature's US-005 shared-source, US-006 Claude-tree, US-007 Codex-tree and US-010 aggregate mapping; retain clearly attributed historical references where needed.",
             "owner_role": "go-implementation-engineer",
             "criterion_ids": [
               "AC-003"
@@ -705,14 +710,14 @@
       },
       {
         "key": "US-006",
-        "intent": "create",
+        "intent": "update",
         "title": "Update installed Claude instructions",
         "user_story": {
           "actor": "operator",
           "want": "use current Claude instructions for the adopted communication contract",
           "benefit": "installed guidance matches the shared contract while preserving each role's restrictions",
           "notes": [
-           "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group F.",
+            "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group F.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Owned-tree source comparison; source availability: US-005 manifest and existing installed copies; version/context bounds: Tested source revision and Claude wrapper semantics only; missing prerequisite/disposition: Execute scoped assertions under the authorized harness.",
             "Evidence inventory AC-002: proof method: Owned-path diff and harness provenance review; source availability: Manifest targets available; required harness must be selected; version/context bounds: Only Codex editing .claude/; missing prerequisite/disposition: If unavailable, retain incompletion with exact opposite-harness handoff.",
@@ -793,14 +798,14 @@
       },
       {
         "key": "US-007",
-        "intent": "create",
+        "intent": "update",
         "title": "Update installed Codex instructions",
         "user_story": {
           "actor": "operator",
           "want": "use current Codex instructions for the adopted communication contract",
           "benefit": "installed guidance matches the shared contract while preserving each role's restrictions",
           "notes": [
-           "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group G.",
+            "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group G.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Owned-tree source comparison; source availability: US-005 manifest and existing installed copies; version/context bounds: Tested source revision and Codex wrapper semantics only; missing prerequisite/disposition: Execute scoped assertions under the authorized harness.",
             "Evidence inventory AC-002: proof method: Owned-path diff and harness provenance review; source availability: Manifest targets available; required harness must be selected; version/context bounds: Only Claude editing .codex/; missing prerequisite/disposition: If unavailable, retain incompletion with exact opposite-harness handoff.",
@@ -881,14 +886,14 @@
       },
       {
         "key": "US-008",
-        "intent": "create",
+        "intent": "update",
         "title": "Remove unreachable story discovery",
         "user_story": {
           "actor": "operator",
           "want": "remove the old discovery code that production no longer calls",
           "benefit": "obsolete paths stop obscuring the supported publication workflow",
           "notes": [
-           "Scope trace: feature-spec.md AC-010; Retirement Boundary; ARCH_REVIEW.md group H.",
+            "Scope trace: feature-spec.md AC-010; Retirement Boundary; ARCH_REVIEW.md group H.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Current caller/reachability source review; source availability: Research identifies gate/path; current callers available; version/context bounds: Inspected repository revision only; missing prerequisite/disposition: Verify exact call graph before deletion.",
             "Evidence inventory AC-002: proof method: Removed-path diff and preserved-helper review; source availability: Current discovery and live helper owners; version/context bounds: Implementation revision only; missing prerequisite/disposition: Retain deletion and ownership evidence.",
@@ -980,14 +985,14 @@
       },
       {
         "key": "US-009",
-        "intent": "create",
+        "intent": "update",
         "title": "Retire legacy inputs after compatibility checks",
         "user_story": {
           "actor": "operator",
           "want": "remove superseded inputs once supported work can continue safely",
           "benefit": "existing work and pending effects survive the cutover",
           "notes": [
-           "Scope trace: feature-spec.md AC-010, AC-011; Retirement Boundary; ARCH_REVIEW.md group I.",
+            "Scope trace: feature-spec.md AC-010, AC-011; Retirement Boundary; ARCH_REVIEW.md group I.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Read-only runtime inventory plus source consumer review; source availability: Source available; live cohort/drain evidence not supplied; version/context bounds: Named inspected cohort, versions, pending effects and observation time; missing prerequisite/disposition: Obtain factual runtime evidence before deletion; remain incomplete if unavailable.",
             "Evidence inventory AC-002: proof method: Supported upgrade/completion receipts and version assertions; source availability: Supported flows available; operator-controlled receipts not supplied; version/context bounds: Exact admitted revisions/cohort; workflow version unchanged; missing prerequisite/disposition: Required authorization/receipts outstanding where flow requires them.",
@@ -1155,14 +1160,14 @@
       },
       {
         "key": "US-010",
-        "intent": "create",
+        "intent": "update",
         "title": "Verify adoption and retirement together",
         "user_story": {
           "actor": "operator",
           "want": "see retained proof for the complete change and each milestone",
           "benefit": "I can tell what works, what was removed and what still lacks evidence",
           "notes": [
-           "Scope trace: feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory; ARCH_REVIEW.md group J.",
+            "Scope trace: feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory; ARCH_REVIEW.md group J.",
             "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
             "Evidence inventory AC-001: proof method: Executed production/local persistence matrix audit; source availability: Existing fixtures and evidence produced in prior stories; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute/retain missing checks; no host proof inferred.",
             "Evidence inventory AC-002: proof method: Both installed contracts compared with canonical source; source availability: US-005/006/007 outputs after authorized harness work; version/context bounds: Exact inspected installed/shared revisions; missing prerequisite/disposition: Both independent installed stories must finish.",

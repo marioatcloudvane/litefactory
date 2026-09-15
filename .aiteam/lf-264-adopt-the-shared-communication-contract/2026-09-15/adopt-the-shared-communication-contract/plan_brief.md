@@ -5,7 +5,7 @@
 - Date: 2026-09-15
 - Parent: https://github.com/marioatcloudvane/litefactory/issues/264
 - Citation base: `0403d5c02d54ea798a9605d87316611cf53c1037`
-- Scope authority: owner approved the run 0003 draft and requested a firm Plan in run 0004.
+- Scope authority: owner approved the run 0003 draft, requested a firm Plan in run 0004, and requested readiness after the run 0005 audit. The settled 10-story scope remains unchanged.
 
 ## Shared Decisions
 
@@ -25,6 +25,12 @@ Deliver two explicit milestones:
 2. **Verified retirement:** remove unreachable discovery separately; remove compatibility ingress only after actual supported-cohort and pending-effect prerequisites are evidenced. Retain a separate disposition for each old input and do not count deprecation documentation as removal.
 
 The shared completion seam precedes prior-state/evidence wiring and the other attempt-bound services. Canonical guidance follows settled production routes; the two installed-tree stories can then run independently under their respective harnesses. Full aggregate verification follows all implementation and retirement work. Adoption can be reported separately if retirement is blocked, but that does not complete the feature.
+
+### Execution order and audit refinements
+
+The recorded owner preference is sequential implementation in ascending order, US-001 through US-010. US-004 explicitly follows US-003 engineering completion because activity and publication extend the same runtime registration. This scheduling preference does not add sibling acceptance dependencies: US-006 and US-007 each depend only on US-005 shared-source work and pass their own engineering checks independently. Use Codex for US-006 (.claude/**), then a manual switch to Claude for US-007 (.codex/**); if the required harness is unavailable, retain the exact handoff for the operator. Aggregate parity remains US-010.
+
+The audit refinements are included in the typed stories: US-001 AC-004 explicitly forbids fabricated automatic post-exit correction or acceptance; US-005 T-001 explicitly updates docs/agent-evidence-capture.md; US-005 T-003 resolves stale instruction-manifest story numbering with this feature's US-005/006/007/010 ownership mapping. Existing criterion IDs, evidence inventories and retirement prerequisites remain intact.
 
 ## Cross-Story Constraints
 

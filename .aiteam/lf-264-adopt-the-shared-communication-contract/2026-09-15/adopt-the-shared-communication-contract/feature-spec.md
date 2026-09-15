@@ -75,6 +75,8 @@
 - Target access and historical receipts remain explicitly scoped; use existing authorized targets rather than implicit forge-wide access.
 - Progress includes Research and Spike, uses the existing advisory interface and is available only within permitted run-scoped profiles. Plan need not gain unrelated family tools.
 - Canonical instructions precede independent installed-tree work: Codex owns the Claude tree and Claude owns the Codex tree in separate stories. Individual scoped checks do not require sibling parity; aggregate validation checks both.
+- Record the owner preference for sequential execution of US-001 through US-010. Publication runtime composition precedes activity registration; independent installed-tree engineering gates remain separate, with a manual Codex-to-Claude switch between US-006 and US-007.
+- Canonical documentation work explicitly includes docs/agent-evidence-capture.md current-versus-historical status and docs/story-contract-instruction-manifest.md ownership references for this feature's US-005/006/007/010.
 - Persisted workflow versions remain unchanged through content/submission upgrade; combined workflow-v1 verification retirement is outside this cutover decision.
 
 ## Edge Cases & Error Handling
