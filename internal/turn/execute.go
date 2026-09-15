@@ -600,6 +600,10 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		if errors.Is(err, store.ErrPlanNotReady) {
 			return readinessRefused(ctx, opts, result)
 		}
+		var contextRefusal *planContextRefusal
+		if errors.As(err, &contextRefusal) {
+			return prelaunchRefused(ctx, opts, result, contextRefusal.reason())
+		}
 		// Any failure after allocation is retryable preparation. Do not turn
 		// infrastructure failure into a report that acknowledges the source.
 		allocated, found, lookupErr := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
@@ -778,19 +782,23 @@ func Reconcile(ctx context.Context, opts Options) (store.Reconciliation, error) 
 	return reconciliation, nil
 }
 
-// readinessRefused carries an explanation only after a raced allocation, if
-// any, has become terminal. Refusals never change session state in preparation.
 func readinessRefused(ctx context.Context, opts Options, result Result) (Result, error) {
+	return prelaunchRefused(ctx, opts, result, "Implementation refused: the plan is not ready or has pending refinements. No agent launched. Submit a fresh /implement command after the plan is ready.")
+}
+
+// prelaunchRefused carries an explanation only after a raced allocation, if
+// any, has become terminal. Refusals never change session state in preparation.
+func prelaunchRefused(ctx context.Context, opts Options, result Result, reason string) (Result, error) {
 	result.Disposition = DispositionPrepareFailed
 	result.Outcome = harness.OutcomeFailed
-	result.Reason = "Implementation refused: the plan is not ready or has pending refinements. No agent launched. Submit a fresh /implement command after the plan is ready."
+	result.Reason = reason
 	run, found, err := opts.DB.GetRunByTrigger(ctx, result.SessionID, result.TriggerCommentID)
 	if err != nil {
 		return result, err
 	}
 	if found {
 		if run.Status != store.RunPrelaunch {
-			return result, fmt.Errorf("readiness refusal found a non-prelaunch run")
+			return result, fmt.Errorf("prelaunch refusal found a non-prelaunch run")
 		}
 		run, err = opts.DB.FinishRun(context.WithoutCancel(ctx), run.ID, store.RunOutcome{Status: store.RunFailed, SemanticOutcome: "refused", Error: result.Reason})
 		if err != nil {
