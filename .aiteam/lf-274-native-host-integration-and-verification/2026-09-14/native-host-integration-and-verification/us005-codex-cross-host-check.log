@@ -1,0 +1,24 @@
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/enabled
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/disabled
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/absent
+--- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup (7.73s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/enabled (2.24s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/disabled (2.73s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/absent (2.76s)
+=== RUN   TestCodexMCPLifecycleMalformedQuotedValuesSurvive
+--- PASS: TestCodexMCPLifecycleMalformedQuotedValuesSurvive (1.56s)
+=== RUN   TestCodexMCPLifecycleServerCollisionRefusesSafely
+--- PASS: TestCodexMCPLifecycleServerCollisionRefusesSafely (2.03s)
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/cold
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/resume
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/cold_after_resume_refused
+--- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration (2.95s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/cold (0.44s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/resume (0.41s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/cold_after_resume_refused (0.39s)
+=== RUN   TestCodexMCPLifecycleConcurrentCancellationIsolation
+--- PASS: TestCodexMCPLifecycleConcurrentCancellationIsolation (3.26s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	19.442s

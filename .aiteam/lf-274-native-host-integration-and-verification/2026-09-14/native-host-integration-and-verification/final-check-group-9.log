@@ -1,0 +1,4 @@
+Group: daemon-4 (Test[PQ]*)
+ok  	github.com/cloudvane/litefactory/internal/daemon	63.820s
+go test -race -timeout 8m -run '^Test[PQ]' ./internal/daemon/...  61.50s user 3.42s system 96% cpu 1:07.13 total
+EXIT: 0

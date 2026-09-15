@@ -1,0 +1,4 @@
+Group: daemon-3 (Test[HILMNO]*)
+ok  	github.com/cloudvane/litefactory/internal/daemon	113.901s
+go test -race -timeout 8m -run '^Test[HILMNO]' ./internal/daemon/...  107.40s user 5.50s system 96% cpu 1:57.51 total
+EXIT: 0

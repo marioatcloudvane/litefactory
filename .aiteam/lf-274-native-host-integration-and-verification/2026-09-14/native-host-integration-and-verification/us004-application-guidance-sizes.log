@@ -1,0 +1,13 @@
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/research
+    mcp_runtime_lifecycle_test.go:283: mode=research installed=[communication_preflight communication_receipt communication_submit activity_update feedback_preflight receipts_get] shared_provider_neutral=true excluding_contract_words=230 excluding_contract_bytes=1770 including_contract_words=265 including_contract_bytes=2147 provider_tokens=unavailable; no authentic host acquisition
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/spike
+    mcp_runtime_lifecycle_test.go:283: mode=spike installed=[communication_preflight communication_receipt communication_submit] shared_provider_neutral=true excluding_contract_words=219 excluding_contract_bytes=1636 including_contract_words=253 including_contract_bytes=2006 provider_tokens=unavailable; no authentic host acquisition
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/plan
+    mcp_runtime_lifecycle_test.go:283: mode=plan installed=[communication_preflight communication_receipt communication_submit] shared_provider_neutral=true excluding_contract_words=230 excluding_contract_bytes=1716 including_contract_words=264 including_contract_bytes=2089 provider_tokens=unavailable; no authentic host acquisition
+--- PASS: TestMCPRuntimeApplicationGuidanceSizes (0.47s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/research (0.17s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/spike (0.14s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/plan (0.16s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	1.082s

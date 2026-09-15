@@ -1,0 +1,3 @@
+$ go build ./...
+
+exit_code=0

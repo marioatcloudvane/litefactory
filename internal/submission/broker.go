@@ -52,7 +52,7 @@ type Broker struct {
 
 // Start creates a fresh private attempt under the configured base directory.
 // Callers supply an existing owner-only directory and a trusted absolute helper.
-func Start(ctx context.Context, o Options) (*Broker, error) {
+func Start(ctx context.Context, o Options) (_ *Broker, err error) {
 	if o.Handler == nil || o.MaxWorkers < 1 || o.MaxWorkers > 32 || o.RequestTimeout <= 0 || o.RequestTimeout > time.Minute {
 		return nil, errors.New("submission: invalid broker options")
 	}
@@ -83,6 +83,12 @@ func Start(ctx context.Context, o Options) (*Broker, error) {
 	if err := base.Mkdir(name, 0700); err != nil {
 		return nil, errors.New("submission: cannot create attempt directory")
 	}
+	started := false
+	defer func() {
+		if !started {
+			err = errors.Join(err, base.RemoveAll(name))
+		}
+	}()
 	root, pinned, err := openPrivateRoot(dir)
 	if err != nil {
 		return nil, err
@@ -134,6 +140,7 @@ func Start(ctx context.Context, o Options) (*Broker, error) {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
+	started = true
 	go b.serve(runCtx, o.MaxWorkers)
 	return b, nil
 }
@@ -142,7 +149,7 @@ func Start(ctx context.Context, o Options) (*Broker, error) {
 func (b *Broker) DescriptorPath() string { return b.descriptorPath }
 
 // Close cancels and joins all workers. Durable receipts/journals remain retained.
-func (b *Broker) Close() error { b.cancel(); <-b.done; return nil }
+func (b *Broker) Close() error { b.cancel(); <-b.done; return b.cleanupErr }
 func (b *Broker) closeConnections() {
 	_ = b.listener.Close()
 	b.mu.Lock()
@@ -167,6 +174,9 @@ func (b *Broker) serve(ctx context.Context, workers int) {
 		active.Wait()
 		if current, err := b.root.Lstat("s"); err == nil && os.SameFile(current, b.socket) {
 			b.cleanupErr = errors.Join(b.cleanupErr, b.root.Remove("s"))
+		}
+		if current, err := b.root.Lstat("descriptor.json"); err == nil && os.SameFile(current, b.descriptorInfo) {
+			b.cleanupErr = errors.Join(b.cleanupErr, b.root.Remove("descriptor.json"))
 		}
 		b.cleanupErr = errors.Join(b.cleanupErr, b.root.Close())
 	}()

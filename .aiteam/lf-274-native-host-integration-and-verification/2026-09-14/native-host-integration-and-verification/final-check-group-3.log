@@ -1,0 +1,5 @@
+Group: cli
+Packages: internal/cli
+ok  	github.com/cloudvane/litefactory/internal/cli	259.097s
+go test -race -timeout 8m ./internal/cli/...  218.44s user 23.47s system 91% cpu 4:25.39 total
+EXIT: 0

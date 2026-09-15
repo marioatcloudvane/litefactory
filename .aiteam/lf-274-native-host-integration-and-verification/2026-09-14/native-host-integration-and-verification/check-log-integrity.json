@@ -1,0 +1,41 @@
+{
+  "snapshot_digest": "da5507e2b856cd2f80c20db8eee9cad8edcfe2b74d6a54924f2861a116d164af",
+  "logs": [
+    {
+      "path": "make-check.log",
+      "sha256": "5b852b53d985a938fb94af830ae749a64cf16131c6fe38d7191f3fe5c86c2987",
+      "bytes": 881913,
+      "lines": 2871
+    },
+    {
+      "path": "make-check-final.log",
+      "sha256": "3ff4ba6aa7487bb4fde75bdd187928387d97bace0cce229d1b6296bb1becb679",
+      "bytes": 840,
+      "lines": 20
+    },
+    {
+      "path": "daemon-final-check.log",
+      "sha256": "86f9a1d968588753c24b061ba3b660c27f5bc306aed6e39e8b1b303d332e0439",
+      "bytes": 28446,
+      "lines": 479
+    },
+    {
+      "path": "turn-final-check.log",
+      "sha256": "778a59efa9ee51a8f79c1b1b4d7eadd55e7bc9bba444c47bee85d8498acb9bdb",
+      "bytes": 86067,
+      "lines": 1452
+    },
+    {
+      "path": "final-scoped-check.log",
+      "sha256": "4f36475c6f1990fa392c9f36d25feab41a41644c41d77b64255e7f0db5413bf7",
+      "bytes": 470,
+      "lines": 6
+    },
+    {
+      "path": "build-final.log",
+      "sha256": "b50573bf5f29764cac17789662402f03999129395b94fad15a4c31a2a2682d72",
+      "bytes": 30,
+      "lines": 3
+    }
+  ]
+}

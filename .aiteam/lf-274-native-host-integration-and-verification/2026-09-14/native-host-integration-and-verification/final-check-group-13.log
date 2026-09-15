@@ -1,0 +1,4 @@
+Group: turn-2 (Test[BC]*)
+ok  	github.com/cloudvane/litefactory/internal/turn	130.049s
+go test -race -timeout 8m -run '^Test[BC]' ./internal/turn/...  127.55s user 38.16s system 123% cpu 2:14.18 total
+EXIT: 0

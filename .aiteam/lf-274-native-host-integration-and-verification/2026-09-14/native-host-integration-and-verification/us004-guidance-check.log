@@ -1,0 +1,97 @@
+=== RUN   TestMCPGuidance_RegistrationRequired
+=== PAUSE TestMCPGuidance_RegistrationRequired
+=== RUN   TestMCPGuidance_InstalledCards
+=== PAUSE TestMCPGuidance_InstalledCards
+=== RUN   TestMCPGuidance_ModeRestrictions
+=== PAUSE TestMCPGuidance_ModeRestrictions
+=== RUN   TestMCPGuidance_CheckpointContract
+=== PAUSE TestMCPGuidance_CheckpointContract
+=== RUN   TestMCPGuidance_CheckpointRequiresScope
+=== PAUSE TestMCPGuidance_CheckpointRequiresScope
+=== RUN   TestMCPGuidance_RenderMetrics
+    mcp_guidance_test.go:179: shared words=160 bytes=1124
+    mcp_guidance_test.go:193: implement full granted card catalog: excluding JSON contract words=376 bytes=3182; including contract words=388 bytes=3332; contract bytes=138
+    mcp_guidance_test.go:193: validate full granted card catalog: excluding JSON contract words=364 bytes=3065; including contract words=397 bytes=4036; contract bytes=959
+    mcp_guidance_test.go:195: Actual provider-rendered token measurements including tool schemas/examples: unavailable; no host acquisition or tokenizer estimate. Word/byte counts do not establish billed tokens or savings.
+--- PASS: TestMCPGuidance_RenderMetrics (0.00s)
+=== CONT  TestMCPGuidance_RegistrationRequired
+=== CONT  TestMCPGuidance_CheckpointRequiresScope
+=== CONT  TestMCPGuidance_CheckpointContract
+=== CONT  TestMCPGuidance_ModeRestrictions
+=== RUN   TestMCPGuidance_CheckpointContract/implement
+=== CONT  TestMCPGuidance_InstalledCards
+=== PAUSE TestMCPGuidance_CheckpointContract/implement
+=== RUN   TestMCPGuidance_CheckpointContract/validate
+=== RUN   TestMCPGuidance_InstalledCards/lookup_list
+=== PAUSE TestMCPGuidance_CheckpointContract/validate
+=== CONT  TestMCPGuidance_CheckpointContract/implement
+=== PAUSE TestMCPGuidance_InstalledCards/lookup_list
+--- PASS: TestMCPGuidance_RegistrationRequired (0.00s)
+--- PASS: TestMCPGuidance_CheckpointRequiresScope (0.00s)
+=== RUN   TestMCPGuidance_InstalledCards/lookup_get
+=== RUN   TestMCPGuidance_ModeRestrictions/plan
+=== PAUSE TestMCPGuidance_InstalledCards/lookup_get
+=== RUN   TestMCPGuidance_InstalledCards/comment_without_receipt
+=== PAUSE TestMCPGuidance_InstalledCards/comment_without_receipt
+=== RUN   TestMCPGuidance_InstalledCards/authorized_comments
+=== PAUSE TestMCPGuidance_InstalledCards/authorized_comments
+=== RUN   TestMCPGuidance_InstalledCards/activity_update
+=== PAUSE TestMCPGuidance_InstalledCards/activity_update
+=== PAUSE TestMCPGuidance_ModeRestrictions/plan
+=== CONT  TestMCPGuidance_CheckpointContract/validate
+=== RUN   TestMCPGuidance_InstalledCards/activity_read
+=== RUN   TestMCPGuidance_ModeRestrictions/validate
+=== PAUSE TestMCPGuidance_ModeRestrictions/validate
+=== PAUSE TestMCPGuidance_InstalledCards/activity_read
+=== RUN   TestMCPGuidance_InstalledCards/creation_missing_preflight
+=== RUN   TestMCPGuidance_ModeRestrictions/implement
+=== PAUSE TestMCPGuidance_InstalledCards/creation_missing_preflight
+=== RUN   TestMCPGuidance_InstalledCards/separately_granted_creation
+=== PAUSE TestMCPGuidance_ModeRestrictions/implement
+=== PAUSE TestMCPGuidance_InstalledCards/separately_granted_creation
+=== RUN   TestMCPGuidance_ModeRestrictions/research
+=== RUN   TestMCPGuidance_InstalledCards/partial_application
+=== PAUSE TestMCPGuidance_ModeRestrictions/research
+=== PAUSE TestMCPGuidance_InstalledCards/partial_application
+=== RUN   TestMCPGuidance_ModeRestrictions/spike
+=== RUN   TestMCPGuidance_InstalledCards/partial_checkpoint
+=== PAUSE TestMCPGuidance_InstalledCards/partial_checkpoint
+=== PAUSE TestMCPGuidance_ModeRestrictions/spike
+=== CONT  TestMCPGuidance_ModeRestrictions/implement
+=== CONT  TestMCPGuidance_InstalledCards/separately_granted_creation
+=== CONT  TestMCPGuidance_InstalledCards/partial_checkpoint
+=== CONT  TestMCPGuidance_InstalledCards/partial_application
+=== CONT  TestMCPGuidance_InstalledCards/comment_without_receipt
+=== CONT  TestMCPGuidance_InstalledCards/lookup_get
+=== CONT  TestMCPGuidance_InstalledCards/authorized_comments
+=== CONT  TestMCPGuidance_InstalledCards/lookup_list
+=== CONT  TestMCPGuidance_InstalledCards/creation_missing_preflight
+=== CONT  TestMCPGuidance_ModeRestrictions/research
+=== CONT  TestMCPGuidance_InstalledCards/activity_read
+=== CONT  TestMCPGuidance_InstalledCards/activity_update
+=== CONT  TestMCPGuidance_ModeRestrictions/validate
+--- PASS: TestMCPGuidance_InstalledCards (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/separately_granted_creation (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/partial_checkpoint (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/partial_application (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/comment_without_receipt (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/lookup_get (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/lookup_list (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/authorized_comments (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/creation_missing_preflight (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/activity_read (0.00s)
+    --- PASS: TestMCPGuidance_InstalledCards/activity_update (0.00s)
+=== CONT  TestMCPGuidance_ModeRestrictions/plan
+=== CONT  TestMCPGuidance_ModeRestrictions/spike
+--- PASS: TestMCPGuidance_CheckpointContract (0.00s)
+    --- PASS: TestMCPGuidance_CheckpointContract/implement (0.00s)
+    --- PASS: TestMCPGuidance_CheckpointContract/validate (0.00s)
+--- PASS: TestMCPGuidance_ModeRestrictions (0.00s)
+    --- PASS: TestMCPGuidance_ModeRestrictions/implement (0.00s)
+    --- PASS: TestMCPGuidance_ModeRestrictions/research (0.00s)
+    --- PASS: TestMCPGuidance_ModeRestrictions/plan (0.00s)
+    --- PASS: TestMCPGuidance_ModeRestrictions/spike (0.00s)
+    --- PASS: TestMCPGuidance_ModeRestrictions/validate (0.00s)
+PASS
+coverage: 0.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	1.838s	coverage: 0.8% of statements

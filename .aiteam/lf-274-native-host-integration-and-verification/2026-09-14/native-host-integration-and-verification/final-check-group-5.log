@@ -1,0 +1,5 @@
+Group: harness
+Packages: internal/harness
+ok  	github.com/cloudvane/litefactory/internal/harness	19.515s
+go test -race -timeout 8m ./internal/harness/...  1.76s user 2.86s system 21% cpu 21.038 total
+EXIT: 0

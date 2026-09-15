@@ -1,0 +1,4 @@
+Group: daemon-2 (Test[DEF]*)
+ok  	github.com/cloudvane/litefactory/internal/daemon	49.923s
+go test -race -timeout 8m -run '^Test[DEF]' ./internal/daemon/...  48.58s user 3.10s system 97% cpu 53.082 total
+EXIT: 0

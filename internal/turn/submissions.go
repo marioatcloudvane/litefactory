@@ -191,6 +191,10 @@ func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (j
 // checkpoint is shared by the helper and family facade. It owns the session
 // lock, followed by the existing progress and cross-process parent ownership.
 func (s *SubmissionSession) checkpoint(ctx context.Context, q submission.Request) (output json.RawMessage, err error) {
+	return s.checkpointWithTerminal(ctx, q, false)
+}
+
+func (s *SubmissionSession) checkpointWithTerminal(ctx context.Context, q submission.Request, terminal bool) (output json.RawMessage, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if q.Method == "receipt" {
@@ -263,6 +267,15 @@ func (s *SubmissionSession) checkpoint(ctx context.Context, q submission.Request
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, release()) }()
+	if terminal && diagnostics.Valid && s.binding.Stage == "validate" {
+		receipt, found, err := s.reconcileValidationCheckpoint(ctx, contribution)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return json.Marshal(receipt)
+		}
+	}
 	receipt, err := s.options.DB.AllocateSubmission(ctx, store.SubmissionRequest{RunID: s.binding.RunID, Attempt: s.binding.Attempt, RequestID: q.RequestID, Story: story.Key, Revision: story.Revision, InputState: inputState, Payload: q.Payload, Diagnostics: encodedDiagnostics})
 	if err != nil {
 		return nil, err

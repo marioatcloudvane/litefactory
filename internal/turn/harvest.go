@@ -52,6 +52,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
+	prep.mcpRuntime = opts.MCP
 	prep.planSubmission = func(c context.Context) (*PlanSubmissionCallbacks, error) {
 		return prepareTypedPlanSubmission(c, opts, prep)
 	}

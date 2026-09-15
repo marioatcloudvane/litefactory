@@ -1,0 +1,6 @@
+$ go test -race -timeout=3m ./internal/agent ./internal/harness ./internal/turn -run TestMCP|TestPrepareMCP|TestRunMCP|TestValidationCheckpointReconcilesTerminal|TestSubmissionTerminalValidationRequiresRecordedReceipt|TestEvidenceDurableCheckpointReplayAndLostLink -count=1
+ok  	github.com/cloudvane/litefactory/internal/agent	1.750s
+ok  	github.com/cloudvane/litefactory/internal/harness	4.396s
+ok  	github.com/cloudvane/litefactory/internal/turn	129.014s
+
+exit_code=0

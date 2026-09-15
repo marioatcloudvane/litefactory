@@ -1,0 +1,4 @@
+Group: daemon-6 (Test[STUW]*)
+ok  	github.com/cloudvane/litefactory/internal/daemon	98.855s
+go test -race -timeout 8m -run '^Test[STUW]' ./internal/daemon/...  94.98s user 4.62s system 97% cpu 1:41.96 total
+EXIT: 0

@@ -1,0 +1,20 @@
+$ make check
+GOLANGCI_LINT_CACHE: writable temporary directory
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.765s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.736s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.540s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.920s
+ok  	github.com/cloudvane/litefactory/internal/cli	388.507s
+ok  	github.com/cloudvane/litefactory/internal/codex	59.773s
+ok  	github.com/cloudvane/litefactory/internal/config	7.931s
+ok  	github.com/cloudvane/litefactory/internal/confirm	4.936s
+
+Aggregate gate exceeded 580 seconds.
+
+exit_code=124
