@@ -1,0 +1,5 @@
+Group: store
+Packages: internal/store
+ok  	github.com/cloudvane/litefactory/internal/store	363.989s
+go test -race -timeout 8m ./internal/store/...  467.50s user 23.16s system 130% cpu 6:15.41 total
+EXIT: 0

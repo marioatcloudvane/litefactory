@@ -1,0 +1,18 @@
+US-002 issue 292 revision 0416e2714dc5d4577848ee4929215f059c6c475b3f774321ae967b200b951e81
+Scoped executed fake-host checks; no actual Claude process or provider acquisition.
+
+Command: go test ./internal/harness -run 'TestPrepareMCPPrivateConfiguration|TestRunMCP' -short -race -cover -timeout=5m
+Initial run (before adding active cancellation and hostile descriptor-directory coverage):
+ok  	github.com/cloudvane/litefactory/internal/harness	2.862s	coverage: 25.0% of statements
+Exit code: 0
+
+Final run (includes active cancellation and hostile descriptor-directory coverage):
+ok  	github.com/cloudvane/litefactory/internal/harness	3.646s	coverage: 29.2% of statements
+Exit code: 0
+
+13 leaf cases passed, 0 failed. Package coverage is from this focused subset only.
+Tests: TestPrepareMCPPrivateConfiguration; TestRunMCPNativeSurfaceAndLifetime (cold, resume, fallback, validate, absent); TestRunMCPFailureCleanup (launch-error, cancelled, host-error); TestRunMCPRefusesCollisionAndInvalidRegistration (trusted-name-collision, malformed-settings, invalid-registration); TestRunMCPActiveCancellation.
+
+Assertions cover JSON decoding and exact adapter command/fixed arguments/empty explicit environment, private 0700 directory and 0600 file, quoted/non-ASCII/backslash/newline/shell-syntax path preservation, exact installed MCP authorization plus unchanged native tool ceilings, strict MCP argv isolation, no ambient-server copying, explicit settings collision refusal before launch, unique concurrent configuration directories, cleanup after successful cold/resume/fallback and failed/cancelled launches, and live config availability before active cancellation coordinated via FIFO (no sleep or polling).
+
+Temporary filesystem and fake shell executable follow the frozen story's explicit fake-executable configuration/lifetime testing requirement and existing harness fixture convention. These tests do not establish native host interpretation, actual discovery, or authentic Validate restrictions. Deferred Codex integration remains outside US-002.

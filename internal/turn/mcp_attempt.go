@@ -120,6 +120,11 @@ func (g *AttemptGuard) Revoke(ctx context.Context, reason string) error {
 		return store.ErrResultAuthority
 	}
 	g.cancel()
+	g.owner.mu.Lock()
+	if g.owner.guards[g.Binding().Task] == g {
+		delete(g.owner.guards, g.Binding().Task)
+	}
+	g.owner.mu.Unlock()
 	return g.owner.db.RevokeMCPLease(ctx, g.lease, reason)
 }
 
@@ -127,10 +132,12 @@ func (g *AttemptGuard) Revoke(ctx context.Context, reason string) error {
 // Broker owners separately join their cancelled transport workers.
 func (a *AttemptAuthority) Close(ctx context.Context) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.closed = true
+	guards := a.guards
+	a.guards = make(map[string]*AttemptGuard)
+	a.mu.Unlock()
 	var errs []error
-	for _, g := range a.guards {
+	for _, g := range guards {
 		errs = append(errs, g.Revoke(ctx, "closed"))
 	}
 	return errors.Join(errs...)

@@ -1,0 +1,4 @@
+Group: turn-3 (Test[DHIL]*)
+ok  	github.com/cloudvane/litefactory/internal/turn	77.370s
+go test -race -timeout 8m -run '^Test[DHIL]' ./internal/turn/...  71.23s user 18.50s system 111% cpu 1:20.60 total
+EXIT: 0

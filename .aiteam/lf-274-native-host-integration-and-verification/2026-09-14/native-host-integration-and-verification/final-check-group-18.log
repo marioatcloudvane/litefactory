@@ -1,0 +1,4 @@
+Group: turn-7 (Test[PQ]*)
+ok  	github.com/cloudvane/litefactory/internal/turn	140.040s
+go test -race -timeout 8m -run '^Test[PQ]' ./internal/turn/...  130.81s user 56.05s system 130% cpu 2:23.71 total
+EXIT: 0

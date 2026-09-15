@@ -51,8 +51,8 @@
 //   - claude runs *inside the worktree*, so it reads that branch's CLAUDE.md,
 //     .claude/settings.json and hooks — and hooks execute. A branch is
 //     third-party content. --strict-mcp-config removes the .mcp.json half of
-//     this (no --mcp-config is passed, so no MCP server is reachable); the hook
-//     half remains.
+//     this. An optional --mcp-config registers only the factory's attempt-local
+//     server with exact installed tool permissions; the hook half remains.
 //   - --settings supplies *additional* settings; it does not stop personal
 //     agents and skills under ~/.claude from being discovered. Verified: a run
 //     with --settings still reported the operator's agents in its init event.

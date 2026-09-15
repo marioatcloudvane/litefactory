@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -256,8 +257,28 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	var mcpRuntime *turn.MCPRuntime
+	if s.Config.Settings.MCPAutoStart {
+		executable, resolveErr := os.Executable()
+		if resolveErr == nil {
+			executable, resolveErr = filepath.EvalSymlinks(executable)
+		}
+		if resolveErr != nil {
+			return nil, Startup{}, errors.Join(resolveErr, lock.Close())
+		}
+		authority, bindErr := turn.NewAttemptAuthority(ctx, s.DB)
+		if bindErr != nil {
+			return nil, Startup{}, errors.Join(bindErr, lock.Close())
+		}
+		now := s.Now
+		if now == nil {
+			now = time.Now
+		}
+		mcpRuntime = &turn.MCPRuntime{Authority: authority, Paths: s.Paths, Executable: executable, Now: now, Issues: client}
+	}
 	sharedCloneGate := newCloneGate()
 	turnOpts := turn.Options{
+		MCP:                      mcpRuntime,
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,
 		DB:                       s.DB,
@@ -351,7 +372,14 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Now:               s.Now,
 	})
 	if err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
+		var authorityErr error
+		if mcpRuntime != nil {
+			authorityErr = mcpRuntime.Authority.Close(context.WithoutCancel(ctx))
+		}
+		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
+	}
+	if mcpRuntime != nil {
+		daemon.mcpClose = func() error { return mcpRuntime.Authority.Close(context.WithoutCancel(ctx)) }
 	}
 
 	startup := Startup{

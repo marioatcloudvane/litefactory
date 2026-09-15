@@ -333,6 +333,7 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
+	mcpClose   func() error
 	retirement RetirementExecutionOptions
 
 	db        *store.DB
@@ -475,7 +476,11 @@ func (d *Daemon) Close() error {
 	if d == nil {
 		return nil
 	}
-	return d.lock.Close()
+	var authorityErr error
+	if d.mcpClose != nil {
+		authorityErr = d.mcpClose()
+	}
+	return errors.Join(authorityErr, d.lock.Close())
 }
 
 // Reconciled is what the startup reconciliation repaired (D-B, AC-2.21).

@@ -1,0 +1,18 @@
+# github.com/cloudvane/litefactory/internal/turn [github.com/cloudvane/litefactory/internal/turn.test]
+internal/turn/mcp_runtime_lifecycle_test.go:138:59: cannot use first.session.RepoID (variable of type int64) as store.Repo value in argument to db.GetOrCreateSession
+FAIL	github.com/cloudvane/litefactory/internal/turn [build failed]
+FAIL
+=== RUN   TestMCPRuntimeActualLaunchPaths
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold
+=== RUN   TestMCPRuntimeActualLaunchPaths/resume
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused
+--- PASS: TestMCPRuntimeActualLaunchPaths (2.26s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold (0.13s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/resume (0.18s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused (0.07s)
+=== RUN   TestMCPRuntimeConcurrentCancellationIsolation
+--- PASS: TestMCPRuntimeConcurrentCancellationIsolation (1.61s)
+=== RUN   TestMCPRuntimeReplacementRejectsStaleRegistration
+--- PASS: TestMCPRuntimeReplacementRejectsStaleRegistration (1.72s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	7.772s
