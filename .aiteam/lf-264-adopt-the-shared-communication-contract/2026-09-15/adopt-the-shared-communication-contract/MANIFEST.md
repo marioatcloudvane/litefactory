@@ -7,7 +7,7 @@
 ## Modes
 
 - [x] Research — prerequisite/status and MCP wiring overview complete; RESEARCH_BRIEF.md, runs 0001–0002
-- [ ] Plan
+- [ ] Plan — run 0003 first draft saved in PLAN_CONTEXT.json; discussion only, no frozen proposal
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
@@ -21,4 +21,6 @@
 
 ## Notes
 
-- Issues #274 and #296 are deliberately left open. No implementation or Plan requested.
+- 2026-09-15: Plan run 0003 saved a simple first draft covering production adoption, MCP wiring, reliable continuation, instruction/test alignment and separately gated legacy retirement. No material questions are needed for this sketch; detailed engineering planning remains unfinished.
+- Typed discussion preflight passed with complete validation and no diagnostics. Submission request `5dea52b67a372871f0a7e7d66c9d8c42` returned valid input and PlanState discussion; engineering, acceptance and remote effects are not applicable. No completed proposal or implementation readiness claimed.
+- Issues #274 and #296 are deliberately left open as the authentic-host verification track. No implementation requested.
