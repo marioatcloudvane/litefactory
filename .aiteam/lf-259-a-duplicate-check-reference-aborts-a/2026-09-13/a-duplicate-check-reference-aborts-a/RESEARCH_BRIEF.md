@@ -1,5 +1,332 @@
 # Research brief — #259, fresh reassessment
 
+## Independent revalidation — 2026-09-16, run 0004
+
+Request: owner's exact words, "revalidate, i don't trust the other assessment." This
+is an explicit instruction to independently re-verify run 0003's conclusions against
+current source rather than restate them — re-run probes myself, re-derive every
+file:line citation from the live tree, and report confirmed/corrected/refuted per
+claim. Research only; no production code, migration, daemon or runtime change; no
+commit/push; no mode change.
+
+**Verified revision: `792f5f6edb892d924e5ace59c1b6f796cc4876e9`** (current worktree
+HEAD at the start of this run; clean tree, no uncommitted changes). Run 0003 was
+performed against `aaa8b9ee60e29c9fb75a9f22b0b6a8c95c1b5143`. I confirmed by direct
+diff that these two revisions are identical in every file outside `.aiteam/`:
+
+```
+git diff --stat aaa8b9e HEAD -- . ':!.aiteam'   →  (empty output)
+```
+
+`792f5f6` itself only added run 0003's own session artifacts (`RESEARCH_BRIEF.md`,
+`MANIFEST.md`, `DUPLICATE_CHECK_PROBE.go.txt`); `git show --stat 792f5f6` shows no
+`internal/**` or `docs/**` paths touched. So this revalidation is against the exact
+same source run 0003 inspected — there has been no intervening code change to
+re-check against, and any correction below reflects a correction of the *prior
+research's characterization*, not a change in the codebase.
+
+### Method
+
+I did not treat run 0003's file:line citations, "PASS" claims or probe output as
+given. For each of the five claims in the owner's instruction I independently:
+- re-read the cited (and neighboring) source at current HEAD myself and re-derived
+  my own file:line citations;
+- for the reproducibility claim (duplicate check-reference collision), wrote a
+  fresh, independently-authored Go test (not copy-pasted from run 0003's retained
+  probe file) and executed it myself via a Go `-overlay` against the real package,
+  rather than accepting run 0003's reported test output;
+- re-ran the exact focused test commands run 0003 reported as "PASS", to check
+  their reported results myself instead of citing them secondhand.
+
+### Claim-by-claim verdict
+
+| # | Claim (run 0003) | Verdict | My evidence |
+|---|---|---|---|
+| 1 | Check identity still keyed by `(run_id, reference)`; two stories with different snapshots but the same check reference collide at storage despite valid preflight. | **Confirmed** | See "1." below; independently reproduced with a fresh test. |
+| 2 | Foreign/global recovery (`RecoverSubmissions`, `StoryProgress.Finish`) still contaminates unrelated runs/receipts, surfacing through another run's foreground submit/Close path. | **Confirmed** | See "2." below; the same fresh test reproduces the global-recovery echo of the conflict. |
+| 3 | Harvest still mislabels post-execution cleanup errors as "coding agent did not start", discarding the real RunResult/exit facts. | **Confirmed** | See "3." below; traced the exact mechanism by which a real, non-nil `RunResult` can coexist with a non-nil `runErr` that harvest discards wholesale. |
+| 4 | Orphaned Plan receipts can get stuck pending forever because recovery/abandonment require both engineering AND acceptance pending, excluding Plan's `not_applicable` engineering state. | **Confirmed** | See "4." below; both the loop guard and the belt-and-suspenders guard inside `AbandonSubmission` were independently read and both currently exclude this state. |
+| 5 | The #258 shared communication contract is implemented but sits on top of the same affected submission/checkpoint backend, so it doesn't itself fix any of the above. | **Confirmed, with one additional finding** | See "5." below; I also found that the *new* shared-result reader added by #258 reuses the exact same unscoped `(run_id, reference)` check lookup, i.e. it inherits claim 1's defect rather than merely sitting beside it. |
+
+None of the five claims were refuted or found to be overstated. Two small citation
+drifts were found in run 0003's line numbers (noted inline below); they do not
+change any conclusion — the cited functions/behavior are correct, only a couple of
+line numbers had shifted by a handful of lines from likely reformatting, or were
+approximate to begin with.
+
+### 1. Check collision — confirmed, independently reproduced
+
+Current source, read directly by me:
+
+- `internal/store/migrations/0028_submission_contracts.sql:48-53` — `submission_checks`
+  table: `PRIMARY KEY(run_id,reference)`. The `snapshot_ref` column exists on the row
+  but is **not** part of the key.
+- `internal/store/submission_evidence.go:154` — `RetainSubmissionCheck` looks up any
+  existing check by `(run_id, reference)` only (`SELECT ... FROM submission_checks
+  WHERE run_id=? AND reference=?`); `:156` rejects the write with `"store: immutable
+  check reference conflict"` if `SnapshotRef` (or any other field) differs from the
+  first row stored under that reference — it does not scope the lookup by snapshot.
+- `internal/store/submission_evidence.go:181-183` — `GetSubmissionCheck` reads by the
+  same unscoped `(run_id, reference)` pair.
+- `internal/turn/submission_records.go:41` — `Reference: check.ID` passes the agent's
+  raw check ID straight through as the storage-wide reference, with no story or
+  snapshot prefix added.
+- `internal/agent/contribution_capture.go:57-67` — the only duplicate-ID check
+  (`seen[check.ID]`) is scoped to the current capture's own `map[string]bool`, which
+  is per-story/per-capture state, not run-wide. So two different stories can each
+  pass this validation with the identical ID `"build"`.
+
+I then wrote and ran a fresh, independently-authored probe (not run 0003's retained
+`DUPLICATE_CHECK_PROBE.go.txt`) to check this at the storage layer myself, using a Go
+`-overlay` so the repository source stayed untouched:
+
+```
+go test -overlay=/tmp/lf259-verify-probe/overlay.json ./internal/turn \
+  -run '^TestVerify259IndependentDuplicateCheckProbe$' -count=1 -v -timeout=90s
+```
+
+Output (captured directly, not copied from any prior report):
+
+```
+=== RUN   TestVerify259IndependentDuplicateCheckProbe
+    verify259_probe_test.go:42: story US-1: preflight VALID with check ref "build" under snapshot "snapshot-US-1"
+    verify259_probe_test.go:47: story US-1: first submit at storage layer succeeded as expected
+    verify259_probe_test.go:42: story US-2: preflight VALID with check ref "build" under snapshot "snapshot-US-2"
+    verify259_probe_test.go:56: story US-2: submit REJECTED at storage despite valid preflight and distinct snapshot: store: immutable check reference conflict
+    verify259_probe_test.go:69: global RecoverSubmissions repeats the same conflict from an unrelated caller's perspective: store: immutable check reference conflict
+--- PASS: TestVerify259IndependentDuplicateCheckProbe (0.56s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	1.194s
+```
+
+This independently reproduces exactly what run 0003 reported: two stories with
+distinct snapshot IDs and the shared check reference `"build"` both pass capture-local
+preflight, the first submit succeeds, and the second is rejected at the store layer
+with `"immutable check reference conflict"` — confirming claim 1 is real and current,
+not historical.
+
+I also independently confirmed `internal/turn/submissions_test.go:459`
+(`TestSubmissionConcurrentStoriesKeepCorrelation`) does not cover this input: its
+fixture `capturedContribution` (`submissions_test.go:111`) builds each check ID as
+`"check-" + story`, so its two stories never share a check reference.
+
+### 2. Global recovery contamination — confirmed
+
+Traced myself at current HEAD:
+
+1. `internal/turn/submission_runner.go:53` — `runSubmissionBound` defers
+   `err = errors.Join(err, session.Close(context.WithoutCancel(ctx)))`, joining
+   `Close`'s error into the function's own named return even when the actual run
+   result (assigned at `:81`, `result, err = runMCPBound(...)`) succeeded.
+2. `internal/turn/submissions.go:178-183` — `SubmissionSession.Close` calls
+   `s.options.Progress.RecoverSubmissions(ctx)` unconditionally — this is the shared,
+   run-agnostic `*StoryProgress`, not scoped to `s.binding.RunID`.
+3. `internal/turn/submission_recovery.go:14-46` — `RecoverSubmissions` calls
+   `p.db.ListPendingSubmissions(ctx)` (all pending receipts across all runs) and
+   `errors.Join`s every fault it hits, including from an unrelated run's poisoned
+   pending receipt.
+4. `internal/turn/meter.go:36` (`result, runErr := runSubmissionBound(...)`) and
+   `:73` (`return result, runErr`) — both the real result and the joined error
+   propagate together, unfiltered.
+5. `internal/turn/harvest.go:64` (`runResult, runErr := runClaude(...)`) then
+   `:100-110` — the `if runErr != nil` branch entirely ignores `runResult` (see
+   claim 3 below).
+
+I also independently confirmed the two other call sites run 0003 named:
+- `internal/turn/submissions.go:265` — ordinary (non-Plan) checkpoint `submit`
+  calls `p.RecoverSubmissions(ctx)` before allocating its own receipt.
+- `internal/turn/submission_runner.go:128` — terminal Validate intake calls
+  `s.options.Progress.RecoverSubmissions(ctx)` too.
+- `internal/turn/story_progress.go:107-113` — `StoryProgress.Finish` itself also
+  polls globally: it calls `p.poll(ctx, runID, reason)`, and `poll` (`:112`) calls
+  `p.db.ListStoryProgressRuns(ctx)` — every run, not just the caller's — using the
+  supplied `runID` only as an end marker further down. Its own caller,
+  `internal/turn/harvest.go:66-69`, only logs this error and does not propagate it,
+  so fixing `Finish` alone would not repair the fatal chain described in items 1-5
+  above (this matches run 0003's own qualification, and I confirm it independently).
+
+My own probe test above also independently demonstrates the second half of this
+claim directly: after the storage collision, calling
+`f.opts.StoryProgress.RecoverSubmissions(t.Context())` from what represents an
+unrelated caller's perspective returns the same `"immutable check reference
+conflict"` error rather than a scoped, per-run outcome.
+
+Minor citation note: run 0003 cited `story_progress.go:107`, `:114` for this; at
+current HEAD the second reference point (`ListStoryProgressRuns`) is at line 113,
+one line off from the prior citation. Immaterial to the finding.
+
+### 3. Harvest mislabeling — confirmed
+
+Traced myself:
+
+- `internal/turn/submission_runner.go:81` — `result, err = runMCPBound(ctx, prep, req, session)`. If the actual run succeeds, `result` is non-nil and `err` is nil at this point.
+- `internal/turn/submission_runner.go:53` — the deferred `session.Close` join can
+  then turn that nil `err` into a non-nil one (e.g. from an unrelated run's
+  poisoned global recovery, per claim 2), **while `result` remains the real,
+  non-nil, successful `RunResult`** — the named-return mechanics mean both are
+  returned together.
+- `internal/turn/meter.go:36,73` and `internal/turn/harvest.go:64` — this
+  `(result, err)` pair propagates unchanged up to `harvest.go`.
+- `internal/turn/harvest.go:100-110`:
+  ```go
+  if runErr != nil {
+      // The run never started, so there is no RunResult to report — but the
+      // row exists and owes the issue a comment all the same.
+      result.Disposition = DispositionRan
+      result.Outcome = harness.OutcomeFailed
+      result.Reason = fmt.Sprintf("coding agent did not start: %v", runErr)
+      ...
+  }
+  ```
+  This branch's own comment states the (false, in this case) assumption plainly:
+  "there is no RunResult to report." But `runResult` (the real result from
+  `runClaude`/`runMetered`, captured at `harvest.go:64`) is discarded entirely —
+  the branch never inspects it before overwriting the outcome/reason and injecting
+  a synthetic signal exit code. The real `runResult`'s execution facts (whether
+  the coding agent actually ran, succeeded, or produced output) are lost.
+
+I additionally independently found a second, distinct source of the same pattern
+that run 0003 also flagged but which I re-verified myself: `internal/turn/
+mcp_runtime.go:111` — `runMCPBound`'s own deferred `err = errors.Join(err,
+p.close(context.WithoutCancel(ctx)))` can likewise turn a successful `result` into
+a `(result, err)` pair with non-nil `err`, independently of the submission-session
+Close path. (Run 0003 cited this line as `:118`; at current HEAD it is `:111` — a
+7-line drift, most likely simply an imprecise citation in run 0003 rather than a
+code change, since the diff against aaa8b9e is empty. The underlying claim —
+"the new runtime's own deferred cleanup can also return a nonnil error with an
+observed process result" — is accurate at the corrected line.)
+
+### 4. Orphaned Plan receipts — confirmed
+
+Traced myself:
+
+- `internal/turn/submissions.go:363,368` — `submitPlan`, on a valid submission, sets
+  `decision := store.SubmissionDecision{Engineering: "not_applicable", Acceptance:
+  "not_applicable", Effects: "not_applicable", Plan: "rejected"}` then, if valid,
+  `decision.Plan = "pending"` (or `"discussion"`). So a successfully-submitted Plan
+  receipt is persisted with `engineering_state='not_applicable'`,
+  `acceptance_state='not_applicable'`, `plan_state='pending'`.
+- `internal/store/submission_receipts.go:268` — `ListPendingSubmissions`'s `WHERE`
+  clause includes `OR plan_state='pending'`, so this receipt is discoverable as
+  pending.
+- `internal/turn/submission_recovery.go:24` — `RecoverSubmissions`'s per-receipt loop:
+  `if r.EngineeringState != "pending" || r.AcceptanceState != "pending" { continue
+  }` — since this receipt's `EngineeringState` is `"not_applicable"`, not
+  `"pending"`, it is skipped outright; the loop never reaches the
+  `!recovery.Active` → `AbandonSubmission` branch for it.
+- `internal/store/submission_recovery.go:54` — `AbandonSubmission` has its own,
+  independent guard: `if r.EngineeringState != "pending" || r.AcceptanceState !=
+  "pending" { return nil }` — a no-op even if somehow invoked directly on such a
+  receipt.
+
+Both guards independently exclude Plan's `not_applicable` engineering/acceptance
+state from ever being resolved by recovery or abandonment, so a Plan receipt that
+never reaches legitimate publication (e.g. broker closed after a terminal failure,
+restart, or supersession, with no confirmed `FinalizeTypedPlanPublication`) stays
+in the pending list forever with no code path that settles it. This matches run
+0003's claim exactly, at the exact line numbers it cited.
+
+I also independently confirmed the "normal path still works" counterpoint: `internal/
+store/typed_plan.go:11` (`FinalizeTypedPlanPublication`) still advances Plan to
+published/delivered under readiness/generation/stage/attempt guards, and
+`internal/turn/result_finalization.go:303-325` (the new #258 finalization path, see
+claim 5) explicitly hands Plan back to that same existing owner rather than
+reimplementing publication — so the defect is specifically about orphaned/aborted
+Plan receipts, not all Plan receipts, exactly as run 0003 stated.
+
+### 5. #258 shared communication contract — confirmed, plus one addition
+
+Confirmed the contract exists and is substantially implemented: `internal/agentresult/`
+package (types.go, schema.go, decode.go, update.go, update_schema.go, validate.go,
+projection.go, progress.go) is present with a large, passing test suite
+(`go test ./internal/agentresult -count=1 -v` — 0.428s in my run, all green,
+including update/versioned-corpus/schema-parity/retirement/immutable-target tests).
+`internal/turn/result_finalization.go` implements post-exit finalization
+(`preparedMCP.finalize`, `consumeFinalResult`, `projectFinalWorkflow`) on top of
+this typed contract.
+
+Confirmed the "still sits on the same affected backend" claim directly, by tracing
+the actual call path rather than trusting the earlier characterization:
+
+- `internal/turn/result_finalization.go:315` — the new shared contract's Plan
+  finalization path calls `session.checkpoint(ctx, submission.Request{Method:
+  "submit", ..., Payload: data})` — this is the **exact same** `checkpoint` /
+  `checkpointLocked` / `submitPlan` function chain in `internal/turn/submissions.go`
+  that claim 4's defect lives in. The new typed envelope is adapted into an
+  `agent.Contribution` (`resultPlanContribution`, `:340`) and fed into the old
+  submission backend unchanged.
+- `internal/turn/result_finalization.go:260-291` — the new Validate finalization
+  path likewise calls `session.consumeTerminalValidation` and
+  `session.reconcileValidationCheckpoint`, the same checkpoint-store machinery used
+  by the legacy path.
+
+**Additional finding beyond run 0003's characterization** (not a correction, an
+extension): I checked whether the *new* shared-result reader itself reuses the
+flawed check-identity lookup from claim 1, rather than merely "sitting on top of"
+an independently-flawed backend. It does:
+
+- `internal/turn/agent_result_context.go:84` — `check, err :=
+  db.GetSubmissionCheck(ctx, retained.RunID, id)` — this new reader, added for the
+  #258 shared-result resolver, calls the same unscoped `(run_id, reference)`
+  lookup traced in claim 1, with no snapshot argument. So the new contract's own
+  evidence-resolution path is not merely adjacent to the check-identity defect —
+  it directly inherits it. This reinforces run 0003's recommendation that any key
+  migration must include this reader (which run 0003 already named at the same
+  line), and it further substantiates claim 5's "does not itself fix" conclusion
+  with a concrete code path rather than only an architectural observation.
+
+I did not find any respect in which #258's work has already fixed, papered over, or
+made moot any of claims 1-4. Adoption/retirement status was not the subject of this
+revalidation instruction and was not re-checked here (run 0003 already flagged that
+#264's migration scripts were "written, not executed" and that this remains
+outstanding; nothing in this run touched or needed to touch that question).
+
+### Independent test verification
+
+I re-ran (did not merely re-cite) run 0003's reported test commands myself:
+
+```
+go test ./internal/store ./internal/turn ./internal/agentresult \
+  -run 'Test(Submission|ValidationCheckpoint|AggregateLifecycle|ResultPlanContribution|ResultDiagnosticError|AgentResult|Shared)' -count=1
+```
+Result: `ok internal/store 2.199s`, `ok internal/turn 55.401s`, `ok internal/agentresult
+1.365s [no tests to run]` — consistent with run 0003's reported 2.179s/58.922s
+(normal timing variance, same outcome).
+
+```
+go test ./internal/agentresult -count=1 -v
+```
+Result: all tests PASS in 0.428s (run 0003 reported 0.308s PASS; same outcome).
+
+Plus my own new probe (`TestVerify259IndependentDuplicateCheckProbe`, executed via
+`-overlay`, source not committed to the repository, removed from `/tmp` after this
+run) — PASS, output quoted in full under "1." above.
+
+Environment: macOS/darwin arm64, `go version go1.27.0 darwin/arm64`, this worktree
+at `792f5f6edb892d924e5ace59c1b6f796cc4876e9`, clean tree. No live daemon, no
+coding-agent process, no remote writes. No `make check` run (not required to answer
+the revalidation instruction; no production code changed).
+
+### Conclusion
+
+**Run 0003's assessment holds up under independent re-verification.** All five
+claims are confirmed with fresh, independently-derived file:line evidence and a
+freshly-authored, freshly-executed reproduction test, not by trusting the prior
+brief's reported citations or test output. No claim was found to be wrong,
+overstated, or unverifiable. One additional corroborating fact was found (the new
+#258 shared-result reader at `agent_result_context.go:84` directly reuses the
+flawed unscoped check lookup, not merely sitting near it). Two immaterial line-
+number drifts (`story_progress.go` second reference, `mcp_runtime.go` deferred
+close) were found and corrected above; neither affects any conclusion, since the
+source is byte-identical to what run 0003 inspected (confirmed via empty
+`git diff aaa8b9e..HEAD -- . ':!.aiteam'`).
+
+No new owner decision is required to reach this conclusion. #259 remains unfixed at
+the current revision; the bounded fix recommendation from run 0003 (additive check-
+key migration to `(run_id, snapshot_ref, reference)` including the new shared-result
+reader, scoped foreground recovery, truthful harvest diagnostics, stage-aware Plan
+recovery) still stands and is not superseded by anything found in this revalidation.
+
 ## Current assessment — 2026-09-16, run 0003
 
 Request: “we did several things now, re-check here where we are! … research from scratch”. This is Research only: assess current behavior and remaining solution, including #258's communication work. No production implementation, publication, migration, daemon restart or workflow transition is authorized by this investigation.
@@ -105,6 +432,7 @@ Environment: macOS/darwin arm64, `go version go1.27.0 darwin/arm64`, workspace r
 
 - 2026-09-13 runs 0001/0002: prior investigation and initial #258 design comparison, preserved below.
 - 2026-09-16 run 0003: fresh current-source/GitHub investigation, current offline tests and executable duplicate-ID probe. Research complete. No production code, runtime state, issue state or workflow mode changed.
+- 2026-09-16 run 0004: independent revalidation of run 0003 at the owner's explicit request ("revalidate, i don't trust the other assessment"). Confirmed `792f5f6` is source-identical to `aaa8b9ee` outside `.aiteam/`. Re-derived every citation from current source myself; wrote and executed a fresh, independently-authored duplicate-check-reference probe (not copied from the retained run-0003 probe file) via Go overlay, and re-ran run 0003's reported test commands myself rather than trusting their reported results. All five claims (check-identity collision; global-recovery contamination; harvest mislabeling; orphaned Plan receipts; #258 sitting on the same unfixed backend) independently confirmed with fresh evidence; none refuted or found overstated. One additional corroborating fact found: the new #258 shared-result reader (`internal/turn/agent_result_context.go:84`) itself reuses the unscoped `(run_id, reference)` check lookup, directly inheriting claim 1's defect. Two immaterial line-number citation drifts noted and corrected. Research complete; no material unanswered owner decision; no production code, runtime state, issue state or workflow mode changed; no commit/push.
 
 ---
 
