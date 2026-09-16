@@ -1,0 +1,24 @@
+[
+  {
+    "story": "US-003",
+    "request_id": "2a3a35ba372f06235a76729cd45fd1c1",
+    "input": "valid",
+    "engineering": "recorded",
+    "acceptance": "not_applicable",
+    "remote_effect": "delivered",
+    "snapshot_id": "run0009-us003-final",
+    "implementation_digest": "302950afb2e20a2b212e6ac5eed9cd0c9d5f85f1ce7891f942e7be208c0b3ff8",
+    "file_count": 12
+  },
+  {
+    "story": "US-005",
+    "request_id": "c6eb135c8fcea66ff1d92b39e8877360",
+    "input": "valid",
+    "engineering": "recorded",
+    "acceptance": "not_applicable",
+    "remote_effect": "delivered",
+    "snapshot_id": "run0009-us005-final",
+    "implementation_digest": "97eb1c525b3e3cd20b830f682fe962f2f648fb57cac860a690546a5a0af28acb",
+    "file_count": 238
+  }
+]

@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestParseValid|TestParseRefusesEverythingElse)$ ./internal/confirm
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.531s
+
+EXIT: 0

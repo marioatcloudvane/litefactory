@@ -1,0 +1,1 @@
+["internal/codex/mcp.go", "internal/codex/mcp_config.go", "internal/codex/mcp_test.go", "internal/codex/runner.go", "internal/codex/runner_test.go", "internal/codex/delivery_test.go", "internal/codex/skills.go", "internal/agent/mcp.go", "Makefile", ".golangci.yml", "go.mod", "go.sum"]

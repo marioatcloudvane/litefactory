@@ -1,0 +1,4 @@
+Command: go vet ./internal/codex
+Result: exit 0
+Stdout/stderr: empty
+Execution: current run 0009, after production mcp.go and mcp_config.go fixes.

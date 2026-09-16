@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestMCPServer_HandshakeStateAndVersions|TestMCPServer_ProtocolRefusalMatrix|TestMCPServer_ResultProjectionAndExactArguments|TestMCPServer_CancellationAndWorkerLimits|TestMCPServer_EOFAndBlockedOutputJoin|TestMCPServer_SizeBounds|TestMCPServer_InitializationParameterRefusals|TestMCPServer_StringNumericAndConnectionCancellationIsolation|TestMCPServer_OutputBacklogAndContextJoin)$ ./internal/mcpadapter
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	2.987s
+
+EXIT: 0

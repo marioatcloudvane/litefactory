@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestParseAcceptedControls|TestParseRejectsInvalidControls|TestParseRejectsAmbiguousLocalCivilTimes)$ ./internal/schedule
+ok  	github.com/cloudvane/litefactory/internal/schedule	1.570s
+
+EXIT: 0

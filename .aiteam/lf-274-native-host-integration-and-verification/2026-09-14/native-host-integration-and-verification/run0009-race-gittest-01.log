@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestNewBuildsAWorkingFixture|TestFixtureIgnoresAmbientGitConfiguration|TestDirtyTouchesAllThreeStates|TestAssertUnchangedDetectsEachKindOfChange|TestAssertUnchangedPassesForReadOnlyWork|TestSetOriginURLAndRemoveOrigin|TestFixtureIsRemovedWithTheTest|TestOnlyTestsImportGittest)$ ./internal/gittest
+ok  	github.com/cloudvane/litefactory/internal/gittest	4.947s
+
+EXIT: 0
