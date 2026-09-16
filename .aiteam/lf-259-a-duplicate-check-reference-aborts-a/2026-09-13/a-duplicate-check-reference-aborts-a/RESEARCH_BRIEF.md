@@ -1,3 +1,115 @@
+# Research brief — #259, fresh reassessment
+
+## Current assessment — 2026-09-16, run 0003
+
+Request: “we did several things now, re-check here where we are! … research from scratch”. This is Research only: assess current behavior and remaining solution, including #258's communication work. No production implementation, publication, migration, daemon restart or workflow transition is authorized by this investigation.
+
+Status: **Research complete; #259 remains unfixed at the inspected revision.** The communication architecture has materially advanced, but all four original storage/lifecycle defects remain. No material owner decision is needed to establish this finding. Prior run conclusions below are historical, not evidence for this assessment.
+
+Revision: `aaa8b9ee60e29c9fb75a9f22b0b6a8c95c1b5143`; clean worktree at initial inspection. Evidence is current local source, freshly fetched GitHub issues/comments, and current offline tests. Historical runs 372/375 were not replayed and their daemon records were not inspected.
+
+### Findings and expected behavior
+
+| Area | Current behavior | Expected behavior / remaining work |
+| --- | --- | --- |
+| Check identity | Still keyed by `(run_id, reference)`; two stories using `build` collide even with different snapshots. Reproduced now. | A check reference resolves within its exact immutable snapshot; changed facts at that same identity still conflict. |
+| Snapshot identity | Still keyed by `(run_id, reference)` with story/revision as immutable provenance. | Either make factory-issued snapshot handles unambiguous, or explicitly namespace local snapshot labels; do not leave a second hidden run-wide naming trap. |
+| Failure isolation | Session Close, non-Plan intake and terminal Validate intake call global recovery. A foreign pending conflict can escape through the caller's failure. | Run/attempt-scoped foreground reconciliation, global daemon maintenance with per-receipt attribution. |
+| Diagnostics | Harvest still treats any nonnil runner error as “coding agent did not start”, even if a RunResult exists. | Preserve process outcome/exit facts and report launch, submission, finalization or cleanup failures distinctly. |
+| Orphaned Plan | Recovery/abandonment still skip receipts whose engineering/acceptance are not pending, including completed Plan input awaiting publication. | Stage-aware settlement after definitive failure/supersession; keep normal success/save publication authoritative. |
+| Shared communication | Common result contract, update semantics, helper/MCP adapters and post-exit checks now exist. | Reuse these; fix the underlying checkpoint store and recovery rather than inventing another contract. |
+
+### 1. Check collision is presently executable, not just historical
+
+`internal/store/migrations/0028_submission_contracts.sql:48` declares the check table with `PRIMARY KEY(run_id,reference)`. `internal/store/submission_evidence.go:154` searches that pair and `:156` rejects a different snapshot; `:181` exposes the same incomplete identity to readers. `internal/turn/submission_records.go:41` still persists the agent's check ID without adding scope. `internal/agent/contribution_capture.go:57` checks uniqueness within the capture only.
+
+A temporary Go overlay using the repository's real migrated SQLite and submission-session fixtures submitted US-1 and US-2 with distinct story snapshots and the same `build` check ID. Both preflights were valid. US-1 submitted successfully; US-2 returned `store: immutable check reference conflict`. Calling global recovery repeated the same conflict. This also establishes the mismatch between current preflight and storage validation.
+
+The existing concurrent-story test (`internal/turn/submissions_test.go:459`) remains green because its fixture constructs `check-` plus the story key (`:112`). It does not cover the demonstrated input.
+
+Retaining snapshot and checks uses separate transactions before progress commitment (`internal/turn/submission_records.go:26`, `:41`, `:88`). A late failure can therefore leave partial retained evidence and a pending receipt for recovery. A fix needs both early diagnostics and durable, correctly attributed failure/recovery behavior; preflight alone cannot prevent races.
+
+### 2. Issue/story identity is already factory-bound, but local names are not unique
+
+The prior owner question remains relevant. The real database run identifies the task/issue through its session. `BindSubmissionAttempt` verifies run/task/generation and copies authorized story key, numeric child issue ID and frozen revision (`internal/store/submission_receipts.go:18`, `:27`, `:48`, `:70`). Snapshot retention validates that authority and stores parent, generation, story and revision (`internal/store/submission_evidence.go:75`, `:86`). The printed task-local ordinal such as “run 0003” is not that database identity.
+
+Thus **`(run_id, snapshot_ref, check_ref)` remains sufficient for checks while snapshots retain run-wide unique references**. Adding issue/story columns to this key would duplicate already bound provenance. Include those values in diagnostics/receipts for humans, but resolve and validate them from factory authority, not arbitrary agent metadata.
+
+This does not solve two stories choosing `snapshot-1`: snapshot lookup still uses `(run_id, reference)` and checks story provenance only afterward (`submission_evidence.go:88`, `:110`). Factory-issued handles are the cleanest long-term option; alternatively scope snapshot identity by story and then update every dependent reference consistently. Do not change the check key assuming snapshot references became story-local when they have not.
+
+### 3. Global recovery still contaminates the foreground caller
+
+Current fatal chain:
+
+1. `runSubmissionBound` defers `session.Close` into its named error (`internal/turn/submission_runner.go:53`).
+2. `SubmissionSession.Close` calls global `RecoverSubmissions` before ending the attempt (`internal/turn/submissions.go:178`).
+3. Recovery enumerates all pending receipts and joins their failures (`internal/turn/submission_recovery.go:17`, `:47`).
+4. The actual process result and joined error return together through metering (`internal/turn/meter.go:36`, `:73`).
+5. Harvest's generic error branch relabels the failure, sets signal exit metadata and bypasses normal harvest/save (`internal/turn/harvest.go:101`).
+
+Ordinary checkpoint intake also performs global recovery before allocating its own receipt (`submissions.go:265`). Terminal Validate intake has the same dependency (`submission_runner.go:128`), including the new shared finalization projection path (`result_finalization.go:274`).
+
+`StoryProgress.Finish` itself also polls globally (`internal/turn/story_progress.go:107`, `:114`), but its harvest caller only logs errors (`harvest.go:67`). Fixing Finish alone still would not repair the fatal chain. Foreground methods should only reconcile their authorized scope; daemon recovery should continue covering all outstanding receipts and should attribute failures by originating run/attempt/story/receipt.
+
+The new finalizer correctly preserves failed/cancelled/interrupted process causes for its own output validation (`internal/turn/result_finalization.go:123`), but the outer deferred submission Close runs afterward and the old harvest branch still overrides it. The new runtime's own deferred cleanup can also return a nonnil error with an observed process result (`internal/turn/mcp_runtime.go:118`). Fix diagnostic classification at the shared harvest boundary, not only in one adapter. Filesystem edits are not shown to be deleted; the defect skips ordinary saving/publication.
+
+### 4. Plan recovery remains incomplete
+
+`submitPlan` assigns engineering/acceptance `not_applicable` and completed Plan state `pending` (`internal/turn/submissions.go:363`). Pending discovery includes `plan_state='pending'` (`internal/store/submission_receipts.go:268`), but both `RecoverSubmissions` (`internal/turn/submission_recovery.go:23`) and `AbandonSubmission` (`internal/store/submission_recovery.go:54`) require engineering AND acceptance pending.
+
+Normal success is different: `FinalizeTypedPlanPublication` still advances Plan to published/delivered after guarded readiness/save (`internal/store/typed_plan.go:11`). Shared finalization intentionally hands Plan back to that existing owner (`internal/turn/result_finalization.go:298`). Therefore do not reject every Plan receipt when the broker closes: closure precedes legitimate publication. Distinguish normal closed-broker handoff from terminal failure, supersession and already-completed publication; recover/settle by stage and durable lifecycle facts.
+
+### 5. What changed through #258
+
+GitHub was read on 2026-09-16. [#258](https://github.com/marioatcloudvane/litefactory/issues/258) is closed as an umbrella and its [split comment](https://github.com/marioatcloudvane/litefactory/issues/258#issuecomment-5652382668) names #263, #264 and #265. #263 is closed; #264 remains open; #265 is closed as duplicate after further decomposition. Issue states alone are not implementation or validation evidence.
+
+Current source now implements:
+
+- Factory-owned `meta` with task, database run, attempt, mode, result/revision/request and version information; agent input contains `result` only (`internal/agentresult/types.go:26`).
+- Typed Research/Plan/Implement/Validate/Spike payloads; strict shared decoding, semantic checks, explicit typed operations with expected revision, stable IDs and full merged validation (`internal/agentresult/`, `docs/agent-result-contract.md`).
+- Explicit authorized baseline in launch context and distinct result-helper versus checkpoint descriptors (`internal/turn/result_finalization.go:24`, `:45`).
+- One service for helper/MCP/terminal input and separate input/engineering/acceptance/publication observations (`internal/turn/agent_results.go:42`, `result_finalization.go:87`).
+- Post-exit completeness enforcement, current-attempt binding, conflict detection and preservation of failed/interrupted process causes within that finalizer (`result_finalization.go:123`, `:174`).
+- Runtime setup and native host wiring, with shared completion retained when native MCP is disabled; explicit compatibility routing where managed checkpoint authority is absent (`internal/daemon/setup.go:260`, `internal/turn/mcp_runtime.go:92`, `:106`).
+- Separate aggregate capture and scoped story checkpoint evidence. Capture/receipt acknowledgment alone cannot complete Implement.
+
+**This is now an implementation-integration problem, not a request to design a JSON envelope from scratch.** Keep the shared contract. Make exact evidence identity and scoped error ownership hold all the way through its checkpoint backend. The new shared evidence resolver adds a reader that must be included in a key migration: `internal/turn/agent_result_context.go:84`, alongside `submissions.go:334` and `submission_records.go:55`.
+
+Aggregate checks intentionally have their own retained identity and forbid relabeling scoped execution. `internal/store/result_aggregates.go:239` currently compares aggregate reference/execution IDs against scoped check references within the parent. Review this check during identity changes: relaxing local check-name uniqueness must not grant permission to relabel scoped execution as aggregate proof, nor accidentally make ordinary label reuse a substitute for execution identity.
+
+Adoption and reader retirement remain distinct. Current docs explicitly retain supported legacy compatibility and state live-drain prerequisites (`docs/agent-result-contract.md:350`). Latest [#264 report](https://github.com/marioatcloudvane/litefactory/issues/264#issuecomment-5701855181) says scripts for #230/#259 were written, not executed; migration/retirement remains outstanding. This research did not execute those scripts or inspect another worktree.
+
+[#274](https://github.com/marioatcloudvane/litefactory/issues/274) and [#296](https://github.com/marioatcloudvane/litefactory/issues/296) now appear closed. Their latest substantive [parent report](https://github.com/marioatcloudvane/litefactory/issues/274#issuecomment-5701701610), child comments and `docs/agent-result-contract.md:398` still report the four authentic host captures outstanding. Do not infer authentic verification from closure or this research run. No new host certification is claimed.
+
+### Recommended bounded fix and regression cases
+
+1. Change the retained check primary key and accessor contract using an additive migration, preserve old evidence/foreign keys, and pass the exact snapshot to every lookup including shared result context. Define snapshot-label scope explicitly; preserve same-identity immutability and attempt provenance.
+2. Add scoped foreground recovery for submit/Validate/Close; retain global daemon recovery with originating identities in each diagnostic. Test two concurrent parent issues: one poison receipt cannot block the other run's submit, final output, save or Plan publication.
+3. Preserve actual RunResult and process exit facts through cleanup errors. Represent subsystem errors separately and truthfully; do not turn an invalid own submission into success merely to avoid the misleading launch message.
+4. Make Plan retirement/recovery stage-aware without abandoning normal post-close publication. Test terminal failure, successful save/publication, restart, replacement attempt and stale generation.
+5. Extend current shared-contract tests end to end: generic `build` under two story snapshots; same-snapshot changed check remains rejected; duplicate snapshot labels; second-snapshot rework; request replay preserves receipt; corrected content uses new request; shared result resolver retrieves exact check; aggregate proof cannot be fabricated by renaming scoped proof.
+
+Fixing #259 need not wait for legacy-reader retirement or external host captures. Retain existing authority boundaries and verify migration/recovery with current shared completion active. This is an advisory next step, not a mode selection or started Plan.
+
+### Verification and limitations
+
+Environment: macOS/darwin arm64, `go version go1.27.0 darwin/arm64`, workspace revision above, temporary SQLite/socket/worktree fixtures, no live coding-agent process or remote writes.
+
+- PASS: `go test ./internal/store ./internal/turn ./internal/agentresult -run 'Test(Submission|ValidationCheckpoint|AggregateLifecycle|ResultPlanContribution|ResultDiagnosticError|AgentResult|Shared)' -count=1`; store 2.179s, turn 58.922s. The agentresult package had no matching tests in this command (not treated as coverage).
+- PASS: `go test ./internal/agentresult -count=1`; 0.308s.
+- PASS as a **bug-observation probe**, not a fix regression: `go test -overlay=/tmp/lf259-research-probe/overlay.json ./internal/turn -run '^TestResearch259DuplicateCheckProbe$' -count=1 -v -timeout=90s`; 1.405s. Output: second story preflight VALID, submit immutable check reference conflict; global recovery repeats it. The probe's appended test is retained as `DUPLICATE_CHECK_PROBE.go.txt` in this session. It can be appended to a temporary copy of `internal/turn/submissions_test.go` and mapped with Go's Replace overlay, leaving repository source unchanged.
+- Selected core source files measured separately: 157,099 bytes across the 13 core store/turn files listed in the evidence; this is a bounded subset, not total bytes read or billed tokens. Billed input tokens are unavailable; no token-savings claim.
+- No full `make check` or live daemon historical reproduction was run: no production code changed. No direct execution test of cross-issue harvest or Plan orphan retirement was added; those findings follow current source/caller tracing, while the check collision and global recovery poison were directly observed.
+
+## Research history
+
+- 2026-09-13 runs 0001/0002: prior investigation and initial #258 design comparison, preserved below.
+- 2026-09-16 run 0003: fresh current-source/GitHub investigation, current offline tests and executable duplicate-ID probe. Research complete. No production code, runtime state, issue state or workflow mode changed.
+
+---
+
+## Historical brief from runs 0001/0002 (superseded by current assessment above)
+
 # Research brief — duplicate checks and cross-run failure (#259)
 
 Status: complete, Research only, including run 0002 follow-up. Date: 2026-09-13.
