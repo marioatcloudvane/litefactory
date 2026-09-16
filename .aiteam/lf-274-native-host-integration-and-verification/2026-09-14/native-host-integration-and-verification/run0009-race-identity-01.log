@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestResolveOwnerReturnsHandleAndNumericID|TestResolveOwnerStripsTheTokenEnvironment|TestAllowedEnvNamesExcludeCredentials|TestResolveOwnerWithoutGH|TestResolveOwnerUnauthenticated|TestResolveOwnerNonZeroExit|TestResolveOwnerRejectsAnotherHost|TestResolveOwnerAcceptsGitHubAlongsideAnother|TestResolveOwnerRejectsAnIncompleteIdentity|TestResolveOwnerReportsAFailedUserLookup|TestGHIsInvokedOnlyFromThisPackage)$ ./internal/identity
+ok  	github.com/cloudvane/litefactory/internal/identity	9.128s
+
+EXIT: 0

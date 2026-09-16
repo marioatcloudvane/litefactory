@@ -1,0 +1,207 @@
+=== RUN   TestDeliveryArgsForceIsolationAndNativeRoleFiles
+=== PAUSE TestDeliveryArgsForceIsolationAndNativeRoleFiles
+=== RUN   TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues
+=== PAUSE TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues
+=== RUN   TestMCPLaunchSpec_RejectsNulByteInExecutable
+=== PAUSE TestMCPLaunchSpec_RejectsNulByteInExecutable
+=== RUN   TestMcpOverrides_EnabledToolsCatalogIsExact
+=== PAUSE TestMcpOverrides_EnabledToolsCatalogIsExact
+=== RUN   TestMcpOverrides_CollisionDetection
+=== RUN   TestMcpOverrides_CollisionDetection/existing_table_header/refused
+=== PAUSE TestMcpOverrides_CollisionDetection/existing_table_header/refused
+=== RUN   TestMcpOverrides_CollisionDetection/existing_dotted_key/refused
+=== PAUSE TestMcpOverrides_CollisionDetection/existing_dotted_key/refused
+=== RUN   TestMcpOverrides_CollisionDetection/unrelated_content/passes_through_cleanly
+=== PAUSE TestMcpOverrides_CollisionDetection/unrelated_content/passes_through_cleanly
+=== RUN   TestMcpOverrides_CollisionDetection/no_config_file_at_all/passes_through_cleanly
+=== PAUSE TestMcpOverrides_CollisionDetection/no_config_file_at_all/passes_through_cleanly
+=== CONT  TestMcpOverrides_CollisionDetection/existing_table_header/refused
+=== CONT  TestMcpOverrides_CollisionDetection/existing_dotted_key/refused
+=== CONT  TestMcpOverrides_CollisionDetection/unrelated_content/passes_through_cleanly
+=== CONT  TestMcpOverrides_CollisionDetection/no_config_file_at_all/passes_through_cleanly
+--- PASS: TestMcpOverrides_CollisionDetection (0.00s)
+    --- PASS: TestMcpOverrides_CollisionDetection/no_config_file_at_all/passes_through_cleanly (0.00s)
+    --- PASS: TestMcpOverrides_CollisionDetection/existing_dotted_key/refused (0.00s)
+    --- PASS: TestMcpOverrides_CollisionDetection/existing_table_header/refused (0.00s)
+    --- PASS: TestMcpOverrides_CollisionDetection/unrelated_content/passes_through_cleanly (0.00s)
+=== RUN   TestArgs_NilMCPLaunchIsAdditiveOnlyNoop
+=== PAUSE TestArgs_NilMCPLaunchIsAdditiveOnlyNoop
+=== RUN   TestArgs_EnabledMCPLaunchLandsBeforeModelOnColdPath
+=== PAUSE TestArgs_EnabledMCPLaunchLandsBeforeModelOnColdPath
+=== RUN   TestArgs_EnabledMCPLaunchLandsBeforeResumeSubcommand
+=== PAUSE TestArgs_EnabledMCPLaunchLandsBeforeResumeSubcommand
+=== RUN   TestArgs_IgnoreUserConfigTrueSkipsCollisionCheck
+=== PAUSE TestArgs_IgnoreUserConfigTrueSkipsCollisionCheck
+=== RUN   TestArgs_IgnoreUserConfigFalseActivatesCollisionCheck
+=== PAUSE TestArgs_IgnoreUserConfigFalseActivatesCollisionCheck
+=== RUN   TestArgs_ValidateModeRestrictionsUnaffectedByMCP
+=== PAUSE TestArgs_ValidateModeRestrictionsUnaffectedByMCP
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions
+=== RUN   TestMcpOverrides_InvalidUTF8Rejected
+=== PAUSE TestMcpOverrides_InvalidUTF8Rejected
+=== RUN   TestAllowUserConfigDropsTheIsolationFlag
+--- PASS: TestAllowUserConfigDropsTheIsolationFlag (0.31s)
+=== CONT  TestDeliveryArgsForceIsolationAndNativeRoleFiles
+=== CONT  TestMcpOverrides_EnabledToolsCatalogIsExact
+=== CONT  TestArgs_IgnoreUserConfigTrueSkipsCollisionCheck
+=== CONT  TestMcpOverrides_InvalidUTF8Rejected
+=== CONT  TestArgs_ValidateModeRestrictionsUnaffectedByMCP
+=== RUN   TestMcpOverrides_EnabledToolsCatalogIsExact/multiple_tools/preserves_exact_order
+=== CONT  TestMCPLaunchSpec_RejectsNulByteInExecutable
+=== CONT  TestArgs_EnabledMCPLaunchLandsBeforeResumeSubcommand
+--- PASS: TestMCPLaunchSpec_RejectsNulByteInExecutable (0.00s)
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions
+=== PAUSE TestMcpOverrides_EnabledToolsCatalogIsExact/multiple_tools/preserves_exact_order
+=== RUN   TestMcpOverrides_EnabledToolsCatalogIsExact/single_tool/no_leakage
+=== PAUSE TestMcpOverrides_EnabledToolsCatalogIsExact/single_tool/no_leakage
+=== CONT  TestArgs_NilMCPLaunchIsAdditiveOnlyNoop
+=== CONT  TestArgs_EnabledMCPLaunchLandsBeforeModelOnColdPath
+=== CONT  TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues
+=== RUN   TestMcpOverrides_InvalidUTF8Rejected/executable
+=== PAUSE TestMcpOverrides_InvalidUTF8Rejected/executable
+=== RUN   TestMcpOverrides_InvalidUTF8Rejected/descriptor
+=== RUN   TestMcpOverrides_EnabledToolsCatalogIsExact/empty_catalog/emits_empty_list
+=== PAUSE TestMcpOverrides_InvalidUTF8Rejected/descriptor
+--- PASS: TestDeliveryArgsForceIsolationAndNativeRoleFiles (0.00s)
+=== CONT  TestMcpOverrides_InvalidUTF8Rejected/executable
+=== CONT  TestMcpOverrides_InvalidUTF8Rejected/descriptor
+=== CONT  TestArgs_IgnoreUserConfigFalseActivatesCollisionCheck
+=== RUN   TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/quotes_and_backslash/round-trips_exactly
+=== PAUSE TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/quotes_and_backslash/round-trips_exactly
+--- PASS: TestMcpOverrides_InvalidUTF8Rejected (0.00s)
+    --- PASS: TestMcpOverrides_InvalidUTF8Rejected/executable (0.00s)
+    --- PASS: TestMcpOverrides_InvalidUTF8Rejected/descriptor (0.00s)
+=== PAUSE TestMcpOverrides_EnabledToolsCatalogIsExact/empty_catalog/emits_empty_list
+--- PASS: TestArgs_NilMCPLaunchIsAdditiveOnlyNoop (0.00s)
+--- PASS: TestArgs_EnabledMCPLaunchLandsBeforeResumeSubcommand (0.00s)
+--- PASS: TestArgs_IgnoreUserConfigTrueSkipsCollisionCheck (0.01s)
+--- PASS: TestArgs_EnabledMCPLaunchLandsBeforeModelOnColdPath (0.00s)
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/bare_table_inline_server/refused
+=== CONT  TestMcpOverrides_EnabledToolsCatalogIsExact/multiple_tools/preserves_exact_order
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/bare_table_inline_server/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/spaced_table/refused
+=== CONT  TestMcpOverrides_EnabledToolsCatalogIsExact/empty_catalog/emits_empty_list
+=== RUN   TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/embedded_newline/round-trips_exactly
+=== PAUSE TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/embedded_newline/round-trips_exactly
+=== RUN   TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/TOML_control_escapes/round-trips_exactly
+=== CONT  TestMcpOverrides_EnabledToolsCatalogIsExact/single_tool/no_leakage
+=== PAUSE TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/TOML_control_escapes/round-trips_exactly
+--- PASS: TestArgs_ValidateModeRestrictionsUnaffectedByMCP (0.01s)
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/spaced_table/refused
+=== RUN   TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/unicode_and_shell_metacharacters/round-trips_exactly
+=== PAUSE TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/unicode_and_shell_metacharacters/round-trips_exactly
+=== CONT  TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/TOML_control_escapes/round-trips_exactly
+--- PASS: TestMcpOverrides_EnabledToolsCatalogIsExact (0.01s)
+    --- PASS: TestMcpOverrides_EnabledToolsCatalogIsExact/multiple_tools/preserves_exact_order (0.00s)
+    --- PASS: TestMcpOverrides_EnabledToolsCatalogIsExact/empty_catalog/emits_empty_list (0.00s)
+    --- PASS: TestMcpOverrides_EnabledToolsCatalogIsExact/single_tool/no_leakage (0.00s)
+=== CONT  TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/embedded_newline/round-trips_exactly
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/quoted_table/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/quoted_table/refused
+=== CONT  TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/quotes_and_backslash/round-trips_exactly
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/unicode_escaped_table/refused
+=== CONT  TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/unicode_and_shell_metacharacters/round-trips_exactly
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/unicode_escaped_table/refused
+--- PASS: TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues (0.00s)
+    --- PASS: TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/TOML_control_escapes/round-trips_exactly (0.00s)
+    --- PASS: TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/embedded_newline/round-trips_exactly (0.00s)
+    --- PASS: TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/quotes_and_backslash/round-trips_exactly (0.00s)
+    --- PASS: TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues/unicode_and_shell_metacharacters/round-trips_exactly (0.00s)
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/quoted_dotted_key/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/quoted_dotted_key/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/root_inline_server/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/root_inline_server/refused
+--- PASS: TestArgs_IgnoreUserConfigFalseActivatesCollisionCheck (0.00s)
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/root_inline_dotted_server/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/root_inline_dotted_server/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/parent_table_dotted_server/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/parent_table_dotted_server/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/server_array_table/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/server_array_table/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/unterminated_string/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/unterminated_string/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/unterminated_table/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/unterminated_table/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/excessive_nesting/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/excessive_nesting/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/oversized_config/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/oversized_config/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/invalid_UTF8/refused
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/invalid_UTF8/refused
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/multiline_string_syntax_text/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/multiline_string_syntax_text/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/empty_containers/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/empty_containers/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/table_reset/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/table_reset/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/empty_config/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/empty_config/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/unrelated_server/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/unrelated_server/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/unrelated_inline_server/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/unrelated_inline_server/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/similar_server_name/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/similar_server_name/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/commented_reserved_table/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/commented_reserved_table/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/string_containing_reserved_table/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/string_containing_reserved_table/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/quoted_dot_is_key_text/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/quoted_dot_is_key_text/accepted
+=== RUN   TestValidateMCPConfig_ReservedServerCollisions/nested_unrelated_server/accepted
+=== PAUSE TestValidateMCPConfig_ReservedServerCollisions/nested_unrelated_server/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/unicode_escaped_table/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/oversized_config/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/server_array_table/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/unrelated_server/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/quoted_dot_is_key_text/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/empty_containers/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/root_inline_server/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/string_containing_reserved_table/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/excessive_nesting/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/quoted_dotted_key/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/empty_config/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/spaced_table/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/commented_reserved_table/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/unrelated_inline_server/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/table_reset/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/quoted_table/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/invalid_UTF8/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/multiline_string_syntax_text/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/bare_table_inline_server/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/parent_table_dotted_server/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/similar_server_name/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/root_inline_dotted_server/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/nested_unrelated_server/accepted
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/unterminated_string/refused
+=== CONT  TestValidateMCPConfig_ReservedServerCollisions/unterminated_table/refused
+--- PASS: TestValidateMCPConfig_ReservedServerCollisions (0.01s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/oversized_config/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/unicode_escaped_table/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/unrelated_server/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/empty_containers/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/root_inline_server/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/string_containing_reserved_table/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/server_array_table/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/quoted_dotted_key/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/empty_config/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/spaced_table/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/unrelated_inline_server/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/excessive_nesting/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/quoted_table/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/invalid_UTF8/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/table_reset/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/multiline_string_syntax_text/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/bare_table_inline_server/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/commented_reserved_table/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/parent_table_dotted_server/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/similar_server_name/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/root_inline_dotted_server/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/nested_unrelated_server/accepted (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/unterminated_string/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/unterminated_table/refused (0.00s)
+    --- PASS: TestValidateMCPConfig_ReservedServerCollisions/quoted_dot_is_key_text/accepted (0.00s)
+PASS
+coverage: 27.2% of statements
+ok  	github.com/cloudvane/litefactory/internal/codex	1.855s	coverage: 27.2% of statements

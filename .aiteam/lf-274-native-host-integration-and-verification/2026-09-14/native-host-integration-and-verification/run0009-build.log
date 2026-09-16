@@ -1,0 +1,3 @@
+COMMAND: go build ./...
+
+EXIT: 0

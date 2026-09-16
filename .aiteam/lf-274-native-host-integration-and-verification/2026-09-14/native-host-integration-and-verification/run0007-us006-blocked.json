@@ -1,0 +1,6 @@
+{
+  "stage": "engineering",
+  "story": "US-006",
+  "outcome": "blocked",
+  "reason": "Authentic external MCP captures and provenance remain unavailable for Claude working, Codex working, Claude Validate and Codex Validate. Landed source prerequisites and synthetic/configuration tests do not establish AC-009 through AC-011. T-001 capture handoff exists; T-002/T-003 require separately supplied operator captures before integration and offline replay."
+}

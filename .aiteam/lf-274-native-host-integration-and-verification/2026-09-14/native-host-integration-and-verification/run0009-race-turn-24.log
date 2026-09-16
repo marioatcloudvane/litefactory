@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestFeedbackUnit_PermissionDigest|TestReceiptUnit_RejectsIncompleteBinding|TestReceiptUnit_HistoricalScopeRefusal|TestReceiptUnit_ImmutablePermissionMaterial|TestReceiptUnit_PermissionIdentity|TestReceiptUnit_MalformedLookupBeforeObservation)$ ./internal/turn
+ok  	github.com/cloudvane/litefactory/internal/turn	1.847s
+
+EXIT: 0
