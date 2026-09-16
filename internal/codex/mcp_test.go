@@ -1,11 +1,11 @@
 package codex
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -14,11 +14,8 @@ import (
 
 // --- decode helpers -------------------------------------------------------
 //
-// mcpOverrides emits repeated "-c mcp_servers.litefactory.<key>=<value>"
-// pairs where <value> is either a single strconv.Quote literal or a
-// "[" + comma-joined strconv.Quote literals + "]" list. These helpers invert
-// that exact encoding so tests assert on decoded values, not on the raw
-// quoted text.
+// Decode the emitted basic strings independently using JSON's shared TOML
+// escape subset, so Go-only escapes such as \a, \v and \x cannot pass.
 
 // mcpKV extracts the mcp_servers.litefactory.* "-c" pairs from an argv slice
 // (either mcpOverrides' own return value or a full args() slice) into a
@@ -40,17 +37,17 @@ func mcpKV(t *testing.T, argv []string) map[string]string {
 	return kv
 }
 
-// decodeQuoted inverts one strconv.Quote literal.
+// decodeQuoted accepts the JSON/TOML basic-string subset used by the host.
 func decodeQuoted(t *testing.T, s string) string {
 	t.Helper()
-	v, err := strconv.Unquote(s)
-	if err != nil {
-		t.Fatalf("unquote %q: %v", s, err)
+	var v string
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		t.Fatalf("decode host string %q: %v", s, err)
 	}
 	return v
 }
 
-// decodeQuotedList inverts "[" + comma-joined strconv.Quote literals + "]",
+// decodeQuotedList decodes a basic-string array,
 // splitting only on commas outside a quoted literal so a decoded value that
 // itself contains a comma cannot be mistaken for a list boundary.
 func decodeQuotedList(t *testing.T, s string) []string {
@@ -127,6 +124,11 @@ func TestMcpOverrides_RoundTripsQuotedBackslashAndNewlineValues(t *testing.T) {
 			descriptor: "/private/before\nafter/dir/descriptor.json",
 		},
 		{
+			name:       "TOML control escapes/round-trips exactly",
+			executable: "/factory/before\a\b\t\v\f\r\x1f\x7fafter/bin/litefactory",
+			descriptor: "/private/before\a\b\t\v\f\r\x1f\x7fafter/descriptor.json",
+		},
+		{
 			name:       "unicode and shell metacharacters/round-trips exactly",
 			executable: `/factory/quoted " München $(command)\bin/litefactory`,
 			descriptor: `/private/quoted " München $(command)\dir/descriptor.json`,
@@ -194,6 +196,9 @@ func TestMcpOverrides_EnabledToolsCatalogIsExact(t *testing.T) {
 			}
 
 			kv := mcpKV(t, args)
+			if kv["env"] != "{}" {
+				t.Fatalf("env override = %q, want empty minimal environment", kv["env"])
+			}
 			got := decodeQuotedList(t, kv["enabled_tools"])
 			want := spec.PermittedTools()
 			if len(got) != len(want) {
@@ -278,30 +283,6 @@ func TestMcpOverrides_CollisionDetection(t *testing.T) {
 				t.Fatalf("args = %v, want 4 -c pairs (8 elements)", args)
 			}
 		})
-	}
-}
-
-// Documented known gap (advisory, not a regression the reviewer required
-// fixing in this run's CODE_REVIEW.md): checkMCPCollision does a line-prefix
-// scan for the reserved dotted key or its own table header, so a bare
-// "[mcp_servers]" header with an unprefixed "litefactory = {...}" inline
-// table key is not recognized as a collision. This test pins today's actual
-// pass-through behavior for that shape rather than asserting it as correct.
-func TestMcpOverrides_KnownGap_BareTableUnprefixedInlineKeyNotDetected(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	config := "[mcp_servers]\n" +
-		"litefactory = { command = \"/already/here\" }\n"
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := &Runner{environ: []string{"CODEX_HOME=" + dir}}
-	spec := mustSpec(t, "/factory/litefactory", "/private/descriptor.json", "receipts_get")
-
-	_, err := r.mcpOverrides(spec, false)
-
-	if err != nil {
-		t.Fatalf("known-gap shape now refused (%v); update this test if checkMCPCollision was widened to catch it", err)
 	}
 }
 
@@ -462,5 +443,70 @@ func TestArgs_ValidateModeRestrictionsUnaffectedByMCP(t *testing.T) {
 	// whether MCP is present at all.
 	if idx := strings.Index(joined, "mcp_servers"); idx == -1 || idx < strings.Index(joined, "features.multi_agent") {
 		t.Fatalf("features.* restrictions do not precede mcp overrides: %s", joined)
+	}
+}
+
+func TestValidateMCPConfig_ReservedServerCollisions(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		config    string
+		wantError bool
+	}{
+		{"bare table inline server/refused", "[mcp_servers]\nlitefactory = { command = \"/other\" }\n", true},
+		{"spaced table/refused", "[ mcp_servers . litefactory ]\ncommand = \"/other\"\n", true},
+		{"quoted table/refused", "[\"mcp_servers\".'litefactory']\ncommand = \"/other\"\n", true},
+		{"unicode escaped table/refused", "[mcp_servers.\"litefact\\u006fry\"]\ncommand = \"/other\"\n", true},
+		{"quoted dotted key/refused", "'mcp_servers' . \"litefactory\" . command = \"/other\"\n", true},
+		{"root inline server/refused", "mcp_servers = { litefactory = { command = \"/other\" } }\n", true},
+		{"root inline dotted server/refused", "mcp_servers = { litefactory.command = \"/other\" }\n", true},
+		{"parent table dotted server/refused", "[mcp_servers]\nlitefactory.command = \"/other\"\n", true},
+		{"server array table/refused", "[[mcp_servers.litefactory]]\ncommand = \"/other\"\n", true},
+		{"unterminated string/refused", "model = \"unfinished", true},
+		{"unterminated table/refused", "[mcp_servers", true},
+		{"excessive nesting/refused", "value = " + strings.Repeat("[", 65) + "0" + strings.Repeat("]", 65), true},
+		{"oversized config/refused", strings.Repeat("#", (1<<20)+1), true},
+		{"invalid UTF8/refused", "model = \"bad\xff\"", true},
+		{"multiline string syntax text/accepted", "description = \"\"\"\n[mcp_servers.litefactory]\ncommand = '/other'\n\"\"\"\n", false},
+		{"empty containers/accepted", "options = []\nmetadata = {}\n", false},
+		{"table reset/accepted", "[mcp_servers]\nother = {}\n[unrelated]\nlitefactory = {}\n", false},
+		{"empty config/accepted", "", false},
+		{"unrelated server/accepted", "[mcp_servers.other]\ncommand = \"/other\"\n", false},
+		{"unrelated inline server/accepted", "mcp_servers = { other = { command = \"/other\" } }\n", false},
+		{"similar server name/accepted", "[mcp_servers.litefactory_extra]\ncommand = \"/other\"\n", false},
+		{"commented reserved table/accepted", "# [mcp_servers.litefactory]\nmodel = \"example\"\n", false},
+		{"string containing reserved table/accepted", "model = \"[mcp_servers.litefactory]\"\n", false},
+		{"quoted dot is key text/accepted", "[\"mcp_servers.litefactory\"]\ncommand = \"/other\"\n", false},
+		{"nested unrelated server/accepted", "[profiles.example.mcp_servers.litefactory]\ncommand = \"/other\"\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateMCPConfig([]byte(tt.config))
+			if tt.wantError {
+				if !errors.Is(err, agent.ErrInvalidRequest) {
+					t.Fatalf("error = %v, want agent.ErrInvalidRequest", err)
+				}
+			} else if err != nil {
+				t.Fatalf("unrelated config refused: %v", err)
+			}
+		})
+	}
+}
+
+func TestMcpOverrides_InvalidUTF8Rejected(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct{ name, executable, descriptor string }{
+		{"executable", "/factory/bad\xff/litefactory", "/private/descriptor.json"},
+		{"descriptor", "/factory/litefactory", "/private/bad\xff/descriptor.json"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			spec := mustSpec(t, tt.executable, tt.descriptor, "receipts_get")
+			args, err := (&Runner{}).mcpOverrides(spec, true)
+			if !errors.Is(err, agent.ErrInvalidRequest) || args != nil {
+				t.Fatalf("invalid UTF8: args = %v, error = %v; want nil args and invalid request", args, err)
+			}
+		})
 	}
 }

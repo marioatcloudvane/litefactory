@@ -49,3 +49,12 @@ None. All US-003 work stayed inside internal/codex as the plan specified; all US
 ### Verdict: CLEAN
 
 No divergence from the approved plan beyond the necessary, rigor-preserving call-shape bounding of the aggregate test gate (documented above), which resolves rather than introduces drift. No follow-up planning cycle is warranted for US-003/US-005. US-006 remains the one open item in the Story Index, already known and explicitly out of scope for this run; it requires externally supplied captures, not further engineering, before it can proceed.
+
+
+## Implement run 0007 — scope disposition
+
+CLEAN for the bounded readiness investigation; implementation delivery remains incomplete. US-006 T-001's handoff exists, while T-002/T-003 and AC-009–AC-011 still lack authentic external observations/provenance. Landed wiring and synthetic checks were not substituted for captures. No architecture or acceptance review was commissioned. No source scope, completed dependency, tool policy or provider permission changed.
+
+## Run 0009 — selected-scope drift
+
+CLEAN for the authorized first remediation step: current US-003/US-005 checks and durable engineering records. Two US-003 AC-005 defects were fixed within its existing approved collision/encoding requirements. No added feature scope; no US-001/002/004 reimplementation. US-006 and acceptance remain outside this run. Aggregate checks were bounded and exhaustive rather than an unbounded whole-repository race process; no check was omitted or relabelled as authentic host evidence.

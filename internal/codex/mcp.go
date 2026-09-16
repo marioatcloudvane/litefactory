@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 )
@@ -51,19 +52,24 @@ func (r *Runner) mcpOverrides(spec *agent.MCPLaunchSpec, ignoreUserConfig bool) 
 			return nil, err
 		}
 	}
+	for _, value := range append(spec.Arguments(), spec.Executable()) {
+		if !utf8.ValidString(value) {
+			return nil, fmt.Errorf("%w: MCP launch value is not UTF-8", agent.ErrInvalidRequest)
+		}
+	}
 	prefix := "mcp_servers." + mcpServerName + "."
 	launchArgs := spec.Arguments()
 	encodedArgs := make([]string, len(launchArgs))
 	for i, a := range launchArgs {
-		encodedArgs[i] = strconv.Quote(a)
+		encodedArgs[i] = mcpQuote(a)
 	}
 	tools := spec.PermittedTools()
 	encodedTools := make([]string, len(tools))
 	for i, name := range tools {
-		encodedTools[i] = strconv.Quote(name)
+		encodedTools[i] = mcpQuote(name)
 	}
 	return []string{
-		"-c", prefix + "command=" + strconv.Quote(spec.Executable()),
+		"-c", prefix + "command=" + mcpQuote(spec.Executable()),
 		"-c", prefix + "args=[" + strings.Join(encodedArgs, ",") + "]",
 		// Explicitly empty: the descriptor path and every other input the
 		// installed host needs travels in args, not the environment, so no
@@ -77,13 +83,9 @@ func (r *Runner) mcpOverrides(spec *agent.MCPLaunchSpec, ignoreUserConfig bool) 
 // operator's own $CODEX_HOME/config.toml (or ~/.codex/config.toml) already
 // defines it, rather than relying on override precedence to silently win.
 //
-// This is a raw scan of the file's lines for the reserved dotted key or
-// table header, not a TOML parse: no TOML parser is a project dependency,
-// and adding one is out of scope for this per-attempt encoding change (see
-// the cross-story "no new dependency" constraint). It only runs when Codex
-// will actually read that file for this invocation — ignoreUserConfig=false
-// — because --ignore-user-config already removes it from consideration
-// entirely, and this check must not widen or narrow that existing isolation.
+// Config inspection uses a bounded key scanner so equivalent quoted, dotted,
+// table and inline-table declarations cannot bypass the reserved name check.
+// It runs only when the invocation actually admits the user's config.
 func (r *Runner) checkMCPCollision() error {
 	path := r.userConfigPath()
 	if path == "" {
@@ -105,15 +107,34 @@ func (r *Runner) checkMCPCollision() error {
 	if len(data) > 1<<20 {
 		return fmt.Errorf("%w: codex config exceeds MCP isolation check limit", agent.ErrInvalidRequest)
 	}
-	reserved := "mcp_servers." + mcpServerName
-	for _, raw := range strings.Split(string(data), "\n") {
-		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "["+reserved+"]") || strings.HasPrefix(line, "[["+reserved+"]]") ||
-			strings.HasPrefix(line, reserved+".") || strings.HasPrefix(line, reserved+" ") || strings.HasPrefix(line, reserved+"=") {
-			return fmt.Errorf("%w: codex config collides with the reserved %s MCP server", agent.ErrInvalidRequest, mcpServerName)
+	return validateMCPConfig(data)
+}
+
+// mcpQuote encodes a TOML basic string, including control characters that
+// strconv.Quote would encode using Go-only hexadecimal, bell or vertical-tab
+// escapes. Input UTF-8 is checked first so no path is replaced.
+func mcpQuote(value string) string {
+	quoted := strconv.Quote(value)
+	var out strings.Builder
+	for i := 0; i < len(quoted); i++ {
+		if quoted[i] != '\\' || i+1 == len(quoted) {
+			out.WriteByte(quoted[i])
+			continue
+		}
+		i++
+		switch quoted[i] {
+		case 'a':
+			out.WriteString(`\u0007`)
+		case 'v':
+			out.WriteString(`\u000b`)
+		case 'x':
+			out.WriteString(`\u00`)
+		default:
+			out.WriteByte('\\')
+			out.WriteByte(quoted[i])
 		}
 	}
-	return nil
+	return out.String()
 }
 
 // userConfigPath resolves the same config.toml location skillOverrides'

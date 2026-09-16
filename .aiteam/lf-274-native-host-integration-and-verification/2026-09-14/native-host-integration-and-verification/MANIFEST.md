@@ -8,7 +8,7 @@
 
 - [x] Research
 - [x] Plan
-- [x] Implement
+- [ ] Implement — partial; US-006 authentic evidence remains blocked (run0007)
 - [ ] Validate
 - [ ] Spike
 
@@ -32,3 +32,23 @@ Assess landed #272/#273 code and remaining native host integration and authentic
 - 2026-09-14: Implement run0005 partial. Selected US-001/002/004 production engineering and scoped checks completed; US-005 independent reconciliation/local lifecycle work and US-006 external handoff prepared. US-003 explicitly deferred; full cross-host US-005 and authentic US-006 evidence remain blocked. Build, formatting, vet and pinned lint passed after two lint fixes; full make check and narrowed full daemon/turn race packages exceeded bounded gate times, so aggregate completion is not claimed. Implement remains unchecked; no Validate, commits, pushes or live host capture performed. TEST_REPORT.md, DRIFT_REPORT.md, notes.md and BUG_ESCALATION.md retain outcomes.
 
 - 2026-09-14: Implement run0006 completed the deferred US-003 (Codex MCP server overrides in internal/codex) plus US-005's previously-blocked T-002/T-003 work. US-003: production code (internal/codex/mcp.go, runner.go) implemented, code-reviewed (ADVISORY_ONLY, 0 blocking), unit-tested (12 functions/21 subtests passing with race checking, 76.6% coverage). US-005: cross-host Codex integration coverage added (internal/turn/mcp_codex_lifecycle_test.go, 5 functions/9 subtests passing with race checking) and the full AC-008 aggregate gate executed and passed — fmt/vet/lint clean, and the full-repository `go test -race` phase split into 21 bounded sequential groups (resolving, not lowering, run 0005's timeout blocker: same -race/-timeout 8m rigor, no package or test skipped) all passing with zero real failures. One pre-existing unrelated SQLite busy-lock flake (TestStoryContractUpgradePreviewAndExplicitApply) reconfirmed as non-reproducing. Snapshot manifest SHA256 4696a1b190dab4dc459f540ddf04eba4ad0ceb4b2ab952751089422842019663 over 33 implementation files. US-006 explicitly out of scope this run per owner instruction — remains blocked on externally supplied operator captures. DRIFT_REPORT.md verdict: CLEAN. No acceptance/code/architecture/plan review performed (reserved for Validate); no commits or pushes performed. Implement checked.
+
+
+- 2026-09-16: Implement run0007 checked remaining US-006 evidence readiness. Codex wiring/lifecycle tests are present; all four required authentic MCP host captures remain unavailable. `RUN_0007_EVIDENCE_READINESS.md` records the inventory and bounds. No source edits, new tests, live host acquisition or acceptance review. Overall Implement remains partial/blocked on US-006; the historical run0006 checked marker does not establish authentic delivery. Blocked contribution request `946da523492b9b937201245d4a62db34`: input valid, engineering rejected, acceptance not_applicable, remote effect pending. No completion/closure or save claimed.
+
+### Run 0008 — 2026-09-16 — Implement continuation
+
+- Requested concrete remediation guidance for missing authentic host evidence; implementation completion remains unchecked.
+- No host acquisition, acceptance review, commits, or pushes authorized by this explanatory continuation.
+- Remediation report: `BUG_REPORT.md`. Two gaps: missing structured US-003/005 engineering records and missing four-cell US-006 authentic captures. No checks executed or completion claimed in run 0008.
+
+## Run 0009 — Implement first-step status (2026-09-16)
+
+US-003 and US-005 engineering completed and durably recorded. Current selected engineering/check scope is complete: scoped race/local-I/O checks, build, formatting, full vet, pinned lint, bounded make check and all103 remaining race batches passed. Source snapshots and helper preflight/submit/receipt outputs retained as run0009-* files. No automatic Validate transition; feature-wide authentic US-006 evidence remains incomplete. Factory owns subsequent save/commit/push.
+
+### Final receipt observation
+
+- US-003: request `2a3a35ba372f06235a76729cd45fd1c1`; input valid, engineering recorded, acceptance not_applicable, remote effect delivered. Snapshot `run0009-us003-final`, SHA256 `302950afb2e20a2b212e6ac5eed9cd0c9d5f85f1ce7891f942e7be208c0b3ff8`.
+- US-005: request `c6eb135c8fcea66ff1d92b39e8877360`; input valid, engineering recorded, acceptance not_applicable, remote effect delivered. Snapshot `run0009-us005-final`, SHA256 `97eb1c525b3e3cd20b830f682fe962f2f648fb57cac860a690546a5a0af28acb`.
+
+Both captured file sets were rechecked against current bytes after all gates. No mismatches.

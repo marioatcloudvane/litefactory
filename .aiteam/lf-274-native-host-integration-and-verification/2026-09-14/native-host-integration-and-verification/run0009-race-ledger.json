@@ -1,0 +1,826 @@
+[
+  {
+    "name": "race-litefactory-01",
+    "package": "./cmd/litefactory",
+    "selected_test_functions": 6,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-litefactory-01.log",
+    "sha256": "d0bb1ad2a5c1c999125bab94345f45edfc8c477d157bbd24f9a6f9fcd0395680",
+    "exit_code": 0
+  },
+  {
+    "name": "race-team-benchmark-01",
+    "package": "./cmd/team-benchmark",
+    "selected_test_functions": 0,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-team-benchmark-01.log",
+    "sha256": "e5f674b074d047c0e3deb20fd2f7cf72cc4ad74301ad0d2bacdbe6ea62afbfc9",
+    "exit_code": 0
+  },
+  {
+    "name": "race-team-publish-01",
+    "package": "./cmd/team-publish",
+    "selected_test_functions": 0,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-team-publish-01.log",
+    "sha256": "fed56c322202c702dca6e18f9d3c20a9e5d90162c31624aa077211107642f80f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-agentresult-01",
+    "package": "./internal/agentresult",
+    "selected_test_functions": 34,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-agentresult-01.log",
+    "sha256": "e3c200e6567d8d7f4895b01c568ecdacb7078813b195c7332c62d5020b20136d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-attach-01",
+    "package": "./internal/attach",
+    "selected_test_functions": 43,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-attach-01.log",
+    "sha256": "956190f77b8a1670c0ae106527d158fdaaa65b21fc934f69ab03a14a0d943d7d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-01",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-01.log",
+    "sha256": "3306fda2e8e3f3e6a24a0b533ebbee252e10fb7346da13bb12061bc90bb9475c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-02",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-02.log",
+    "sha256": "18c85620a2f6f4aab7e7af1c66a7dee3be93261d9bdd1fea60cbe4634e70959a",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-03",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-03.log",
+    "sha256": "5c456915e18e1a3a96206475f52d348369a1a4444b2717478f7f2694a8fa636f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-04",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-04.log",
+    "sha256": "7bacc6016f75e42e6063f59c9ec7a39097b186a0dba46312ca25715c8e967392",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-05",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-05.log",
+    "sha256": "9aa74d6c8baeb2a79c0df8d3161fc8b2ca35058e11f563be8eea0aec6cee075d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-06",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-06.log",
+    "sha256": "d6a6d079d742f35d4ec8e4266ba28f198f332c20d944f313d9f08aaaf4f65464",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-07",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-07.log",
+    "sha256": "dc6fdf1ed0aa084dad0dbc4502d9fb304e7b9cbc47073de1c72a1aa1430388f2",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-08",
+    "package": "./internal/cli",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-08.log",
+    "sha256": "7fc7076f65cc66462f5d0c7326b75107fcef3e9b478164fa11abe22bee893d5d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-cli-09",
+    "package": "./internal/cli",
+    "selected_test_functions": 15,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-cli-09.log",
+    "sha256": "44b529984f6c7515afc029829a8780995f12b5ae018c823173dd7a4a5a63613a",
+    "exit_code": 0
+  },
+  {
+    "name": "race-config-01",
+    "package": "./internal/config",
+    "selected_test_functions": 65,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-config-01.log",
+    "sha256": "afd04fe73007192b8ff9b8481c7347ba394c6f0c63ceab64dfd6576957f9af69",
+    "exit_code": 0
+  },
+  {
+    "name": "race-confirm-01",
+    "package": "./internal/confirm",
+    "selected_test_functions": 2,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-confirm-01.log",
+    "sha256": "473f8e0fb498923f3f4dd2ed73fda75bc086673f9b8d8af426b40ea20b77fd05",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-01",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-01.log",
+    "sha256": "a04d4aa66ea091a76aeadbbbd5d5e76b00903e2b79ca1229d7ee351c69a8f0c7",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-02",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-02.log",
+    "sha256": "b376c08b56433a5b72c569a73cd3ed8065a331004204335be6bab2223d3eac1a",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-03",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-03.log",
+    "sha256": "13ba621430989bb8f0531bf846446102e59bc67566b024ab449668a79aabcfb1",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-04",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-04.log",
+    "sha256": "e24ddb3f5f9116ac08a118fe6e6a0db7fba6ccba850cb3e7df2f486ebb93bf64",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-05",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-05.log",
+    "sha256": "69f2fb72deb4465195ca56dc9a763a7d22b2eb7c59ae211a24b732b009d5232c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-06",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-06.log",
+    "sha256": "eb94aee55570ae53538ff207a6c5e869561a6381d0c7ec4f62623ed34be4ddfa",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-07",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-07.log",
+    "sha256": "41dc0b5b03c2fe0d4a68808c5b95f20b2312e26ab1cfb21b86980752004e2401",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-08",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-08.log",
+    "sha256": "c9e58efc1a3e60a7ebbdb97479f352f399cedbd595d5e9222f0c7b9d2a81d435",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-09",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-09.log",
+    "sha256": "94cb3a894c2b2d3a957cfc562d97de81ccd6cee619e8cc46f122ad4e6ec3e576",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-10",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-10.log",
+    "sha256": "242963a81f63c1b825caa03c0cb96fc172980379af9d93f64028b2c3ccb5ae28",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-11",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-11.log",
+    "sha256": "0e753413daa0979757ece4e87fed91dfca070dc093b2377370e70f973f30ace8",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-12",
+    "package": "./internal/daemon",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-12.log",
+    "sha256": "3453ca5c48fe313ce85727bb585d56e2d51b2e3c310a84b8410bab1d2a4e7650",
+    "exit_code": 0
+  },
+  {
+    "name": "race-daemon-13",
+    "package": "./internal/daemon",
+    "selected_test_functions": 2,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-daemon-13.log",
+    "sha256": "605aca5db644f96ff2d912219290db5af0cc08d87a29f58be98b0a5d7f4233e7",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-01",
+    "package": "./internal/git",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-01.log",
+    "sha256": "4b7e037b4de85b0ba5328785103452641d52bd592ccf89235b2077db3f94210f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-02",
+    "package": "./internal/git",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-02.log",
+    "sha256": "d45a37326accd0a8682bc89950a46c02b183b69d18093ff290cde1c7fbeba3d7",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-03",
+    "package": "./internal/git",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-03.log",
+    "sha256": "ab324cab7ce3a88bfddd5601892463f1fb1494ebd02c816f27fafa8fa57c5dd1",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-04",
+    "package": "./internal/git",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-04.log",
+    "sha256": "6cf44bb53164257dcdd3d86cbb5bef8b881dea5cd6234d2a046f64f472f83cb0",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-05",
+    "package": "./internal/git",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-05.log",
+    "sha256": "4f7095755f33c0244296dfbcceda9db8da8fa0408aa2f259cb492b230a1155d0",
+    "exit_code": 0
+  },
+  {
+    "name": "race-git-06",
+    "package": "./internal/git",
+    "selected_test_functions": 2,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-git-06.log",
+    "sha256": "89f16e100411b560e9e0ec5dd39b3f1ffcda6d2096fd6145ad511e2c6ed9082e",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-01",
+    "package": "./internal/github",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-01.log",
+    "sha256": "8e8c2a10dc924d4b6ece2d8b9ea41c0dd7aba3f8d783c768614df8357aebfa26",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-02",
+    "package": "./internal/github",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-02.log",
+    "sha256": "39eb939f71d782bd3a236395dd5cecf34ed781d1cacf3b768c25c07fb93c8c70",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-03",
+    "package": "./internal/github",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-03.log",
+    "sha256": "8dedcc242bb27940e589c65eb43349f0e7ec86b1abe3aa10d1d0f1678b95d773",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-04",
+    "package": "./internal/github",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-04.log",
+    "sha256": "b2d8b173b0506347ca842028e37ad04f9ca3043b2d92f0e863c6b23d36c9e7f4",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-05",
+    "package": "./internal/github",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-05.log",
+    "sha256": "bf191c9dd853b8b2f7a1f0d62bc97fbc2e8b5c1c8e5db418575d51ab1ea9cb76",
+    "exit_code": 0
+  },
+  {
+    "name": "race-github-06",
+    "package": "./internal/github",
+    "selected_test_functions": 14,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-github-06.log",
+    "sha256": "52a849673bf59415e673d85b13e4692e4caa68de46531ad99528edb32eaf05e8",
+    "exit_code": 0
+  },
+  {
+    "name": "race-gittest-01",
+    "package": "./internal/gittest",
+    "selected_test_functions": 8,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-gittest-01.log",
+    "sha256": "0f99981de0c644112adfea94305fe5f4f65c55aea525eba55badc187b54cd2ba",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-01",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-01.log",
+    "sha256": "ae3148b23c6b6ec31bbf183181b7fa3de27958da158a17236c443ead1aaf635f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-02",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-02.log",
+    "sha256": "b64d0cb02c54b123d51347c5e973c668a5c82cff8ae14f88ad1e0536b255880d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-03",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-03.log",
+    "sha256": "de7db2889adb7131d7b6f4ed6bc4d0fdda743085f513fb4698809e32e5db2180",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-04",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-04.log",
+    "sha256": "0cd0fd49924527ff21f217e4f90b48b01282c9c18dbc05c3c929e2bfb6e06067",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-05",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-05.log",
+    "sha256": "d79e4eb96a87f2dcd1a34bfa089f1c0e3caace4d33f24606246f05aed7a8e6e5",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-06",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-06.log",
+    "sha256": "4763dbd8431da04bfc3b6dbfb8cad168a89e3327880802fb176c79cb529ef010",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-07",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-07.log",
+    "sha256": "6251566b69365431f67494e779ae169c13537c7c357b9079d5cb3e21f1f58169",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-08",
+    "package": "./internal/harness",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-08.log",
+    "sha256": "e5ea7e0e503fa60886248bdae4282d89a818783804107a044195ac1c2699e026",
+    "exit_code": 0
+  },
+  {
+    "name": "race-harness-09",
+    "package": "./internal/harness",
+    "selected_test_functions": 17,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-harness-09.log",
+    "sha256": "5c078995bb3f7b178953aebc62ee939a38e3a5271fd7daf1206753d8dc89ba5a",
+    "exit_code": 0
+  },
+  {
+    "name": "race-identity-01",
+    "package": "./internal/identity",
+    "selected_test_functions": 11,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-identity-01.log",
+    "sha256": "9864a9dccfff113e1730a41c5de53e3a4a6f58ebf8d01831d2c24645696d3a65",
+    "exit_code": 0
+  },
+  {
+    "name": "race-launchd-01",
+    "package": "./internal/launchd",
+    "selected_test_functions": 23,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-launchd-01.log",
+    "sha256": "ec016b10e4234b6e1be27a5536865ecb1ce393b56443799d6b197b0df8bae254",
+    "exit_code": 0
+  },
+  {
+    "name": "race-logging-01",
+    "package": "./internal/logging",
+    "selected_test_functions": 12,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-logging-01.log",
+    "sha256": "d772559fce93899134d5050c0649eff12956399bfa470b30bf0ea39c1b064ddb",
+    "exit_code": 0
+  },
+  {
+    "name": "race-mcpadapter-01",
+    "package": "./internal/mcpadapter",
+    "selected_test_functions": 9,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-mcpadapter-01.log",
+    "sha256": "973061473800bef42b3f50988c7979c51872814964f0e93ac9c7e986e3f8e657",
+    "exit_code": 0
+  },
+  {
+    "name": "race-meter-01",
+    "package": "./internal/meter",
+    "selected_test_functions": 13,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-meter-01.log",
+    "sha256": "1592c65d5d9d7e8e1acea7c516daa04a34f96a09b5532f3fd1e9af4409663431",
+    "exit_code": 0
+  },
+  {
+    "name": "race-naming-01",
+    "package": "./internal/naming",
+    "selected_test_functions": 29,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-naming-01.log",
+    "sha256": "21df703da29d528a2708e560383421a62f4def16bf516a4e6f4a9fd284a4a90f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-planbrief-01",
+    "package": "./internal/planbrief",
+    "selected_test_functions": 36,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-planbrief-01.log",
+    "sha256": "c3b50386ad23a4c7c19ac4fa6758f58664b4da49ee2d420bb7e3368aecb4c6a5",
+    "exit_code": 0
+  },
+  {
+    "name": "race-redact-01",
+    "package": "./internal/redact",
+    "selected_test_functions": 21,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-redact-01.log",
+    "sha256": "1a2c5a83c8fcffa43f7366b1a5231d7a230d403df35d4d8b383d53ded179a4e3",
+    "exit_code": 0
+  },
+  {
+    "name": "race-render-01",
+    "package": "./internal/render",
+    "selected_test_functions": 26,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-render-01.log",
+    "sha256": "1ff84b9570e0c002538a0652c02540f64f6b4b8d52cc91d5566d8eb7e970e2eb",
+    "exit_code": 0
+  },
+  {
+    "name": "race-report-01",
+    "package": "./internal/report",
+    "selected_test_functions": 80,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-report-01.log",
+    "sha256": "16bc39e770a413d35728b1a8bac6502c02db0c9a24c9283485b34ff51b132090",
+    "exit_code": 0
+  },
+  {
+    "name": "race-report-02",
+    "package": "./internal/report",
+    "selected_test_functions": 33,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-report-02.log",
+    "sha256": "1c0cdca4b23ab67cccbb480e24055f321ea50726d0e1c82b206ed44b067b3769",
+    "exit_code": 0
+  },
+  {
+    "name": "race-repos-01",
+    "package": "./internal/repos",
+    "selected_test_functions": 23,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-repos-01.log",
+    "sha256": "ce9e5b7c3e5d22979deedbdfb3b86460ca17ba8184e5a55e8a2a0b9e522364b2",
+    "exit_code": 0
+  },
+  {
+    "name": "race-schedule-01",
+    "package": "./internal/schedule",
+    "selected_test_functions": 3,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-schedule-01.log",
+    "sha256": "d9e9d1ab558966070517fd5983c0e0ed3b5fd2b91d452d4343cce3e77a7a180c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-secrets-01",
+    "package": "./internal/secrets",
+    "selected_test_functions": 21,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-secrets-01.log",
+    "sha256": "7a051099ec3759e7fef548a6b83dfab4bc729a85902159f93350bc14bc91b34d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-01",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-01.log",
+    "sha256": "ff54382bb7a71fc7fc1f15c7491604a6ba2048d9e80c543396f2026404a72350",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-02",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-02.log",
+    "sha256": "519d5390b6eaa39b5835a5bb74ac7a71d84959e94dbbd7866c025fb60dd3562b",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-03",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-03.log",
+    "sha256": "4538715a90e7c7b69f9a0412fa490d96408da16ba5ab5e02c4ca7685724bb26d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-04",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-04.log",
+    "sha256": "c8ff42f08132a6bb93af9d40d840d5a0f9d8921caa4720e0f895a1a46bcfdacd",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-05",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-05.log",
+    "sha256": "44970d4fd9326b8b8364e121c1ba58c3d6b3b000a22f436b20f13532ffc1bd6b",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-06",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-06.log",
+    "sha256": "61c2e4729332511d425fa05cb53c10895d13c5f29fb649bfe4b73edc4b711f13",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-07",
+    "package": "./internal/store",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-07.log",
+    "sha256": "46ece802e4edb9931f6c3df56a61e32700c8920f92c6439cf68748daf22e05ab",
+    "exit_code": 0
+  },
+  {
+    "name": "race-store-08",
+    "package": "./internal/store",
+    "selected_test_functions": 15,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-store-08.log",
+    "sha256": "e3ee4c7df6d7df0b31dea7bb4c09d9d656138d852978357bb5d369d06bb03509",
+    "exit_code": 0
+  },
+  {
+    "name": "race-submission-01",
+    "package": "./internal/submission",
+    "selected_test_functions": 24,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-submission-01.log",
+    "sha256": "876c89204a61efad16cf7fd583de6256b648a6255a46758d86c7ab0b793eb117",
+    "exit_code": 0
+  },
+  {
+    "name": "race-team-01",
+    "package": "./internal/team",
+    "selected_test_functions": 80,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-team-01.log",
+    "sha256": "54e2012afd776e93f7e53cf50abe164a2927d3f7abfbdcb50af10ee9144dfcb3",
+    "exit_code": 0
+  },
+  {
+    "name": "race-team-02",
+    "package": "./internal/team",
+    "selected_test_functions": 2,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-team-02.log",
+    "sha256": "465df6dcf6cb5a7d2132b8cffb6866db8b83199fb7d9eebea881457eb7a1b5be",
+    "exit_code": 0
+  },
+  {
+    "name": "race-teampublish-01",
+    "package": "./internal/teampublish",
+    "selected_test_functions": 1,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-teampublish-01.log",
+    "sha256": "feda7407814c223bb271e1e68735061b90dd88650949422b6bf8fcde4509c76f",
+    "exit_code": 0
+  },
+  {
+    "name": "race-teamremote-01",
+    "package": "./internal/teamremote",
+    "selected_test_functions": 6,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-teamremote-01.log",
+    "sha256": "21f8a4554f78937ccdf888733301015a1b12d83be08d04ebad0bbead6b46e0c2",
+    "exit_code": 0
+  },
+  {
+    "name": "race-teamsource-01",
+    "package": "./internal/teamsource",
+    "selected_test_functions": 53,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-teamsource-01.log",
+    "sha256": "b00ae7d7bf4ba30d84da6d4730316e31a6d340e3acfeb99a71134bc09ef33efa",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-01",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-01.log",
+    "sha256": "e2c31cccd07d87d00b9516566241edcd3e23fc08c39593c6e7520ee1b3a8801c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-02",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-02.log",
+    "sha256": "31bf10102d44ca4ad4dc1bf743143014b0d8610627b253f2cd793c46c75614c6",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-03",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-03.log",
+    "sha256": "a2dcd8627e8d708f0228e8e663aec48e3a83808bb01fbaa1930f35d9d30b984e",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-04",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-04.log",
+    "sha256": "6562891216b74d67d57f7e25ae5780c78cac119a7359685da85f63f8a4e76190",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-05",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-05.log",
+    "sha256": "735ca20eacac13648837333fadbea16734bdaebe0fe86da92c29aaa398ca5fb5",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-06",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-06.log",
+    "sha256": "3bd942f4fb1131ab58e17e4cea85284f4b5ff5ec6eeb67bc356186c67e38a9f8",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-07",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-07.log",
+    "sha256": "e23af995e29cd699dddd5197b7c6f2aa1c77f53ee1029e6c37783427114b0e28",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-08",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-08.log",
+    "sha256": "e454681fce35ed10bdf84455d306ae88e375899ecb677f28d6a03909e8bcccc1",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-09",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-09.log",
+    "sha256": "f2da1a398c5e1374e9edd6857488544667e9750bd30f8743cd68727c2151fb89",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-10",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-10.log",
+    "sha256": "993bc64253b631d28b70bcc86e6504de2574af309c65458a23b03919170f8a17",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-11",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-11.log",
+    "sha256": "f8aa1c4095466a57986214cc0b10b45082382330ea483aff8713d98314710980",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-12",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-12.log",
+    "sha256": "714c713be60e24c709c753f8d8adee4b01e1ce568c057de80b4af88079e22e09",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-13",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-13.log",
+    "sha256": "81da42dd0e0d9c8d3029f3ebd07c96935b15c9631e046facacebfe5af74a82ee",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-14",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-14.log",
+    "sha256": "5e0f1116a8ecad752dd7009f450fcaa24d115ed13b24da395ea7eddff8636ab1",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-15",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-15.log",
+    "sha256": "b2ad0dcc7aed3eb50aec1148462311386b9b2449e1de4cd41cbbc28b562bb08c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-16",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-16.log",
+    "sha256": "7e41d542a903804e115d502616ac98d398436f5e054aa185c4121d4dd519a695",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-17",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-17.log",
+    "sha256": "d8d1876013918105e2b1452b169330012162e836aff826784c1651b838de1edb",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-18",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-18.log",
+    "sha256": "af054206a1b804d156b6107661713ffa142f106e2be7740077c25647a3f87c35",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-19",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-19.log",
+    "sha256": "9f6de15d4332363dd55645a569338b1aba888a58770da0592a97a0d3f38d5f6c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-20",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-20.log",
+    "sha256": "8b50327f5d27173cc0dd182adb83336aaacf879c67a3902b6f28617657862cc7",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-21",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-21.log",
+    "sha256": "2d11f58551deff641f8bb7f04405b20d722ec164aaaa717d42b835ea5490cb5d",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-22",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-22.log",
+    "sha256": "ce99af28eb77978fda50726b163d8c678e07b4da6041895f3b1cc165eab3746c",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-23",
+    "package": "./internal/turn",
+    "selected_test_functions": 20,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-23.log",
+    "sha256": "fff1f6596fcab3c5e55598ea4c67d0dc00c3d5b5c390758b227628a2fdc529f2",
+    "exit_code": 0
+  },
+  {
+    "name": "race-turn-24",
+    "package": "./internal/turn",
+    "selected_test_functions": 6,
+    "log": ".aiteam/lf-274-native-host-integration-and-verification/2026-09-14/native-host-integration-and-verification/run0009-race-turn-24.log",
+    "sha256": "607f5cd153f61ae88ff5a76024fefb69d183352bcffd9c7cfece6614a6442f47",
+    "exit_code": 0
+  }
+]

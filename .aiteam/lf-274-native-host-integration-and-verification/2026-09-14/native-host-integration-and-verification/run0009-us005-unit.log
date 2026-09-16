@@ -1,0 +1,35 @@
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+--- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration (0.00s)
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+--- PASS: TestRunMCPBound_DisabledAndInvalidRuntime (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request (0.00s)
+PASS
+coverage: 0.2% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	1.882s	coverage: 0.2% of statements

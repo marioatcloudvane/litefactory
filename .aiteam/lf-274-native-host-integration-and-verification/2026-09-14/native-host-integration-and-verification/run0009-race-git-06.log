@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestZeroWorktreeRefusesEveryMutatingMethod|TestCommitRefusesUnusableOptions)$ ./internal/git
+ok  	github.com/cloudvane/litefactory/internal/git	6.687s
+
+EXIT: 0

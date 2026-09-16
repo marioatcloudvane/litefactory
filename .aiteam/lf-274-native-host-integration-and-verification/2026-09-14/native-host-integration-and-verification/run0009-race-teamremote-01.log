@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestFetchRejectsRedirectEscapes|TestFetchBoundsRedirectsAndIndex|TestVersionContracts|TestURLContracts|TestDiscoveryStrictAndSelection|TestManifestRejectsInvalidFiles)$ ./internal/teamremote
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.937s
+
+EXIT: 0
