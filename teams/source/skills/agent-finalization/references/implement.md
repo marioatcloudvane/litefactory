@@ -16,3 +16,10 @@ Executable application-v1 examples (synthetic offline identities):
 - [blocked](examples/implement-blocked.json)
 - [revision-checked update](examples/implement-update.json)
 - [disallowed question](examples/invalid-spike-question.json); questions reject in this mode too.
+
+Use the separate checkpoint descriptor for scoped story evidence. The shared result
+adapter accepts the declared aggregate engineering/capture shape, retaining actual
+execution facts against complete final bytes. Capture alone does not satisfy final
+output; reference its snapshot/check IDs in payload.implement.aggregate_checks.
+Preflight, submit and post-exit enforcement resolve retained aggregate/checkpoints
+and current worktree bytes. Missing resolvers/evidence never relax required proof.

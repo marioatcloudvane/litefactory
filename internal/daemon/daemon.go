@@ -333,8 +333,9 @@ func (o Options) validate() error {
 // on any goroutine — but it is *not* safe to call concurrently with itself, and
 // never has been: the poll cursor is a read-modify-write.
 type Daemon struct {
-	mcpClose   func() error
-	retirement RetirementExecutionOptions
+	publications publicationRecovery
+	mcpClose     func() error
+	retirement   RetirementExecutionOptions
 
 	db        *store.DB
 	forge     Forge

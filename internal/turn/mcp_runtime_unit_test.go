@@ -33,7 +33,7 @@ func TestRunMCPBound_DisabledAndInvalidRuntime(t *testing.T) {
 		reject    bool
 	}{
 		{"absent runtime/preserves provider request", nil, true, false},
-		{"unsupported provider/preserves provider request", &MCPRuntime{}, false, false},
+		{"unsupported provider/still requires valid shared runtime", &MCPRuntime{}, false, true},
 		{"enabled incomplete runtime/refuses before host launch", &MCPRuntime{}, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

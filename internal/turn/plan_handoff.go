@@ -26,7 +26,7 @@ func invalidatePlanReadiness(ctx context.Context, o Options, ref naming.Ref, mod
 	if _, ok := o.SubIssueCreator.(PlanForge); !ok {
 		return nil
 	}
-	if _, ok := o.SubIssueRenderer.(CompleteStoryRenderer); !ok {
+	if o.SubIssueRenderer == nil {
 		return nil
 	}
 	feature, err := o.DB.GetManagedFeature(ctx, ref.String())
@@ -59,7 +59,7 @@ func preparePlanHandoff(ctx context.Context, o Options, ref naming.Ref, mode str
 	if _, ok := o.SubIssueCreator.(PlanForge); !ok {
 		return nil
 	}
-	if _, ok := o.SubIssueRenderer.(CompleteStoryRenderer); !ok {
+	if o.SubIssueRenderer == nil {
 		return nil
 	}
 	generation := 1
@@ -210,8 +210,8 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if !ok {
 		return fail(fmt.Errorf("managed plan forge unavailable"))
 	}
-	renderer, ok := o.SubIssueRenderer.(CompleteStoryRenderer)
-	if !ok {
+	renderer := o.SubIssueRenderer
+	if renderer == nil {
 		return fail(fmt.Errorf("complete story renderer unavailable"))
 	}
 	bot, err := o.DB.GetIdentity(ctx, prep.ref.Forge, store.RoleBot)

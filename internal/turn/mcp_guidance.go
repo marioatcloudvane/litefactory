@@ -43,9 +43,9 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	b.WriteString("\n\nFactory operations for this attempt\n\n")
 	b.WriteString(mcpSharedGuidance)
 	application := has("communication_preflight", "communication_submit", "communication_receipt")
-	checkpoint := has("feedback_preflight", "evidence_submit", "receipts_get")
+	checkpoint := has("feedback_preflight", "evidence_submit", "receipts_get") && session != nil && len(session.scope.Stories) > 0
 	if application {
-		b.WriteString("\nApplication results: communication_preflight(P) → communication_submit(P) → communication_receipt({\"request_id\":ID}). These describe the mode's result; they do not capture engineering checks. Updates use the supplied expected_revision and typed operations; preserve unchanged fields. After a successful update, use the returned revision and baseline for subsequent edits.\n")
+		b.WriteString("\nApplication results: communication_preflight(P) → communication_submit(P) → communication_receipt({\"request_id\":ID}). These describe the mode's result; the separately declared aggregate capture input retains executed aggregate checks without satisfying final output. Updates use the supplied expected_revision and typed operations; preserve unchanged fields. After a successful update, use the returned revision and baseline for subsequent edits.\n")
 	}
 	if checkpoint {
 		b.WriteString("\nCheckpoints: feedback_preflight({\"kind\":\"checkpoint\",\"input\":C}) → evidence_submit(C) → receipts_get({\"request_id\":ID}). C uses the supplied stage contribution contract, separately from application result P. Engineering completion requires actual captured checks; assessment references retained evidence. Keep complete terminal findings; partial live checkpoints never excuse omissions.\n")
@@ -72,7 +72,7 @@ func mcpGuidance(ctx context.Context, spec *agent.MCPLaunchSpec, service *AgentR
 	case "validate":
 		b.WriteString("\nValidate uses supplied snapshots and retained evidence only: no shell, edits, fresh checks or delegation escapes. Keep the required final findings.\n")
 	case "plan":
-		b.WriteString("\nPlan communication is discussion only, without publishable stories. Keep the supplied typed Plan helper publication path; communication tools cannot publish a completed Plan.\n")
+		b.WriteString("\nPlan application results may contain discussion or completed typed stories. The shared adapter reuses the existing Plan owner; input acknowledgment alone cannot publish, freeze or establish readiness. Preserve the supplied checkpoint path and required final result.\n")
 	case "research", "spike":
 		b.WriteString("\nRecommendations remain advisory; report findings and limitations without selecting a new mode.\n")
 	case "implement":

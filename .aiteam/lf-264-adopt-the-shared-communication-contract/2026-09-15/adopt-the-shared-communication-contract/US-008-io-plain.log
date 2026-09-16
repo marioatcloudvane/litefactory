@@ -1,0 +1,72 @@
+=== RUN   TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== PAUSE TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== RUN   TestCriticalSectionsAreSingleAcquisitions
+=== PAUSE TestCriticalSectionsAreSingleAcquisitions
+=== RUN   TestTurnImposesNoAmbientDeadline
+=== PAUSE TestTurnImposesNoAmbientDeadline
+=== RUN   TestClaudeRunsOutsideTheCloneGate
+=== PAUSE TestClaudeRunsOutsideTheCloneGate
+=== RUN   TestConcurrentTurnsAgainstTwoClones
+=== PAUSE TestConcurrentTurnsAgainstTwoClones
+=== RUN   TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+=== PAUSE TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_symlink
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_symlink
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_replacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_replacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/content_edit
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/normal
+--- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement (0.03s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_symlink (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_symlink (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_replacement (0.01s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_replacement (0.01s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/content_edit (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/normal (0.01s)
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/marker
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/session
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/branch
+--- PASS: TestPlanSessionLookupRefusesSymlinkComponents (0.02s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/marker (0.01s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/session (0.01s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/branch (0.01s)
+=== RUN   TestPlanDiscussionThenCompletion
+--- PASS: TestPlanDiscussionThenCompletion (3.41s)
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/lost_create_response
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/attach_failure
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/after_attach_before_index
+--- PASS: TestManagedPublicationRecoversDurableCreateAndAttach (0.37s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/lost_create_response (0.13s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/attach_failure (0.12s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/after_attach_before_index (0.12s)
+=== CONT  TestClaudeRunsOutsideTheCloneGate
+=== CONT  TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== CONT  TestTurnImposesNoAmbientDeadline
+=== CONT  TestCriticalSectionsAreSingleAcquisitions
+=== CONT  TestConcurrentTurnsAgainstTwoClones
+=== CONT  TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+--- PASS: TestTurnImposesNoAmbientDeadline (0.10s)
+--- PASS: TestCriticalSectionsAreSingleAcquisitions (0.16s)
+--- PASS: TestWorkingRunSavesMarkdownWithoutDiscoveringStories (3.58s)
+--- PASS: TestClaudeRunsOutsideTheCloneGate (4.01s)
+--- PASS: TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun (4.20s)
+--- PASS: TestConcurrentTurnsAgainstTwoClones (6.52s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	11.195s
+=== RUN   TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== PAUSE TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== RUN   TestCreateSubIssuesResumesAnUnattachedIssue
+=== PAUSE TestCreateSubIssuesResumesAnUnattachedIssue
+=== RUN   TestARenderedSubIssueIsAcceptedAsASpec
+=== PAUSE TestARenderedSubIssueIsAcceptedAsASpec
+=== CONT  TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== CONT  TestARenderedSubIssueIsAcceptedAsASpec
+=== CONT  TestCreateSubIssuesResumesAnUnattachedIssue
+--- PASS: TestTheSubIssueRequestCarriesTheChildsDatabaseID (0.01s)
+--- PASS: TestCreateSubIssuesResumesAnUnattachedIssue (0.01s)
+--- PASS: TestARenderedSubIssueIsAcceptedAsASpec (0.01s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/github	0.440s

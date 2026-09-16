@@ -30,14 +30,16 @@ type CreationForge interface {
 // CreationPublicationService consumes the existing authorizer; it owns no grant,
 // quota or approval engine. Production launch and recovery scheduling are external.
 type CreationPublicationService struct {
-	db         *store.DB
-	receipts   *ReceiptService
-	authorizer *CreationAuthorizer
-	forge      CreationForge
-	redactor   *redact.Redactor
-	lockDir    string
-	mu         sync.Mutex
-	guard      *AttemptGuard
+	db           *store.DB
+	receipts     *ReceiptService
+	authorizer   *CreationAuthorizer
+	forge        CreationForge
+	redactor     *redact.Redactor
+	lockDir      string
+	mu           sync.Mutex
+	guard        *AttemptGuard
+	intentID     int64
+	proposalHash string
 }
 
 // NewCreationPublicationService composes publication with the existing creation authorizer.
@@ -54,9 +56,11 @@ func (s *CreationPublicationService) Binding() store.ResultBinding { return s.re
 // PermissionMaterial binds creation gate visibility and bot identity into the catalog digest.
 func (s *CreationPublicationService) PermissionMaterial() ([]byte, error) {
 	return json.Marshal(struct {
-		Enabled bool
-		BotID   int64
-	}{s.authorizer.enabled, s.authorizer.botID})
+		Enabled      bool
+		BotID        int64
+		IntentID     int64  `json:"IntentID,omitempty"`
+		ProposalHash string `json:"ProposalHash,omitempty"`
+	}{s.authorizer.enabled, s.authorizer.botID, s.intentID, s.proposalHash})
 }
 
 // Registration supplies creation handling and fresh authorization checks for replay.
@@ -91,6 +95,14 @@ type PreparedCreation struct {
 // Prepare is a factory-only presenter. It defaults to linking, prepares all
 // redaction/links/markers before hashing, and retains no approval or grant.
 func (s *CreationPublicationService) Prepare(ctx context.Context, e submission.CreationEnvelope) (PreparedCreation, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return PreparedCreation{}, err
+	}
+	return s.prepare(ctx, e, nonce, 0)
+}
+
+func (s *CreationPublicationService) prepare(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int) (PreparedCreation, error) {
 	b := s.Binding()
 	if e.Repository != "" && e.Repository != s.receipts.scope.Repository || e.SourceTask != "" && e.SourceTask != b.Task {
 		return PreparedCreation{}, store.ErrCreationAuthority
@@ -104,10 +116,6 @@ func (s *CreationPublicationService) Prepare(ctx context.Context, e submission.C
 	// Canonical validation runs before and after preparation; rendering cannot turn
 	// malformed source text into a silently accepted proposal.
 	if _, _, err := submission.CanonicalCreation(e); err != nil {
-		return PreparedCreation{}, err
-	}
-	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
 		return PreparedCreation{}, err
 	}
 	artifacts := make([]submission.CreationArtifact, len(e.Artifacts))
@@ -134,6 +142,15 @@ func (s *CreationPublicationService) Prepare(ctx context.Context, e submission.C
 		artifacts[i] = a
 	}
 	e.Artifacts = artifacts
+	if presentationLimit > 0 {
+		data, _, err := submission.CanonicalCreation(e)
+		if err != nil {
+			return PreparedCreation{}, err
+		}
+		if len(data) > presentationLimit {
+			return PreparedCreation{}, errors.New("creation proposal exceeds exact owner presentation limit")
+		}
+	}
 	hash, err := s.authorizer.RetainProposal(ctx, e)
 	if err != nil {
 		return PreparedCreation{}, err

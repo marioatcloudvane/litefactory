@@ -181,3 +181,29 @@ func (db *DB) EndResultAttempt(ctx context.Context, b ResultBinding) error {
 func (db *DB) CheckResultReader(ctx context.Context, b ResultBinding) error {
 	return db.withTx(ctx, func(tx *sql.Tx) error { return checkResultAccess(ctx, tx, b, false) })
 }
+
+// ResultHistoricalScopes returns bounded earlier attempts of this exact result
+// context. Callers explicitly install these read grants; none restores writing.
+func (db *DB) ResultHistoricalScopes(ctx context.Context, b ResultBinding) ([]FamilyScope, error) {
+	var scopes []FamilyScope
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, false); err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT run_id,attempt FROM application_result_attempts WHERE result_id=? AND NOT (run_id=? AND attempt=?) ORDER BY run_id DESC,rowid DESC LIMIT 63`, b.ResultID, b.RunID, b.Attempt)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var scope FamilyScope
+			if err := rows.Scan(&scope.RunID, &scope.Attempt); err != nil {
+				return err
+			}
+			scope.Task = b.Task
+			scopes = append(scopes, scope)
+		}
+		return rows.Err()
+	})
+	return scopes, err
+}

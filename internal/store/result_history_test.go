@@ -191,6 +191,84 @@ func TestResultRecord_ConcurrentCASAndRollback(t *testing.T) {
 		t.Fatal("invalid candidate left partial writes")
 	}
 }
+func TestResultRequestReferences_OrderedBoundedAndScoped(t *testing.T) {
+	db := newTestDB(t)
+	session := testSession(t, db, 705)
+	a := resultRun(t, db, session, "research", "writer", 1)
+	b, err := db.BindResultAttempt(t.Context(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.RecordResult(t.Context(), resultRecord(b, "first", 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.RecordResult(t.Context(), resultRecord(b, "second", 1)); err != nil {
+		t.Fatal(err)
+	}
+	bad := resultRecord(b, "third", 2)
+	bad.Accepted, bad.Snapshot, bad.Retired = false, nil, nil
+	if _, err = db.RecordResult(t.Context(), bad); err != nil {
+		t.Fatal(err)
+	}
+	refs, err := db.ResultRequestReferences(t.Context(), b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ResultRequestReference{
+		{RunID: b.RunID, RequestID: "third", InputState: "rejected", AppliedRevision: 0},
+		{RunID: b.RunID, RequestID: "second", InputState: "accepted", AppliedRevision: 2},
+		{RunID: b.RunID, RequestID: "first", InputState: "accepted", AppliedRevision: 1},
+	}
+	if !reflect.DeepEqual(refs, want) {
+		t.Fatalf("references: got=%+v want=%+v", refs, want)
+	}
+	// The inventory is bounded to the most recently retained 32 correlations.
+	for i := range 40 {
+		bulk := resultRecord(b, fmt.Sprintf("bulk-%02d", i), 2)
+		bulk.Accepted, bulk.Snapshot, bulk.Retired = false, nil, nil
+		if _, err = db.RecordResult(t.Context(), bulk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bounded, err := db.ResultRequestReferences(t.Context(), b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bounded) != 32 {
+		t.Fatalf("bound not enforced: %d", len(bounded))
+	}
+	if bounded[0].RequestID != "bulk-39" || bounded[31].RequestID != "bulk-08" {
+		t.Fatalf("bound did not retain the most recent requests: first=%s last=%s", bounded[0].RequestID, bounded[31].RequestID)
+	}
+	// Binding a new context on the same task (here, a different mode) revokes
+	// this result's writer, but a historical reader still recovers its exact
+	// retained inventory, and a sibling result gains no visibility into it.
+	fresh := resultRun(t, db, session, "spike", "other", 2)
+	other, err := db.BindResultAttempt(t.Context(), fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.ResultID == b.ResultID {
+		t.Fatal("sibling mode reused this result")
+	}
+	revoked, err := db.ResultRequestReferences(t.Context(), b)
+	if err != nil || !reflect.DeepEqual(revoked, bounded) {
+		t.Fatalf("revoked writer lost historical inventory: %+v %v", revoked, err)
+	}
+	siblingRefs, err := db.ResultRequestReferences(t.Context(), other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(siblingRefs) != 0 {
+		t.Fatal("sibling result leaked request references")
+	}
+	// A forged binding masquerading as this result cannot read its inventory.
+	forged := other
+	forged.ResultID = b.ResultID
+	if _, err = db.ResultRequestReferences(t.Context(), forged); !errors.Is(err, ErrResultAuthority) {
+		t.Fatalf("forged reader crossed identity: %v", err)
+	}
+}
 func TestResultHistory_ReopenReplayCollisionAndObservations(t *testing.T) {
 	db := newTestDB(t)
 	session := testSession(t, db, 704)

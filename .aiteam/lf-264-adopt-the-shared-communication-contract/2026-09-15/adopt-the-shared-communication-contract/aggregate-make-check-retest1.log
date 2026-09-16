@@ -1,0 +1,26 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.946s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	3.038s
+--- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults (0.02s)
+    --- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults/cold (0.00s)
+        exchange_cost_test.go:90: pinned bytes drift: teams/source/skills/workflow/SKILL.md
+    --- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults/continuation (0.00s)
+        exchange_cost_test.go:90: pinned bytes drift: teams/source/skills/workflow/SKILL.md
+    --- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults/stale-retry (0.00s)
+        exchange_cost_test.go:90: pinned bytes drift: teams/source/skills/agent-finalization/SKILL.md
+    --- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults/incomplete (0.00s)
+        exchange_cost_test.go:90: pinned bytes drift: teams/source/skills/workflow/SKILL.md
+    --- FAIL: TestExchangeCosts_PinnedTotalsAndIdenticalResults/blocked (0.00s)
+        exchange_cost_test.go:90: pinned bytes drift: teams/source/skills/agent-finalization/SKILL.md
+    exchange_cost_test.go:158: recomputed exchange totals differ: got {Version:1 Unit:UTF-8 bytes Scenarios:[] Aggregate:map[full:{Input:0 Output:0 Total:0} scoped:{Input:0 Output:0 Total:0}]} want {Version:1 Unit:UTF-8 bytes Scenarios:[{Name:cold Full:{Input:33903 Output:1154 Total:35057} Scoped:{Input:6494 Output:1231 Total:7725}} {Name:continuation Full:{Input:35389 Output:1704 Total:37093} Scoped:{Input:6730 Output:340 Total:7070}} {Name:stale-retry Full:{Input:37045 Output:3408 Total:40453} Scoped:{Input:7136 Output:603 Total:7739}} {Name:incomplete Full:{Input:35392 Output:1745 Total:37137} Scoped:{Input:6845 Output:549 Total:7394}} {Name:blocked Full:{Input:35386 Output:1733 Total:37119} Scoped:{Input:6934 Output:689 Total:7623}}] Aggregate:map[full:{Input:177115 Output:9744 Total:186859} scoped:{Input:34139 Output:3412 Total:37551}]}
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/agentresult	3.076s
+ok  	github.com/cloudvane/litefactory/internal/attach	3.031s
+make: *** [test] Terminated: 15
+
+Aggregate make check stopped after 480 seconds; incomplete, not passing evidence.

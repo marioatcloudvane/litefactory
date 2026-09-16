@@ -1,0 +1,44 @@
+=== RUN   TestActivityRuntimeIO_ProductionModes
+=== RUN   TestActivityRuntimeIO_ProductionModes/research
+=== RUN   TestActivityRuntimeIO_ProductionModes/plan
+=== RUN   TestActivityRuntimeIO_ProductionModes/implement
+=== RUN   TestActivityRuntimeIO_ProductionModes/validate
+=== RUN   TestActivityRuntimeIO_ProductionModes/spike
+--- PASS: TestActivityRuntimeIO_ProductionModes (10.72s)
+    --- PASS: TestActivityRuntimeIO_ProductionModes/research (2.25s)
+    --- PASS: TestActivityRuntimeIO_ProductionModes/plan (1.45s)
+    --- PASS: TestActivityRuntimeIO_ProductionModes/implement (3.13s)
+    --- PASS: TestActivityRuntimeIO_ProductionModes/validate (2.24s)
+    --- PASS: TestActivityRuntimeIO_ProductionModes/spike (1.66s)
+=== RUN   TestActivityRuntimeIO_ReplacementExpiryAndShutdown
+--- PASS: TestActivityRuntimeIO_ReplacementExpiryAndShutdown (1.97s)
+=== RUN   TestActivityRuntimeIO_RunnerTermination
+=== RUN   TestActivityRuntimeIO_RunnerTermination/success
+=== RUN   TestActivityRuntimeIO_RunnerTermination/failure
+=== RUN   TestActivityRuntimeIO_RunnerTermination/cancellation
+=== RUN   TestActivityRuntimeIO_RunnerTermination/interruption
+=== RUN   TestActivityRuntimeIO_RunnerTermination/missing_output
+=== RUN   TestActivityRuntimeIO_RunnerTermination/malformed_output
+--- PASS: TestActivityRuntimeIO_RunnerTermination (10.39s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/success (2.72s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/failure (1.32s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/cancellation (1.32s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/interruption (1.62s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/missing_output (1.59s)
+    --- PASS: TestActivityRuntimeIO_RunnerTermination/malformed_output (1.82s)
+=== RUN   TestActivityRuntimeIO_BoundedOwnersAndCancelledCleanup
+--- PASS: TestActivityRuntimeIO_BoundedOwnersAndCancelledCleanup (5.82s)
+=== RUN   TestActivityRuntimeIO_CleanupPreservesUncertainPublication
+--- PASS: TestActivityRuntimeIO_CleanupPreservesUncertainPublication (3.17s)
+=== RUN   TestMCPRuntimeConcurrentCancellationIsolation
+--- PASS: TestMCPRuntimeConcurrentCancellationIsolation (2.27s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	36.640s
+=== RUN   TestPublicationDaemonIO_CommentRestartBoundedPages
+--- PASS: TestPublicationDaemonIO_CommentRestartBoundedPages (2.22s)
+=== RUN   TestPublicationDaemonIO_TrustedPreparationApproval
+--- PASS: TestPublicationDaemonIO_TrustedPreparationApproval (1.46s)
+=== RUN   TestPublicationDaemonIO_CreationRestartOpenClosedPages
+--- PASS: TestPublicationDaemonIO_CreationRestartOpenClosedPages (2.01s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	7.609s

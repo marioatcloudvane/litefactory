@@ -47,6 +47,11 @@ func TestSharedWorkflowRendering(t *testing.T) {
 					if !strings.Contains(workflow, "persisted workflow version") {
 						t.Fatal("snapshot omitted shared lifecycle dependency")
 					}
+					for _, resource := range []string{"SKILL.md", "references/common.md", "references/implement.md", "references/validate.md"} {
+						if len(snapshot.Files["skills/agent-finalization/"+resource]) == 0 {
+							t.Errorf("%s snapshot omitted finalization dependency %s", mode, resource)
+						}
+					}
 				}
 			}
 			for _, tree := range []string{".claude", ".codex", "plugin", "roles"} {

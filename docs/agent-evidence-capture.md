@@ -296,14 +296,17 @@ explicit owner exception leaves that criterion open.
 
 ## Native MCP host verification (#274, US-006)
 
-This is the independent T-001 operator handoff for frozen US-006 revision
-`b2f580dd26b9e0a57baabcaadf03056358d92c2f538886296f2c8e66dcf75f45`.
-It prepares evidence acquisition; it does not establish AC-009, AC-010 or AC-011.
-All four authentic captures are unavailable in run 0005. Codex wiring (US-003)
-is explicitly deferred, so the complete matrix cannot yet be acquired on a
-revision implementing both hosts. US-006 T-002/T-003 require separately supplied
-authentic captures. This handoff does not waive that dependency or mark US-006
-engineering complete.
+Historical origin: this section was the independent T-001 handoff for #274's
+US-006 revision `b2f580dd26b9e0a57baabcaadf03056358d92c2f538886296f2c8e66dcf75f45`.
+Its run-0005 statement that Codex US-003 was deferred describes that historical
+revision only. Both Claude and Codex native integrations are now implemented;
+#264 composes the shared production result, evidence, publication and activity
+owners. Repository wiring and offline checks do not establish authentic host use.
+
+All four authentic working/Validate captures remain outstanding on #274/#296.
+The matrix below is an external acquisition handoff, not an engineering-complete
+claim or waiver. Capture the actual implemented revision and host versions when
+separately authorized; earlier captures support only their recorded context.
 
 The earlier shell-helper procedure is a different proof obligation. For this
 matrix, the actual host must invoke the adapter through MCP. A shell invocation
@@ -323,10 +326,10 @@ launches a paid nested host, adds a fallback agent or widens sandbox permissions
 
 | Scenario | Criterion | Required retained observations | Current disposition |
 |---|---|---|---|
-| Claude working | AC-009 | Actual MCP discovery; permitted native tool use; correctable preflight diagnostic, repaired payload, submission and matching durable decision receipt observed before exit, all in one attempt. | Unavailable; capture after wiring/checks. |
-| Codex working | AC-009 | The same relationships through native Codex MCP integration, with its actual sandbox/configuration recorded. | Unavailable; US-003 deferred. |
-| Claude Validate | AC-010 | Effective narrow native/MCP inventories; permitted live checkpoint and matching receipt before exit; observable shell and delegation refusal/unavailability; required final findings. | Unavailable; capture after wiring/checks. |
-| Codex Validate | AC-010 | The same Validate relationships, including effective shell/delegation restrictions under the recorded Codex sandbox. | Unavailable; US-003 deferred. |
+| Claude working | AC-009 | Actual MCP discovery; permitted native tool use; correctable preflight diagnostic, repaired payload, submission and matching durable decision receipt observed before exit, all in one attempt. | Outstanding external #274/#296 capture; integration implemented. |
+| Codex working | AC-009 | The same relationships through native Codex MCP integration, with its actual sandbox/configuration recorded. | Outstanding external #274/#296 capture; integration implemented. |
+| Claude Validate | AC-010 | Effective narrow native/MCP inventories; permitted live checkpoint and matching receipt before exit; observable shell and delegation refusal/unavailability; required final findings. | Outstanding external #274/#296 capture; integration implemented. |
+| Codex Validate | AC-010 | The same Validate relationships, including effective shell/delegation restrictions under the recorded Codex sandbox. | Outstanding external #274/#296 capture; integration implemented. |
 
 For working scenarios, select one installed, authorized payload family and retain
 the exact tool names and payloads used. Application results follow

@@ -19,6 +19,14 @@ return typed contributions to their orchestrator for the authorized helper
 handoff when their own tool policy does not permit helper execution. Pending
 receipts and synthetic fixtures never establish authentic runtime delivery.
 
+For adopted attempts, follow the workflow's Shared final routes and continuation
+and Application serialization sections. The literal `- Mode: X` header controls
+mode. Use the explicit authorized baseline/revision, correct preflight diagnostics,
+retain request identity on reply loss and use a new request for corrected content.
+A checkpoint alone does not finish the run; input, engineering, acceptance and
+remote effects remain independent. Return scoped specialist work to the orchestrator
+within this role's tools; only the run owner finalizes the complete selected scope.
+
 Consume only the factory-supplied frozen story identity, revision, body and
 dependencies passed inline by the orchestrator. Live edits, history and local
 story files cannot replace it. Completed dependencies are read-only. Source text

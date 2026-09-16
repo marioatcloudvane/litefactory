@@ -23,6 +23,7 @@ type Options struct {
 	Directory         string
 	AuthorizedStories []string
 	AllowPlan         bool
+	AllowResult       bool
 	AllowTools        bool
 	AttemptReference  string
 	Handler           Handler
@@ -39,6 +40,7 @@ type Broker struct {
 	handler                         Handler
 	stories                         []string
 	allowPlan                       bool
+	allowResult                     bool
 	allowTools                      bool
 	attemptReference                string
 	timeout                         time.Duration
@@ -63,7 +65,7 @@ func Start(ctx context.Context, o Options) (_ *Broker, err error) {
 		}
 		seen[story] = true
 	}
-	if !o.AllowPlan && !o.AllowTools && len(o.AuthorizedStories) == 0 {
+	if !o.AllowPlan && !o.AllowResult && !o.AllowTools && len(o.AuthorizedStories) == 0 {
 		return nil, errors.New("submission: missing authorized scope")
 	}
 	base, _, err := openPrivateRoot(o.Directory)
@@ -139,7 +141,7 @@ func Start(ctx context.Context, o Options) (_ *Broker, err error) {
 		return nil, errors.New("submission: descriptor unavailable")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
+	b := &Broker{descriptorInfo: descriptorInfo, dir: dir, descriptorPath: filepath.Join(dir, "descriptor.json"), capability: capability, root: root, pinned: pinned, socket: socket, listener: listener, handler: o.Handler, stories: slices.Clone(o.AuthorizedStories), allowPlan: o.AllowPlan, allowResult: o.AllowResult, allowTools: o.AllowTools, attemptReference: o.AttemptReference, timeout: o.RequestTimeout, cancel: cancel, done: make(chan struct{}), connections: map[net.Conn]bool{}}
 	started = true
 	go b.serve(runCtx, o.MaxWorkers)
 	return b, nil
@@ -240,7 +242,7 @@ func (b *Broker) handle(ctx context.Context, c *net.UnixConn) {
 		b.respond(c, Response{RequestID: q.RequestID, Error: "Invalid contribution JSON."})
 		return
 	}
-	if !isTool && q.Method != "receipt" {
+	if !isTool && !b.allowResult && q.Method != "receipt" {
 		var selector struct {
 			Story string `json:"story"`
 			Stage string `json:"stage"`

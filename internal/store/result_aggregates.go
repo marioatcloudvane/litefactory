@@ -87,6 +87,15 @@ func (db *DB) RetainResultAggregate(ctx context.Context, b ResultBinding, a Resu
 	if err != nil {
 		return err
 	}
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, true); err != nil {
+			return err
+		}
+		return retainResultAggregateTx(ctx, tx, b, a)
+	})
+}
+
+func retainResultAggregateTx(ctx context.Context, tx *sql.Tx, b ResultBinding, a ResultAggregate) error {
 	selected, err := json.Marshal(a.Selected)
 	if err != nil {
 		return err
@@ -98,40 +107,30 @@ func (db *DB) RetainResultAggregate(ctx context.Context, b ResultBinding, a Resu
 	if len(files) > MaxSubmissionRetainedBytes {
 		return fmt.Errorf("store: aggregate snapshot encoding exceeds retention limit")
 	}
-	return db.withTx(ctx, func(tx *sql.Tx) error {
-		if err := checkResultAccess(ctx, tx, b, true); err != nil {
-			return err
-		}
-		old, err := resultAggregateTx(ctx, tx, b.ResultID, a.Reference)
-		if err == nil {
-			if !reflect.DeepEqual(old, a) {
-				return fmt.Errorf("store: immutable aggregate reference conflict")
-			}
-			return nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		for _, c := range a.Checks {
-			var n int
-			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM submission_checks c JOIN submission_snapshots s ON s.run_id=c.run_id AND s.reference=c.snapshot_ref WHERE s.parent_task=? AND (c.reference=? OR c.reference=?)`, a.Parent, c.Reference, c.ExecutionID).Scan(&n); err != nil {
-				return err
-			}
-			if n != 0 {
-				return fmt.Errorf("store: scoped story checks cannot be relabelled aggregate evidence")
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_aggregates(result_id,reference,run_id,attempt,parent_task,context_hash,selected,selected_hash,digest,files) VALUES(?,?,?,?,?,?,?,?,?,?)`, a.ResultID, a.Reference, a.RunID, a.Attempt, a.Parent, a.ContextHash, selected, a.SelectedHash, a.Digest, files); err != nil {
-			return err
-		}
-		for _, c := range a.Checks {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_aggregate_checks(result_id,aggregate_ref,reference,execution_id,run_id,attempt,kind,name,digest,executed,passed,evidence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ResultID, a.Reference, c.Reference, c.ExecutionID, c.RunID, c.Attempt, c.Kind, c.Name, c.Digest, c.Executed, c.Passed, c.Evidence); err != nil {
-				return err
-			}
+	old, err := resultAggregateTx(ctx, tx, b.ResultID, a.Reference)
+	if err == nil {
+		if !reflect.DeepEqual(old, a) {
+			return fmt.Errorf("store: immutable aggregate reference conflict")
 		}
 		return nil
-	})
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	if err := checkResultAggregateChecksTx(ctx, tx, a); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_aggregates(result_id,reference,run_id,attempt,parent_task,context_hash,selected,selected_hash,digest,files) VALUES(?,?,?,?,?,?,?,?,?,?)`, a.ResultID, a.Reference, a.RunID, a.Attempt, a.Parent, a.ContextHash, selected, a.SelectedHash, a.Digest, files); err != nil {
+		return err
+	}
+	for _, c := range a.Checks {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_aggregate_checks(result_id,aggregate_ref,reference,execution_id,run_id,attempt,kind,name,digest,executed,passed,evidence) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ResultID, a.Reference, c.Reference, c.ExecutionID, c.RunID, c.Attempt, c.Kind, c.Name, c.Digest, c.Executed, c.Passed, c.Evidence); err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
 func resultAggregateTx(ctx context.Context, tx *sql.Tx, resultID int64, reference string) (ResultAggregate, error) {
 	var a ResultAggregate
 	var selected, files []byte
@@ -183,6 +182,19 @@ func (db *DB) GetResultAggregate(ctx context.Context, b ResultBinding, reference
 // historical acceptance retains its original checkpoint despite later transport
 // conflict flags, matching the existing separated acceptance boundary.
 func (db *DB) GetResultEngineeringCheckpoint(ctx context.Context, b ResultBinding, story, revision string, runID int64, sequence int) (StoryProgressEvent, error) {
+	return db.resultEngineeringCheckpoint(ctx, b, story, revision, runID, sequence, 0)
+}
+
+// FindResultEngineeringCheckpoint discovers the authoritative current checkpoint
+// for a frozen story in the admitted generation. It grants no writer authority.
+func (db *DB) FindResultEngineeringCheckpoint(ctx context.Context, b ResultBinding, generation int, story, revision string) (StoryProgressEvent, error) {
+	if generation < 1 {
+		return StoryProgressEvent{}, ErrResultAuthority
+	}
+	return db.resultEngineeringCheckpoint(ctx, b, story, revision, 0, 0, generation)
+}
+
+func (db *DB) resultEngineeringCheckpoint(ctx context.Context, b ResultBinding, story, revision string, runID int64, sequence, generation int) (StoryProgressEvent, error) {
 	var e StoryProgressEvent
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if err := checkResultAccess(ctx, tx, b, false); err != nil {
@@ -192,12 +204,71 @@ func (db *DB) GetResultEngineeringCheckpoint(ctx context.Context, b ResultBindin
 		if b.WorkflowVersion == 1 {
 			kind = "verified"
 		}
-		query := `SELECT e.run_id,e.sequence,e.story_key,e.attempt,e.kind,e.digest,e.payload FROM story_progress_events e JOIN story_progress_runs p ON p.run_id=e.run_id JOIN managed_stories s ON s.parent_task=p.parent_task AND s.generation=p.generation AND s.story_key=e.story_key JOIN approved_story_revisions a ON a.parent_task=s.parent_task AND a.generation=s.generation AND a.story_key=s.story_key WHERE e.run_id=? AND e.sequence=? AND e.story_key=? AND p.parent_task=? AND a.digest=? AND e.kind=? AND (e.conflicted=0 OR s.state='completed') AND ((?=2 AND (s.engineering_complete=1 OR s.state='completed')) OR (?=1 AND s.state IN ('verified','completed'))) AND NOT EXISTS(SELECT 1 FROM story_progress_events n JOIN story_progress_runs np ON np.run_id=n.run_id WHERE np.parent_task=p.parent_task AND np.generation=p.generation AND n.story_key=e.story_key AND n.conflicted=0 AND n.kind IN ('engineering_complete','verified','invalidated') AND (n.run_id>e.run_id OR (n.run_id=e.run_id AND n.sequence>e.sequence)))`
-		err := tx.QueryRowContext(ctx, query, runID, sequence, story, b.Task, revision, kind, b.WorkflowVersion, b.WorkflowVersion).Scan(&e.RunID, &e.Sequence, &e.Story, &e.Attempt, &e.Kind, &e.Digest, &e.Payload)
+		query := `SELECT e.run_id,e.sequence,e.story_key,e.attempt,e.kind,e.digest,e.payload FROM story_progress_events e JOIN story_progress_runs p ON p.run_id=e.run_id JOIN managed_stories s ON s.parent_task=p.parent_task AND s.generation=p.generation AND s.story_key=e.story_key JOIN approved_story_revisions a ON a.parent_task=s.parent_task AND a.generation=s.generation AND a.story_key=s.story_key WHERE (?=0 OR e.run_id=?) AND (?=0 OR e.sequence=?) AND (?=0 OR p.generation=?) AND e.story_key=? AND p.parent_task=? AND a.digest=? AND e.kind=? AND (e.conflicted=0 OR s.state='completed') AND ((?=2 AND (s.engineering_complete=1 OR s.state='completed')) OR (?=1 AND s.state IN ('verified','completed'))) AND NOT EXISTS(SELECT 1 FROM story_progress_events n JOIN story_progress_runs np ON np.run_id=n.run_id WHERE np.parent_task=p.parent_task AND np.generation=p.generation AND n.story_key=e.story_key AND n.conflicted=0 AND n.kind IN ('engineering_complete','verified','invalidated') AND (n.run_id>e.run_id OR (n.run_id=e.run_id AND n.sequence>e.sequence))) ORDER BY e.run_id DESC,e.sequence DESC LIMIT 1`
+		err := tx.QueryRowContext(ctx, query, runID, runID, sequence, sequence, generation, generation, story, b.Task, revision, kind, b.WorkflowVersion, b.WorkflowVersion).Scan(&e.RunID, &e.Sequence, &e.Story, &e.Attempt, &e.Kind, &e.Digest, &e.Payload)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		return err
 	})
 	return e, err
+}
+
+// ResultCheckpointSubmission reads the immutable contribution associated with a
+// retained checkpoint in this result's parent scope. It does not replay effects.
+func (db *DB) ResultCheckpointSubmission(ctx context.Context, b ResultBinding, runID int64, sequence int) (SubmissionReceipt, error) {
+	var receipt SubmissionReceipt
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, false); err != nil {
+			return err
+		}
+		var count int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM submission_attempts WHERE run_id=? AND parent_task=?`, runID, b.Task).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrResultAuthority
+		}
+		var err error
+		receipt, err = scanSubmissionReceipt(tx.QueryRowContext(ctx, `SELECT `+receiptColumns+` FROM submission_receipts WHERE run_id=? AND sequence=? AND input_state='valid' AND engineering_state='recorded'`, runID, sequence))
+		return err
+	})
+	return receipt, err
+}
+
+func checkResultAggregateChecksTx(ctx context.Context, tx *sql.Tx, a ResultAggregate) error {
+	for _, c := range a.Checks {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM submission_checks c JOIN submission_snapshots s ON s.run_id=c.run_id AND s.reference=c.snapshot_ref WHERE s.parent_task=? AND (c.reference=? OR c.reference=?)`, a.Parent, c.Reference, c.ExecutionID).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			return fmt.Errorf("store: scoped story checks cannot be relabelled aggregate evidence")
+		}
+	}
+	return nil
+}
+
+// CheckResultAggregate validates immutable association conflicts without writes.
+func (db *DB) CheckResultAggregate(ctx context.Context, b ResultBinding, a ResultAggregate) error {
+	a, err := normalizeResultAggregate(b, a)
+	if err != nil {
+		return err
+	}
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, true); err != nil {
+			return err
+		}
+		old, err := resultAggregateTx(ctx, tx, b.ResultID, a.Reference)
+		if err == nil {
+			if !reflect.DeepEqual(old, a) {
+				return fmt.Errorf("store: immutable aggregate reference conflict")
+			}
+			return nil
+		}
+		if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return checkResultAggregateChecksTx(ctx, tx, a)
+	})
 }

@@ -139,7 +139,8 @@ func NewFamilyToolDispatcher(guard *AttemptGuard, o FamilyDispatcherOptions) (*T
 }
 
 // dispatchFamily admits bounded metadata before profile and argument validation.
-// Every replay observes the durable record rather than repeating an effect.
+// Every replay observes the durable record rather than repeating an effect,
+// except the advisory activity read below, which always observes live state.
 func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, call submission.ToolCall, decodeErr error) (json.RawMessage, error) {
 	if call.Name == "receipts_get" {
 		if decodeErr != nil {
@@ -166,7 +167,10 @@ func (d *ToolDispatcher) dispatchFamily(ctx context.Context, requestID string, c
 		return nil, errors.New("MCP tool not permitted")
 	}
 	handler := d.families[call.Name]
-	if !first {
+	// The advisory activity read observes the current display on every call,
+	// including an identical retry, rather than replaying a stale receipt. It
+	// still records a durable receipted outcome via the terminal Finish below.
+	if !first && call.Name != "activity_get" {
 		if handler.ReplayCheck != nil {
 			if err := handler.ReplayCheck(ctx, requestID, call.Arguments); err != nil {
 				return nil, err

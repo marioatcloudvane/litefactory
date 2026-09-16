@@ -3,8 +3,8 @@
 The #273 family APIs extend the [MCP adapter](mcp-adapter.md) with validation,
 issue discovery and publication, workflow checkpoints, advisory activity and
 request recovery. They are callable through the existing bound broker and MCP
-stdio server when the factory installs their handlers. Production Claude/Codex
-launch adoption and authentic host verification remain #274 work.
+stdio server when the factory installs their handlers. Claude/Codex native integrations are implemented; #264 composes the production
+owners. Authentic working/Validate observations remain outstanding on #274/#296.
 
 Preflight checks proposed input before submission. Activity describes reported
 progress. Receipts recover what the factory knows happened to a request. None of
@@ -12,7 +12,7 @@ these three operations approves scope or turns a status message into evidence.
 
 ## Tool visibility and arguments
 
-This matrix describes a fully installed `families-v1` catalog. Every discovery
+This matrix describes a fully installed `families-v2` catalog. Every discovery
 and call requires a live matching attempt. An uninstalled handler is unavailable.
 Direct calls enforce the same permissions as discovery.
 
@@ -23,7 +23,8 @@ Direct calls enforce the same permissions as discovery.
 | `issues_list`, `issues_get`, `issues_comment` | Yes | Yes | Yes | No |
 | `issues_create_batch` | Creation gate and live grant | No | No | No |
 | `evidence_submit` | No | Engineering / legacy checkpoint | Assessment | No |
-| `activity_update`, `activity_get`, `receipts_get` | Yes | Yes | Yes | No |
+| `activity_update`, `activity_get` | Yes | Yes | Yes | Yes |
+| `receipts_get` | Yes | Yes | Yes | No |
 
 The creation gate controls discovery; a visible creation tool still requires a
 valid factory-held grant to execute. Ordinary comments use explicit target
@@ -113,6 +114,32 @@ blind reposting.
 
 ## Exact creation preparation and publication
 
+Production owner control (selected Research mode, loaded creation gate enabled):
+
+1. The authenticated numeric owner comments `/mcp-create prepare <CreationEnvelope JSON>`.
+   Repository/source are factory-bound; omitted relationship defaults to `linked`.
+   Preparation adds the source issue link, redacts title/body, retains the complete
+   envelope and returns its exact JSON and SHA256 in a durable report. Prepared
+   JSON must fit the 48,000-byte exact presentation limit. Preparation grants nothing.
+2. After reviewing those exact bytes, the owner separately comments
+   `/mcp-create <SHA256> linked|attach`. Edited controls, mismatched content or
+   relationship, absent gate and non-Research mode refuse admission.
+3. The next eligible native Research launch consumes the unexpired intent once.
+   Its catalog digest includes that intent and proposal hash; launch context
+   supplies the exact approved envelope. Resume/replacement cannot inherit a
+   consumed creation grant. A launch without native MCP does not consume it.
+
+The production runtime independently installs ordinary comment publication for
+Research, Implement and Validate with the current issue as its explicit target.
+Other issue targets are refused. Comments do not require the creation gate.
+
+The daemon observes at most one pending comment page and one pending creation
+page per minute, traversing open/closed issue pages and retained operations.
+Restart loses only traversal cursors: durable uncertain intents remain pending
+and observations repeat safely. Recovery never redispatches writes, resumes a
+partial batch or invents success when no exact numeric-identity match is found.
+
+
 Factory-only `CreationPublicationService.Prepare` binds repository/source,
 defaults the relationship to `linked`, adds links and correlation markers,
 redacts final bytes, validates and retains the proposal. It returns an envelope
@@ -182,7 +209,8 @@ The existing communication helper contract remains compatible: communication
 submit retains its original journal identity, communication preflight remains
 nonjournaled, and communication receipt observes existing submission correlation.
 MCP still refuses publishable/story-bearing Plan proposals; ordinary helper Plan
-policy is unchanged. Plan/Spike gain no family tools.
+policy is unchanged. Plan/Spike gain only activity reads/updates; unrelated
+family tools remain unavailable.
 
 | #274 responsibility | Available seam and remaining work |
 | --- | --- |
@@ -200,3 +228,15 @@ of #273. Normal Go pipe/socket/SQLite/HTTP fixtures and the aggregate `make chec
 gate establish local implementation behavior only. Their execution evidence is
 retained with the engineering session; this document makes no authentic host or
 live GitHub publication claim.
+
+## Advisory lifetime after adoption
+
+Production registers both activity operations with the same catalog and digest
+permissions before exposing the attempt. Success, failure, cancellation,
+interruption, replacement and expiry revoke obsolete capabilities. The bounded
+registry is cleaned by daemon-owned scheduling, including before remote backoff;
+shutdown clears abandoned owners. The current policy clears terminal display
+immediately. Progress is process-local and grants no application, engineering or
+acceptance completion. Cleanup preserves durable receipts and uncertain publication
+intent for separate daemon reconciliation. No authentic host observation follows
+from these offline source/lifecycle assertions.

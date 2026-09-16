@@ -85,7 +85,7 @@ func TestMCPGuidance_InstalledCards(t *testing.T) {
 func TestMCPGuidance_ModeRestrictions(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct{ mode, want string }{
-		{"plan", "Keep the supplied typed Plan helper publication path; communication tools cannot publish a completed Plan"},
+		{"plan", "The shared adapter reuses the existing Plan owner; input acknowledgment alone cannot publish, freeze or establish readiness"},
 		{"validate", "no shell, edits, fresh checks or delegation escapes. Keep the required final findings"},
 		{"implement", "Preserve acceptance for Validate and report only checks actually executed"},
 		{"research", "Recommendations remain advisory"}, {"spike", "without selecting a new mode"},

@@ -73,6 +73,7 @@ type UpdateDiagnostics struct {
 	ExpectedRevision int64         `json:"expected_revision"`
 	CurrentRevision  int64         `json:"current_revision"`
 	Operations       []UpdateFault `json:"operations,omitempty"`
+	Baseline         *Projection   `json:"baseline,omitempty"`
 }
 
 // DecodeUpdate rejects unbounded, duplicate, null and unknown input before use.

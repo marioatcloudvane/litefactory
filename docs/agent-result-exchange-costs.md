@@ -34,11 +34,11 @@ instruction policy and retry frequency; no runtime or billed savings are claimed
 
 | Scenario | Full input | Full output | Full total | Scoped input | Scoped output | Scoped total |
 |---|---:|---:|---:|---:|---:|---:|
-| cold | 33903 | 1154 | 35057 | 6494 | 1231 | 7725 |
-| continuation | 35389 | 1704 | 37093 | 6730 | 340 | 7070 |
-| stale-retry | 37045 | 3408 | 40453 | 7136 | 603 | 7739 |
-| incomplete | 35392 | 1745 | 37137 | 6845 | 549 | 7394 |
-| blocked | 35386 | 1733 | 37119 | 6934 | 689 | 7623 |
-| Aggregate | 177115 | 9744 | 186859 | 34139 | 3412 | 37551 |
+| cold | 36403 | 1154 | 37557 | 8131 | 1231 | 9362 |
+| continuation | 37889 | 1704 | 39593 | 8367 | 340 | 8707 |
+| stale-retry | 39545 | 3408 | 42953 | 8773 | 603 | 9376 |
+| incomplete | 37892 | 1745 | 39637 | 8482 | 549 | 9031 |
+| blocked | 37886 | 1733 | 39619 | 8571 | 689 | 9260 |
+| Aggregate | 189615 | 9744 | 199359 | 42324 | 3412 | 45736 |
 
 Pinned full-guidance SHA-256: `bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1`.

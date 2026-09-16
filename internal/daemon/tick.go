@@ -148,6 +148,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 
+	// Local capability expiry continues even while remote publication backs off.
+	if e, ok := d.turn.(turnExecutor); ok && e.opts.MCP != nil {
+		if err := e.opts.MCP.CleanActivities(ctx, startedAt); err != nil {
+			d.log.ErrorContext(ctx, "activity cleanup remains pending", slog.Any("error", err))
+		}
+	}
+
 	if retryAt, held := d.backoff.hold(startedAt); held {
 		d.log.DebugContext(ctx, "skipping the tick; still backing off from a rate limit",
 			slog.Time("retry_at", retryAt.UTC()),
@@ -155,6 +162,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return TickResult{StartedAt: startedAt, Skipped: true, RetryAt: retryAt}, nil
 	}
 
+	if err := d.pollPublications(ctx, startedAt); err != nil {
+		d.log.ErrorContext(ctx, "publication observation remains pending", slog.Any("error", err))
+		var rate *github.RateLimitError
+		if errors.As(err, &rate) {
+			return TickResult{StartedAt: startedAt}, d.observe(ctx, startedAt, err)
+		}
+	}
 	// Progress is reconciled even while the sole turn worker is occupied.
 	if progress, ok := d.turn.(interface{ PollStoryProgress(context.Context) error }); ok {
 		if err := progress.PollStoryProgress(ctx); err != nil {
@@ -1566,6 +1580,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	command := turn.ParseCommand(c.Body)
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)
+	}
+	if command.Name == "/mcp-create" {
+		return d.handleMCPCreation(ctx, t, c, log)
 	}
 	if command.Name == "/followup" {
 		return d.handleFollowup(ctx, t, c, log)

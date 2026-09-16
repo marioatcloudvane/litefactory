@@ -1,0 +1,1309 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Adopt the existing shared communication service as the authoritative result path across all five modes; deliver explicit prior state, reliable completion and MCP publication/progress wiring; align shared and independently maintained installed instructions; then remove dead discovery and compatibility-gated legacy inputs with separate adoption and retirement evidence. Authentic host verification remains tracked separately in #274/#296, and unsupported legacy drain cannot be declared complete.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "update",
+        "title": "Use shared results to finish every mode",
+        "user_story": {
+          "actor": "operator",
+          "want": "have every mode finish through the same authoritative result path",
+          "benefit": "I can distinguish accepted input from completed work and recover a failed run",
+          "notes": [
+            "Scope trace: feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling; ARCH_REVIEW.md group A.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Production construction and adapter matrix; source availability: Existing runtime/submission seams; cutover assertions to add; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute all mode/transport combinations; authentic #274/#296 proof remains external.",
+            "Evidence inventory AC-002: proof method: Service/callback source review and receipt state tests; source availability: Existing result, submission and Plan owners; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain executed authority and receipt assertions.",
+            "Evidence inventory AC-003: proof method: Reconciliation tests and profile review; source availability: submission_reconciliation_test.go; authentic captures unavailable; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute offline assertions; four authentic working/Validate captures stay unsatisfied in #274/#296.",
+            "Evidence inventory AC-004: proof method: Controlled runner outcome and restart assertions; source availability: Existing lifecycle/continuation seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Add and execute complete termination matrix.",
+            "Evidence inventory AC-005: proof method: Real local helper/broker and runner-path checks; source availability: Existing local runner and persistence fixtures; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute checks; US-002 required for aggregate enrichment before adoption complete."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Research, Plan, Implement, Validate and Spike route final outcomes, questions, comments, artifact references and applicable workflow contributions through shared semantic validation and receipts. Production paths cover MCP enabled and disabled, helper and applicable structured terminal adapters, with factory-bound identities and an explicit compatibility or upgrade/admission route for every supported unmanaged/legacy launch."
+          },
+          {
+            "id": "AC-002",
+            "text": "Preflight, submission and post-exit processing reuse shared result/workflow validators and independently project input, engineering, acceptance and remote-effect states. Existing Plan publication/freezing and StoryProgress/acceptance authority remain with their current owners; an MCP comment or input receipt alone cannot publish stories or establish workflow success."
+          },
+          {
+            "id": "AC-003",
+            "text": "Validate can return its complete reference-only structured terminal assessment against frozen scope and retained checks, reconcile duplicate or conflicting live/terminal contributions without partial acceptance or redundant required submission, and retain its read-only profile without shell, edits, new checks, capture or delegation."
+          },
+          {
+            "id": "AC-004",
+            "text": "After nominal process success, absent or malformed required output records actionable incomplete/invalid finalization and prevents workflow success. Failure, cancellation and interruption preserve the original cause, valid checkpoints and resumable intent; valid input cannot turn them into success, and post-exit rejection remains available on the next authorized attempt. The factory must not fabricate an automatic post-exit correction or acceptance."
+          },
+          {
+            "id": "AC-005",
+            "text": "Retained production-constructor and runner tests cover all five modes, MCP on/off, cold/resumed/fallback bindings, supported compatibility routes, missing/malformed/conflicting output and all termination outcomes. The completion seam invokes authoritative evidence validation; full persisted aggregate enrichment is completed in US-002 before the adoption milestone."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Establish shared attempt binding and explicit final-route/admission policy (feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Connect helper and structured terminal adapters to shared validators and receipt projection (feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Enforce post-exit completeness and preserve process causes/checkpoints for every termination path (feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Add focused outcome and live/terminal conflict tests (feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-002",
+              "T-003"
+            ]
+          },
+          {
+            "id": "T-005",
+            "description": "Exercise production runner/helper/broker paths using local dependencies and retain the mode/termination matrix (feature-spec.md AC-001, AC-004, AC-005; API / Interface Changes; Edge Cases & Error Handling).",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-002",
+              "T-003"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "have every mode finish through the same authoritative result path. I can distinguish accepted input from completed work and recover a failed run.",
+          "components": [
+            {
+              "name": "internal/turn/submission_runner.go and mcp_runtime.go",
+              "responsibility": "Attempt binding, adapter routing and final success gate"
+            },
+            {
+              "name": "internal/turn/agent_results.go, plan_attempt.go and plan_handoff.go",
+              "responsibility": "Shared result owner and existing Plan authority"
+            },
+            {
+              "name": "internal/submission, internal/cli/cmd_submission.go and internal/agent",
+              "responsibility": "Helper/terminal transport seams"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "AgentResultService and SubmissionSession",
+              "input": "Bound contribution or applicable terminal result",
+              "output": "Validated result, workflow checkpoint and separate receipt states"
+            },
+            {
+              "name": "agent.RunResult final processing",
+              "input": "Process outcome and retained submissions",
+              "output": "Final diagnostics with preserved subprocess cause"
+            }
+          ],
+          "constraints": [
+            "No validation or receipt implementation duplicated in transport adapters.",
+            "Preserve persisted workflow versions and success-only save boundaries.",
+            "No widening Validate execution permissions."
+          ],
+          "decisions": [
+            {
+              "decision": "Bind completion independently of MCP availability",
+              "reason": "Every supported launch needs a declared final route"
+            },
+            {
+              "decision": "Expose authoritative evidence lookup seam here; complete production enrichment in US-002",
+              "reason": "Avoid a dependency cycle while preventing adoption claims before evidence wiring"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "update",
+        "title": "Resume from authoritative results and evidence",
+        "user_story": {
+          "actor": "operator",
+          "want": "receive the saved result and its revision when work resumes",
+          "benefit": "I can update only what changed without losing state or inventing completion proof",
+          "notes": [
+            "Scope trace: feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling; ARCH_REVIEW.md group B.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Cold/resume/restart launch assertions; source availability: Existing read and guidance seams; tests to extend; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain executed baseline coverage.",
+            "Evidence inventory AC-002: proof method: Cross-scope and obsolete-attempt tests; source availability: Existing result history and receipt services; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute isolation and retired-ID checks.",
+            "Evidence inventory AC-003: proof method: Merged-update/stale-reference table tests; source availability: Existing agentresult/update tests; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Extend through production adapters and retain passing checks.",
+            "Evidence inventory AC-004: proof method: Real-store replay and restart checks; source availability: Existing persisted result/receipt records; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute lost-reply and corrected-request scenarios.",
+            "Evidence inventory AC-005: proof method: Aggregate resolver and worktree comparison checks; source availability: Existing aggregate validator/checkpoint owners; new production wiring needed; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain executed completion tests; authentic host claims remain #274/#296 obligations."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Cold attempts receive an explicit empty baseline; continued, restarted and fallback attempts receive sufficient authorized editable prior state with stable IDs and observed base revisions in launch context or scoped service reads. Prior prose/provider session reuse is never the baseline."
+          },
+          {
+            "id": "AC-002",
+            "text": "Historical result and receipt reads expose only explicitly granted scope; unrelated results/receipts remain inaccessible and retired IDs remain retired. Replaced attempts cannot regain mutation authority through historical reads."
+          },
+          {
+            "id": "AC-003",
+            "text": "Sparse updates validate the full merged result including untouched fields/evidence references. Stale revisions, malformed fields and invalid references reject atomically with field-specific diagnostics and an authorized current revision/read route for correction."
+          },
+          {
+            "id": "AC-004",
+            "text": "Stable request identity recovers the same durable result/receipt after reply loss and restart, without duplicate workflow changes or external effects; corrected submissions follow a new request identity."
+          },
+          {
+            "id": "AC-005",
+            "text": "Implement completion resolves aggregate/checkpoint and prior completion evidence from authoritative retained records through the existing validator in preflight, submit and final enforcement. Missing/stale/misattributed evidence or a mismatched current worktree cannot pass claimed engineering completion."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver authorized launch baselines and scoped historical receipts (feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Connect immutable aggregate/checkpoint resolution to all completion validation entrypoints (feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Verify full-merge rejection and correction diagnostics through shared adapters (feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-003",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Exercise SQLite-backed restart, replay, scope isolation and completion evidence scenarios (feature-spec.md AC-002, AC-003, AC-005; Data Model; Edge Cases & Error Handling).",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "receive the saved result and its revision when work resumes. I can update only what changed without losing state or inventing completion proof.",
+          "components": [
+            {
+              "name": "internal/turn/mcp_guidance.go, approved_context.go and family_receipts.go",
+              "responsibility": "Explicit scoped baseline and historical receipt delivery"
+            },
+            {
+              "name": "internal/turn/agent_result_aggregates.go and agent_results.go",
+              "responsibility": "Authoritative completion evidence resolution"
+            },
+            {
+              "name": "internal/agentresult and existing internal/store accessors",
+              "responsibility": "Merged validation and retained state"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "AgentResultService.Read / OpenAgentResultReader",
+              "input": "Bound authorized scope",
+              "output": "Complete selected baseline with stable IDs and revision"
+            },
+            {
+              "name": "ValidateAgentResultCompletion / ResultAggregateValidator",
+              "input": "Merged result plus retained aggregate/checkpoints",
+              "output": "Evidence-backed completion verdict"
+            }
+          ],
+          "constraints": [
+            "Copy nested baseline/scope collections; preserve the one-connection SQLite pool.",
+            "History access does not grant write authority.",
+            "Do not relax RequireAggregate when its resolver is missing."
+          ],
+          "decisions": [
+            {
+              "decision": "Prefer launch snapshot plus explicitly scoped historical reads",
+              "reason": "Use existing read services and avoid a speculative tool"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "update",
+        "title": "Connect authorized publication and recovery",
+        "user_story": {
+          "actor": "operator",
+          "want": "use the existing publication tools with their real permissions and recovery",
+          "benefit": "approved comments and issue creation work without duplicate writes after uncertain replies",
+          "notes": [
+            "Scope trace: feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group C.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Production catalog/target permission checks; source availability: Existing family/catalog and publication seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Add production-constructor assertions; hand-assembled catalogs are insufficient.",
+            "Evidence inventory AC-002: proof method: Trusted owner intake and exact-content tests; source availability: Existing creation authorizer and retained proposals; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute approval mismatch and replay coverage.",
+            "Evidence inventory AC-003: proof method: Gate/profile/digest checks; source availability: Existing runtime creation binding; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute Research-only and missing-gate cases.",
+            "Evidence inventory AC-004: proof method: Real SQLite and controlled HTTP restart checks; source availability: Existing reconcile APIs and durable operation records; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute lost-response recovery with no blind redispatch.",
+            "Evidence inventory AC-005: proof method: Production-composition persistence/security matrix; source availability: Existing publication/creation fixtures; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain execution evidence; no live forge or authentic host proof inferred."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Production composition installs eligible comment-publication handlers and authorized targets with matching discovery/call grants. Ordinary authorized comments work independently of the creation gate; unrelated targets and grants are refused."
+          },
+          {
+            "id": "AC-002",
+            "text": "Existing owner controls present retained exact creation title, body, source links and relationship. Only authenticated matching owner approval binds that retained proposal to the next eligible Research attempt; prose, mismatched bytes/relationship or an unapproved target grants no authority."
+          },
+          {
+            "id": "AC-003",
+            "text": "Creation handlers bind the loaded creation gate and exact grants before permission digest/catalog freezing; creation is Research-only and unavailable/refused when its profile, approval or gate is missing."
+          },
+          {
+            "id": "AC-004",
+            "text": "Durable operation intent precedes publication. Uncertain comment/creation responses remain pending and are observed/reconciled by bounded daemon-owned scheduling across attempt exit and restart; no blind redispatch or premature receipt success occurs."
+          },
+          {
+            "id": "AC-005",
+            "text": "Production-constructor, trusted-intake and real SQLite/controlled HTTP tests verify actual catalog availability, exact authority, numeric identity, outbound redaction and restart reconciliation, including a remote success followed by a lost response."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Compose authorized comment owners, targets and production handlers (feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Connect retained creation proposal presentation, authenticated owner intake and loaded gate before catalog freeze (feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-003",
+            "description": "Connect durable pending-effect enumeration and bounded daemon reconciliation (feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Test grant, profile, identity and exact-content refusals (feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-005",
+            "description": "Exercise production constructors and persistent uncertain publication with controlled HTTP across restart (feature-spec.md AC-006; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-003"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "use the existing publication tools with their real permissions and recovery. approved comments and issue creation work without duplicate writes after uncertain replies.",
+          "components": [
+            {
+              "name": "internal/daemon/setup.go, mcp_creation.go and recovery owners",
+              "responsibility": "Compose services, trusted admission and bounded observation"
+            },
+            {
+              "name": "internal/turn/mcp_runtime.go, mcp_families.go and mcp_creation.go",
+              "responsibility": "Bind eligible catalog and grants"
+            },
+            {
+              "name": "IssuePublicationService and CreationPublicationService",
+              "responsibility": "Durable dispatch and reconciliation"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "AdmitMCPOwnerCommand / CreationAuthorizer / BindCreationGrant",
+              "input": "Authenticated exact retained proposal approval",
+              "output": "Attempt-scoped creation authority"
+            },
+            {
+              "name": "ReconcileComment / creation Reconcile",
+              "input": "Retained uncertain operation and bounded observation",
+              "output": "Confirmed or still-pending effect state"
+            }
+          ],
+          "constraints": [
+            "Factory holds forge credentials and numeric owner/bot identity; redact mutations.",
+            "Daemon owns time/backoff; no polling clock in turn.",
+            "No SQL transaction spans external I/O; reuse existing records before adding schema."
+          ],
+          "decisions": [
+            {
+              "decision": "Reuse publication and creation owners",
+              "reason": "Production composition must not reimplement effect semantics"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-004",
+        "intent": "update",
+        "title": "Keep progress advisory and bounded to a run",
+        "user_story": {
+          "actor": "operator",
+          "want": "see progress while a run is active and have it close cleanly",
+          "benefit": "stale agents cannot keep updating status or turn progress into acceptance",
+          "notes": [
+            "Scope trace: feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling; ARCH_REVIEW.md group D.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Profile/discovery/call assertions; source availability: Existing activity/runtime seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Add and execute Spike and Research permission coverage.",
+            "Evidence inventory AC-002: proof method: Deterministic termination/replacement tests; source availability: Existing attempt guard and lifecycle seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute all listed terminal cases.",
+            "Evidence inventory AC-003: proof method: Authority separation and retention assertions; source availability: Existing activity and durable publication records; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Retain tests showing cleanup preserves durable recovery.",
+            "Evidence inventory AC-004: proof method: Scheduling source review and deterministic lifecycle tests; source availability: Existing daemon cleanup seams; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute bounded cleanup checks."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Eligible mode profiles, including Research and Spike, expose existing advisory activity update and scoped read operations with matching discovery/call permissions and catalog digest/version semantics. Spike gains only required activity permissions; unrelated family tools are not granted to Plan."
+          },
+          {
+            "id": "AC-002",
+            "text": "Success, failure, cancellation, interruption, replacement and expiry drive factory-owned terminal activity transitions and revoke obsolete capabilities. Subsequent updates/reads obey scoped lifecycle rules and obsolete mutation calls are refused."
+          },
+          {
+            "id": "AC-003",
+            "text": "Activity state and terminal labels cannot set application, engineering or acceptance completion. Cleanup preserves durable receipts and pending publication/recovery intent."
+          },
+          {
+            "id": "AC-004",
+            "text": "Bounded lifecycle and retention cleanup use daemon-owned scheduling and existing attempt guards, with deterministic executed tests covering mode permissions, terminal paths and replaced attempts without sleep-based assertions."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Register eligible activity reads/updates and retain the activity owner with the attempt (feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Connect terminal, replacement, expiry and bounded cleanup while preserving durable recovery (feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Add deterministic permission/lifecycle tests for every terminal path and retained durable effects (feature-spec.md AC-007; Business Rules and Decisions; Edge Cases & Error Handling).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "see progress while a run is active and have it close cleanly. stale agents cannot keep updating status or turn progress into acceptance.",
+          "components": [
+            {
+              "name": "internal/turn/activity.go and mcp_runtime.go",
+              "responsibility": "Retain activity owner and close attempt lifecycle"
+            },
+            {
+              "name": "internal/submission/family_tools.go",
+              "responsibility": "Profile and catalog permissions"
+            },
+            {
+              "name": "Daemon cleanup owner",
+              "responsibility": "Bounded retention scheduling"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "ActivityService.Lifecycle / HandleUpdate / HandleGet",
+              "input": "Bound attempt lifecycle or scoped activity request",
+              "output": "Advisory state or permission rejection"
+            }
+          ],
+          "constraints": [
+            "No acceptance/completion authority in activity.",
+            "Bound workers and cleanup; no uncancelled preparation state changes.",
+            "Use deterministic channels, not test sleeps."
+          ],
+          "decisions": [
+            {
+              "decision": "Keep advisory state process-local",
+              "reason": "Durable receipts and recovery records have separate lifetime"
+            },
+            {
+              "decision": "Extend the runtime registration established by US-003 after its engineering completion",
+              "reason": "Publication and activity share internal/turn/mcp_runtime.go; explicit sequencing avoids conflicting composition work and preserves the owner-requested ascending order."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-003"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-005",
+        "intent": "update",
+        "title": "Align shared instructions and auxiliary conventions",
+        "user_story": {
+          "actor": "operator",
+          "want": "read one current account of result submission and recovery",
+          "benefit": "agents follow the production behavior and auxiliary callers retain clear typed errors",
+          "notes": [
+            "Scope trace: feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions; ARCH_REVIEW.md group E.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Source/documentation contract review and render assertions; source availability: Shared-source contracts and current documentation available; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Update guidance and retain scoped checks.",
+            "Evidence inventory AC-002: proof method: Caller inventory review and typed version/error tests; source availability: Current auxiliary owners available; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Record applicable mapping or explicit exclusion per caller.",
+            "Evidence inventory AC-003: proof method: Manifest/path diff and isolated rendering checks; source availability: Existing handoff manifest and native render tests; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Enumerate exact targets; installed copies wait for US-006/US-007.",
+            "Evidence inventory AC-004: proof method: Retained source/render and auxiliary checks; source availability: Existing offline test seams; authentic observations unavailable; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute checks; #274/#296 external proof remains unsatisfied."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Canonical shared/root instructions and current documentation describe adopted final routes, explicit prior state, correction/retry, independent receipt dimensions, Validate restrictions, compatibility gates and separate adoption/retirement milestones. Mode-header authority and current session conventions remain intact."
+          },
+          {
+            "id": "AC-002",
+            "text": "Classifier, scheduler and conflict callers have an explicit inventory mapping applicable shared version/error conventions or documenting a reasoned exclusion. Implement applicable mappings, preserve typed payloads and verify unsupported inputs against each caller's authority."
+          },
+          {
+            "id": "AC-003",
+            "text": "The instruction handoff manifest enumerates affected shared sources and exact installed targets for separate Claude/Codex stories. Shared-source work writes neither protected installed tree and does not alter immutable releases; scoped rendering creates no installed-tree files."
+          },
+          {
+            "id": "AC-004",
+            "text": "Executed in-memory/temporary-root source/render assertions and focused auxiliary version/error tests pass. Documentation distinguishes implemented production wiring, offline tests and the still-unsatisfied authentic host observations in #274/#296."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Update canonical finalization, workflow, Research, planning/review guidance and current docs for settled routes (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions). Explicitly update docs/agent-evidence-capture.md to distinguish the implemented Claude/Codex integrations from historical deferred-status statements and still-outstanding authentic #274/#296 captures.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-004"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Inventory auxiliary callers and apply only relevant version/error mappings (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-003",
+            "description": "Update exact source-to-installed manifest and isolated render assertions (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions). In docs/story-contract-instruction-manifest.md, replace ambiguous prior-feature US-009/US-010/US-011/US-012 ownership references with this feature's US-005 shared-source, US-006 Claude-tree, US-007 Codex-tree and US-010 aggregate mapping; retain clearly attributed historical references where needed.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Run focused source/render and auxiliary convention checks and retain their bounds (feature-spec.md AC-008, AC-009; API / Interface Changes; Business Rules and Decisions).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002",
+              "T-003"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "read one current account of result submission and recovery. agents follow the production behavior and auxiliary callers retain clear typed errors.",
+          "components": [
+            {
+              "name": "teams/source skills and affected role sources; root guidance",
+              "responsibility": "Canonical production contract"
+            },
+            {
+              "name": "docs/story-contract-instruction-manifest.md and docs/agent-result-contract.md",
+              "responsibility": "Current guidance and exact installed handoff"
+            },
+            {
+              "name": "Classifier/scheduler/conflict owners",
+              "responsibility": "Applicable shared version/error conventions"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Existing native rendering",
+              "input": "Captured shared sources and bound render settings",
+              "output": "In-memory instruction bundles"
+            },
+            {
+              "name": "Existing typed auxiliary callers",
+              "input": "Their own versioned typed inputs",
+              "output": "Typed output/error with mapped conventions"
+            }
+          ],
+          "constraints": [
+            "No .claude/** or .codex/** writes in this story.",
+            "Do not force vendor stdout, diagnostics or typed auxiliary payloads into application results.",
+            "No new protocol, dependency or immutable release rewrite."
+          ],
+          "decisions": [
+            {
+              "decision": "Shared instructions follow settled production routes",
+              "reason": "Avoid documenting unimplemented authority"
+            },
+            {
+              "decision": "Independent installed handoffs follow this source change",
+              "reason": "Neither protected sibling becomes a prerequisite of shared work"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002",
+            "US-003",
+            "US-004"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-006",
+        "intent": "update",
+        "title": "Update installed Claude instructions",
+        "user_story": {
+          "actor": "operator",
+          "want": "use current Claude instructions for the adopted communication contract",
+          "benefit": "installed guidance matches the shared contract while preserving each role's restrictions",
+          "notes": [
+            "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group F.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Owned-tree source comparison; source availability: US-005 manifest and existing installed copies; version/context bounds: Tested source revision and Claude wrapper semantics only; missing prerequisite/disposition: Execute scoped assertions under the authorized harness.",
+            "Evidence inventory AC-002: proof method: Owned-path diff and harness provenance review; source availability: Manifest targets available; required harness must be selected; version/context bounds: Only Codex editing .claude/; missing prerequisite/disposition: If unavailable, retain incompletion with exact opposite-harness handoff.",
+            "Evidence inventory AC-003: proof method: Scoped assertions and retained diff; source availability: Existing shared source/render guidance; authentic captures unavailable; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute owned checks; aggregate sibling parity and external #274/#296 observations remain separate."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "All affected .claude/ installed files enumerated by the US-005 manifest incorporate the adopted shared finalization, prior-state, retry, receipt and compatibility semantics, preserving Claude wrappers, mode-header authority and applicable role/tool restrictions, including reference-only read-only Validate."
+          },
+          {
+            "id": "AC-002",
+            "text": "This story runs under Codex and changes only its owned .claude/ installed targets. It neither edits the sibling tree nor requires sibling completion/parity; an unavailable authorized harness leaves this story incomplete with the exact path handoff."
+          },
+          {
+            "id": "AC-003",
+            "text": "Executed owned-tree assertions compare affected instructions with the shared source and manifest without writing either tree through a generator. Temporary sibling drift is recorded; full parity waits for US-010 and no source check claims authentic host invocation."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Integrate the manifest's adopted shared guidance into the owned installed targets under the required harness (feature-spec.md AC-009; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Run and retain scoped owned-tree source assertions and record sibling drift/handoff (feature-spec.md AC-009; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "use current Claude instructions for the adopted communication contract. installed guidance matches the shared contract while preserving each role's restrictions.",
+          "components": [
+            {
+              "name": ".claude/ installed instructions",
+              "responsibility": "Manifest-selected targets only"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "US-005 source-to-installed manifest",
+              "input": "Canonical adopted guidance and exact target mapping",
+              "output": "Semantically aligned Claude copies with native wrappers"
+            }
+          ],
+          "constraints": [
+            "Required execution harness: Codex; owned installed tree: .claude/ only.",
+            "Do not use a generator that writes both installed trees or use shared-source edits as a substitute.",
+            "Do not widen permissions; no scoped sibling parity gate."
+          ],
+          "decisions": [
+            {
+              "decision": "Depend only on US-005 shared source",
+              "reason": "Independent installed maintenance allows a manual harness switch"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-005"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-007",
+        "intent": "update",
+        "title": "Update installed Codex instructions",
+        "user_story": {
+          "actor": "operator",
+          "want": "use current Codex instructions for the adopted communication contract",
+          "benefit": "installed guidance matches the shared contract while preserving each role's restrictions",
+          "notes": [
+            "Scope trace: feature-spec.md AC-009; Business Rules and Decisions; ARCH_REVIEW.md group G.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Owned-tree source comparison; source availability: US-005 manifest and existing installed copies; version/context bounds: Tested source revision and Codex wrapper semantics only; missing prerequisite/disposition: Execute scoped assertions under the authorized harness.",
+            "Evidence inventory AC-002: proof method: Owned-path diff and harness provenance review; source availability: Manifest targets available; required harness must be selected; version/context bounds: Only Claude editing .codex/; missing prerequisite/disposition: If unavailable, retain incompletion with exact opposite-harness handoff.",
+            "Evidence inventory AC-003: proof method: Scoped assertions and retained diff; source availability: Existing shared source/render guidance; authentic captures unavailable; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute owned checks; aggregate sibling parity and external #274/#296 observations remain separate."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "All affected .codex/ installed files enumerated by the US-005 manifest incorporate the adopted shared finalization, prior-state, retry, receipt and compatibility semantics, preserving Codex wrappers, mode-header authority and applicable role/tool restrictions, including reference-only read-only Validate."
+          },
+          {
+            "id": "AC-002",
+            "text": "This story runs under Claude and changes only its owned .codex/ installed targets. It neither edits the sibling tree nor requires sibling completion/parity; an unavailable authorized harness leaves this story incomplete with the exact path handoff."
+          },
+          {
+            "id": "AC-003",
+            "text": "Executed owned-tree assertions compare affected instructions with the shared source and manifest without writing either tree through a generator. Temporary sibling drift is recorded; full parity waits for US-010 and no source check claims authentic host invocation."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Integrate the manifest's adopted shared guidance into the owned installed targets under the required harness (feature-spec.md AC-009; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Run and retain scoped owned-tree source assertions and record sibling drift/handoff (feature-spec.md AC-009; Business Rules and Decisions).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "use current Codex instructions for the adopted communication contract. installed guidance matches the shared contract while preserving each role's restrictions.",
+          "components": [
+            {
+              "name": ".codex/ installed instructions",
+              "responsibility": "Manifest-selected targets only"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "US-005 source-to-installed manifest",
+              "input": "Canonical adopted guidance and exact target mapping",
+              "output": "Semantically aligned Codex copies with native wrappers"
+            }
+          ],
+          "constraints": [
+            "Required execution harness: Claude; owned installed tree: .codex/ only.",
+            "Do not use a generator that writes both installed trees or use shared-source edits as a substitute.",
+            "Do not widen permissions; no scoped sibling parity gate."
+          ],
+          "decisions": [
+            {
+              "decision": "Depend only on US-005 shared source",
+              "reason": "Independent installed maintenance allows a manual harness switch"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-005"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-008",
+        "intent": "update",
+        "title": "Remove unreachable story discovery",
+        "user_story": {
+          "actor": "operator",
+          "want": "remove the old discovery code that production no longer calls",
+          "benefit": "obsolete paths stop obscuring the supported publication workflow",
+          "notes": [
+            "Scope trace: feature-spec.md AC-010; Retirement Boundary; ARCH_REVIEW.md group H.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Current caller/reachability source review; source availability: Research identifies gate/path; current callers available; version/context bounds: Inspected repository revision only; missing prerequisite/disposition: Verify exact call graph before deletion.",
+            "Evidence inventory AC-002: proof method: Removed-path diff and preserved-helper review; source availability: Current discovery and live helper owners; version/context bounds: Implementation revision only; missing prerequisite/disposition: Retain deletion and ownership evidence.",
+            "Evidence inventory AC-003: proof method: Focused live-helper regression tests; source availability: Existing publication/render tests; version/context bounds: Offline repository behavior; no live cohort claim; missing prerequisite/disposition: Execute checks and retain separate disposition."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "A recorded call/consumer inventory proves the production PlanForge gate makes Markdown story discovery unreachable at the inspected revision and identifies its exclusive callers, options, rendering and tests separately from live shared helpers."
+          },
+          {
+            "id": "AC-002",
+            "text": "The proven unreachable discovery path and its exclusive wiring/tests are removed in the code diff. PublishPlan, RenderCompleteStory, link-only indexes and other shared live publication/render helpers remain available."
+          },
+          {
+            "id": "AC-003",
+            "text": "Focused live-publication/helper regression checks pass after deletion, and the disposition record distinguishes dead discovery removal from still-gated legacy reader retirement without claiming runtime cohorts drained."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Verify discovery reachability and exclusive ownership from current production callers (feature-spec.md AC-010; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Remove proven dead discovery and exclusive wiring while preserving live helpers (feature-spec.md AC-010; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Retain focused live-helper regression checks and separate disposition evidence (feature-spec.md AC-010; Retirement Boundary).",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "remove the old discovery code that production no longer calls. obsolete paths stop obscuring the supported publication workflow.",
+          "components": [
+            {
+              "name": "internal/turn/subissues.go and exclusive callers/options/tests",
+              "responsibility": "Proven dead discovery removal"
+            },
+            {
+              "name": "Existing Plan publication/render helpers",
+              "responsibility": "Preserved live path"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Production PlanForge path",
+              "input": "Published Plan stories and link-only index",
+              "output": "Existing authoritative publication"
+            }
+          ],
+          "constraints": [
+            "No whole-file removal without exclusive caller ownership proof.",
+            "No live cohort drain required for proven unreachable code; do not infer it for legacy readers."
+          ],
+          "decisions": [
+            {
+              "decision": "Remove dead discovery independently of live compatibility readers",
+              "reason": "Unreachability and runtime drain require different evidence"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-009",
+        "intent": "update",
+        "title": "Retire legacy inputs after compatibility checks",
+        "user_story": {
+          "actor": "operator",
+          "want": "remove superseded inputs once supported work can continue safely",
+          "benefit": "existing work and pending effects survive the cutover",
+          "notes": [
+            "Scope trace: feature-spec.md AC-010, AC-011; Retirement Boundary; ARCH_REVIEW.md group I.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Read-only runtime inventory plus source consumer review; source availability: Source available; live cohort/drain evidence not supplied; version/context bounds: Named inspected cohort, versions, pending effects and observation time; missing prerequisite/disposition: Obtain factual runtime evidence before deletion; remain incomplete if unavailable.",
+            "Evidence inventory AC-002: proof method: Supported upgrade/completion receipts and version assertions; source availability: Supported flows available; operator-controlled receipts not supplied; version/context bounds: Exact admitted revisions/cohort; workflow version unchanged; missing prerequisite/disposition: Required authorization/receipts outstanding where flow requires them.",
+            "Evidence inventory AC-003: proof method: Per-path gated diff plus live v2 regression checks; source availability: Plan handoff source available; actual cohort proof absent; version/context bounds: Removed input version and evidenced supported cohort; missing prerequisite/disposition: Obtain Plan-specific prerequisite evidence before removal.",
+            "Evidence inventory AC-004: proof method: Per-path gated diff plus StoryProgress recovery/delivery checks; source availability: Event ingress source available; actual cohort proof absent; version/context bounds: Removed ingress and evidenced cohort/effects; missing prerequisite/disposition: Obtain Implement-specific prerequisite evidence before removal.",
+            "Evidence inventory AC-005: proof method: Per-path gated diff plus restricted terminal checks; source availability: Legacy parser source available; actual cohort proof absent; version/context bounds: Supported content/submission versions; offline restriction proof; missing prerequisite/disposition: Obtain Validate-specific compatibility evidence; authentic host track stays external.",
+            "Evidence inventory AC-006: proof method: Real SQLite old-database/restart regression checks and disposition audit; source availability: Existing migration/recovery seams; live drain and host captures unavailable; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute compatibility checks; unresolved deletion obligations remain incomplete until explicit scope revision."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "A separate evidence-backed disposition for Plan v1 file handoff, Implement event-file ingress and Validate v1 assessment parsing records consumers, supported versions/cohorts, pending effects and each required upgrade/completion/drain prerequisite. Read-only runtime evidence identifies the inspected cohort and time; fixtures alone cannot establish live drain."
+          },
+          {
+            "id": "AC-002",
+            "text": "For each affected cohort, required completion or migration occurs only through supported admission/upgrade flows with any required operator authorization and retained receipts. Content/submission upgrades preserve persisted workflow versions; no manual daemon-state/version rewriting is used."
+          },
+          {
+            "id": "AC-003",
+            "text": "Once its supported consumer/cohort and pending-effect prerequisites are evidenced, Plan v1 file ingress and exclusive wiring are removed while v2 internal Plan handoffs/publication remain usable."
+          },
+          {
+            "id": "AC-004",
+            "text": "Once its supported consumer/cohort and pending-effect prerequisites are evidenced, Implement event-file ingress and exclusive wiring are removed while StoryProgress records, recovery and delivery remain usable."
+          },
+          {
+            "id": "AC-005",
+            "text": "Once its supported consumer/cohort and pending-effect prerequisites are evidenced, Validate v1 parser ingress and exclusive wiring are removed while its restricted structured terminal assessment remains usable."
+          },
+          {
+            "id": "AC-006",
+            "text": "Old-database migration, historical-read, restart/recovery and remaining workflow-v1 regression checks pass. Missing access, unresolved supported work or undrained effects keep the affected removal criteria and retirement milestone incomplete; retain required readers and prepare a focused follow-up title/body/source links and explicit scope revision for owner decision, without treating that proposal as removal or automatic waiver."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Record read-only per-path runtime cohort, consumer, version and pending-effect evidence (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Obtain supported upgrade/completion evidence through authorized flows and record unresolved prerequisites (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Remove Plan v1 exclusive input only after its documented prerequisites pass (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Remove Implement event-file exclusive input only after its documented prerequisites pass (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-005",
+            "description": "Remove Validate v1 exclusive parser only after its documented prerequisites pass (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          },
+          {
+            "id": "T-006",
+            "description": "Execute old-database/restart and preserved-live-workflow checks; retain per-path proof or explicit incompletion (feature-spec.md AC-010, AC-011; Retirement Boundary).",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005",
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-003",
+              "T-004",
+              "T-005"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "remove superseded inputs once supported work can continue safely. existing work and pending effects survive the cutover.",
+          "components": [
+            {
+              "name": "internal/turn/plan_handoff.go",
+              "responsibility": "Gated Plan v1 input retirement"
+            },
+            {
+              "name": "internal/turn/approved_context.go and story_progress.go",
+              "responsibility": "Event-file ingress retirement with shared recovery preserved"
+            },
+            {
+              "name": "internal/turn/validation.go and supported upgrade/admission owners",
+              "responsibility": "Legacy parser retirement and supported compatibility"
+            },
+            {
+              "name": "internal/store historical records/migrations",
+              "responsibility": "Preserved history and version semantics"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Supported story-contract upgrade/admission",
+              "input": "Revision-bound eligible unfinished cohort with required owner authority",
+              "output": "Retained upgrade/completion evidence preserving workflow version"
+            },
+            {
+              "name": "Compatibility disposition",
+              "input": "Consumer/cohort/version/effect evidence",
+              "output": "Per-path deletion gate or explicitly incomplete retirement"
+            }
+          ],
+          "constraints": [
+            "Do not hand-edit runtime state, persisted versions or daemon configuration.",
+            "Keep historical migrations/reads and workflow-v1 combined verification semantics.",
+            "Runtime inventory and required operator-controlled drain are execution prerequisites; never substitute fixtures."
+          ],
+          "decisions": [
+            {
+              "decision": "Gate each deletion separately on factual compatibility evidence",
+              "reason": "Supported legacy work must not lose required readers"
+            },
+            {
+              "decision": "Adoption and retirement have separate status",
+              "reason": "An incomplete retirement cannot become all-feature success through a follow-up proposal"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-010",
+        "intent": "update",
+        "title": "Verify adoption and retirement together",
+        "user_story": {
+          "actor": "operator",
+          "want": "see retained proof for the complete change and each milestone",
+          "benefit": "I can tell what works, what was removed and what still lacks evidence",
+          "notes": [
+            "Scope trace: feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory; ARCH_REVIEW.md group J.",
+            "Source-review citation base: 0403d5c02d54ea798a9605d87316611cf53c1037. No tests were executed in Plan; implementation evidence must name its executed revision.",
+            "Evidence inventory AC-001: proof method: Executed production/local persistence matrix audit; source availability: Existing fixtures and evidence produced in prior stories; version/context bounds: Tested repository revision and bound contract/workflow versions; offline proof does not establish actual Claude/Codex host capability; missing prerequisite/disposition: Execute/retain missing checks; no host proof inferred.",
+            "Evidence inventory AC-002: proof method: Both installed contracts compared with canonical source; source availability: US-005/006/007 outputs after authorized harness work; version/context bounds: Exact inspected installed/shared revisions; missing prerequisite/disposition: Both independent installed stories must finish.",
+            "Evidence inventory AC-003: proof method: Removal diff and compatibility evidence audit; source availability: US-008/009 dispositions; live drain initially unavailable; version/context bounds: Actual removed paths and named cohort/effect evidence; missing prerequisite/disposition: Unmet retirement criteria remain incomplete.",
+            "Evidence inventory AC-004: proof method: Executed make check and gofmt -l .; source availability: Repository check tooling available; version/context bounds: Executed implementation revision and local environment; missing prerequisite/disposition: Run and retain actual passing output; no checks run in Plan.",
+            "Evidence inventory AC-005: proof method: Evidence provenance and claim-bound review; source availability: External capture procedure available; four authentic captures not supplied; version/context bounds: Each supplied capture's version/host/context only; currently unknown; missing prerequisite/disposition: #274/#296 retain unsatisfied external capture obligations; never count synthetic proof as authentic."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Retained executed production-composition and local persistence/recovery checks cover all five modes and the approved cold/continuation/sparse/retry/stale/malformed/missing-output/failure/cancellation/interruption matrix, including evidence-backed completion, restricted terminal assessment, authorized publication recovery and advisory progress. Evidence identifies check IDs, implementation revision and environment."
+          },
+          {
+            "id": "AC-002",
+            "text": "Aggregate source comparison confirms both installed instruction trees match the canonical adopted contract after their independent stories complete, preserving role restrictions, mode-header authority and immutable releases."
+          },
+          {
+            "id": "AC-003",
+            "text": "An aggregate disposition audit matches all four old inputs to the actual removal diff, preserved shared helpers and applicable compatibility evidence. Adoption and retirement statuses are recorded separately; any unmet US-009 removal criterion prevents all-feature completion unless an explicit approved scope revision changes it."
+          },
+          {
+            "id": "AC-004",
+            "text": "make check passes using the pinned repository lint/test workflow and gofmt -l . reports no files; passing output and the corresponding implementation state are retained. No dist build, invented integration tag/name or live paid/nested provider invocation is used."
+          },
+          {
+            "id": "AC-005",
+            "text": "The final evidence inventory distinguishes source/synthetic assertions from authentic host observations. The four authentic working/Validate capture obligations remain on #274/#296 and unsatisfied until externally supplied with provenance/version bounds; offline tests do not establish actual tool invocation, same-run correction, observed authoritative receipt or present-day host restrictions."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Assemble the cross-mode production/failure evidence matrix and identify missing checks (feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Execute any needed aggregate local broker/SQLite/controlled HTTP recovery checks and retain evidence (feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory).",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Compare both installed contracts and audit all old-path removal/compatibility dispositions (feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-002",
+              "AC-003",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-004",
+            "description": "Run make check and formatting gate, retaining output and milestone/evidence status (feature-spec.md AC-001 through AC-012; Retirement Boundary; Candidate Evidence Inventory).",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003",
+              "AC-004",
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-002",
+              "T-003"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "see retained proof for the complete change and each milestone. I can tell what works, what was removed and what still lacks evidence.",
+          "components": [
+            {
+              "name": "Existing turn/daemon production-composition test seams",
+              "responsibility": "Cross-mode lifecycle, local broker, real SQLite/git and controlled HTTP verification"
+            },
+            {
+              "name": "Shared/installed instruction manifest",
+              "responsibility": "Aggregate parity after independent maintenance"
+            },
+            {
+              "name": "Session engineering/check evidence",
+              "responsibility": "Revision-bound execution and milestone disposition"
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Aggregate evidence assessment",
+              "input": "Retained executed checks, actual diff and per-path inventories",
+              "output": "Explicit adoption/retirement status and bounded claims"
+            }
+          ],
+          "constraints": [
+            "Validate later reads retained evidence only; this story owns executed engineering checks.",
+            "No new build tags or specially named integration tests; do not write dist/.",
+            "Authentic captures stay external; historical captures only support their documented versions/context."
+          ],
+          "decisions": [
+            {
+              "decision": "Reserve sibling parity for aggregate verification",
+              "reason": "Individual installed stories remain independent"
+            },
+            {
+              "decision": "Do not silently reduce acceptance when drain or authentic evidence is missing",
+              "reason": "Preserve visible unmet obligations and explicit scope control"
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002",
+            "US-003",
+            "US-004",
+            "US-005",
+            "US-006",
+            "US-007",
+            "US-008",
+            "US-009"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}
