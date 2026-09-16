@@ -22,9 +22,7 @@ import (
 //  2. Finish the runs row immediately, so the outcome is durable before
 //     anything slower is attempted (S-9).
 //  3. Commit and push whatever the run produced (AC-3.21, AC-3.22).
-//  4. File this task's plan into GitHub sub-issues, if there is one waiting —
-//     see [fileStoryIssues]. This runs strictly after step 3's push succeeds,
-//     never before, and never changes what step 3 already decided.
+//  4. Confirm managed Plan readiness after its publication and save gates.
 //  5. Record the commit on the row and the whole story in NNNN.meta.json.
 //
 // The metadata document is written from a defer, best effort, so a run that
@@ -52,6 +50,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	}
 	prep.validateScope = func(check context.Context) (string, error) { return validateApprovedRelationships(check, opts, prep) }
 	prep.meterDB = opts.DB
+	prep.mcpRuntime = opts.MCP
 	prep.planSubmission = func(c context.Context) (*PlanSubmissionCallbacks, error) {
 		return prepareTypedPlanSubmission(c, opts, prep)
 	}
@@ -178,7 +177,6 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 		}
 	}
 	result = markManagedPlanReady(ctx, opts, prep, result, runResult)
-	result = fileStoryIssues(ctx, opts, prep, result, runResult, logger)
 	return finish(bookkeeping, opts, prep, result, runResult, meta, logger)
 }
 

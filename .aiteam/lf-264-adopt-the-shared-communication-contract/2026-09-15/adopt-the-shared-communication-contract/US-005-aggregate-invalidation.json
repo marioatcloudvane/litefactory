@@ -1,0 +1,1 @@
+{"stage":"engineering","story":"US-005","outcome":"invalidated","reason":"Aggregate race execution found the exchange-cost fixture still pins pre-change shared instructions. Test-owned fixture refresh and final-state verification are underway; prior scoped checks remain historical, and no acceptance changes."}

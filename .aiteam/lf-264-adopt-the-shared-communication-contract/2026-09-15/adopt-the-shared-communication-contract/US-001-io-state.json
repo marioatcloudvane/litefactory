@@ -1,0 +1,50 @@
+{
+  "base_revision": "16634ed33075ea3acfc449bcb6316163bdc0b807",
+  "implementation_digest": "0a8aa4dadfb30119dc61b21bc96d9bf0b06c90d02b78f5e276952c6e110bdd92",
+  "files": [
+    {
+      "path": "internal/daemon/setup.go",
+      "sha256": "fad05e045f9816a5a878bf56f1f8a724ca0c78dfb517f221c1bf6d58b05e2ae4"
+    },
+    {
+      "path": "internal/daemon/shared_result_setup_test.go",
+      "sha256": "c5fc90c4aea25b32dc658eb83b7252b1299500198ca79d2bb6e9d36c136baf3a"
+    },
+    {
+      "path": "internal/submission/broker.go",
+      "sha256": "83cc4af7960dbf4d927c6ead4399a0d1be34f90262324937f9c85c6abc4ca6db"
+    },
+    {
+      "path": "internal/turn/agent_results.go",
+      "sha256": "adfb76410fcf4a6404193ec343e855213178ed984fba861920383c1e2d5c718a"
+    },
+    {
+      "path": "internal/turn/mcp_runtime.go",
+      "sha256": "edc3a1e61fd0c51fb3fbc8060ace8e2751ff22a8e5ad551c087e9f12d8c90c61"
+    },
+    {
+      "path": "internal/turn/mcp_runtime_unit_test.go",
+      "sha256": "351910e0a2106f882e75ccf3da5553f23c7f8cc9dd7cd5d9b98f1df29bbadd0d"
+    },
+    {
+      "path": "internal/turn/result_finalization.go",
+      "sha256": "f3394bcf085f89ea26616054b299d0318c92e4f0e13fe19105f999eb3dc8c23d"
+    },
+    {
+      "path": "internal/turn/shared_finalization_test.go",
+      "sha256": "0034a8f3692efe8ff564f589e987bbca576fb064aaca15e4911771d1fcc02a2d"
+    },
+    {
+      "path": "internal/turn/submission_runner.go",
+      "sha256": "6e979f8da929ff91ecb41d8f517e8f8b68f8ebb877838c6cc82de4cb9ff35123"
+    },
+    {
+      "path": "internal/turn/submissions.go",
+      "sha256": "c0e7d9c2d1588269c40c7c11ba1af3dfdd8c9ae2a0214d8e9ece46e722bb8c89"
+    },
+    {
+      "path": "internal/turn/typed_plan.go",
+      "sha256": "073c35fa9429dcf402cb9240efce3a598b41dd975030a0e2b9484fa2f278032f"
+    }
+  ]
+}

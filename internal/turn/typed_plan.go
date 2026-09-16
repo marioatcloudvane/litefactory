@@ -24,13 +24,14 @@ import (
 // TypedPlanSubmission holds factory-bound input for one actual Plan attempt.
 // It is never recovered from agent-written transport or treated as issue authority.
 type TypedPlanSubmission struct {
-	mu        sync.Mutex
-	receiptID int64
-	proposal  []byte
-	outcome   []byte
-	working   []byte
-	content   map[string]planbrief.TypedStory
-	scope     planbrief.ContentScope
+	mu           sync.Mutex
+	receiptID    int64
+	contribution []byte
+	proposal     []byte
+	outcome      []byte
+	working      []byte
+	content      map[string]planbrief.TypedStory
+	scope        planbrief.ContentScope
 }
 
 func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparation) (*PlanSubmissionCallbacks, error) {
@@ -51,8 +52,8 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 	if !ok {
 		return nil, fmt.Errorf("typed Plan forge unavailable")
 	}
-	renderer, ok := o.SubIssueRenderer.(CompleteStoryRenderer)
-	if !ok {
+	renderer := o.SubIssueRenderer
+	if renderer == nil {
 		return nil, fmt.Errorf("typed Plan renderer unavailable")
 	}
 	scope := planbrief.ContentScope{Roles: []string{"go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer"}, IssueRefs: []string{}}
@@ -185,6 +186,11 @@ func prepareTypedPlanSubmission(ctx context.Context, o Options, prep *preparatio
 			return err
 		}
 		prep.promptInput.PlanAttempt = receipt.Attempt
+		encodedContribution, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		state.contribution = encodedContribution
 		state.receiptID = receipt.ID
 		state.proposal = slices.Clone(proposal)
 		state.outcome = slices.Clone(outcome)

@@ -82,7 +82,7 @@ func ReplyMarker(ref naming.Ref) string {
 //
 // Both halves are interpolated verbatim, so both are validated first. The ref
 // is [naming.Ref.Validate]'s job, as it is for [StatusMarker]; the story id is
-// [Reporter.RenderSubIssue]'s, which refuses anything outside the shape a plan
+// [Reporter.RenderCompleteStory]'s, which refuses anything outside the shape a plan
 // gives a story. That is what confines the marker to characters which cannot
 // close the HTML comment early and leave the rest of it rendered on the page.
 //

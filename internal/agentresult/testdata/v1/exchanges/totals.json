@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "unit": "UTF-8 bytes",
+  "scenarios": [
+    {
+      "name": "cold",
+      "full": {
+        "input": 36403,
+        "output": 1154,
+        "total": 37557
+      },
+      "scoped": {
+        "input": 8131,
+        "output": 1231,
+        "total": 9362
+      }
+    },
+    {
+      "name": "continuation",
+      "full": {
+        "input": 37889,
+        "output": 1704,
+        "total": 39593
+      },
+      "scoped": {
+        "input": 8367,
+        "output": 340,
+        "total": 8707
+      }
+    },
+    {
+      "name": "stale-retry",
+      "full": {
+        "input": 39545,
+        "output": 3408,
+        "total": 42953
+      },
+      "scoped": {
+        "input": 8773,
+        "output": 603,
+        "total": 9376
+      }
+    },
+    {
+      "name": "incomplete",
+      "full": {
+        "input": 37892,
+        "output": 1745,
+        "total": 39637
+      },
+      "scoped": {
+        "input": 8482,
+        "output": 549,
+        "total": 9031
+      }
+    },
+    {
+      "name": "blocked",
+      "full": {
+        "input": 37886,
+        "output": 1733,
+        "total": 39619
+      },
+      "scoped": {
+        "input": 8571,
+        "output": 689,
+        "total": 9260
+      }
+    }
+  ],
+  "aggregate": {
+    "full": {
+      "input": 189615,
+      "output": 9744,
+      "total": 199359
+    },
+    "scoped": {
+      "input": 42324,
+      "output": 3412,
+      "total": 45736
+    }
+  }
+}

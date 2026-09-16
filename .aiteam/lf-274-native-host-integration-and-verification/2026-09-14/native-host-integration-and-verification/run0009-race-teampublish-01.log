@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestPublishDeterministicImmutableAndConsumerRoundTrip)$ ./internal/teampublish
+ok  	github.com/cloudvane/litefactory/internal/teampublish	2.498s
+
+EXIT: 0

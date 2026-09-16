@@ -1,0 +1,10 @@
+{
+  "result": {
+    "outcome": "blocked",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "validate": {}
+    },
+    "reason": "Further evidence or work is required."
+  }
+}

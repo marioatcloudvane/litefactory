@@ -1,0 +1,705 @@
+{
+  "implementation_digest": "bc8f86a96484ca8ab61a8100d4c187ed25309fb6b7b6f63b737dacbd6c7e79da",
+  "files": [
+    {
+      "path": "docs/agent-result-contract.md",
+      "sha256": "a83f7e48d4fd5d2c55c306c633a03f68930666efd4b5efdaf74b61e50d870e90",
+      "deleted": false
+    },
+    {
+      "path": "docs/agent-result-exchange-costs.md",
+      "sha256": "42bbf1c7df85ab17952a53fbe7359f515550f39bbdb38f96d22fa565b5f90f79",
+      "deleted": false
+    },
+    {
+      "path": "docs/schemas/agent-result-snapshot-v1.json",
+      "sha256": "d30f0081f6b978ecd853a423052af25f887d4b610fa7fffb373d416facb8ee9f",
+      "deleted": false
+    },
+    {
+      "path": "docs/schemas/agent-result-update-v1.json",
+      "sha256": "1c5d27773c4f7d64d801243ea8ec00b69bc010bc660ab297e38156d551bde3a7",
+      "deleted": false
+    },
+    {
+      "path": "docs/schemas/agent-result-v1.json",
+      "sha256": "233466ca261e8afd5fda45971a102d291219c53ad3c171b2e8608d4d1c0642f1",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/aggregate_capture.go",
+      "sha256": "95d1df768f98fc8f566e8277d3a36991666d5a2689f5ad7371f298eedca32691",
+      "deleted": false
+    },
+    {
+      "path": "internal/agent/aggregate_capture_test.go",
+      "sha256": "3beb9402575198395fa852e28ea4347c52d44a1b0e0d244ff7875c55f14a4b62",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/create_test.go",
+      "sha256": "6728613b2ba4be8b03986320b8379088f15abf73156d3f8df2ba659567f61263",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/decode.go",
+      "sha256": "6f36f004ef1d8377b057e371235b8486cdf3fc754492219986d5f8e61152ab6a",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/exchange_cost_test.go",
+      "sha256": "f45dd9fb2e7f4d8a709c553f516e82c264830f4878a80e5b89d9bcbdc54cf4d7",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/finalization_test.go",
+      "sha256": "79c0a055eb28e62a6f73ca71197bbd58e1a904f87cf2087d32d36e1d9de4afa8",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/progress.go",
+      "sha256": "b5714d36b94b1c5b21c4cbe080ed57d4610d6c0a3cc8b74bdbc14fb2de24c797",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/progress_test.go",
+      "sha256": "b1893107f5324f971f68f928eb02fb55eb92a387be53faa1d8839fe6bbbaa536",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/projection.go",
+      "sha256": "066f9d70b86bdf5de1b42b09c080b8bf794be62272a38c5cd371a734e97409fb",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/schema.go",
+      "sha256": "cc9e7264bdf1d1d8b284f4d1fcf9a6053f660af21b0626487461604c4e084495",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/README.md",
+      "sha256": "312a1c4f1e6d53b065114fa7e92c49aaa2b6b0e00e2e7792551e8184ef7d178e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-current.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-baseline.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-read.json",
+      "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-update.json",
+      "sha256": "fa8cd1638cf7bc40d10680414db3665a973128b1b0f301bde572277484eba30e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-result.json",
+      "sha256": "c55e5c4f39cae8d59db94640d66a6d36b2d3408d9a644d05750680a4fbd48c40",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-baseline.json",
+      "sha256": "89894285333067797158aca0cae8be717377688bf7ca9147fca29b2ab6d07a07",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-read.json",
+      "sha256": "b5a189138034396e2341b10566519429862d9b90485443c0cbb326c96f667a26",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-update.json",
+      "sha256": "3143701aab08f3d7a05c5b979580b1a20e8f2821cbbbc8299440874e89c2700b",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/blocked-task.json",
+      "sha256": "8dc29d446dfb14ab68c53683383e36d6cc903e0a6f336b12086f80bc22c8306f",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/cold-result.json",
+      "sha256": "dbd31bbd3704bfd16d5d943f30360ac112126919985bedaedc980bd5d407ed88",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/cold-task.json",
+      "sha256": "074cfdf82eaa011129b15096637daad7ca2678d73a8faabb0c61beb7e5d90095",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+      "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-current.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-baseline.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-read.json",
+      "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-update.json",
+      "sha256": "04926fed8edad4c3cabc9237cea1922dbabb744b101622e780c7bc2d686387be",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-result.json",
+      "sha256": "ff531e3d3fbb41600f5aca9883ab63ece55c41ee802fba8608263050594127f1",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-baseline.json",
+      "sha256": "6f75b149e1960aad7fcbd14b0633ecee8e505fcb2e118510ef8bcbe2b933809e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-read.json",
+      "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-update.json",
+      "sha256": "6259db55afcd1c06a797630f8e91fcaf5338941b2444733937271f394890dce3",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/continuation-task.json",
+      "sha256": "641bff3da17394d3d66cbc9ea554e234f8e7ded46147c447c1f21d1f4bc4db51",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/corpus.json",
+      "sha256": "dca764240c3cf02a3f1e2462dccf53ee6863b882763d5996733aebdf373066cf",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+      "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-current.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-baseline.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-read.json",
+      "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-update.json",
+      "sha256": "7dfa89656bf8a413c7ef2c642fe45bcbe573173cb1086f0c21160a3f8441e8cb",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-result.json",
+      "sha256": "7d8b623bfd97b0864ef4c1d9f7314257c04a44bc3d922e3739f4baa98e424df2",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-baseline.json",
+      "sha256": "6fd1fe3d48e0db7bc6ec4a325adfb24af954e096859694cd313ddaec3d7befbe",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-read.json",
+      "sha256": "dd3c8b19e16d3bbaf798545bf7a506fcceed906c498048b50567949f99050552",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-update.json",
+      "sha256": "8f13409a012802f20e7b978056966fd85fad0d9750147ea730642c8aff10f7d0",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/incomplete-task.json",
+      "sha256": "e814682c970190e7cb0820d1bd1678170bd60eec1b6383f2cff49403e1d52a51",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+      "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+      "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-diagnostic.json",
+      "sha256": "5ab578813cd1de5073ed88456cb2919cff649dae413ab0bfb5194802b206f270",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-current.json",
+      "sha256": "e82dfe1f30a966b4c73165cae503a0d896c344d6cab3cac780fee66674cab564",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-baseline.json",
+      "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-read.json",
+      "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-baseline.json",
+      "sha256": "e82dfe1f30a966b4c73165cae503a0d896c344d6cab3cac780fee66674cab564",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-read.json",
+      "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-update.json",
+      "sha256": "180ae9fd4357a4ed22f71e364e428026ba930127f9ecabda0c31eb2104820728",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-update.json",
+      "sha256": "04926fed8edad4c3cabc9237cea1922dbabb744b101622e780c7bc2d686387be",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-result.json",
+      "sha256": "ff531e3d3fbb41600f5aca9883ab63ece55c41ee802fba8608263050594127f1",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-baseline.json",
+      "sha256": "6f75b149e1960aad7fcbd14b0633ecee8e505fcb2e118510ef8bcbe2b933809e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-read.json",
+      "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-baseline.json",
+      "sha256": "70cfa4c63a0819f0c649bab885f10e34dc5eb8287de9eb7aebf792f7f3e1c3d4",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-read.json",
+      "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-update.json",
+      "sha256": "847402111d2f9a8cb4db863edb3b83c6ec6cd5d5183975cc2b7e37f7c04a2d9c",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-update.json",
+      "sha256": "6259db55afcd1c06a797630f8e91fcaf5338941b2444733937271f394890dce3",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-task.json",
+      "sha256": "b1d393f2e162ac7dbdf5efc3ef7809550c4a06f5c6328411f298c6bdc28d80bf",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/exchanges/totals.json",
+      "sha256": "4863a4a28aee58b512b1260c6eaf3ae68dd5af581209cfaa8e6f8c4f727980ae",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/implement-blocked.json",
+      "sha256": "82551f8fd02ab9cc613481d7b3a003f10713038eeaac8eb789fb4681c5731bb0",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/implement-completed.json",
+      "sha256": "e293bfb7d34c31410895fb38581db7215661c41e3867d53e77121e77146b14e9",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/implement-incomplete.json",
+      "sha256": "3b5c011763242332d66407e6937f8954bea63d0c83c09cc3dcae5fa841286232",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/invalid-duplicate.json",
+      "sha256": "216d2a65eba023e38e1381825f1e45bedd04bc18c4db71c090d46de551fec91b",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/invalid-meta.json",
+      "sha256": "46ddb01c9b99c06aee5d708910402bb02ee5e9e4df4bb5d20e972bca08acaf3e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/invalid-spike-question.json",
+      "sha256": "d9c684a6eceb044e4e0a34ef658719689082070fe5a9ad7001aeee8ed90a93fc",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/plan-blocked.json",
+      "sha256": "ee7650d2c377904a13daee5871e3b3293cc925f8cbc0ccb22cf8a05e1e20580c",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/plan-completed.json",
+      "sha256": "8bc822b47d5c752cc46a1e6568131ce214e5ff81f6dd9d5f974ad73487af8c27",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/plan-incomplete.json",
+      "sha256": "e77ff539d2db840b29ef0dafa2836abc49e828cc00cf1f6b966bfc9c02d47d3f",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/research-blocked.json",
+      "sha256": "8f43db974d91d82636ebea892aef154c67998e8b1b0a59b655a190bc7caa1c64",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/research-completed.json",
+      "sha256": "50f06dd3a34d2dd946776b9eee295cc67833bc384ed060f07cf71950b7633488",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/research-incomplete.json",
+      "sha256": "51fb5a01d1898424c75bf584e7d78547368e0ed32dd96b27c67cc2ba2da7ed78",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/research-question.json",
+      "sha256": "8005889e9135e40829d2e412885f837e4f77ad777bcc4f146eb91b445b4a350b",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/spike-blocked.json",
+      "sha256": "dde26a5543c8bec8e0f89c694b9f71db18a67b4c56a833c909e766a8ccf8033c",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/spike-completed.json",
+      "sha256": "83e16a439d787ecde61dc123cd09e4ed18bef756e7b6dc90b1b75c6163a3f12e",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/spike-incomplete.json",
+      "sha256": "6721a18cfd12ccd37690d13429e67e7cb7eac63260fa2274e081adcfc3edee7d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/implement.json",
+      "sha256": "65cc8e08beb14d15e55b97306ab147f8e58e93548540083df3fbabd0b85628d1",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/plan.json",
+      "sha256": "0e022b5ed5f10364420d4d153a54abd128a4ab6e8199e946c8af2c904a857dff",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/research.json",
+      "sha256": "bf83149bf2c1e78701e24bbef55be9ce874cb655ff5973463b8ea7352c5bac97",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/schema.json",
+      "sha256": "1c5d27773c4f7d64d801243ea8ec00b69bc010bc660ab297e38156d551bde3a7",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/spike.json",
+      "sha256": "386def2e8bab7b4ec9812a865674bc5d7c60e986c344ade852788ed04270e6ce",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/updates/validate.json",
+      "sha256": "903c859cc82000caa4005993d62b68c84f22882627b38cbd3ebde9b8d90d33e8",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/validate-blocked.json",
+      "sha256": "23a4677d320b7c9fe57a4b594aa0793edc70af820a38b4148687db276bbe1794",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/validate-completed.json",
+      "sha256": "b9d245d7579ba2cab8a2ea07b049ba32a50b952c46534124dcd4cdad5a57e4d9",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/testdata/v1/validate-incomplete.json",
+      "sha256": "0517b59b42c89487833d33e5c6f643483b76b996604c7dccaa4b1980a5a10ed5",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/types.go",
+      "sha256": "cf186a99c24c1f5f7187609e6f842a60e51888ffe391d2c87837c4bb24c3830d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/update.go",
+      "sha256": "8cd07ef94557151f3b694f1a7a763edf0c6d3a94315a9b617c639122680eeab4",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/update_schema.go",
+      "sha256": "b1bf873e0edd480cc66c7ed200f6ceb3dfe07ceac65893fed9badb67b91aea98",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/update_test.go",
+      "sha256": "8bc30304e68f348696189121107b1f971a7ec3f55fa1d6f3cc407574227bb87d",
+      "deleted": false
+    },
+    {
+      "path": "internal/agentresult/validate.go",
+      "sha256": "9eaf32cecd5a1f25026b40af79015c9215f01bd732911b798a17021e2332738a",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0040_application_results.sql",
+      "sha256": "78f41fcfeb1982c9f5de5bb723c6ae3f9ee6298468b60ed0d7fd961fe04984fa",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/migrations/0041_result_aggregate_evidence.sql",
+      "sha256": "9f3921b1f7d6e1282a626580ba58749db4444e14d090e73251a409edf1e041b7",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_aggregates.go",
+      "sha256": "c312562d0b325556975fed0663d516b6c00da4565cbf10a3551f9648e6dff0d2",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_aggregates_test.go",
+      "sha256": "4becad90b6a6299a1a3ebd3baceb6a54987d1e426c84370e148d486b83f36072",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_bindings.go",
+      "sha256": "b06ab9f6c0afc8c94cb884572924492cbb7cb3f5d80a471d60a793d0d767cdce",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_history.go",
+      "sha256": "f9835ec952883bf1ed92b6ffece7e46c14020e2f10850ceb6b9553b59dc1eaa2",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_history_test.go",
+      "sha256": "04fb64864344bca3805e7acca720a2b68ac3304a415eb0aa54b75529475f0dc4",
+      "deleted": false
+    },
+    {
+      "path": "internal/store/result_observations.go",
+      "sha256": "291d9d68bb7a4eb9ce30bcc3ef6e4e43fd8bc6d9d4e01231cf99c39691cfcce1",
+      "deleted": false
+    },
+    {
+      "path": "internal/teamsource/finalization_test.go",
+      "sha256": "81d0b8f70e299a74a923bcb71f1854fcd754db5defc986ad76c817ad8d574ca9",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/agent_result_aggregates.go",
+      "sha256": "13d595edc3b78379a7e5acd0b2b909392d096239e3d0bc5be510cce07dd3b1fd",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/agent_result_aggregates_test.go",
+      "sha256": "bc8986fbbe87e7bc59305cef1c9ed61a4e4f86f85c07b9d96ba380c1cf8b2c60",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/agent_results.go",
+      "sha256": "ef66fd84e6491ce4dd1df45498a9a91be3ba4fe5298e614889a2eec79b39b4d2",
+      "deleted": false
+    },
+    {
+      "path": "internal/turn/agent_results_test.go",
+      "sha256": "2d114eb7f9c0acffe0f2342f93cfbcab88e9ad85bb476ca322694ae843356578",
+      "deleted": false
+    },
+    {
+      "path": "scripts/agent-result-bytes.py",
+      "sha256": "62ee86fca02626afc3ab87975acd0e9c45b0443f7e583191aaef8b8efe52f630",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/SKILL.md",
+      "sha256": "d8ee1d7fe20fd4e2f68791ed3102c3ac5709b770badbccd4982ed35e761a09a6",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/common.md",
+      "sha256": "c38ed44057a1298398c2c2b41087189afaf9dfa160e2e4582c2377fe795f7e05",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/implement-blocked.json",
+      "sha256": "82551f8fd02ab9cc613481d7b3a003f10713038eeaac8eb789fb4681c5731bb0",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/implement-completed.json",
+      "sha256": "e293bfb7d34c31410895fb38581db7215661c41e3867d53e77121e77146b14e9",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/implement-incomplete.json",
+      "sha256": "3b5c011763242332d66407e6937f8954bea63d0c83c09cc3dcae5fa841286232",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/implement-update.json",
+      "sha256": "65cc8e08beb14d15e55b97306ab147f8e58e93548540083df3fbabd0b85628d1",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/invalid-spike-question.json",
+      "sha256": "d9c684a6eceb044e4e0a34ef658719689082070fe5a9ad7001aeee8ed90a93fc",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/plan-blocked.json",
+      "sha256": "ee7650d2c377904a13daee5871e3b3293cc925f8cbc0ccb22cf8a05e1e20580c",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/plan-completed.json",
+      "sha256": "8bc822b47d5c752cc46a1e6568131ce214e5ff81f6dd9d5f974ad73487af8c27",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/plan-incomplete.json",
+      "sha256": "e77ff539d2db840b29ef0dafa2836abc49e828cc00cf1f6b966bfc9c02d47d3f",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/plan-update.json",
+      "sha256": "0e022b5ed5f10364420d4d153a54abd128a4ab6e8199e946c8af2c904a857dff",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/research-blocked.json",
+      "sha256": "8f43db974d91d82636ebea892aef154c67998e8b1b0a59b655a190bc7caa1c64",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/research-completed.json",
+      "sha256": "50f06dd3a34d2dd946776b9eee295cc67833bc384ed060f07cf71950b7633488",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/research-incomplete.json",
+      "sha256": "51fb5a01d1898424c75bf584e7d78547368e0ed32dd96b27c67cc2ba2da7ed78",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/research-question.json",
+      "sha256": "8005889e9135e40829d2e412885f837e4f77ad777bcc4f146eb91b445b4a350b",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/research-update.json",
+      "sha256": "bf83149bf2c1e78701e24bbef55be9ce874cb655ff5973463b8ea7352c5bac97",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/spike-blocked.json",
+      "sha256": "dde26a5543c8bec8e0f89c694b9f71db18a67b4c56a833c909e766a8ccf8033c",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/spike-completed.json",
+      "sha256": "83e16a439d787ecde61dc123cd09e4ed18bef756e7b6dc90b1b75c6163a3f12e",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/spike-incomplete.json",
+      "sha256": "6721a18cfd12ccd37690d13429e67e7cb7eac63260fa2274e081adcfc3edee7d",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/spike-update.json",
+      "sha256": "386def2e8bab7b4ec9812a865674bc5d7c60e986c344ade852788ed04270e6ce",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/validate-blocked.json",
+      "sha256": "23a4677d320b7c9fe57a4b594aa0793edc70af820a38b4148687db276bbe1794",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/validate-completed.json",
+      "sha256": "b9d245d7579ba2cab8a2ea07b049ba32a50b952c46534124dcd4cdad5a57e4d9",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/validate-incomplete.json",
+      "sha256": "0517b59b42c89487833d33e5c6f643483b76b996604c7dccaa4b1980a5a10ed5",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/examples/validate-update.json",
+      "sha256": "903c859cc82000caa4005993d62b68c84f22882627b38cbd3ebde9b8d90d33e8",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/implement.md",
+      "sha256": "773409d3e2c66451cacff04de7720c1b76a887877f79bf8743d8ed897ac49f4f",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/plan.md",
+      "sha256": "bb53b025acfb3f50738ade2d7e74be463ab08c3690bec799c59f6e81f60ee190",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/research.md",
+      "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/spike.md",
+      "sha256": "5a75d104ed1f8c17a3888b0a67436ee6cd48cadc540ac032880f8939a8d0a49c",
+      "deleted": false
+    },
+    {
+      "path": "teams/source/skills/agent-finalization/references/validate.md",
+      "sha256": "6db6eeec57d075ffeb92d06b36fa4769c1f0fe94b5466e037f4be9fdcc857ad9",
+      "deleted": false
+    }
+  ]
+}

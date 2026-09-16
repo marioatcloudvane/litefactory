@@ -1,0 +1,4 @@
+Group: turn-8 (TestR*)
+ok  	github.com/cloudvane/litefactory/internal/turn	119.411s
+go test -race -timeout 8m -run '^TestR' ./internal/turn/...  181.24s user 88.44s system 217% cpu 2:04.11 total
+EXIT: 0

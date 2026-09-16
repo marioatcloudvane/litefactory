@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestAddNoOpRenderedHashUnaffectedByChangesOutsideMarkerSpan|TestAddSharedAgentSectionUpdatesTeamListAcrossSequentialAdds)$ ./internal/team
+ok  	github.com/cloudvane/litefactory/internal/team	1.416s
+
+EXIT: 0

@@ -11,7 +11,11 @@ func TestValidateDisablesShellOnAllConversationPaths(t *testing.T) {
 		req := request(t, path)
 		req.Mode = "validate"
 		r := &Runner{}
-		args := strings.Join(r.args(req, "read-only"), " ")
+		argv, err := r.args(req, "read-only")
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := strings.Join(argv, " ")
 		for _, want := range []string{"--sandbox read-only", "features.shell_tool=false", "features.multi_agent=false"} {
 			if !strings.Contains(args, want) {
 				t.Fatalf("%s missing %s", args, want)

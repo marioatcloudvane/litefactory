@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestPriceExactRounding|TestPriceUnknownAndFrozenDimensions|TestPriceCacheSubsets|TestResumeReplayAndRepeatedWork|TestReconcileScopeAndOwnership|TestIdentityTupleCannotCollide|TestCapabilityCoverage|TestNormalizeAndTotal|TestCounterFailures|TestDeltaKnownZeroAndMissingBaseline|TestTokenAccountingBoundaries|TestReconcileRejectsBaselineFromDifferentScope|TestDeltaSubsetCannotConsumePreviouslyUnclassifiedTokens)$ ./internal/meter
+ok  	github.com/cloudvane/litefactory/internal/meter	1.627s
+
+EXIT: 0

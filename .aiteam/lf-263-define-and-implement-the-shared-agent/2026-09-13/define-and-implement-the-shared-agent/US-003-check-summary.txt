@@ -1,0 +1,3 @@
+Bounded final output excerpt. Full output retained at US-003-final-tests.log; broader v2 regression outputs retained separately.
+ok  	github.com/cloudvane/litefactory/internal/store	16.116s	coverage: 14.0% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	16.734s	coverage: 5.5% of statements

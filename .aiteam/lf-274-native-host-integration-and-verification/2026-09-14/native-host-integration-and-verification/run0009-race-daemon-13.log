@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestWorkerLifecycleAC4MultipleRequestAccounting|TestWorkerLifecycleAC3PreExecutionFailures)$ ./internal/daemon
+ok  	github.com/cloudvane/litefactory/internal/daemon	7.254s
+
+EXIT: 0

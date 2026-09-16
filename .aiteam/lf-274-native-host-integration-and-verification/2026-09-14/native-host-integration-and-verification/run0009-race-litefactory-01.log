@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestDaemonLogPathUsesLFHome|TestDaemonLogPathFallsBackToHomeDir|TestConfiguredLevelFallsBackToInfo|TestConfiguredLevelReadsConfig|TestRootContextCancelsOnSignal|TestRootContextStopIsIdempotent)$ ./cmd/litefactory
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.788s
+
+EXIT: 0

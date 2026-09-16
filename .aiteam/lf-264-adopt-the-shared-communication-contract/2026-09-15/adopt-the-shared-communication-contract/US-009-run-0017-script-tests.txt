@@ -1,0 +1,13 @@
+Executed command:
+python3 .aiteam/lf-264-adopt-the-shared-communication-contract/2026-09-15/adopt-the-shared-communication-contract/test_upgrade_pending.py
+
+Actual unittest result:
+Ran 10 tests in 6.963s
+OK
+Exit code: 0
+
+10 passed, 0 failed. Subtests cover both fixed targets and multiple invalid flags/preview bindings.
+Offline only: fake factory executable, temporary evidence and LF_HOME paths, no live factory/forge or daemon state access.
+Covers fixed-target preview, bypass refusal, output path protection, exact reviewed preview/apply, stale preview refusal, task/binary/home/status/exit/output/action mismatch refusal, binary replacement, factory refusal, failed apply and explicit retry preserving evidence, malformed reviewed JSON, paths with spaces and private evidence file permissions.
+No Go production package touched; Go race/coverage not applicable. No measured Python coverage percentage.
+These tests do not establish live cohort drain, successful migration, retirement eligibility, or authentic host invocation.

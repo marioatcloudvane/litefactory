@@ -1,0 +1,83 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	0.584s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	0.855s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	1.123s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.182s
+ok  	github.com/cloudvane/litefactory/internal/codex	57.791s
+ok  	github.com/cloudvane/litefactory/internal/config	2.006s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.903s
+ok  	github.com/cloudvane/litefactory/internal/git	139.851s
+ok  	github.com/cloudvane/litefactory/internal/github	2.708s
+ok  	github.com/cloudvane/litefactory/internal/gittest	5.406s
+ok  	github.com/cloudvane/litefactory/internal/harness	64.941s
+ok  	github.com/cloudvane/litefactory/internal/identity	19.997s
+ok  	github.com/cloudvane/litefactory/internal/launchd	5.644s
+ok  	github.com/cloudvane/litefactory/internal/logging	3.122s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	3.373s
+ok  	github.com/cloudvane/litefactory/internal/meter	2.980s
+ok  	github.com/cloudvane/litefactory/internal/naming	2.488s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	2.634s
+ok  	github.com/cloudvane/litefactory/internal/redact	2.528s
+ok  	github.com/cloudvane/litefactory/internal/render	2.461s
+ok  	github.com/cloudvane/litefactory/internal/report	4.115s
+ok  	github.com/cloudvane/litefactory/internal/repos	12.104s
+ok  	github.com/cloudvane/litefactory/internal/schedule	1.609s
+ok  	github.com/cloudvane/litefactory/internal/secrets	2.527s
+ok  	github.com/cloudvane/litefactory/internal/store	51.036s
+ok  	github.com/cloudvane/litefactory/internal/submission	3.051s
+ok  	github.com/cloudvane/litefactory/internal/team	4.416s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	5.610s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.051s
+--- FAIL: TestBothInstructionTrees_SharedSourceParity (0.00s)
+    --- FAIL: TestBothInstructionTrees_SharedSourceParity/shared_workflow_contract (0.07s)
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 2 missing or out of order: "| Role | Reads | |---|---| | Research — use research-evidence instead | everything above `## Persisted workflow version`, then stop | | Plan | the same openin…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 8 missing or out of order: "For an adopted attempt, the factory supplies a shared result helper descriptor, permitted communication tools or structured terminal output. Use the declared ro…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 9 missing or out of order: "Cold starts receive an explicit empty baseline; resumed, restarted and fallback attempts receive authorized prior fields, stable IDs, retired IDs and observed r…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 10 missing or out of order: "The factory revalidates current evidence after exit. Missing or malformed required output blocks nominal success. Failure, cancellation and interruption preserv…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 11 missing or out of order: "Production adoption and legacy retirement are separate milestones. Unmanaged Implement/Validate and submission-v1 managed scopes keep their declared compatibili…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 14 missing or out of order: "In separated workflow, Implement owns coding, environment setup, test writing, test execution, fixes and aggregate engineering/save gates. Engineering completio…"
+        aggregate_instruction_parity_test.go:97: .claude/skills/shared/workflow.md: shared-source paragraph 24 missing or out of order: "For contract 2, submit contributions only: stage, authorized story selector, outcome and the stage's typed Plan/context, engineering or assessment fields. The f…"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 3 missing or out of order: "Research opens no stories, submits no story contributions and closes nothing, so nothing below `## Persisted workflow version` reaches it — about five sixths …"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 7 missing or out of order: "## Shared final routes and continuation"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 8 missing or out of order: "For an adopted attempt, the factory supplies a shared result helper descriptor, permitted communication tools or structured terminal output. Use the declared ro…"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 9 missing or out of order: "Cold starts receive an explicit empty baseline; resumed, restarted and fallback attempts receive authorized prior fields, stable IDs, retired IDs and observed r…"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 10 missing or out of order: "The factory revalidates current evidence after exit. Missing or malformed required output blocks nominal success. Failure, cancellation and interruption preserv…"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 11 missing or out of order: "Production adoption and legacy retirement are separate milestones. Unmanaged Implement/Validate and submission-v1 managed scopes keep their declared compatibili…"
+        aggregate_instruction_parity_test.go:98: .codex/skills/workflow/SKILL.md: shared-source paragraph 14 missing or out of order: "In separated workflow, Implement owns coding, environment setup, test writing, test execution, fixes and aggregate engineering/save gates. Engineering completio…"
+    --- FAIL: TestBothInstructionTrees_SharedSourceParity/shared_review-evidence_contract (0.10s)
+        aggregate_instruction_parity_test.go:105: .codex/skills/review-evidence/SKILL.md: shared-source paragraph 2 missing or out of order: "For separated managed workflow, assess the factory's frozen identities/revisions, retained implementation snapshots and executed checks, never substitute live i…"
+--- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly (0.00s)
+    --- FAIL: TestBothInstructionTrees_StructuredProtocolHandoffPointsAtOwnTreeOnly/go-code-reviewer (0.00s)
+        aggregate_instruction_parity_test.go:128: .claude/agents/go-code-reviewer.md: missing the exact handoff pointing at .claude/skills/shared/workflow.md
+--- FAIL: TestCodexSkills_SharedSourceParity (0.00s)
+    --- FAIL: TestCodexSkills_SharedSourceParity/review-evidence_contract (0.00s)
+        codex_instruction_parity_test.go:143: .codex/skills/review-evidence/SKILL.md: shared-source paragraph 2 missing or out of order: "For separated managed workflow, assess the factory's frozen identities/revisions, retained implementation snapshots and executed checks, never substitute live i…"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_proxy-product-owner (0.00s)
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 the checkpoint path accepts a Plan contribution with `stage: \"plan\"`, outcome discussion or …"
+        codex_instruction_parity_test.go:143: .codex/skills/proxy-product-owner/SKILL.md: shared-source paragraph 6 missing or out of order: "The adopted shared result route also accepts completed typed payload.plan content; its adapter reuses the existing Plan owner for validation, internal handoff a…"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_requirements-engineer (0.00s)
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 the checkpoint path accepts a Plan contribution with `stage: \"plan\"`, outcome discussion or …"
+        codex_instruction_parity_test.go:143: .codex/skills/requirements-engineer/SKILL.md: shared-source paragraph 6 missing or out of order: "The adopted shared result route also accepts completed typed payload.plan content; its adapter reuses the existing Plan owner for validation, internal handoff a…"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_go-architect (0.00s)
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 the checkpoint path accepts a Plan contribution with `stage: \"plan\"`, outcome discussion or …"
+        codex_instruction_parity_test.go:143: .codex/skills/go-architect/SKILL.md: shared-source paragraph 6 missing or out of order: "The adopted shared result route also accepts completed typed payload.plan content; its adapter reuses the existing Plan owner for validation, internal handoff a…"
+    --- FAIL: TestCodexSkills_SharedSourceParity/workflow_contract (0.01s)
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 3 missing or out of order: "Research opens no stories, submits no story contributions and closes nothing, so nothing below `## Persisted workflow version` reaches it — about five sixths …"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 7 missing or out of order: "## Shared final routes and continuation"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 8 missing or out of order: "For an adopted attempt, the factory supplies a shared result helper descriptor, permitted communication tools or structured terminal output. Use the declared ro…"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 9 missing or out of order: "Cold starts receive an explicit empty baseline; resumed, restarted and fallback attempts receive authorized prior fields, stable IDs, retired IDs and observed r…"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 10 missing or out of order: "The factory revalidates current evidence after exit. Missing or malformed required output blocks nominal success. Failure, cancellation and interruption preserv…"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 11 missing or out of order: "Production adoption and legacy retirement are separate milestones. Unmanaged Implement/Validate and submission-v1 managed scopes keep their declared compatibili…"
+        codex_instruction_parity_test.go:143: .codex/skills/workflow/SKILL.md: shared-source paragraph 14 missing or out of order: "In separated workflow, Implement owns coding, environment setup, test writing, test execution, fixes and aggregate engineering/save gates. Engineering completio…"
+    --- FAIL: TestCodexSkills_SharedSourceParity/planning-contracts_reaches_plan-orchestrator (0.00s)
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 1 missing or out of order: "Use the factory-supplied content/submission version. For contract 2 the checkpoint path accepts a Plan contribution with `stage: \"plan\"`, outcome discussion or …"
+        codex_instruction_parity_test.go:143: .codex/skills/plan-orchestrator/SKILL.md: shared-source paragraph 6 missing or out of order: "The adopted shared result route also accepts completed typed payload.plan content; its adapter reuses the existing Plan owner for validation, internal handoff a…"
+--- FAIL: TestResearchStandaloneContract (1.45s)
+    research_contract_test.go:66: .claude/agents/research-orchestrator.md differs from native Research behavior
+    research_contract_test.go:70: .claude/agents/research-orchestrator.md depends on "Claude"
+    research_contract_test.go:70: .claude/agents/research-orchestrator.md depends on "Codex"
+    research_contract_test.go:61: installed Research behavior differs
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/teamsource	22.600s
+FAIL

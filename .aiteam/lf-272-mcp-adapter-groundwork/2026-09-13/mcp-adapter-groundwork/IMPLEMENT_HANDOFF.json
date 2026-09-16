@@ -1,0 +1,122 @@
+[
+  {
+    "story": "US-001",
+    "contribution": {
+      "stage": "engineering",
+      "story": "US-001",
+      "outcome": "blocked",
+      "reason": "Required #264 production lifecycle integration is absent from this checkout: BindAgentResultService has no production callers; internal/turn/submission_runner.go still starts StartSubmissionSession; docs/agent-result-contract.md describes the new service as unwired. #272 cannot absorb prerequisite adoption."
+    },
+    "preflight": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"\",\"result\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[]}}\n",
+      "stderr": ""
+    },
+    "submit": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"879fbcdf6f66ff3d594c8874ac84e9fd\",\"result\":{\"ID\":78,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"879fbcdf6f66ff3d594c8874ac84e9fd\",\"RequestHash\":\"403051bb6b443ef38ebd7807b7c941a3bf594f1e96b83df8ee75ed26156243fb\",\"Story\":\"US-001\",\"Revision\":\"a79dc7fcafd48ad0e0f7fd4cf2180f63c24fec8b5670e94b538446cf3d76c27c\",\"Sequence\":1,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDEiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIn0=\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"pending\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    },
+    "receipt": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"879fbcdf6f66ff3d594c8874ac84e9fd\",\"result\":{\"ID\":78,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"879fbcdf6f66ff3d594c8874ac84e9fd\",\"RequestHash\":\"403051bb6b443ef38ebd7807b7c941a3bf594f1e96b83df8ee75ed26156243fb\",\"Story\":\"US-001\",\"Revision\":\"a79dc7fcafd48ad0e0f7fd4cf2180f63c24fec8b5670e94b538446cf3d76c27c\",\"Sequence\":1,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDEiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIn0=\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"delivered\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    }
+  },
+  {
+    "story": "US-002",
+    "contribution": {
+      "stage": "engineering",
+      "story": "US-002",
+      "outcome": "blocked",
+      "reason": "Required #264 production lifecycle integration is absent from this checkout: BindAgentResultService has no production callers; internal/turn/submission_runner.go still starts StartSubmissionSession; docs/agent-result-contract.md describes the new service as unwired. #272 cannot absorb prerequisite adoption. Implementation dependencies therefore remain unsatisfied; no engineering was performed."
+    },
+    "preflight": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"\",\"result\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[]}}\n",
+      "stderr": ""
+    },
+    "submit": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"a77ead0a3f06b1be67cf5cc8b231d767\",\"result\":{\"ID\":79,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"a77ead0a3f06b1be67cf5cc8b231d767\",\"RequestHash\":\"bddaa03b3fb8ad3010da6b520c0e759a409f8cc7d33be0e0a7dbeeb0074a96ed\",\"Story\":\"US-002\",\"Revision\":\"ac14c8f3efc72a7b4126389cc58165aef50d57f4567c9f22e13bf4dc0375523a\",\"Sequence\":2,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDIiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"pending\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    },
+    "receipt": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"a77ead0a3f06b1be67cf5cc8b231d767\",\"result\":{\"ID\":79,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"a77ead0a3f06b1be67cf5cc8b231d767\",\"RequestHash\":\"bddaa03b3fb8ad3010da6b520c0e759a409f8cc7d33be0e0a7dbeeb0074a96ed\",\"Story\":\"US-002\",\"Revision\":\"ac14c8f3efc72a7b4126389cc58165aef50d57f4567c9f22e13bf4dc0375523a\",\"Sequence\":2,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDIiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"delivered\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    }
+  },
+  {
+    "story": "US-003",
+    "contribution": {
+      "stage": "engineering",
+      "story": "US-003",
+      "outcome": "blocked",
+      "reason": "Required #264 production lifecycle integration is absent from this checkout: BindAgentResultService has no production callers; internal/turn/submission_runner.go still starts StartSubmissionSession; docs/agent-result-contract.md describes the new service as unwired. #272 cannot absorb prerequisite adoption. Implementation dependencies therefore remain unsatisfied; no engineering was performed."
+    },
+    "preflight": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"\",\"result\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[]}}\n",
+      "stderr": ""
+    },
+    "submit": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"f7753e65877e5117b81ca5ce22d4ecff\",\"result\":{\"ID\":80,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"f7753e65877e5117b81ca5ce22d4ecff\",\"RequestHash\":\"babffe337042774fcced4f221bc660a478182311b31f2895589e53f64e83a372\",\"Story\":\"US-003\",\"Revision\":\"278cf863a7800a6cfee5bb38f4a88a674d1cb5daba61917e516d6493878da24b\",\"Sequence\":3,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDMiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"pending\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    },
+    "receipt": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"f7753e65877e5117b81ca5ce22d4ecff\",\"result\":{\"ID\":80,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"f7753e65877e5117b81ca5ce22d4ecff\",\"RequestHash\":\"babffe337042774fcced4f221bc660a478182311b31f2895589e53f64e83a372\",\"Story\":\"US-003\",\"Revision\":\"278cf863a7800a6cfee5bb38f4a88a674d1cb5daba61917e516d6493878da24b\",\"Sequence\":3,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDMiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"delivered\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    }
+  },
+  {
+    "story": "US-004",
+    "contribution": {
+      "stage": "engineering",
+      "story": "US-004",
+      "outcome": "blocked",
+      "reason": "Required #264 production lifecycle integration is absent from this checkout: BindAgentResultService has no production callers; internal/turn/submission_runner.go still starts StartSubmissionSession; docs/agent-result-contract.md describes the new service as unwired. #272 cannot absorb prerequisite adoption. Implementation dependencies therefore remain unsatisfied; no engineering was performed."
+    },
+    "preflight": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"\",\"result\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[]}}\n",
+      "stderr": ""
+    },
+    "submit": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"f5fec31e7dc9e7a95ea2e9462f4cbd4a\",\"result\":{\"ID\":81,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"f5fec31e7dc9e7a95ea2e9462f4cbd4a\",\"RequestHash\":\"bee2f2578be61e1ebee9bf65de49dbae4f379788a5b05588de5466bcc6fe21f8\",\"Story\":\"US-004\",\"Revision\":\"7fe2d1453415e2988eb510de1e1b48d47e6130544a6ab30da74b744d5eb07b2c\",\"Sequence\":4,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDQiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"pending\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    },
+    "receipt": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"f5fec31e7dc9e7a95ea2e9462f4cbd4a\",\"result\":{\"ID\":81,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"f5fec31e7dc9e7a95ea2e9462f4cbd4a\",\"RequestHash\":\"bee2f2578be61e1ebee9bf65de49dbae4f379788a5b05588de5466bcc6fe21f8\",\"Story\":\"US-004\",\"Revision\":\"7fe2d1453415e2988eb510de1e1b48d47e6130544a6ab30da74b744d5eb07b2c\",\"Sequence\":4,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDQiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"delivered\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    }
+  },
+  {
+    "story": "US-005",
+    "contribution": {
+      "stage": "engineering",
+      "story": "US-005",
+      "outcome": "blocked",
+      "reason": "Required #264 production lifecycle integration is absent from this checkout: BindAgentResultService has no production callers; internal/turn/submission_runner.go still starts StartSubmissionSession; docs/agent-result-contract.md describes the new service as unwired. #272 cannot absorb prerequisite adoption. Implementation dependencies therefore remain unsatisfied; no engineering was performed."
+    },
+    "preflight": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"\",\"result\":{\"valid\":true,\"complete\":true,\"diagnostics\":[],\"unchecked_paths\":[]}}\n",
+      "stderr": ""
+    },
+    "submit": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"9cf8326c2e0bb141f82e41622976615e\",\"result\":{\"ID\":82,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"9cf8326c2e0bb141f82e41622976615e\",\"RequestHash\":\"de9e5720bb4c526fa224836771df9d1a56168c96e5010341db22bbee2aaf252c\",\"Story\":\"US-005\",\"Revision\":\"9fc13c1e1822f65bc8c60b5b418fbfacfe8a7d6c42d36f32dd5d53aaf90f280a\",\"Sequence\":5,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDUiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"pending\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    },
+    "receipt": {
+      "exit_code": 0,
+      "stdout": "{\"request_id\":\"9cf8326c2e0bb141f82e41622976615e\",\"result\":{\"ID\":82,\"RunID\":428,\"Attempt\":\"29ff227171f3f18a5f3779ab981cb073\",\"RequestID\":\"9cf8326c2e0bb141f82e41622976615e\",\"RequestHash\":\"de9e5720bb4c526fa224836771df9d1a56168c96e5010341db22bbee2aaf252c\",\"Story\":\"US-005\",\"Revision\":\"9fc13c1e1822f65bc8c60b5b418fbfacfe8a7d6c42d36f32dd5d53aaf90f280a\",\"Sequence\":5,\"StoryAttempt\":1,\"Payload\":\"eyJzdGFnZSI6ImVuZ2luZWVyaW5nIiwic3RvcnkiOiJVUy0wMDUiLCJvdXRjb21lIjoiYmxvY2tlZCIsInJlYXNvbiI6IlJlcXVpcmVkICMyNjQgcHJvZHVjdGlvbiBsaWZlY3ljbGUgaW50ZWdyYXRpb24gaXMgYWJzZW50IGZyb20gdGhpcyBjaGVja291dDogQmluZEFnZW50UmVzdWx0U2VydmljZSBoYXMgbm8gcHJvZHVjdGlvbiBjYWxsZXJzOyBpbnRlcm5hbC90dXJuL3N1Ym1pc3Npb25fcnVubmVyLmdvIHN0aWxsIHN0YXJ0cyBTdGFydFN1Ym1pc3Npb25TZXNzaW9uOyBkb2NzL2FnZW50LXJlc3VsdC1jb250cmFjdC5tZCBkZXNjcmliZXMgdGhlIG5ldyBzZXJ2aWNlIGFzIHVud2lyZWQuICMyNzIgY2Fubm90IGFic29yYiBwcmVyZXF1aXNpdGUgYWRvcHRpb24uIEltcGxlbWVudGF0aW9uIGRlcGVuZGVuY2llcyB0aGVyZWZvcmUgcmVtYWluIHVuc2F0aXNmaWVkOyBubyBlbmdpbmVlcmluZyB3YXMgcGVyZm9ybWVkLiJ9\",\"Diagnostics\":\"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\",\"InputState\":\"valid\",\"EngineeringState\":\"rejected\",\"AcceptanceState\":\"not_applicable\",\"EffectState\":\"delivered\",\"PlanState\":\"not_applicable\"}}\n",
+      "stderr": ""
+    }
+  }
+]

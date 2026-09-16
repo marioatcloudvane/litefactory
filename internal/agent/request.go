@@ -50,6 +50,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	// MCPLaunch prepares additive per-attempt registration; host consumption is separate.
+	MCPLaunch *MCPLaunchSpec
+
 	// RetainedValidation restricts managed review to supplied source/check evidence.
 	RetainedValidation bool
 
@@ -134,6 +137,11 @@ type Request struct {
 // an implementation MAY check more (internal/harness re-checks Permissions
 // against its own configured ceiling, for one).
 func (req Request) Validate() error {
+	if req.MCPLaunch != nil {
+		if err := req.MCPLaunch.Validate(); err != nil {
+			return err
+		}
+	}
 	if req.RetainedValidation && req.Mode != "validate" {
 		return invalidRequest("retained validation requires Validate mode")
 	}

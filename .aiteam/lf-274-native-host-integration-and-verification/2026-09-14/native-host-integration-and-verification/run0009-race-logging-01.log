@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestFileSinkHonoursUmask|TestFileSinkOpensLazily|TestFileSinkAppends|TestFileSinkReportsAnUnopenableFile|TestFileSinkIsConcurrencySafe|TestNewFansOutToBothSinks|TestNewWithoutConsoleWritesOnlyJSON|TestNewWithoutSinksDiscards|TestNewRespectsLevel|TestFanoutPreservesAttrsAndGroups|TestParseLevel|TestIsTerminal)$ ./internal/logging
+ok  	github.com/cloudvane/litefactory/internal/logging	1.647s
+
+EXIT: 0

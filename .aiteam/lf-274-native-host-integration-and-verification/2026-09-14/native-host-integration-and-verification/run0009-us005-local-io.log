@@ -1,0 +1,28 @@
+$ go test -count=1 -timeout=4m -v ./internal/turn -run ^TestSubmission(ReplacementAttemptRejectsOldAuthority|ConcurrentStoriesKeepCorrelation|FinalDrainRetainsPendingDecision|RecoveryFromFreshStoreConnection|RejectsChangedWorktreeAndUnauthorizedSelector)$
+=== RUN   TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector
+--- PASS: TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector (0.74s)
+=== RUN   TestSubmissionReplacementAttemptRejectsOldAuthority
+--- PASS: TestSubmissionReplacementAttemptRejectsOldAuthority (0.88s)
+=== RUN   TestSubmissionConcurrentStoriesKeepCorrelation
+--- PASS: TestSubmissionConcurrentStoriesKeepCorrelation (0.91s)
+=== RUN   TestSubmissionFinalDrainRetainsPendingDecision
+--- PASS: TestSubmissionFinalDrainRetainsPendingDecision (0.63s)
+=== RUN   TestSubmissionRecoveryFromFreshStoreConnection
+--- PASS: TestSubmissionRecoveryFromFreshStoreConnection (0.51s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	4.244s
+EXIT: 0
+$ go test -race -count=1 -timeout=4m -v ./internal/turn -run ^TestSubmission(ReplacementAttemptRejectsOldAuthority|ConcurrentStoriesKeepCorrelation|FinalDrainRetainsPendingDecision|RecoveryFromFreshStoreConnection|RejectsChangedWorktreeAndUnauthorizedSelector)$
+=== RUN   TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector
+--- PASS: TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector (3.65s)
+=== RUN   TestSubmissionReplacementAttemptRejectsOldAuthority
+--- PASS: TestSubmissionReplacementAttemptRejectsOldAuthority (1.99s)
+=== RUN   TestSubmissionConcurrentStoriesKeepCorrelation
+--- PASS: TestSubmissionConcurrentStoriesKeepCorrelation (2.68s)
+=== RUN   TestSubmissionFinalDrainRetainsPendingDecision
+--- PASS: TestSubmissionFinalDrainRetainsPendingDecision (1.75s)
+=== RUN   TestSubmissionRecoveryFromFreshStoreConnection
+--- PASS: TestSubmissionRecoveryFromFreshStoreConnection (1.96s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	13.720s
+EXIT: 0

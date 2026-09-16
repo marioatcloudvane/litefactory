@@ -1,0 +1,4 @@
+Group: turn-6 (Test[MNO]*)
+ok  	github.com/cloudvane/litefactory/internal/turn	234.300s
+go test -race -timeout 8m -run '^Test[MNO]' ./internal/turn/...  212.22s user 32.59s system 102% cpu 3:57.96 total
+EXIT: 0

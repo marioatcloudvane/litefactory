@@ -86,6 +86,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"GetIssue",            // GET  /repos/{o}/{r}/issues/{n}
 		"ListCommentedIssues", // GET  /repos/{o}/{r}/issues/comments?since=
 		"ListCommentsAfter",   // GET  /repos/{o}/{r}/issues/{n}/comments
+		"ListCommentsPage",    // GET one bounded /repos/{o}/{r}/issues/{n}/comments page for observation
 		"GetDeliveryHead",
 		"ListDeliveryPRs",
 		"GetDeliveryPR",
@@ -94,6 +95,7 @@ func TestClientMethodSetIsPinned(t *testing.T) {
 		"CloseDeliveredParent",
 		"ListFollowupIssues", // GET /repos/{o}/{r}/issues?state=all for reconciliation
 		"ListIssues",         // GET  /repos/{o}/{r}/issues?since=&state=open
+		"ListIssuesPage",     // GET one bounded /repos/{o}/{r}/issues page with explicit state
 		"ListSubIssues",      // GET  /repos/{o}/{r}/issues/{n}/sub_issues
 		"PostComment",        // POST /repos/{o}/{r}/issues/{n}/comments
 		"RemoveIssueLabel",   // DELETE …/issues/{n}/labels/{name}

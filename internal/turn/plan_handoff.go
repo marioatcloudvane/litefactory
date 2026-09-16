@@ -26,7 +26,7 @@ func invalidatePlanReadiness(ctx context.Context, o Options, ref naming.Ref, mod
 	if _, ok := o.SubIssueCreator.(PlanForge); !ok {
 		return nil
 	}
-	if _, ok := o.SubIssueRenderer.(CompleteStoryRenderer); !ok {
+	if o.SubIssueRenderer == nil {
 		return nil
 	}
 	feature, err := o.DB.GetManagedFeature(ctx, ref.String())
@@ -59,7 +59,7 @@ func preparePlanHandoff(ctx context.Context, o Options, ref naming.Ref, mode str
 	if _, ok := o.SubIssueCreator.(PlanForge); !ok {
 		return nil
 	}
-	if _, ok := o.SubIssueRenderer.(CompleteStoryRenderer); !ok {
+	if o.SubIssueRenderer == nil {
 		return nil
 	}
 	generation := 1
@@ -126,6 +126,14 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 		return fail(err)
 	}
 	defer root.Close()
+	// Checked first, so the run that wrote a malformed or foreign context
+	// reports it, instead of the next turn's preparation refusing it (#289).
+	if prep.promptInput.PlanContextPath != "" {
+		var refusal *planContextRefusal
+		if _, err := readPlanningContext(root, prep.promptInput.PlanContextPath, prep.promptInput); errors.As(err, &refusal) {
+			return fail(err)
+		}
+	}
 	outcomeData, err := readPlanArtifact(root, planbrief.OutcomeFileName, planbrief.MaxOutcomeBytes)
 	if err != nil {
 		return fail(fmt.Errorf("current Plan outcome required: %w", err))
@@ -157,8 +165,8 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 		if err != nil {
 			return fail(err)
 		}
-		if working.Parent != prep.ref.String() || working.Branch != prep.session.Branch || working.Feature != prep.session.FeatureSlug {
-			return fail(fmt.Errorf("planning context identity does not match admitted task, branch and feature"))
+		if err := checkPlanningIdentity(working, prep.ref.String(), prep.session.Branch, prep.session.FeatureSlug); err != nil {
+			return fail(err)
 		}
 		if err := root.Remove(planbrief.OutcomeFileName); err != nil {
 			return fail(err)
@@ -202,8 +210,8 @@ func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, resul
 	if !ok {
 		return fail(fmt.Errorf("managed plan forge unavailable"))
 	}
-	renderer, ok := o.SubIssueRenderer.(CompleteStoryRenderer)
-	if !ok {
+	renderer := o.SubIssueRenderer
+	if renderer == nil {
 		return fail(fmt.Errorf("complete story renderer unavailable"))
 	}
 	bot, err := o.DB.GetIdentity(ctx, prep.ref.Forge, store.RoleBot)

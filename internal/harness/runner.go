@@ -413,6 +413,11 @@ func (r *Runner) Timeout() time.Duration { return r.timeout }
 // Tools does not already allow, so a rule outside the ceiling there cannot
 // widen this run past it.
 func (r *Runner) validateRequest(req agent.Request) error {
+	if req.MCPLaunch != nil {
+		if err := req.MCPLaunch.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+		}
+	}
 	if req.Mode == "validate" {
 		ts := toolSurface(req)
 		if len(ts.Tools) == 0 {
@@ -478,7 +483,7 @@ func (r *Runner) validateRequest(req agent.Request) error {
 //   - the wall-clock deadline is independent of any event-driven completion
 //     detection, because a stale credential makes claude retry internally and
 //     then hang emitting nothing at all (SD-3).
-func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, req agent.Request) (result *RunResult, runErr error) {
 	req = retainedValidationRequest(req)
 	if err := r.validateRequest(req); err != nil {
 		return nil, err
@@ -521,6 +526,14 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 	}()
 
 	args := r.args(req)
+	mcpPath, cleanupMCP, err := r.prepareMCP(req.MCPLaunch)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { runErr = errors.Join(runErr, cleanupMCP()) }()
+	if mcpPath != "" {
+		args = append(args, "--mcp-config", mcpPath)
+	}
 	logger := r.logger.With(
 		slog.String("task", req.Ref.String()),
 		slog.Int("run", req.RunOrdinal),
@@ -570,17 +583,17 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*RunResult, error)
 //     were in "default" the list was the effective boundary, because anything
 //     outside it needed a prompt that a headless run could not answer.
 //   - --strict-mcp-config makes claude ignore every MCP configuration except
-//     the ones passed with --mcp-config. None are, so no MCP server is
-//     reachable — including a .mcp.json committed on the branch being worked.
+//     the ones passed with --mcp-config. Only the attempt registration is
+//     reachable; a .mcp.json committed on the branch is excluded.
 //
 // claude's permission-skipping flag — the one config.forbiddenFlag names — is
 // never constructed here or anywhere else in the tree. That is a grep-able
 // review invariant enforced by a repository-wide test, which is also why the
 // flag is not written out as a literal in this comment.
 //
-// The two tool lists are the request's when it carries mode-selected permissions and
-// the runner's configured ones otherwise — see [Runner.surface]. Only config
-// strings are ever joined in here; nothing that came from GitHub is included.
+// Native tool lists are the request's when it carries mode-selected permissions
+// and the runner's configured ones otherwise — see [Runner.surface]. MCP rules
+// come separately from the validated installed catalog. GitHub supplies neither.
 func (r *Runner) args(req agent.Request) []string {
 	// The session flag is the only difference between the two paths. Everything
 	// after it — and the tool boundary in particular — is identical, because a
@@ -591,6 +604,12 @@ func (r *Runner) args(req agent.Request) []string {
 		sessionFlag = "--resume"
 	}
 	tools, allowedTools := r.surface(req)
+	if req.MCPLaunch != nil {
+		allowedTools = slices.Clone(allowedTools)
+		for _, name := range req.MCPLaunch.PermittedTools() {
+			allowedTools = append(allowedTools, "mcp__"+mcpServerName+"__"+name)
+		}
+	}
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
@@ -634,8 +653,7 @@ func (r *Runner) args(req agent.Request) []string {
 func (r *Runner) InstructionIdentity() string { return r.model + "/" + r.autoCompact }
 
 // surface picks the pair of tool lists one run is invoked with. It is the only
-// place that choice is made, so argv and the log line that reports what argv
-// was built from cannot disagree.
+// place the native surface is chosen, shared by argv and native-tool logging.
 //
 // A request carrying tools is a request a profile was resolved for: its lists
 // are used exactly as they arrive, AllowedTools verbatim. Empty AllowedTools
@@ -743,7 +761,7 @@ func (r *Runner) exec(
 	closeAll(stdoutW, stderrW)
 	defer closeAll(stdoutR, stderrR)
 
-	// The three tool attributes report the surface this run was actually
+	// The three tool attributes report the native surface this run was actually
 	// invoked with, not the runner's configured defaults: with a mode profile in
 	// play the two differ, and the log line is the only place the difference is
 	// visible after the fact. tool_profile is empty when no mode profile was supplied.

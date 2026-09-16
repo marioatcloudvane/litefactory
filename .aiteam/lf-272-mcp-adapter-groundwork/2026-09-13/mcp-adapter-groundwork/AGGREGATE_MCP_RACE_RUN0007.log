@@ -1,0 +1,9 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	1.610s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	2.097s
+ok  	github.com/cloudvane/litefactory/internal/cli	7.987s
+ok  	github.com/cloudvane/litefactory/internal/config	2.884s
+ok  	github.com/cloudvane/litefactory/internal/daemon	4.354s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	4.471s
+ok  	github.com/cloudvane/litefactory/internal/store	55.513s
+ok  	github.com/cloudvane/litefactory/internal/submission	4.325s
+ok  	github.com/cloudvane/litefactory/internal/turn	55.002s

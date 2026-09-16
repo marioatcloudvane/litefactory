@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -256,8 +257,37 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	if err != nil {
 		return nil, Startup{}, err
 	}
+	var mcpRuntime *turn.MCPRuntime
+	{
+		executable, resolveErr := os.Executable()
+		if resolveErr == nil {
+			executable, resolveErr = filepath.EvalSymlinks(executable)
+		}
+		if resolveErr != nil {
+			return nil, Startup{}, errors.Join(resolveErr, lock.Close())
+		}
+		authority, bindErr := turn.NewAttemptAuthority(ctx, s.DB)
+		if bindErr != nil {
+			return nil, Startup{}, errors.Join(bindErr, lock.Close())
+		}
+		now := s.Now
+		if now == nil {
+			now = time.Now
+		}
+
+		creationStore, err := store.NewCreationStore(s.DB, now)
+		if err != nil {
+			return nil, Startup{}, errors.Join(err, lock.Close())
+		}
+		creationAuthorizer, err := turn.NewCreationAuthorizer(turn.CreationAuthorizerOptions{Store: creationStore, Enabled: s.Config.Settings.AllowMCPStoryCreation, OwnerID: identities.OwnerUserID, BotID: identities.BotUserID})
+		if err != nil {
+			return nil, Startup{}, errors.Join(err, lock.Close())
+		}
+		mcpRuntime = &turn.MCPRuntime{Authority: authority, Paths: s.Paths, Executable: executable, Now: now, Issues: client, DisableMCP: !s.Config.Settings.MCPAutoStart, Comments: client, Creation: client, CreationAuthorizer: creationAuthorizer, Redactor: redact.New(redact.Options{Logger: s.Logger, Token: s.Token, Environ: environ}), BotID: identities.BotUserID}
+	}
 	sharedCloneGate := newCloneGate()
 	turnOpts := turn.Options{
+		MCP:                      mcpRuntime,
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,
 		DB:                       s.DB,
@@ -351,8 +381,10 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 		Now:               s.Now,
 	})
 	if err != nil {
-		return nil, Startup{}, errors.Join(err, lock.Close())
+		authorityErr := mcpRuntime.Close(context.WithoutCancel(ctx))
+		return nil, Startup{}, errors.Join(err, authorityErr, lock.Close())
 	}
+	daemon.mcpClose = func() error { return mcpRuntime.Close(context.WithoutCancel(ctx)) }
 
 	startup := Startup{
 		DefaultAgent:      defaultAgent,

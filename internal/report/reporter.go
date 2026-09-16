@@ -2,6 +2,9 @@ package report
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -115,6 +118,15 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if err := reply.Ref.Validate(); err != nil {
 		return redact.Body{}, fmt.Errorf("report: %w: %w", ErrInvalidArgument, err)
 	}
+	if reply.Kind == ReplyCreationProposal {
+		if reply.Creation == nil || len(reply.Creation.Envelope) > 48000 || !json.Valid([]byte(reply.Creation.Envelope)) || (reply.Creation.Relationship != "linked" && reply.Creation.Relationship != "attach") {
+			return redact.Body{}, fmt.Errorf("report: invalid creation proposal")
+		}
+		hash := sha256.Sum256([]byte(reply.Creation.Envelope))
+		if hex.EncodeToString(hash[:]) != reply.Creation.Hash {
+			return redact.Body{}, fmt.Errorf("report: creation fingerprint mismatch")
+		}
+	}
 	if !reply.Kind.valid() {
 		return redact.Body{}, fmt.Errorf("report: %w: reply kind %q", ErrInvalidArgument, reply.Kind)
 	}
@@ -134,6 +146,17 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	}
 	if reply.Kind == ReplySuggestsResolution && reply.ConflictProposal.Format == 1 {
 		return r.renderConflictPreview(ctx, reply)
+	}
+	if reply.Kind == ReplyCreationProposal {
+		text := reply.body()
+		body, err := r.apply(ctx, text)
+		if err != nil {
+			return redact.Body{}, err
+		}
+		if body.Truncated() || body.String() != text {
+			return redact.Body{}, fmt.Errorf("report: exact creation presentation changed; prepare again")
+		}
+		return body, nil
 	}
 	return r.apply(ctx, reply.body())
 }

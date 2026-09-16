@@ -56,3 +56,27 @@ Return one self-contained, plain-language report: findings and recommendation,
 then any necessary questions with useful options. Present questions immediately,
 including on the first run. Use no mandatory question tables or extra report
 cycle. Suggest the next step without starting another mode.
+
+## Shared Research finalization
+
+On an adopted attempt, return the factory-declared application JSON through the
+shared result helper, permitted communication tools or terminal output. Include
+outcome completed/incomplete/blocked, a nonblank comment, reason for unfinished work,
+and only payload.research; artifacts use stable IDs and rooted relative paths.
+Keep the plain-language report in comment. Questions need current permission and
+incomplete/blocked outcome. The saved brief alone does not satisfy required output.
+
+Use the explicit empty baseline or authorized prior fields with stable IDs and
+observed revision; prior prose/provider sessions are not a baseline. Sparse updates
+must validate the full merge, including untouched fields; retired IDs stay retired.
+Preflight records no proof; correct diagnostics, then submit. On stale revision,
+read authorized current state and rebase. Preserve exact bytes/request identity on
+reply loss; corrected input uses a new identity. Read input, engineering, acceptance
+and remote-effect receipt states independently; pending is not success.
+
+Factory post-exit validation enforces completeness even without MCP. Missing or
+malformed required output blocks nominal success; failure/cancellation/interruption
+retain their cause and checkpoints. Fix post-exit rejection only on the next
+authorized attempt. Progress remains advisory and ends with the attempt; it grants
+no acceptance. Production adoption does not establish legacy-reader retirement or
+authentic host observations; #274/#296 still require four external captures.

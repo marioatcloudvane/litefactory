@@ -1,0 +1,951 @@
+{
+  "summary": "Implement all five MCP tool families in eight stories: scoped durable correlation and receipt recovery; shared feedback/profile enforcement; bounded repository-local issue reads; authorized receipted comments; exact reviewed creation through existing factory-held grants and private one-use permits; shared engineering/assessment checkpoints; advisory activity update/get; and composed offline verification with the #274 production handoff. Reuse landed #272; preserve existing communication behavior and engineering/acceptance separation. Include issues_create_batch and activity_get. Native host launches, trusted production approval intake/next-attempt wiring, production recovery scheduling and authentic host verification remain #274; no protected instruction-tree edits. Run 0006 incorporates the verified assessment: explicit default-off family regression coverage, canonical-content versus operation/request identity clarification, publication ownership pointers and clearer production handoff boundaries.",
+  "stories": [
+    {
+      "key": "US-001",
+      "intent": "update",
+      "title": "Recover scoped family request outcomes",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "recover what happened after a reply is lost",
+        "benefit": "uncertainty does not cause repeated effects or expose another run\u2019s data",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-018, AC-020, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-018): proof=Journal lost-reply/reopen and cross-family collision tests; source=Existing submission client fixtures; bounds=Actual local journal/socket, synthetic requests; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-020): proof=Cross-scope/current-reader/revocation and secret-exclusion tests; source=Existing AttemptGuard/store fixtures; bounds=Trusted factory-supplied reader grants only; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-003: proof=SQLite-backed receipt projection and nonrecursive/no-effect assertions; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks.",
+          "Receipts recover what the factory knows happened to a specific request; lookup observes retained outcomes without retrying publication."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "New family requests obtain stable journal correlation before transmission, isolate family/scope identities, recover identical lost-response retries and preserve existing communication identity behavior."
+        },
+        {
+          "id": "AC-002",
+          "text": "Unauthorized cross-run/repository/attempt receipt access fails; separately authorized current readers may inspect permitted history after old authority is revoked without restoring that authority or exposing grants/permits/secrets."
+        },
+        {
+          "id": "AC-003",
+          "text": "A bound receipts_get observes one retained request without recursively recording a receipt or dispatching an effect. It returns bounded missing/rejected/pending/uncertain/confirmed disposition and separate authoritative state references where applicable; denied or malformed authenticated calls remain distinguishable from transport failure with no durable record. Family-specific outcome references can be registered incrementally."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Implement the shared journal, ledger, immutable receipt-read scope and nonrecursive receipt projection from spec AC-018\u2013020 and architecture H-01.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Test cross-family/scope identity separation, denied current readers, permitted historical recovery and secret exclusion.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Run migrated SQLite and actual local journal/transport tests covering reopen, lost replies, missing records and no redispatch during receipt lookup.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Retain bounded correlation and references to authoritative outcomes through a new embedded migration. Persist namespaced request identity before transmission while retaining communication compatibility. Authorize a current reader and expose disposition and referenced outcome dimensions.",
+        "components": [
+          {
+            "name": "Family request ledger in internal/store",
+            "responsibility": "Retain bounded correlation and references to authoritative outcomes through a new embedded migration."
+          },
+          {
+            "name": "Family journal in internal/submission/client.go",
+            "responsibility": "Persist namespaced request identity before transmission while retaining communication compatibility."
+          },
+          {
+            "name": "Receipt projection in internal/turn",
+            "responsibility": "Authorize a current reader and expose disposition and referenced outcome dimensions."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "receipts_get",
+            "input": "Stable request ID and immutable current reader scope",
+            "output": "Missing, rejected, pending, uncertain or confirmed disposition plus applicable input/engineering/acceptance/remote-effect states"
+          }
+        ],
+        "constraints": [
+          "All SQL stays in internal/store; use migrated modernc SQLite with its existing single connection pool and context-first accessors. No transaction spans forge I/O.",
+          "Record bounded read/preflight metadata rather than full catalogs. Reference underlying submission/creation truth instead of copying mutable decisions.",
+          "Do not expose permits, descriptor secrets or unrelated payloads. A receipt read cannot mint authority, dispatch an effect or allocate its own recursive receipt.",
+          "Provide narrow registration/projection seams for incremental family handlers; aggregate story verifies the complete family catalog.",
+          "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274.",
+          "Extend submission.Call and its journal; project existing result/submission receipts and store.CreationOperation references under current reader authority."
+        ],
+        "decisions": [
+          {
+            "decision": "Use a minimal receipt foundation",
+            "reason": "Every family needs stable recovery, while family-specific publication and checkpoint semantics remain in their own stories."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-002",
+      "intent": "update",
+      "title": "Validate proposed input through bound tool profiles",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "get correction diagnostics before submitting proposed work",
+        "benefit": "mistakes can be corrected without publishing content or recording proof",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-002, AC-003, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-002): proof=Compatibility and immutable-digest regression tests; source=Existing communication/client/dispatcher tests; bounds=Existing communication contract retained; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-003): proof=Shared-validator parity and no-domain-write assertions; source=Existing contribution and agent-result tests; batch validator; bounds=Current typed contract/workflow versions; no remote effect; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-003: proof=Table-driven discovery/direct-call and guard refusal fixtures; source=existing submission, turn and store fixture facilities; bounds=current local Go checkout with controlled factory bindings, no authentic host claim; prerequisite=implementation and retained executed checks.",
+          "Preflight checks proposed input before submission and returns corrections; passing it does not approve or publish work, and submission validates again."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Existing communication discovery, helper behavior, identity correlation and publishable-Plan MCP refusal remain compatible; family additions are included in immutable permission binding."
+        },
+        {
+          "id": "AC-002",
+          "text": "Feedback delegates application, checkpoint and batch validation to shared owners, returns correction diagnostics and creates no domain submission, captured proof, retained proposal or grant; actual submissions validate again."
+        },
+        {
+          "id": "AC-003",
+          "text": "Each registered family call is checked by the live AttemptGuard and immutable profile before handler access. Unknown tools/fields, missing or mismatched binding and expired/cancelled/replaced attempts fail without a domain effect; forbidden direct calls fail even if discovery is bypassed."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Implement profile/catalog binding and shared feedback routing per spec AC-002\u2013003 and H-02; expose registration seams for remaining handlers.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Verify validator parity, strict kind/field decoding, no submission/proof/proposal/grant effects, repeat validation at submit and communication compatibility.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Exercise feedback, evidence and receipt registrations through the actual bound broker with valid, forbidden and stale fixture bindings.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Extend immutable catalog/effect enforcement and bind family dependencies. Delegate validation kinds to existing application, shared checkpoint and canonical creation owners.",
+        "components": [
+          {
+            "name": "ToolProfile and ToolDispatcher",
+            "responsibility": "Extend immutable catalog/effect enforcement and bind family dependencies."
+          },
+          {
+            "name": "FeedbackService in internal/turn",
+            "responsibility": "Delegate validation kinds to existing application, shared checkpoint and canonical creation owners."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "feedback_preflight",
+            "input": "Explicit application/checkpoint/creation kind and proposed input under current immutable scope",
+            "output": "Shared correction diagnostics without domain mutation"
+          },
+          {
+            "name": "Tool profile binding",
+            "input": "Factory mode, repository, source task, catalog version, comment targets and receipt scope",
+            "output": "Immutable permission material plus server-side direct-call enforcement"
+          }
+        ],
+        "constraints": [
+          "Reuse AgentResultService.Preflight, shared SubmissionSession checkpoint preflight and CanonicalCreation; adapter decoding must not duplicate business validation.",
+          "Include catalog version, creation gate visibility, comment targets and historical receipt scope in immutable binding; mutable grant state remains freshly checked by its owner.",
+          "Install family handlers incrementally; missing dependencies/inconsistent advertised profiles fail construction. Complete matrix verification belongs to US-008.",
+          "Plan/Spike retain communication-only behavior. New creation is Research-only and gate-visible; stage evidence uses Implement/Validate rules.",
+          "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274."
+        ],
+        "decisions": [
+          {
+            "decision": "Depend on the evidence facade",
+            "reason": "Checkpoint preflight shares live frozen-scope/snapshot checks with evidence submission instead of introducing a competing validator."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-006"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-003",
+      "intent": "update",
+      "title": "Discover bounded repository-local issue summaries",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "list and inspect issue summaries in the authorized repository",
+        "benefit": "I can discover relevant work without disclosing unrelated content or gaining write permission",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-004, AC-005, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-004): proof=HTTP fixture query/bound tests; source=Existing `internal/github` HTTP fixtures; bounds=Simulated forge responses, repository-local contract; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-005): proof=PR-only/mixed pages and projection/budget assertions; source=Existing GitHub issue fixtures; bounds=Simulated pagination; no live GitHub completeness claim; prerequisite=Implement and retain executed checks."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Issue list/get default open, honor explicit closed state, validate positive local numbers and bounded page parameters, and refuse caller-selected foreign repository scope. State accepts only open/closed and defaults open; page defaults 1 and must be positive; per_page defaults 30 and must be 1\u2013100. Get rejects a state mismatch. Unknown fields are rejected."
+        },
+        {
+          "id": "AC-002",
+          "text": "Issue responses expose only number/title/optional recognized mode labels and pagination metadata, exclude PRs and bodies/arbitrary labels, and enforce bounded work/output even for pages containing PRs."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Add bounded forge page access and strict issues_list/get handlers with minimal projections per spec AC-004\u2013005 and H-03.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Test input bounds, state mismatch, foreign-repository rejection, normalized labels and PR-only/mixed response projection.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Run real HTTP fixture tests asserting one requested page, next-page metadata and output bounds; retain bounded request dispositions in SQLite.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Validate repository-local queries and project minimal issue summaries. Fetch one bounded page with explicit next-page metadata without using daemon accumulation.",
+        "components": [
+          {
+            "name": "IssueQueryService in internal/turn",
+            "responsibility": "Validate repository-local queries and project minimal issue summaries."
+          },
+          {
+            "name": "Bounded GitHub page operation",
+            "responsibility": "Fetch one bounded page with explicit next-page metadata without using daemon accumulation."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "issues_list",
+            "input": "state, positive page, per_page and include_mode_labels",
+            "output": "Bounded issue number/title/optional mode labels and next-page metadata"
+          },
+          {
+            "name": "issues_get",
+            "input": "Positive local issue_number, state and include_mode_labels",
+            "output": "Minimal issue summary or state/target refusal"
+          }
+        ],
+        "constraints": [
+          "Repository comes only from the immutable factory binding. Successful discovery never extends comment targets.",
+          "Rich forge representations remain internal for recovery; public projection strips bodies, comments, account details and unrecognized labels.",
+          "Update the pinned GitHub surface intentionally; a PR-only page may return empty issue items with next-page metadata rather than scan further pages.",
+          "Preserve github.Client.ListIssues for daemon polling; add a bounded page accessor and reuse github.Client.GetIssue for local-number lookup, applying the family state check and minimal projection."
+        ],
+        "decisions": [
+          {
+            "decision": "Use numeric pagination",
+            "reason": "It matches the existing forge API and bounds remote work unambiguously."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-002"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-004",
+      "intent": "update",
+      "title": "Publish authorized comments with durable recovery",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "publish one authorized comment and recover its identity after an uncertain reply",
+        "benefit": "retries do not duplicate comments and uncertain publication remains visible",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-006, AC-007, AC-008, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-006): proof=Target/refusal and redaction tests; source=Existing redaction/comments and turn fixtures; bounds=Explicit fixture factory grants; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-007): proof=SQLite concurrency/reopen plus accepted-POST/lost-reply HTTP fixture; source=Existing store/forge patterns; new generic journal tests needed; bounds=Local dispatch guarantee, not remote exactly-once proof; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-003 (spec AC-008): proof=Authenticated-marker reconciliation and no-repost assertions; source=Existing story/follow-up recovery fixtures; bounds=Controlled matching/malicious/ambiguous responses; prerequisite=Implement and retain executed checks."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Comments require an explicitly authorized existing issue and valid bounded redacted content; enabled or disabled creation policy does not change ordinary comment authorization."
+        },
+        {
+          "id": "AC-002",
+          "text": "Comments persist intent before dispatch and return a durable receipt with confirmed comment ID when known; concurrent identical retries, restart and lost replies cannot cause another POST for an already dispatched operation."
+        },
+        {
+          "id": "AC-003",
+          "text": "Comment reconciliation accepts only matching target, authenticated bot and exact marker/content; ambiguous outcomes remain uncertain and receipt lookup does not publish."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Implement authorized comment preparation, persisted first dispatch, confirmed IDs and bounded observation per spec AC-006\u2013008 and H-04.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Test target/PR refusals, redaction, creation-gate independence, exact provenance/content reconciliation and uncertain outcomes.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Use real SQLite plus HTTP fixtures to count POSTs for concurrent retries, accepted-POST/lost-response, cancellation and reopened recovery; verify lookup never republishes.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Prepare redacted comments and coordinate durable dispatch and bounded observation. Persist final intent, one dispatch owner, confirmed identity and uncertainty across reopen.",
+        "components": [
+          {
+            "name": "IssuePublicationService comment path in internal/turn",
+            "responsibility": "Prepare redacted comments and coordinate durable dispatch and bounded observation."
+          },
+          {
+            "name": "Comment operation state in internal/store",
+            "responsibility": "Persist final intent, one dispatch owner, confirmed identity and uncertainty across reopen."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "issues_comment",
+            "input": "Explicitly bound positive existing issue number and nonblank bounded UTF-8 message",
+            "output": "Durable request receipt and confirmed comment ID when observed"
+          },
+          {
+            "name": "Factory comment reconciliation",
+            "input": "Retained operation and separately authorized observation context",
+            "output": "Matching confirmed comment identity or honest uncertainty; no new dispatcher"
+          }
+        ],
+        "constraints": [
+          "Final content includes redaction and correlation marker before intent is persisted. Respect existing forge/redaction content limits.",
+          "Cross-process durable reservation precedes network I/O; never rely solely on an in-memory mutex or hold SQL locks across HTTP.",
+          "Observe numeric authenticated bot identity, exact target, marker and prepared content. Empty/incomplete scans after an ambiguous POST never authorize reposting.",
+          "Cancellation propagates; separately authorized observation may retain facts but cannot obtain fresh agent dispatch authority.",
+          "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274.",
+          "Publish through github.Client.PostComment with a redact.Body produced by the existing redactor (SEC-6). Extend comment dispatch persistence through a new embedded migration and internal/store accessors; reconciliation performs bounded observation only, with no retry loop or periodic worker in internal/turn (CONC-6). Production recovery scheduling belongs to #274."
+        ],
+        "decisions": [
+          {
+            "decision": "Ordinary target grant governs comments",
+            "reason": "Creation configuration/grants do not restrict ordinary writes on already authorized existing issues."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-002"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-005",
+      "intent": "update",
+      "title": "Publish exactly reviewed creation batches using existing grants",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "publish an explicitly reviewed and granted batch once",
+        "benefit": "public content and repeated requests cannot turn into unapproved issue creation",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-009, AC-010, AC-011, AC-012, AC-013, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-009): proof=Exact render/hash/retention and mutation refusal tests; source=`CanonicalCreation`/authorizer tests; presenter to add; bounds=Factory-only operation; actual intake lifecycle excluded; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-010): proof=Tool-profile and complete server refusal matrix; source=Existing authorizer/store tests; bounds=Trusted synthetic identities, public content treated as data; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-003 (spec AC-011): proof=Expiry/content/provenance/reuse boundary assertions; source=Existing `mcp_creation_test.go` and serialization tests; bounds=Existing primitive, injected factory time; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-004 (spec AC-012): proof=Quota/repository/retry/concurrency fixture assertions; source=Existing creation store fixtures; bounds=Fixed current caps and rolling-window semantics; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-005 (spec AC-013): proof=Real SQLite and HTTP fixture publication/partial/restart checks; source=Existing follow-up recovery precedents; family publisher to add; bounds=Simulated GitHub; no promise of remote exactly-once delivery; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-006: proof=omitted/false loaded-configuration cases through family discovery and direct-call refusal, including trusted otherwise-valid grant fixtures; source=existing config.Defaults, authorizer/store and bound dispatcher fixture facilities; bounds=current existing default-off primitive with synthetic factory bindings, no production host observation; prerequisite=Implement and retain executed regression checks."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Factory-only creation preparation returns reviewable final bytes, relationships and canonical hash, retains an exact proposal without publication/grant, and requires new approval after any prepared-content change. Shared canonical validation enforces 1\u20135 artifacts, nonblank valid UTF-8 titles of 1\u2013256 bytes and bodies of 1\u201365,536 bytes after preparation, at most 16 positive link targets, linked-without-parent or attach-to-source relationships; linking is the default and attachment must be explicitly reviewed."
+        },
+        {
+          "id": "AC-002",
+          "text": "Creation is hidden/refused with gate off and refused outside Research or without a valid live attempt-bound grant; arguments, GitHub content, arbitrary tokens and comment volume cannot grant permission or expose the private permit."
+        },
+        {
+          "id": "AC-003",
+          "text": "Creation refuses absent/expired/reused/mismatched grants, changed exact content/source/relationship, stale attempts and wrong approval provenance using the existing primitive; accepted reservation/dispatch never reimplements its authorization or quota decisions."
+        },
+        {
+          "id": "AC-004",
+          "text": "Creation enforces existing attempt/repository caps and expiry, isolates repository budgets and retains charges for uncertain/partial outcomes; repeated, concurrent and spam-like identical calls reconcile one operation with at most one dispatch owner. Existing limits are one batch/five artifacts per attempt, twenty artifacts per repository rolling 24 hours, and 30-minute approval expiry bounded by the lease. Expired grants refuse dispatch/replay; independently authorized receipt reads remain possible."
+        },
+        {
+          "id": "AC-005",
+          "text": "A valid fixture-bound grant publishes only reviewed artifacts and relationships, returns confirmed per-artifact identities, and persists partial/lost-response/restart outcomes without blind recreation or full-batch confirmation while unresolved."
+        },
+        {
+          "id": "AC-006",
+          "text": "When the loaded allow_mcp_story_creation setting is omitted or false, creation is hidden from discovery and refused server-side, including a direct call with an otherwise valid fixture-bound live grant. Reuse the existing default-off configuration and authorization primitive; family registration must not enable the gate implicitly."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Deliver factory-only exact preparation, primitive-backed batch handler and per-artifact/relationship receipt details per spec AC-009\u2013013 and H-05.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003",
+            "AC-004",
+            "AC-005",
+            "AC-006"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Verify gate/mode/provenance/expiry/reuse/content/source/relationship refusal matrix, malformed tokens and spam as non-authority, canonical bounds and exact reviewed bytes. Include omitted and false loaded configuration, verifying discovery and direct refusal with otherwise-valid fixture grants.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003",
+            "AC-004",
+            "AC-005",
+            "AC-006"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Run SQLite/HTTP fixtures with trusted grants for quotas, cross-repository budgets, duplicate/concurrent calls, partial relationships, accepted writes with lost responses, cancellation and reopened observation; count dispatch owners and POSTs. Exercise omitted/false gate variants through the bound transport and assert zero publication effects.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003",
+            "AC-004",
+            "AC-005",
+            "AC-006"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Prepare final redacted artifacts, markers and relationships before canonical hashing and retention. Consume existing CreationAuthorizer private dispatch permits and publish reviewed effects only. Retain per-artifact identities and relationship outcomes beside the existing operation ID.",
+        "components": [
+          {
+            "name": "Factory-only creation preparation",
+            "responsibility": "Prepare final redacted artifacts, markers and relationships before canonical hashing and retention."
+          },
+          {
+            "name": "Creation publication in internal/turn",
+            "responsibility": "Consume existing CreationAuthorizer private dispatch permits and publish reviewed effects only."
+          },
+          {
+            "name": "Creation publication detail in internal/store",
+            "responsibility": "Retain per-artifact identities and relationship outcomes beside the existing operation ID."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "Factory preparation API",
+            "input": "Bound repository/source and proposed artifacts/relationships",
+            "output": "Reviewable final bytes, canonical envelope/hash and exact retained proposal without approval"
+          },
+          {
+            "name": "issues_create_batch",
+            "input": "Exact reviewed envelope under a live Research attempt",
+            "output": "Existing operation reference with per-artifact confirmed IDs and relationship/aggregate states"
+          },
+          {
+            "name": "Factory bounded reconciliation",
+            "input": "Existing operation plus trusted observer context",
+            "output": "Observed facts or unresolved state without permit minting or new dispatch"
+          }
+        ],
+        "constraints": [
+          "RetainProposal, ReserveCreation, BeginDispatch, RecordOperationOutcome and ReconcileOperation remain authoritative; generic receipts never become a second authorization engine.",
+          "Prepare marker correlation before hashing to avoid a self-referential marker/hash. Any redaction or relationship/content change after approval requires new proposal and approval.",
+          "Trusted approval intake, next-attempt production grant binding and recovery scheduling remain #274; tests compose these existing primitives directly. No model-callable grant or retention shortcut.",
+          "Use existing parent-effect coordination for managed relationships; stop further dispatch after failure or unknown result. Partial/unknown effects retain original quota charges.",
+          "For AC-003, recompute the reviewed envelope canonical hash and exact bytes through submission.CanonicalCreation; caller-supplied hashes do not replace that check. The hash binds approval to content and is not an operation identity or grant.",
+          "For AC-004, exact-envelope retries under the same live grant recover the existing store.CreationOperation through the primitive grant-scoped reservation. Receipt correlation references that operation; keep stable journal request identity distinct and do not substitute a content-hash-only dedup key. Expired authority still refuses replay, while separately authorized receipt observation remains possible.",
+          "The omitted/false configuration case in AC-006 is family regression coverage of the landed default-off gate; no new configuration or authorization engine is required."
+        ],
+        "decisions": [
+          {
+            "decision": "Reuse factory-held grants and private one-use permits",
+            "reason": "Owner settled reuse of #272; caller-carried approval tokens and GitHub prose cannot satisfy authorization."
+          },
+          {
+            "decision": "Creation builds on ordinary publication coordination",
+            "reason": "Reuse durable observation patterns while preserving the creation primitive as sole dispatch authority."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-002",
+          "US-004"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-006",
+      "intent": "unchanged",
+      "title": "Record engineering and assessment through shared checkpoints",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "record the checkpoint permitted for my current stage",
+        "benefit": "valid input produces the correct workflow decision while engineering and acceptance stay separate",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-014, AC-015, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-014): proof=Shared checkpoint parity, capture/snapshot and stage refusal tests; source=Existing submission/engineering/assessment fixtures; bounds=Persisted legacy/separated workflow versions; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-015): proof=Durable evidence retry and decision/history assertions; source=Existing submission receipt/store fixtures; bounds=Local workflow effects; owner mode selection retained; prerequisite=Implement and retain executed checks."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Evidence calls apply the shared checkpoint engine rather than input-only result storage; Implement engineering/legacy and Validate assessment obey frozen story/revision, snapshot/check references, permitted capture/invalidation and existing workflow version rules."
+        },
+        {
+          "id": "AC-002",
+          "text": "Evidence refusal/retry and scoped recovery preserve separate input/engineering/acceptance/effect states, historical accepted snapshots and no automatic mode chaining; Validate cannot capture or execute tests through this tool."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Factor shared checkpoint operations and add evidence facade/receipt references per spec AC-014\u2013015 and H-06 while retaining helper semantics.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Test stage/capture/invalidation/version refusals, frozen revision and stale snapshot checks, separate engineering/acceptance and no automatic mode transition.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Exercise shared checkpoint state changes with migrated SQLite, actual immutable file snapshots and reopened lost-reply recovery; ensure repeated identities do not capture or record proof twice.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Extract preflight, submit and receipt operations reused by the existing helper and MCP. Bind typed stage contribution to frozen scope and project authoritative checkpoint receipts.",
+        "components": [
+          {
+            "name": "Shared SubmissionSession checkpoint facade",
+            "responsibility": "Extract preflight, submit and receipt operations reused by the existing helper and MCP."
+          },
+          {
+            "name": "EvidenceService in internal/turn",
+            "responsibility": "Bind typed stage contribution to frozen scope and project authoritative checkpoint receipts."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "Shared checkpoint preflight",
+            "input": "Existing typed contribution and immutable frozen scope",
+            "output": "Current validation diagnostics without snapshot capture or submission"
+          },
+          {
+            "name": "evidence_submit",
+            "input": "Existing engineering/assessment contribution, story selector and permitted capture or retained references",
+            "output": "Existing durable checkpoint receipt and distinct workflow dimensions"
+          }
+        ],
+        "constraints": [
+          "Use existing agent.Contribution, SubmissionSession scope/snapshot checks and StoryProgress transitions; do not implement a second schema or result-only recorder.",
+          "Preserve existing locks and parent ownership order; avoid nested locking of the same session. Recover a lost ledger link via the same underlying stable request identity.",
+          "Version-gated legacy semantics remain unchanged. Validate refers to retained proof and cannot capture or execute tests.",
+          "Provide the facade independently of the final family profile expansion; US-002 registers it with strict profile enforcement."
+        ],
+        "decisions": [
+          {
+            "decision": "Expose the current workflow engine",
+            "reason": "The helper and MCP must agree on frozen revisions, historical snapshots, capture and invalidation decisions."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-007",
+      "intent": "update",
+      "title": "Report bounded advisory activity",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "report and read current progress",
+        "benefit": "the owner sees useful activity without mistaking it for proof or renewed authority",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-016, AC-017, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-016): proof=Reducer parity, concurrent service calls and cleared-state assertions; source=Existing progress reducer tests; bounds=Injected time; explicitly process-local display; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-017): proof=Before/after workflow/authority invariants; source=Progress and store fixtures; bounds=No real host or timer-lifecycle claim; prerequisite=Implement and retain executed checks.",
+          "Activity describes the agent\u2019s current reported progress; it does not establish evidence, complete a story, approve scope or extend authority."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Activity update/get reuse the reducer's sequence/replay/conflict/stale and size/count/retention behavior, synchronize concurrent calls and return unavailable/cleared state after process-local loss. Messages are positive-sequence, nonblank valid UTF-8, at most 2 KiB; enforce 1,024 accepted updates, 32 retained replay identities and at most 24-hour terminal retention using factory time."
+        },
+        {
+          "id": "AC-002",
+          "text": "Activity updates and lifecycle cleanup never change workflow, evidence, scope or authority and never extend lease/grant/terminal retention deadlines."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Add update/get handlers and factory lifecycle facade over existing reducer with bounded receipt dispositions per spec AC-016\u2013017 and H-07.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Run acceptance-derived sequence replay/conflict/stale, UTF-8, size/count/retention and concurrent update tests with injected time; assert no workflow/evidence/authority effects.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        },
+        {
+          "id": "T-003",
+          "description": "Exercise actual broker plus SQLite disposition recovery after process-local display loss and verify replay does not renew terminal/lease/grant deadlines.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": [
+            "T-001"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Synchronize existing progress reducer and expose bounded current state. Apply factory-owned terminal and cleanup inputs without changing authority or evidence.",
+        "components": [
+          {
+            "name": "ActivityService in internal/turn",
+            "responsibility": "Synchronize existing progress reducer and expose bounded current state."
+          },
+          {
+            "name": "Existing agentresult lifecycle reducers",
+            "responsibility": "Apply factory-owned terminal and cleanup inputs without changing authority or evidence."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "activity_update",
+            "input": "Positive sequence and nonblank UTF-8 message under current attempt",
+            "output": "Durable bounded disposition and advisory current state"
+          },
+          {
+            "name": "activity_get",
+            "input": "Current immutable attempt scope",
+            "output": "Bounded latest advisory state or explicit unavailable/cleared state"
+          },
+          {
+            "name": "Factory lifecycle input",
+            "input": "Injected factory time and active/terminal status",
+            "output": "Reducer-owned retention cleanup without deadline renewal"
+          }
+        ],
+        "constraints": [
+          "Reuse ReduceProgress, MarkProgressTerminal and CleanTerminalProgress. No wall-clock reads, permanent goroutines or periodic scheduling in turn.",
+          "Protect process-local state with a mutex and clone mutable returned values. Request recovery must not reapply an update or extend deadlines.",
+          "A durable update receipt does not promise durable display history; display may be unavailable after process restart.",
+          "This story provides callable family APIs and controlled fixture composition; production host launch, scope construction and lifecycle scheduling belong to #274."
+        ],
+        "decisions": [
+          {
+            "decision": "Include activity_get",
+            "reason": "It answers the owner\u2019s requested call-surface explanation and the accepted research recommendation without adding a dashboard."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-002"
+        ],
+        "issue_refs": []
+      }
+    },
+    {
+      "key": "US-008",
+      "intent": "unchanged",
+      "title": "Verify every family contract and document the host handoff",
+      "user_story": {
+        "actor": "an authorized agent",
+        "want": "use a complete, consistently guarded family catalog",
+        "benefit": "the tools are ready for later host integration with clear evidence of their offline behavior",
+        "notes": [
+          "Source: feature-spec.md acceptance candidates AC-001, AC-019, AC-021, Data model and validation, API and permission matrix, and Business rules and error handling.",
+          "Evidence inventory AC-001 (spec AC-001): proof=Table-driven discovery/direct-call assertions through real bound broker fixture; source=Existing `internal/submission/tools_test.go`, `internal/turn/mcp_tools_test.go`; family cases to add; bounds=Current local Go implementation; synthetic factory bindings, no host claim; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-002 (spec AC-019): proof=Family-spanning durable receipt projection tests; source=Existing result/submission/creation stores; bounds=Bounded read dispositions; receipt lookup nonrecursive; prerequisite=Implement and retain executed checks.",
+          "Evidence inventory AC-003 (spec AC-021): proof=Offline MCP-to-family fixtures, executed `make check`, scoped documentation review; source=Existing pipe/socket/SQLite/HTTP facilities and pinned checks; bounds=Current checkout/toolchain; no live nested agent invocation; prerequisite=Implementation checks required; authentic host evidence explicitly deferred to #274."
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC-001",
+          "text": "Existing bound MCP transport discovers and executes every applicable tool in the matrix; each forbidden direct call fails without a domain effect, including Plan/Spike restrictions and missing/mismatched/expired/revoked authority."
+        },
+        {
+          "id": "AC-002",
+          "text": "Scoped receipts recover bounded dispositions across feedback, issues, evidence, activity and receipt lookup semantics, including confirmed publication identities and honest missing/pending/rejected/uncertain states, without recursive recording or redispatch."
+        },
+        {
+          "id": "AC-003",
+          "text": "Controlled end-to-end MCP pipe/socket/SQLite/HTTP fixture calls verify the matrix and cancellation/recovery invariants; `make check` passes and documentation describes callable contracts plus the remaining #274 production/authentic-host handoff."
+        }
+      ],
+      "tasks": [
+        {
+          "id": "T-001",
+          "description": "Document callable family contracts, compatibility, receipt state dimensions, assumptions and exact #274 handoff for native launches, trusted approval/next-attempt binding, lifecycle cleanup and recovery scheduling.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-003"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-002",
+          "description": "Complete table-driven matrix assertions for every family, mode, direct denial and authority non-effect, including denied creation prose/tokens/comment volume.",
+          "owner_role": "go-unit-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002"
+          ],
+          "depends_on": []
+        },
+        {
+          "id": "T-003",
+          "description": "Run complete MCP broker/pipe/socket/SQLite/HTTP fixtures covering cancellation, duplicate and lost-reply recovery, cross-scope denial and all family receipt projections.",
+          "owner_role": "go-integration-test-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-002"
+          ]
+        },
+        {
+          "id": "T-004",
+          "description": "Resolve composed-contract defects and execute make check, retaining actual passing output and documenting its offline proof limits.",
+          "owner_role": "go-implementation-engineer",
+          "criterion_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003"
+          ],
+          "depends_on": [
+            "T-001",
+            "T-003"
+          ]
+        }
+      ],
+      "architecture": {
+        "summary": "Compose every handler with actual broker transport, migrated SQLite and controlled HTTP forge responses. Describe call shapes, authority/recovery limits and remaining production responsibilities.",
+        "components": [
+          {
+            "name": "Aggregate bound MCP fixtures",
+            "responsibility": "Compose every handler with actual broker transport, migrated SQLite and controlled HTTP forge responses."
+          },
+          {
+            "name": "Public tool contract and handoff documentation",
+            "responsibility": "Describe call shapes, authority/recovery limits and remaining production responsibilities."
+          }
+        ],
+        "interfaces": [
+          {
+            "name": "Complete catalog under mode-scoped fixture bindings",
+            "input": "Research/Implement/Validate plus unchanged Plan/Spike profiles and gate variants",
+            "output": "Expected discovery/direct-call result matrix with counted effects"
+          },
+          {
+            "name": "Cross-family receipts",
+            "input": "Retained feedback, issue, evidence and activity identities",
+            "output": "Authorized bounded outcomes and confirmed publication identities without recursive lookup"
+          }
+        ],
+        "constraints": [
+          "Use normal Go tests; no build tags, TestFoo_Integration naming, paid nested agents, live publication or authentic-host claims. Coordinate races/cancellation via channels, not sleeps.",
+          "Run make check with pinned tooling before completion; do not make build, write dist, restart daemons or edit runtime configuration.",
+          "Documentation edits stay outside .claude/** and .codex/**. #272 is landed context and #274 is later host integration, never a dependency of this plan."
+        ],
+        "decisions": [
+          {
+            "decision": "Keep aggregate proof distinct from family proofs",
+            "reason": "Family stories prove their own semantics; the final gate checks composed catalog, recovery and documented boundaries."
+          },
+          {
+            "decision": "Preserve the authentic-host prerequisite for #274",
+            "reason": "Synthetic bindings, sockets and HTTP fixtures demonstrate local contracts only."
+          }
+        ]
+      },
+      "dependencies": {
+        "story_keys": [
+          "US-001",
+          "US-002",
+          "US-003",
+          "US-004",
+          "US-005",
+          "US-006",
+          "US-007"
+        ],
+        "issue_refs": []
+      }
+    }
+  ]
+}

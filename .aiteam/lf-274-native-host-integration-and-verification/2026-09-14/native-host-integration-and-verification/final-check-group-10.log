@@ -1,0 +1,4 @@
+Group: daemon-5 (TestR*)
+ok  	github.com/cloudvane/litefactory/internal/daemon	253.970s
+go test -race -timeout 8m -run '^TestR' ./internal/daemon/...  156.05s user 78.42s system 90% cpu 4:17.96 total
+EXIT: 0

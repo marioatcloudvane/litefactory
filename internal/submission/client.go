@@ -18,7 +18,7 @@ import (
 // calling again with identical bytes reuses the same identity after lost replies.
 func Call(ctx context.Context, descriptorPath, method string, payload json.RawMessage) (Response, error) {
 	var response Response
-	if method != "preflight" && method != "submit" && method != "receipt" {
+	if method != "preflight" && method != "submit" && method != "receipt" && method != "tools/list" && method != "tools/call" {
 		return response, errors.New("submission: unsupported method")
 	}
 	if len(payload) > MaxFrameBytes-1024 || !json.Valid(payload) {
@@ -45,14 +45,35 @@ func Call(ctx context.Context, descriptorPath, method string, payload json.RawMe
 	if err != nil || socket.Mode()&os.ModeSocket == 0 || !privateOwner(socket) || !descriptorSocketMatches(d, socket) {
 		return response, errors.New("submission: unsafe or replaced socket")
 	}
-	switch method {
-	case "submit":
-		response.RequestID, err = journalRequest(root, payload)
+	correlationMethod, correlationPayload := method, payload
+	if method == "tools/call" {
+		call, callErr := DecodeToolCall(payload)
+		if callErr != nil {
+			return response, callErr
+		}
+		correlationPayload = call.Arguments
+		switch call.Name {
+		case "communication_submit":
+			correlationMethod = "submit"
+		case "communication_receipt", "receipts_get":
+			correlationMethod = "receipt"
+		case "communication_preflight":
+			// Keep the original nonjournaled communication preflight contract.
+		default:
+			correlationMethod = "family"
+			// The private directory isolates attempts; the descriptor identity also
+			// isolates replacement descriptors and tool names isolate families.
+			correlationPayload = append([]byte("family-v1\x00"+d.Capability+"\x00"+call.Name+"\x00"), call.Arguments...)
+		}
+	}
+	switch correlationMethod {
+	case "submit", "family":
+		response.RequestID, err = journalRequest(root, correlationPayload)
 	case "receipt":
 		var lookup struct {
 			RequestID string `json:"request_id"`
 		}
-		err = decodeStrict(payload, &lookup)
+		err = decodeStrict(correlationPayload, &lookup)
 		response.RequestID = lookup.RequestID
 		if lookup.RequestID == "" || len(lookup.RequestID) > 128 {
 			err = errors.New("submission: invalid receipt correlation")
@@ -86,7 +107,7 @@ func Call(ctx context.Context, descriptorPath, method string, payload json.RawMe
 			<-cancelled
 		}
 	}()
-	data, err = json.Marshal(Request{Method: method, RequestID: response.RequestID, Payload: payload, Capability: d.Capability})
+	data, err = marshalRequest(Request{Method: method, RequestID: response.RequestID, Payload: payload, Capability: d.Capability})
 	if err != nil {
 		return response, errors.New("submission: invalid request")
 	}
@@ -165,4 +186,20 @@ func readJournal(root *os.Root, name, digest string) (string, error) {
 		return "", errors.New("submission: invalid correlation journal")
 	}
 	return journal.RequestID, nil
+}
+
+// marshalRequest preserves authored bytes across the private transport envelope.
+func marshalRequest(q Request) ([]byte, error) {
+	meta, err := json.Marshal(struct {
+		Method     string `json:"method"`
+		RequestID  string `json:"request_id"`
+		Capability string `json:"capability"`
+	}{q.Method, q.RequestID, q.Capability})
+	if err != nil {
+		return nil, err
+	}
+	meta = meta[:len(meta)-1]
+	meta = append(meta, []byte(`,"payload":`)...)
+	meta = append(meta, q.Payload...)
+	return append(meta, '}'), nil
 }

@@ -1,0 +1,70 @@
+{
+  "story": "US-001",
+  "snapshot_id": "run0007-us001-final",
+  "files": [
+    "docs/mcp-adapter.md",
+    "internal/agent/mcp.go",
+    "internal/agent/mcp_test.go",
+    "internal/agent/request.go",
+    "internal/agentresult/mcp_profile_contract_test.go",
+    "internal/cli/cmd_mcp.go",
+    "internal/cli/cmd_mcp_test.go",
+    "internal/cli/commands.go",
+    "internal/config/config.go",
+    "internal/config/mcp_creation_test.go",
+    "internal/config/mcp_test.go",
+    "internal/config/template.go",
+    "internal/daemon/mcp_creation.go",
+    "internal/daemon/mcp_creation_test.go",
+    "internal/mcpadapter/doc.go",
+    "internal/mcpadapter/protocol.go",
+    "internal/mcpadapter/server.go",
+    "internal/mcpadapter/server_test.go",
+    "internal/store/mcp_authority.go",
+    "internal/store/mcp_authority_test.go",
+    "internal/store/mcp_creation.go",
+    "internal/store/mcp_creation_serialization_test.go",
+    "internal/store/mcp_creation_test.go",
+    "internal/store/migrations/0042_mcp_authority.sql",
+    "internal/store/migrations/0043_mcp_creation.sql",
+    "internal/store/result_bindings.go",
+    "internal/submission/broker.go",
+    "internal/submission/client.go",
+    "internal/submission/creation.go",
+    "internal/submission/creation_test.go",
+    "internal/submission/protocol.go",
+    "internal/submission/tools.go",
+    "internal/submission/tools_test.go",
+    "internal/turn/agent_results.go",
+    "internal/turn/mcp_attempt.go",
+    "internal/turn/mcp_attempt_test.go",
+    "internal/turn/mcp_creation.go",
+    "internal/turn/mcp_creation_db_test.go",
+    "internal/turn/mcp_creation_unit_test.go",
+    "internal/turn/mcp_launch.go",
+    "internal/turn/mcp_launch_test.go",
+    "internal/turn/mcp_recovery_test.go",
+    "internal/turn/mcp_tools.go",
+    "internal/turn/mcp_tools_test.go"
+  ],
+  "checks": [
+    {
+      "id": "us001-final-build",
+      "name": "go build ./...",
+      "passed": true,
+      "evidence": "Executed after final deadline-ownership fix. Exit0 with no output."
+    },
+    {
+      "id": "us001-final-format",
+      "name": "gofmt -l .",
+      "passed": true,
+      "evidence": "Executed on final unchanged source. Exit0, no files reported."
+    },
+    {
+      "id": "us001-final-make-check",
+      "name": "GOFLAGS=-p=1 GOLANGCI_LINT_CACHE=/private/tmp/lf272-golangci-cache make check",
+      "passed": true,
+      "evidence": "Final aggregate attempt exited0. Format, vet, pinned golangci-lint v2.13.1 (0 issues) and full repository race tests passed. Package scheduling only changed; no tests skipped or timeout increased. Actual output:\ngo vet ./...\ngolangci-lint v2.13.1 (installed)\n0 issues.\ngo test -race -timeout=20m ./...\nok  \tgithub.com/cloudvane/litefactory/cmd/litefactory\t(cached)\n?   \tgithub.com/cloudvane/litefactory/cmd/team-benchmark\t[no test files]\n?   \tgithub.com/cloudvane/litefactory/cmd/team-publish\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/agent\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/attach\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/cli\t257.793s\nok  \tgithub.com/cloudvane/litefactory/internal/codex\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/config\t4.005s\nok  \tgithub.com/cloudvane/litefactory/internal/confirm\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t672.893s\nok  \tgithub.com/cloudvane/litefactory/internal/git\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/github\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/gittest\t4.210s\nok  \tgithub.com/cloudvane/litefactory/internal/harness\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/identity\t6.732s\nok  \tgithub.com/cloudvane/litefactory/internal/launchd\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/logging\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/mcpadapter\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/meter\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/naming\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/planbrief\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/redact\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/render\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/report\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/repos\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/schedule\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/secrets\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/store\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/submission\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/team\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/teampublish\t2.219s\nok  \tgithub.com/cloudvane/litefactory/internal/teamremote\t(cached)\nok  \tgithub.com/cloudvane/litefactory/internal/teamsource\t11.537s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t1166.347s\n"
+    }
+  ]
+}

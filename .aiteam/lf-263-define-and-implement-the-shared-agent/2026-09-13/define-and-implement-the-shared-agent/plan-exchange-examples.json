@@ -1,0 +1,214 @@
+{
+  "note": "Proposed draft exchanges only, not currently accepted submissions. Identities are illustrative. The minimal read projection omits unrelated factory metadata. Explicit operations and cross-run result lifetime remain proposals; this example does not settle them.",
+  "initial_snapshot": {
+    "meta": {
+      "schema_version": "0.1-draft",
+      "mode": "plan",
+      "result_id": "result-plan-1",
+      "result_revision": 1
+    },
+    "result": {
+      "outcome": "incomplete",
+      "reason": "Plan remains a draft pending owner review and complete story details.",
+      "comment": "Review the proposed story boundaries before adding detail.",
+      "recommendation": {
+        "text": "Review these rough stories, then enrich the same stories with acceptance criteria."
+      },
+      "payload": {
+        "plan": {
+          "stories": [
+            {
+              "key": "US-001",
+              "title": "Create and validate a shared agent result",
+              "user_story": {
+                "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+              }
+            },
+            {
+              "key": "US-002",
+              "title": "Update a saved agent result safely",
+              "user_story": {
+                "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "add_criteria_submission": {
+    "action": "update",
+    "result_id": "result-plan-1",
+    "expected_revision": 1,
+    "operations": [
+      {
+        "op": "update_item",
+        "path": "/payload/plan/stories",
+        "id": "US-001",
+        "changes": {
+          "acceptance_criteria": [
+            {
+              "id": "AC-001",
+              "text": "A valid result is decoded and retained with factory-bound metadata."
+            },
+            {
+              "id": "AC-002",
+              "text": "Unknown or agent-authored factory fields are rejected with a diagnostic identifying the field."
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "snapshot_after_criteria": {
+    "meta": {
+      "schema_version": "0.1-draft",
+      "mode": "plan",
+      "result_id": "result-plan-1",
+      "result_revision": 2
+    },
+    "result": {
+      "outcome": "incomplete",
+      "reason": "Plan remains a draft pending owner review and complete story details.",
+      "comment": "Review the proposed story boundaries before adding detail.",
+      "recommendation": {
+        "text": "Review these rough stories, then enrich the same stories with acceptance criteria."
+      },
+      "payload": {
+        "plan": {
+          "stories": [
+            {
+              "key": "US-001",
+              "title": "Create and validate a shared agent result",
+              "user_story": {
+                "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+              },
+              "acceptance_criteria": [
+                {
+                  "id": "AC-001",
+                  "text": "A valid result is decoded and retained with factory-bound metadata."
+                },
+                {
+                  "id": "AC-002",
+                  "text": "Unknown or agent-authored factory fields are rejected with a diagnostic identifying the field."
+                }
+              ]
+            },
+            {
+              "key": "US-002",
+              "title": "Update a saved agent result safely",
+              "user_story": {
+                "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "add_architecture_submission": {
+    "action": "update",
+    "result_id": "result-plan-1",
+    "expected_revision": 2,
+    "operations": [
+      {
+        "op": "update_item",
+        "path": "/payload/plan/stories",
+        "id": "US-001",
+        "changes": {
+          "architecture": {
+            "summary": "Keep decoding and semantic validation reusable; factory owners bind identity and decide lifecycle effects."
+          }
+        }
+      }
+    ]
+  },
+  "snapshot_after_architecture": {
+    "meta": {
+      "schema_version": "0.1-draft",
+      "mode": "plan",
+      "result_id": "result-plan-1",
+      "result_revision": 3
+    },
+    "result": {
+      "outcome": "incomplete",
+      "reason": "Plan remains a draft pending owner review and complete story details.",
+      "comment": "Review the proposed story boundaries before adding detail.",
+      "recommendation": {
+        "text": "Review these rough stories, then enrich the same stories with acceptance criteria."
+      },
+      "payload": {
+        "plan": {
+          "stories": [
+            {
+              "key": "US-001",
+              "title": "Create and validate a shared agent result",
+              "user_story": {
+                "want": "Submit an agent result through a reusable library that validates the shared communication contract."
+              },
+              "acceptance_criteria": [
+                {
+                  "id": "AC-001",
+                  "text": "A valid result is decoded and retained with factory-bound metadata."
+                },
+                {
+                  "id": "AC-002",
+                  "text": "Unknown or agent-authored factory fields are rejected with a diagnostic identifying the field."
+                }
+              ],
+              "architecture": {
+                "summary": "Keep decoding and semantic validation reusable; factory owners bind identity and decide lifecycle effects."
+              }
+            },
+            {
+              "key": "US-002",
+              "title": "Update a saved agent result safely",
+              "user_story": {
+                "want": "Change selected parts of a saved result while retaining untouched content and detecting stale revisions."
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "stale_update_diagnostic": {
+    "valid": false,
+    "diagnostics": [
+      {
+        "path": "$.expected_revision",
+        "code": "stale_revision",
+        "expected": 3,
+        "actual": 1,
+        "message": "Read the current story and revision before proposing another edit."
+      }
+    ]
+  },
+  "completion_attempt_diagnostic": {
+    "valid": false,
+    "diagnostics": [
+      {
+        "path": "$.payload.plan.summary",
+        "code": "required_for_completion",
+        "message": "Complete Plan requires a nonblank summary."
+      },
+      {
+        "path": "$.payload.plan.stories",
+        "code": "incomplete_stories",
+        "message": "Complete every story using the current typed contract: intent, actor/benefit, criteria, tasks, architecture and dependency declarations. Validate the complete graph before publication."
+      }
+    ]
+  },
+  "semantics": {
+    "omitted_on_create": "Not supplied or not yet known; never implicitly approved or complete.",
+    "omitted_on_update": "Preserve prior value, including other stories and common commentary.",
+    "empty_array": "An explicit clear only on an editable collection where an empty value is allowed; absence does not clear.",
+    "null": "Rejected; not shorthand for omission or deletion.",
+    "stable_identity": "Story key remains US-001; criterion IDs remain stable for the same obligation. Reordering does not renumber. Semantic replacement/retirement follows factory rules.",
+    "nested_objects": "update_item changes recursively preserve omitted object members; supplied arrays replace that collection explicitly. Use item operations for individual criterion/task edits.",
+    "atomicity": "Apply on a copy, validate the complete merged draft and references, compare revision, then retain a full new snapshot atomically. Published/frozen obligations remain immutable.",
+    "outcome": "incomplete describes the overall Plan. Finishing one enrichment turn does not make the Plan completed.",
+    "human_review": "Authenticated owner feedback and review authority remain factory-bound; agents do not write approved flags.",
+    "example_omission": "Comment and reason intentionally remain as authored at revision 1; focused updates do not regenerate prose automatically."
+  }
+}

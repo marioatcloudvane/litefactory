@@ -1,0 +1,6 @@
+{
+  "code": "stale_revision",
+  "expected_revision": 1,
+  "current_revision": 2,
+  "correction": "Read authorized targets and rebase against the current revision."
+}

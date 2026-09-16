@@ -35,8 +35,11 @@ For separated managed workflow, assess the factory's frozen identities/revisions
 retained implementation snapshots and executed checks, never substitute live issue
 edits. Return exactly one structured outcome per criterion and code, architecture
 and approved-plan review findings using the persisted submission contract. For
-contract 2 supply assessment findings with list-B evidence for the authorized
-orchestrator/helper handoff; contract 1 keeps versioned runner output. This does
+contract 2 return complete reference-only {"contributions":[...]} terminal
+findings or the supplied application result shape, using retained list-B evidence.
+Already permitted live tools are optional; identical live/terminal contributions
+reconcile without redundant submission, while conflicts reject atomically before
+new terminal decisions. Contract 1 keeps versioned runner output. This does
 not authorize shell commands, new checks or a wider specialist tool policy.
 Classify blocking defects separately from advisory improvements; advisory findings
 alone do not prevent acceptance. Include proof references and explicit unmet or

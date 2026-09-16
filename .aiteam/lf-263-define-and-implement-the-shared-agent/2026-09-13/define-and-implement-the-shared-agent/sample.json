@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "schema_version": "0.1-draft",
+    "operation": "work",
+    "task": "github:example/project#42",
+    "run_id": 1001,
+    "attempt_id": "factory-attempt-1",
+    "mode": "research",
+    "result_id": "result-research-1",
+    "result_revision": 1
+  },
+  "result": {
+    "outcome": "completed",
+    "comment": "Illustrative result for contract review.",
+    "recommendation": {
+      "text": "After owner review of this JSON draft, move to Plan to define delivery of the shared library.",
+      "action": "action.moveto.planmode"
+    },
+    "artifacts": [
+      {
+        "id": "ART-1",
+        "kind": "research_brief",
+        "path": "session/RESEARCH_BRIEF.md",
+        "description": "Evidence and proposed contract choices."
+      }
+    ],
+    "payload": {
+      "research": {
+        "request": "Inventory current communication and propose a first JSON shape.",
+        "findings": [
+          {
+            "id": "F-1",
+            "text": "Mode results and execution outcomes have different owners.",
+            "evidence": [
+              {
+                "path": "internal/agent/result.go",
+                "line": 81,
+                "revision": "6e52c3e8c0953a60509e65a2a64d2b9259c7bbbb"
+              }
+            ]
+          }
+        ],
+        "decisions": [
+          {
+            "id": "D-1",
+            "text": "Retain the need for a reusable shared Go library."
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
-// Package planbrief reads plan_brief.md's Story Index and the per-story
-// sub-issue bodies a Plan run writes beside it.
+// Package planbrief validates complete Plan proposals and reads and rewrites
+// plan_brief.md's Story Index.
 //
 // # Pure text in, structs out
 //
@@ -14,7 +14,6 @@
 // # What it is not
 //
 // It does not decide which stories still need a sub-issue — that answer
-// comes from GitHub, not from this package or from the file (see
-// internal/turn's sub-issue phase for why). It only parses what is on the
-// page and rewrites the one cell it is told to.
+// comes from the managed publication owner in internal/turn, not from the
+// index. Parsing the index never discovers or publishes per-story files.
 package planbrief

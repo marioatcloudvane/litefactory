@@ -125,7 +125,7 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 	if o.Plan != nil {
 		s.binding.Stories = slices.Clone(o.Plan.Existing)
 	}
-	if len(selected) == 0 && o.Plan == nil {
+	if len(selected) == 0 && o.Plan == nil && (o.Bundle == nil || len(o.Bundle.Stories) == 0) {
 		return nil, nil
 	}
 	for _, story := range selected {
@@ -163,7 +163,7 @@ func StartSubmissionSession(ctx context.Context, o SubmissionSessionOptions) (*S
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
-	s.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AuthorizedStories: keys, AllowPlan: o.Plan != nil, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: s.handle})
+	s.broker, err = submission.Start(ctx, submission.Options{Directory: dir, AuthorizedStories: keys, AllowPlan: o.Plan != nil, AllowResult: len(keys) == 0, MaxWorkers: 4, RequestTimeout: 30 * time.Second, Handler: s.handle})
 	if err != nil {
 		endErr := o.DB.EndSubmissionAttempt(context.WithoutCancel(ctx), s.binding.RunID, s.binding.Attempt)
 		return nil, errors.Join(err, endErr)
@@ -184,9 +184,24 @@ func (s *SubmissionSession) Close(ctx context.Context) error {
 	return errors.Join(closeErr, recoveryErr, s.options.DB.EndSubmissionAttempt(ctx, s.binding.RunID, s.binding.Attempt))
 }
 
-func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (output json.RawMessage, err error) {
+func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (json.RawMessage, error) {
+	return s.checkpoint(ctx, q)
+}
+
+// checkpoint is shared by the helper and family facade. It owns the session
+// lock, followed by the existing progress and cross-process parent ownership.
+func (s *SubmissionSession) checkpoint(ctx context.Context, q submission.Request) (output json.RawMessage, err error) {
+	return s.checkpointWithTerminal(ctx, q, false)
+}
+
+func (s *SubmissionSession) checkpointWithTerminal(ctx context.Context, q submission.Request, terminal bool) (output json.RawMessage, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.checkpointLocked(ctx, q, terminal)
+}
+
+// checkpointLocked requires the session lock, including whole terminal batches.
+func (s *SubmissionSession) checkpointLocked(ctx context.Context, q submission.Request, terminal bool) (output json.RawMessage, err error) {
 	if q.Method == "receipt" {
 		receipt, err := s.options.DB.GetSubmissionReceipt(ctx, s.binding.RunID, q.RequestID)
 		if err != nil {
@@ -257,6 +272,15 @@ func (s *SubmissionSession) handle(ctx context.Context, q submission.Request) (o
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, release()) }()
+	if terminal && diagnostics.Valid && s.binding.Stage == "validate" {
+		receipt, found, err := s.reconcileValidationCheckpoint(ctx, contribution)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return json.Marshal(receipt)
+		}
+	}
 	receipt, err := s.options.DB.AllocateSubmission(ctx, store.SubmissionRequest{RunID: s.binding.RunID, Attempt: s.binding.Attempt, RequestID: q.RequestID, Story: story.Key, Revision: story.Revision, InputState: inputState, Payload: q.Payload, Diagnostics: encodedDiagnostics})
 	if err != nil {
 		return nil, err
