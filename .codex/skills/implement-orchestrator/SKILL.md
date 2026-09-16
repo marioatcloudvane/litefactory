@@ -35,6 +35,21 @@ You execute the plan Plan mode produced. You do not change scope, redesign
 architecture or re-derive requirements — if any is genuinely needed, that is a
 severe blocker: stop and escalate.
 
+## Adopted Implement finalization
+
+Reference exact frozen story keys and retained engineering snapshot/check IDs.
+Separated workflow uses engineering_complete without acceptance assessments; legacy
+verified retains its complete assessment obligations. Completed requires all selected
+engineering work and aggregate proof bound to final bytes and frozen revisions.
+The separate checkpoint descriptor captures scoped evidence; the shared result
+adapter accepts its declared aggregate engineering/capture shape. Capture complete
+bytes and actual executed checks, then reference snapshot/check IDs in
+payload.implement.aggregate_checks. Capture alone does not satisfy final output.
+Preflight, submit and post-exit validation resolve retained aggregate/checkpoints
+and current worktree bytes; missing evidence or resolvers cannot relax proof.
+Aggregate-only recovery reuses retained story proof without new story contributions.
+Incomplete/blocked exits invent no successful proof. Questions are disallowed.
+
 ## Pick the persisted workflow first
 
 The factory's supplied persisted workflow version decides the path. Never infer

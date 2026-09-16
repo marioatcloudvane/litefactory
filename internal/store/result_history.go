@@ -25,6 +25,7 @@ type ResultRecord struct {
 	ExpectedRevision                        int64
 	Accepted                                bool
 	SubmissionReceiptID                     int64
+	Aggregate                               *ResultAggregate
 }
 
 // ResultRevision is an immutable full snapshot with its source attribution.
@@ -130,6 +131,16 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 	if q.RequestID == "" || len(q.RequestID) > 256 || len(q.Payload) > MaxResultInputBytes || len(q.Diagnostics) > MaxResultInputBytes || !json.Valid(q.Diagnostics) {
 		return r, fmt.Errorf("store: invalid result request")
 	}
+	if q.Aggregate != nil {
+		normalized, err := normalizeResultAggregate(q.Binding, *q.Aggregate)
+		if err != nil {
+			return r, err
+		}
+		q.Aggregate = &normalized
+		if !q.Accepted || len(q.Snapshot) != 0 || len(q.Retired) != 0 {
+			return r, fmt.Errorf("store: aggregate input cannot include a result revision")
+		}
+	}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
 		if err := checkResultAccess(ctx, tx, q.Binding, false); err != nil {
 			return err
@@ -160,18 +171,24 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 		if err := tx.QueryRowContext(ctx, `SELECT revision FROM application_results WHERE id=? AND context_hash=?`, q.Binding.ResultID, q.Binding.ContextHash).Scan(&current); err != nil {
 			return err
 		}
-		if current != q.ExpectedRevision {
+		if q.Aggregate == nil && current != q.ExpectedRevision {
 			return &ResultRevisionConflict{Expected: q.ExpectedRevision, Current: current}
 		}
 		revision := int64(0)
 		state := "rejected"
-		if q.Accepted {
+		switch {
+		case q.Aggregate != nil:
+			if err := retainResultAggregateTx(ctx, tx, q.Binding, *q.Aggregate); err != nil {
+				return err
+			}
+			state = "accepted"
+		case q.Accepted:
 			if current == math.MaxInt64 || len(q.Snapshot) > MaxResultSnapshotBytes || len(q.Retired) > MaxResultInputBytes || !json.Valid(q.Snapshot) || !json.Valid(q.Retired) {
 				return fmt.Errorf("store: invalid result candidate")
 			}
 			revision = current + 1
 			state = "accepted"
-		} else if len(q.Snapshot) != 0 || len(q.Retired) != 0 {
+		case len(q.Snapshot) != 0 || len(q.Retired) != 0:
 			return fmt.Errorf("store: rejected input cannot retain a candidate")
 		}
 		var association interface{}
@@ -193,7 +210,7 @@ func (db *DB) RecordResult(ctx context.Context, q ResultRecord) (ResultReceipt, 
 		if err != nil {
 			return err
 		}
-		if q.Accepted {
+		if q.Accepted && q.Aggregate == nil {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO application_result_revisions(result_id,revision,run_id,attempt,request_row,snapshot,snapshot_hash,retired) VALUES(?,?,?,?,?,?,?,?)`, q.Binding.ResultID, revision, q.Binding.RunID, q.Binding.Attempt, id, q.Snapshot, submissionDigest(q.Snapshot), q.Retired); err != nil {
 				return err
 			}
@@ -261,4 +278,64 @@ func (db *DB) ResultRevisionNumbers(ctx context.Context, b ResultBinding) ([]int
 		return rows.Err()
 	})
 	return revisions, err
+}
+
+// ResultRequestReference identifies retained input within one authorized result.
+// It contains no authored payload, capability or evidence bytes.
+type ResultRequestReference struct {
+	RunID           int64  `json:"run_id"`
+	RequestID       string `json:"request_id"`
+	InputState      string `json:"input_state"`
+	AppliedRevision int64  `json:"applied_revision"`
+}
+
+// ResultRequestReferences returns a bounded recent correlation inventory for
+// launch/recovery. Exact receipt lookup remains scoped to the same result.
+func (db *DB) ResultRequestReferences(ctx context.Context, b ResultBinding) ([]ResultRequestReference, error) {
+	refs := []ResultRequestReference{}
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, false); err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT run_id,request_id,input_state,applied_revision FROM application_result_requests WHERE result_id=? ORDER BY id DESC LIMIT 32`, b.ResultID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ref ResultRequestReference
+			if err := rows.Scan(&ref.RunID, &ref.RequestID, &ref.InputState, &ref.AppliedRevision); err != nil {
+				return err
+			}
+			refs = append(refs, ref)
+		}
+		return rows.Err()
+	})
+	return refs, err
+}
+
+// FindResultReceipt recovers a known correlation in this exact result after a
+// new run binding. Ambiguous reused IDs refuse rather than selecting a source.
+func (db *DB) FindResultReceipt(ctx context.Context, b ResultBinding, requestID string) (ResultReceipt, error) {
+	var receipt ResultReceipt
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		if err := checkResultAccess(ctx, tx, b, false); err != nil {
+			return err
+		}
+		var count int
+		var runID int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(MAX(run_id),0) FROM application_result_requests WHERE result_id=? AND request_id=?`, b.ResultID, requestID).Scan(&count, &runID); err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrNotFound
+		}
+		if count != 1 {
+			return ErrResultCorrelation
+		}
+		var err error
+		receipt, err = resultReceiptTx(ctx, tx, b.ResultID, runID, requestID)
+		return err
+	})
+	return receipt, err
 }

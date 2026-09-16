@@ -54,6 +54,13 @@ func (p ToolProfile) List() []ToolSpec {
 		{Name: "communication_receipt", Description: "Read an existing application receipt; pending is not workflow success.", InputSchema: json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`), Effect: "read"},
 		{Name: "communication_submit", Description: "Record this attempt's shared JSON result; grants no execution, acceptance or publication.", InputSchema: json.RawMessage(`{"type":"object","description":"Exact shared agent-result create or update contribution."}`), Effect: "input"},
 	}
+	if p.mode == "implement" {
+		for i := range tools {
+			if tools[i].Name == "communication_preflight" || tools[i].Name == "communication_submit" {
+				tools[i].InputSchema = json.RawMessage(`{"type":"object","description":"Shared result create/update, or factory-bound aggregate capture using engineering reference and typed capture fields."}`)
+			}
+		}
+	}
 	for _, name := range p.families {
 		spec, ok := familyTool(name)
 		if ok && familyAllowed(p.mode, p.creation, name) {

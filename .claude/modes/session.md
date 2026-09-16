@@ -9,6 +9,21 @@ the discussion/completed outcomes live in `.claude/agents/plan-orchestrator.md`,
 which is the only role that writes them, and in
 `.claude/skills/shared/workflow.md`. The router does not need them.
 
+## Adopted Plan final output
+
+Keep the literal `- Mode: X` header and existing session convention. The shared
+result route accepts typed payload.plan via the existing Plan publication owner.
+A saved plan_brief.md or separate checkpoint alone does not finish required output.
+Use the explicit empty/prior baseline with stable IDs and observed revision, correct
+preflight diagnostics, preserve request identity on lost replies and use new identity
+for corrected input. Input, engineering, acceptance and remote effects are independent;
+publication/freezing/readiness remain factory decisions after successful processing.
+Put the plain-language report in comment when terminal JSON is required. Questions
+need current permission and incomplete/blocked outcome. Legacy scopes keep the declared
+compatibility route until supported upgrade/admission. Read the workflow's Shared
+final routes and continuation and Application serialization sections; adoption and
+retirement remain separate, and offline checks do not prove #274/#296 observations.
+
 ## Validate exception
 
 Validate reads `.claude/modes/validate.md` and the shared workflow. It does not

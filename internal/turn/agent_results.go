@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/store"
 )
@@ -18,10 +19,13 @@ type AgentResultServiceOptions struct {
 	Attempt                  store.ResultAttempt
 	Resolve                  func(context.Context) (agentresult.Context, error)
 	ReadTargets, EditTargets []agentresult.Target
+	PrepareAggregate         func(context.Context, store.ResultBinding, agent.EngineeringContribution, agent.AggregateCapture) (store.ResultAggregate, error)
+	ValidateCompletion       func(context.Context, store.ResultBinding, agentresult.Result, agentresult.Context) agentresult.Diagnostics
 }
 
 // AgentResultService composes pure result validation with atomic storage. No
-// method dispatches runners, captures proof, changes readiness or publishes.
+// method dispatches runners, executes checks, changes readiness or publishes.
+// Aggregate capture retains only explicitly reported immutable evidence.
 type AgentResultService struct {
 	db                       *store.DB
 	binding                  store.ResultBinding
@@ -29,6 +33,8 @@ type AgentResultService struct {
 	resolve                  func(context.Context) (agentresult.Context, error)
 	readTargets, editTargets []agentresult.Target
 	readOnly                 bool
+	prepareAggregate         func(context.Context, store.ResultBinding, agent.EngineeringContribution, agent.AggregateCapture) (store.ResultAggregate, error)
+	validateCompletion       func(context.Context, store.ResultBinding, agentresult.Result, agentresult.Context) agentresult.Diagnostics
 }
 
 // AgentResultSubmission separates validation/input acceptance from engineering,
@@ -37,6 +43,7 @@ type AgentResultSubmission struct {
 	Validation agentresult.UpdateDiagnostics
 	Receipt    *store.ResultReceipt
 	Snapshot   *agentresult.Snapshot
+	Baseline   *agentresult.Projection
 }
 
 // BindAgentResultService starts fresh authority for one real factory run. Exact
@@ -57,7 +64,7 @@ func BindAgentResultService(ctx context.Context, o AgentResultServiceOptions) (*
 	if err != nil {
 		return nil, err
 	}
-	return &AgentResultService{db: o.DB, binding: binding, attempt: a, resolve: o.Resolve, readTargets: slices.Clone(o.ReadTargets), editTargets: slices.Clone(o.EditTargets)}, nil
+	return &AgentResultService{db: o.DB, binding: binding, attempt: a, resolve: o.Resolve, readTargets: slices.Clone(o.ReadTargets), editTargets: slices.Clone(o.EditTargets), validateCompletion: o.ValidateCompletion, prepareAggregate: o.PrepareAggregate}, nil
 }
 
 // OpenAgentResultReader reconnects an explicitly read-only service after restart.
@@ -120,6 +127,7 @@ func (s *AgentResultService) trustedContext(ctx context.Context) (agentresult.Co
 		return agentresult.Context{}, err
 	}
 	c, err := s.resolve(ctx)
+	c = cloneResultContext(c)
 	if err != nil {
 		return c, fmt.Errorf("resolve current result evidence: %w", err)
 	}
@@ -137,6 +145,32 @@ func (s *AgentResultService) trustedContext(ctx context.Context) (agentresult.Co
 	return c, nil
 }
 func (s *AgentResultService) prepare(ctx context.Context, data []byte) (candidate agentresult.PreparedUpdate, diagnostics agentresult.UpdateDiagnostics, resultErr error) {
+	defer func() {
+		if resultErr == nil && !diagnostics.Valid {
+			baseline, err := s.Baseline(ctx)
+			if err != nil {
+				resultErr = err
+				return
+			}
+			diagnostics.CurrentRevision = baseline.Projection.Revision
+			diagnostics.Baseline = &baseline.Projection
+		}
+	}()
+	defer func() {
+		if resultErr == nil && diagnostics.Valid && s.validateCompletion != nil {
+			c, err := s.trustedContext(ctx)
+			if err != nil {
+				resultErr = err
+				return
+			}
+			d := s.validateCompletion(ctx, s.binding, candidate.Snapshot.Result, c)
+			diagnostics.Valid = diagnostics.Valid && d.Valid
+			diagnostics.Complete = diagnostics.Complete && d.Complete
+			diagnostics.Diagnostics.Diagnostics = append(diagnostics.Diagnostics.Diagnostics, d.Diagnostics...)
+			diagnostics.UncheckedPaths = append(diagnostics.UncheckedPaths, d.UncheckedPaths...)
+		}
+	}()
+
 	// MCP cannot initiate deferred issue creation. Refuse the fully assembled
 	// candidate, including updates to retained proposals, before durable admission.
 	// Ordinary helper/terminal callers retain the existing publication policy.
@@ -189,6 +223,10 @@ func (s *AgentResultService) metadata(revision int64) agentresult.Metadata {
 // Preflight performs the same fresh scope/evidence reads as Submit without
 // allocating a request, proof, revision or durable observation.
 func (s *AgentResultService) Preflight(ctx context.Context, data []byte) (agentresult.UpdateDiagnostics, error) {
+	if aggregateInput(data) {
+		_, d, err := s.prepareAggregateInput(ctx, data)
+		return d, err
+	}
 	_, d, err := s.prepare(ctx, data)
 	return d, err
 }
@@ -217,6 +255,9 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 	if !errors.Is(err, store.ErrNotFound) {
 		return AgentResultSubmission{}, err
 	}
+	if aggregateInput(data) {
+		return s.submitAggregateInput(ctx, requestID, data)
+	}
 	candidate, d, err := s.prepare(ctx, data)
 	if err != nil {
 		return AgentResultSubmission{}, err
@@ -244,6 +285,18 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 		}
 	}
 	receipt, err := s.db.RecordResult(ctx, q)
+	var conflict *store.ResultRevisionConflict
+	if errors.As(err, &conflict) {
+		baseline, readErr := s.Baseline(ctx)
+		if readErr != nil {
+			return AgentResultSubmission{}, readErr
+		}
+		d.Valid = false
+		d.CurrentRevision = baseline.Projection.Revision
+		d.Baseline = &baseline.Projection
+		d.Diagnostics.Diagnostics = append(d.Diagnostics.Diagnostics, agentresult.Diagnostic{Path: "$.expected_revision", Code: "stale_revision", Message: "Use the current authorized baseline and a new request identity."})
+		return AgentResultSubmission{Validation: d}, nil
+	}
 	if err != nil {
 		return AgentResultSubmission{}, err
 	}
@@ -251,8 +304,16 @@ func (s *AgentResultService) Submit(ctx context.Context, requestID string, data 
 }
 func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt) (AgentResultSubmission, error) {
 	response := AgentResultSubmission{Receipt: &r}
+	if !s.completeReadGrant() {
+		public := r
+		public.Payload, public.Diagnostics = nil, nil
+		response.Receipt = &public
+	}
 	if err := json.Unmarshal(r.Diagnostics, &response.Validation); err != nil {
 		return response, fmt.Errorf("decode result receipt diagnostics: %w", err)
+	}
+	if !s.completeReadGrant() {
+		response.Validation.Baseline = nil
 	}
 	if r.AppliedRevision != 0 {
 		retained, err := s.db.GetResultRevision(ctx, s.binding, r.AppliedRevision)
@@ -263,7 +324,15 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 		if err != nil {
 			return response, err
 		}
-		response.Snapshot = &snapshot
+		if s.completeReadGrant() {
+			response.Snapshot = &snapshot
+		} else {
+			projection, d := agentresult.Project(snapshot, resultBaselineTargets(s.readTargets), s.readTargets, agentresult.Context{Mode: s.binding.Mode, SchemaVersion: s.binding.SchemaVersion})
+			if !d.Valid || !d.Complete {
+				return response, resultDiagnosticError(d)
+			}
+			response.Baseline = &projection
+		}
 	}
 	return response, nil
 }
@@ -271,6 +340,9 @@ func (s *AgentResultService) response(ctx context.Context, r store.ResultReceipt
 // Receipt observes authorized historical correlation without granting writing.
 func (s *AgentResultService) Receipt(ctx context.Context, sourceRunID int64, requestID string) (AgentResultSubmission, error) {
 	r, err := s.db.GetResultReceipt(ctx, s.binding, sourceRunID, requestID)
+	if errors.Is(err, store.ErrNotFound) && sourceRunID == s.binding.RunID {
+		r, err = s.db.FindResultReceipt(ctx, s.binding, requestID)
+	}
 	if err != nil {
 		return AgentResultSubmission{}, err
 	}

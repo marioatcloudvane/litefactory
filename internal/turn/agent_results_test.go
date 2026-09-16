@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -290,6 +291,65 @@ func TestAgentResultService_ReopenAndReadOnlyAccess(t *testing.T) {
 	replay, err := service.Submit(t.Context(), "create", data)
 	if err != nil || !reflect.DeepEqual(first, replay) {
 		t.Fatal("lost-response replay changed after reopen", err)
+	}
+}
+
+// Baseline's correlation inventory is the mechanism a resumed/restarted attempt
+// uses to recognize a lost reply before retrying; it must reflect exact recorded
+// states and identities, and remain available to a narrow-scope reader without
+// leaking any authored comment/payload content.
+func TestAgentResultService_BaselineRequestInventory(t *testing.T) {
+	db, _, o := agentResultFixture(t, "research")
+	service, err := BindAgentResultService(t.Context(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := resultCreate("research")
+	if _, err = service.Submit(t.Context(), "create", data); err != nil {
+		t.Fatal(err)
+	}
+	update := []byte(`{"expected_revision":1,"operations":[{"op":"set","target":{"field":"comment"},"value":"Continuation"}]}`)
+	if _, err = service.Submit(t.Context(), "update", update); err != nil {
+		t.Fatal(err)
+	}
+	malformed := []byte(`{"expected_revision":2,"operations":[{"op":"set","target":{"field":"comment"},"value":4}]}`)
+	if _, err = service.Submit(t.Context(), "malformed", malformed); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := service.Baseline(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.ResultRequestReference{
+		{RunID: service.Binding().RunID, RequestID: "malformed", InputState: "rejected", AppliedRevision: 0},
+		{RunID: service.Binding().RunID, RequestID: "update", InputState: "accepted", AppliedRevision: 2},
+		{RunID: service.Binding().RunID, RequestID: "create", InputState: "accepted", AppliedRevision: 1},
+	}
+	if !reflect.DeepEqual(baseline.Requests, want) {
+		t.Fatalf("baseline request inventory: got=%+v want=%+v", baseline.Requests, want)
+	}
+	reader, err := OpenAgentResultReader(t.Context(), db, service.Binding(), []ar.Target{{Field: "comment"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := reader.Baseline(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(scoped.Requests, want) {
+		t.Fatalf("scoped baseline lost request inventory: %+v", scoped.Requests)
+	}
+	if scoped.Projection.CompleteSnapshot {
+		t.Fatal("narrow reader gained a complete snapshot grant")
+	}
+	// The correlation inventory itself (distinct from the explicitly granted
+	// comment projection above it) carries only identities and states.
+	b, err := json.Marshal(scoped.Requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "Continuation") || strings.Contains(string(b), "Initial result") {
+		t.Fatalf("request inventory leaked authored content: %s", b)
 	}
 }
 

@@ -12,7 +12,7 @@ material user decisions unless explicitly prohibited; do not re-ask settled
 questions. Save discussion context and end the run without waiting. Record
 reasonable assumptions for non-material gaps.
 
-Use the factory-supplied content/submission version. For contract 2 supply a
+Use the factory-supplied content/submission version. For contract 2 the checkpoint path accepts a
 Plan contribution with `stage: "plan"`, outcome discussion or completed, and
 `context` or `plan` respectively. Discussion saves working context and publishes
 nothing. Completed Plan carries summary and typed stories; the factory renders
@@ -50,3 +50,10 @@ Split protected-tree edits into independent stories: Codex owns `.claude/**`,
 Claude owns `.codex/**`, and shared-source work precedes either without depending
 on either. Scoped checks cannot require installed sibling parity. Preserve the
 persisted workflow version for active features and their replans.
+
+The adopted shared result route also accepts completed typed payload.plan content;
+its adapter reuses the existing Plan owner for validation, internal handoff and
+success-only publication. A Plan checkpoint alone does not satisfy required shared
+final output. Use the supplied baseline/revision for continuation and preserve
+questions only with current permission. Neither communication input acceptance nor
+a completed Plan result alone establishes publication, freezing or readiness.

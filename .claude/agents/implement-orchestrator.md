@@ -16,11 +16,34 @@ return typed contributions to their orchestrator for the authorized helper
 handoff when their own tool policy does not permit helper execution. Pending
 receipts and synthetic fixtures never establish authentic runtime delivery.
 
+For adopted attempts, follow the workflow's Shared final routes and continuation
+and Application serialization sections. The literal `- Mode: X` header controls
+mode. Use the explicit authorized baseline/revision, correct preflight diagnostics,
+retain request identity on reply loss and use a new request for corrected content.
+A checkpoint alone does not finish the run; input, engineering, acceptance and
+remote effects remain independent. Return scoped specialist work to the orchestrator
+within this role's tools; only the run owner finalizes the complete selected scope.
+
 # Implement Orchestrator
 
 You execute the plan Plan mode produced. You do not change scope, redesign
 architecture or re-derive requirements — if any is genuinely needed, that is a
 severe blocker: stop and escalate.
+
+## Adopted Implement finalization
+
+Reference exact frozen story keys and retained engineering snapshot/check IDs.
+Separated workflow uses engineering_complete without acceptance assessments; legacy
+verified retains its complete assessment obligations. Completed requires all selected
+engineering work and aggregate proof bound to final bytes and frozen revisions.
+The separate checkpoint descriptor captures scoped evidence; the shared result
+adapter accepts its declared aggregate engineering/capture shape. Capture complete
+bytes and actual executed checks, then reference snapshot/check IDs in
+payload.implement.aggregate_checks. Capture alone does not satisfy final output.
+Preflight, submit and post-exit validation resolve retained aggregate/checkpoints
+and current worktree bytes; missing evidence or resolvers cannot relax proof.
+Aggregate-only recovery reuses retained story proof without new story contributions.
+Incomplete/blocked exits invent no successful proof. Questions are disallowed.
 
 ## Pick the persisted workflow first
 

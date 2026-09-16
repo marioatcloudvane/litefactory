@@ -62,7 +62,7 @@ func creationProposal(e submission.CreationEnvelope) (store.CreationProposal, er
 	return store.CreationProposal{Hash: hash, Repository: e.Repository, SourceTask: e.SourceTask, Relationship: e.Relationship, Artifacts: len(e.Artifacts), Envelope: data}, nil
 }
 
-// RetainProposal is called by a future factory proposal presenter before owner
+// RetainProposal is called by the factory proposal presenter before owner
 // approval; it grants nothing and publishes nothing. Preflight never calls it.
 func (a *CreationAuthorizer) RetainProposal(ctx context.Context, e submission.CreationEnvelope) (string, error) {
 	p, err := creationProposal(e)
@@ -87,8 +87,8 @@ func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerG
 	return a.store.AdmitOwnerIntent(ctx, store.CreationApproval{Repository: c.Repository, SourceTask: c.SourceTask, ProposalHash: command.ProposalHash, CommentID: c.CommentID, OwnerID: a.ownerID, ActorID: c.ActorID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Bot: c.Bot}, command.Relationship)
 }
 
-// CreationVisible is the gate for a future registered creation-class handler.
-// It does not imply a grant. The current catalog registers no creation handler.
+// CreationVisible checks the loaded gate and Research profile for creation.
+// It does not imply a grant; the exact owner intent is checked independently.
 func (a *CreationAuthorizer) CreationVisible(ctx context.Context, guard *AttemptGuard) bool {
 	return a.enabled && guard != nil && guard.Binding().Mode == "research" && guard.Check(ctx) == nil
 }

@@ -1,0 +1,18 @@
+=== RUN   TestPublicationRuntimeCatalogFromProduction
+=== RUN   TestPublicationRuntimeCatalogFromProduction/research
+=== RUN   TestPublicationRuntimeCatalogFromProduction/plan
+=== RUN   TestPublicationRuntimeCatalogFromProduction/spike
+=== RUN   TestPublicationRuntimeCatalogFromProduction/implement
+=== RUN   TestPublicationRuntimeCatalogFromProduction/validate
+--- PASS: TestPublicationRuntimeCatalogFromProduction (2.71s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/research (0.20s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/plan (0.16s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/spike (0.15s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/implement (1.12s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/validate (1.07s)
+=== RUN   TestPublicationRuntimePreparedOwnerIntentNativeLifetime
+--- PASS: TestPublicationRuntimePreparedOwnerIntentNativeLifetime (0.33s)
+=== RUN   TestPublicationRuntimeCreationRestartObservation
+--- PASS: TestPublicationRuntimeCreationRestartObservation (0.17s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	3.846s

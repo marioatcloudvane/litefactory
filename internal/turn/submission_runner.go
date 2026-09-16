@@ -79,7 +79,7 @@ func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Reques
 		req.Prompt += "The retained Validate profile may not invoke shell helpers. Do not widen permissions. Return final JSON {\"contributions\":[...]} with one contribution per supplied story: {\"stage\":\"validate\",\"story\":\"key\",\"outcome\":\"assessed\",\"assessment\":{\"snapshot_id\":\"supplied snapshot\",\"criteria\":[{\"name\":\"AC ID\",\"status\":\"satisfied|unmet|unverified\",\"classification\":\"blocking\",\"evidence\":[{\"check_ids\":[\"retained test name\"],\"summary\":\"finding\"}]}],\"reviews\":[same finding shape for code, architecture, plan]}}. No capture or fresh execution is allowed. The factory validates and retains these findings after exit; this path does not establish live helper acknowledgment.\n"
 	}
 	result, err = runMCPBound(ctx, prep, req, session)
-	if err == nil && result != nil && result.Succeeded() && session.binding.Stage == "validate" {
+	if err == nil && result != nil && result.Succeeded() && session.binding.Stage == "validate" && !prep.submissionValidated {
 		if processErr := session.consumeTerminalValidation(context.WithoutCancel(ctx), result.ResultText); processErr != nil {
 			result = result.Clone()
 			result.Outcome = agent.OutcomeFailed
@@ -119,8 +119,15 @@ func (s *SubmissionSession) consumeTerminalValidation(ctx context.Context, text 
 		return fmt.Errorf("validation output has trailing data")
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(output.Contributions) != len(s.stories) {
 		return fmt.Errorf("incomplete validation story coverage")
+	}
+	if s.options.Progress != nil {
+		if err := s.options.Progress.RecoverSubmissions(ctx); err != nil {
+			return err
+		}
 	}
 	seen := map[string]bool{}
 	for i, payload := range output.Contributions {
@@ -129,9 +136,14 @@ func (s *SubmissionSession) consumeTerminalValidation(ctx context.Context, text 
 			return fmt.Errorf("invalid or duplicate validation contribution %d", i)
 		}
 		seen[contribution.Story] = true
+		// Check every retained live decision before writing the first terminal
+		// decision. The session lock excludes new live checkpoint mutations.
+		if _, _, err := s.reconcileValidationCheckpoint(ctx, contribution); err != nil {
+			return err
+		}
 	}
 	for i, payload := range output.Contributions {
-		result, err := s.checkpointWithTerminal(ctx, submission.Request{Method: "submit", RequestID: fmt.Sprintf("terminal-%s-%d", s.binding.Attempt, i), Payload: payload}, true)
+		result, err := s.checkpointLocked(ctx, submission.Request{Method: "submit", RequestID: fmt.Sprintf("terminal-%s-%d", s.binding.Attempt, i), Payload: payload}, true)
 		if err != nil {
 			return err
 		}

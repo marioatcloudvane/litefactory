@@ -45,6 +45,8 @@ Near submission, including an incomplete or blocked exit, read
 Do not load every mode or whole schema by default.
 
 Use the available authorized adapter; this skill creates no tool, permission or
-live route. Preserve the current mode. The factory owns metadata, writer authority,
+live route. The factory launch declares the adopted route independently of MCP.
+A finishing skill alone cannot enforce completion: post-exit validation remains
+factory-owned. Preserve the current mode. The factory owns metadata, writer authority,
 receipts and lifecycle decisions. Reporting completion or a recommendation grants
 no engineering, acceptance or publication decision.

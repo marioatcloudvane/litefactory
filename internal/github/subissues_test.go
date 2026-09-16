@@ -844,13 +844,13 @@ func TestARenderedSubIssueIsAcceptedAsASpec(t *testing.T) {
 		t.Fatalf("report.New: %v", err)
 	}
 	ref := naming.Ref{Forge: naming.ForgeGitHub, Owner: "acme", Repo: "acme-api", Issue: 123}
-	rendered, err := reporter.RenderSubIssue(t.Context(), report.Story{
+	rendered, err := reporter.RenderCompleteStory(t.Context(), report.Story{
 		Ref: ref, ID: "C1",
 		Title:   "The plan ships as one sub-issue per user story",
-		Summary: "Each story arrives as its own issue, so it can be tracked and closed on its own.",
+		Excerpt: "Each story arrives as its own issue, so it can be tracked and closed on its own.",
 	})
 	if err != nil {
-		t.Fatalf("RenderSubIssue: %v", err)
+		t.Fatalf("RenderCompleteStory: %v", err)
 	}
 
 	f := newFixture(t, (&forge{

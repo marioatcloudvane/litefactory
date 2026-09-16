@@ -19,18 +19,26 @@ import (
 // worktree before retaining factory-bound aggregate facts. It runs no checks and
 // never contributes a story event. Validate cannot call this capture boundary.
 func RetainAgentResultAggregate(ctx context.Context, db *store.DB, b store.ResultBinding, worktree *git.Worktree, reference string, selected []store.ResultStoryRevision, capture agent.AggregateCapture) error {
-	if db == nil || b.Mode != "implement" {
-		return fmt.Errorf("aggregate capture requires an authorized Implement binding")
-	}
-	if err := db.CheckResultWriter(ctx, b); err != nil {
-		return err
-	}
-	files, err := capture.SnapshotFiles()
+	a, err := prepareAgentResultAggregate(ctx, db, b, worktree, reference, selected, capture)
 	if err != nil {
 		return err
 	}
+	return db.RetainResultAggregate(ctx, b, a)
+}
+
+func prepareAgentResultAggregate(ctx context.Context, db *store.DB, b store.ResultBinding, worktree *git.Worktree, reference string, selected []store.ResultStoryRevision, capture agent.AggregateCapture) (store.ResultAggregate, error) {
+	if db == nil || b.Mode != "implement" {
+		return store.ResultAggregate{}, fmt.Errorf("aggregate capture requires an authorized Implement binding")
+	}
+	if err := db.CheckResultWriter(ctx, b); err != nil {
+		return store.ResultAggregate{}, err
+	}
+	files, err := capture.SnapshotFiles()
+	if err != nil {
+		return store.ResultAggregate{}, err
+	}
 	if err := verifyResultAggregateWorktree(ctx, worktree, files); err != nil {
-		return err
+		return store.ResultAggregate{}, err
 	}
 	a := store.ResultAggregate{ResultID: b.ResultID, RunID: b.RunID, Reference: reference, Attempt: b.Attempt, Parent: b.Task, ContextHash: b.ContextHash, Digest: capture.ImplementationDigest, Selected: slices.Clone(selected)}
 	for _, f := range files {
@@ -39,8 +47,12 @@ func RetainAgentResultAggregate(ctx context.Context, db *store.DB, b store.Resul
 	for _, check := range capture.Checks {
 		a.Checks = append(a.Checks, store.ResultAggregateCheck{Reference: check.ID, ExecutionID: check.ExecutionID, Kind: check.Scope, Name: check.Name, Digest: check.ImplementationDigest, Evidence: check.Evidence, RunID: b.RunID, Attempt: b.Attempt, Executed: check.Executed, Passed: check.Passed})
 	}
-	return db.RetainResultAggregate(ctx, b, a)
+	if err := db.CheckResultAggregate(ctx, b, a); err != nil {
+		return store.ResultAggregate{}, err
+	}
+	return a, nil
 }
+
 func verifyResultAggregateWorktree(ctx context.Context, w *git.Worktree, files []agent.StorySnapshotFile) error {
 	if w == nil || w.Path() == "" {
 		return fmt.Errorf("aggregate comparison requires an authorized git worktree")

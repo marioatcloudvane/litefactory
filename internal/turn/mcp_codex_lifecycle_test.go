@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +13,11 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	"github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/codex"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/submission"
 )
 
 // This file extends the US-005 T-002 production-seam lifecycle coverage
@@ -275,7 +278,13 @@ func TestCodexMCPLifecycleEnabledDisabledAbsentSetup(t *testing.T) {
 				if spec == nil {
 					return nil
 				}
-				return lifecycleMCPProbe(ctx, spec)
+				if err := lifecycleMCPProbe(ctx, spec); err != nil {
+					return err
+				}
+				// Registered ("enabled") cases go through shared finalization, which
+				// requires a genuine submitted result; the fake subprocess never
+				// produces one on its own terminal text.
+				return codexLifecycleSubmit(ctx, spec, tc.mode)
 			}}
 			prep.runner = host
 			req := codexLifecycleRequest(t, prep, tc.mode, 1)
@@ -357,6 +366,42 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
+// codexLifecycleSubmit performs a genuine communication_submit call through the
+// attempt's live broker, exactly mirroring the reference success path in
+// TestSharedCompletedResearchAndSpikeNativeTool (internal/turn/shared_finalization_test.go).
+// The fake `codex` fixture is a shell script; it cannot itself speak MCP, so this
+// drives the identical call a real provider would make. It must run before the
+// fake subprocess exits, since spec.DescriptorPath() only answers while this
+// attempt's broker (started by prepareMCP, ahead of Runner.Run) is still live.
+func codexLifecycleSubmit(ctx context.Context, spec *agent.MCPLaunchSpec, mode string) error {
+	var input agentresult.CreateInput
+	if err := json.Unmarshal(resultCreate(mode), &input); err != nil {
+		return err
+	}
+	input.Result.Outcome = "completed"
+	input.Result.Reason = ""
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	client := submission.Client{DescriptorPath: spec.DescriptorPath()}
+	response, err := client.Call(ctx, "communication_submit", raw)
+	if err != nil {
+		return err
+	}
+	if response.Error != "" {
+		return fmt.Errorf("communication_submit: %s", response.Error)
+	}
+	var accepted AgentResultSubmission
+	if err := json.Unmarshal(response.Result, &accepted); err != nil {
+		return err
+	}
+	if accepted.Receipt == nil || accepted.Receipt.InputState != "accepted" {
+		return fmt.Errorf("communication_submit rejected: %s", response.Result)
+	}
+	return nil
+}
+
 // TestCodexMCPLifecycleMalformedQuotedValuesSurvive is AC-008's
 // malformed/quoted-values case: an LF_HOME (and therefore descriptor path)
 // and a factory executable path carrying quote/backslash/apostrophe
@@ -382,8 +427,16 @@ func TestCodexMCPLifecycleMalformedQuotedValuesSurvive(t *testing.T) {
 	runner := realCodexRunner(t, hostileHome, codexArgvDumpScript(dumpPath))
 	// The broker's own bookkeeping (discovery, then a real tool call) survives
 	// the hostile paths intact, checked while it is still live — prepareMCP's
-	// broker is torn down once Run returns.
-	host := &codexHost{Runner: runner, before: lifecycleMCPProbe}
+	// broker is torn down once Run returns. The genuine communication_submit
+	// call also proves shared finalization accepts a real success through the
+	// hostile-path registration, matching the reference pattern in
+	// TestSharedCompletedResearchAndSpikeNativeTool.
+	host := &codexHost{Runner: runner, before: func(ctx context.Context, spec *agent.MCPLaunchSpec) error {
+		if err := lifecycleMCPProbe(ctx, spec); err != nil {
+			return err
+		}
+		return codexLifecycleSubmit(ctx, spec, "research")
+	}}
 	prep.runner = host
 
 	req := codexLifecycleRequest(t, prep, "research", 1)
@@ -466,9 +519,16 @@ func TestCodexMCPLifecycleServerCollisionRefusesSafely(t *testing.T) {
 	lifecycleMCPRemoved(t, probed)
 
 	// The shared authority/database is unharmed: a fresh, non-colliding
-	// attempt right after succeeds normally.
+	// attempt right after succeeds normally. It goes through shared
+	// finalization exactly as the refused attempt would have, so it needs a
+	// genuine communication_submit for a real success.
 	dumpPath2 := filepath.Join(t.TempDir(), "argv.dump")
-	prep.runner = &codexHost{Runner: realCodexRunner(t, home, codexArgvDumpScript(dumpPath2))}
+	prep.runner = &codexHost{Runner: realCodexRunner(t, home, codexArgvDumpScript(dumpPath2)), before: func(ctx context.Context, spec *agent.MCPLaunchSpec) error {
+		if err := lifecycleMCPProbe(ctx, spec); err != nil {
+			return err
+		}
+		return codexLifecycleSubmit(ctx, spec, "research")
+	}}
 	req2 := codexLifecycleRequest(t, prep, "research", 2)
 	result, err := runSubmissionBound(t.Context(), prep, req2)
 	if err != nil || !result.Succeeded() {
@@ -563,6 +623,15 @@ func TestCodexMCPLifecycleConcurrentCancellationIsolation(t *testing.T) {
 	}
 	firstHost, firstWorktree := newFifoHost()
 	secondHost, secondWorktree := newFifoHost()
+	// Only the survivor needs a genuine submitted result: the cancelled attempt
+	// is overridden to OutcomeAbandoned by shared finalization's own
+	// cancellation handling regardless of application content, but the
+	// survivor completes normally through shared finalization and this fake
+	// subprocess (unlike codexArgvDumpScript) never emits any terminal text at
+	// all, so it needs the real communication_submit for a real success.
+	secondHost.before = func(ctx context.Context, spec *agent.MCPLaunchSpec) error {
+		return codexLifecycleSubmit(ctx, spec, "research")
+	}
 	first.runner, second.runner = firstHost, secondHost
 
 	req1 := codexLifecycleRequestIn(t, first, "research", firstWorktree, 1)

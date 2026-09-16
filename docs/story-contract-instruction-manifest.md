@@ -1,10 +1,12 @@
 # Shared protocol instruction handoff manifest
 
-US-009 changes shared/root sources only. No `.claude/**` or `.codex/**` file is
+US-005 changes shared/root sources only. No `.claude/**` or `.codex/**` file is
 written by this story. Installed copies deliberately drift until the independently
-scoped US-010 (Codex writes Claude tree) and US-011 (Claude writes Codex tree)
+scoped US-006 (Codex writes Claude tree) and US-007 (Claude writes Codex tree)
 complete. Neither sibling's engineering completion requires the other tree.
-US-012 owns aggregate parity and the still-missing authentic dual-harness evidence.
+US-010 owns aggregate parity and explicit evidence bounds. Authentic working/Validate
+captures remain separately outstanding on #274/#296. These story numbers refer to
+#264; prior-feature ownership numbers are superseded for this handoff.
 
 ## Source and installed target mapping
 
@@ -21,7 +23,7 @@ planning-contracts, go-constraints or review-evidence. Research instead consumes
 only research-evidence for its authority, session, clarification and reporting. The role
 source in each row, plus those declared skills, determines the affected contract.
 
-| Source under `teams/source/agents/` | US-010 Claude target | US-011 Codex target |
+| Source under `teams/source/agents/` | US-006 Claude target | US-007 Codex target |
 |---|---|---|
 | shared/requirements-engineer.md | .claude/agents/requirements-engineer.md | .codex/skills/requirements-engineer/SKILL.md |
 | shared/proxy-product-owner.md | .claude/agents/proxy-product-owner.md | .codex/skills/proxy-product-owner/SKILL.md |
@@ -52,7 +54,7 @@ both paths and needs no protected-tree regeneration. Preserve the literal
 From the repository root, use the existing offline test:
 
 ```sh
-go test -race -timeout=20m ./internal/teamsource -run TestSharedWorkflow
+go test -race -timeout=8m ./internal/teamsource -run TestSharedWorkflow
 ```
 
 `TestSharedWorkflowRendering` copies `teams/source` into `t.TempDir()`, calls
@@ -79,12 +81,12 @@ The shared source changed here does not rewrite immutable teams/releases content
 
 ## Manual operator handoff
 
-After US-009 engineering completes, select US-010 under Codex for only the Claude
-targets above, and US-011 under Claude for only the Codex targets above. A Codex run
-leaves US-011 selectable for manual Claude execution. Do not retry permissions,
+After US-005 engineering completes, select US-006 under Codex for only the Claude
+targets above, and US-007 under Claude for only the Codex targets above. A Codex run
+leaves US-007 selectable for manual Claude execution. Do not retry permissions,
 change the sandbox or edit shared sources as a substitute for the protected target.
 Report temporary parity drift explicitly in each result. After both independently
-complete, US-012 compares both installed contracts to this manifest and retains
+complete, US-010 compares both installed contracts to this manifest and retains
 aggregate evidence. No mode is auto-dispatched.
 
 Separately provide the [authentic evidence capture](agent-evidence-capture.md)
@@ -92,10 +94,25 @@ for both actual harnesses. Temporary renders and synthetic tests cannot prove
 actual helper invocation, same-run correction or a decision observed before exit.
 Missing external evidence remains unverified; Validate only reads retained artifacts.
 
-## Research maintenance scope
+## Additional adopted source mapping
 
-An explicit user assignment may cover both installed Research entrypoints and
-their neutral shared contract. Honor actual filesystem permissions; the earlier
-US-010/US-011 split is historical scope, not a restriction on that assignment.
-Verify each entrypoint without the other provider tree. No live agent run or
-measured token savings are established by source or rendering checks.
+Integrate these semantic changes manually with each target's existing wrapper and
+role restrictions. No new installed skill file or generator is required. The ten
+role targets in the first table all consume the adopted contract through their
+existing workflow/review/planning references; Research embeds the neutral contract.
+
+| Changed canonical source | US-006 exact Claude targets | US-007 exact Codex targets |
+|---|---|---|
+| teams/source/skills/agent-finalization/SKILL.md; references/common.md; references/implement.md; references/validate.md | .claude/skills/shared/workflow.md; .claude/agents/implement-orchestrator.md; .claude/agents/go-code-reviewer.md | .codex/skills/workflow/SKILL.md; .codex/skills/implement-orchestrator/SKILL.md; .codex/skills/go-code-reviewer/SKILL.md |
+| teams/source/skills/research-evidence/SKILL.md | .claude/agents/research-orchestrator.md | .codex/skills/research-orchestrator/SKILL.md |
+| teams/source/skills/planning-contracts/SKILL.md | .claude/modes/session.md; .claude/agents/plan-orchestrator.md; .claude/agents/requirements-engineer.md; .claude/agents/go-architect.md; .claude/agents/proxy-product-owner.md | .codex/skills/plan-orchestrator/SKILL.md; .codex/skills/requirements-engineer/SKILL.md; .codex/skills/go-architect/SKILL.md; .codex/skills/proxy-product-owner/SKILL.md |
+| teams/source/skills/review-evidence/SKILL.md | .claude/modes/validate.md; .claude/skills/shared/review-evidence.md; .claude/agents/go-code-reviewer.md | .codex/skills/review-evidence/SKILL.md; .codex/skills/go-code-reviewer/SKILL.md |
+
+AGENTS.md, CLAUDE.md, docs/workflow/spike.md, docs/agent-result-contract.md,
+docs/agent-evidence-capture.md and docs/agent-auxiliary-contracts.md are shared/root
+sources with no installed-tree copy. Keep Spike on the shared direct entrypoint.
+The serialization examples remain unchanged synthetic references; do not copy them
+as real run evidence. Preserve immutable releases. Each installed story compares
+only its enumerated owned targets; both-tree parity belongs to US-010 after both
+independent stories complete. An unavailable Claude harness leaves US-007 incomplete
+with this exact Codex-target handoff; neither source edits nor a follow-up waive it.

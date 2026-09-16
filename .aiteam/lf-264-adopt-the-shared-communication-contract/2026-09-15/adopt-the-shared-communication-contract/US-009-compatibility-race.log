@@ -1,0 +1,103 @@
+COMMAND: go test ./internal/store ./internal/turn -run '^Test(SubmissionMigrationPreservesLegacyVersions|EngineeringMigrationPinsExistingFeaturesThroughRestartAndReplan|ContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission|ContractUpgradeSafetyRefusesWithoutChangingLegacyScope|SubmissionRestartRetainsDiagnosticsAndPendingEffects|StoryContractUpgradePreviewAndExplicitApply|StoryContractUpgradeRestartResumesOriginalCohort|StoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency|StoryContractUpgradeDispatchKeepsFrozenGenerationContract|StoryProgressResponseLossAndInvalidationSurviveNewService|StoryProgressPendingCloseBlocksReplanUntilDelivered|StoryProgressUnreadInputPreventsPendingClose|EngineeringRestartPreservesProgressWithoutClosure|SubmissionLegacyDecisionRecovery|TypedPlanSubmissionBoundArtifactsAndPendingReadiness|TypedPlanRunnerPublicationAndDurableReceipt|PlanFailureRetainsTransportForRetry|ManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath|ManagedValidateRejectsProcessSuccessWithoutStructuredOutput|ValidationCheckpointReconcilesTerminal)$' -count=1 -timeout=8m -v -race
+=== RUN   TestEngineeringMigrationPinsExistingFeaturesThroughRestartAndReplan
+--- PASS: TestEngineeringMigrationPinsExistingFeaturesThroughRestartAndReplan (1.55s)
+=== RUN   TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+=== PAUSE TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/active_run
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/frozen
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/mixed_contract
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/wrong_generation
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/partial_cohort
+=== RUN   TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/legacy_effect
+--- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope (11.90s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/active_run (1.37s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/frozen (2.50s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/mixed_contract (1.47s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/wrong_generation (1.61s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/partial_cohort (2.54s)
+    --- PASS: TestContractUpgradeSafetyRefusesWithoutChangingLegacyScope/legacy_effect (2.40s)
+=== RUN   TestSubmissionMigrationPreservesLegacyVersions
+=== PAUSE TestSubmissionMigrationPreservesLegacyVersions
+=== RUN   TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+=== PAUSE TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+=== CONT  TestSubmissionRestartRetainsDiagnosticsAndPendingEffects
+=== CONT  TestSubmissionMigrationPreservesLegacyVersions
+=== CONT  TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission
+--- PASS: TestSubmissionMigrationPreservesLegacyVersions (3.39s)
+--- PASS: TestContractUpgradeAtomicGenerationPreservesHistoryAndLocksAdmission (3.41s)
+--- PASS: TestSubmissionRestartRetainsDiagnosticsAndPendingEffects (3.56s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/store	19.490s
+=== RUN   TestEngineeringRestartPreservesProgressWithoutClosure
+--- PASS: TestEngineeringRestartPreservesProgressWithoutClosure (2.23s)
+=== RUN   TestPlanFailureRetainsTransportForRetry
+=== RUN   TestPlanFailureRetainsTransportForRetry/failed_agent
+=== RUN   TestPlanFailureRetainsTransportForRetry/publication_failure
+--- PASS: TestPlanFailureRetainsTransportForRetry (12.61s)
+    --- PASS: TestPlanFailureRetainsTransportForRetry/failed_agent (5.53s)
+    --- PASS: TestPlanFailureRetainsTransportForRetry/publication_failure (7.08s)
+=== RUN   TestStoryContractUpgradePreviewAndExplicitApply
+=== PAUSE TestStoryContractUpgradePreviewAndExplicitApply
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/partial
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/lost_reply
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/confirmation_conflict
+--- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort (6.41s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/partial (2.33s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/lost_reply (2.59s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/confirmation_conflict (1.49s)
+=== RUN   TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+=== PAUSE TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+=== RUN   TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== PAUSE TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== RUN   TestStoryProgressResponseLossAndInvalidationSurviveNewService
+--- PASS: TestStoryProgressResponseLossAndInvalidationSurviveNewService (1.88s)
+=== RUN   TestStoryProgressPendingCloseBlocksReplanUntilDelivered
+--- PASS: TestStoryProgressPendingCloseBlocksReplanUntilDelivered (2.71s)
+=== RUN   TestStoryProgressUnreadInputPreventsPendingClose
+--- PASS: TestStoryProgressUnreadInputPreventsPendingClose (2.05s)
+=== RUN   TestValidationCheckpointReconcilesTerminal
+=== RUN   TestValidationCheckpointReconcilesTerminal/duplicate
+=== RUN   TestValidationCheckpointReconcilesTerminal/lost_reply
+=== RUN   TestValidationCheckpointReconcilesTerminal/conflict
+=== RUN   TestValidationCheckpointReconcilesTerminal/missing
+=== RUN   TestValidationCheckpointReconcilesTerminal/concurrent
+=== RUN   TestValidationCheckpointReconcilesTerminal/broker
+=== RUN   TestValidationCheckpointReconcilesTerminal/wrong_snapshot
+--- PASS: TestValidationCheckpointReconcilesTerminal (20.67s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/duplicate (3.28s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/lost_reply (3.29s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/conflict (2.51s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/missing (2.73s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/concurrent (2.55s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/broker (2.78s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/wrong_snapshot (3.53s)
+=== RUN   TestSubmissionLegacyDecisionRecovery
+--- PASS: TestSubmissionLegacyDecisionRecovery (1.95s)
+=== RUN   TestTypedPlanRunnerPublicationAndDurableReceipt
+--- PASS: TestTypedPlanRunnerPublicationAndDurableReceipt (3.87s)
+=== RUN   TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness
+=== RUN   TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness/discussion
+=== RUN   TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness/completed
+--- PASS: TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness (4.58s)
+    --- PASS: TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness/discussion (2.50s)
+    --- PASS: TestTypedPlanSubmissionBoundArtifactsAndPendingReadiness/completed (2.08s)
+=== RUN   TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath
+=== RUN   TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath/claude
+=== RUN   TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath/codex
+--- PASS: TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath (7.74s)
+    --- PASS: TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath/claude (4.51s)
+    --- PASS: TestManagedValidateRetainsFrozenEvidenceOnEveryAdapterPath/codex (3.22s)
+=== RUN   TestManagedValidateRejectsProcessSuccessWithoutStructuredOutput
+--- PASS: TestManagedValidateRejectsProcessSuccessWithoutStructuredOutput (3.09s)
+=== CONT  TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== CONT  TestStoryContractUpgradePreviewAndExplicitApply
+=== CONT  TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+--- PASS: TestStoryContractUpgradePreviewAndExplicitApply (3.70s)
+--- PASS: TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency (3.81s)
+--- PASS: TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract (3.85s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	75.588s
+
+EXIT_CODE: 0

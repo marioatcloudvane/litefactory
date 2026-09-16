@@ -154,19 +154,11 @@ func TestExecuteRequiresACloneGate(t *testing.T) {
 // else in the package. That is a property of the syntax tree, so it is asserted
 // against the syntax tree.
 //
-// # Why three sections and not two
+// # Registered sections
 //
-// It was two — [prepareClone] and [commitAndPush] — and this test hardcoded
-// that. It is now three. [commitStoryIndex] publishes the sub-issue phase's
-// Story Index rewrite, and it could not be folded into [commitAndPush] because
-// a call to GitHub sits between them and cannot be moved out from between them
-// in either direction: the sub-issues may only be filed once commit1 is on the
-// remote for their detail links to resolve against, and the rewrite commit2
-// publishes is made of the issue numbers that call returns. One acquisition
-// spanning both would hold the clone across an unbounded forge round-trip,
-// closing for every sibling turn the exact gap AC-PAR-3.2 exists to keep open.
-// So the honest model is "a registered set of sections", not "two", and the
-// test is written that way.
+// prepareClone and commitAndPush own the two critical sections. Managed Plan
+// publication uses the normal save path; obsolete discovery no longer has a
+// separate index-commit section.
 //
 // # Where the teeth are
 //
@@ -174,14 +166,13 @@ func TestExecuteRequiresACloneGate(t *testing.T) {
 // rather than per section:
 //
 //   - Each gated call is allowed in a named set of sections and refused
-//     everywhere else. A new, ungated git write section — which is precisely
-//     how [commitStoryIndex] arrived, on a merge from main — fails here, on the
-//     new function's name.
+//     everywhere else. A new, ungated git write section fails here on its
+//     function name.
 //   - Each gated call must appear in *every* section that claims it, so a
 //     section that quietly stops covering one is a failure rather than a
 //     silently narrowed guarantee.
 //   - The package-wide acquisition count must equal the number of registered
-//     sections, so a fourth acquisition anywhere fails until someone adds it to
+//     sections, so an additional acquisition fails until someone adds it to
 //     the sections map below on purpose and writes down why.
 //
 // If this fails, someone either added an ungated section or split an existing
@@ -193,15 +184,12 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 	// sections is every function in this package that may take the clone gate,
 	// mapped to the file it must be declared in.
 	sections := map[string]string{
-		"prepareClone":     "prepare.go",
-		"commitAndPush":    "harvest.go",
-		"commitStoryIndex": "subissues.go",
+		"prepareClone":  "prepare.go",
+		"commitAndPush": "harvest.go",
 	}
 
 	// gated names each call that must not happen outside a critical section,
-	// mapped to the sections it may appear in. Commit and Push have two homes
-	// because the turn publishes twice — see this test's doc comment for why
-	// the second publication cannot join the first.
+	// mapped to the sections it may appear in.
 	gated := map[string][]string{
 		"fetch":          {"prepareClone"},
 		"freezeSlug":     {"prepareClone"},
@@ -212,7 +200,7 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		// only for an ordinary turn. It does not run at all when a confirmed
 		// proposal is being applied (CR-B-003): see WriteResolvedFiles below.
 		"syncBase": {"prepareClone"},
-		"Commit":   {"commitAndPush", "commitStoryIndex"},
+		"Commit":   {"commitAndPush"},
 		// WriteResolvedFiles, StageResolvedFiles and CompleteMerge are US-12's
 		// three new git.Worktree mutators. They run as prepareClone's fourth
 		// step, in place of syncBase (which this turn shape never calls),
@@ -223,11 +211,9 @@ func TestCriticalSectionsAreSingleAcquisitions(t *testing.T) {
 		"WriteResolvedFiles": {"prepareClone"},
 		"StageResolvedFiles": {"prepareClone"},
 		"CompleteMerge":      {"prepareClone"},
-		// Push keeps its two ordinary homes and gains prepareClone as a
-		// third, for the same US-12 reason as the three mutators above: the
-		// apply turn's push is the last part of prepareClone's own single
-		// gate acquisition, not a second, separately-acquired publication.
-		"Push": {"commitAndPush", "commitStoryIndex", "prepareClone"},
+		// Confirmed proposal application also pushes inside prepareClone's
+		// existing acquisition.
+		"Push": {"commitAndPush", "prepareClone"},
 	}
 
 	funcs := packageFuncs(t)
@@ -397,10 +383,6 @@ func TestClaudeRunsOutsideTheCloneGate(t *testing.T) {
 		t.Errorf("%d acquisitions carried an ambient deadline, want 0 (AC-PAR-3.6)", deadlined)
 	}
 	// Two turns, one clone, two sections each: prepareClone and commitAndPush.
-	// The turn's third section, commitStoryIndex, does not fire here — this
-	// fixture wires no SubIssueCreator or SubIssueRenderer, so fileStoryIssues
-	// returns on its first guard and never reaches a plan_brief.md to publish.
-	// A fixture that wired them and produced a Story Index would make this 6.
 	if got := acquisitions[f.storeRepo.Path]; got != 4 {
 		t.Errorf("the clone at %s was entered %d times, want 4 (two turns × two sections)",
 			f.storeRepo.Path, got)
@@ -540,9 +522,7 @@ func TestConcurrentTurnsAgainstTwoClones(t *testing.T) {
 		t.Errorf("acquisitions span %d clones, want %d: the gate is keyed on the clone path",
 			len(acquisitions), len(fixtures))
 	}
-	// Two sections per turn, for the same reason as in
-	// TestClaudeRunsOutsideTheCloneGate: no fixture here wires the sub-issue
-	// phase's dependencies, so commitStoryIndex never runs.
+	// Every turn enters prepareClone and commitAndPush once.
 	for _, f := range fixtures {
 		if got := acquisitions[f.storeRepo.Path]; got != 2*len(issues) {
 			t.Errorf("the clone at %s was entered %d times, want %d (three turns × two sections)",

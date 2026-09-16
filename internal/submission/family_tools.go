@@ -7,7 +7,7 @@ import (
 )
 
 // FamilyCatalogVersion changes when immutable family call permissions change.
-const FamilyCatalogVersion = "families-v1"
+const FamilyCatalogVersion = "families-v2"
 
 // NewFamilyToolProfile enables only explicitly installed catalog entries. Mode
 // restrictions and the default-off creation gate cannot be supplied by callers.

@@ -149,15 +149,11 @@ type Options struct {
 	// git.DefaultRemote.
 	Remote string
 
-	// SubIssueCreator and SubIssueRenderer are the sub-issue phase's two
-	// dependencies (see internal/turn/subissues.go). Nil in either one is a
-	// turn that runs without the phase at all: it is skipped rather than
-	// refused, the same tolerance [Options.Remote] gets for the same reason —
-	// a great many callers of this package, in tests above all, have no
-	// occasion to file a plan's sub-issues and should not have to supply a
-	// forge client and a renderer to construct a valid Options.
+	// SubIssueCreator and SubIssueRenderer serve managed Plan publication.
+	// Callers without Plan work may omit them; Plan admission checks the
+	// complete forge and renderer capabilities before enabling publication.
 	SubIssueCreator  SubIssueCreator
-	SubIssueRenderer SubIssueRenderer
+	SubIssueRenderer CompleteStoryRenderer
 
 	// AssetFetcher fetches attachment bytes, and AttachmentLimits are the
 	// ceilings that ingestion runs under. *github.Client satisfies the

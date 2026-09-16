@@ -13,3 +13,9 @@ Executable application-v1 examples (synthetic offline identities):
 - [blocked](examples/validate-blocked.json)
 - [revision-checked update](examples/validate-update.json)
 - [disallowed question](examples/invalid-spike-question.json); questions reject in this mode too.
+
+The declared structured terminal contributions envelope remains supported. No shell,
+edits, new checks, capture or delegation are permitted. Already permitted live
+communication is optional: identical terminal/live findings reconcile; conflicting
+findings reject before new terminal decisions. Return complete frozen scope even
+when earlier live checkpoints cover part of it. Historical reads grant no writes.

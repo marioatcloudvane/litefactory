@@ -39,3 +39,25 @@ Changed bytes require fresh correlation. Do not repeat execution to replace a lo
 reply. Input received/accepted, engineering, acceptance and publication/remote effects
 are separate receipt observations; pending is not completed acceptance or publication.
 Current adapters may have different transport envelopes; do not invent a new route.
+
+## Adopted transport and final enforcement
+
+Use the factory-declared shared result descriptor for application preflight/submit/
+receipt, permitted communication tools, or application JSON as the terminal response.
+The story checkpoint descriptor is separate. MCP availability does not remove the
+final requirement. A current-attempt accepted result can accompany an ordinary final
+summary; do not submit a conflicting full result through a second adapter. Identical
+live/terminal results reconcile; changed content needs a revision-checked update.
+
+The launch supplies an explicit empty baseline or authorized prior state with stable
+IDs, retired IDs and observed revision on cold/resumed/fallback paths. Historical
+reads never restore obsolete write authority. The factory validates current evidence
+again after exit. Missing/malformed required output prevents nominal success; process
+failure, cancellation and interruption keep their original cause and valid checkpoints.
+Post-exit rejection is corrected only on a new authorized attempt, never automatically.
+
+Legacy/unmanaged scopes follow the declared compatibility route until supported
+owner upgrade/admission. Never infer an upgrade from available tools. Adoption and
+reader retirement are independent; required readers and recovery remain until factual
+cohort/effect prerequisites pass. Offline checks cannot establish the four authentic
+Claude/Codex working/Validate observations still outstanding on #274/#296.

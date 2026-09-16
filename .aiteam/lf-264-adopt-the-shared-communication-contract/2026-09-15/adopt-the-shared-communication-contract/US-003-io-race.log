@@ -1,0 +1,90 @@
+=== RUN   TestCreationHTTPExactBytesConcurrentRetry
+--- PASS: TestCreationHTTPExactBytesConcurrentRetry (1.64s)
+=== RUN   TestCreationHTTPDefaultOffRefusesLiveGrant
+=== RUN   TestCreationHTTPDefaultOffRefusesLiveGrant/8533
+=== RUN   TestCreationHTTPDefaultOffRefusesLiveGrant/8567
+--- PASS: TestCreationHTTPDefaultOffRefusesLiveGrant (3.77s)
+    --- PASS: TestCreationHTTPDefaultOffRefusesLiveGrant/8533 (2.17s)
+    --- PASS: TestCreationHTTPDefaultOffRefusesLiveGrant/8567 (1.59s)
+=== RUN   TestCreationHTTPLostReplyReopenObservation
+--- PASS: TestCreationHTTPLostReplyReopenObservation (2.10s)
+=== RUN   TestCreationHTTPPartialRelationshipStopsBatch
+--- PASS: TestCreationHTTPPartialRelationshipStopsBatch (3.10s)
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/body
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/title
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/source
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/repository
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/relationship
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/links
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/expiry
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/revoked
+=== RUN   TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/expiry_after_confirmed_operation
+--- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay (20.84s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/body (3.67s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/title (2.07s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/source (1.56s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/repository (2.87s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/relationship (2.43s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/links (2.48s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/expiry (2.67s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/revoked (1.43s)
+    --- PASS: TestCreationHTTPRefusesEnvelopeMutationAndExpiredReplay/expiry_after_confirmed_operation (1.65s)
+=== RUN   TestCreationHTTPCancellationAfterDispatchNeverRecreates
+--- PASS: TestCreationHTTPCancellationAfterDispatchNeverRecreates (1.25s)
+=== RUN   TestCreationHTTPObservationRequiresExactUnambiguousProvenance
+--- PASS: TestCreationHTTPObservationRequiresExactUnambiguousProvenance (2.46s)
+=== RUN   TestCommentHTTPConcurrentRetriesAndGateIndependence
+=== RUN   TestCommentHTTPConcurrentRetriesAndGateIndependence/false
+=== RUN   TestCommentHTTPConcurrentRetriesAndGateIndependence/true
+--- PASS: TestCommentHTTPConcurrentRetriesAndGateIndependence (4.82s)
+    --- PASS: TestCommentHTTPConcurrentRetriesAndGateIndependence/false (1.76s)
+    --- PASS: TestCommentHTTPConcurrentRetriesAndGateIndependence/true (3.06s)
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/foreign_target
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/zero
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/blank
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/oversized
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/marker_exceeds_final_bound
+=== RUN   TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/pull_request
+--- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent (14.10s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/foreign_target (2.03s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/zero (1.21s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/blank (2.50s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/oversized (2.70s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/marker_exceeds_final_bound (3.08s)
+    --- PASS: TestCommentHTTPRefusesInvalidTargetsAndPreparedContent/pull_request (2.57s)
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/empty
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/wrong_author
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/changed_content
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/missing_marker
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/ambiguous
+=== RUN   TestCommentHTTPLostResponseReopenAndExactObservation/exact
+--- PASS: TestCommentHTTPLostResponseReopenAndExactObservation (1.50s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/empty (0.00s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/wrong_author (0.00s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/changed_content (0.00s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/missing_marker (0.00s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/ambiguous (0.00s)
+    --- PASS: TestCommentHTTPLostResponseReopenAndExactObservation/exact (0.00s)
+=== RUN   TestCommentHTTPCancellationRetainsIntentBeforeDispatch
+--- PASS: TestCommentHTTPCancellationRetainsIntentBeforeDispatch (1.95s)
+=== RUN   TestPublicationRuntimeCatalogFromProduction
+=== RUN   TestPublicationRuntimeCatalogFromProduction/research
+=== RUN   TestPublicationRuntimeCatalogFromProduction/plan
+=== RUN   TestPublicationRuntimeCatalogFromProduction/spike
+=== RUN   TestPublicationRuntimeCatalogFromProduction/implement
+=== RUN   TestPublicationRuntimeCatalogFromProduction/validate
+--- PASS: TestPublicationRuntimeCatalogFromProduction (15.30s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/research (2.61s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/plan (2.69s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/spike (2.11s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/implement (3.91s)
+    --- PASS: TestPublicationRuntimeCatalogFromProduction/validate (3.99s)
+=== RUN   TestPublicationRuntimePreparedOwnerIntentNativeLifetime
+--- PASS: TestPublicationRuntimePreparedOwnerIntentNativeLifetime (5.50s)
+=== RUN   TestPublicationRuntimeCreationRestartObservation
+--- PASS: TestPublicationRuntimeCreationRestartObservation (2.82s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	83.007s

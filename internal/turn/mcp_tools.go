@@ -30,10 +30,11 @@ type MCPResultService interface {
 // immutable read/edit grants. The result binding separately binds frozen scope.
 func (s *AgentResultService) MCPPermissionDigest() string {
 	data, err := json.Marshal(struct {
-		Catalog    string
-		Binding    store.ResultBinding
-		Read, Edit []agentresult.Target
-	}{"communication-v1-no-creation", s.binding, s.readTargets, s.editTargets})
+		Catalog          string
+		Binding          store.ResultBinding
+		Read, Edit       []agentresult.Target
+		AggregateCapture bool
+	}{"communication-v1-no-creation", s.binding, s.readTargets, s.editTargets, s.prepareAggregate != nil})
 	if err != nil {
 		return ""
 	}

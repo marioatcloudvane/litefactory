@@ -55,8 +55,8 @@ gate. Inspect the factory's frozen story identities and revisions, retained
 snapshots and check outcomes, plus relevant surrounding code. Return exactly one
 result per supplied criterion, plus code, architecture and approved-plan findings
 with blocking/advisory classifications and proof references — through the
-authorized orchestrator/helper handoff (contract 2, list-B evidence) or versioned
-runner output (legacy contract 1).
+declared complete reference-only terminal envelope (contract 2, list-B evidence)
+or versioned runner output (legacy contract 1).
 
 Missing, stale or misattributed initial evidence is **unverified**; failed
 evidence is **unmet**; advisory improvements are nonblocking. No result grants an
@@ -129,3 +129,23 @@ blanket style rule.
 **8. Standards** — exported signatures self-explanatory, no bare `any` where a
 concrete type or small interface fits. File in the package the architect
 specified. No logic duplicating a shared helper already in the touched packages.
+
+## Adopted Validate finalization
+
+The literal `- Mode: X` header controls mode. Use the explicit authorized baseline,
+stable IDs and observed revision; historical reads grant no writes. Return complete
+frozen scope, even when prior live checkpoints cover part. The declared terminal
+{"contributions":[...]} envelope or supplied application result remains supported.
+Already permitted live communication is optional: identical live/terminal findings
+reconcile without redundant submission; conflicts reject before new terminal decisions.
+Completed means complete assessment, including unmet/unverified findings, not acceptance.
+Preserve prior assessments; updates create a new revision. No questions, shell,
+edits, capture, new checks or delegation. Missing evidence stays unverified.
+
+Follow `.codex/skills/workflow/SKILL.md`'s Shared final routes and continuation and
+Application serialization rules for retries, independent receipt dimensions, post-exit
+validation and compatibility. Correct permitted preflight diagnostics; retain request
+identity on reply loss and use a new request for corrected content. A checkpoint alone
+does not finish the run; no helper is required beyond this role's read-only conduct.
+Legacy scopes retain the declared route until supported upgrade/admission. Adoption
+and retirement remain separate; offline checks do not prove #274/#296 host observations.

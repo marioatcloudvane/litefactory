@@ -68,3 +68,16 @@ Report what you produced and recommend a next mode. **Never enter one.** That is
 If the spike is blocked on a user decision, repeat the decision needed and its
 viable options concisely in the final report so litefactory can surface them on
 the issue. Never wait, poll for an answer, or enter another mode in the same run.
+
+## Shared final output
+
+On an adopted launch, use the declared shared result helper, permitted communication
+tools or terminal application JSON; follow
+`teams/source/skills/agent-finalization/references/common.md` and `spike.md`.
+Use explicit prior state/revision rather than provider history. Preserve request
+identity on reply loss; correct rejected content under a fresh identity. The factory
+validates required output after exit even without MCP. Missing/malformed output
+blocks nominal success; failure/interruption keep their cause and valid checkpoints.
+Activity reads/updates are advisory and run-scoped, with no completion or acceptance
+authority. Questions remain disallowed. Neither offline tests nor adopted wiring
+establish legacy retirement or authentic #274/#296 host observations.
