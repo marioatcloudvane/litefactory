@@ -2,6 +2,7 @@ package submission_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -99,6 +100,52 @@ func TestFamilyProfile_RegistrationAndImmutability(t *testing.T) {
 			if schema.AdditionalProperties == nil || *schema.AdditionalProperties || len(schema.Required) == 0 {
 				t.Fatalf("unbounded schema for %s: %s", name, spec.InputSchema)
 			}
+		}
+	}
+}
+
+// TestToolSchemasAreUsableInEveryMode guards the defect that shipped the MCP
+// path unusable: communication_preflight, communication_submit and seven family
+// tools advertised a bare {"type":"object"} with no properties. The transport,
+// discovery and server validation all worked, so every offline test passed --
+// but a host has nothing to validate an argument against, so it rejected each
+// call before it was sent, and agents silently fell back to the CLI helper.
+//
+// A schema is usable here when it parses, is an object, and declares a
+// properties member. activity_get declares an empty one because it genuinely
+// takes no arguments; a missing member is what leaves the model guessing.
+func TestToolSchemasAreUsableInEveryMode(t *testing.T) {
+	t.Parallel()
+	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
+	for _, mode := range []string{"research", "spike", "plan", "implement", "validate"} {
+		for _, creation := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/creation=%t", mode, creation), func(t *testing.T) {
+				t.Parallel()
+				p, err := submission.NewFamilyToolProfile(mode, creation, installed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				tools := p.List()
+				if len(tools) == 0 {
+					t.Fatalf("%s exposes no tools", mode)
+				}
+				for _, tool := range tools {
+					var schema struct {
+						Type       string                     `json:"type"`
+						Properties map[string]json.RawMessage `json:"properties"`
+					}
+					if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+						t.Errorf("%s: input schema does not parse: %v", tool.Name, err)
+						continue
+					}
+					if schema.Type != "object" {
+						t.Errorf("%s: input schema type = %q, want object", tool.Name, schema.Type)
+					}
+					if schema.Properties == nil {
+						t.Errorf("%s: input schema declares no properties, so a host cannot validate any call against it", tool.Name)
+					}
+				}
+			})
 		}
 	}
 }
