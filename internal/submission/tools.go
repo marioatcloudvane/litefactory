@@ -44,20 +44,54 @@ func (p ToolProfile) Allows(name string) bool {
 	return false
 }
 
+// A contribution is either a create or an update, never both, and implement
+// may instead send a factory-bound aggregate capture. Expressing that choice as
+// oneOf is not portable across the installed hosts, so every branch's fields are
+// declared optional here and the exclusive rule stays with the server's
+// validators, which already answer a wrong combination with typed diagnostics.
+// Declaring the fields at all is the point: a property-less object leaves the
+// model guessing names from prose, and the host rejects each guess before the
+// call is ever sent. Open-ended members -- payload, operation values, capture
+// bytes -- stay untyped so no valid contribution is refused by the schema.
+const sharedResultCreate = `"result":{"type":"object","properties":{` +
+	`"outcome":{"type":"string","enum":["completed","incomplete","blocked"]},` +
+	`"comment":{"type":"string"},"reason":{"type":"string"},` +
+	`"questions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},` +
+	`"options":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"}},"required":["id","text"]}},` +
+	`"recommended_option":{"type":"string"}},"required":["id","text"]}},` +
+	`"recommendation":{"type":"object"},"artifacts":{"type":"array","items":{"type":"object"}},` +
+	`"payload":{"type":"object","description":"Exactly one mode key: research, plan, implement, validate or spike."}},` +
+	`"required":["outcome","comment","payload"]}`
+
+const sharedResultUpdate = `"expected_revision":{"type":"integer","description":"The supplied authorized baseline revision."},` +
+	`"operations":{"type":"array","items":{"type":"object","properties":{` +
+	`"op":{"type":"string","enum":["set","add_item","update_item","remove","remove_item","reorder"]},` +
+	`"target":{"type":"object","properties":{"field":{"type":"string"},"story":{"type":"string"},"id":{"type":"string"}},"required":["field"]},` +
+	`"value":{"description":"Any JSON value; omitted for remove."},` +
+	`"order":{"type":"array","items":{"type":"string"}}},"required":["op","target"]}}`
+
+const sharedResultSchema = `{"type":"object","description":"Exact shared agent-result contribution: either a create (result) or an update (expected_revision with operations), never both.","properties":{` +
+	sharedResultCreate + `,` + sharedResultUpdate + `},"additionalProperties":false}`
+
+const implementResultSchema = `{"type":"object","description":"Shared result create (result) or update (expected_revision with operations), or a factory-bound aggregate capture (engineering with capture). Send exactly one of the three.","properties":{` +
+	sharedResultCreate + `,` + sharedResultUpdate + `,` +
+	`"engineering":{"type":"object","description":"Engineering reference the aggregate capture is bound to."},` +
+	`"capture":{"type":"object","description":"Typed aggregate capture: implementation_digest, files and executed checks."}},"additionalProperties":false}`
+
 // List returns independent specifications for the installed, permitted catalog.
 func (p ToolProfile) List() []ToolSpec {
 	if p.mode == "" {
 		return []ToolSpec{}
 	}
 	tools := []ToolSpec{
-		{Name: "communication_preflight", Description: "Validate this attempt's shared JSON result without recording it.", InputSchema: json.RawMessage(`{"type":"object","description":"Exact shared agent-result create or update contribution."}`), Effect: "read"},
+		{Name: "communication_preflight", Description: "Validate this attempt's shared JSON result without recording it.", InputSchema: json.RawMessage(sharedResultSchema), Effect: "read"},
 		{Name: "communication_receipt", Description: "Read an existing application receipt; pending is not workflow success.", InputSchema: json.RawMessage(`{"type":"object","properties":{"request_id":{"type":"string"}},"required":["request_id"],"additionalProperties":false}`), Effect: "read"},
-		{Name: "communication_submit", Description: "Record this attempt's shared JSON result; grants no execution, acceptance or publication.", InputSchema: json.RawMessage(`{"type":"object","description":"Exact shared agent-result create or update contribution."}`), Effect: "input"},
+		{Name: "communication_submit", Description: "Record this attempt's shared JSON result; grants no execution, acceptance or publication.", InputSchema: json.RawMessage(sharedResultSchema), Effect: "input"},
 	}
 	if p.mode == "implement" {
 		for i := range tools {
 			if tools[i].Name == "communication_preflight" || tools[i].Name == "communication_submit" {
-				tools[i].InputSchema = json.RawMessage(`{"type":"object","description":"Shared result create/update, or factory-bound aggregate capture using engineering reference and typed capture fields."}`)
+				tools[i].InputSchema = json.RawMessage(implementResultSchema)
 			}
 		}
 	}
@@ -74,6 +108,12 @@ func (p ToolProfile) List() []ToolSpec {
 type ToolCall struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// Meta is MCP's request metadata member. Hosts attach transport concerns
+	// there, such as a progress token; it never carries authorization, so it is
+	// accepted and ignored. Without the field, decodeStrict's
+	// DisallowUnknownFields answers every spec-compliant host call with -32602,
+	// which is exactly what kept both installed hosts off the MCP path.
+	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
 // DecodeToolCall strictly decodes the envelope while retaining exact argument bytes.
