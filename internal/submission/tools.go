@@ -108,6 +108,12 @@ func (p ToolProfile) List() []ToolSpec {
 type ToolCall struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	// Meta is MCP's request metadata member. Hosts attach transport concerns
+	// there, such as a progress token; it never carries authorization, so it is
+	// accepted and ignored. Without the field, decodeStrict's
+	// DisallowUnknownFields answers every spec-compliant host call with -32602,
+	// which is exactly what kept both installed hosts off the MCP path.
+	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
 // DecodeToolCall strictly decodes the envelope while retaining exact argument bytes.

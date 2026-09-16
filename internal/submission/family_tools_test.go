@@ -149,3 +149,46 @@ func TestToolSchemasAreUsableInEveryMode(t *testing.T) {
 		}
 	}
 }
+
+// TestDecodeToolCallAcceptsCompliantHostCalls pins the two envelope shapes that
+// kept both installed hosts off the MCP path entirely. Every tool -- including
+// ones whose input schema was always complete, such as receipts_get -- answered
+// -32602 "Invalid tool parameters", because decodeStrict's DisallowUnknownFields
+// rejected MCP's _meta member, which hosts attach a progress token to. An
+// omitted arguments member stays refused: that is a deliberate rule about
+// submitting no contribution, pinned by TestDecodeToolCall_RejectsAmbiguousEnvelope.
+func TestDecodeToolCallAcceptsCompliantHostCalls(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		params    string
+		wantArgs  string
+		wantError bool
+	}{
+		{"plain call", `{"name":"receipts_get","arguments":{"request_id":"x"}}`, `{"request_id":"x"}`, false},
+		{"host progress token", `{"name":"receipts_get","arguments":{"request_id":"x"},"_meta":{"progressToken":1}}`, `{"request_id":"x"}`, false},
+		{"empty arguments", `{"name":"activity_get","arguments":{}}`, `{}`, false},
+		{"progress token with empty arguments", `{"name":"activity_get","arguments":{},"_meta":{"progressToken":"t"}}`, `{}`, false},
+		{"omitted arguments still refused", `{"name":"communication_submit"}`, "", true},
+		{"missing name", `{"arguments":{}}`, "", true},
+		{"unknown member still refused", `{"name":"activity_get","arguments":{},"authorization":"x"}`, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			call, err := submission.DecodeToolCall([]byte(tt.params))
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("expected refusal")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compliant host call refused: %v", err)
+			}
+			if string(call.Arguments) != tt.wantArgs {
+				t.Fatalf("arguments = %s, want %s", call.Arguments, tt.wantArgs)
+			}
+		})
+	}
+}
