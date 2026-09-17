@@ -1,0 +1,275 @@
+{
+  "plan": {
+    "summary": "Three small repairs: allow reused check names across snapshots, isolate foreground recovery from other runs, and retain truthful execution diagnostics. Plan orphan recovery stays deferred. Reuse the current protocol and existing store/turn components.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "create",
+        "title": "Allow different story snapshots to reuse check names",
+        "user_story": {
+          "actor": "operator",
+          "want": "different stories to use the same check name without rejecting valid evidence",
+          "benefit": "a completed story does not prevent later stories from being submitted",
+          "notes": [
+            "Evidence inventory AC-001: real disposable SQLite upgrade/fresh/repeated-migration tests; existing store fixtures are available; implementation-revision backend proof only; new regression execution required.",
+            "Evidence inventory AC-002: store and submission/shared-result regression tests; existing fixtures and retained research probe are available; probe proves the old defect only; passing repair assertions required. No live nested-agent evidence is required."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "An additive migration makes retained checks unique by (run_id, snapshot_ref, reference) on fresh and populated databases. It preserves existing evidence, provenance, ownership, foreign keys and retained-byte accounting. Repeating migration is harmless."
+          },
+          {
+            "id": "AC-002",
+            "text": "Two stories in one run using build under distinct snapshots both preflight and submit successfully, and every production reader resolves the correct snapshot. Exact same-tuple replay is idempotent; changed content under that tuple conflicts. Wrong-snapshot and relabelled aggregate evidence are rejected. Exact request replay preserves its receipt identity."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Add the migration and update every retained-check writer/reader to require exact authorized snapshot identity, including reference-only and shared-result resolution.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run real disposable SQLite and submission/shared-result regressions for migration, duplicate labels, immutable conflicts, replay and evidence ownership using ordinary Go tests.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Keep exact check identity in the existing store API; turn supplies the authorized snapshot.",
+          "components": [
+            {
+              "name": "internal/store",
+              "responsibility": "Own the additive embedded migration, exact check lookup and immutable evidence retention."
+            },
+            {
+              "name": "internal/turn",
+              "responsibility": "Supply authorized snapshot identity in all submission and shared-result readers/writers."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Retained-check access",
+              "input": "Context, run ID, snapshot reference and check reference; existing content for writes.",
+              "output": "The exact retained check or an ownership/immutable-conflict error."
+            }
+          ],
+          "constraints": [
+            "No ambiguous run/check fallback or agent naming-prefix requirement.",
+            "Preserve single-connection SQLite, retained accounting, request replay and independent aggregate/story provenance checks."
+          ],
+          "decisions": [
+            {
+              "decision": "Scope check identity to the snapshot without extra issue/story columns or protocol fields.",
+              "reason": "Snapshots already bind evidence ownership; the missing key dimension causes the collision."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "create",
+        "title": "Keep broken recovery work from failing unrelated runs",
+        "user_story": {
+          "actor": "operator",
+          "want": "each finishing run to handle only its own foreground recovery",
+          "benefit": "unrelated broken work cannot discard a healthy run's result",
+          "notes": [
+            "Evidence inventory AC-003: real store/turn paths with broken A, healthy B, distinct attempts and own-run failure; existing recovery/runner fixtures are available; controlled backend proof only; targeted passing regressions required.",
+            "Evidence inventory AC-004: real global recovery path with broken A and healthy C plus correlated diagnostics; existing fixtures available; no claim of live host capability; targeted passing regressions required."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-003",
+            "text": "Broken pending work for run A cannot fail healthy run B through foreground submission, session Close, terminal Validate intake, Finish or harvest. Bound paths select only the trusted run/attempt; legacy Finish stays run-scoped. Discovery and lock-protected reloads respect that boundary. B keeps its own correlated result, and genuine failures belonging to B still surface."
+          },
+          {
+            "id": "AC-004",
+            "text": "Explicit daemon-wide maintenance continues from a broken receipt to healthy run C. Recovery errors identify the originating run, attempt, receipt and phase, plus story when present. Existing sequencing, authorization, replay and uncertain-effect recovery behavior remains effective."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Add store-owned scoped selection and explicit foreground recovery entry points; update submission, Close, terminal Validate and Finish discovery/reloads. Preserve explicit global maintenance and attribute its errors to originating work.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run ordinary Go tests using real disposable SQLite and controlled runners for A/B isolation, attempt boundaries, local failures and global continuation to C.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-003",
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Use existing factory bindings to filter foreground recovery before processing; keep daemon maintenance explicitly global.",
+          "components": [
+            {
+              "name": "internal/store",
+              "responsibility": "Select only authorized pending receipts/progress/effects for foreground processing."
+            },
+            {
+              "name": "internal/turn",
+              "responsibility": "Apply scope consistently through recovery, Finish discovery and locked reloads; propagate only local errors."
+            },
+            {
+              "name": "internal/daemon",
+              "responsibility": "Retain the explicitly global maintenance caller and existing scheduling."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Foreground recovery",
+              "input": "Context and trusted run/attempt binding; legacy Finish's run ID.",
+              "output": "Recovery results and errors for that scope only."
+            },
+            {
+              "name": "Global maintenance",
+              "input": "Existing daemon maintenance context.",
+              "output": "Continued processing with failures attributed to their originating receipts."
+            }
+          ],
+          "constraints": [
+            "SQL remains in store; reuse existing locks, sequencing and transaction boundaries.",
+            "No new scheduler, retry loop, protocol identity field or Plan orphan lifecycle change."
+          ],
+          "decisions": [
+            {
+              "decision": "Enforce existing identity at internal recovery boundaries.",
+              "reason": "The communication protocol already binds identity; global backend selection leaks failures across runs."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "create",
+        "title": "Report the real execution and finalization failure",
+        "user_story": {
+          "actor": "operator",
+          "want": "failure reports to retain what the agent actually did and identify the phase that failed",
+          "benefit": "I can diagnose the real problem without losing execution evidence",
+          "notes": [
+            "Evidence inventory AC-005: harvest tests with controlled startup/execution/interruption/finalization outcomes and sanitization assertions; existing diagnostic fixtures available; backend classification only; targeted passing regressions required.",
+            "Evidence inventory AC-006: existing successful Plan save/publication tests, focused store/turn/shared-result checks and make check; repository tests available; execute against final combined implementation. No live provider or deployment proof is claimed."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-005",
+            "text": "Genuine startup failure, successful execution followed by local cleanup/finalization failure, failed execution with cleanup failure and interruption retain truthful causes and available process outcome, exit code and logs. Post-execution errors do not report that the agent never started. Diagnostics remain sanitized. Local factory failure still blocks workflow success and success-only save/publication."
+          },
+          {
+            "id": "AC-006",
+            "text": "Existing successful Plan save/publication behavior remains intact. Focused store, turn and shared-result regressions and repository-required make check pass on the combined repair before engineering completion."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Preserve available runner facts and failure phase through cleanup into harvest using existing error and diagnostic mechanisms.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and run controlled-runner harvest regressions covering startup, execution, finalization, interruption and sanitized diagnostics.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Run existing successful Plan save/publication regressions, focused affected-package tests and make check on the combined repairs; resolve failures and retain executed output.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001",
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Retain actual subprocess facts while separately carrying the local factory failure into normal harvest reporting.",
+          "components": [
+            {
+              "name": "internal/turn/submission_runner.go",
+              "responsibility": "Preserve the runner result and attach cleanup/finalization failure phase."
+            },
+            {
+              "name": "internal/turn/harvest.go",
+              "responsibility": "Record actual process facts and truthful sanitized causes without granting false success."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Runner-to-harvest result",
+              "input": "Available process result plus execution and/or factory-finalization error.",
+              "output": "Preserved process evidence and accurately attributed overall failure."
+            }
+          ],
+          "constraints": [
+            "Reuse existing retained diagnostics and reporting.",
+            "Preserve interruption behavior, sanitization and existing success-only save/publication gates."
+          ],
+          "decisions": [
+            {
+              "decision": "Keep process outcome distinct from overall factory success.",
+              "reason": "A successful subprocess can still have a real local finalization failure; neither fact should erase the other."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}

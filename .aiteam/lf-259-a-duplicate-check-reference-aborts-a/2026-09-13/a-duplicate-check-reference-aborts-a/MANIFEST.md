@@ -7,12 +7,14 @@
 ## Modes
 
 - [x] Research
-- [ ] Plan
+- [x] Plan
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
 
 ## History
+
+- 2026-09-17, run 0014: Completed Plan authored with three typed stories covering snapshot-scoped check identity, foreground recovery isolation and truthful harvest diagnostics. Saved feature-spec.md, ARCH_REVIEW.md, PLAN_PROPOSAL.json and plan_brief.md. No material unresolved owner decisions. Orphaned Plan recovery remains excluded. No implementation or tests; parent owns preflight/submission/receipt. Publication and readiness remain pending factory terminal success/save.
 
 - 2026-09-13: Research session initialized for issue #259.
 
@@ -43,3 +45,5 @@
 - 2026-09-17, run 0012: Research complete at `1ef699a99a7ee097a1f5bc217e01f341ef1037db`: produced advisory implementation sequence for scoped check-key migration/readers, foreground recovery isolation, truthful harvest and stage-aware Plan orphan handling. Preserves post-broker-close/succeeded-run publication window, immutable history and aggregate attribution. Added upgrade/replay/isolation/harvest/Plan regression matrix plus operator-owned release activities. No new owner questions, tests, implementation, formal Plan stories, runtime changes or mode switch. Parent handles shared-result delivery.
 
 - 2026-09-17, run 0013: Research complete at `c3b461b8b486adcf647272d057e307cc2bcd3e45`. Owner narrowed #259 repair to items 1–3; Plan orphan recovery deferred (no-open-Plans statement is owner-reported, not independently verified or a permanent fix). Focused trace confirms communication protocol guards trusted identity, authority, revision/replay and receipt attribution, while internal global recovery still joins foreign failures into callers. Existing binding supports scoped backend recovery without protocol redesign. No tests, production/runtime edits, Plan stories or mode change. Parent owns shared-result delivery.
+
+- Run 0014 delivery: completed three-story Plan preflight valid/complete without diagnostics; shared helper submit and matching receipt accepted request `6fdc0cd4bb526516a59374eeba43c2f5`, applied revision 1. Engineering, acceptance and publication pending. PLAN_APPLICATION.json and PLAN_RECEIPT.json retain contribution/correlation. Factory post-exit publication/readiness remains outstanding; no implementation or tests executed.
