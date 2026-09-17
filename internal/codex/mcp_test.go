@@ -279,8 +279,8 @@ func TestMcpOverrides_CollisionDetection(t *testing.T) {
 			if err != nil {
 				t.Fatalf("mcpOverrides: %v", err)
 			}
-			if len(args) != 8 {
-				t.Fatalf("args = %v, want 4 -c pairs (8 elements)", args)
+			if len(args) != 12 {
+				t.Fatalf("args = %v, want 6 -c pairs (12 elements)", args)
 			}
 		})
 	}
@@ -316,6 +316,12 @@ func TestArgs_EnabledMCPLaunchLandsBeforeModelOnColdPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("args: %v", err)
 	}
+	if got := mcpKV(t, got)["required"]; got != "true" {
+		t.Fatalf("MCP required = %q, want boolean true so startup fails if the server is unavailable", got)
+	}
+	if got := mcpKV(t, got)["default_tools_approval_mode"]; got != `"approve"` {
+		t.Fatalf("MCP default_tools_approval_mode = %s, want \"approve\" so calls are not refused under approval policy never", got)
+	}
 
 	mcpArgs, err := r.mcpOverrides(spec, true)
 	if err != nil {
@@ -339,6 +345,9 @@ func TestArgs_EnabledMCPLaunchLandsBeforeResumeSubcommand(t *testing.T) {
 	got, err := r.args(req, "workspace-write")
 	if err != nil {
 		t.Fatalf("args: %v", err)
+	}
+	if got := mcpKV(t, got)["required"]; got != "true" {
+		t.Fatalf("MCP required = %q, want boolean true so resume fails if the server is unavailable", got)
 	}
 
 	mcpArgs, err := r.mcpOverrides(spec, true)

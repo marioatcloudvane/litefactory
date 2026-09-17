@@ -71,6 +71,13 @@ func (r *Runner) mcpOverrides(spec *agent.MCPLaunchSpec, ignoreUserConfig bool) 
 	return []string{
 		"-c", prefix + "command=" + mcpQuote(spec.Executable()),
 		"-c", prefix + "args=[" + strings.Join(encodedArgs, ",") + "]",
+		// Native completion depends on these tools, so initialization failure
+		// must stop the run instead of leaving the agent without its final route.
+		"-c", prefix + "required=true",
+		// codex exec runs with approval policy never, and Codex otherwise asks
+		// for approval before every MCP tool call, so each call would be refused.
+		// The server only exposes enabled_tools and is launched by litefactory.
+		"-c", prefix + "default_tools_approval_mode=\"approve\"",
 		// Explicitly empty: the descriptor path and every other input the
 		// installed host needs travels in args, not the environment, so no
 		// ambient environment ever needs to reach this server.

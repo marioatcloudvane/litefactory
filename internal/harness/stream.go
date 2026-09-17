@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+
+	"github.com/cloudvane/litefactory/internal/agent"
 )
 
 // Reading claude's event stream (SD-6, AC-3.16, AC-3.17).
@@ -243,50 +245,28 @@ func (s *eventStream) observe(line []byte) {
 // err reports a failure to persist the stream, if there was one.
 func (s *eventStream) err() error { return s.writeErr }
 
-// tailWriter keeps the last bytes written to it and discards the rest. It is
-// how stderr is captured: a run that fails needs its last lines quoted in the
-// failure comment (S-9), and a run that fails by emitting megabytes of
-// diagnostics must not take the daemon's memory with it.
-//
-// It is written by the stderr reader goroutine and read only after that
-// goroutine has been joined, so the mutex is not strictly required — it is here
-// so that reading it early is a wrong answer rather than a data race.
+// tailWriter preserves the harness's private configurable tail interface while
+// sharing bounded subprocess capture with the other runner.
 type tailWriter struct {
 	limit int
-
-	mu        sync.Mutex
-	buf       []byte
-	truncated bool
+	mu    sync.Mutex
+	tail  *agent.TailBuffer
 }
 
-// Write implements io.Writer and never fails: dropping the middle of a large
-// stderr is the point, not an error.
 func (w *tailWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
-	n := len(p)
-	if n >= w.limit {
-		w.buf = append(w.buf[:0], p[n-w.limit:]...)
-		w.truncated = true
-		return n, nil
+	if w.tail == nil {
+		w.tail = agent.NewTailBuffer(w.limit)
 	}
-	w.buf = append(w.buf, p...)
-	if len(w.buf) > w.limit {
-		w.buf = w.buf[len(w.buf)-w.limit:]
-		w.truncated = true
-	}
-	return n, nil
+	return w.tail.Write(p)
 }
 
-// String returns the retained tail, prefixed with a marker when earlier output
-// was dropped so a reader is never shown a partial stderr as if it were whole.
 func (w *tailWriter) String() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
-	if w.truncated {
-		return "[earlier stderr dropped]\n" + string(w.buf)
+	if w.tail == nil {
+		return ""
 	}
-	return string(w.buf)
+	return w.tail.String()
 }

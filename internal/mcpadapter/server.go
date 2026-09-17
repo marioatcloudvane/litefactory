@@ -152,16 +152,17 @@ func (Server) Run(ctx context.Context, input io.ReadCloser, output io.WriteClose
 			if len(q.ID) == 0 {
 				switch q.Method {
 				case "notifications/initialized":
-					if state == 1 && emptyParams(q.Params) == nil {
+					if state == 1 && metadataParams(q.Params) == nil {
 						state = 2
 					}
 				case "notifications/cancelled":
 					if state == 2 {
 						var p struct {
+							Meta      json.RawMessage `json:"_meta,omitempty"`
 							RequestID json.RawMessage `json:"requestId"`
 							Reason    string          `json:"reason,omitempty"`
 						}
-						if decode(q.Params, &p) == nil {
+						if decode(q.Params, &p) == nil && submission.ValidateMCPMetadata(p.Meta) == nil {
 							if key, err := requestKey(p.RequestID); err == nil {
 								c.mu.Lock()
 								if cancel := c.active[key]; cancel != nil {
@@ -180,6 +181,7 @@ func (Server) Run(ctx context.Context, input io.ReadCloser, output io.WriteClose
 					continue
 				}
 				var p struct {
+					Meta            json.RawMessage `json:"_meta,omitempty"`
 					ProtocolVersion string          `json:"protocolVersion"`
 					Capabilities    json.RawMessage `json:"capabilities"`
 					ClientInfo      struct {
@@ -191,7 +193,7 @@ func (Server) Run(ctx context.Context, input io.ReadCloser, output io.WriteClose
 						Website     string          `json:"websiteUrl,omitempty"`
 					} `json:"clientInfo"`
 				}
-				if decode(q.Params, &p) != nil || p.ProtocolVersion == "" || !object(p.Capabilities) || p.ClientInfo.Name == "" || p.ClientInfo.Version == "" {
+				if decode(q.Params, &p) != nil || submission.ValidateMCPMetadata(p.Meta) != nil || p.ProtocolVersion == "" || !object(p.Capabilities) || p.ClientInfo.Name == "" || p.ClientInfo.Version == "" {
 					c.send(failure(q.ID, -32602, "Invalid initialization parameters"), nil)
 					continue
 				}
@@ -211,7 +213,7 @@ func (Server) Run(ctx context.Context, input io.ReadCloser, output io.WriteClose
 			}
 			var call submission.ToolCall
 			if q.Method == "tools/list" {
-				err = emptyParams(q.Params)
+				err = metadataParams(q.Params)
 			} else {
 				call, err = submission.DecodeToolCall(q.Params)
 				if err == nil && !object(call.Arguments) {

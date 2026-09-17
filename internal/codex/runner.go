@@ -316,8 +316,8 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := agent.NewTailBuffer(agent.StderrTailBytes)
+	cmd.Stderr = stderr
 	startLocation := machineLocation()
 	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
@@ -386,6 +386,22 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 			"Use externally captured fixtures with provenance under docs/agent-evidence-capture.md; " +
 			"see docs/codex-initialization-troubleshooting.md."
 	}
+	if result.Outcome == agent.OutcomeFailed && result.ExitCode > 0 && stream.events == 0 &&
+		!stream.turnStarted && !stream.completed && !stream.failed && startupMCPFailure(result.Stderr) {
+		result.Diagnostic = "Codex could not initialize required MCP servers. Check the retained stderr in the run metadata for the server error; the missing shared final result is a consequence of startup failure."
+	}
+}
+
+func startupMCPFailure(stderr string) bool {
+	const direct = "Error: required MCP servers failed to initialize: "
+	const thread = "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: required MCP servers failed to initialize: "
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if (strings.HasPrefix(line, direct) && len(strings.TrimSpace(line)) > len(direct)) ||
+			(strings.HasPrefix(line, thread) && len(strings.TrimSpace(line)) > len(thread)) {
+			return true
+		}
+	}
+	return false
 }
 
 func startupPermissionFailure(stderr string) bool {

@@ -109,10 +109,8 @@ type ToolCall struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 	// Meta is MCP's request metadata member. Hosts attach transport concerns
-	// there, such as a progress token; it never carries authorization, so it is
-	// accepted and ignored. Without the field, decodeStrict's
-	// DisallowUnknownFields answers every spec-compliant host call with -32602,
-	// which is exactly what kept both installed hosts off the MCP path.
+	// there, such as a progress token; it is bounded and validated separately
+	// from arguments, then ignored. It never carries authorization.
 	Meta json.RawMessage `json:"_meta,omitempty"`
 }
 
@@ -120,6 +118,9 @@ type ToolCall struct {
 func DecodeToolCall(data []byte) (ToolCall, error) {
 	var q ToolCall
 	err := decodeStrict(data, &q)
+	if err == nil {
+		err = ValidateMCPMetadata(q.Meta)
+	}
 	if err == nil && (q.Name == "" || len(q.Name) > 128 || !json.Valid(q.Arguments)) {
 		err = errors.New("submission: invalid tool call")
 	}

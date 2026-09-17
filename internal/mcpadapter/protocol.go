@@ -82,15 +82,20 @@ func requestKey(id json.RawMessage) (string, error) {
 func object(data []byte) bool {
 	return len(bytes.TrimSpace(data)) > 0 && bytes.TrimSpace(data)[0] == '{'
 }
-func emptyParams(data []byte) error {
+func metadataParams(data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	var empty struct{}
+	var params struct {
+		Meta json.RawMessage `json:"_meta,omitempty"`
+	}
 	if !object(data) {
 		return errors.New("parameters must be an object")
 	}
-	return decode(data, &empty)
+	if err := decode(data, &params); err != nil {
+		return err
+	}
+	return submission.ValidateMCPMetadata(params.Meta)
 }
 
 // encodeResponse is bounded before JSON's encoder allocates its temporary
