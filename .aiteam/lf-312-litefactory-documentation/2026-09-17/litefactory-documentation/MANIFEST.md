@@ -7,7 +7,7 @@
 ## Modes
 
 - [x] Research
-- [ ] Plan
+- [x] Plan
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
@@ -20,5 +20,7 @@
 - 2026-09-17, run 0002: Applied user correction: replaced the mixed user directory with Getting started, Using the factory, advanced CLI, advanced Configuration and Operations. Updated all recommendations, destinations and sample links in RESEARCH_BRIEF.md. Research remains complete; evidence and limitations retained; no source reinvestigation or later mode.
 
 ## Notes
+
+Run 0003 completed Plan authoring: feature-spec.md, ARCH_REVIEW.md, plan_brief.md and typed plan-result.json contain five category stories, 31 one-file Markdown tasks and 24 explicit acceptance criteria. Shared-result preflight was valid and complete with no diagnostics or unchecked paths. Submission request `7478e68636068255e6692f395aa2d5f1` was accepted at revision 1 and its matching receipt was read: input accepted; engineering pending; acceptance pending; publication pending. This checkbox records completed Plan authoring, not factory publication, frozen scope or readiness. The factory performs terminal validation/publication/save after exit. No material scope questions remain. AC-004 retains the missing authentic isolated operator onboarding walkthrough; source reconciliation, navigation checks and make check await implementation. No documentation pages, runtime code or daemon state were changed, and no tests, commits or pushes were performed.
 
 User-facing documentation is intended for GitHub docs/. Run 0001 researched features; run 0002 revised the draft into clear categories with dedicated advanced CLI and config.yaml sections; it did not implement documentation pages. Evidence is pinned to revision 21d3234719a945435b9685e41881aecefd4af923. Native-host observations, fresh-install verification, engineering checks and remote publication were not performed.

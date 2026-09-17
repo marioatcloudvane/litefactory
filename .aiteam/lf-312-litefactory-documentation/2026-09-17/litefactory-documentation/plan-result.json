@@ -1,0 +1,871 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Plan authored: five category stories and 31 tasks, each owning one Markdown file. Onboarding still needs authentic isolated operator evidence for AC-004; no implementation or runtime checks were performed during Plan. Factory publication, freezing and readiness remain pending.",
+    "payload": {
+      "plan": {
+        "summary": "Provide GitHub-native user documentation in five approved categories: Getting started (6 files), Using the factory (11), CLI — advanced (4), Configuration — advanced (4), and Operations (6). Preserve all 28 new pages plus three existing-file reconciliations; every task owns one Markdown file. Stories are independently authorable, with revision-bounded source accuracy, final navigation checks and actual make check evidence required during implementation. AC-004 retains the missing authentic operator walkthrough as an unsatisfied external acceptance prerequisite. No material owner questions remain.",
+        "stories": [
+          {
+            "key": "US-001",
+            "intent": "create",
+            "title": "Document Getting started",
+            "user_story": {
+              "actor": "prospective litefactory user",
+              "want": "understand the factory and follow a reliable first-run journey",
+              "benefit": "I can install it, connect GitHub and know what a successful first Research request should produce",
+              "notes": [
+                "Evidence inventory — AC-001: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/cmd_init.go, cmd_repo.go and cmd_daemon.go; go.mod, Makefile, internal/launchd, internal/identity, internal/secrets, internal/github, internal/turn/delivery.go and current workflow delivery paths; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-002: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/cmd_init.go, cmd_repo.go and cmd_daemon.go; go.mod, Makefile, internal/launchd, internal/identity, internal/secrets, internal/github, internal/turn/delivery.go and current workflow delivery paths; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-003: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/cmd_init.go, cmd_repo.go and cmd_daemon.go; go.mod, Makefile, internal/launchd, internal/identity, internal/secrets, internal/github, internal/turn/delivery.go and current workflow delivery paths; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-004: proof method = source comparison plus separately authorized authentic isolated installation/access check and disposable-repository Research walkthrough; source availability = repository sources available, authentic operator observation unavailable; version/context bounds = record actual host/tool versions, auth/access setup and observed result, currently unknown; missing prerequisite = authorized operator capture outside the active daemon environment. Remains unverified and unsatisfied until supplied; no live nested agent probe, active-state edit or sandbox expansion is authorized.",
+                "Evidence inventory — AC-015: proof method = file inventory and final combined relative-link/anchor/render inspection; source availability = approved file inventory now, authored files pending; version/context bounds = final implementation snapshot across five categories; missing prerequisite = completed pages and retained checks. Scoped intermediate navigation checks may use the approved target inventory, but do not establish final combined success.",
+                "Evidence inventory — AC-016: proof method = source/example review and actual make check output; source availability = repository checks/current sources available, executed implementation results pending; version/context bounds = recorded implementation snapshot, offline checks only; missing prerequisite = actual retained engineering output. No new standalone test task or test suite."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Root README provides a short accurate introduction and link to docs/README.md; landing explains the issue-driven workflow, representative features and all five categories; glossary defines owner, bot, mode, story, run and acceptance."
+              },
+              {
+                "id": "AC-002",
+                "text": "The three onboarding pages cover supported macOS prerequisites, source installation and upgrades, Git/gh and agent prerequisites, separate owner/bot identities and required repository/token access, initialization, repository registration, daemon startup and an explicit first Research request, with expected feedback and subsequent workflow links."
+              },
+              {
+                "id": "AC-003",
+                "text": "Root README reconciles obsolete team-delivery and unconditional story-close/reopen claims with current behavior, retains useful existing reference links and distinguishes legacy workflow from separated engineering and acceptance."
+              },
+              {
+                "id": "AC-004",
+                "text": "Installation and GitHub permission guidance is checked against current sources and an isolated operator setup; an onboarding walkthrough on a disposable repository records actual versions and observed results. Missing external observation remains unverified and unsatisfied; source review and illustrative examples cannot replace an authentic successful observation."
+              },
+              {
+                "id": "AC-015",
+                "text": "All 6 owned Markdown files are present or updated and follow their approved primary-home boundaries. Every owned topic is reachable through its category and the landing page; final combined relative links and anchors resolve, code fences/tables render correctly, and no navigation uses the superseded docs/user proposal. Feature guides include purpose, prerequisites, a minimal example, expected feedback, common failures and related links; references supply complete syntax/defaults without competing manuals."
+              },
+              {
+                "id": "AC-016",
+                "text": "Examples and claims are reconciled against the recorded implementation revision and executable owners/focused tests, contain no literal credentials or permission-bypass invocations, retain evidence limitations and invent no commands, defaults or capabilities. Execute and retain source/example inspection, scoped documentation checks and required make check output before engineering completion; final combined navigation checks cover the completed tree. No fresh-install, native-host, billing or remote-publication success is inferred from offline checks."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Deliver exactly one Markdown file: docs/README.md. Create the documentation landing page with a plain-language feature overview, five category entry points and glossary link. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Deliver exactly one Markdown file: docs/glossary.md. Create a concise glossary of owner, bot, mode, story, run and acceptance; distinguish engineering and delivery. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-003",
+                "description": "Deliver exactly one Markdown file: docs/getting-started/README.md. Create the category index and ordered initialization, registration, daemon and first Research journey; explain expected feedback and link every onboarding topic. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-004",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-004",
+                "description": "Deliver exactly one Markdown file: docs/getting-started/installation.md. Create supported macOS prerequisites, source-install and upgrade guidance, Git/gh and agent prerequisites; keep binary installation separate from an active executable and retain missing operator evidence honestly. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-004",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-005",
+                "description": "Deliver exactly one Markdown file: docs/getting-started/github-setup.md. Create owner/bot identity and repository/token access guidance with credential references and supported setup checks; retain missing disposable-repository observations honestly. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-004",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-006",
+                "description": "Deliver exactly one Markdown file: README.md. Update the concise product introduction and documentation entry link, reconcile team-delivery and closure claims and preserve useful existing links. Basis: feature-spec.md, Category outcomes and scope ownership (Getting started), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003",
+                  "AC-015",
+                  "AC-016"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Documentation-only Getting started category, independently authorable against the fixed five-category navigation contract; no runtime or schema changes.",
+              "components": [
+                {
+                  "name": "docs/README.md",
+                  "responsibility": "Create the documentation landing page with a plain-language feature overview, five category entry points and glossary link."
+                },
+                {
+                  "name": "docs/glossary.md",
+                  "responsibility": "Create a concise glossary of owner, bot, mode, story, run and acceptance; distinguish engineering and delivery."
+                },
+                {
+                  "name": "docs/getting-started/README.md",
+                  "responsibility": "Create the category index and ordered initialization, registration, daemon and first Research journey; explain expected feedback and link every onboarding topic."
+                },
+                {
+                  "name": "docs/getting-started/installation.md",
+                  "responsibility": "Create supported macOS prerequisites, source-install and upgrade guidance, Git/gh and agent prerequisites; keep binary installation separate from an active executable and retain missing operator evidence honestly."
+                },
+                {
+                  "name": "docs/getting-started/github-setup.md",
+                  "responsibility": "Create owner/bot identity and repository/token access guidance with credential references and supported setup checks; retain missing disposable-repository observations honestly."
+                },
+                {
+                  "name": "README.md",
+                  "responsibility": "Update the concise product introduction and documentation entry link, reconcile team-delivery and closure claims and preserve useful existing links."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "GitHub Markdown navigation",
+                  "input": "Reader entering from documentation landing or a related topic",
+                  "output": "Category introduction, reachable topic pages and relative links to authoritative references"
+                },
+                {
+                  "name": "Existing executable behavior",
+                  "input": "internal/cli/cmd_init.go, cmd_repo.go and cmd_daemon.go; go.mod, Makefile, internal/launchd, internal/identity, internal/secrets, internal/github, internal/turn/delivery.go and current workflow delivery paths",
+                  "output": "Revision-bounded descriptions and examples; evidence limitations explicitly retained"
+                }
+              ],
+              "constraints": [
+                "Exactly one named Markdown file per task; no standalone test tasks or local per-story Markdown.",
+                "Use current executable owners and focused tests to reconcile stale prose; preserve existing retained technical URLs and used anchors.",
+                "No application code, site generator, instruction-tree or runtime-state edits; do not operate the active daemon or write dist/.",
+                "Use placeholders/credential references only. Keep input, engineering, acceptance, publication and readiness separate."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep category authoring independent; no story dependencies.",
+                  "reason": "Agreed target paths permit cross-links before all pages exist; final combined navigation remains an aggregate evidence obligation."
+                },
+                {
+                  "decision": "Perform checks within file tasks and retain actual repository check results.",
+                  "reason": "Owner requires every task to deliver one Markdown file; this prose-only scope needs no additional test files."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "US-002",
+            "intent": "create",
+            "title": "Document Using the factory",
+            "user_story": {
+              "actor": "litefactory issue owner",
+              "want": "find practical guidance for issue workflows and factory features",
+              "benefit": "I can direct work and interpret feedback without confusing a run result, acceptance or publication",
+              "notes": [
+                "Evidence inventory — AC-005: proof method = scoped documentation/source-to-document coverage review; source availability = internal/turn/command.go, ask.go, managed_scope.go, story_refinements.go, mcp_runtime.go, prepare.go, acceptance.go, feature_delivery.go, owner_exceptions.go and followups.go; internal/daemon/mode.go; internal/agent/mode.go; internal/harness/mcp.go; internal/codex/mcp.go; internal/attach/sniff.go; internal/schedule/schedule.go and focused tests; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-006: proof method = scoped documentation/source-to-document coverage review; source availability = internal/turn/command.go, ask.go, managed_scope.go, story_refinements.go, mcp_runtime.go, prepare.go, acceptance.go, feature_delivery.go, owner_exceptions.go and followups.go; internal/daemon/mode.go; internal/agent/mode.go; internal/harness/mcp.go; internal/codex/mcp.go; internal/attach/sniff.go; internal/schedule/schedule.go and focused tests; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review. Current integrations may be documented from executable paths; authentic #274/#296 host observations are unavailable and remain disclosed, with no new host verification promised by this documentation scope.",
+                "Evidence inventory — AC-007: proof method = scoped documentation/source-to-document coverage review; source availability = internal/turn/command.go, ask.go, managed_scope.go, story_refinements.go, mcp_runtime.go, prepare.go, acceptance.go, feature_delivery.go, owner_exceptions.go and followups.go; internal/daemon/mode.go; internal/agent/mode.go; internal/harness/mcp.go; internal/codex/mcp.go; internal/attach/sniff.go; internal/schedule/schedule.go and focused tests; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-008: proof method = scoped documentation/source-to-document coverage review; source availability = internal/turn/command.go, ask.go, managed_scope.go, story_refinements.go, mcp_runtime.go, prepare.go, acceptance.go, feature_delivery.go, owner_exceptions.go and followups.go; internal/daemon/mode.go; internal/agent/mode.go; internal/harness/mcp.go; internal/codex/mcp.go; internal/attach/sniff.go; internal/schedule/schedule.go and focused tests; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review. Current integrations may be documented from executable paths; authentic #274/#296 host observations are unavailable and remain disclosed, with no new host verification promised by this documentation scope.",
+                "Evidence inventory — AC-017: proof method = file inventory and final combined relative-link/anchor/render inspection; source availability = approved file inventory now, authored files pending; version/context bounds = final implementation snapshot across five categories; missing prerequisite = completed pages and retained checks. Scoped intermediate navigation checks may use the approved target inventory, but do not establish final combined success.",
+                "Evidence inventory — AC-018: proof method = source/example review and actual make check output; source availability = repository checks/current sources available, executed implementation results pending; version/context bounds = recorded implementation snapshot, offline checks only; missing prerequisite = actual retained engineering output. No new standalone test task or test suite."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-005",
+                "text": "Workflow and issue guides explain Research, Plan, Implement, Validate and Spike, explicit mode switches, asynchronous questions, plan publication, frozen scope, child refinement/replan and legacy differences; successful output never implies automatic advancement."
+              },
+              {
+                "id": "AC-006",
+                "text": "MCP, attachment and scheduling guides cover current mode/capability gates, settings cross-links, bounded approvals/receipts, supported file types and limits, precise scheduling controls/timezone behavior and failure/expiry feedback. Distinguish factory MCP from arbitrary third-party servers, attachment rejection from guaranteed run failure, and due-time eligibility from promised dispatch."
+              },
+              {
+                "id": "AC-007",
+                "text": "Conflict and validation/delivery guides cover reviewed conflict proposals, engineering versus acceptance versus publication, exceptions, follow-ups, readiness and explicit concrete PR/head merge approval; issue-command reference accounts for every current owner comment control and canonical label."
+              },
+              {
+                "id": "AC-008",
+                "text": "Existing MCP adapter/tool-family documents retain their URLs and used anchors and distinguish historical milestones, currently implemented integrations and unverified authentic-host observations; new MCP guidance and linked existing references agree without claiming source or synthetic fixtures establish authentic #274/#296 host delivery."
+              },
+              {
+                "id": "AC-017",
+                "text": "All 11 owned Markdown files are present or updated and follow their approved primary-home boundaries. Every owned topic is reachable through its category and the landing page; final combined relative links and anchors resolve, code fences/tables render correctly, and no navigation uses the superseded docs/user proposal. Feature guides include purpose, prerequisites, a minimal example, expected feedback, common failures and related links; references supply complete syntax/defaults without competing manuals."
+              },
+              {
+                "id": "AC-018",
+                "text": "Examples and claims are reconciled against the recorded implementation revision and executable owners/focused tests, contain no literal credentials or permission-bypass invocations, retain evidence limitations and invent no commands, defaults or capabilities. Execute and retain source/example inspection, scoped documentation checks and required make check output before engineering completion; final combined navigation checks cover the completed tree. No fresh-install, native-host, billing or remote-publication success is inferred from offline checks."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-007",
+                "description": "Deliver exactly one Markdown file: docs/guides/README.md. Create the category introduction and links to all eight guide topics, clearly separate owner controls from terminal/YAML references. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-005",
+                  "AC-006",
+                  "AC-007",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-008",
+                "description": "Deliver exactly one Markdown file: docs/guides/workflow.md. Create the five-mode journey, persistent mode selection, asynchronous questions, publication/frozen-scope and legacy guidance. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-005",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-009",
+                "description": "Deliver exactly one Markdown file: docs/guides/working-with-issues.md. Create practical issue instructions, child refinement and parent replan guidance; distinguish owner requests from supplied context. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-005",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-010",
+                "description": "Deliver exactly one Markdown file: docs/guides/mcp.md. Create factory MCP purpose, prerequisites, example, feedback, failures, mode gates, receipt/approval limits and settings links; disclose authentic-host evidence bounds. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-008",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-011",
+                "description": "Deliver exactly one Markdown file: docs/guides/attachments.md. Create supported attachments, types/limits, ingestion versus interpretation, examples, feedback and rejection guidance. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-012",
+                "description": "Deliver exactly one Markdown file: docs/guides/scheduling.md. Create scheduling controls, dependencies, timezones, examples and failure feedback; state eligibility rather than promised start time. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-013",
+                "description": "Deliver exactly one Markdown file: docs/guides/sync-and-conflicts.md. Create synchronization and reviewed conflict proposal guidance, feedback and dirty-work recovery; distinguish preview from actual apply data. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-014",
+                "description": "Deliver exactly one Markdown file: docs/guides/validation-and-delivery.md. Create engineering, acceptance, exceptions, follow-ups, readiness and explicit concrete PR/head merge approval guidance. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-015",
+                "description": "Deliver exactly one Markdown file: docs/guides/issue-command-reference.md. Create the exhaustive current owner-comment command and canonical-label reference with arguments, effect and restrictions. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-016",
+                "description": "Deliver exactly one Markdown file: docs/mcp-adapter.md. Reconcile current adapter availability against executable integrations, label superseded milestones and preserve URL/used anchors and authentic-host limits. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-008",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-017",
+                "description": "Deliver exactly one Markdown file: docs/mcp-tool-families.md. Reconcile current tool-family/attachment availability and future-tense claims; preserve URL/used anchors and distinguish implemented paths from authentic-host observation. Basis: feature-spec.md, Category outcomes and scope ownership (Using the factory), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-008",
+                  "AC-017",
+                  "AC-018"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Documentation-only Using the factory category, independently authorable against the fixed five-category navigation contract; no runtime or schema changes.",
+              "components": [
+                {
+                  "name": "docs/guides/README.md",
+                  "responsibility": "Create the category introduction and links to all eight guide topics, clearly separate owner controls from terminal/YAML references."
+                },
+                {
+                  "name": "docs/guides/workflow.md",
+                  "responsibility": "Create the five-mode journey, persistent mode selection, asynchronous questions, publication/frozen-scope and legacy guidance."
+                },
+                {
+                  "name": "docs/guides/working-with-issues.md",
+                  "responsibility": "Create practical issue instructions, child refinement and parent replan guidance; distinguish owner requests from supplied context."
+                },
+                {
+                  "name": "docs/guides/mcp.md",
+                  "responsibility": "Create factory MCP purpose, prerequisites, example, feedback, failures, mode gates, receipt/approval limits and settings links; disclose authentic-host evidence bounds."
+                },
+                {
+                  "name": "docs/guides/attachments.md",
+                  "responsibility": "Create supported attachments, types/limits, ingestion versus interpretation, examples, feedback and rejection guidance."
+                },
+                {
+                  "name": "docs/guides/scheduling.md",
+                  "responsibility": "Create scheduling controls, dependencies, timezones, examples and failure feedback; state eligibility rather than promised start time."
+                },
+                {
+                  "name": "docs/guides/sync-and-conflicts.md",
+                  "responsibility": "Create synchronization and reviewed conflict proposal guidance, feedback and dirty-work recovery; distinguish preview from actual apply data."
+                },
+                {
+                  "name": "docs/guides/validation-and-delivery.md",
+                  "responsibility": "Create engineering, acceptance, exceptions, follow-ups, readiness and explicit concrete PR/head merge approval guidance."
+                },
+                {
+                  "name": "docs/guides/issue-command-reference.md",
+                  "responsibility": "Create the exhaustive current owner-comment command and canonical-label reference with arguments, effect and restrictions."
+                },
+                {
+                  "name": "docs/mcp-adapter.md",
+                  "responsibility": "Reconcile current adapter availability against executable integrations, label superseded milestones and preserve URL/used anchors and authentic-host limits."
+                },
+                {
+                  "name": "docs/mcp-tool-families.md",
+                  "responsibility": "Reconcile current tool-family/attachment availability and future-tense claims; preserve URL/used anchors and distinguish implemented paths from authentic-host observation."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "GitHub Markdown navigation",
+                  "input": "Reader entering from documentation landing or a related topic",
+                  "output": "Category introduction, reachable topic pages and relative links to authoritative references"
+                },
+                {
+                  "name": "Existing executable behavior",
+                  "input": "internal/turn/command.go, ask.go, managed_scope.go, story_refinements.go, mcp_runtime.go, prepare.go, acceptance.go, feature_delivery.go, owner_exceptions.go and followups.go; internal/daemon/mode.go; internal/agent/mode.go; internal/harness/mcp.go; internal/codex/mcp.go; internal/attach/sniff.go; internal/schedule/schedule.go and focused tests",
+                  "output": "Revision-bounded descriptions and examples; evidence limitations explicitly retained"
+                }
+              ],
+              "constraints": [
+                "Exactly one named Markdown file per task; no standalone test tasks or local per-story Markdown.",
+                "Use current executable owners and focused tests to reconcile stale prose; preserve existing retained technical URLs and used anchors.",
+                "No application code, site generator, instruction-tree or runtime-state edits; do not operate the active daemon or write dist/.",
+                "Use placeholders/credential references only. Keep input, engineering, acceptance, publication and readiness separate."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep category authoring independent; no story dependencies.",
+                  "reason": "Agreed target paths permit cross-links before all pages exist; final combined navigation remains an aggregate evidence obligation."
+                },
+                {
+                  "decision": "Perform checks within file tasks and retain actual repository check results.",
+                  "reason": "Owner requires every task to deliver one Markdown file; this prose-only scope needs no additional test files."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "US-003",
+            "intent": "create",
+            "title": "Document CLI — advanced",
+            "user_story": {
+              "actor": "advanced litefactory operator",
+              "want": "find complete terminal command guidance and repository/team administration recipes",
+              "benefit": "I can choose valid commands and understand their effects and prerequisites",
+              "notes": [
+                "Evidence inventory — AC-009: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/commands.go and all registered handlers, especially cmd_repo.go and cmd_team.go; internal/repos; internal/naming; internal/config/teams.go; internal/turn/delivery.go; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-010: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/commands.go and all registered handlers, especially cmd_repo.go and cmd_team.go; internal/repos; internal/naming; internal/config/teams.go; internal/turn/delivery.go; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-019: proof method = file inventory and final combined relative-link/anchor/render inspection; source availability = approved file inventory now, authored files pending; version/context bounds = final implementation snapshot across five categories; missing prerequisite = completed pages and retained checks. Scoped intermediate navigation checks may use the approved target inventory, but do not establish final combined success.",
+                "Evidence inventory — AC-020: proof method = source/example review and actual make check output; source availability = repository checks/current sources available, executed implementation results pending; version/context bounds = recorded implementation snapshot, offline checks only; missing prerequisite = actual retained engineering output. No new standalone test task or test suite."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-009",
+                "text": "The advanced category index explains terminal conventions and help; repository/team pages document current registration/options/precedence and catalog install/inspect/update/override workflows, retained bundles, drift and force behavior."
+              },
+              {
+                "id": "AC-010",
+                "text": "The command reference accounts for every command, subcommand and flag in the current registry and handlers, including init, repo, daemon, logs, meter, task, team, story-contract, submission and MCP; descriptor-bound helper commands are labelled advanced factory operations rather than ordinary setup."
+              },
+              {
+                "id": "AC-019",
+                "text": "All 4 owned Markdown files are present or updated and follow their approved primary-home boundaries. Every owned topic is reachable through its category and the landing page; final combined relative links and anchors resolve, code fences/tables render correctly, and no navigation uses the superseded docs/user proposal. Feature guides include purpose, prerequisites, a minimal example, expected feedback, common failures and related links; references supply complete syntax/defaults without competing manuals."
+              },
+              {
+                "id": "AC-020",
+                "text": "Examples and claims are reconciled against the recorded implementation revision and executable owners/focused tests, contain no literal credentials or permission-bypass invocations, retain evidence limitations and invent no commands, defaults or capabilities. Execute and retain source/example inspection, scoped documentation checks and required make check output before engineering completion; final combined navigation checks cover the completed tree. No fresh-install, native-host, billing or remote-publication success is inferred from offline checks."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-018",
+                "description": "Deliver exactly one Markdown file: docs/cli/README.md. Create the visibly advanced category index, terminal conventions, help discovery and links to all three topics. Basis: feature-spec.md, Category outcomes and scope ownership (CLI — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-009",
+                  "AC-019",
+                  "AC-020"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-019",
+                "description": "Deliver exactly one Markdown file: docs/cli/repositories.md. Create registration and repository-management recipes with supported options and base/prefix/worktree precedence; explain registered-clone preservation. Basis: feature-spec.md, Category outcomes and scope ownership (CLI — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-009",
+                  "AC-019",
+                  "AC-020"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-020",
+                "description": "Deliver exactly one Markdown file: docs/cli/teams.md. Create catalog install/inspect/update/override guidance with versions/pins, retained bundles, drift and force behavior. Basis: feature-spec.md, Category outcomes and scope ownership (CLI — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-009",
+                  "AC-019",
+                  "AC-020"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-021",
+                "description": "Deliver exactly one Markdown file: docs/cli/command-reference.md. Create the complete registry/handler-derived command, subcommand and flag reference; label descriptor-bound helper/MCP operations and their prerequisites. Basis: feature-spec.md, Category outcomes and scope ownership (CLI — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-010",
+                  "AC-019",
+                  "AC-020"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Documentation-only CLI — advanced category, independently authorable against the fixed five-category navigation contract; no runtime or schema changes.",
+              "components": [
+                {
+                  "name": "docs/cli/README.md",
+                  "responsibility": "Create the visibly advanced category index, terminal conventions, help discovery and links to all three topics."
+                },
+                {
+                  "name": "docs/cli/repositories.md",
+                  "responsibility": "Create registration and repository-management recipes with supported options and base/prefix/worktree precedence; explain registered-clone preservation."
+                },
+                {
+                  "name": "docs/cli/teams.md",
+                  "responsibility": "Create catalog install/inspect/update/override guidance with versions/pins, retained bundles, drift and force behavior."
+                },
+                {
+                  "name": "docs/cli/command-reference.md",
+                  "responsibility": "Create the complete registry/handler-derived command, subcommand and flag reference; label descriptor-bound helper/MCP operations and their prerequisites."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "GitHub Markdown navigation",
+                  "input": "Reader entering from documentation landing or a related topic",
+                  "output": "Category introduction, reachable topic pages and relative links to authoritative references"
+                },
+                {
+                  "name": "Existing executable behavior",
+                  "input": "internal/cli/commands.go and all registered handlers, especially cmd_repo.go and cmd_team.go; internal/repos; internal/naming; internal/config/teams.go; internal/turn/delivery.go",
+                  "output": "Revision-bounded descriptions and examples; evidence limitations explicitly retained"
+                }
+              ],
+              "constraints": [
+                "Exactly one named Markdown file per task; no standalone test tasks or local per-story Markdown.",
+                "Use current executable owners and focused tests to reconcile stale prose; preserve existing retained technical URLs and used anchors.",
+                "No application code, site generator, instruction-tree or runtime-state edits; do not operate the active daemon or write dist/.",
+                "Use placeholders/credential references only. Keep input, engineering, acceptance, publication and readiness separate."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep category authoring independent; no story dependencies.",
+                  "reason": "Agreed target paths permit cross-links before all pages exist; final combined navigation remains an aggregate evidence obligation."
+                },
+                {
+                  "decision": "Perform checks within file tasks and retain actual repository check results.",
+                  "reason": "Owner requires every task to deliver one Markdown file; this prose-only scope needs no additional test files."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "US-004",
+            "intent": "create",
+            "title": "Document Configuration — advanced",
+            "user_story": {
+              "actor": "advanced litefactory operator",
+              "want": "understand configuration fields, agents and permission boundaries",
+              "benefit": "I can make valid configuration changes and know when they take effect",
+              "notes": [
+                "Evidence inventory — AC-011: proof method = scoped documentation/source-to-document coverage review; source availability = internal/config/config.go, template.go, Paths, teams.go, tier.go and policy.go; internal/daemon/agent.go and tick.go; current harness/codex adapters; internal/cli/cmd_logs.go; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-012: proof method = scoped documentation/source-to-document coverage review; source availability = internal/config/config.go, template.go, Paths, teams.go, tier.go and policy.go; internal/daemon/agent.go and tick.go; current harness/codex adapters; internal/cli/cmd_logs.go; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review. Current integrations may be documented from executable paths; authentic #274/#296 host observations are unavailable and remain disclosed, with no new host verification promised by this documentation scope.",
+                "Evidence inventory — AC-021: proof method = file inventory and final combined relative-link/anchor/render inspection; source availability = approved file inventory now, authored files pending; version/context bounds = final implementation snapshot across five categories; missing prerequisite = completed pages and retained checks. Scoped intermediate navigation checks may use the approved target inventory, but do not establish final combined success.",
+                "Evidence inventory — AC-022: proof method = source/example review and actual make check output; source availability = repository checks/current sources available, executed implementation results pending; version/context bounds = recorded implementation snapshot, offline checks only; missing prerequisite = actual retained engineering output. No new standalone test task or test suite."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-011",
+                "text": "The visibly advanced category index explains config.yaml location, initialization, editing, precedence, strict validation and restart/reload behavior. The field reference covers every supported YAML field with type, default, valid values/range, effect, precedence and reload requirement reconciled against current template, structs, defaults and validators; omitted values and explicit zero remain distinct."
+              },
+              {
+                "id": "AC-012",
+                "text": "Coding-agent and permissions pages cover selection, executable paths, defaults/tiers, timeout/conversation behavior, credential references, owner/bot roles, mode permissions, agent-specific restrictions and personal configuration, unredacted local logs versus redacted reports and rejected deprecated permission labels. Implemented paths are distinguished from unverified authentic-host delivery."
+              },
+              {
+                "id": "AC-021",
+                "text": "All 4 owned Markdown files are present or updated and follow their approved primary-home boundaries. Every owned topic is reachable through its category and the landing page; final combined relative links and anchors resolve, code fences/tables render correctly, and no navigation uses the superseded docs/user proposal. Feature guides include purpose, prerequisites, a minimal example, expected feedback, common failures and related links; references supply complete syntax/defaults without competing manuals."
+              },
+              {
+                "id": "AC-022",
+                "text": "Examples and claims are reconciled against the recorded implementation revision and executable owners/focused tests, contain no literal credentials or permission-bypass invocations, retain evidence limitations and invent no commands, defaults or capabilities. Execute and retain source/example inspection, scoped documentation checks and required make check output before engineering completion; final combined navigation checks cover the completed tree. No fresh-install, native-host, billing or remote-publication success is inferred from offline checks."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-022",
+                "description": "Deliver exactly one Markdown file: docs/configuration/README.md. Create the advanced index and config location/init/edit/validation/precedence/restart journey; link all three topics and do not promise unsupported hot reload. Basis: feature-spec.md, Category outcomes and scope ownership (Configuration — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-011",
+                  "AC-021",
+                  "AC-022"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-023",
+                "description": "Deliver exactly one Markdown file: docs/configuration/config-yaml.md. Create an exhaustive current YAML field reference with types, defaults, values/ranges, effect, precedence and reload requirements, including omitted-versus-zero behavior. Basis: feature-spec.md, Category outcomes and scope ownership (Configuration — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-011",
+                  "AC-021",
+                  "AC-022"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-024",
+                "description": "Deliver exactly one Markdown file: docs/configuration/coding-agents.md. Create configured provider selection/path/default/tier, timeout and conversation guidance with factual examples and bounded capability claims. Basis: feature-spec.md, Category outcomes and scope ownership (Configuration — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-012",
+                  "AC-021",
+                  "AC-022"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-025",
+                "description": "Deliver exactly one Markdown file: docs/configuration/permissions.md. Create credential-reference, owner/bot, mode/tool/roots, provider restriction and personal-configuration guidance; explain local log/report redaction differences and rejected deprecated labels. Basis: feature-spec.md, Category outcomes and scope ownership (Configuration — advanced), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-012",
+                  "AC-021",
+                  "AC-022"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Documentation-only Configuration — advanced category, independently authorable against the fixed five-category navigation contract; no runtime or schema changes.",
+              "components": [
+                {
+                  "name": "docs/configuration/README.md",
+                  "responsibility": "Create the advanced index and config location/init/edit/validation/precedence/restart journey; link all three topics and do not promise unsupported hot reload."
+                },
+                {
+                  "name": "docs/configuration/config-yaml.md",
+                  "responsibility": "Create an exhaustive current YAML field reference with types, defaults, values/ranges, effect, precedence and reload requirements, including omitted-versus-zero behavior."
+                },
+                {
+                  "name": "docs/configuration/coding-agents.md",
+                  "responsibility": "Create configured provider selection/path/default/tier, timeout and conversation guidance with factual examples and bounded capability claims."
+                },
+                {
+                  "name": "docs/configuration/permissions.md",
+                  "responsibility": "Create credential-reference, owner/bot, mode/tool/roots, provider restriction and personal-configuration guidance; explain local log/report redaction differences and rejected deprecated labels."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "GitHub Markdown navigation",
+                  "input": "Reader entering from documentation landing or a related topic",
+                  "output": "Category introduction, reachable topic pages and relative links to authoritative references"
+                },
+                {
+                  "name": "Existing executable behavior",
+                  "input": "internal/config/config.go, template.go, Paths, teams.go, tier.go and policy.go; internal/daemon/agent.go and tick.go; current harness/codex adapters; internal/cli/cmd_logs.go",
+                  "output": "Revision-bounded descriptions and examples; evidence limitations explicitly retained"
+                }
+              ],
+              "constraints": [
+                "Exactly one named Markdown file per task; no standalone test tasks or local per-story Markdown.",
+                "Use current executable owners and focused tests to reconcile stale prose; preserve existing retained technical URLs and used anchors.",
+                "No application code, site generator, instruction-tree or runtime-state edits; do not operate the active daemon or write dist/.",
+                "Use placeholders/credential references only. Keep input, engineering, acceptance, publication and readiness separate."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep category authoring independent; no story dependencies.",
+                  "reason": "Agreed target paths permit cross-links before all pages exist; final combined navigation remains an aggregate evidence obligation."
+                },
+                {
+                  "decision": "Perform checks within file tasks and retain actual repository check results.",
+                  "reason": "Owner requires every task to deliver one Markdown file; this prose-only scope needs no additional test files."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "US-005",
+            "intent": "create",
+            "title": "Document Operations",
+            "user_story": {
+              "actor": "litefactory operator",
+              "want": "monitor the factory and recover or clean up work using supported controls",
+              "benefit": "I can diagnose failures and understand costs without losing work or assuming uncertain effects succeeded",
+              "notes": [
+                "Evidence inventory — AC-013: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/cmd_daemon.go, cmd_daemon_agent.go, cmd_logs.go, cmd_meter.go, price/recovery handlers, cmd_task_retire.go and cmd_task.go; internal/launchd; internal/meter; internal/store/meter.go; internal/turn/continuation_dispatch.go and daemon continuation/report recovery paths; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-014: proof method = scoped documentation/source-to-document coverage review; source availability = internal/cli/cmd_daemon.go, cmd_daemon_agent.go, cmd_logs.go, cmd_meter.go, price/recovery handlers, cmd_task_retire.go and cmd_task.go; internal/launchd; internal/meter; internal/store/meter.go; internal/turn/continuation_dispatch.go and daemon continuation/report recovery paths; version/context bounds = research revision 21d3234719a945435b9685e41881aecefd4af923 is a historical navigation aid, re-pin current source revision during implementation; missing prerequisite = authored pages and retained implementation review.",
+                "Evidence inventory — AC-023: proof method = file inventory and final combined relative-link/anchor/render inspection; source availability = approved file inventory now, authored files pending; version/context bounds = final implementation snapshot across five categories; missing prerequisite = completed pages and retained checks. Scoped intermediate navigation checks may use the approved target inventory, but do not establish final combined success.",
+                "Evidence inventory — AC-024: proof method = source/example review and actual make check output; source availability = repository checks/current sources available, executed implementation results pending; version/context bounds = recorded implementation snapshot, offline checks only; missing prerequisite = actual retained engineering output. No new standalone test task or test suite."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-013",
+                "text": "Daemon/log and usage pages cover supported lifecycle, login/PATH/reload behavior, status/selectors/filtering, actual versus estimated or unavailable usage, model/descendant coverage, price snapshots, export and historical recovery; unknown usage is distinct from zero and source evidence is not billing certification."
+              },
+              {
+                "id": "AC-014",
+                "text": "Recovery, cleanup and troubleshooting cover eligible quota recovery and limits, cancellation/manual continuation, retained edits/report recovery, retirement versus explicit cleanup, dirty/force behavior and symptom-to-check-to-recovery guidance for unavailable binaries, invalid YAML, missing bot identity, insufficient access, team drift, sandbox restrictions, absent usage, missing runs/reports, conflicts and uncertain remote effects."
+              },
+              {
+                "id": "AC-023",
+                "text": "All 6 owned Markdown files are present or updated and follow their approved primary-home boundaries. Every owned topic is reachable through its category and the landing page; final combined relative links and anchors resolve, code fences/tables render correctly, and no navigation uses the superseded docs/user proposal. Feature guides include purpose, prerequisites, a minimal example, expected feedback, common failures and related links; references supply complete syntax/defaults without competing manuals."
+              },
+              {
+                "id": "AC-024",
+                "text": "Examples and claims are reconciled against the recorded implementation revision and executable owners/focused tests, contain no literal credentials or permission-bypass invocations, retain evidence limitations and invent no commands, defaults or capabilities. Execute and retain source/example inspection, scoped documentation checks and required make check output before engineering completion; final combined navigation checks cover the completed tree. No fresh-install, native-host, billing or remote-publication success is inferred from offline checks."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-026",
+                "description": "Deliver exactly one Markdown file: docs/operations/README.md. Create the operations index linking all five topics and authoritative CLI/configuration references. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-013",
+                  "AC-014",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-027",
+                "description": "Deliver exactly one Markdown file: docs/operations/running-the-daemon.md. Create lifecycle/login/PATH/restart, status and log-selector/filter guidance with observable feedback and failure checks. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-013",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-028",
+                "description": "Deliver exactly one Markdown file: docs/operations/usage-and-costs.md. Create usage/meter/export/price snapshot and historical recovery guidance; distinguish actual, estimated, unavailable and zero usage, and model/descendant coverage. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-013",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-029",
+                "description": "Deliver exactly one Markdown file: docs/operations/recovery.md. Create quota eligibility/limits, opt-in recovery, cancellation/manual continuation and retained edit/report recovery guidance with independent attempt/announcement outcomes. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-014",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-030",
+                "description": "Deliver exactly one Markdown file: docs/operations/cleanup.md. Create retirement versus explicit cleanup, ownership/branch checks and dirty/force behavior with supported safe recovery guidance. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-014",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-031",
+                "description": "Deliver exactly one Markdown file: docs/operations/troubleshooting.md. Create symptom-to-check-to-recovery guidance for the enumerated failure classes, preserving uncertainty and avoiding invented successful remote effects. Basis: feature-spec.md, Category outcomes and scope ownership (Operations), Business rules and scope boundaries, and Acceptance criteria candidates. Reconcile relevant owners from ARCH_REVIEW.md; include this file's source/example and navigation/render checks in this task and retain required engineering-check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-014",
+                  "AC-023",
+                  "AC-024"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Documentation-only Operations category, independently authorable against the fixed five-category navigation contract; no runtime or schema changes.",
+              "components": [
+                {
+                  "name": "docs/operations/README.md",
+                  "responsibility": "Create the operations index linking all five topics and authoritative CLI/configuration references."
+                },
+                {
+                  "name": "docs/operations/running-the-daemon.md",
+                  "responsibility": "Create lifecycle/login/PATH/restart, status and log-selector/filter guidance with observable feedback and failure checks."
+                },
+                {
+                  "name": "docs/operations/usage-and-costs.md",
+                  "responsibility": "Create usage/meter/export/price snapshot and historical recovery guidance; distinguish actual, estimated, unavailable and zero usage, and model/descendant coverage."
+                },
+                {
+                  "name": "docs/operations/recovery.md",
+                  "responsibility": "Create quota eligibility/limits, opt-in recovery, cancellation/manual continuation and retained edit/report recovery guidance with independent attempt/announcement outcomes."
+                },
+                {
+                  "name": "docs/operations/cleanup.md",
+                  "responsibility": "Create retirement versus explicit cleanup, ownership/branch checks and dirty/force behavior with supported safe recovery guidance."
+                },
+                {
+                  "name": "docs/operations/troubleshooting.md",
+                  "responsibility": "Create symptom-to-check-to-recovery guidance for the enumerated failure classes, preserving uncertainty and avoiding invented successful remote effects."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "GitHub Markdown navigation",
+                  "input": "Reader entering from documentation landing or a related topic",
+                  "output": "Category introduction, reachable topic pages and relative links to authoritative references"
+                },
+                {
+                  "name": "Existing executable behavior",
+                  "input": "internal/cli/cmd_daemon.go, cmd_daemon_agent.go, cmd_logs.go, cmd_meter.go, price/recovery handlers, cmd_task_retire.go and cmd_task.go; internal/launchd; internal/meter; internal/store/meter.go; internal/turn/continuation_dispatch.go and daemon continuation/report recovery paths",
+                  "output": "Revision-bounded descriptions and examples; evidence limitations explicitly retained"
+                }
+              ],
+              "constraints": [
+                "Exactly one named Markdown file per task; no standalone test tasks or local per-story Markdown.",
+                "Use current executable owners and focused tests to reconcile stale prose; preserve existing retained technical URLs and used anchors.",
+                "No application code, site generator, instruction-tree or runtime-state edits; do not operate the active daemon or write dist/.",
+                "Use placeholders/credential references only. Keep input, engineering, acceptance, publication and readiness separate."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep category authoring independent; no story dependencies.",
+                  "reason": "Agreed target paths permit cross-links before all pages exist; final combined navigation remains an aggregate evidence obligation."
+                },
+                {
+                  "decision": "Perform checks within file tasks and retain actual repository check results.",
+                  "reason": "Owner requires every task to deliver one Markdown file; this prose-only scope needs no additional test files."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}
