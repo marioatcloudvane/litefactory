@@ -179,7 +179,9 @@ func (s *SubmissionSession) Close(ctx context.Context) error {
 	closeErr := s.broker.Close()
 	var recoveryErr error
 	if s.options.Progress != nil {
-		recoveryErr = s.options.Progress.RecoverSubmissions(ctx)
+		// Scoped to this session's own run/attempt (AC-003): an unrelated
+		// run's broken pending receipt must not fail this session's Close.
+		recoveryErr = s.options.Progress.RecoverSubmissionsForAttempt(ctx, s.binding.RunID, s.binding.Attempt)
 	}
 	return errors.Join(closeErr, recoveryErr, s.options.DB.EndSubmissionAttempt(ctx, s.binding.RunID, s.binding.Attempt))
 }
@@ -262,7 +264,9 @@ func (s *SubmissionSession) checkpointLocked(ctx context.Context, q submission.R
 		inputState = "rejected"
 	}
 	p := s.options.Progress
-	if err := p.RecoverSubmissions(ctx); err != nil {
+	// Scoped to this session's own run/attempt (AC-003): an unrelated run's
+	// broken pending receipt must not abort this foreground submission.
+	if err := p.RecoverSubmissionsForAttempt(ctx, s.binding.RunID, s.binding.Attempt); err != nil {
 		return nil, err
 	}
 	p.mu.Lock()
@@ -331,7 +335,7 @@ func (s *SubmissionSession) scopeForContribution(ctx context.Context, payload js
 				source.SnapshotRetained = true
 				source.Checks = map[string]agent.RetainedContributionCheck{}
 				for _, id := range input.Engineering.CheckIDs {
-					check, err := s.options.DB.GetSubmissionCheck(ctx, s.binding.RunID, id)
+					check, err := s.options.DB.GetSubmissionCheck(ctx, s.binding.RunID, snapshot.Reference, id)
 					if err == nil {
 						source.Checks[id] = agent.RetainedContributionCheck{Story: input.Story, Revision: snapshot.Revision, SnapshotID: check.SnapshotRef, ImplementationDigest: snapshot.Digest, Executed: check.Executed, Passed: check.Passed, Retained: true}
 					}

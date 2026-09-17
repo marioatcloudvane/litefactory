@@ -151,7 +151,7 @@ func (db *DB) RetainSubmissionCheck(ctx context.Context, c SubmissionCheck) erro
 			return fmt.Errorf("store: this stage cannot retain new execution")
 		}
 
-		old, err := scanSubmissionCheck(tx.QueryRowContext(ctx, `SELECT run_id,reference,attempt,snapshot_ref,name,executed,passed,provenance,result FROM submission_checks WHERE run_id=? AND reference=?`, c.RunID, c.Reference))
+		old, err := scanSubmissionCheck(tx.QueryRowContext(ctx, `SELECT run_id,reference,attempt,snapshot_ref,name,executed,passed,provenance,result FROM submission_checks WHERE run_id=? AND snapshot_ref=? AND reference=?`, c.RunID, c.SnapshotRef, c.Reference))
 		if err == nil {
 			if old.SnapshotRef != c.SnapshotRef || old.Name != c.Name || old.Executed != c.Executed || old.Passed != c.Passed || string(old.Provenance) != string(c.Provenance) || string(old.Result) != string(c.Result) {
 				return fmt.Errorf("store: immutable check reference conflict")
@@ -178,8 +178,12 @@ func scanSubmissionCheck(row interface{ Scan(...interface{}) error }) (Submissio
 }
 
 // GetSubmissionCheck reads the original execution facts and source attribution.
-func (db *DB) GetSubmissionCheck(ctx context.Context, runID int64, reference string) (SubmissionCheck, error) {
-	return scanSubmissionCheck(db.sql.QueryRowContext(ctx, `SELECT run_id,reference,attempt,snapshot_ref,name,executed,passed,provenance,result FROM submission_checks WHERE run_id=? AND reference=?`, runID, reference))
+// Check identity is scoped to the snapshot that produced it: the same
+// agent-supplied reference (e.g. "build") retained under two different
+// snapshots is two distinct checks, never a collision. Callers must supply the
+// already-trusted snapshot reference, never unauthenticated caller input.
+func (db *DB) GetSubmissionCheck(ctx context.Context, runID int64, snapshotRef, reference string) (SubmissionCheck, error) {
+	return scanSubmissionCheck(db.sql.QueryRowContext(ctx, `SELECT run_id,reference,attempt,snapshot_ref,name,executed,passed,provenance,result FROM submission_checks WHERE run_id=? AND snapshot_ref=? AND reference=?`, runID, snapshotRef, reference))
 }
 
 // SubmissionRetainedBytes exposes exact accounted transport/evidence bytes.

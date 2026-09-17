@@ -81,7 +81,7 @@ func resolveResultEngineeringContext(ctx context.Context, db *store.DB, b store.
 			source.SnapshotID = snapshot.Reference
 			source.Checks = map[string]agent.RetainedContributionCheck{}
 			for _, id := range contribution.Engineering.CheckIDs {
-				check, err := db.GetSubmissionCheck(ctx, retained.RunID, id)
+				check, err := db.GetSubmissionCheck(ctx, retained.RunID, snapshot.Reference, id)
 				if err != nil {
 					return c, nil, err
 				}

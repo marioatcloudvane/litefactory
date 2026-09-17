@@ -1,0 +1,6 @@
+{
+  "command": "make check",
+  "test_timeout_override": "Temporary PATH Go launcher replaces make test explicit -timeout=0 with -timeout=7m; all other arguments unchanged.",
+  "exit_code": 2,
+  "elapsed_seconds": 481.135
+}

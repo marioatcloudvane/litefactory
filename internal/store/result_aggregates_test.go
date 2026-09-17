@@ -138,7 +138,7 @@ func TestResultAggregate_RejectsStoryRelabellingAndAtomicCheckConflict(t *testin
 	if err != nil || !bytes.Equal(after.Files[0].Content, prior.Files[0].Content) {
 		t.Fatal("prior scoped proof changed")
 	}
-	afterCheck, err := db.GetSubmissionCheck(t.Context(), source.RunID, check.Reference)
+	afterCheck, err := db.GetSubmissionCheck(t.Context(), source.RunID, check.SnapshotRef, check.Reference)
 	if err != nil || !reflect.DeepEqual(check, afterCheck) {
 		t.Fatal("prior scoped check changed")
 	}

@@ -1,0 +1,18 @@
+func TestResearch259DuplicateCheckProbe(t *testing.T) {
+ f, _, session, o := submissionSessionFixture(t, store.WorkflowSeparated)
+ t.Cleanup(func(){ mustProgress(t, f.db.EndSubmissionAttempt(context.WithoutCancel(t.Context()), session.binding.RunID, session.binding.Attempt)) })
+ for i, story := range []string{"US-1", "US-2"} {
+  c := capturedContribution(t, o.Worktree, story, "engineering")
+  c.Engineering.CheckIDs = []string{"build"}
+  c.Capture.Checks[0].ID = "build"
+  payload, err := json.Marshal(c); mustProgress(t, err)
+  raw, err := session.checkpoint(t.Context(), submission.Request{Method:"preflight", Payload:payload}); mustProgress(t, err)
+  var d agent.ContributionDiagnostics; mustProgress(t,json.Unmarshal(raw,&d))
+  if !d.Valid { t.Fatalf("preflight rejected: %s",raw) }
+  _, err = session.checkpoint(t.Context(), submission.Request{Method:"submit",RequestID:fmt.Sprintf("probe-%d",i),Payload:payload})
+  if i == 0 { mustProgress(t,err) } else if err == nil || !strings.Contains(err.Error(),"immutable check reference conflict") { t.Fatalf("wanted reproduced collision, got %v",err) } else { t.Logf("second story preflight VALID, submit: %v",err) }
+ }
+ err := f.opts.StoryProgress.RecoverSubmissions(t.Context())
+ if err == nil || !strings.Contains(err.Error(),"immutable check reference conflict") {t.Fatalf("wanted global recovery poison, got %v",err)}
+ t.Logf("global recovery repeats pending collision: %v",err)
+}
