@@ -1,0 +1,41 @@
+{
+  "application": {
+    "expected_revision": 1,
+    "operations": [
+      {
+        "op": "set",
+        "target": {
+          "field": "outcome"
+        },
+        "value": "incomplete"
+      },
+      {
+        "op": "set",
+        "target": {
+          "field": "reason"
+        },
+        "value": "Required aggregate make check did not complete: timed out after 480.181 seconds (exit 124). Full race-suite success is unproven."
+      },
+      {
+        "op": "set",
+        "target": {
+          "field": "comment"
+        },
+        "value": "No—the implementation did not land. Local HEAD remains planning commit 9308144; 24 implementation/test files are still uncommitted. All three frozen stories have retained engineering-complete evidence, and their current implementation digest exactly matches that evidence (872fb398c09f0fc8df7591ff5e4c5f71a0235079406bcc461b21f553d6219abf). Run 0017 reran aggregate verification: go build ./... passed; make check passed formatting, vet and pinned lint (0 issues), but its full race test suite timed out after 480.181 seconds, exit 124. Captured output contains passing package results and no assertion failure; this does not identify a particular hanging test or prove suite success. No source changes, new story events, acceptance review, commit, push or deployment occurred. Engineering checkpoints remain retained; aggregate completion and factory save remain outstanding. Run 15's prose described implemented work, while its failed status and no-commit report correctly meant it was not saved. Run 16 was interrupted. Detailed current evidence is retained in the session reports."
+      },
+      {
+        "op": "remove",
+        "target": {
+          "field": "payload.implement.aggregate_checks"
+        }
+      }
+    ]
+  },
+  "request_id": "43ae943c0f964ce44b1500b5cd0493d2",
+  "applied_revision": 2,
+  "input": "accepted",
+  "engineering": "pending",
+  "acceptance": "pending",
+  "publication": "pending",
+  "receipt_read": true
+}

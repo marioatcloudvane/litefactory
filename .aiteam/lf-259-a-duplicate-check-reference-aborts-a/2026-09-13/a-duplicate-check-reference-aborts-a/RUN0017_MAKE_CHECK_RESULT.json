@@ -1,0 +1,7 @@
+{
+  "command": "make check",
+  "state": "timed_out",
+  "exit_code": 124,
+  "elapsed_seconds": 480.181,
+  "log": ".aiteam/lf-259-a-duplicate-check-reference-aborts-a/2026-09-13/a-duplicate-check-reference-aborts-a/RUN0017_MAKE_CHECK.log"
+}

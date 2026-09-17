@@ -113,7 +113,11 @@ func preparePlanHandoff(ctx context.Context, o Options, ref naming.Ref, mode str
 // publishPlanHandoff runs before save, so readiness and the index are part of
 // the successful run's save. Failure preserves the transport for inspection.
 func publishPlanHandoff(ctx context.Context, o Options, prep *preparation, result Result, run *harness.RunResult, log *slog.Logger) Result {
-	if prep.promptInput.PlanProposalPath == "" || prep.run.Mode != "plan" || !run.Succeeded() {
+	// A local factory failure recorded ahead of this call (AC-005: cleanup,
+	// finalization or scoped submission recovery, attached in harvestStopped)
+	// must block publication the same way it blocks save — the subprocess's
+	// own success does not make the turn's overall outcome successful.
+	if result.Err != nil || prep.promptInput.PlanProposalPath == "" || prep.run.Mode != "plan" || !run.Succeeded() {
 		return result
 	}
 	fail := func(err error) Result {

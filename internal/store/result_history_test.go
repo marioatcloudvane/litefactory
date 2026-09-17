@@ -403,7 +403,7 @@ func TestResultRecord_RejectionAndV2Isolation(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(proof, retainedProof) {
 		t.Fatal("retained proof changed", err)
 	}
-	retainedCheck, err := db.GetSubmissionCheck(t.Context(), a.RunID, check.Reference)
+	retainedCheck, err := db.GetSubmissionCheck(t.Context(), a.RunID, check.SnapshotRef, check.Reference)
 	if err != nil || !reflect.DeepEqual(check, retainedCheck) {
 		t.Fatal("retained check changed", err)
 	}

@@ -52,7 +52,7 @@ func (s *SubmissionSession) recordEngineering(ctx context.Context, r store.Submi
 			evidence.Files = append(evidence.Files, agent.StorySnapshotFile{Path: file.Path, Content: file.Content, SHA256: file.SHA256, Deleted: file.Deleted})
 		}
 		for _, id := range c.Engineering.CheckIDs {
-			check, err := s.options.DB.GetSubmissionCheck(ctx, s.binding.RunID, id)
+			check, err := s.options.DB.GetSubmissionCheck(ctx, s.binding.RunID, snapshot.Reference, id)
 			if err != nil {
 				return err
 			}

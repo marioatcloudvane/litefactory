@@ -80,7 +80,10 @@ func (db *DB) RegisterStoryProgress(ctx context.Context, r StoryProgressRun) err
 	})
 }
 
-// ListStoryProgressRuns includes orphaned transports for restart recovery.
+// ListStoryProgressRuns includes orphaned transports for restart recovery. It
+// is intentionally global: the daemon-wide maintenance sweep uses it to
+// discover every managed feature with pending story progress debt, and it
+// MUST NOT be narrowed (AC-004).
 func (db *DB) ListStoryProgressRuns(ctx context.Context) ([]StoryProgressRun, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT p.run_id,p.parent_task,p.generation,p.worktree,p.active,p.last_sequence,r.status FROM story_progress_runs p JOIN runs r ON r.id=p.run_id WHERE p.active=1 ORDER BY p.run_id`)
 	if err != nil {
@@ -96,6 +99,43 @@ func (db *DB) ListStoryProgressRuns(ctx context.Context) ([]StoryProgressRun, er
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ListStoryProgressRunsForParent scopes reload to one trusted managed
+// feature. It is used by pollParent for both the scoped foreground paths
+// (Finish, PollRun) and the global daemon-wide sweep (Poll), which already
+// only ever acts one parent at a time; a broken row belonging to an
+// unrelated parent is never fetched here (AC-003).
+func (db *DB) ListStoryProgressRunsForParent(ctx context.Context, parent string) ([]StoryProgressRun, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT p.run_id,p.parent_task,p.generation,p.worktree,p.active,p.last_sequence,r.status FROM story_progress_runs p JOIN runs r ON r.id=p.run_id WHERE p.active=1 AND p.parent_task=? ORDER BY p.run_id`, parent)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoryProgressRun
+	for rows.Next() {
+		var r StoryProgressRun
+		if err := rows.Scan(&r.RunID, &r.Parent, &r.Generation, &r.Worktree, &r.Active, &r.LastSequence, &r.Status); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// GetStoryProgressRun returns exactly one run's own registered progress
+// authority (including its parent), independent of whether that row is still
+// active. Finish and PollRun use it to resolve the caller's own parent
+// before touching any story progress data, so recovery for one run can never
+// depend on or be failed by another run/parent's broken pending debt
+// (AC-003).
+func (db *DB) GetStoryProgressRun(ctx context.Context, runID int64) (StoryProgressRun, error) {
+	var r StoryProgressRun
+	err := db.sql.QueryRowContext(ctx, `SELECT p.run_id,p.parent_task,p.generation,p.worktree,p.active,p.last_sequence,r.status FROM story_progress_runs p JOIN runs r ON r.id=p.run_id WHERE p.run_id=?`, runID).Scan(&r.RunID, &r.Parent, &r.Generation, &r.Worktree, &r.Active, &r.LastSequence, &r.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	return r, err
 }
 
 // StoryProgressAuthorized excludes completed dependencies from outcome authority.

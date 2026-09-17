@@ -1,0 +1,5 @@
+{
+  "command": "go build ./...",
+  "exit_code": 0,
+  "elapsed_seconds": 3.698
+}

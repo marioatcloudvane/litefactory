@@ -336,7 +336,7 @@ func TestSubmissionRetainsImmutableReferencedEvidence(t *testing.T) {
 	if err := db.RetainSubmissionCheck(t.Context(), check); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := db.GetSubmissionCheck(t.Context(), a.RunID, check.Reference)
+	stored, err := db.GetSubmissionCheck(t.Context(), a.RunID, check.SnapshotRef, check.Reference)
 	if err != nil {
 		t.Fatal(err)
 	}

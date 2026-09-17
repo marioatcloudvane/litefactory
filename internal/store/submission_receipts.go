@@ -264,8 +264,33 @@ func (db *DB) SetSubmissionEffects(ctx context.Context, id int64, state string) 
 }
 
 // ListPendingSubmissions includes effect debt after restart, without run authority.
+// It is intentionally global: the daemon-wide maintenance sweep uses it to
+// reconcile every run's pending receipts, including one left behind by a
+// crash, and MUST NOT be narrowed (AC-004).
 func (db *DB) ListPendingSubmissions(ctx context.Context) ([]SubmissionReceipt, error) {
 	rows, err := db.sql.QueryContext(ctx, `SELECT `+receiptColumns+` FROM submission_receipts WHERE effect_state IN ('pending','failed') OR engineering_state='pending' OR acceptance_state='pending' OR plan_state='pending' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []SubmissionReceipt{}
+	for rows.Next() {
+		r, err := scanSubmissionReceipt(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ListPendingSubmissionsForAttempt scopes discovery to exactly one trusted
+// run and attempt. Foreground recovery call sites (submission checkpoints,
+// session Close, terminal Validate intake) use this so a broken pending
+// receipt belonging to an unrelated run/attempt can never be discovered,
+// processed or failed on by this one (AC-003).
+func (db *DB) ListPendingSubmissionsForAttempt(ctx context.Context, runID int64, attempt string) ([]SubmissionReceipt, error) {
+	rows, err := db.sql.QueryContext(ctx, `SELECT `+receiptColumns+` FROM submission_receipts WHERE run_id=? AND attempt=? AND (effect_state IN ('pending','failed') OR engineering_state='pending' OR acceptance_state='pending' OR plan_state='pending') ORDER BY id`, runID, attempt)
 	if err != nil {
 		return nil, err
 	}
