@@ -30,8 +30,12 @@
 
 - 2026-09-13 (run 0008): Completed Apache/BSD permission research for a paid proprietary service orchestrating multiple litefactory instances and documented the Databricks/Spark analogy. Corrected derivative-status overemphasis; preserved workflow decisions. Research only; no implementation, tests or mode transition.
 
+- 2026-09-17 (run 0009): Completed bounded rollout research: preserved eight owner scopes, proposed separate Spike parent, 3–6 candidate children per parent, replacement team setup before retirement, explicit coexistence and cutover gates. Saved RESEARCH_ROADMAP.md. No code, tests, publication or mode transition.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.
 
 Illustrative workflow: RESEARCH_WORKFLOW_EXAMPLE.dot (proposed profile; not executable by current litefactory).
+
+Roadmap sketch: RESEARCH_ROADMAP.md (advisory parent/child scopes, not approved or published stories).
