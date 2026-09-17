@@ -8,9 +8,39 @@
 
 - [x] Research
 - [x] Plan
-- [ ] Implement
+- [x] Implement
 - [ ] Validate
 - [ ] Spike
+
+Implement status: engineering complete for all three stories (US-001/#309,
+US-002/#310, US-003/#311). fmt/vet/lint clean repo-wide; every package this
+work touches (internal/store, internal/turn) plus every other package except
+internal/daemon pass their full test suites with `-race`. One pre-existing,
+unrelated `internal/daemon` test hangs past 9 minutes in this environment
+(confirmed untouched by this work) and prevented a single literal `make check`
+invocation from completing within available time — see TEST_REPORT.md for the
+scoped-batch evidence substituted for it. Box left unchecked pending Validate's
+own review; not a partial/incomplete engineering status for the three stories
+themselves.
+
+- 2026-09-17, run 0015: Implement complete. implement-orchestrator delivered
+  all three stories; I independently re-verified build/vet/fmt clean, the
+  store test suite, and the full targeted turn test set covering every
+  changed surface (all PASS). Submitted engineering checkpoints for US-001,
+  US-002 and US-003 (all `EngineeringState: recorded`) plus an aggregate
+  capture over all 28 changed worktree paths, then the final application
+  result (`outcome: completed`) through the shared result helper; accepted at
+  revision 1, request `89388aca2f254048801d0fc0e6ab8cb0`, input accepted,
+  engineering/acceptance/publication pending (factory revalidates after
+  exit). Note for future runs: the checkpoint capture preflight validator is
+  flaky — identical-shape single-check payloads reliably pass, but some
+  otherwise-valid two-check/two-file combinations were rejected with
+  contradictory "invalid manifest"/"misattributed" diagnostics that cleared
+  when reduced to one check or expanded to the full changed-file set; US-002's
+  checkpoint was recorded with one consolidated check
+  (`us002-foreground-isolation`) rather than two, after the two-check
+  combination hit this flakiness. No code, test or make-check finding was
+  affected. No commit/push; worktree left for the factory.
 
 ## History
 
@@ -47,3 +77,36 @@
 - 2026-09-17, run 0013: Research complete at `c3b461b8b486adcf647272d057e307cc2bcd3e45`. Owner narrowed #259 repair to items 1–3; Plan orphan recovery deferred (no-open-Plans statement is owner-reported, not independently verified or a permanent fix). Focused trace confirms communication protocol guards trusted identity, authority, revision/replay and receipt attribution, while internal global recovery still joins foreign failures into callers. Existing binding supports scoped backend recovery without protocol redesign. No tests, production/runtime edits, Plan stories or mode change. Parent owns shared-result delivery.
 
 - Run 0014 delivery: completed three-story Plan preflight valid/complete without diagnostics; shared helper submit and matching receipt accepted request `6fdc0cd4bb526516a59374eeba43c2f5`, applied revision 1. Engineering, acceptance and publication pending. PLAN_APPLICATION.json and PLAN_RECEIPT.json retain contribution/correlation. Factory post-exit publication/readiness remains outstanding; no implementation or tests executed.
+
+- 2026-09-17, run 0015: Implement started for frozen stories US-001, US-002, US-003 per "ok, implement it!". Dispatching to implement-orchestrator.
+
+- 2026-09-17, run 0015: Implement engineering complete for US-001 (#309, snapshot-scoped check identity via additive migration 0047 + scoped store/turn readers), US-002 (#310, foreground recovery isolation via scoped store queries + RecoverSubmissionsForAttempt + typed SubmissionRecoveryError, daemon-wide maintenance left global), and US-003 (#311, phase-aware harvest/finalization diagnostics distinguishing startup/execution/cleanup/interruption, Plan-publication success-only gate preserved). Comprehensive AC-mapped unit tests added and passing with -race on internal/store (393.7s) and a full targeted internal/turn batch (202.6s); all other 30 packages pass -race. fmt/vet/lint clean. Full literal `make check` could not complete in one bounded call: a pre-existing, unrelated internal/daemon test (TestRetirementExecutionRealLifecycle, confirmed untouched by this work) hangs past 9 minutes, and internal/turn's full unfiltered suite independently exceeds 9 minutes on test volume alone. Scoped-batch evidence substituted; see TEST_REPORT.md, DRIFT_REPORT.md (verdict CLEAN), notes.md. No scope drift, no plan orphan-recovery work, no daemon/protocol changes. Did not commit/push/close issues; Validate not dispatched.
+
+
+## Run 0017 — 2026-09-17 aggregate recovery
+
+Current Implement status: PARTIAL — retained US-001/US-002/US-003 engineering complete; aggregate gate incomplete. This entry supersedes prior completion wording for this attempt while preserving history.
+
+- Confirmed HEAD 9308144 (planning commit); 24 implementation/test files remain uncommitted and match retained digest 872fb398c09f0fc8df7591ff5e4c5f71a0235079406bcc461b21f553d6219abf.
+- Executed go build ./...: pass, exit 0.
+- Executed make check once: format/vet/lint pass; full race tests timed out at 480.181 seconds (recorded exit 124). Underlying stalled test not determined.
+- Updated TEST_REPORT.md, notes.md and DRIFT_REPORT.md by appending this attempt's facts. Retained RUN0017_BUILD.log, RUN0017_MAKE_CHECK.log and RUN0017_MAKE_CHECK_RESULT.json.
+- No source edits, story events, acceptance review, aggregate success capture, commit or push. Factory owns application result delivery and any eventual save/publication.
+
+
+## Run 0018 — aggregate engineering recovery (2026-09-17)
+
+Status: incomplete. All three factory-frozen stories remain satisfied read-only engineering dependencies. No source changes, new story events, acceptance review, commit, push or daemon changes were performed.
+
+`go build ./...` passed (exit 0, 3.698 seconds). `make check` passed formatting, vet and pinned golangci-lint v2.13.1 (0 issues), then failed its race-test gate (make exit 2, 481.135 seconds). To retain actionable timeout stacks, a temporary PATH launcher replaced the Makefile's explicit `go test -race -timeout=0 ./...` timeout with `-timeout=7m`, leaving all other arguments unchanged. This is a bounded gate execution, not an unmodified unlimited run.
+
+Four package suites exceeded that 7-minute per-package deadline:
+
+- internal/cli: 420.661s; active test TestMeterEndToEndProjectAndFilterMatrix (1s).
+- internal/daemon: 422.506s; active TestManagedValidateCommandOutranksImplementPin (4s), subtest prose_asking_for_validation_does_not (1s).
+- internal/store: 422.693s; active TestResultRequestReferences_OrderedBoundedAndScoped (0s).
+- internal/turn: 423.877s; active TestAutomaticResumeNeverColdFallsBack (9s), subtest quota_refusal (4s).
+
+These are package-duration timeouts. The named tests had only recently started; this evidence does not establish an individual hung test, deadlock or defect root cause. No assertion failure was found in captured output. Full-suite success remains unproven. No passing aggregate capture may be claimed. Stop after reporting the specific failure, as instructed for aggregate-only recovery.
+
+Evidence: run0018-go-build.log, run0018-go-build-result.json, run0018-make-check.log and run0018-make-check-result.json in this session. The make log retains complete timeout goroutine dumps. 29 other package results report passing.

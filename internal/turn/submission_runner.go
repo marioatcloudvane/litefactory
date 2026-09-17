@@ -17,6 +17,26 @@ import (
 	"github.com/cloudvane/litefactory/internal/submission"
 )
 
+// joinSessionCleanup combines the runner's own outcome with a session
+// cleanup fault (session.Close, which recovers only this session's own
+// run/attempt per AC-003). Kept as its own seam, rather than inlined in the
+// defer, so a later change distinguishing runner failure from
+// cleanup/finalization failure can be layered on without re-deriving the
+// surrounding defer.
+//
+// That layering is harvest.go's job (issue #311, AC-005), not this seam's:
+// per [agent.RunResult]'s own contract, the *result* returned alongside this
+// joined error already says everything a caller needs to tell the two apart
+// — a non-nil result means the subprocess actually started and ran, so any
+// error joined in here (from session.Close, or from an inner MCP-resource
+// close already joined into runnerErr by runMCPBound) is necessarily a
+// post-run cleanup/finalization/recovery fault, never a startup failure.
+// harvest.go's describeFactoryFailure is what turns that into the phase-aware
+// report; this function only combines the faults.
+func joinSessionCleanup(runnerErr, cleanupErr error) error {
+	return errors.Join(runnerErr, cleanupErr)
+}
+
 func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Request) (result *agent.RunResult, err error) {
 	if prep.submissionOptions == nil {
 		return runMCPBound(ctx, prep, req, nil)
@@ -50,7 +70,7 @@ func runSubmissionBound(ctx context.Context, prep *preparation, req agent.Reques
 	if session == nil {
 		return runMCPBound(ctx, prep, req, nil)
 	}
-	defer func() { err = errors.Join(err, session.Close(context.WithoutCancel(ctx))) }()
+	defer func() { err = joinSessionCleanup(err, session.Close(context.WithoutCancel(ctx))) }()
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -125,7 +145,9 @@ func (s *SubmissionSession) consumeTerminalValidation(ctx context.Context, text 
 		return fmt.Errorf("incomplete validation story coverage")
 	}
 	if s.options.Progress != nil {
-		if err := s.options.Progress.RecoverSubmissions(ctx); err != nil {
+		// Scoped to this session's own run/attempt (AC-003): an unrelated
+		// run's broken pending receipt must not abort terminal Validate intake.
+		if err := s.options.Progress.RecoverSubmissionsForAttempt(ctx, s.binding.RunID, s.binding.Attempt); err != nil {
 			return err
 		}
 	}

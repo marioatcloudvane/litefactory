@@ -95,21 +95,65 @@ func (p *StoryProgress) Register(ctx context.Context, b *agent.ApprovedBundle, w
 	return p.db.RegisterStoryProgress(ctx, store.StoryProgressRun{RunID: b.RunID, Parent: b.Parent, Generation: b.Generation, Worktree: worktree, Active: true})
 }
 
-// Poll is called by the daemon before discovery, even when all workers are busy.
+// Poll is called by the daemon before discovery, even when all workers are
+// busy. It discovers and reconciles every managed feature with pending story
+// progress debt across every run; this sweep is intentionally global
+// (AC-004) so that one run stuck on broken pending work does not permanently
+// block reconciliation for an otherwise-healthy, unrelated parent.
 func (p *StoryProgress) Poll(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.poll(ctx, 0, "")
+	return p.poll(ctx)
 }
 
-// Finish drains the final atomic event files before retiring transport. Pending
-// network effects remain in SQLite and are retried by subsequent ticks/restarts.
+// Finish drains the final atomic event files before retiring transport,
+// scoped to exactly this run's own registered parent (AC-003): broken
+// pending work belonging to an unrelated managed feature is never
+// discovered, processed or joined into this call's error. Pending network
+// effects remain in SQLite and are retried by subsequent ticks/restarts.
 func (p *StoryProgress) Finish(ctx context.Context, runID int64, reason string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.poll(ctx, runID, reason)
+	parent, ok, err := p.registeredParent(ctx, runID)
+	if err != nil || !ok {
+		return err
+	}
+	return p.pollParent(ctx, parent, runID, reason)
 }
-func (p *StoryProgress) poll(ctx context.Context, finishID int64, reason string) error {
+
+// PollRun reconciles only the caller's own registered parent, immediately
+// after that run's own story succeeds. Unlike Poll, it never discovers or
+// touches an unrelated managed feature's pending debt (AC-003).
+func (p *StoryProgress) PollRun(ctx context.Context, runID int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	parent, ok, err := p.registeredParent(ctx, runID)
+	if err != nil || !ok {
+		return err
+	}
+	return p.pollParent(ctx, parent, 0, "")
+}
+
+// registeredParent resolves the caller's own trusted parent from the run's
+// registration, so Finish/PollRun never need the global discovery queries
+// poll uses. A run with no registration has nothing of its own to finish or
+// poll, so this returns ok=false rather than an error.
+func (p *StoryProgress) registeredParent(ctx context.Context, runID int64) (string, bool, error) {
+	run, err := p.db.GetStoryProgressRun(ctx, runID)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return run.Parent, true, nil
+}
+
+// poll discovers every managed feature with pending story progress debt and
+// reconciles each independently. This discovery is intentionally global
+// (AC-004): only Poll (the daemon-wide sweep) calls it. Finish and PollRun
+// resolve their own single parent through registeredParent instead.
+func (p *StoryProgress) poll(ctx context.Context) error {
 	runs, err := p.db.ListStoryProgressRuns(ctx)
 	if err != nil {
 		return err
@@ -162,7 +206,7 @@ func (p *StoryProgress) poll(ctx context.Context, finishID int64, reason string)
 	}
 	var faults []error
 	for parent := range parents {
-		err := p.pollParent(ctx, parent, finishID, reason)
+		err := p.pollParent(ctx, parent, 0, "")
 		if err != nil {
 			faults = append(faults, err)
 		}
@@ -176,15 +220,17 @@ func (p *StoryProgress) pollParent(ctx context.Context, parent string, finishID 
 		return err
 	}
 	defer func() { err = errors.Join(err, release()) }()
-	// Reload under cross-process ownership; the initial list was discovery only.
-	runs, err := p.db.ListStoryProgressRuns(ctx)
+	// Reload under cross-process ownership; the initial list was discovery
+	// only. Scoped to this one parent (AC-003) — the caller (poll, Finish or
+	// PollRun) already selected exactly which parent to reconcile.
+	runs, err := p.db.ListStoryProgressRunsForParent(ctx, parent)
 	if err != nil {
 		return err
 	}
 	var faults []error
 	complete := true
 	for _, r := range runs {
-		if r.Parent != parent || r.Status == store.RunPrelaunch {
+		if r.Status == store.RunPrelaunch {
 			continue
 		}
 		if err := p.ingest(ctx, r); err != nil {
