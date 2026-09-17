@@ -760,3 +760,48 @@ No code, migration, formal story decomposition, runtime state, commit/push or de
 History: run 0012 translated confirmed defects into four required repair activities, a regression matrix and release/legacy-remediation boundaries at the current revision. Research complete; implementation remains outstanding. Parent owns final shared-result delivery and its receipt status.
 
 Run 0012 delivery: MCP preflight returned valid/complete with no diagnostics or unchecked paths. Submit and matching receipt succeeded for request `3e12805ce9a3ab8d56e7966ce0f6de09`, run 476, applied revision 4. Input accepted; engineering, acceptance and publication pending at receipt read. No implementation or remote publication is claimed; factory post-exit validation remains outstanding.
+
+
+## Run 0013 — scope narrowed; protocol support for recovery isolation (2026-09-17)
+
+**Research complete. Owner decision supersedes run 0012's four-part required scope:** implement only (1) snapshot-scoped check identity, (2) foreground recovery isolation, and (3) truthful harvest/error handling. Item (4), orphaned Plan receipt recovery, is deferred at the owner's request because there are no open Plans at present. The absence of open Plans is an owner report, not a runtime observation made here, and does not constitute a fix or proof that the lifecycle defect cannot recur. Keep the prior Plan findings as deferred history; do not silently reintroduce them as required acceptance criteria. Existing successful Plan behavior should still remain unaffected by shared recovery/harvest changes.
+
+The question is whether the new communication protocol already guards or supports item (2). **It supports the fix with trusted identity and correlation, but does not itself isolate internal recovery failures.** No protocol redesign or additional agent-authored ownership fields are needed.
+
+Inspected HEAD: `c3b461b8b486adcf647272d057e307cc2bcd3e45`. `git diff 1ef699a9 HEAD --stat -- internal/store internal/turn internal/agentresult` returned no changes. Focused current source was read to trace the boundary; no broad revalidation or test rerun was necessary for this question.
+
+### Existing protocol guardrails
+
+- **Trusted ownership and scope.** The factory builds the result attempt from the actual task, mode, run and attempt; it reuses the submission session's attempt and approved story context (`internal/turn/mcp_runtime.go:139`, `:174`). `ResultBinding` carries run/task/attempt/mode/context (`internal/store/result_bindings.go:30`), and `checkResultAccess` rechecks the persisted binding, live MCP lease when present, running run, mode and task (`:132-160`). Constructing or claiming a binding does not create authority. This addresses authorization and attribution.
+- **Revision and replay protection.** Submission revalidates rather than trusting preflight (`internal/turn/agent_results.go:234-266`). Store persistence accepts an exact request replay but rejects changed payload or attempt under the same request identity (`internal/store/result_history.go:148-168`), and checks expected revision (`:171-175`). These prevent ambiguous retries and stale updates, not unrelated cleanup errors.
+- **Correlated receipts and separate outcome dimensions.** The MCP receipt handler supplies `d.guard.Binding().RunID`, not an arbitrary agent run ID (`internal/turn/mcp_tools.go:130`). Receipts preserve independent input/engineering/acceptance/publication dimensions (`internal/store/result_history.go:38-55`). Factory observations record already established facts rather than performing acceptance or publication (`internal/store/result_observations.go:9-12`). These make accurate reporting possible; they do not guarantee the code that reports a failure selected its correct owner.
+
+### Remaining backend gap
+
+The actual failure can happen after a correctly authorized operation, without breaking any protocol access rule:
+
+```text
+run B finishes its agent
+  -> deferred session.Close                         submission_runner.go:53
+  -> RecoverSubmissions(ctx), no run/attempt input   submissions.go:182
+  -> ListPendingSubmissions across every run         submission_recovery.go:17
+  -> recover run A's broken receipt; join errors     submission_recovery.go:46-48
+  -> return that error to run B's runner             submission_runner.go:53
+  -> harvest labels B's failure                      harvest.go:102-112
+```
+
+The store query is explicitly global (`internal/store/submission_receipts.go:268`). Pre-submit processing and terminal Validate intake also invoke unscoped recovery (`internal/turn/submissions.go:265`, `internal/turn/submission_runner.go:128`). There is no automatic protocol layer around these internal calls that converts the global recovery operation into run B's scoped operation. Correct receipt correlation does not stop B inheriting A's returned error. This is failure isolation/error attribution, not evidence that the agent has bypassed authorization or read another run's receipt.
+
+### Narrow implementation consequence for item (2)
+
+Pass the existing server-owned `session.binding.RunID` and `session.binding.Attempt` into a foreground recovery API; enforce that filter in a store-owned pending-receipt query. Update all three foreground call sites above and the foreground `StoryProgress.Finish` path. Keep daemon maintenance as an explicitly global operation. Attach originating run/attempt/receipt/story and phase to its errors, continue healthy work, and do not return a foreign receipt failure as the caller's execution failure. Preserve same-run sequencing, authority checks and real local failures. No new field is required in the application payload or new guardrail choice from the user.
+
+The decisive regression remains: poison A's pending receipt, run successful B through actual submit/Close/harvest, and show B succeeds with its own correctly correlated receipt while A stays accurately diagnosed; show the global sweep still processes healthy C. Add/retain spoofed-binding and wrong-receipt-correlation cases to show the existing protocol protections remain intact, plus an own-run failure case so errors are not merely swallowed. Coordinate this with item (3)'s preservation of actual process facts; input acknowledgment still must not be treated as workflow or publication success.
+
+The remaining agreed work is therefore **three repairs**: snapshot-scoped evidence identity; correctly scoped recovery using existing trusted identity; and truthful post-execution error handling. Plan orphan-state design and its dedicated remediation matrix are deferred. Optional snapshot-handle redesign remains a separate follow-up.
+
+No code, migration, formal Plan stories, runtime data, mode, commit/push or release changed. No tests were executed. Nine focused source files measured 86,990 bytes on disk and were partly read; this is not transmitted bytes or billed tokens (unavailable). Several initially guessed filenames/globs did not exist; the actual owners were located with `rg --files`/focused searches, and no sandbox denial occurred. No material unanswered owner decision remains. Parent owns final shared-result delivery and receipt status.
+
+History: run 0013 recorded the owner's exclusion of Plan orphan recovery, retained that finding as deferred rather than fixed, and traced exactly how existing protocol authority/correlation supports—but does not replace—the recovery isolation change.
+
+Run 0013 delivery: MCP preflight valid/complete with no diagnostics or unchecked paths; submit and matching receipt accepted request `c6990c6d5dd768a10f8ec5fcbb54cfaf` at revision 5. Engineering, acceptance and publication pending at receipt read. This is acknowledgment of the Research result; no implementation or publication is claimed.

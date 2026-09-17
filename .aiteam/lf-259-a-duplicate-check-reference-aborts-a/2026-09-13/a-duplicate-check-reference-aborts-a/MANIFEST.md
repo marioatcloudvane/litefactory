@@ -20,6 +20,8 @@
 
 ## Notes
 
+- Run 0013 final delivery: narrowed Research result accepted through MCP at revision 5, matching request `c6990c6d5dd768a10f8ec5fcbb54cfaf`; preflight valid/complete, engineering/acceptance/publication pending.
+
 - Run 0012 delivery: preflight valid/complete; MCP submission and matching receipt accepted input at revision 4, request `3e12805ce9a3ab8d56e7966ce0f6de09`. Engineering/acceptance/publication pending. Advisory research complete; implementation outstanding.
 
 - 2026-09-17, run 0011 final delivery: all three MCP communication calls succeeded once, matching request `4cb8e614737e629881546c6b047da4b7`; input accepted at revision 3, engineering/acceptance/publication pending. Exact call evidence in CODEX_RUN_0011_MCP_DIAGNOSTIC.md; no fallback. Research complete; post-exit factory validation remains outstanding.
@@ -39,3 +41,5 @@
 - 2026-09-17, run 0011: Bounded research complete at unchanged `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`. Current source reconfirms five findings; fresh retained probe execution reproduced duplicate check conflict and repeated global recovery failure (PASS, 1.477s). Cross-run harvest and orphan Plan behavior remain source-traced. No material unresolved scope decisions or production/runtime changes. Parent reports activity_get now succeeds; final MCP application chain and receipt status are recorded separately in CODEX_RUN_0011_MCP_DIAGNOSTIC.md and final report.
 
 - 2026-09-17, run 0012: Research complete at `1ef699a99a7ee097a1f5bc217e01f341ef1037db`: produced advisory implementation sequence for scoped check-key migration/readers, foreground recovery isolation, truthful harvest and stage-aware Plan orphan handling. Preserves post-broker-close/succeeded-run publication window, immutable history and aggregate attribution. Added upgrade/replay/isolation/harvest/Plan regression matrix plus operator-owned release activities. No new owner questions, tests, implementation, formal Plan stories, runtime changes or mode switch. Parent handles shared-result delivery.
+
+- 2026-09-17, run 0013: Research complete at `c3b461b8b486adcf647272d057e307cc2bcd3e45`. Owner narrowed #259 repair to items 1–3; Plan orphan recovery deferred (no-open-Plans statement is owner-reported, not independently verified or a permanent fix). Focused trace confirms communication protocol guards trusted identity, authority, revision/replay and receipt attribution, while internal global recovery still joins foreign failures into callers. Existing binding supports scoped backend recovery without protocol redesign. No tests, production/runtime edits, Plan stories or mode change. Parent owns shared-result delivery.
