@@ -1,0 +1,75 @@
+=== RUN   TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== PAUSE TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== RUN   TestCriticalSectionsAreSingleAcquisitions
+=== PAUSE TestCriticalSectionsAreSingleAcquisitions
+=== RUN   TestTurnImposesNoAmbientDeadline
+=== PAUSE TestTurnImposesNoAmbientDeadline
+=== RUN   TestClaudeRunsOutsideTheCloneGate
+=== PAUSE TestClaudeRunsOutsideTheCloneGate
+=== RUN   TestConcurrentTurnsAgainstTwoClones
+=== PAUSE TestConcurrentTurnsAgainstTwoClones
+=== RUN   TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+=== PAUSE TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_symlink
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_symlink
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_replacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_replacement
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/content_edit
+=== RUN   TestPlanIndexRefusesSymlinksAndConcurrentReplacement/normal
+--- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement (0.01s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_symlink (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_symlink (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/file_replacement (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/ancestor_replacement (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/content_edit (0.00s)
+    --- PASS: TestPlanIndexRefusesSymlinksAndConcurrentReplacement/normal (0.00s)
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/marker
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/session
+=== RUN   TestPlanSessionLookupRefusesSymlinkComponents/branch
+--- PASS: TestPlanSessionLookupRefusesSymlinkComponents (0.01s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/marker (0.00s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/session (0.00s)
+    --- PASS: TestPlanSessionLookupRefusesSymlinkComponents/branch (0.00s)
+=== RUN   TestPlanDiscussionThenCompletion
+--- PASS: TestPlanDiscussionThenCompletion (4.51s)
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/lost_create_response
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/attach_failure
+=== RUN   TestManagedPublicationRecoversDurableCreateAndAttach/after_attach_before_index
+--- PASS: TestManagedPublicationRecoversDurableCreateAndAttach (0.44s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/lost_create_response (0.15s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/attach_failure (0.15s)
+    --- PASS: TestManagedPublicationRecoversDurableCreateAndAttach/after_attach_before_index (0.14s)
+=== CONT  TestClaudeRunsOutsideTheCloneGate
+=== CONT  TestTurnImposesNoAmbientDeadline
+=== CONT  TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+=== CONT  TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun
+=== CONT  TestCriticalSectionsAreSingleAcquisitions
+=== CONT  TestConcurrentTurnsAgainstTwoClones
+--- PASS: TestTurnImposesNoAmbientDeadline (0.11s)
+--- PASS: TestCriticalSectionsAreSingleAcquisitions (0.17s)
+=== NAME  TestWorkingRunSavesMarkdownWithoutDiscoveringStories
+    discovery_retirement_test.go:41: write .aiteam/lf-123-add-a-health-endpoint/2026-09-15/add-a-health-endpoint/plan_brief.md in the worktree: open /private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestWorkingRunSavesMarkdownWithoutDiscoveringStories4029319456/001/worktrees/task-123/.aiteam/lf-123-add-a-health-endpoint/2026-09-15/add-a-health-endpoint/plan_brief.md: no such file or directory
+--- FAIL: TestWorkingRunSavesMarkdownWithoutDiscoveringStories (2.68s)
+--- PASS: TestClaudeRunsOutsideTheCloneGate (4.01s)
+--- PASS: TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun (4.19s)
+--- PASS: TestConcurrentTurnsAgainstTwoClones (6.85s)
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	12.638s
+=== RUN   TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== PAUSE TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== RUN   TestCreateSubIssuesResumesAnUnattachedIssue
+=== PAUSE TestCreateSubIssuesResumesAnUnattachedIssue
+=== RUN   TestARenderedSubIssueIsAcceptedAsASpec
+=== PAUSE TestARenderedSubIssueIsAcceptedAsASpec
+=== CONT  TestTheSubIssueRequestCarriesTheChildsDatabaseID
+=== CONT  TestARenderedSubIssueIsAcceptedAsASpec
+=== CONT  TestCreateSubIssuesResumesAnUnattachedIssue
+--- PASS: TestCreateSubIssuesResumesAnUnattachedIssue (0.00s)
+--- PASS: TestTheSubIssueRequestCarriesTheChildsDatabaseID (0.00s)
+--- PASS: TestARenderedSubIssueIsAcceptedAsASpec (0.01s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/github	0.419s
+FAIL

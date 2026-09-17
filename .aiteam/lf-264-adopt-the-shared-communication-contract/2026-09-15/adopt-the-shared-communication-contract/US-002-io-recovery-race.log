@@ -1,0 +1,5 @@
+=== RUN   TestResultPersistenceAllEngineeredRecoveryRetainsScope
+    agent_result_persistence_test.go:441: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.327s
+--- PASS: TestResultPersistenceAllEngineeredRecoveryRetainsScope (5.62s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	7.280s

@@ -1,0 +1,12 @@
+=== RUN   TestMCPApplicationGuidancePayloadContract
+=== RUN   TestMCPApplicationGuidancePayloadContract/research
+=== RUN   TestMCPApplicationGuidancePayloadContract/spike
+=== RUN   TestMCPApplicationGuidancePayloadContract/plan
+=== RUN   TestMCPApplicationGuidancePayloadContract/implement
+--- PASS: TestMCPApplicationGuidancePayloadContract (8.16s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/research (2.48s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/spike (2.59s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/plan (1.25s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/implement (1.84s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	9.952s

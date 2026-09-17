@@ -1,0 +1,15 @@
+{
+  "story": "US-005",
+  "snapshot_id": "run0007-us005-v1",
+  "implementation_digest": "0826033d57e21138cb8f23e0b50592b91bf49c3cd869ab4da2e5cf54f8d66255",
+  "preflight": {
+    "returncode": 0,
+    "stdout": "{\"request_id\": \"\", \"result\": {\"valid\": true, \"complete\": true, \"diagnostics\": [], \"unchecked_paths\": []}}",
+    "stderr": ""
+  },
+  "submit": {
+    "returncode": 0,
+    "stdout": "{\"request_id\": \"2a020a0b6e4e3f12093a2f78caf57efb\", \"result\": {\"ID\": 87, \"RunID\": 429, \"Attempt\": \"0c58a76f05d074976e26084daf27ff1c\", \"RequestID\": \"2a020a0b6e4e3f12093a2f78caf57efb\", \"RequestHash\": \"0c6c56c11df82dd73db31e6e0085b3120146a2b5e65b232161187e4f8d4ecde7\", \"Story\": \"US-005\", \"Revision\": \"9fc13c1e1822f65bc8c60b5b418fbfacfe8a7d6c42d36f32dd5d53aaf90f280a\", \"Sequence\": 5, \"StoryAttempt\": 1, \"Diagnostics\": \"eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=\", \"InputState\": \"valid\", \"EngineeringState\": \"recorded\", \"AcceptanceState\": \"not_applicable\", \"EffectState\": \"pending\", \"PlanState\": \"not_applicable\"}}",
+    "stderr": ""
+  }
+}

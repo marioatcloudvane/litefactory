@@ -18,9 +18,4 @@ var (
 	// ErrStoryNotFound reports that [RewriteSubIssueCell] was asked to
 	// rewrite a story id no row in the Story Index carries.
 	ErrStoryNotFound = errors.New("planbrief: story not found in Story Index")
-
-	// ErrEmptyStoryFile reports a per-story file with no title heading to
-	// read a story from — either genuinely empty, or missing the "# <Story
-	// ID> — <title>" line the contract requires at the top.
-	ErrEmptyStoryFile = errors.New("planbrief: story file has no title heading")
 )

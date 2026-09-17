@@ -1,0 +1,64 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "validate": {
+        "stories": [
+          {
+            "story": "US-001",
+            "snapshot_id": "",
+            "criteria": [
+              {
+                "name": "AC-001",
+                "status": "unverified",
+                "classification": "blocking",
+                "evidence": [
+                  {
+                    "check_ids": [],
+                    "summary": "Retained execution is unavailable; no success is claimed."
+                  }
+                ]
+              }
+            ],
+            "reviews": [
+              {
+                "name": "code",
+                "status": "unverified",
+                "classification": "blocking",
+                "evidence": [
+                  {
+                    "check_ids": [],
+                    "summary": "Retained execution is unavailable; no success is claimed."
+                  }
+                ]
+              },
+              {
+                "name": "architecture",
+                "status": "unverified",
+                "classification": "blocking",
+                "evidence": [
+                  {
+                    "check_ids": [],
+                    "summary": "Retained execution is unavailable; no success is claimed."
+                  }
+                ]
+              },
+              {
+                "name": "plan",
+                "status": "unverified",
+                "classification": "blocking",
+                "evidence": [
+                  {
+                    "check_ids": [],
+                    "summary": "Retained execution is unavailable; no success is claimed."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

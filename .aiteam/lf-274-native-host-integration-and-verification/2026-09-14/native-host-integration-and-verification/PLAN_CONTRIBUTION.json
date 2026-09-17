@@ -1,0 +1,606 @@
+{
+  "stage": "plan",
+  "outcome": "completed",
+  "plan": {
+    "summary": "Add existing mode-scoped MCP tools alongside permitted native tools in Claude Code and Codex through a minimal runtime bridge, concise operation-specific guidance and compatible checkpoint reconciliation. Deliver six stories with offline checks and a separate authentic four-scenario evidence obligation; broader #264 workflow adoption remains deferred.",
+    "stories": [
+      {
+        "key": "US-001",
+        "intent": "create",
+        "title": "Connect each agent launch to authorized factory tools",
+        "user_story": {
+          "actor": "factory operator",
+          "want": "each eligible actual agent launch connected to the existing authorized factory tools",
+          "benefit": "agents can use supported operations while concurrent attempts remain isolated and broader workflow changes stay deferred",
+          "notes": [
+            "Traces to feature-spec US-1, Data Model, API / Interface Changes, Business Rules and lifecycle edge cases.",
+            "This is the minimum shared runtime prerequisite for both host integrations; existing services exist but ordinary execution does not yet connect them."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-001",
+            "text": "Eligible enabled actual launches bind existing trusted MCP services and a matching tool-enabled broker; disabled/absent registration preserves prior behavior, and Research/Spike availability does not require managed-story conversion."
+          },
+          {
+            "id": "AC-002",
+            "text": "Runtime authority is startup-owned; each actual cold/resumed/fallback launch receives isolated scope and resources, with cancellation/exit/replacement cleanup that does not revoke concurrent attempts."
+          },
+          {
+            "id": "AC-003",
+            "text": "Neutral registration carries validated immutable paths/attempt and a copied exact installed permitted-tool catalog; invalid/stale/mismatched registration is refused before host launch."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver the validated immutable neutral registration and installed-catalog projection described by feature-spec Data Model and AC-003, with defensive copies and rejection before host launch.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-003"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Connect startup-owned authority and per-actual-launch trusted services/broker for feature-spec US-1, including unmanaged Research/Spike, policy-disabled behavior, replacement and cleanup.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write and execute focused fake-boundary tests for registration validation, catalog copying, enabled/disabled behavior and attempt ownership from feature-spec AC-001–AC-003; retain actual results.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-001",
+              "AC-002",
+              "AC-003"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Reuse current turn/submission services with one runtime owner and immutable provider handoffs; keep preparation independent of managed-submission eligibility.",
+          "components": [
+            {
+              "name": "internal/daemon and internal/cli",
+              "responsibility": "Compose one runtime-owned turn.AttemptAuthority against the existing migrated store and close only on owned shutdown."
+            },
+            {
+              "name": "internal/turn",
+              "responsibility": "Prepare each actual launch through existing result binding, installed family grants, permission digest, attempt guard and dispatcher."
+            },
+            {
+              "name": "internal/agent",
+              "responsibility": "Validate immutable MCPLaunchSpec paths, attempt and copied exact installed catalog."
+            },
+            {
+              "name": "internal/submission",
+              "responsibility": "Own private tool-enabled broker and descriptor without redirecting existing helper operations."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "MCPLaunchSpec",
+              "input": "Trusted executable/descriptor/attempt and installed permitted tools",
+              "output": "Validated immutable launch registration or error"
+            },
+            {
+              "name": "Actual-launch preparation",
+              "input": "Runtime authority, current run/mode/scope, optional managed submission session and cancellation context",
+              "output": "Bound guarded services, matching broker, registration and scoped cleanup"
+            }
+          ],
+          "constraints": [
+            "Bind at the runSubmissionBound actual-launch seam for cold/resumed/fallback launches; nil managed sessions must not suppress Research/Spike preparation or cause invented managed identities.",
+            "Project tools from the installed dispatcher/profile; preserve current target/creation grants and handler installation rules. Providers do not receive services, store access or authority decisions.",
+            "Enabled preparation failure stops the launch with diagnostics; absent/disabled registration keeps prior behavior and allocates no usable authority.",
+            "Revoke only the ending attempt; cancel and join broker workers, clean partial setup and propagate cleanup failures. Preserve store ownership and single connection; no transaction across external I/O.",
+            "Use config.Paths for LF_HOME paths, existing narrow submission-directory admission and minimal environments; no capability/descriptor content or forge secrets in prompts/logs.",
+            "Evidence inventory AC-001: Proof method: Source review and offline production-preparation tests using real local store/broker seams and fake host runner. Source availability: Existing services available; new production bridge coverage not written. Version/context bounds: Current implemented source snapshot; does not establish actual host use. Missing prerequisite / disposition: Implement bridge and retain executed evidence, including unmanaged modes and disabled policy. Production-seam coverage is completed in US-005.",
+            "Evidence inventory AC-002: Proof method: Offline concurrency, cancellation and cold/resume/fallback tests across the production preparation seam. Source availability: Existing authority tests available; integrated lifecycle coverage not written. Version/context bounds: Current implemented source snapshot; does not establish actual host lifecycle compatibility. Missing prerequisite / disposition: Implement startup owner and per-launch cleanup; retain executed evidence. Production-seam coverage is completed in US-005.",
+            "Evidence inventory AC-003: Proof method: Value validation, defensive-copy, catalog-equality and rejected-launch tests. Source availability: Existing launch-value validation available; permitted catalog handoff absent. Version/context bounds: Current implemented source snapshot; provider acceptance additionally requires authentic captures. Missing prerequisite / disposition: Extend immutable handoff and retain executed rejection/copy assertions."
+          ],
+          "decisions": [
+            {
+              "decision": "Initialize authority once per runtime, never per turn.",
+              "reason": "StartMCPInstance replaces previous runtime identity and could invalidate concurrent work."
+            },
+            {
+              "decision": "Reuse existing services and actual-launch binding without new schema or scheduler adoption.",
+              "reason": "Scope is usable host wiring; broad #264 orchestration remains deferred."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-002",
+        "intent": "create",
+        "title": "Make factory tools available in Claude Code",
+        "user_story": {
+          "actor": "Claude Code agent",
+          "want": "attempt-local factory tools alongside my permitted native tools",
+          "benefit": "I can perform supported factory operations without losing native capabilities or weakening mode restrictions",
+          "notes": [
+            "Traces to feature-spec US-2, Claude launch interface, AC-004 and configuration edge cases."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-004",
+            "text": "Claude receives a private per-attempt generated MCP config for the adapter plus retained strict MCP isolation and exact MCP tool authorization, preserving existing native tool ceilings, including Validate."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver Claude's private per-attempt configuration and exact authorization from feature-spec US-2, preserving native ceilings, strict isolation and cleanup for every launch outcome.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-004"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and execute decoded configuration/argv, permission, lifetime, native-tool preservation and cold/resume/error/cancellation tests with fake executables; retain actual evidence for AC-004.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-004"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Provider-owned JSON/file lifecycle consumes the neutral registration without widening the native tool grammar.",
+          "components": [
+            {
+              "name": "internal/harness",
+              "responsibility": "Serialize private per-attempt JSON and add fixed-server MCP authorization at argv assembly while retaining existing surface(req) native ceiling."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Claude launch registration",
+              "input": "Validated neutral registration and existing native tool surface",
+              "output": "Private MCP config, --mcp-config, retained --strict-mcp-config and explicit exact MCP permission names"
+            }
+          ],
+          "constraints": [
+            "Preserve explicit --tools and existing native authorization; introduce a separately validated fixed-server MCP registration surface rather than widening user-config grammar.",
+            "Exclude ambient .mcp.json servers and reject collisions that could replace authorized litefactory registration. Preserve cold/resume/fallback behavior and remove files on success, launch error and cancellation.",
+            "Use structured JSON, fixed executable/serve arguments and minimal environment; preserve quoted/non-ASCII/syntax-containing values without shell interpolation.",
+            "Evidence inventory AC-004: Proof method: Structured config/argv/file-permission/cleanup tests and source review; actual interpretation cross-referenced to AC-009/AC-010. Source availability: Runner source exists; generated registration and authentic observations unavailable. Version/context bounds: Tested source plus actual Claude capture version, not historical version command alone. Missing prerequisite / disposition: Implement runner path; external capture remains required for runtime claims."
+          ],
+          "decisions": [
+            {
+              "decision": "Retain native tool ceilings and strict MCP isolation while adding exact MCP authorization separately.",
+              "reason": "Existing native config intentionally rejects MCP strings; replacing the ceiling would weaken Validate and isolation."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-003",
+        "intent": "create",
+        "title": "Make factory tools available in Codex",
+        "user_story": {
+          "actor": "Codex agent",
+          "want": "attempt-local factory tools alongside my permitted native tools",
+          "benefit": "I can perform supported factory operations within the existing sandbox and mode restrictions",
+          "notes": [
+            "Traces to feature-spec US-3, Codex launch interface, AC-005 and configuration edge cases."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-005",
+            "text": "Codex receives correctly encoded command/args/minimal-env/exact-enabled-tools MCP configuration, preserving existing sandbox/config isolation and Validate shell/multi-agent restrictions."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver structured per-attempt Codex server overrides from feature-spec US-3, preserving native tools, effective sandbox, user-config isolation, delivery strictness and Validate restrictions.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and execute decoded override tests for quoted/backslash/newline values, exact catalogs, collisions and enabled/disabled cold/resume/fallback paths with fake providers; retain AC-005 evidence.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-005"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Provider-owned config serialization consumes neutral immutable registration alongside existing args assembly.",
+          "components": [
+            {
+              "name": "internal/codex",
+              "responsibility": "Encode mcp_servers command/args/env/enabled_tools and preserve configuration isolation, resume argument placement and Validate feature disabling."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Codex launch registration",
+              "input": "Validated neutral registration, current sandbox and isolated provider settings",
+              "output": "Structured per-attempt mcp_servers overrides with exact enabled_tools"
+            }
+          ],
+          "constraints": [
+            "Place overrides before resume subcommand and stdin marker as existing argument parsing requires; use no shell wrapper.",
+            "Retain features.shell_tool=false, features.multi_agent=false and read-only Validate; do not widen broker root admission.",
+            "Respect existing ignore-user-config/delivery strictness and refuse colliding server settings that could replace the trusted adapter. No persistent user config edits.",
+            "Evidence inventory AC-005: Proof method: Structured config/encoding/isolation tests and source review; actual interpretation cross-referenced to AC-009/AC-010. Source availability: Runner source exists; registration and authentic observations unavailable. Version/context bounds: Tested source plus actual Codex capture version; unsupported nested invocation excluded. Missing prerequisite / disposition: Implement runner path; external capture remains required."
+          ],
+          "decisions": [
+            {
+              "decision": "Encode structured command, args, minimal env and exact enabled_tools from the neutral registration.",
+              "reason": "Independent catalogs or string interpolation can diverge from installed grants and corrupt configuration."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-004",
+        "intent": "create",
+        "title": "Give agents concise guidance for supported factory operations",
+        "user_story": {
+          "actor": "agent",
+          "want": "short operation-specific guidance with valid payload context",
+          "benefit": "I can correct input, submit it and inspect the matching receipt without confusing result types or duplicating effects",
+          "notes": [
+            "Traces to feature-spec US-4, prompt interface, guidance Business Rules and research run 0003 wording."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-006",
+            "text": "Guidance is conditional on live installed operations, uses the agreed compact cards and valid supplied payload contracts, separates application results from checkpoints, teaches diagnostics/receipt/retry handling, and preserves final responses/artifacts and existing Plan/publication permissions; measured guidance sizes and available token measurements or explicit unavailability are recorded."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver dynamic shared guidance, conditional operation cards and a single valid relevant payload contract per feature-spec US-4 and research run 0003, preserving final output and permission semantics.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-006"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and execute per-mode/provider render, installed-card eligibility and parseable payload-shape tests; record word/byte counts and actual provider token measurements or explicit unavailability, explaining editorial target overruns.",
+            "owner_role": "go-unit-test-engineer",
+            "criterion_ids": [
+              "AC-006"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Use one small shared dynamic renderer after live installed services and trusted payload context are known.",
+          "components": [
+            {
+              "name": "internal/harness shared prompt path and internal/turn binding seam",
+              "responsibility": "Render equivalent provider-neutral instructions from the installed catalog plus current trusted payload/baseline context."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Conditional MCP guidance",
+              "input": "Live registration/catalog and one relevant application/checkpoint payload contract including trusted update baseline where required",
+              "output": "Shared usage guidance, applicable operation cards and relevant mode sentence; absent registration yields no MCP instructions"
+            }
+          ],
+          "constraints": [
+            "Use communication_preflight(P) -> communication_submit(P) -> communication_receipt({request_id:ID}) for application results; use feedback_preflight({kind:checkpoint,input:C}) -> evidence_submit(C) -> receipts_get({request_id:ID}) for checkpoints only where installed.",
+            "Include conditional issue lookup, authorized comment, advisory activity, separately granted creation and mode notes from research run 0003; avoid repeating schemas and unsupported operations. Issue list/get provide repository summaries, not full bodies/comments.",
+            "Keep supplied typed Plan helper publication path; communication tools do not publish completed Plans. Supply trusted update revision/baseline and no factory identities or unsupported fields.",
+            "Explain preflight diagnostics/correction, receipt lookup before exit, separate receipt states, pending/uncertain outcomes and known-request recovery before retry/alternate submission. Do not mutate input solely to force retries.",
+            "Validate uses supplied snapshots and retained evidence only: no shell, edits or fresh checks; keep required final findings. Ordinary runs need not use MCP.",
+            "Editorial targets: roughly 150–200 shared words and 300–450 combined words excluding one payload contract. Record actual sizes and available provider-rendered token measurements including schemas/examples or explicit unavailability; counts alone do not prove billed tokens or savings.",
+            "Dynamic prompt delivery only; no protected instruction-tree changes. If those prove necessary, replan independently owned provider stories before adding scope.",
+            "Evidence inventory AC-006: Proof method: Conditional prompt render/schema-shape tests, documented word/byte sizes and available actual provider token measurements. Source availability: Existing payload contracts and proposed wording available; new renders/telemetry not supplied. Version/context bounds: Per-mode/provider installed catalogs on implementation revision; unavailable billing/token detail explicitly bounded. Missing prerequisite / disposition: Implement guidance, retain size checks and genuine measurement availability."
+          ],
+          "decisions": [
+            {
+              "decision": "Derive guidance and provider permissions from the same installed catalog.",
+              "reason": "Agents must not see instructions for uninstalled operations."
+            },
+            {
+              "decision": "Supply a single relevant payload contract dynamically.",
+              "reason": "Current generic schemas need concrete help without repetitive mode-irrelevant boilerplate."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-005",
+        "intent": "create",
+        "title": "Keep live checkpoints and launch recovery compatible with existing completion",
+        "user_story": {
+          "actor": "maintainer",
+          "want": "live checkpoint use and recovery to preserve existing completion behavior with executed automated evidence",
+          "benefit": "repeated output cannot duplicate effects and failures or concurrent launches cannot leak authority",
+          "notes": [
+            "Traces to feature-spec US-5, Completion compatibility interface, lifecycle/recovery edge cases, AC-007 and AC-008.",
+            "Provider-specific unit checks stay in their stories; this story owns durable reconciliation and cross-host production-seam coverage."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-007",
+            "text": "Live Validate checkpoint receipts are reconciled with required terminal findings so repeat output/recovery cannot apply duplicate contributions/effects; missing/conflicting findings remain explicit failures or unverified states under the existing completion contract."
+          },
+          {
+            "id": "AC-008",
+            "text": "Automated checks cover enabled/disabled/absent setup, malformed/quoted values, catalog parity, native-tool preservation, server collision/isolation, concurrent attempts, cancellation, cleanup, resume/fallback and completion reconciliation; implementation passes make check with actual retained output and no live agent acquisition in checks."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Deliver durable live-plus-terminal checkpoint reconciliation from feature-spec completion rules, matching bound identity and canonical content, preserving full terminal coverage and explicit conflicts.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-007"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "Write and execute real-local-store/broker tests with fake hosts across the production preparation seam for feature-spec AC-001/AC-002 evidence and this story's AC-007/AC-008; include duplicate/lost-reply/conflict, isolation, unmanaged-mode and replacement cases.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-007",
+              "AC-008"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Complete the AC-008 coverage matrix using preceding scoped checks, fix failures within approved scope, execute make check on the final implementation snapshot and retain actual output and snapshot attribution.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-008"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Keep reconciliation in the existing submission checkpoint owner and exercise lifecycle through production seams with real local I/O.",
+          "components": [
+            {
+              "name": "internal/turn SubmissionSession",
+              "responsibility": "Reconcile consumeTerminalValidation against durable matching checkpoint records before applying terminal contributions."
+            },
+            {
+              "name": "internal/submission and internal/store existing seams",
+              "responsibility": "Supply authoritative durable receipts/checkpoints with separate dimensions for reconciliation tests."
+            },
+            {
+              "name": "Existing Go test packages",
+              "responsibility": "Exercise temporary migrated SQLite and real local broker/descriptor with fake host subprocesses; aggregate executed checks."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "Terminal compatibility reconciliation",
+              "input": "Complete terminal contribution set, immutable snapshot, bound identity/canonical content and durable checkpoint receipts",
+              "output": "Existing completion outcome with at-most-once effects and explicit missing/conflicting findings"
+            },
+            {
+              "name": "Production-seam test harness",
+              "input": "Real temporary store/broker, fake hosts and controlled cancellation/concurrency",
+              "output": "Executed assertions and attributable retained check results"
+            }
+          ],
+          "constraints": [
+            "EvidenceService continues delegating managed engineering/Validate checkpoints through SubmissionSession. Match identity and canonical content, not prose or request IDs alone.",
+            "Identical live/terminal findings cannot double-apply; conflicting findings cannot silently overwrite; partial live coverage never excuses incomplete final findings. Lost replies/recovery consult recorded outcomes.",
+            "Preserve independent input, engineering, acceptance and remote-effect dimensions; acknowledgment is not acceptance/publication and does not adopt #264 readiness/scheduling.",
+            "Real local I/O tests use temporary migrated SQLite and existing broker. Coordinate concurrency with channels; no sleeps/polling, new build tags or _Integration test naming.",
+            "Retain actual make check output; no make build/dist writes, daemon changes, live provider acquisition or nested paid hosts. Validate consumes retained checks only.",
+            "Evidence inventory AC-007: Proof method: Offline durable-receipt/live-plus-terminal reconciliation tests including duplicates, lost replies and conflicts. Source availability: Existing terminal handler and receipt services available; new reconciliation coverage absent. Version/context bounds: Recorded test snapshot; real before-exit Validate proof remains AC-010. Missing prerequisite / disposition: Implement bounded reconciliation without #264 workflow migration.",
+            "Evidence inventory AC-008: Proof method: Retained executed repository checks and targeted lifecycle cases. Source availability: Existing synthetic MCP tests available; new tests and final make check unexecuted. Version/context bounds: Implementation snapshot only; no live-host claim. Missing prerequisite / disposition: Implementation engineering supplies passing checks; Validate reads them."
+          ],
+          "decisions": [
+            {
+              "decision": "Reconcile checkpoint effects in SubmissionSession's current terminal compatibility owner.",
+              "reason": "The existing checkpoint owner already controls durable contributions and must remain authoritative."
+            },
+            {
+              "decision": "Separate offline real-local-I/O coverage from authentic host evidence.",
+              "reason": "Real store/broker tests can establish lifecycle mechanics but cannot establish host interpretation or before-exit observation."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-001",
+            "US-002",
+            "US-003",
+            "US-004"
+          ],
+          "issue_refs": []
+        }
+      },
+      {
+        "key": "US-006",
+        "intent": "create",
+        "title": "Verify both native hosts with authentic retained evidence",
+        "user_story": {
+          "actor": "operator and reviewer",
+          "want": "authentic working-mode and Validate evidence from both supported hosts",
+          "benefit": "delivery claims are supported by observed tool use, correction and enforcement rather than configuration alone",
+          "notes": [
+            "Traces to feature-spec US-6, Verification record data model, external-evidence rules and AC-009–AC-011.",
+            "All four authentic captures are currently unavailable. A separately authorized external operator supplies them after wiring; no roster task launches paid nested agents inside managed execution.",
+            "The evidence handoff can be prepared before captures arrive, but unavailable proof remains an unsatisfied acceptance obligation."
+          ]
+        },
+        "acceptance_criteria": [
+          {
+            "id": "AC-009",
+            "text": "Authentic ordinary top-level Claude and Codex working-mode runs on the implemented revision each show permitted MCP discovery, a correctable preflight diagnostic followed by repaired input in that attempt, submission and matching durable decision receipt observed before exit, plus use of a permitted native tool alongside MCP."
+          },
+          {
+            "id": "AC-010",
+            "text": "Authentic Validate runs on both hosts show effective narrow native/MCP inventories, allowed live checkpoint/receipt use before exit, and observable refusal/unavailability of shell and delegation escape paths; merely refraining from shell or asserting configuration is insufficient, and retained evidence is used without edits/fresh execution."
+          },
+          {
+            "id": "AC-011",
+            "text": "Reviewed sanitized evidence records host/version, implementation revision, environment/configuration, protocol/transport, exact observed calls, source locators, stable attempt/request correlation, ordered decision/exit events and separate receipt dimensions, with provenance, SHA256 and record/byte counts; offline replay and documentation state only supported observations and preserve missing obligations."
+          }
+        ],
+        "tasks": [
+          {
+            "id": "T-001",
+            "description": "Prepare the bounded four-scenario operator capture handoff and assertion/provenance matrix using feature-spec US-6 and existing evidence-capture conventions; explicitly identify missing external observations.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-009",
+              "AC-010",
+              "AC-011"
+            ],
+            "depends_on": []
+          },
+          {
+            "id": "T-002",
+            "description": "After separately authorized external captures are supplied, review/sanitize and integrate their provenance and assertion mappings; update evidence/delivery documentation only for established observations and preserve all missing obligations.",
+            "owner_role": "go-implementation-engineer",
+            "criterion_ids": [
+              "AC-009",
+              "AC-010",
+              "AC-011"
+            ],
+            "depends_on": [
+              "T-001"
+            ]
+          },
+          {
+            "id": "T-003",
+            "description": "Write and execute bounded offline replay/checksum/record-count assertions against reviewed authentic captures, retaining actual results for each observed criterion; reject synthetic substitution, missing ordering or insufficient enforcement proof.",
+            "owner_role": "go-integration-test-engineer",
+            "criterion_ids": [
+              "AC-009",
+              "AC-010",
+              "AC-011"
+            ],
+            "depends_on": [
+              "T-002"
+            ]
+          }
+        ],
+        "architecture": {
+          "summary": "Extend existing external capture conventions and fixture replay with an explicit four-cell matrix; authentic acquisition remains an external prerequisite.",
+          "components": [
+            {
+              "name": "docs/agent-evidence-capture.md and established evidence fixture layout",
+              "responsibility": "Describe acquisition, provenance, sanitization and criterion-specific assertion mapping for supplied authentic sources."
+            },
+            {
+              "name": "Existing offline replay checks",
+              "responsibility": "Verify source integrity and documented observed relationships within recorded bounds."
+            },
+            {
+              "name": "docs/story-contract.md",
+              "responsibility": "Update evidence/delivery boundary statements only where reviewed observations support them."
+            }
+          ],
+          "interfaces": [
+            {
+              "name": "External capture handoff",
+              "input": "Separately authorized operator's top-level Claude working, Codex working, Claude Validate and Codex Validate runs on the implemented revision",
+              "output": "Sanitized traces plus host/version/configuration/protocol, source locators, hashes/counts and preserved correlation/order"
+            },
+            {
+              "name": "Bounded offline replay",
+              "input": "Reviewed authentic capture with criterion mapping and provenance",
+              "output": "Executed historical assertions and explicit unsupported or missing obligations"
+            }
+          ],
+          "constraints": [
+            "Both working scenarios require actual permitted native use plus same-attempt discovery -> diagnostic -> repair -> submit -> matching durable decision observed before exit.",
+            "Both Validate scenarios require effective inventories, live allowed checkpoint/receipt calls and observable shell/delegation refusal or unavailability; simple non-use is insufficient. Supply retained evidence; no edits/fresh execution in Validate.",
+            "Record identical implemented revision across the matrix and actual versions/environment/sandbox; historical Claude 2.1.270 and Codex 0.154.0 probes do not establish present compatibility.",
+            "Preserve identities, exact calls, separate receipt dimensions and ordering through sanitization; record source provenance, SHA256, record/byte counts and locators.",
+            "Do not acquire live coding agents inside managed engineering or CI, widen sandbox permissions, add fallback agents or treat synthetic fixtures as authentic. Operator acquisition remains external and unsatisfied until supplied.",
+            "A historical capture/replay supports only represented observations for its recorded context; do not claim broad present/future compatibility or close missing obligations from configuration, Plan acknowledgment or partial evidence.",
+            "Evidence inventory AC-009: Proof method: Separately authorized current-implementation external observation, reviewed sanitized provider traces and bounded offline replay. Source availability: Unavailable: no authentic MCP host capture supplied. Version/context bounds: Actual Claude/Codex versions, implementation revision, working modes, host/sandbox and same-attempt event ordering must be recorded. Missing prerequisite / disposition: Operator acquisition after wiring; remains unsatisfied until both captures establish all relationships.",
+            "Evidence inventory AC-010: Proof method: Separately authorized external Validate observations of permitted calls plus effective denial/unavailability, then read-only review of retained captures. Source availability: Unavailable: configuration and synthetic inventories are insufficient. Version/context bounds: Both actual host versions and Validate profiles on the implemented revision; no fresh checks inside Validate. Missing prerequisite / disposition: Operator acquisition with supplied retained evidence; missing negative/enforcement observations remain unsatisfied.",
+            "Evidence inventory AC-011: Proof method: Provenance/sanitization review, checksum/record checks, offline replay against specific observed assertions, scoped documentation review. Source availability: Capture policy/template exist; #274 authentic capture files do not. Version/context bounds: Historical assertions limited to recorded source/version/context; no global present/future compatibility claim. Missing prerequisite / disposition: Supply reviewed captures and retain actual replay results; revise unavailable-evidence statements only for proven scope."
+          ],
+          "decisions": [
+            {
+              "decision": "Use four explicit authentic scenario cells, supplied outside the managed run.",
+              "reason": "Both host integration and effective Validate restrictions require observations configuration tests cannot establish."
+            },
+            {
+              "decision": "Keep all missing live proof as unsatisfied criteria.",
+              "reason": "Planning completion and synthetic checks do not fulfill authentic delivery obligations."
+            }
+          ]
+        },
+        "dependencies": {
+          "story_keys": [
+            "US-002",
+            "US-003",
+            "US-004",
+            "US-005"
+          ],
+          "issue_refs": []
+        }
+      }
+    ]
+  }
+}

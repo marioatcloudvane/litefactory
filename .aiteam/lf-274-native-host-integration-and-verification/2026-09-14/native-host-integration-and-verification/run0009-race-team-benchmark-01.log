@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^$ ./cmd/team-benchmark
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+
+EXIT: 0

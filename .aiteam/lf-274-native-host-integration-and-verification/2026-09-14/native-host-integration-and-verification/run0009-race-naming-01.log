@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^(TestAITeamSessionDir|TestAITeamSessionDirRefusesWhatItCannotName|TestAITeamBranchDir|TestAITeamBranchDirRefusesWhatItCannotName|TestResearchBriefPath|TestSlugFromBranchInvertsBranch|TestSlugFromBranchRefusesToGuess|TestDefaultWorktreeRoot|TestWorktreePath|TestRunPaths|TestRunPathsRejectBadInput|TestFormatRunOrdinal|TestRefString|TestRefValidate|TestParseRef|TestRefRoundTrip|TestSessionNamespaceIsPinned|TestSessionRefIsPinned|TestSessionRefShape|TestSessionRefIsDeterministic|TestSessionRefRejectsBadInput|TestValidClaudeSessionID|TestUUIDv5MatchesRFC4122|TestSlug|TestSlugIsDeterministic|TestValidateSlug|TestBranch|TestValidateFeaturePrefix|FuzzSlug)$ ./internal/naming
+ok  	github.com/cloudvane/litefactory/internal/naming	1.564s
+
+EXIT: 0

@@ -1,0 +1,121 @@
+# #264 — Current communication-contract status
+
+## Request and disposition
+
+Research run 0001, 2026-09-15. Owner request: check the current prerequisites and get an overview; do nothing else yet. #274 and #296 are deliberately open. This bounded status investigation is complete. No implementation, Plan, issue creation, external comments, tests, deployment, commits or runtime-state inspection were performed. No owner decision is needed to finish this overview.
+
+Repository evidence is from worktree revision `eb893565687d582bcb79d75edb14023881d0dd73`. GitHub issue states and comments were read on 2026-09-15 through the GitHub connector. Source inspection used shell read commands in the supplied macOS/zsh managed worktree; no provider binaries were probed. Test coverage below means existing test source or a specifically attributed historical report, not fresh execution. No source-byte/token-cost benchmark was performed; source bytes and billed tokens are not equated.
+
+## Summary
+
+The shared contract, MCP groundwork and tool families are present, and both native host integrations have reached this worktree. #264 is therefore no longer starting from disconnected infrastructure. However, tools remain additive to existing completion routes: adoption as the authoritative final-result path and retirement of the old inputs remain material work. Authentic host verification remains explicitly outstanding in #296.
+
+## Current issue status
+
+| Issue | State observed | Meaning for #264 |
+| --- | --- | --- |
+| [#258 — communication research](https://github.com/marioatcloudvane/litefactory/issues/258) | Closed | Original inventory and split into contract, adoption and MCP work. |
+| [#263 — shared contract](https://github.com/marioatcloudvane/litefactory/issues/263) | Closed, September 13 | Contract implementation exists: strict five-mode results, revision-checked operations, storage/history/receipts, aggregate evidence and advisory progress. |
+| [#265 — MCP research](https://github.com/marioatcloudvane/litefactory/issues/265) | Closed, September 13 | Research/decomposition predecessor; its closure alone is not implementation proof. |
+| [#272 — MCP groundwork](https://github.com/marioatcloudvane/litefactory/issues/272) | Closed, September 14 | Transport, attempt authority, mode profiles and creation authorization groundwork exists. |
+| [#273 — MCP tool families](https://github.com/marioatcloudvane/litefactory/issues/273) | Closed, September 14 | Shared-service tools and durable effect/recovery services exist; availability still depends on actual runtime registration. |
+| [#274 — native integration and verification](https://github.com/marioatcloudvane/litefactory/issues/274) | Deliberately open | Host implementation is present. Its five engineering stories [#291](https://github.com/marioatcloudvane/litefactory/issues/291), [#292](https://github.com/marioatcloudvane/litefactory/issues/292), [#293](https://github.com/marioatcloudvane/litefactory/issues/293), [#294](https://github.com/marioatcloudvane/litefactory/issues/294), [#295](https://github.com/marioatcloudvane/litefactory/issues/295) are all now closed (September 15). |
+| [#296 — authentic evidence](https://github.com/marioatcloudvane/litefactory/issues/296) | Deliberately open | Four retained real-host captures remain outstanding: Claude working, Codex working, Claude Validate and Codex Validate, with provenance and bounded replay. |
+| [#264 — adoption and retirement](https://github.com/marioatcloudvane/litefactory/issues/264) | Open, Research | Production final-result cutover and compatibility retirement remain. |
+
+Issue descriptions retain original dependency language and unchecked criteria even after closure; do not infer the current code state from those checkboxes alone. #272's [implementation report](https://github.com/marioatcloudvane/litefactory/issues/272#issuecomment-5661933718) explicitly placed #264 wiring afterward. #273's [implementation report](https://github.com/marioatcloudvane/litefactory/issues/273#issuecomment-5666119148) reports all eight stories and `make check` passing. These are historical reports, not checks rerun here.
+
+#274's latest [run report](https://github.com/marioatcloudvane/litefactory/issues/274#issuecomment-5675803241) says Codex integration and all batched check groups passed, but its outer run remained failed with incomplete engineering evidence. The later closed states of #291–#295 and actual source presence are stronger evidence of current engineering status than that older failure summary. They do not prove authentic host acceptance. #296's [retained report](https://github.com/marioatcloudvane/litefactory/issues/296#issuecomment-5670459576) records the capture handoff and unavailable external observations.
+
+## What is already wired, and what #264 still needs
+
+All path:line references in this section refer to revision `eb893565687d582bcb79d75edb14023881d0dd73`.
+
+| Area | Current source observation | Remaining adoption work |
+| --- | --- | --- |
+| Shared application service | `internal/turn/agent_results.go:92`, `:139`, `:198`, `:272` provide scoped reads, merged validation, submit/replay and receipts. `internal/agentresult/update_test.go:153` and `:186` cover complete final validation and stale/scoped updates. | Reuse these semantics across production result adapters and workflow finalization. Existing service tests do not establish end-to-end cutover. |
+| Actual launches | `internal/daemon/setup.go:260` constructs runtime authority; `internal/turn/submission_runner.go:20` enters `runMCPBound`; `internal/turn/mcp_runtime.go:64` prepares registration, appends guidance and cleans up each invocation. Research/Spike can bind without managed stories; unmanaged/legacy Implement/Validate with no submission session keep their old runner route (`:79`). | Broader supported-mode adoption must account explicitly for these bypasses and completion policy. |
+| Native providers | Claude generates attempt-local configuration (`internal/harness/mcp.go:28`, runner `:529`) and retains strict configuration. Codex supplies overrides (`internal/codex/mcp.go:42`, runner `:414`) with Validate shell/delegation restrictions. | Authentic behavior proof remains #296. Do not widen Validate to obtain final results. |
+| Final outcomes | `runMCPBound` returns the runner result directly (`internal/turn/mcp_runtime.go:95`). Validate still consumes terminal contributions (`internal/turn/submission_runner.go:78`); Plan guidance retains the typed helper publication path (`internal/turn/mcp_guidance.go:74`). | Shared mandatory final submission, result-to-report/workflow integration and actionable rejection/missing-output rules across success, failure, interruption and cancellation are not established by the additive binding. |
+| Prior results | Scoped service reads exist. Current application guidance supplies only the existing comment and expected revision (`internal/turn/mcp_guidance.go:136`); checkpoint modes take a separate branch (`:81`). | Supply sufficient authoritative prior state and stable IDs for actual edits across all applicable modes; a comment baseline is not the whole result. |
+| Progress | Runtime binds a bounded lease and installs `activity_update` (`internal/turn/mcp_runtime.go:170`, `:186`). `internal/submission/family_tools.go:30` excludes Plan/Spike from family tools. Activity lifecycle API exists (`internal/turn/activity.go:79`). | Spike's requested advisory progress is not currently exposed. Runtime preparation does not retain the activity owner for terminal/retention lifecycle handling. Complete the factory-owned lifecycle without allowing activity to grant completion. |
+| Catalog versus production availability | Current preparation registers feedback/evidence/receipts, activity update and optional issue reads (`internal/turn/mcp_runtime.go:148`). | A tool-family implementation is not proof it is enabled: this preparation does not install issue comment/creation or activity-get handlers. Recovery/control-intake seams should be reconciled with #264's existing scope, without turning this issue into a new MCP-server project. |
+| Instructions and documentation | Runtime guidance exists and preserves separate application/checkpoint contracts (`internal/turn/mcp_guidance.go:45`). Canonical finalization skill and examples exist under `teams/source/skills/agent-finalization/`. | Update canonical and rendered instructions with actual adoption. `docs/agent-result-contract.md:3` still describes unchanged/offline routing; `docs/agent-evidence-capture.md:302` still describes Codex as deferred in run 0005. These historical statements need context when used for current status. |
+
+Existing focused coverage includes cold/resume/fallback, cancellation isolation and stale registration (`internal/turn/mcp_runtime_lifecycle_test.go:99`, `:139`, `:224`); Codex enabled/disabled setup, collisions and launch paths (`internal/turn/mcp_codex_lifecycle_test.go:256`, `:429`, `:484`); and live/terminal Validate reconciliation (`internal/turn/submission_reconciliation_test.go:16`). They are useful reuse points, not fresh evidence in this run. Auxiliary classifier/scheduler/conflict conventions were not deeply audited in this bounded overview; their explicitly limited mapping remains an item in #264.
+
+## Retirement overview
+
+These are separate dispositions, not one interchangeable old path:
+
+| Input | Current evidence and disposition |
+| --- | --- |
+| Plan v1 file handoff | Still present: `internal/turn/plan_handoff.go:137` reads/validates the attempt outcome. The same owner has v2 internal transport checks (`:148`), so deleting the whole handoff owner would remove live shared behavior. Inventory/version-gate the legacy ingress separately. |
+| Implement event-file ingress | Still present: `internal/turn/approved_context.go:68` supplies an event directory; `internal/turn/story_progress.go:232` reads it. Retire ingress only after supported legacy scopes/effects are drained; preserve shared records, recovery and delivery. |
+| Validate v1 parser | Still present: `internal/turn/validation.go:91` falls back to `agent.ParseValidationOutput` when typed terminal validation has not already handled the run. Preserve the restricted terminal path while replacing compatibility parsing. |
+| Markdown story discovery | Present but explicitly production-unreachable: `internal/turn/subissues.go:117` explains the always-taken production `PlanForge` gate and shared live `PublishPlan`/`RenderCompleteStory` path. Candidate for removal with only exclusive wiring/helpers. |
+
+Supported content/submission upgrade rules require a safe planning cohort and refuse active/frozen/mixed cohorts or pending legacy effects; completed legacy dependencies and old workflow versions remain readable (`docs/story-contract.md:152`). Thus upgrading content/submission does not by itself retire workflow-v1 combined verification. No live database or pending-effect inventory was inspected, so this run cannot establish that compatibility readers are safe to delete.
+
+## Recommendation, risks and decisions
+
+The next useful work, when requested, is to reconcile #264 around the infrastructure now present, keeping **adoption** and **verified retirement** as separate milestones. Preserve #274/#296 as the intentionally open authentic-evidence track. No new issues, scope revision or mode transition was made here.
+
+Settled: status overview only; both host implementations are present; #274/#296 stay open; existing infrastructure should be reused. Open for a later planning/retirement investigation: exact supported legacy cohort and effect drain, final-result policy across failure paths, full baseline delivery, and ownership of remaining activity/recovery/control connections. These do not block this status overview and are not questions being asked of the owner now.
+
+Material limits: closed issues and source presence do not establish deployment, acceptance receipts or real-host enforcement. No live daemon/database inspection, tests or authentic captures were performed. Earlier comments/docs may describe superseded states. There is no claim that #264 is complete or that legacy data can already be removed.
+
+## Run 0002 — MCP implementation and remaining production wiring
+
+Owner steering: “Also check the mcp implementation, this also needs wiring”. Research remains an overview; no implementation or Plan is authorized. Focused source/caller/test inspection at current revision `4a6c86f6339e6d92fe9e23e1205e818ede9995a2` on 2026-09-15 confirms that **native startup is wired, but the full implemented MCP capability set and its factory lifecycle are not**. Previous run's issue-state observations remain dated observations; this extension did not re-fetch GitHub or change #274/#296's intentionally open disposition.
+
+### Existing end-to-end transport
+
+The production chain is daemon startup → per-actual-launch preparation → native Claude/Codex registration → `litefactory mcp serve` → private submission socket/broker → live attempt guard → shared application/family owner.
+
+- `internal/daemon/setup.go:260` checks loaded `MCPAutoStart`, constructs one runtime authority and passes it through turn options; `:376` handles shutdown. Configuration defaults auto-start on and creation off (`internal/config/config.go:454`). These are source defaults, not a statement about the running daemon's configuration.
+- `internal/turn/mcp_runtime.go:64` binds each actual invocation, refuses incomplete enabled preparation, supplies guidance and closes its own lease/broker/result attempt (`:51`). Unsupported runners and unmanaged Implement/Validate without a checkpoint session retain their prior route (`:69`, `:79`).
+- Both native implementations from run 0001 remain present. The adapter command checks live descriptor authority before serving (`internal/cli/cmd_mcp.go:28`). `internal/mcpadapter/server.go:57` owns bounded stream/workers and cancellation; `:177` implements initialization and `:208` restricts methods to the tool surface. Its protocol constant is `2025-11-25` (`internal/mcpadapter/protocol.go:14`), an implementation fact rather than a new claim of host compatibility.
+- `internal/turn/mcp_tools.go:73` applies live guard authorization before discovery/calls and forwards communication preflight/submit/receipt to `AgentResultService`. Family dispatch retains separate receipt dimensions and recovers repeat requests without repeating the handler (`internal/turn/mcp_families.go:143`). This existing implementation should be composed, not replaced with a second server or MCP-specific business validation.
+
+### Actual installed tools versus implemented catalog
+
+The table describes eligible production launches with auto-start enabled, using the current daemon composition. Native tools are separate and unchanged by this table. Implement/Validate entries require the matching managed submission session; the legacy bypass above still applies.
+
+| Capability | Research | Plan | Implement | Validate | Spike |
+| --- | --- | --- | --- | --- | --- |
+| `communication_preflight`, `communication_submit`, `communication_receipt` | Installed | Installed, discussion only | Installed | Installed | Installed |
+| `feedback_preflight`, `receipts_get` | Installed | Not permitted | Installed | Installed | Not permitted |
+| `evidence_submit` | Not permitted | Not permitted | Installed, engineering/legacy checkpoint | Installed, retained assessment | Not permitted |
+| `issues_list`, `issues_get` | Installed with daemon issue client | Not permitted | Installed with daemon issue client | Installed with daemon issue client | Not permitted |
+| `activity_update` | Installed | Not permitted | Installed | Installed | Not permitted |
+| `activity_get` | Implemented, uninstalled | Not permitted | Implemented, uninstalled | Implemented, uninstalled | Not permitted |
+| `issues_comment` | Implemented, uninstalled | Not permitted | Implemented, uninstalled | Implemented, uninstalled | Not permitted |
+| `issues_create_batch` | Implemented, uninstalled; requires gate and grant | Not permitted | Not permitted | Not permitted | Not permitted |
+
+Evidence: the communication trio is unconditional for the five recognized profiles (`internal/submission/tools.go:27`, `:48`); family mode restrictions are `internal/submission/family_tools.go:30`. Defaults are registered in `internal/turn/mcp_families.go:67`; actual runtime additions are precisely `internal/turn/mcp_runtime.go:148`–`:180`. The runtime creates `FamilyDispatcherOptions` without creation policy, target grants or publication handlers. Implemented publication constructors/registration seams are `internal/turn/issue_publication.go:41`, `:71` and `internal/turn/creation_publication.go:44`, `:63`; activity read exists as `ActivityService.HandleGet` at `internal/turn/activity.go:137`.
+
+This distinction is visible in tests: `internal/turn/mcp_family_catalog_test.go:174` explicitly constructs comment and creation owners and registers them plus activity-get (`:187`). Production preparation does not perform those steps. A complete-catalog fixture therefore cannot establish complete production availability.
+
+### Concrete missing connections
+
+1. **Existing-target comments:** compose `IssuePublicationService` with explicit authorized targets, numeric bot identity, forge and redaction; include the exact grants in the permission digest and attach comment receipt projection. Ordinary comments must not inherit creation-only gate requirements. The handler's existence is already established; production `prepareMCP` currently registers only issue reads.
+2. **Creation and trusted control intake:** carry loaded `AllowMCPStoryCreation` into factory composition, retain/present exact prepared content, admit authenticated owner intent, bind it to the next eligible Research attempt and attach the existing guarded creation handler/projection. `internal/daemon/mcp_creation.go:11` explicitly identifies production comment/launch wiring as #264. `internal/turn/mcp_creation.go:79` and `:97` own intake and attempt binding. A focused search of non-test `internal/` callers found no caller for `AdmitMCPOwnerCommand`, `NewCreationAuthorizer` or the publication constructors; direct startup/runtime inspection also shows no composition of them. The config setting is decoded/template-rendered but not passed to this runtime. This is a bounded source finding, not a claim about every external consumer.
+3. **Recovery after uncertain publication:** reuse `IssuePublicationService.ReconcileComment` (`internal/turn/issue_publication.go:175`) and `CreationPublicationService.Reconcile` (`internal/turn/creation_publication.go:364`) through factory-owned bounded observation and durable work scheduling. Those methods observe already-dispatched operations and must not become blind re-dispatch. Current runtime installs neither publication owner; the inspected daemon composition/tick and non-test caller search show no scheduling of these family reconciliation APIs. Existing StoryProgress/submission recovery is a different live path and must remain.
+4. **Cross-attempt receipts and result baselines:** `NewReceiptService` supports explicit historical scopes (`internal/turn/family_receipts.go:60`), but runtime passes `nil` history (`internal/turn/mcp_runtime.go:153`). `communication_receipt` supplies only the current bound run (`internal/turn/mcp_tools.go:128`). There is no scoped result-read tool in the installed three-operation communication catalog, although the shared `AgentResultService.Read` API exists. Current prompt projection supplies only comment and expected revision (`internal/turn/mcp_guidance.go:136`). Broader prior-state access must be deliberately supplied through the shared service with stable IDs/revisions and explicit grants.
+5. **Advisory progress lifecycle and visibility:** runtime installs only update and then discards its direct activity-owner reference after preparation. `preparedMCP` retains service/guard/broker, not activity (`internal/turn/mcp_runtime.go:44`). `ActivityService.Lifecycle` already supports factory time, terminal state and bounded cleanup (`internal/turn/activity.go:79`), but no non-test lifecycle caller appeared in the inspected internal tree. Connect owner visibility, terminal handling and cleanup; retain the no-completion/no-authority semantics. Spike requires an explicit profile change to expose requested progress; simply registering the handler does not override `familyAllowed`.
+6. **Final result and workflow completion:** MCP submit records application input rather than replacing current post-exit workflow processing. `runMCPBound` returns native runner output directly (`internal/turn/mcp_runtime.go:95`); the original helper retains its handler (`internal/turn/mcp_tools.go:71`) and typed Validate terminal processing remains (`internal/turn/submission_runner.go:78`). Plan explicitly refuses publishable/story-bearing MCP application results (`internal/turn/agent_results.go:139`) and retains helper publication. Complete shared finalization must reuse existing semantic gates and bind actual evidence: runtime initializes `RequireAggregate` for Implement but does not install the aggregate resolver/prior-completion enrichment provided by `ValidateAgentResultCompletion` (`internal/turn/agent_result_aggregates.go:149`). This is an additional concrete reason current communication submission is not a complete replacement for engineering finalization.
+
+### Validate and evidence boundaries
+
+Live `evidence_submit` is already an adapter over `SubmissionSession`, not a parallel acceptance implementation (`internal/turn/evidence.go:93`, `:125`). It uses frozen stage/scope and existing durable receipt decisions. Preserve reference-only assessments, no fresh execution/capture, complete terminal findings and existing live/terminal reconciliation. Host flags restricting shell/delegation remain part of existing native wiring; the missing MCP composition does not justify broadening them. #296 still owns authentic demonstrations of allowed live calls and effective refusal/unavailability on both hosts.
+
+Existing test sources cover the complete catalog through real pipe/socket boundaries with a controlled HTTP forge (`internal/turn/mcp_family_catalog_test.go:119`), comment uncertain-reply/reopen observation (`internal/turn/issue_publication_test.go:196`), creation uncertain-reply observation (`internal/turn/creation_publication_test.go:201`), durable progress retry/lifecycle (`internal/turn/activity_test.go:89`) and replacement receipt isolation (`internal/turn/mcp_recovery_test.go:378`). These show reusable verification seams; they were not executed during this research and do not prove live host use or missing production callers.
+
+### Updated recommendation and ownership
+
+Include **production composition of the already-built MCP services** explicitly in #264's adoption overview: installed family handlers and scope, trusted creation intake, historical reads/receipts, effect reconciliation, activity lifecycle, and shared final-result handling. This is wiring existing owners through an existing transport, consistent with #264's boundary against building a new MCP server or putting business logic in the adapter. Keep native provider launch/configuration work with the already-delivered #274 engineering stories, and authentic proof with deliberately open #296/#274.
+
+Some older documentation assigns broader production connections to #274 while the actual native implementation deliberately remained additive; this source-backed inventory identifies the remaining connections without silently claiming that they were completed there. A later Plan should lock their delivery ownership, authorized comment-target rules and creation proposal presentation flow. No such product choice is needed to finish this factual extension, and no owner questions are outstanding for the overview.
+
+Run 0002 is complete. No code, external application, runtime state or tests were changed/executed. Source revision differs from run 0001 and is recorded above; this run makes no deployment or fresh GitHub-state claim. No byte/token cost measurement or real host probe was performed.

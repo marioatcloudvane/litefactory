@@ -1,0 +1,17 @@
+{
+  "request_id": "cca32cf26fad478fe49dd2b9520bb64a",
+  "receipt_id": 165,
+  "story": "US-009",
+  "revision": "ef612f5b50be87b3692b0d38b645e4eef2d87e61e1a5db067e8aab5e211cefb7",
+  "preflight": {
+    "valid": true,
+    "complete": true,
+    "diagnostics": []
+  },
+  "outcome": "blocked",
+  "input_state": "valid",
+  "engineering_state": "rejected",
+  "acceptance_state": "not_applicable",
+  "effect_state": "pending",
+  "receipt_lookup_confirmed": true
+}

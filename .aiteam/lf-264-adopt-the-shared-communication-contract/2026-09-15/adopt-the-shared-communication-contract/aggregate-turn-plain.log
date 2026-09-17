@@ -1,0 +1,2614 @@
+--- FAIL: TestCodexMCPLifecycleEnabledDisabledAbsentSetup (1.98s)
+    --- FAIL: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/enabled (0.73s)
+        mcp_codex_lifecycle_test.go:287: codex did not succeed: &{Usage:<nil> Outcome:failed Interruption:<nil> Reason:Shared final result rejected: required current-attempt output is absent: invalid or incomplete application result: {"valid":false,"complete":true,"diagnostics":[{"path":"$.result","code":"required","expected":"present field","actual":"absent","message":"Supply the required field."}],"unchecked_paths":[]}. Correct the output on the next authorized attempt; retained checkpoints remain available. Diagnostic: ExitCode:0 SessionID:codex-lifecycle-session ResumeToken:codex-fake-thread LogPath:/private/tmp/lf-launch-1680196820/logs/runs/github/example/results/263/0001.jsonl Command:[/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCodexMCPLifecycleEnabledDisabledAbsentSetupenabled2928653496/003/bin/codex exec --json --ignore-user-config --ignore-rules --sandbox workspace-write -c mcp_servers.litefactory.command="/factory/litefactory" -c mcp_servers.litefactory.args=["mcp","serve","--descriptor","/private/tmp/lf-launch-1680196820/s/09873ce91f32bbb4/descriptor.json"] -c mcp_servers.litefactory.env={} -c mcp_servers.litefactory.enabled_tools=["communication_preflight","communication_receipt","communication_submit","activity_get","activity_update","feedback_preflight","receipts_get"] --add-dir /private/tmp/lf-launch-1680196820/s/77cfad3ef29363b8 --model gpt-test -] Model:gpt-test Tools:[] ResultText:codex fake result CostUSD:0 HasCost:false IsError:false NumTurns:0 HasNumTurns:false ProviderReportedZeroCostRefusal:false HasResult:true Events:4 Malformed:0 LongestLine:85 Stderr: StreamError:<nil> StartedAt:2026-09-15 21:03:28.598225 +0200 CEST m=+178.596851876 FinishedAt:2026-09-15 21:03:29.1399 +0200 CEST m=+179.138535543 Duration:541.683667ms}
+--- FAIL: TestCodexMCPLifecycleMalformedQuotedValuesSurvive (0.66s)
+    mcp_codex_lifecycle_test.go:395: codex did not succeed: &{Usage:<nil> Outcome:failed Interruption:<nil> Reason:Shared final result rejected: required current-attempt output is absent: invalid or incomplete application result: {"valid":false,"complete":true,"diagnostics":[{"path":"$.result","code":"required","expected":"present field","actual":"absent","message":"Supply the required field."}],"unchecked_paths":[]}. Correct the output on the next authorized attempt; retained checkpoints remain available. Diagnostic: ExitCode:0 SessionID:codex-lifecycle-session ResumeToken:codex-fake-thread LogPath:/private/tmp/lf-launch-3745817644/l'i"te\backslash factory/logs/runs/github/example/results/263/0001.jsonl Command:[/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCodexMCPLifecycleMalformedQuotedValuesSurvive377430392/003/bin/codex exec --json --ignore-user-config --ignore-rules --sandbox workspace-write -c mcp_servers.litefactory.command="/private/tmp/lf-launch-3745817644/l'i\"te\\backslash factory/bin/li\"te'fac\\tory" -c mcp_servers.litefactory.args=["mcp","serve","--descriptor","/private/tmp/lf-launch-3745817644/l'i\"te\\backslash factory/s/5473232994a48237/descriptor.json"] -c mcp_servers.litefactory.env={} -c mcp_servers.litefactory.enabled_tools=["communication_preflight","communication_receipt","communication_submit","activity_get","activity_update","feedback_preflight","receipts_get"] --add-dir /private/tmp/lf-launch-3745817644/l'i"te\backslash factory/s/3f86ed87008ae848 --model gpt-test -] Model:gpt-test Tools:[] ResultText:codex fake result CostUSD:0 HasCost:false IsError:false NumTurns:0 HasNumTurns:false ProviderReportedZeroCostRefusal:false HasResult:true Events:4 Malformed:0 LongestLine:85 Stderr: StreamError:<nil> StartedAt:2026-09-15 21:03:30.603981 +0200 CEST m=+180.602639001 FinishedAt:2026-09-15 21:03:31.051037 +0200 CEST m=+181.049702168 Duration:447.063167ms}
+--- FAIL: TestCodexMCPLifecycleServerCollisionRefusesSafely (0.66s)
+    mcp_codex_lifecycle_test.go:475: authority/broker corrupted after collision refusal: result=&{Usage:<nil> Outcome:failed Interruption:<nil> Reason:Shared final result rejected: required current-attempt output is absent: invalid or incomplete application result: {"valid":false,"complete":true,"diagnostics":[{"path":"$.result","code":"required","expected":"present field","actual":"absent","message":"Supply the required field."}],"unchecked_paths":[]}. Correct the output on the next authorized attempt; retained checkpoints remain available. Diagnostic: ExitCode:0 SessionID:codex-lifecycle-session ResumeToken:codex-fake-thread LogPath:/private/tmp/lf-launch-1717329717/logs/runs/github/example/results/263/0002.jsonl Command:[/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCodexMCPLifecycleServerCollisionRefusesSafely3539695748/007/bin/codex exec --json --ignore-user-config --ignore-rules --sandbox workspace-write -c mcp_servers.litefactory.command="/factory/litefactory" -c mcp_servers.litefactory.args=["mcp","serve","--descriptor","/private/tmp/lf-launch-1717329717/s/12a3e6675e7d0cc4/descriptor.json"] -c mcp_servers.litefactory.env={} -c mcp_servers.litefactory.enabled_tools=["communication_preflight","communication_receipt","communication_submit","activity_get","activity_update","feedback_preflight","receipts_get"] --add-dir /private/tmp/lf-launch-1717329717/s/9e9082b87a8ce12b --model gpt-test -] Model:gpt-test Tools:[] ResultText:codex fake result CostUSD:0 HasCost:false IsError:false NumTurns:0 HasNumTurns:false ProviderReportedZeroCostRefusal:false HasResult:true Events:4 Malformed:0 LongestLine:85 Stderr: StreamError:<nil> StartedAt:2026-09-15 21:03:31.285114 +0200 CEST m=+181.283781960 FinishedAt:2026-09-15 21:03:31.70552 +0200 CEST m=+181.704194335 Duration:420.412375ms} err=<nil>
+--- FAIL: TestCodexMCPLifecycleConcurrentCancellationIsolation (0.69s)
+    mcp_codex_lifecycle_test.go:651: surviving codex run = &{Usage:<nil> Outcome:failed Interruption:<nil> Reason:Shared final result rejected: required current-attempt output is absent: invalid or incomplete application result: {"valid":false,"complete":true,"diagnostics":[{"path":"$.result","code":"required","expected":"present field","actual":"absent","message":"Supply the required field."}],"unchecked_paths":[]}. Correct the output on the next authorized attempt; retained checkpoints remain available. Diagnostic: ExitCode:0 SessionID:codex-lifecycle-session ResumeToken: LogPath:/private/tmp/lf-launch-4272186632/logs/runs/github/example/results/275/0001.jsonl Command:[/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestCodexMCPLifecycleConcurrentCancellationIsolation1725305617/005/bin/codex exec --json --ignore-user-config --ignore-rules --sandbox workspace-write -c mcp_servers.litefactory.command="/factory/litefactory" -c mcp_servers.litefactory.args=["mcp","serve","--descriptor","/private/tmp/lf-launch-4272186632/s/5241a8e683fe403a/descriptor.json"] -c mcp_servers.litefactory.env={} -c mcp_servers.litefactory.enabled_tools=["communication_preflight","communication_receipt","communication_submit","activity_get","activity_update","feedback_preflight","receipts_get"] --add-dir /private/tmp/lf-launch-4272186632/s/0eb412e84fe182cc --model gpt-test -] Model:gpt-test Tools:[] ResultText: CostUSD:0 HasCost:false IsError:false NumTurns:0 HasNumTurns:false ProviderReportedZeroCostRefusal:false HasResult:true Events:1 Malformed:0 LongestLine:26 Stderr: StreamError:<nil> StartedAt:2026-09-15 21:03:33.45742 +0200 CEST m=+183.456116335 FinishedAt:2026-09-15 21:03:33.920162 +0200 CEST m=+183.918864251 Duration:462.747916ms}, want success
+--- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP (5.46s)
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/research/gate=false (0.18s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:743335df8a05d830537c93876a184026 Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/research/gate=true (0.23s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:e90b77d8837f03bd57b198c272ff8f6d Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/implement/gate=false (0.97s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:320bb2434cdc2d6f4b6b90baf6abf11d Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/implement/gate=true (0.94s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:5980d044ca78fd2ae89ca7b58b6b884f Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/validate/gate=false (1.10s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:af796f000b44e801e03bcfea33762d57 Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/validate/gate=true (1.31s)
+        mcp_family_catalog_test.go:252: lost family outcome: {RequestID:081a10a7c7774d844f44d29510e67245 Tool: Disposition:missing Reference:{Kind: ID:0 RequestID:} States:{Input: Engineering: Acceptance: Effects:} Publications:[]}
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/plan/gate=false (0.17s)
+        mcp_family_catalog_test.go:222: catalog=[activity_get activity_update communication_preflight communication_receipt communication_submit] want=[communication_preflight communication_receipt communication_submit]
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/plan/gate=true (0.22s)
+        mcp_family_catalog_test.go:222: catalog=[activity_get activity_update communication_preflight communication_receipt communication_submit] want=[communication_preflight communication_receipt communication_submit]
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/spike/gate=false (0.17s)
+        mcp_family_catalog_test.go:222: catalog=[activity_get activity_update communication_preflight communication_receipt communication_submit] want=[communication_preflight communication_receipt communication_submit]
+    --- FAIL: TestMCPFamilyCompleteCatalogPipeSocketHTTP/spike/gate=true (0.18s)
+        mcp_family_catalog_test.go:222: catalog=[activity_get activity_update communication_preflight communication_receipt communication_submit] want=[communication_preflight communication_receipt communication_submit]
+panic: test timed out after 8m0s
+	running tests:
+		TestExecuteTaskObstructionPreservesWork/conflict (2s)
+		TestExecuteTaskObstructionPreservesWork/dirty (2s)
+		TestExecuteTaskObstructionPreservesWork/reserved (2s)
+		TestExecuteTaskObstructionPreservesWork/unrelated (2s)
+
+goroutine 281939 [running]:
+testing.(*M).startAlarm.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2959 +0x2c4
+created by time.goFunc
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/time/sleep.go:182 +0x38
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0x37936665cb48, {0x10560329f?, 0x3793666bfa88?}, 0x105f51b40)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2266 +0x3cc
+testing.runTests.func1(0x37936665cb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2742 +0x38
+testing.tRunner(0x37936665cb48, 0x3793666bfbb8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+testing.runTests({0x1055f442d, 0x20}, {0x10561081d, 0x2e}, 0x3793666182b8, {0x105fcc690, 0x1e9, 0x1e9}, {0x3793666bfc58?, 0x37936696dce0?, ...})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2740 +0x400
+testing.(*M).Run(0x37936681f360)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2600 +0x578
+main.main()
+	_testmain.go:1024 +0x80
+
+goroutine 5657 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x37936665c248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_PermissionMaterialBindsAttempt(0x37936665c248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_lifecycle_unit_test.go:14 +0x24
+testing.tRunner(0x37936665c248, 0x105f516c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263808 [chan receive]:
+testing.(*T).Parallel(0x3793668038c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTaskConflictProposalPreviewAndApply(0x3793668038c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_conflict_test.go:71 +0x30
+testing.tRunner(0x3793668038c8, 0x105f523f8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187124 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e5448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsImplementFindsPlanBrief(0x3793670e5448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:49 +0x28
+testing.tRunner(0x3793670e5448, 0x105f51b68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73238 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ee6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionConfirmationLegacyUnknownAndFreshAuthorization(0x3793666ee6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_regions_apply_test.go:13 +0x28
+testing.tRunner(0x3793666ee6c8, 0x105f51ff0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113037 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9cd88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestClaudeRunsOutsideTheCloneGate(0x379366e9cd88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/gate_test.go:317 +0x30
+testing.tRunner(0x379366e9cd88, 0x105f517e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70943 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRefusesUnknownProposal(0x379366eb4908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:181 +0x28
+testing.tRunner(0x379366eb4908, 0x105f51790)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 140869 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366e2f8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPGuidance_InstalledCards(0x379366e2f8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_guidance_test.go:39 +0x28
+testing.tRunner(0x379366e2f8c8, 0x105f51d28)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 5658 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x37936665c908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleRejectsMissingTimeAtomically(0x37936665c908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_lifecycle_unit_test.go:71 +0x28
+testing.tRunner(0x37936665c908, 0x105f516b0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70945 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRefusesExpiredProposal(0x379366eb4d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:215 +0x28
+testing.tRunner(0x379366eb4d88, 0x105f51780)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113040 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9d688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteSendsTheStoredClaudeSessionID(0x379366e9d688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harness_test.go:184 +0x28
+testing.tRunner(0x379366e9d688, 0x105f51b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70946 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRefusesAlreadyDecidedProposal(0x379366eb4fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:237 +0x28
+testing.tRunner(0x379366eb4fc8, 0x105f51770)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73247 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666efb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestValidateConflictResolutionRejectsAnOutOfScopePath(0x3793666efb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:169 +0x24
+testing.tRunner(0x3793666efb08, 0x105f524d0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73209 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9c248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestAnUnwritableManifestDoesNotStopTheTurn(0x379366f9c248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/attachments_test.go:74 +0x28
+testing.tRunner(0x379366f9c248, 0x105f51750)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253106 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366803b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryReconciliationPostWriteConflictRetainsRecoverableIntent(0x379366803b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_reconciliation_test.go:230 +0x28
+testing.tRunner(0x379366803b08, 0x105f522e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263801 [chan receive]:
+testing.(*T).Parallel(0x379366e2eb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConcurrentTurnsSyncIndependentlyOnOneClone(0x379366e2eb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncconcurrency_test.go:38 +0x34
+testing.tRunner(0x379366e2eb48, 0x105f51890)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70940 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConfirmedProposalHasNoExportedFields(0x379366eb4248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:73 +0x28
+testing.tRunner(0x379366eb4248, 0x105f51898)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 140872 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379367290008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPGuidance_CheckpointRequiresScope(0x379367290008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_guidance_test.go:170 +0x28
+testing.tRunner(0x379367290008, 0x105f51d20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73228 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666befc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteMakesNoAdvisorCallWhenDisabled(0x3793666befc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:163 +0x28
+testing.tRunner(0x3793666befc8, 0x105f51a58)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187127 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e5b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsSpikeNamesDirectoryOnly(0x3793670e5b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:102 +0x24
+testing.tRunner(0x3793670e5b08, 0x105f51b90)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97863 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecutePushFailurePreservesTheCommit(0x3793666c6b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1098 +0x28
+testing.tRunner(0x3793666c6b48, 0x105f51a78)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187129 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670ea008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTheRunsOwnDayIsPreferred(0x3793670ea008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:68 +0x24
+testing.tRunner(0x3793670ea008, 0x105f52440)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97450 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteReleasesTheLockOnAFailedRun(0x3793666a6d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:282 +0x28
+testing.tRunner(0x3793666a6d88, 0x105f51ad8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 147469 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366a2e908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestBuildMCPLaunchSpec_UnavailableAuthority(0x379366a2e908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_runtime_unit_test.go:60 +0x28
+testing.tRunner(0x379366a2e908, 0x105f517d0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97452 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a7208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteMakesNoSegmentWriteWhenTheAgentAlreadyMatches(0x3793666a7208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:421 +0x28
+testing.tRunner(0x3793666a7208, 0x105f51a60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113050 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCommentHistoryMapsTheStoredThread(0x379366802fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:281 +0x28
+testing.tRunner(0x379366802fc8, 0x105f51870)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263795 [chan receive]:
+testing.(*T).Parallel(0x3793670eb208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseSkippedWhenAutoSyncDisabled(0x3793670eb208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:184 +0x28
+testing.tRunner(0x3793670eb208, 0x105f523b0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 72926 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366eb5b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestParseCommandStripsTheAskTag(0x379366eb5b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:101 +0x28
+testing.tRunner(0x379366eb5b08, 0x105f51ed0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73217 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9d688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFilterAdmitRecordsOwnerInstruction(0x379366f9d688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:587 +0x28
+testing.tRunner(0x379366f9d688, 0x105f51bf8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89169 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestDirtyConfirmationRecoveryLifecycle(0x379366710b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/dirty_confirmation_recovery_test.go:17 +0x34
+testing.tRunner(0x379366710b48, 0x105f51990)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73208 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9c008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestNoManifestWithoutAttachments(0x379366f9c008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/attachments_test.go:59 +0x28
+testing.tRunner(0x379366f9c008, 0x105f51e78)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97443 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793668538c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestEvidenceUnit_FrozenPermissionMaterial(0x3793668538c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/evidence_unit_test.go:98 +0x28
+testing.tRunner(0x3793668538c8, 0x105f519e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185786 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367291688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportConsumeAdvancesWithoutPosting(0x379367291688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:515 +0x24
+testing.tRunner(0x379367291688, 0x105f52058)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185781 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366deeb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportFailedRunStillPostsAndAdvances(0x379366deeb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:289 +0x28
+testing.tRunner(0x379366deeb48, 0x105f52090)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156709 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366711208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates(0x379366711208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:267 +0x28
+testing.tRunner(0x379366711208, 0x105f52250)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73203 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366ed3b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTheTagIsHonouredOnlyFromTheTriggeringComment(0x379366ed3b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_turn_test.go:39 +0x24
+testing.tRunner(0x379366ed3b08, 0x105f52450)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70941 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionHappyPath(0x379366eb4488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:89 +0x28
+testing.tRunner(0x379366eb4488, 0x105f51760)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97454 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a7688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesAnAgentSwitchOnlyForAContinuation(0x3793666a7688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:584 +0x28
+testing.tRunner(0x3793666a7688, 0x105f51ab0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73210 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9c488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIngestionIsGatedOnPermissionAndCapability(0x379366f9c488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/attachments_test.go:94 +0x28
+testing.tRunner(0x379366f9c488, 0x105f51c78)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73207 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366d8db08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestManifestLandsInTheWorktree(0x379366d8db08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/attachments_test.go:27 +0x28
+testing.tRunner(0x379366d8db08, 0x105f51e20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73222 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666be248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestParseCommand(0x3793666be248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/command_test.go:6 +0x28
+testing.tRunner(0x3793666be248, 0x105f51ec0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45832 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8cfc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleConcurrentCopies(0x379366d8cfc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:129 +0x28
+testing.tRunner(0x379366d8cfc8, 0x105f516a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 117423 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2e008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueCommentRequest_StrictDecode(0x379366a2e008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_publication_unit_test.go:29 +0x28
+testing.tRunner(0x379366a2e008, 0x105f51c90)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187133 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670ea908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestABranchThisToolingDidNotBuildHasNoSession(0x3793670ea908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:139 +0x24
+testing.tRunner(0x3793670ea908, 0x105f51600)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156710 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366711448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestModeSequenceProducesForwardOnlyRecomputableOrdinals(0x379366711448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:340 +0x28
+testing.tRunner(0x379366711448, 0x105f51e58)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113047 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumedRunCarriesNoHistory(0x379366802908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:153 +0x28
+testing.tRunner(0x379366802908, 0x105f521a8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73204 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366ed3d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestATaggedCommentGrantsPermissionAndLosesItsTag(0x379366ed3d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_turn_test.go:108 +0x28
+testing.tRunner(0x379366ed3d48, 0x105f51610)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89103 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestDeliverySegmentRetainsAndRotatesExactIdentity(0x379366710488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/delivery_test.go:168 +0x28
+testing.tRunner(0x379366710488, 0x105f51980)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45828 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8c008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleRetention(0x379366d8c008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:27 +0x28
+testing.tRunner(0x379366d8c008, 0x105f516c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 276954 [chan receive]:
+testing.(*T).Parallel(0x37936743ad88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTaskPublicationSurvivesAReplayedTrigger(0x37936743ad88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_publication_test.go:220 +0x28
+testing.tRunner(0x37936743ad88, 0x105f52428)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 272192 [chan receive]:
+testing.(*T).Parallel(0x37936743a908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTaskConflictProposalRedactsPreview(0x37936743a908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_conflict_test.go:300 +0x20
+testing.tRunner(0x37936743a908, 0x105f52400)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73202 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366ed38c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPreviousMayAsk(0x379366ed38c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:328 +0x28
+testing.tRunner(0x379366ed38c8, 0x105f51fa0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280893 [select]:
+database/sql.(*DB).connectionOpener(0x379366801a00, {0x105f4fb28, 0x379366f06320})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0x84
+created by database/sql.OpenDB in goroutine 280882
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x11c
+
+goroutine 97447 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a66c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteAllocatesTheRunRowBeforeTheSubprocess(0x3793666a66c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:188 +0x28
+testing.tRunner(0x3793666a66c8, 0x105f51a00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156712 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x3793667118c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestAgentSwitchRefusalFiresRegardlessOfModeChange(0x3793667118c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:480 +0x28
+testing.tRunner(0x3793667118c8, 0x105f51720)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 72927 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366eb5d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestParseCommandNeverFails(0x379366eb5d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:207 +0x28
+testing.tRunner(0x379366eb5d48, 0x105f51ec8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73237 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ee488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionPreparedDiffSanitizedBeforeStoreMapping(0x3793666ee488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_preview_test.go:71 +0x28
+testing.tRunner(0x3793666ee488, 0x105f52008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 179499 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366c79d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPRuntime_PrepareCreationProposalRejectsUntrustedControls(0x379366c79d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/publication_controls_unit_test.go:12 +0x28
+testing.tRunner(0x379366c79d48, 0x105f51da0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113046 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793668026c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestColdRunWithoutAThreadCarriesNoHistory(0x3793668026c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:126 +0x28
+testing.tRunner(0x3793668026c8, 0x105f51828)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113049 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestHistoryRoleMapping(0x379366802d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:235 +0x28
+testing.tRunner(0x379366802d88, 0x105f51c70)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73212 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9c908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestClassifySelfBeforeAuthorship(0x379366f9c908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:295 +0x28
+testing.tRunner(0x379366f9c908, 0x105f517d8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73248 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666efd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestValidateConflictResolutionRejectsADuplicatePath(0x3793666efd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:180 +0x24
+testing.tRunner(0x3793666efd48, 0x105f524c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263806 [chan receive]:
+testing.(*T).Parallel(0x379366803448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReporterPostsTheSyncSkipReason(0x379366803448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncrefusal_test.go:232 +0x28
+testing.tRunner(0x379366803448, 0x105f520f8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187123 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e5208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsManifestOnlyNamesNoBrief(0x3793670e5208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:30 +0x24
+testing.tRunner(0x3793670e5208, 0x105f51b70)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280799 [chan receive]:
+testing.tRunner.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2142 +0x378
+testing.tRunner(0x37936743a008, 0x105f51b40)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2199 +0x100
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280928 [select]:
+database/sql.(*DB).connectionOpener(0x379366d292b0, {0x105f4fb28, 0x379367248550})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0x84
+created by database/sql.OpenDB in goroutine 280881
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x11c
+
+goroutine 263802 [chan receive]:
+testing.(*T).Parallel(0x379366e2ed88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRecordsTheSyncOutcomeOnTheRunRow(0x379366e2ed88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncpersist_test.go:27 +0x28
+testing.tRunner(0x379366e2ed88, 0x105f51a90)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73244 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ef448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCollectConflictContentExcludesWholeOverTotalBudget(0x3793666ef448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:88 +0x28
+testing.tRunner(0x3793666ef448, 0x105f51840)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 274379 [chan receive]:
+testing.(*T).Parallel(0x379366c78248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTaskPublicationFailedRunnerRetainsWork(0x379366c78248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_publication_test.go:65 +0x28
+testing.tRunner(0x379366c78248, 0x105f52410)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73214 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9cd88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFilterAdmitDropsItsOwnComment(0x379366f9cd88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:397 +0x28
+testing.tRunner(0x379366f9cd88, 0x105f51bf0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73232 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bf8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesSuggestionWithAnExcludedSibling(0x3793666bf8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:303 +0x28
+testing.tRunner(0x3793666bf8c8, 0x105f51ac0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73246 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ef8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestValidateConflictResolutionAcceptsAMatchingResponse(0x3793666ef8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:157 +0x24
+testing.tRunner(0x3793666ef8c8, 0x105f524b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186910 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e46c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeRefusalRerunsOnceCold(0x3793670e46c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:233 +0x28
+testing.tRunner(0x3793670e46c8, 0x105f521a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97867 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c7448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteResolvesTheAuthorFromTheClone(0x3793666c7448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1307 +0x28
+testing.tRunner(0x3793666c7448, 0x105f51b00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97860 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteFreezesTheSlugThenReusesIt(0x3793666c6488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:993 +0x28
+testing.tRunner(0x3793666c6488, 0x105f51a38)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73240 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666eeb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionConfirmationPushFailureRetainsLocalCommit(0x3793666eeb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_regions_apply_test.go:80 +0x28
+testing.tRunner(0x3793666eeb48, 0x105f51ff8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113036 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9cb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTurnImposesNoAmbientDeadline(0x379366e9cb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/gate_test.go:296 +0x28
+testing.tRunner(0x379366e9cb48, 0x105f52458)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89104 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestDeliverySegmentSwitchReconcilesDeliveryForTheNewAgent(0x379366710908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/delivery_test.go:225 +0x28
+testing.tRunner(0x379366710908, 0x105f51988)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156714 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366711d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestModeResetPreservesOrdinaryColdTurnMachinery(0x379366711d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:635 +0x34
+testing.tRunner(0x379366711d48, 0x105f51e50)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89099 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366def688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteStatusInspectionErrorDoesNotStartAgent(0x379366def688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/deferred_dirty_test.go:264 +0x28
+testing.tRunner(0x379366def688, 0x105f51b18)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 86444 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366e9c248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCreationPublicationService_DecodeExactReviewedEnvelope(0x379366e9c248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/creation_publication_unit_test.go:15 +0x28
+testing.tRunner(0x379366e9c248, 0x105f51920)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 86445 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366e9c6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCreationPublicationService_PermissionMaterialExcludesPermit(0x379366e9c6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/creation_publication_unit_test.go:68 +0x28
+testing.tRunner(0x379366e9c6c8, 0x105f51928)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73213 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9cb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestHasMarker(0x379366f9cb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:356 +0x28
+testing.tRunner(0x379366f9cb48, 0x105f51c68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73224 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666be6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActiveCommandsAreNotUnknown(0x3793666be6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/command_test.go:244 +0x28
+testing.tRunner(0x3793666be6c8, 0x105f51658)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113045 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestColdRunCarriesTheThreadAsHistory(0x379366802248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:76 +0x28
+testing.tRunner(0x379366802248, 0x105f51820)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97456 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a7b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteLeavesTheCommentUnconsumedWhenLocked(0x3793666a7b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:798 +0x28
+testing.tRunner(0x3793666a7b08, 0x105f51a50)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97868 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c7688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteValidatesItsArguments(0x3793666c7688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1333 +0x20
+testing.tRunner(0x3793666c7688, 0x105f51b60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73221 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666be008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestLoadIdentities(0x3793666be008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:786 +0x20
+testing.tRunner(0x3793666be008, 0x105f51ce8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 281938 [select]:
+os/exec.(*Cmd).watchCtx(0x379366e741a0, 0x379366a323f0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:808 +0x74
+created by os/exec.(*Cmd).Start in goroutine 280881
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:794 +0x6ac
+
+goroutine 89102 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366defd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestVerifyDeliveryRejectsAlteredResources(0x379366defd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/delivery_test.go:125 +0x24
+testing.tRunner(0x379366defd48, 0x105f524e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187125 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e5688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsPlanPrefersResearchBrief(0x3793670e5688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:67 +0x28
+testing.tRunner(0x3793670e5688, 0x105f51b88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 179500 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366803208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPRuntime_PrepareCreationProposalRejectsUnsupportedInput(0x379366803208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/publication_controls_unit_test.go:55 +0x28
+testing.tRunner(0x379366803208, 0x105f51d98)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 72928 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366ed2488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestModeMayAsk(0x379366ed2488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:256 +0x28
+testing.tRunner(0x379366ed2488, 0x105f51e48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73229 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bf208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRejectsAnOutOfScopeSuggestion(0x3793666bf208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:199 +0x28
+testing.tRunner(0x3793666bf208, 0x105f51ad0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 147468 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366deed88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRunMCPBound_DisabledAndInvalidRuntime(0x379366deed88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_runtime_unit_test.go:28 +0x24
+testing.tRunner(0x379366deed88, 0x105f521d0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113044 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSaveDoesNotCommitAbandonedIsUnchanged(0x379366802008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harvest_test.go:172 +0x28
+testing.tRunner(0x379366802008, 0x105f521d8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187131 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670ea488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestADirectoryWithoutTheMarkerIsNotTheAnswer(0x3793670ea488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:110 +0x24
+testing.tRunner(0x3793670ea488, 0x105f51608)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97446 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteNoChangesDoesNotCommitOrPush(0x3793666a6488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:151 +0x28
+testing.tRunner(0x3793666a6488, 0x105f51a70)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253108 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ece908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryTallyCountsDoneStoriesForImplementRun(0x379366ece908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:55 +0x28
+testing.tRunner(0x379366ece908, 0x105f52308)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97451 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteSwitchesTheSegmentInPlaceWhenTheResolvedAgentChanges(0x3793666a6fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:319 +0x28
+testing.tRunner(0x3793666a6fc8, 0x105f51b30)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97445 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteCommitCarriesTheTrailersAndStripsForgeries(0x3793666a6248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:115 +0x28
+testing.tRunner(0x3793666a6248, 0x105f51a08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70944 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb4b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRefusesCrossSessionProposal(0x379366eb4b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:199 +0x28
+testing.tRunner(0x379366eb4b48, 0x105f51778)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187076 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366e2e248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResultPlanContribution_MissingPayload(0x379366e2e248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/result_finalization_unit_test.go:62 +0x28
+testing.tRunner(0x379366e2e248, 0x105f52168)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73216 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9d448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSelfDropIsLogged(0x379366f9d448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:529 +0x28
+testing.tRunner(0x379366f9d448, 0x105f521f0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185364 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366eced88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRunInputCarriesBothShas(0x379366eced88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_input_test.go:22 +0x28
+testing.tRunner(0x379366eced88, 0x105f521c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 250055 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379367291d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryReconciliationTypedUpdatePreservesProseAndRetiresIDs(0x379367291d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_reconciliation_test.go:51 +0x28
+testing.tRunner(0x379367291d48, 0x105f52300)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253107 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ece6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryReconciliationRetiredIDCannotReturnInLaterPlan(0x379366ece6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_reconciliation_test.go:266 +0x28
+testing.tRunner(0x379366ece6c8, 0x105f522f8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119138 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2f8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_EmptyPageKeepsContinuation(0x379366a2f8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:210 +0x24
+testing.tRunner(0x379366a2f8c8, 0x105f51ca8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280935 [select]:
+database/sql.(*DB).connectionOpener(0x379366e315f0, {0x105f4fb28, 0x379366a7e1e0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0x84
+created by database/sql.OpenDB in goroutine 280883
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x11c
+
+goroutine 113048 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366802b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFallbackColdRerunCarriesTheHistory(0x379366802b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/history_test.go:186 +0x28
+testing.tRunner(0x379366802b48, 0x105f51ba8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97444 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteFullTurnLeavesTheCloneUntouched(0x3793666a6008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:33 +0x28
+testing.tRunner(0x3793666a6008, 0x105f51a40)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 241680 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366e2e008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryContractUpgradePreviewAndExplicitApply(0x379366e2e008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_contract_upgrade_test.go:113 +0x28
+testing.tRunner(0x379366e2e008, 0x105f52288)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 48065 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366ed3688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestAggregateResultInput_RejectsNonAuthoredShape(0x379366ed3688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/agent_result_context_unit_test.go:40 +0x28
+testing.tRunner(0x379366ed3688, 0x105f51748)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253109 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366eceb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryTallyGatedOnImplementMode(0x379366eceb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:72 +0x28
+testing.tRunner(0x379366eceb48, 0x105f52318)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97869 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c78c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReconcileReclaimsAndLogs(0x3793666c78c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1394 +0x28
+testing.tRunner(0x3793666c78c8, 0x105f51fe0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73230 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bf448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRejectsASuggestionCarryingConflictMarkers(0x3793666bf448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:233 +0x28
+testing.tRunner(0x3793666bf448, 0x105f51ac8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280720 [IO wait]:
+internal/poll.runtime_pollWait(0x133b85200, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x379366e382a0?, 0x3793671de000?, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x379366e382a0, {0x3793671de000, 0x8000, 0x8000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x22c
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x379366602210, {0x3793671de000?, 0x1?, 0x105fb67a0?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:144 +0x68
+io.copyBuffer({0x105f4a1c8, 0x379366b74140}, {0x105f4a128, 0x379366602210}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:429 +0x18c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os.genericWriteTo(0x379366cbc660?, {0x105f4a1c8?, 0x379366b74140?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x379366d0ce98?, {0x105f4a1c8?, 0x379366b74140?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x105f4a1c8, 0x379366b74140}, {0x105f4a1e8, 0x379366602210}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:613 +0x40
+os/exec.(*Cmd).Start.func2(0x379366d1cd80?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:768 +0x30
+created by os/exec.(*Cmd).Start in goroutine 280881
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:767 +0x6d8
+
+goroutine 73231 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bf688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConflictAdvisorNeverCalledWhileCloneGateIsHeld(0x3793666bf688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:267 +0x28
+testing.tRunner(0x3793666bf688, 0x105f518a8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73250 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConflictAdvisorForNarrowsARegisteredRunner(0x379366710248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:205 +0x28
+testing.tRunner(0x379366710248, 0x105f518a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 179497 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366c798c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeDecisionTrueForAFailedClaudePredecessor(0x379366c798c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/prepare_test.go:168 +0x28
+testing.tRunner(0x379366c798c8, 0x105f52180)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 179496 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366c79208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPrepareSetsPreviousFailedFields(0x379366c79208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/prepare_test.go:64 +0x28
+testing.tRunner(0x379366c79208, 0x105f51f98)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119023 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2f208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_GetBounds(0x379366a2f208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:98 +0x28
+testing.tRunner(0x379366a2f208, 0x105f51cb0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 281937 [IO wait]:
+internal/poll.runtime_pollWait(0x1337e7200, 0x72)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/netpoll.go:351 +0xa0
+internal/poll.(*pollDesc).wait(0x379366e38360?, 0x3793671e6000?, 0x1)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:84 +0x28
+internal/poll.(*pollDesc).waitRead(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0x379366e38360, {0x3793671e6000, 0x8000, 0x8000})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/poll/fd_unix.go:170 +0x22c
+os.(*File).read(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:30
+os.(*File).Read(0x379366602228, {0x3793671e6000?, 0x1?, 0x379366f8debc?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:144 +0x68
+io.copyBuffer({0x105f4a1c8, 0x379366b74160}, {0x105f4a128, 0x379366602228}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:429 +0x18c
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os.genericWriteTo(0x379366cbc5a0?, {0x105f4a1c8?, 0x379366b74160?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:295 +0x44
+os.(*File).WriteTo(0x379366f8de98?, {0x105f4a1c8?, 0x379366b74160?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file.go:273 +0x5c
+io.copyBuffer({0x105f4a1c8, 0x379366b74160}, {0x105f4a1e8, 0x379366602228}, {0x0, 0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:411 +0x98
+io.Copy(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/io/io.go:388
+os/exec.(*Cmd).writerDescriptor.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:613 +0x40
+os/exec.(*Cmd).Start.func2(0x379366c0c000?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:768 +0x30
+created by os/exec.(*Cmd).Start in goroutine 280881
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:767 +0x6d8
+
+goroutine 73219 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9db08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFilterAdmitRejectsNonComments(0x379366f9db08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:717 +0x28
+testing.tRunner(0x379366f9db08, 0x105f51c00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73201 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366ed3208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPermissionHonorsModeAndOwnerControl(0x379366ed3208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:292 +0x28
+testing.tRunner(0x379366ed3208, 0x105f51ef0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 281903 [select]:
+os/exec.(*Cmd).watchCtx(0x379366eb71e0, 0x3793669c4d20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:808 +0x74
+created by os/exec.(*Cmd).Start in goroutine 280883
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:794 +0x6ac
+
+goroutine 73225 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666be908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesASimultaneousSecondCallAtOneSession(0x3793666be908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/concurrent_execute_test.go:37 +0x34
+testing.tRunner(0x3793666be908, 0x105f51aa0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263794 [chan receive]:
+testing.(*T).Parallel(0x3793670ead88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseUpToDateShortCircuitsOnZeroBehind(0x3793670ead88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:140 +0x28
+testing.tRunner(0x3793670ead88, 0x105f523c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97861 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c66c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesACorruptedFrozenSlug(0x3793666c66c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1037 +0x28
+testing.tRunner(0x3793666c66c8, 0x105f51a98)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73218 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9d8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFilterAdmitTagsThirdPartyComments(0x379366f9d8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:622 +0x28
+testing.tRunner(0x379366f9d8c8, 0x105f51c08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97858 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteFetchFailureAbortsWithNoWorktree(0x3793666c6008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:936 +0x28
+testing.tRunner(0x3793666c6008, 0x105f51a30)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183636 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793672906c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestKindDispatchesConfirmKindDirectly(0x3793672906c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:119 +0x28
+testing.tRunner(0x3793672906c8, 0x105f52028)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89170 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestWorkingRunSavesMarkdownWithoutDiscoveringStories(0x379366710d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/discovery_retirement_test.go:25 +0x28
+testing.tRunner(0x379366710d88, 0x105f524e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97455 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a78c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteInFlightTurnFinishesUnderOldAgentThenTheNextTurnSwitches(0x3793666a78c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:672 +0x34
+testing.tRunner(0x3793666a78c8, 0x105f51a48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89098 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366def448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReporterDisclosesDeferredDirtyWithoutSuccessClaim(0x379366def448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/deferred_dirty_test.go:227 +0x28
+testing.tRunner(0x379366def448, 0x105f520e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73243 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ef208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCollectConflictContentExcludesWholeOverPerFileBudget(0x3793666ef208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:68 +0x34
+testing.tRunner(0x3793666ef208, 0x105f51838)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73249 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366710008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestValidateConflictResolutionRejectsAConflictMarker(0x379366710008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:192 +0x24
+testing.tRunner(0x379366710008, 0x105f524c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183635 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestKindOnlyConsultsReplyKindForACommand(0x379367290488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:91 +0x28
+testing.tRunner(0x379367290488, 0x105f52038)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186909 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumedRunReEmitsGuidanceWhenTheModeChanges(0x3793670e4488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:184 +0x24
+testing.tRunner(0x3793670e4488, 0x105f521b0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70942 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb46c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRefusesNonOwner(0x379366eb46c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:156 +0x28
+testing.tRunner(0x379366eb46c8, 0x105f51788)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 47952 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366ed3448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCloneResultContext_NestedScopeIndependence(0x379366ed3448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/agent_result_context_unit_test.go:15 +0x28
+testing.tRunner(0x379366ed3448, 0x105f517e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253477 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366e2e908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryDonePredicate(0x379366e2e908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:186 +0x28
+testing.tRunner(0x379366e2e908, 0x105f522a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73205 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x37936665dd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPermissionIsRecoveredFromThePreviousTrigger(0x37936665dd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_turn_test.go:158 +0x28
+testing.tRunner(0x37936665dd48, 0x105f51f00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45829 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8c488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleDoesNotRenewOrReopen(0x379366d8c488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:67 +0x28
+testing.tRunner(0x379366d8c488, 0x105f516a8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263798 [chan receive]:
+testing.(*T).Parallel(0x3793670eb8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseMergesCleanly(0x3793670eb8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:280 +0x28
+testing.tRunner(0x3793670eb8c8, 0x105f52398)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89100 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366def8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPlanDeliverySelectedRosterAndIdentity(0x379366def8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/delivery_test.go:29 +0x28
+testing.tRunner(0x379366def8c8, 0x105f51f10)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 179498 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366c79b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPrepareDoesNotWrapSessionRunningInWithoutCancel(0x379366c79b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/prepare_test.go:199 +0x20
+testing.tRunner(0x379366c79b08, 0x105f51f90)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 276953 [chan receive]:
+testing.(*T).Parallel(0x37936743ab48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTaskPublicationReportInput(0x37936743ab48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_publication_test.go:203 +0x28
+testing.tRunner(0x37936743ab48, 0x105f52420)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73220 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9dd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestNewFilterRejectsUnusableIdentities(0x379366f9dd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:743 +0x28
+testing.tRunner(0x379366f9dd48, 0x105f51e60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183638 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestValidateRefusesConfirmKindCombinedWithARefusalOrSchedule(0x379367290d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:165 +0x28
+testing.tRunner(0x379367290d88, 0x105f52050)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263799 [chan receive]:
+testing.(*T).Parallel(0x3793670ebb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseBlockedOnConflictLeavesBranchUntouched(0x3793670ebb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:318 +0x28
+testing.tRunner(0x3793670ebb08, 0x105f52388)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73235 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ee008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionPreviewStatisticsMatchAppliedRawResult(0x3793666ee008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_preview_test.go:16 +0x28
+testing.tRunner(0x3793666ee008, 0x105f52018)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73226 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666beb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteSuggestsAResolutionOnABlockedRun(0x3793666beb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:39 +0x28
+testing.tRunner(0x3793666beb48, 0x105f51b20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113042 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9db08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCommitAndPushIncludesPredecessorLeftoversOnSucceedingRun(0x379366e9db08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harvest_recovery_test.go:67 +0x28
+testing.tRunner(0x379366e9db08, 0x105f51878)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119024 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2f448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_MinimalProjection(0x379366a2f448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:137 +0x28
+testing.tRunner(0x379366a2f448, 0x105f51cc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156713 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366711b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestContinuationRefusesWhenTheBundleIdentityChanged(0x379366711b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:577 +0x28
+testing.tRunner(0x379366711b08, 0x105f518c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73211 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9c6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestFilterClassify(0x379366f9c6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:71 +0x28
+testing.tRunner(0x379366f9c6c8, 0x105f51c10)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97857 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a7d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteReplayIsANoOp(0x3793666a7d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:838 +0x24
+testing.tRunner(0x3793666a7d48, 0x105f51ae8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 117425 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2e488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssuePublicationService_RequiresFactoryDependencies(0x379366a2e488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_publication_unit_test.go:135 +0x24
+testing.tRunner(0x379366a2e488, 0x105f51c98)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73233 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bfb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConflictSuggestionReachesATerminalStateAfterPosting(0x3793666bfb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:348 +0x28
+testing.tRunner(0x3793666bfb08, 0x105f518c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 117424 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2e248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssuePublicationService_TargetBinding(0x379366a2e248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_publication_unit_test.go:66 +0x28
+testing.tRunner(0x379366a2e248, 0x105f51ca0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263796 [chan receive]:
+testing.(*T).Parallel(0x3793670eb448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseRefusesOverCap(0x3793670eb448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:222 +0x28
+testing.tRunner(0x3793670eb448, 0x105f523a8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 72924 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366853b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestHasAskTag(0x379366853b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:18 +0x28
+testing.tRunner(0x379366853b08, 0x105f51c60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73239 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ee908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionConfirmationRechecksStoredPayload(0x3793666ee908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_regions_apply_test.go:48 +0x24
+testing.tRunner(0x3793666ee908, 0x105f52000)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 72925 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366853d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTheAskTagAndTheSelfMarkerDoNotMatchEachOther(0x379366853d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_test.go:75 +0x24
+testing.tRunner(0x379366853d48, 0x105f52430)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187126 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e58c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsPlanFallsBackToPlanBrief(0x3793670e58c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:86 +0x24
+testing.tRunner(0x3793670e58c8, 0x105f51b80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70950 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb58c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionRollsBackOnMutatorFailure(0x379366eb58c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:437 +0x28
+testing.tRunner(0x379366eb58c8, 0x105f51798)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186911 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeRefusalDoesNotFireOnOtherFailures(0x3793670e4908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:294 +0x24
+testing.tRunner(0x3793670e4908, 0x105f52188)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45833 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8d208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_EmptyLifecycle(0x379366d8d208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:158 +0x28
+testing.tRunner(0x379366d8d208, 0x105f51690)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73245 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ef688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExtractConflictHunksFindsMultipleRegions(0x3793666ef688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:123 +0x28
+testing.tRunner(0x3793666ef688, 0x105f51ba0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 281922 [runnable]:
+os/exec.(*Cmd).watchCtx(0x379366c0d380, 0x379366612540)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:808 +0x74
+created by os/exec.(*Cmd).Start in goroutine 280800
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:794 +0x6ac
+
+goroutine 140868 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366e2f688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPGuidance_RegistrationRequired(0x379366e2f688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_guidance_test.go:28 +0x24
+testing.tRunner(0x379366e2f688, 0x105f51d38)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73234 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bfd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConflictSuggestionCodeNeverSleepsOrPolls(0x3793666bfd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:385 +0x20
+testing.tRunner(0x3793666bfd48, 0x105f518b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73215 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366f9cfc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestQuotedMarkerIsNotLitefactorysOwnComment(0x379366f9cfc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/classify_test.go:453 +0x28
+testing.tRunner(0x379366f9cfc8, 0x105f51fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45830 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8cb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleClonesViews(0x379366d8cb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:94 +0x28
+testing.tRunner(0x379366d8cb48, 0x105f51698)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73223 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666be488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCommandDisposition(0x3793666be488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/command_test.go:204 +0x28
+testing.tRunner(0x3793666be488, 0x105f51848)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70947 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb5208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionAllocatesNoRunsRow(0x379366eb5208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:275 +0x28
+testing.tRunner(0x379366eb5208, 0x105f51758)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 243395 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ece008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency(0x379366ece008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_contract_upgrade_test.go:254 +0x28
+testing.tRunner(0x379366ece008, 0x105f52280)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187122 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExistingSessionArtifactsNoDirectory(0x3793670e4fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/session_artifacts_test.go:17 +0x24
+testing.tRunner(0x3793670e4fc8, 0x105f51b78)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253476 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366e2e6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRunInputCarriesTheStoryTally(0x379366e2e6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:156 +0x28
+testing.tRunner(0x379366e2e6c8, 0x105f521c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113035 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9c908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCriticalSectionsAreSingleAcquisitions(0x379366e9c908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/gate_test.go:182 +0x28
+testing.tRunner(0x379366e9c908, 0x105f51930)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186912 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeRefusalDoesNotLoop(0x3793670e4b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:373 +0x28
+testing.tRunner(0x3793670e4b48, 0x105f52190)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119022 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2eb48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_ListBounds(0x379366a2eb48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:41 +0x28
+testing.tRunner(0x379366a2eb48, 0x105f51cb8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97453 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a7448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteSwitchAlwaysColdStartsRegardlessOfPriorSameAgentHistory(0x3793666a7448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:482 +0x34
+testing.tRunner(0x3793666a7448, 0x105f51b28)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97864 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRecordsADistinctReasonPerOutcome(0x3793666c6d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1143 +0x28
+testing.tRunner(0x3793666c6d88, 0x105f51a80)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 45831 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366d8cd88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestActivityService_LifecycleRequiresTime(0x379366d8cd88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/activity_unit_test.go:113 +0x28
+testing.tRunner(0x379366d8cd88, 0x105f516b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263803 [chan receive]:
+testing.(*T).Parallel(0x379366e2efc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesASyncOnAConflictingBase(0x379366e2efc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncrefusal_test.go:64 +0x28
+testing.tRunner(0x379366e2efc8, 0x105f51aa8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253110 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ecf688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryTallyNilWithNoManagedFeature(0x379366ecf688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:88 +0x28
+testing.tRunner(0x379366ecf688, 0x105f52328)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70949 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb5688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionNeverAutoSyncsBeforeReVerifying(0x379366eb5688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:379 +0x28
+testing.tRunner(0x379366eb5688, 0x105f51768)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73236 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666ee248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestRegionPreviewOverflowPreventsProposalPersistence(0x3793666ee248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_preview_test.go:51 +0x28
+testing.tRunner(0x3793666ee248, 0x105f52010)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263805 [chan receive]:
+testing.(*T).Parallel(0x379366e2f448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReporterPostsReplyRefusesSyncWithConflictingPaths(0x379366e2f448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncrefusal_test.go:162 +0x28
+testing.tRunner(0x379366e2f448, 0x105f520f0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187121 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4d88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeRefusalIsMatchedThroughWrapping(0x3793670e4d88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:403 +0x28
+testing.tRunner(0x3793670e4d88, 0x105f52198)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89097 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366deefc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseStatusErrorRetainsCause(0x379366deefc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/deferred_dirty_test.go:208 +0x28
+testing.tRunner(0x379366deefc8, 0x105f523b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 70948 [chan receive, 7 minutes]:
+testing.(*T).Parallel(0x379366eb5448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestApplyConfirmedResolutionSupersedesOnStaleBase(0x379366eb5448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/apply_test.go:312 +0x28
+testing.tRunner(0x379366eb5448, 0x105f517a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73242 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666eefc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestCollectConflictContentCapsAndExcludes(0x3793666eefc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_test.go:26 +0x28
+testing.tRunner(0x3793666eefc8, 0x105f51830)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73206 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366d8d8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPermissionIsRecoveredFromTheIssueBody(0x379366d8d8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/ask_turn_test.go:272 +0x28
+testing.tRunner(0x379366d8d8c8, 0x105f51ef8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 73227 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x3793666bed88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteSkipsSuggestionWhenAdvisorFails(0x3793666bed88)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/conflict_e2e_test.go:110 +0x28
+testing.tRunner(0x3793666bed88, 0x105f51b10)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185783 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportReplayOfAReportedRunIsANoOp(0x379367290fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:371 +0x28
+testing.tRunner(0x379367290fc8, 0x105f520b0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185782 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportReadinessRefusalPostsWithNoRunRow(0x379367290908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:327 +0x28
+testing.tRunner(0x379367290908, 0x105f520a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187128 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e5d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTheSessionDirectoryIsFoundOnADayTheRunDidNotStart(0x3793670e5d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:47 +0x24
+testing.tRunner(0x3793670e5d48, 0x105f52448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186907 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumeDecisionComesFromTheRunsTable(0x3793670e4008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:42 +0x28
+testing.tRunner(0x3793670e4008, 0x105f52178)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97449 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteReleasesTheLockOnPanic(0x3793666a6b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:257 +0x28
+testing.tRunner(0x3793666a6b48, 0x105f51ae0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156708 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366e9cfc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSimultaneousBundleAndModeChangeRotatesExactlyOnce(0x379366e9cfc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:195 +0x20
+testing.tRunner(0x379366e9cfc8, 0x105f52258)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119139 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2fb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_ListOutputBounds(0x379366a2fb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:222 +0x28
+testing.tRunner(0x379366a2fb08, 0x105f51cc0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 119137 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366a2f688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestIssueQueryService_UpstreamRefusals(0x379366a2f688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/issue_query_unit_test.go:182 +0x28
+testing.tRunner(0x379366a2f688, 0x105f51cd0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156707 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x3793666c7d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestModeAdmissionAcrossAgentsAndBundleConfigs(0x3793666c7d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:78 +0x20
+testing.tRunner(0x3793666c7d48, 0x105f51e40)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 156711 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366711688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestPrepareDeliverySegmentNeverResetsWithoutATerminalNonRefusedRun(0x379366711688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mode_reset_test.go:400 +0x24
+testing.tRunner(0x379366711688, 0x105f51f88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185785 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367291448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportSkipsALockedTurn(0x379367291448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:478 +0x28
+testing.tRunner(0x379367291448, 0x105f520d0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280881 [syscall]:
+syscall.syscalln(0x104d3b530, {0x379367494ec8, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/sys_darwin.go:27 +0x20
+syscall.syscall6(0x167495098?, 0x133751850?, 0x1080ad2f8?, 0x90?, 0x37936723c008?, 0x379367090120?, 0x379367494f68?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_darwin.go:407 +0x28
+syscall.wait4(0x379367494f98?, 0x104d5b6bc?, 0x90?, 0x105f33848?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x4c
+syscall.Wait4(0x86?, 0x379367494fd4, 0x3793669ae690?, 0x379366a323f0?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_bsd.go:144 +0x28
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x379366b7da00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:63 +0x9c
+os.(*Process).wait(0x0?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:28 +0x24
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec.go:347
+os/exec.(*Cmd).Wait(0x379366e741a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:944 +0x34
+os/exec.(*Cmd).Run(0x379366e741a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:643 +0x38
+github.com/cloudvane/litefactory/internal/gittest.run({0x105f513c0, 0x37936743a488}, {0x379366abe180, 0x7b}, {0x379366abe100, 0x7c}, {0x379367495338, 0x5, 0x5})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:201 +0x180
+github.com/cloudvane/litefactory/internal/gittest.(*Repo).GitIn(0x37936655b000, {0x379366abe100, 0x7c}, {0x379367495338, 0x5, 0x5})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:113 +0x6c
+github.com/cloudvane/litefactory/internal/gittest.(*Repo).Git(0x37936655b000, {0x379367495338, 0x5, 0x5})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:106 +0x4c
+github.com/cloudvane/litefactory/internal/turn.taskOperator(0x37936743a488, 0x37936655b000, {0x1055ec496, 0x1c}, {0x379366ed8390, 0x28}, {0x1055cfb45, 0x9}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:23 +0xd4
+github.com/cloudvane/litefactory/internal/turn.TestExecuteTaskObstructionPreservesWork.func1(0x37936743a488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:235 +0x1fc
+testing.tRunner(0x37936743a488, 0x3793672da318)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 280799
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 89101 [chan receive, 6 minutes]:
+testing.(*T).Parallel(0x379366defb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestDeliveryConcurrentPublicationIsDisjoint(0x379366defb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/delivery_test.go:82 +0x28
+testing.tRunner(0x379366defb08, 0x105f51940)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97866 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c7208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteReportsAClaudeThatNeverStarted(0x3793666c7208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1275 +0x28
+testing.tRunner(0x3793666c7208, 0x105f51af0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280883 [syscall]:
+syscall.syscalln(0x104d3b530, {0x379367484de8, 0x6, 0x6})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/sys_darwin.go:27 +0x20
+syscall.syscall6(0x167484fb8?, 0x133b9ce80?, 0x1080aca00?, 0x90?, 0x3793665ac808?, 0x379366a4f7a0?, 0x379367484e88?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_darwin.go:407 +0x28
+syscall.wait4(0x379367484eb8?, 0x104d5b6bc?, 0x90?, 0x105f33848?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/zsyscall_darwin_arm64.go:44 +0x4c
+syscall.Wait4(0x86?, 0x379367484ef4, 0x3793666f13b0?, 0x3793669c4d20?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/syscall/syscall_bsd.go:144 +0x28
+os.(*Process).pidWait.func1(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:64
+os.ignoringEINTR2[...](...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:273
+os.(*Process).pidWait(0x379366d74c00)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:63 +0x9c
+os.(*Process).wait(0x0?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec_unix.go:28 +0x24
+os.(*Process).Wait(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec.go:347
+os/exec.(*Cmd).Wait(0x379366eb71e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:944 +0x34
+os/exec.(*Cmd).Run(0x379366eb71e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:643 +0x38
+github.com/cloudvane/litefactory/internal/gittest.run({0x105f513c0, 0x37936743afc8}, {0x3793666fc400, 0x7b}, {0x379366f00780, 0x77}, {0x3793674851d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:201 +0x180
+github.com/cloudvane/litefactory/internal/gittest.(*Repo).GitIn(0x379366e2c100, {0x379366f00780, 0x77}, {0x3793674851d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:113 +0x6c
+github.com/cloudvane/litefactory/internal/turn.commitInSyncDir(0x37936743afc8, 0x379366e2c100, {0x379366f00780, 0x77}, {0x1055f760e, 0x21}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:67 +0x150
+github.com/cloudvane/litefactory/internal/turn.taskOperator(0x37936743afc8, 0x379366e2c100, {0x1055ec496, 0x1c}, {0x379366e7a390, 0x28}, {0x1055f760e, 0x21}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:27 +0x154
+github.com/cloudvane/litefactory/internal/turn.TestExecuteTaskObstructionPreservesWork.func1(0x37936743afc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:235 +0x1fc
+testing.tRunner(0x37936743afc8, 0x3793672da420)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 280799
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263807 [chan receive]:
+testing.(*T).Parallel(0x379366803688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReporterRefusesARunTooFarBehindTheBase(0x379366803688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncrefusal_test.go:293 +0x28
+testing.tRunner(0x379366803688, 0x105f52100)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185780 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366dee488)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportReplyAdvancesWithoutARunRow(0x379366dee488)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:227 +0x28
+testing.tRunner(0x379366dee488, 0x105f520b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97865 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6fc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteDoesNotCommitAnAbandonedRun(0x3793666c6fc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1240 +0x28
+testing.tRunner(0x3793666c6fc8, 0x105f51a18)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113041 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9d8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSecondRunResumesInsteadOfReusingTheSessionID(0x379366e9d8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harness_test.go:242 +0x28
+testing.tRunner(0x379366e9d8c8, 0x105f521e8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183633 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366803d48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestKindDispatchesSyncRefusalThroughRefusal(0x379366803d48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:23 +0x28
+testing.tRunner(0x379366803d48, 0x105f52030)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113038 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9d208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestConcurrentTurnsAgainstTwoClones(0x379366e9d208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/gate_test.go:409 +0x28
+testing.tRunner(0x379366e9d208, 0x105f51888)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187132 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670ea6c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestNoAiteamDirectoryIsNotAnError(0x3793670ea6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:126 +0x24
+testing.tRunner(0x3793670ea6c8, 0x105f51e68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97859 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRecordsTheFetch(0x3793666c6248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:974 +0x28
+testing.tRunner(0x3793666c6248, 0x105f51a88)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97448 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666a6908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteMarksTheSessionRunningForTheWholeDispatchWindow(0x3793666a6908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:230 +0x28
+testing.tRunner(0x3793666a6908, 0x105f51a68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185365 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366ecefc8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportRunPostsThenCommitsAllThree(0x379366ecefc8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:34 +0x28
+testing.tRunner(0x379366ecefc8, 0x105f520c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97870 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c7b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExternalTeamRefusesBeforeRunnerAndCloneChanges(0x3793666c7b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/external_team_test.go:13 +0x28
+testing.tRunner(0x3793666c7b08, 0x105f51b98)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185784 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367291208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportRunTriggeredByTheIssueBody(0x379367291208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:425 +0x28
+testing.tRunner(0x379367291208, 0x105f520c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187130 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670ea248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestTheNewestSessionWins(0x3793670ea248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sessiondir_test.go:88 +0x24
+testing.tRunner(0x3793670ea248, 0x105f52438)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113034 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9c008)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRequiresACloneGate(0x379366e9c008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/gate_test.go:130 +0x28
+testing.tRunner(0x379366e9c008, 0x105f51af8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113039 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9d448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteThroughTheRealHarness(0x379366e9d448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harness_test.go:46 +0x28
+testing.tRunner(0x379366e9d448, 0x105f51b50)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 97862 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x3793666c6908)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteRefusesAnOccupiedWorktreePath(0x3793666c6908)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/execute_test.go:1064 +0x28
+testing.tRunner(0x3793666c6908, 0x105f51ab8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185366 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366ecf208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportPostFailureLeavesTheWatermarkAndTheRunUntouched(0x379366ecf208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:84 +0x28
+testing.tRunner(0x379366ecf208, 0x105f52098)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 113043 [chan receive, 5 minutes]:
+testing.(*T).Parallel(0x379366e9dd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSaveOnlyCommitsASucceededRun(0x379366e9dd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/harvest_test.go:27 +0x28
+testing.tRunner(0x379366e9dd48, 0x105f521e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 187105 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367291b08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResultPlanContribution_PreservesCompleteProposal(0x379367291b08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/result_finalization_unit_test.go:15 +0x28
+testing.tRunner(0x379367291b08, 0x105f52170)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185367 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379366ecf448)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportRenderFailurePostsNothingAndAdvancesNothing(0x379366ecf448)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:145 +0x28
+testing.tRunner(0x379366ecf448, 0x105f520a8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183634 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestValidateRefusesASyncRefusalMissingRequiredFields(0x379367290248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:53 +0x28
+testing.tRunner(0x379367290248, 0x105f52048)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 186908 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793670e4248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestResumedRunSendsTheDeltaPrompt(0x3793670e4248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/resume_test.go:151 +0x28
+testing.tRunner(0x3793670e4248, 0x105f521b8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 185787 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x3793672918c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReportValidatesItsArguments(0x3793672918c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/report_test.go:541 +0x24
+testing.tRunner(0x3793672918c8, 0x105f520e0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 140871 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366e2fd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPGuidance_CheckpointContract(0x379366e2fd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_guidance_test.go:107 +0x24
+testing.tRunner(0x379366e2fd48, 0x105f51d18)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 140870 [chan receive, 4 minutes]:
+testing.(*T).Parallel(0x379366e2fb08)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestMCPGuidance_ModeRestrictions(0x379366e2fb08)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/mcp_guidance_test.go:86 +0x28
+testing.tRunner(0x379366e2fb08, 0x105f51d30)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 183637 [chan receive, 2 minutes]:
+testing.(*T).Parallel(0x379367290b48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestReplyRequestValidateRefusesANonConfirmationConfirmKind(0x379367290b48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/replyrequest_test.go:149 +0x28
+testing.tRunner(0x379367290b48, 0x105f52040)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 243396 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ece248)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract(0x379366ece248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_contract_upgrade_test.go:300 +0x30
+testing.tRunner(0x379366ece248, 0x105f52278)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263797 [chan receive]:
+testing.(*T).Parallel(0x3793670eb688)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseSyncOverrideBeatsConfigDefault(0x3793670eb688)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:254 +0x28
+testing.tRunner(0x3793670eb688, 0x105f523c0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 253111 [chan receive, 1 minutes]:
+testing.(*T).Parallel(0x379366ecf8c8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestStoryTallyNilOnStoreErrorAndLogsIt(0x379366ecf8c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/story_tally_test.go:102 +0x28
+testing.tRunner(0x379366ecf8c8, 0x105f52320)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 263804 [chan receive]:
+testing.(*T).Parallel(0x379366e2f208)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestExecuteDoesNotRefuseASyncWhenBlockRunOnConflictIsFalse(0x379366e2f208)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/syncrefusal_test.go:132 +0x28
+testing.tRunner(0x379366e2f208, 0x105f51a20)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280800 [runnable]:
+runtime.SetFinalizer({0x105df04f0, 0x3793665d6f60}, {0x0, 0x0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/mfinal.go:432 +0x5a8
+os.(*file).close(0x3793665d6f60)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_unix.go:323 +0x130
+os.(*File).Close(0x379366c0d380?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/file_posix.go:24 +0x24
+os/exec.closeDescriptors(...)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:622
+os/exec.(*Cmd).Wait(0x379366c0d380)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:968 +0x204
+os/exec.(*Cmd).Run(0x379366c0d380)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/os/exec/exec.go:643 +0x38
+github.com/cloudvane/litefactory/internal/gittest.run({0x105f513c0, 0x37936743a248}, {0x379366c91c00, 0x77}, {0x3793669d5800, 0x73}, {0x3793674af1d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:201 +0x180
+github.com/cloudvane/litefactory/internal/gittest.(*Repo).GitIn(0x37936655afc0, {0x3793669d5800, 0x73}, {0x3793674af1d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:113 +0x6c
+github.com/cloudvane/litefactory/internal/turn.commitInSyncDir(0x37936743a248, 0x37936655afc0, {0x3793669d5800, 0x73}, {0x1055d3307, 0xc}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:67 +0x150
+github.com/cloudvane/litefactory/internal/turn.taskOperator(0x37936743a248, 0x37936655afc0, {0x1055ec496, 0x1c}, {0x379366e7a3c0, 0x28}, {0x1055d3307, 0xc}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:27 +0x154
+github.com/cloudvane/litefactory/internal/turn.TestExecuteTaskObstructionPreservesWork.func1(0x37936743a248)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:235 +0x1fc
+testing.tRunner(0x37936743a248, 0x3793672da2d0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 280799
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280780 [select]:
+database/sql.(*DB).connectionOpener(0x379366bb1c70, {0x105f4fb28, 0x3793673340a0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:1266 +0x84
+created by database/sql.OpenDB in goroutine 280800
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/database/sql/sql.go:846 +0x11c
+
+goroutine 263800 [chan receive]:
+testing.(*T).Parallel(0x3793670ebd48)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:1957 +0x194
+github.com/cloudvane/litefactory/internal/turn.TestSyncBaseNeverTouchesOriginAcrossEveryOutcome(0x3793670ebd48)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:365 +0x28
+testing.tRunner(0x3793670ebd48, 0x105f523a0)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 1
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+
+goroutine 280882 [runnable]:
+internal/runtime/maps.typedmemclr(0x105e3a328?, 0x379367234908?)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/mbarrier.go:385 +0x34
+internal/runtime/maps.(*Map).deleteSmall(0x3793677881b0, 0x105e2d8f0, 0x3793669c4cb0?, 0x37936748cf68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/runtime/maps/map.go:743 +0x190
+internal/runtime/maps.(*Map).Delete(0x3793677881b0, 0x105e2d8f0, 0x37936748cf68)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/internal/runtime/maps/map.go:687 +0xe8
+context.removeChild({0x105f4fb28?, 0x379366f061e0?}, {0x105f4cb18, 0x37936729ae70})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/context/context.go:411 +0xdc
+context.(*timerCtx).cancel(0x37936729ae70, 0x1, {0x105f4a1a8?, 0x105fb6b90?}, {0x0?, 0x0?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/context/context.go:684 +0x58
+context.WithDeadlineCause.func3()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/context/context.go:657 +0x38
+github.com/cloudvane/litefactory/internal/gittest.run({0x105f513c0, 0x37936743a6c8}, {0x3793669c2400, 0x7b}, {0x379366bfa100, 0x77}, {0x37936748d1d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:208 +0x334
+github.com/cloudvane/litefactory/internal/gittest.(*Repo).GitIn(0x379366d1e000, {0x379366bfa100, 0x77}, {0x37936748d1d8, 0x2, 0x2})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/gittest/gittest.go:113 +0x6c
+github.com/cloudvane/litefactory/internal/turn.commitInSyncDir(0x37936743a6c8, 0x379366d1e000, {0x379366bfa100, 0x77}, {0x1055d3307, 0xc}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/sync_test.go:67 +0x150
+github.com/cloudvane/litefactory/internal/turn.taskOperator(0x37936743a6c8, 0x379366d1e000, {0x1055ec496, 0x1c}, {0x37936664aff0, 0x28}, {0x1055d3307, 0xc}, {0x1055d4737, 0xd})
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:27 +0x154
+github.com/cloudvane/litefactory/internal/turn.TestExecuteTaskObstructionPreservesWork.func1(0x37936743a6c8)
+	/Users/mariomh/.lf-worktrees/litefactory/task-264/internal/turn/task_sync_test.go:235 +0x1fc
+testing.tRunner(0x37936743a6c8, 0x3793672da3d8)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0xc4
+created by testing.(*T).Run in goroutine 280799
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x3b8
+FAIL	github.com/cloudvane/litefactory/internal/turn	481.080s
+FAIL

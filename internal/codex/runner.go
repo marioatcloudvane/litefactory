@@ -281,7 +281,10 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	}
 	defer logFile.Close()
 
-	args := r.args(req, sandbox)
+	args, err := r.args(req, sandbox)
+	if err != nil {
+		return nil, err
+	}
 	if req.Delivery != nil {
 		selected := make([]string, 0, len(req.Delivery.Skills))
 		for _, skill := range req.Delivery.Skills {
@@ -313,8 +316,8 @@ func (r *Runner) Run(ctx context.Context, req agent.Request) (*agent.RunResult, 
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	stderr := agent.NewTailBuffer(agent.StderrTailBytes)
+	cmd.Stderr = stderr
 	startLocation := machineLocation()
 	started := time.Now()
 	collector := newUsageCollector(runCtx, req)
@@ -383,6 +386,22 @@ func classifyOutcome(result *agent.RunResult, stream streamState, callerErr, run
 			"Use externally captured fixtures with provenance under docs/agent-evidence-capture.md; " +
 			"see docs/codex-initialization-troubleshooting.md."
 	}
+	if result.Outcome == agent.OutcomeFailed && result.ExitCode > 0 && stream.events == 0 &&
+		!stream.turnStarted && !stream.completed && !stream.failed && startupMCPFailure(result.Stderr) {
+		result.Diagnostic = "Codex could not initialize required MCP servers. Check the retained stderr in the run metadata for the server error; the missing shared final result is a consequence of startup failure."
+	}
+}
+
+func startupMCPFailure(stderr string) bool {
+	const direct = "Error: required MCP servers failed to initialize: "
+	const thread = "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: required MCP servers failed to initialize: "
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if (strings.HasPrefix(line, direct) && len(strings.TrimSpace(line)) > len(direct)) ||
+			(strings.HasPrefix(line, thread) && len(strings.TrimSpace(line)) > len(thread)) {
+			return true
+		}
+	}
+	return false
 }
 
 func startupPermissionFailure(stderr string) bool {
@@ -395,12 +414,13 @@ func startupPermissionFailure(stderr string) bool {
 	return false
 }
 
-func (r *Runner) args(req agent.Request, sandbox string) []string {
+func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	args := []string{"exec", "--json"}
 	// Dropping this is what lets the repository's .codex/skills reach the
 	// model, at the cost of Codex also reading the operator's own
 	// config.toml — one flag, both effects. See config.Codex.AllowUserConfig.
-	if !r.userConfig || req.Delivery != nil {
+	ignoreUserConfig := !r.userConfig || req.Delivery != nil
+	if ignoreUserConfig {
 		args = append(args, "--ignore-user-config")
 	}
 	args = append(args, "--ignore-rules", "--sandbox", sandbox)
@@ -409,6 +429,13 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 		// execution prevents even read-only tests from being commissioned.
 		args = append(args, "-c", "features.shell_tool=false", "-c", "features.multi_agent=false")
 	}
+	// Additive-only: a launch with no MCP registration produces no overrides
+	// here and this invocation is unchanged from before this encoding existed.
+	mcpArgs, err := r.mcpOverrides(req.MCPLaunch, ignoreUserConfig)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, mcpArgs...)
 	if req.Delivery != nil {
 		args = append(args, "--strict-config")
 		for _, role := range req.Delivery.Roles {
@@ -442,9 +469,9 @@ func (r *Runner) args(req agent.Request, sandbox string) []string {
 		args = append(args, "--model", r.model)
 	}
 	if req.Path.Resuming() {
-		return append(args, "resume", req.Session.Resume, "-")
+		return append(args, "resume", req.Session.Resume, "-"), nil
 	}
-	return append(args, "-")
+	return append(args, "-"), nil
 }
 
 // InstructionIdentity is part of the retained effective bundle identity.

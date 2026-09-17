@@ -1,0 +1,44 @@
+{
+  "story": "US-003",
+  "snapshot_id": "run0007-us003-v1",
+  "files": [
+    "internal/mcpadapter/doc.go",
+    "internal/mcpadapter/protocol.go",
+    "internal/mcpadapter/server.go",
+    "internal/mcpadapter/server_test.go",
+    "internal/agent/mcp.go",
+    "internal/agent/mcp_test.go",
+    "internal/agent/request.go",
+    "internal/turn/mcp_launch.go",
+    "internal/turn/mcp_launch_test.go",
+    "internal/cli/cmd_mcp.go",
+    "internal/cli/cmd_mcp_test.go",
+    "internal/cli/commands.go",
+    "internal/config/config.go",
+    "internal/config/template.go",
+    "internal/config/mcp_test.go",
+    "internal/submission/broker.go",
+    "internal/submission/protocol.go",
+    "docs/mcp-adapter.md"
+  ],
+  "checks": [
+    {
+      "id": "us003-unit",
+      "name": "go test ./internal/mcpadapter ./internal/config ./internal/agent -run 'TestMCPServer_|TestMCPAutoStart_|TestMCPLaunchSpec_' -short -race -cover",
+      "passed": true,
+      "evidence": "Unit specialist: 14 top-level tests passed. Adapter 2.781s coverage 90.7%, config cached coverage 65.3% (initial 1.662s), agent 1.423s coverage 1.7%. Strict protocol and config matrix, bounded worker/output/EOF cancellation, exact payload and immutable additive launch fields. Initial NUL-path defect fixed and regression passed."
+    },
+    {
+      "id": "us003-live-path",
+      "name": "go test ./internal/cli ./internal/turn -run 'TestMCPCLI_|TestMCPLaunch_' -count=1",
+      "passed": true,
+      "evidence": "Integration specialist: PASS. Five test functions and 15 subtests cover real pipes/private socket/SQLite explicit serve and neutral bound launch producer."
+    },
+    {
+      "id": "us003-live-path-race",
+      "name": "go test ./internal/cli ./internal/turn -run 'TestMCPCLI_|TestMCPLaunch_' -count=1 -race",
+      "passed": true,
+      "evidence": "Integration specialist: PASS CLI 7.612s, turn 4.990s. No remaining production defect. Native host consumption outside scope."
+    }
+  ]
+}

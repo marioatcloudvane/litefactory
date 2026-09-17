@@ -1,0 +1,24 @@
+=== RUN   TestMCPApplicationGuidancePayloadContract
+=== RUN   TestMCPApplicationGuidancePayloadContract/research
+=== RUN   TestMCPApplicationGuidancePayloadContract/spike
+=== RUN   TestMCPApplicationGuidancePayloadContract/plan
+=== RUN   TestMCPApplicationGuidancePayloadContract/implement
+--- PASS: TestMCPApplicationGuidancePayloadContract (0.54s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/research (0.15s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/spike (0.12s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/plan (0.13s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/implement (0.14s)
+=== RUN   TestMCPRuntimeActualLaunchPaths
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold
+=== RUN   TestMCPRuntimeActualLaunchPaths/resume
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused
+--- PASS: TestMCPRuntimeActualLaunchPaths (0.19s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold (0.03s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/resume (0.01s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused (0.01s)
+=== RUN   TestMCPRuntimeConcurrentCancellationIsolation
+--- PASS: TestMCPRuntimeConcurrentCancellationIsolation (0.16s)
+=== RUN   TestMCPRuntimeReplacementRejectsStaleRegistration
+--- PASS: TestMCPRuntimeReplacementRejectsStaleRegistration (0.11s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	1.475s

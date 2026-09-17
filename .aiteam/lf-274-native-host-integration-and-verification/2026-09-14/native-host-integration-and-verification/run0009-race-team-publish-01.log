@@ -1,0 +1,4 @@
+COMMAND: go test -race -count=1 -timeout=8m -run ^$ ./cmd/team-publish
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+
+EXIT: 0

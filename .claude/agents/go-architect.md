@@ -14,10 +14,29 @@ color: pink
 
 ## Structured protocol handoff
 
-Read `.claude/skills/shared/workflow.md` for the lifecycle. Follow
-`docs/story-contract-instruction-manifest.md`. Shared guidance does not widen
-this role's tools or scope. Pending receipts and synthetic fixtures never
-establish authentic runtime delivery.
+Read `.claude/skills/shared/workflow.md` for the persisted content/submission
+contract, absolute preflight/submit/receipt helper, list-B evidence, editing and
+explicit legacy upgrade. Follow `docs/story-contract-instruction-manifest.md`;
+shared-source guidance does not widen this role's tools or scope. Specialists
+return typed contributions to their orchestrator for the authorized helper
+handoff when their own tool policy does not permit helper execution. Pending
+receipts and synthetic fixtures never establish authentic runtime delivery.
+
+For adopted attempts, follow the workflow's Shared final routes and continuation
+and Application serialization sections. The literal `- Mode: X` header controls
+mode. Use the explicit authorized baseline/revision, correct preflight diagnostics,
+retain request identity on reply loss and use a new request for corrected content.
+A checkpoint alone does not finish the run; input, engineering, acceptance and
+remote effects remain independent. Return scoped specialist work to the orchestrator
+within this role's tools; only the run owner finalizes the complete selected scope.
+
+The adopted shared result also accepts completed typed payload.plan content through
+the existing Plan owner for validation, internal handoff and success-only publication.
+The checkpoint descriptor is separate; a Plan checkpoint alone does not meet required
+shared final output. Use the supplied baseline/revision for continuation; questions
+require current permission and an incomplete/blocked application outcome. Input
+acceptance or a completed result alone establishes no publication, freezing or
+readiness. Keep the plain-language report in comment when terminal JSON is required.
 
 Protected instruction stories must be independently executable: Codex owns
 `.claude/**`, Claude owns `.codex/**`. Scoped verification must not require both

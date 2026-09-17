@@ -1,0 +1,121 @@
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery/legacy
+    agent_result_aggregates_test.go:120: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.334s
+    agent_result_aggregates_test.go:209: executed aggregate-only recovery: run=2 attempt=aggregate-recovery digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.239s; no new story events/effects
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery/separated
+    agent_result_aggregates_test.go:120: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.330s
+    agent_result_aggregates_test.go:209: executed aggregate-only recovery: run=2 attempt=aggregate-recovery digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.212s; no new story events/effects
+--- PASS: TestResultAggregateWorktree_CompletionAndRecovery (13.19s)
+    --- PASS: TestResultAggregateWorktree_CompletionAndRecovery/legacy (8.67s)
+    --- PASS: TestResultAggregateWorktree_CompletionAndRecovery/separated (4.51s)
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly
+    agent_result_aggregates_test.go:214: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.350s
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_snapshot
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_check
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_revision
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_set
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/failed
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/unexecuted
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/stale_bytes
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/omitted_final_file
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/symlink
+--- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly (3.85s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_snapshot (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_check (0.13s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_revision (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_set (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/failed (0.14s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/unexecuted (0.14s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/stale_bytes (0.04s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/omitted_final_file (0.04s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/symlink (0.04s)
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation/research
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation/plan
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation/implement
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation/validate
+=== RUN   TestResultPersistenceBaselineAndReceiptIsolation/spike
+--- PASS: TestResultPersistenceBaselineAndReceiptIsolation (10.89s)
+    --- PASS: TestResultPersistenceBaselineAndReceiptIsolation/research (1.55s)
+    --- PASS: TestResultPersistenceBaselineAndReceiptIsolation/plan (2.26s)
+    --- PASS: TestResultPersistenceBaselineAndReceiptIsolation/implement (1.37s)
+    --- PASS: TestResultPersistenceBaselineAndReceiptIsolation/validate (2.79s)
+    --- PASS: TestResultPersistenceBaselineAndReceiptIsolation/spike (2.91s)
+=== RUN   TestResultPersistenceAggregateBrokerAndFinalEvidence
+    agent_result_persistence_test.go:137: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.339s
+--- PASS: TestResultPersistenceAggregateBrokerAndFinalEvidence (5.55s)
+=== RUN   TestResultPersistenceAggregateCaptureRejections
+    agent_result_persistence_test.go:256: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.322s
+=== RUN   TestResultPersistenceAggregateCaptureRejections/identity
+=== RUN   TestResultPersistenceAggregateCaptureRejections/unknown
+=== RUN   TestResultPersistenceAggregateCaptureRejections/null
+=== RUN   TestResultPersistenceAggregateCaptureRejections/duplicate
+=== RUN   TestResultPersistenceAggregateCaptureRejections/hash
+=== RUN   TestResultPersistenceAggregateCaptureRejections/missing_check
+=== RUN   TestResultPersistenceAggregateCaptureRejections/story_check
+=== RUN   TestResultPersistenceAggregateCaptureRejections/stale_file
+--- PASS: TestResultPersistenceAggregateCaptureRejections (5.06s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/identity (0.06s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/unknown (0.06s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/null (0.07s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/duplicate (0.07s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/hash (0.06s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/missing_check (0.06s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/story_check (0.21s)
+    --- PASS: TestResultPersistenceAggregateCaptureRejections/stale_file (0.14s)
+=== RUN   TestResultPersistenceProductionLaunchBaselines
+=== RUN   TestResultPersistenceProductionLaunchBaselines/research/mcp-on
+=== RUN   TestResultPersistenceProductionLaunchBaselines/research/mcp-off
+=== RUN   TestResultPersistenceProductionLaunchBaselines/plan/mcp-on
+=== RUN   TestResultPersistenceProductionLaunchBaselines/plan/mcp-off
+=== RUN   TestResultPersistenceProductionLaunchBaselines/implement/mcp-on
+=== RUN   TestResultPersistenceProductionLaunchBaselines/implement/mcp-off
+=== RUN   TestResultPersistenceProductionLaunchBaselines/validate/mcp-on
+=== RUN   TestResultPersistenceProductionLaunchBaselines/validate/mcp-off
+=== RUN   TestResultPersistenceProductionLaunchBaselines/spike/mcp-on
+=== RUN   TestResultPersistenceProductionLaunchBaselines/spike/mcp-off
+--- PASS: TestResultPersistenceProductionLaunchBaselines (24.92s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/research/mcp-on (2.48s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/research/mcp-off (1.31s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/plan/mcp-on (1.97s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/plan/mcp-off (1.30s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/implement/mcp-on (2.38s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/implement/mcp-off (4.73s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/validate/mcp-on (4.32s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/validate/mcp-off (2.64s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/spike/mcp-on (2.14s)
+    --- PASS: TestResultPersistenceProductionLaunchBaselines/spike/mcp-off (1.65s)
+=== RUN   TestResultPersistenceRetiredIDsAndAmbiguousReceipts
+--- PASS: TestResultPersistenceRetiredIDsAndAmbiguousReceipts (2.92s)
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation/research
+=== PAUSE TestAgentResultService_PreflightSubmissionAndContinuation/research
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation/plan
+=== PAUSE TestAgentResultService_PreflightSubmissionAndContinuation/plan
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation/implement
+=== PAUSE TestAgentResultService_PreflightSubmissionAndContinuation/implement
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation/validate
+=== PAUSE TestAgentResultService_PreflightSubmissionAndContinuation/validate
+=== RUN   TestAgentResultService_PreflightSubmissionAndContinuation/spike
+=== PAUSE TestAgentResultService_PreflightSubmissionAndContinuation/spike
+=== CONT  TestAgentResultService_PreflightSubmissionAndContinuation/research
+=== CONT  TestAgentResultService_PreflightSubmissionAndContinuation/implement
+=== CONT  TestAgentResultService_PreflightSubmissionAndContinuation/plan
+=== CONT  TestAgentResultService_PreflightSubmissionAndContinuation/spike
+=== CONT  TestAgentResultService_PreflightSubmissionAndContinuation/validate
+--- PASS: TestAgentResultService_PreflightSubmissionAndContinuation (0.00s)
+    --- PASS: TestAgentResultService_PreflightSubmissionAndContinuation/spike (4.75s)
+    --- PASS: TestAgentResultService_PreflightSubmissionAndContinuation/plan (4.75s)
+    --- PASS: TestAgentResultService_PreflightSubmissionAndContinuation/research (4.77s)
+    --- PASS: TestAgentResultService_PreflightSubmissionAndContinuation/implement (4.85s)
+    --- PASS: TestAgentResultService_PreflightSubmissionAndContinuation/validate (4.86s)
+=== RUN   TestAgentResultService_CorrectionStaleAndNoWritePreflight
+--- PASS: TestAgentResultService_CorrectionStaleAndNoWritePreflight (1.22s)
+=== RUN   TestAgentResultService_EvidenceReadsAndFrozenScopeRefresh
+--- PASS: TestAgentResultService_EvidenceReadsAndFrozenScopeRefresh (2.65s)
+=== RUN   TestAgentResultService_ReopenAndReadOnlyAccess
+--- PASS: TestAgentResultService_ReopenAndReadOnlyAccess (1.38s)
+=== RUN   TestAgentResultReader_DoesNotGrantWriter
+--- PASS: TestAgentResultReader_DoesNotGrantWriter (2.78s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	81.085s

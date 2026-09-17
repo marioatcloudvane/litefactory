@@ -1,0 +1,70 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "plan": {
+        "summary": "Deliver a pure contract.",
+        "stories": [
+          {
+            "key": "US-001",
+            "intent": "create",
+            "title": "Create results",
+            "user_story": {
+              "actor": "adapter author",
+              "want": "validate a result",
+              "benefit": "consistent semantics",
+              "notes": []
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Reject invalid input."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Implement validation",
+                "owner_role": "engineer",
+                "criterion_ids": [
+                  "AC-001"
+                ],
+                "depends_on": []
+              }
+            ],
+            "architecture": {
+              "summary": "Pure functions",
+              "components": [
+                {
+                  "name": "validator",
+                  "responsibility": "Check authored input"
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Create",
+                  "input": "Bytes and scope",
+                  "output": "Result or diagnostics"
+                }
+              ],
+              "constraints": [
+                "No I/O"
+              ],
+              "decisions": [
+                {
+                  "decision": "Typed fields",
+                  "reason": "Explicit boundaries"
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

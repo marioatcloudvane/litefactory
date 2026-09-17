@@ -1,0 +1,347 @@
+Group: turn-9 (TestS*)
+=== RUN   TestSelfDropIsLogged
+=== PAUSE TestSelfDropIsLogged
+=== RUN   TestSyncBaseDirtyPolicyPrecedence
+=== RUN   TestSyncBaseDirtyPolicyPrecedence/up_to_date
+=== PAUSE TestSyncBaseDirtyPolicyPrecedence/up_to_date
+=== RUN   TestSyncBaseDirtyPolicyPrecedence/disabled
+=== PAUSE TestSyncBaseDirtyPolicyPrecedence/disabled
+=== RUN   TestSyncBaseDirtyPolicyPrecedence/over_cap
+=== PAUSE TestSyncBaseDirtyPolicyPrecedence/over_cap
+=== RUN   TestSyncBaseDirtyPolicyPrecedence/eligible
+=== PAUSE TestSyncBaseDirtyPolicyPrecedence/eligible
+=== CONT  TestSyncBaseDirtyPolicyPrecedence/disabled
+=== CONT  TestSyncBaseDirtyPolicyPrecedence/over_cap
+=== CONT  TestSyncBaseDirtyPolicyPrecedence/up_to_date
+=== CONT  TestSyncBaseDirtyPolicyPrecedence/eligible
+--- PASS: TestSyncBaseDirtyPolicyPrecedence (0.00s)
+    --- PASS: TestSyncBaseDirtyPolicyPrecedence/up_to_date (1.00s)
+    --- PASS: TestSyncBaseDirtyPolicyPrecedence/disabled (1.25s)
+    --- PASS: TestSyncBaseDirtyPolicyPrecedence/eligible (1.31s)
+    --- PASS: TestSyncBaseDirtyPolicyPrecedence/over_cap (1.41s)
+=== RUN   TestSyncBaseStatusErrorRetainsCause
+=== PAUSE TestSyncBaseStatusErrorRetainsCause
+=== RUN   TestSecondRunResumesInsteadOfReusingTheSessionID
+=== PAUSE TestSecondRunResumesInsteadOfReusingTheSessionID
+=== RUN   TestSaveOnlyCommitsASucceededRun
+=== PAUSE TestSaveOnlyCommitsASucceededRun
+=== RUN   TestSaveDoesNotCommitAbandonedIsUnchanged
+=== PAUSE TestSaveDoesNotCommitAbandonedIsUnchanged
+=== RUN   TestSimultaneousBundleAndModeChangeRotatesExactlyOnce
+=== PAUSE TestSimultaneousBundleAndModeChangeRotatesExactlyOnce
+=== RUN   TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates
+=== PAUSE TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates
+=== RUN   TestStoppedOutcomeSurvivesTotalStorageOutage
+=== RUN   TestStoppedOutcomeSurvivesTotalStorageOutage/terminal
+=== RUN   TestStoppedOutcomeSurvivesTotalStorageOutage/resume-token
+--- PASS: TestStoppedOutcomeSurvivesTotalStorageOutage (8.55s)
+    --- PASS: TestStoppedOutcomeSurvivesTotalStorageOutage/terminal (3.55s)
+    --- PASS: TestStoppedOutcomeSurvivesTotalStorageOutage/resume-token (4.99s)
+=== RUN   TestStoryAcknowledgementRecoversAcrossIndependentReporters
+--- PASS: TestStoryAcknowledgementRecoversAcrossIndependentReporters (3.24s)
+=== RUN   TestStoryContractUpgradePreviewAndExplicitApply
+=== PAUSE TestStoryContractUpgradePreviewAndExplicitApply
+=== RUN   TestStoryContractUpgradeRefusalIsReadOnly
+=== RUN   TestStoryContractUpgradeRefusalIsReadOnly/ambiguous
+=== RUN   TestStoryContractUpgradeRefusalIsReadOnly/frozen
+=== RUN   TestStoryContractUpgradeRefusalIsReadOnly/stale
+=== RUN   TestStoryContractUpgradeRefusalIsReadOnly/owner
+--- PASS: TestStoryContractUpgradeRefusalIsReadOnly (7.37s)
+    --- PASS: TestStoryContractUpgradeRefusalIsReadOnly/ambiguous (2.40s)
+    --- PASS: TestStoryContractUpgradeRefusalIsReadOnly/frozen (1.13s)
+    --- PASS: TestStoryContractUpgradeRefusalIsReadOnly/stale (2.17s)
+    --- PASS: TestStoryContractUpgradeRefusalIsReadOnly/owner (1.67s)
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/partial
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/lost_reply
+=== RUN   TestStoryContractUpgradeRestartResumesOriginalCohort/confirmation_conflict
+--- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort (4.95s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/partial (1.44s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/lost_reply (1.22s)
+    --- PASS: TestStoryContractUpgradeRestartResumesOriginalCohort/confirmation_conflict (2.29s)
+=== RUN   TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+=== PAUSE TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+=== RUN   TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== PAUSE TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== RUN   TestStoryProgressClosesDuringHeldParentBeforeSave
+=== RUN   TestStoryProgressClosesDuringHeldParentBeforeSave/claude
+=== RUN   TestStoryProgressClosesDuringHeldParentBeforeSave/codex
+--- PASS: TestStoryProgressClosesDuringHeldParentBeforeSave (9.71s)
+    --- PASS: TestStoryProgressClosesDuringHeldParentBeforeSave/claude (4.15s)
+    --- PASS: TestStoryProgressClosesDuringHeldParentBeforeSave/codex (5.56s)
+=== RUN   TestStoryProgressResponseLossAndInvalidationSurviveNewService
+--- PASS: TestStoryProgressResponseLossAndInvalidationSurviveNewService (3.85s)
+=== RUN   TestStoryProgressRejectsMutableEvidenceAndConflictingReplay
+--- PASS: TestStoryProgressRejectsMutableEvidenceAndConflictingReplay (3.55s)
+=== RUN   TestStoryProgressPendingCloseBlocksReplanUntilDelivered
+--- PASS: TestStoryProgressPendingCloseBlocksReplanUntilDelivered (2.14s)
+=== RUN   TestStoryProgressUnreadInputPreventsPendingClose
+--- PASS: TestStoryProgressUnreadInputPreventsPendingClose (2.95s)
+=== RUN   TestStoryProgressIndependentServicesSerializeIngestionAndDelivery
+--- PASS: TestStoryProgressIndependentServicesSerializeIngestionAndDelivery (3.59s)
+=== RUN   TestStoryAcceptanceRequiresEverySupportedCriterion
+--- PASS: TestStoryAcceptanceRequiresEverySupportedCriterion (0.00s)
+=== RUN   TestStoryFeatureCompletesOnlyAfterAggregateAndAllStories
+--- PASS: TestStoryFeatureCompletesOnlyAfterAggregateAndAllStories (1.87s)
+=== RUN   TestStoryReconciliationTypedUpdatePreservesProseAndRetiresIDs
+=== PAUSE TestStoryReconciliationTypedUpdatePreservesProseAndRetiresIDs
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/matching
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/unadmitted
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_comment
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_child
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_generation
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_text
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/consumed
+=== RUN   TestStoryReconciliationClarificationRequiresAdmittedExactBinding/invalid_actor
+--- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding (14.62s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/matching (1.72s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/unadmitted (1.39s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_comment (2.61s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_child (1.46s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_generation (1.67s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/wrong_text (2.71s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/consumed (1.34s)
+    --- PASS: TestStoryReconciliationClarificationRequiresAdmittedExactBinding/invalid_actor (1.70s)
+=== RUN   TestStoryReconciliationPresentationApprovalRechecksCurrentBytes
+=== RUN   TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/presentation
+=== RUN   TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/semantic
+=== RUN   TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/race
+=== RUN   TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/locked
+--- PASS: TestStoryReconciliationPresentationApprovalRechecksCurrentBytes (6.65s)
+    --- PASS: TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/presentation (1.99s)
+    --- PASS: TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/semantic (1.17s)
+    --- PASS: TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/race (2.32s)
+    --- PASS: TestStoryReconciliationPresentationApprovalRechecksCurrentBytes/locked (1.17s)
+=== RUN   TestStoryReconciliationPostWriteConflictRetainsRecoverableIntent
+=== PAUSE TestStoryReconciliationPostWriteConflictRetainsRecoverableIntent
+=== RUN   TestStoryReconciliationRetiredIDCannotReturnInLaterPlan
+=== PAUSE TestStoryReconciliationRetiredIDCannotReturnInLaterPlan
+=== RUN   TestStoryTallyCountsDoneStoriesForImplementRun
+=== PAUSE TestStoryTallyCountsDoneStoriesForImplementRun
+=== RUN   TestStoryTallyGatedOnImplementMode
+=== PAUSE TestStoryTallyGatedOnImplementMode
+=== RUN   TestStoryTallyNilWithNoManagedFeature
+=== PAUSE TestStoryTallyNilWithNoManagedFeature
+=== RUN   TestStoryTallyNilOnStoreErrorAndLogsIt
+=== PAUSE TestStoryTallyNilOnStoreErrorAndLogsIt
+=== RUN   TestStoryTallyCountsEngineeringCompleteAsDone
+--- PASS: TestStoryTallyCountsEngineeringCompleteAsDone (2.79s)
+=== RUN   TestStoryDonePredicate
+=== PAUSE TestStoryDonePredicate
+=== RUN   TestSubmissionLiveCorrectionAndFactoryEnvelope
+--- PASS: TestSubmissionLiveCorrectionAndFactoryEnvelope (3.65s)
+=== RUN   TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector
+--- PASS: TestSubmissionRejectsChangedWorktreeAndUnauthorizedSelector (1.86s)
+=== RUN   TestSubmissionLegacyDecisionRecovery
+--- PASS: TestSubmissionLegacyDecisionRecovery (3.43s)
+=== RUN   TestSubmissionReplacementAttemptRejectsOldAuthority
+--- PASS: TestSubmissionReplacementAttemptRejectsOldAuthority (1.77s)
+=== RUN   TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit
+=== RUN   TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit/claude
+=== RUN   TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit/codex
+--- PASS: TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit (7.96s)
+    --- PASS: TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit/claude (4.80s)
+    --- PASS: TestSubmissionBothSyntheticRunnerPathsObserveDecisionBeforeExit/codex (3.16s)
+=== RUN   TestSubmissionValidationConsumesRetainedEvidenceOnly
+--- PASS: TestSubmissionValidationConsumesRetainedEvidenceOnly (3.64s)
+=== RUN   TestSubmissionReferenceReworkChecksCurrentBytes
+=== RUN   TestSubmissionReferenceReworkChecksCurrentBytes/recovery=false
+=== RUN   TestSubmissionReferenceReworkChecksCurrentBytes/recovery=true
+--- PASS: TestSubmissionReferenceReworkChecksCurrentBytes (5.29s)
+    --- PASS: TestSubmissionReferenceReworkChecksCurrentBytes/recovery=false (1.77s)
+    --- PASS: TestSubmissionReferenceReworkChecksCurrentBytes/recovery=true (3.53s)
+=== RUN   TestSubmissionConcurrentStoriesKeepCorrelation
+--- PASS: TestSubmissionConcurrentStoriesKeepCorrelation (2.30s)
+=== RUN   TestSubmissionFinalDrainRetainsPendingDecision
+--- PASS: TestSubmissionFinalDrainRetainsPendingDecision (2.91s)
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=false
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=true
+--- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt (5.45s)
+    --- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=false (3.12s)
+    --- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=true (2.33s)
+=== RUN   TestSubmissionRecoveryFromFreshStoreConnection
+--- PASS: TestSubmissionRecoveryFromFreshStoreConnection (1.96s)
+=== RUN   TestSyncBaseUpToDateShortCircuitsOnZeroBehind
+=== PAUSE TestSyncBaseUpToDateShortCircuitsOnZeroBehind
+=== RUN   TestSyncBaseSkippedWhenAutoSyncDisabled
+=== PAUSE TestSyncBaseSkippedWhenAutoSyncDisabled
+=== RUN   TestSyncBaseRefusesOverCap
+=== PAUSE TestSyncBaseRefusesOverCap
+=== RUN   TestSyncBaseSyncOverrideBeatsConfigDefault
+=== PAUSE TestSyncBaseSyncOverrideBeatsConfigDefault
+=== RUN   TestSyncBaseMergesCleanly
+=== PAUSE TestSyncBaseMergesCleanly
+=== RUN   TestSyncBaseBlockedOnConflictLeavesBranchUntouched
+=== PAUSE TestSyncBaseBlockedOnConflictLeavesBranchUntouched
+=== RUN   TestSyncBaseNeverTouchesOriginAcrossEveryOutcome
+=== PAUSE TestSyncBaseNeverTouchesOriginAcrossEveryOutcome
+=== RUN   TestSyncTaskBranchStates
+=== RUN   TestSyncTaskBranchStates/absent
+=== PAUSE TestSyncTaskBranchStates/absent
+=== RUN   TestSyncTaskBranchStates/equal
+=== PAUSE TestSyncTaskBranchStates/equal
+=== RUN   TestSyncTaskBranchStates/ahead
+=== PAUSE TestSyncTaskBranchStates/ahead
+=== RUN   TestSyncTaskBranchStates/behind
+=== PAUSE TestSyncTaskBranchStates/behind
+=== RUN   TestSyncTaskBranchStates/diverged
+=== PAUSE TestSyncTaskBranchStates/diverged
+=== RUN   TestSyncTaskBranchStates/validate
+=== PAUSE TestSyncTaskBranchStates/validate
+=== RUN   TestSyncTaskBranchStates/dirty
+=== PAUSE TestSyncTaskBranchStates/dirty
+=== RUN   TestSyncTaskBranchStates/conflict
+=== PAUSE TestSyncTaskBranchStates/conflict
+=== RUN   TestSyncTaskBranchStates/unrelated
+=== PAUSE TestSyncTaskBranchStates/unrelated
+=== RUN   TestSyncTaskBranchStates/reserved
+=== PAUSE TestSyncTaskBranchStates/reserved
+=== RUN   TestSyncTaskBranchStates/index-lock
+=== PAUSE TestSyncTaskBranchStates/index-lock
+=== CONT  TestSyncTaskBranchStates/behind
+=== CONT  TestSyncTaskBranchStates/validate
+=== CONT  TestSyncTaskBranchStates/reserved
+=== CONT  TestSyncTaskBranchStates/index-lock
+=== CONT  TestSyncTaskBranchStates/ahead
+=== CONT  TestSyncTaskBranchStates/conflict
+=== CONT  TestSyncTaskBranchStates/equal
+=== CONT  TestSyncTaskBranchStates/dirty
+=== CONT  TestSyncTaskBranchStates/absent
+=== CONT  TestSyncTaskBranchStates/unrelated
+=== CONT  TestSyncTaskBranchStates/diverged
+--- PASS: TestSyncTaskBranchStates (0.00s)
+    --- PASS: TestSyncTaskBranchStates/absent (3.92s)
+    --- PASS: TestSyncTaskBranchStates/equal (4.30s)
+    --- PASS: TestSyncTaskBranchStates/ahead (4.39s)
+    --- PASS: TestSyncTaskBranchStates/validate (5.18s)
+    --- PASS: TestSyncTaskBranchStates/dirty (5.64s)
+    --- PASS: TestSyncTaskBranchStates/behind (5.80s)
+    --- PASS: TestSyncTaskBranchStates/reserved (5.87s)
+    --- PASS: TestSyncTaskBranchStates/unrelated (5.88s)
+    --- PASS: TestSyncTaskBranchStates/index-lock (6.00s)
+    --- PASS: TestSyncTaskBranchStates/conflict (6.03s)
+    --- PASS: TestSyncTaskBranchStates/diverged (4.05s)
+=== CONT  TestSelfDropIsLogged
+=== CONT  TestStoryReconciliationRetiredIDCannotReturnInLaterPlan
+=== CONT  TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract
+=== CONT  TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates
+=== CONT  TestStoryContractUpgradePreviewAndExplicitApply
+=== CONT  TestStoryReconciliationPostWriteConflictRetainsRecoverableIntent
+=== CONT  TestStoryReconciliationTypedUpdatePreservesProseAndRetiresIDs
+=== CONT  TestStoryTallyGatedOnImplementMode
+=== CONT  TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency
+=== CONT  TestSaveOnlyCommitsASucceededRun
+=== RUN   TestSaveOnlyCommitsASucceededRun/succeeded
+=== PAUSE TestSaveOnlyCommitsASucceededRun/succeeded
+=== RUN   TestSaveOnlyCommitsASucceededRun/failed
+=== PAUSE TestSaveOnlyCommitsASucceededRun/failed
+=== RUN   TestSaveOnlyCommitsASucceededRun/timed_out
+=== PAUSE TestSaveOnlyCommitsASucceededRun/timed_out
+=== RUN   TestSaveOnlyCommitsASucceededRun/no_result
+=== PAUSE TestSaveOnlyCommitsASucceededRun/no_result
+=== CONT  TestSimultaneousBundleAndModeChangeRotatesExactlyOnce
+=== RUN   TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/claude
+=== PAUSE TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/claude
+=== RUN   TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/codex
+=== PAUSE TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/codex
+=== CONT  TestSyncBaseUpToDateShortCircuitsOnZeroBehind
+--- PASS: TestSyncBaseUpToDateShortCircuitsOnZeroBehind (1.24s)
+=== CONT  TestSyncBaseSyncOverrideBeatsConfigDefault
+--- PASS: TestSyncBaseSyncOverrideBeatsConfigDefault (2.39s)
+=== CONT  TestSyncBaseRefusesOverCap
+--- PASS: TestSyncBaseRefusesOverCap (2.37s)
+=== CONT  TestSyncBaseMergesCleanly
+--- PASS: TestStoryContractUpgradePreviewAndExplicitApply (8.04s)
+=== CONT  TestSyncBaseNeverTouchesOriginAcrossEveryOutcome
+=== RUN   TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/up_to_date
+=== PAUSE TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/up_to_date
+=== RUN   TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/skipped:_auto-sync_disabled
+=== PAUSE TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/skipped:_auto-sync_disabled
+=== RUN   TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/synced:_clean_merge
+=== PAUSE TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/synced:_clean_merge
+=== RUN   TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/blocked:_real_conflict
+=== PAUSE TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/blocked:_real_conflict
+=== CONT  TestSaveDoesNotCommitAbandonedIsUnchanged
+--- PASS: TestSyncBaseMergesCleanly (2.07s)
+=== CONT  TestSyncBaseBlockedOnConflictLeavesBranchUntouched
+--- PASS: TestStoryReconciliationRetiredIDCannotReturnInLaterPlan (8.20s)
+=== CONT  TestSecondRunResumesInsteadOfReusingTheSessionID
+--- PASS: TestSelfDropIsLogged (8.26s)
+=== CONT  TestStoryTallyNilWithNoManagedFeature
+--- PASS: TestStoryReconciliationTypedUpdatePreservesProseAndRetiresIDs (8.29s)
+=== CONT  TestStoryDonePredicate
+=== RUN   TestStoryDonePredicate/engineering_complete_and_frozen_(separated_workflow)
+=== PAUSE TestStoryDonePredicate/engineering_complete_and_frozen_(separated_workflow)
+=== RUN   TestStoryDonePredicate/verified_(legacy_workflow)
+=== PAUSE TestStoryDonePredicate/verified_(legacy_workflow)
+=== RUN   TestStoryDonePredicate/completed_(legacy_workflow)
+=== PAUSE TestStoryDonePredicate/completed_(legacy_workflow)
+=== RUN   TestStoryDonePredicate/blocked_does_not_count
+=== PAUSE TestStoryDonePredicate/blocked_does_not_count
+=== RUN   TestStoryDonePredicate/planning_does_not_count
+=== PAUSE TestStoryDonePredicate/planning_does_not_count
+=== RUN   TestStoryDonePredicate/frozen_without_engineering_complete_does_not_count
+=== PAUSE TestStoryDonePredicate/frozen_without_engineering_complete_does_not_count
+=== RUN   TestStoryDonePredicate/running_does_not_count
+=== PAUSE TestStoryDonePredicate/running_does_not_count
+=== CONT  TestSyncBaseSkippedWhenAutoSyncDisabled
+--- PASS: TestStoryReconciliationPostWriteConflictRetainsRecoverableIntent (8.33s)
+=== CONT  TestStoryTallyNilOnStoreErrorAndLogsIt
+--- PASS: TestStoryContractUpgradeDispatchKeepsFrozenGenerationContract (8.46s)
+=== CONT  TestStoryTallyCountsDoneStoriesForImplementRun
+--- PASS: TestStoryContractUpgradeNextTypedPlanRetainsCompletedLegacyDependency (8.87s)
+=== CONT  TestSyncBaseStatusErrorRetainsCause
+--- PASS: TestStoryTallyGatedOnImplementMode (9.57s)
+=== CONT  TestSaveOnlyCommitsASucceededRun/failed
+--- PASS: TestSimultaneousAgentAndModeChangeReconcilesRatherThanRotates (9.61s)
+=== CONT  TestSaveOnlyCommitsASucceededRun/no_result
+--- PASS: TestSyncBaseBlockedOnConflictLeavesBranchUntouched (3.76s)
+=== CONT  TestSaveOnlyCommitsASucceededRun/timed_out
+--- PASS: TestSyncBaseSkippedWhenAutoSyncDisabled (3.53s)
+=== CONT  TestSaveOnlyCommitsASucceededRun/succeeded
+--- PASS: TestSyncBaseStatusErrorRetainsCause (3.03s)
+=== CONT  TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/codex
+--- PASS: TestStoryTallyNilWithNoManagedFeature (10.12s)
+=== CONT  TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/claude
+--- PASS: TestStoryTallyCountsDoneStoriesForImplementRun (9.96s)
+=== CONT  TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/up_to_date
+--- PASS: TestStoryTallyNilOnStoreErrorAndLogsIt (10.16s)
+=== CONT  TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/blocked:_real_conflict
+--- PASS: TestSaveDoesNotCommitAbandonedIsUnchanged (12.05s)
+=== CONT  TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/synced:_clean_merge
+=== CONT  TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/skipped:_auto-sync_disabled
+=== CONT  TestStoryDonePredicate/engineering_complete_and_frozen_(separated_workflow)
+=== CONT  TestStoryDonePredicate/running_does_not_count
+=== CONT  TestStoryDonePredicate/planning_does_not_count
+=== CONT  TestStoryDonePredicate/frozen_without_engineering_complete_does_not_count
+=== CONT  TestStoryDonePredicate/blocked_does_not_count
+=== CONT  TestStoryDonePredicate/verified_(legacy_workflow)
+=== CONT  TestStoryDonePredicate/completed_(legacy_workflow)
+--- PASS: TestStoryDonePredicate (0.00s)
+    --- PASS: TestStoryDonePredicate/engineering_complete_and_frozen_(separated_workflow) (0.00s)
+    --- PASS: TestStoryDonePredicate/running_does_not_count (0.00s)
+    --- PASS: TestStoryDonePredicate/planning_does_not_count (0.00s)
+    --- PASS: TestStoryDonePredicate/frozen_without_engineering_complete_does_not_count (0.00s)
+    --- PASS: TestStoryDonePredicate/blocked_does_not_count (0.00s)
+    --- PASS: TestStoryDonePredicate/verified_(legacy_workflow) (0.00s)
+    --- PASS: TestStoryDonePredicate/completed_(legacy_workflow) (0.00s)
+--- PASS: TestSecondRunResumesInsteadOfReusingTheSessionID (13.97s)
+--- PASS: TestSaveOnlyCommitsASucceededRun (0.00s)
+    --- PASS: TestSaveOnlyCommitsASucceededRun/failed (11.80s)
+    --- PASS: TestSaveOnlyCommitsASucceededRun/no_result (11.96s)
+    --- PASS: TestSaveOnlyCommitsASucceededRun/timed_out (10.85s)
+    --- PASS: TestSaveOnlyCommitsASucceededRun/succeeded (11.26s)
+--- PASS: TestSyncBaseNeverTouchesOriginAcrossEveryOutcome (0.00s)
+    --- PASS: TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/up_to_date (2.33s)
+    --- PASS: TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/blocked:_real_conflict (3.38s)
+    --- PASS: TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/skipped:_auto-sync_disabled (2.32s)
+    --- PASS: TestSyncBaseNeverTouchesOriginAcrossEveryOutcome/synced:_clean_merge (3.03s)
+--- PASS: TestSimultaneousBundleAndModeChangeRotatesExactlyOnce (0.00s)
+    --- PASS: TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/codex (8.81s)
+    --- PASS: TestSimultaneousBundleAndModeChangeRotatesExactlyOnce/claude (4.79s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	150.413s
+go test -race -timeout 8m -v -run '^TestS' ./internal/turn/...  164.22s user 61.43s system 146% cpu 2:34.49 total
+EXIT: 0

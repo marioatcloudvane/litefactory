@@ -1,0 +1,80 @@
+[
+  {
+    "story": "US-001",
+    "reason": "Aggregate TestTurnImposesNoAmbientDeadline rejects AttemptAuthority.Bind context.WithDeadline. Scoped tests passed but the repository ownership gate uncovered this regression; fix cycle 2 is in progress.",
+    "preflight": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "",
+        "result": {
+          "valid": true,
+          "complete": true,
+          "diagnostics": [],
+          "unchecked_paths": []
+        }
+      }
+    },
+    "submit": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "b1a4348c66c14bc99a92dbf8a674b2c1",
+        "result": {
+          "ID": 88,
+          "RunID": 429,
+          "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+          "RequestID": "b1a4348c66c14bc99a92dbf8a674b2c1",
+          "RequestHash": "bb8c4cc2e07b93f8986c0e9483f68c5ac85d38baf9423d04b347c5a9b0e3de8a",
+          "Story": "US-001",
+          "Revision": "a79dc7fcafd48ad0e0f7fd4cf2180f63c24fec8b5670e94b538446cf3d76c27c",
+          "Sequence": 6,
+          "StoryAttempt": 2,
+          "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+          "InputState": "valid",
+          "EngineeringState": "rejected",
+          "AcceptanceState": "not_applicable",
+          "EffectState": "pending",
+          "PlanState": "not_applicable"
+        }
+      }
+    }
+  },
+  {
+    "story": "US-005",
+    "reason": "Aggregate make check failed: turn architecture deadline-ownership gate failed and full turn race package timed out at the repository 20-minute limit. Aggregate completion is not established; fix cycle 2 and narrowed diagnostics in progress.",
+    "preflight": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "",
+        "result": {
+          "valid": true,
+          "complete": true,
+          "diagnostics": [],
+          "unchecked_paths": []
+        }
+      }
+    },
+    "submit": {
+      "exit_code": 0,
+      "response": {
+        "request_id": "3d691888994b65e4133eab51495c45ec",
+        "result": {
+          "ID": 89,
+          "RunID": 429,
+          "Attempt": "0c58a76f05d074976e26084daf27ff1c",
+          "RequestID": "3d691888994b65e4133eab51495c45ec",
+          "RequestHash": "76749244eca3f1f9a144cb7e16dbb118b715915570983340a772d4901a971beb",
+          "Story": "US-005",
+          "Revision": "9fc13c1e1822f65bc8c60b5b418fbfacfe8a7d6c42d36f32dd5d53aaf90f280a",
+          "Sequence": 7,
+          "StoryAttempt": 2,
+          "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXX0=",
+          "InputState": "valid",
+          "EngineeringState": "rejected",
+          "AcceptanceState": "not_applicable",
+          "EffectState": "pending",
+          "PlanState": "not_applicable"
+        }
+      }
+    }
+  }
+]

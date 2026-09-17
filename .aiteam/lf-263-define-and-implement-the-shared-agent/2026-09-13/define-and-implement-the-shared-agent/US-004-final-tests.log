@@ -1,0 +1,104 @@
+=== RUN   TestAggregateCapture_CopiesFactsAndReferences
+--- PASS: TestAggregateCapture_CopiesFactsAndReferences (0.00s)
+=== RUN   TestAggregateCapture_InvalidClaims
+=== RUN   TestAggregateCapture_InvalidClaims/scope
+=== RUN   TestAggregateCapture_InvalidClaims/missing_execution
+=== RUN   TestAggregateCapture_InvalidClaims/duplicate_ID
+=== RUN   TestAggregateCapture_InvalidClaims/wrong_digest
+=== RUN   TestAggregateCapture_InvalidClaims/unexecuted_pass
+=== RUN   TestAggregateCapture_InvalidClaims/empty_output
+=== RUN   TestAggregateCapture_InvalidClaims/wrong_file_hash
+=== RUN   TestAggregateCapture_InvalidClaims/traversal
+=== RUN   TestAggregateCapture_InvalidClaims/deleted_bytes
+=== RUN   TestAggregateCapture_InvalidClaims/oversized
+--- PASS: TestAggregateCapture_InvalidClaims (0.01s)
+    --- PASS: TestAggregateCapture_InvalidClaims/scope (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/missing_execution (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/duplicate_ID (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/wrong_digest (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/unexecuted_pass (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/empty_output (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/wrong_file_hash (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/traversal (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/deleted_bytes (0.00s)
+    --- PASS: TestAggregateCapture_InvalidClaims/oversized (0.01s)
+=== RUN   TestAggregateCapture_PreservesFailedAndUnexecutedFacts
+=== RUN   TestAggregateCapture_PreservesFailedAndUnexecutedFacts/failed
+=== RUN   TestAggregateCapture_PreservesFailedAndUnexecutedFacts/unexecuted
+--- PASS: TestAggregateCapture_PreservesFailedAndUnexecutedFacts (0.00s)
+    --- PASS: TestAggregateCapture_PreservesFailedAndUnexecutedFacts/failed (0.00s)
+    --- PASS: TestAggregateCapture_PreservesFailedAndUnexecutedFacts/unexecuted (0.00s)
+PASS
+coverage: 6.4% of statements
+ok  	github.com/cloudvane/litefactory/internal/agent	1.643s	coverage: 6.4% of statements
+=== RUN   TestResultAggregate_ImmutableReopenAndSourceIsolation
+--- PASS: TestResultAggregate_ImmutableReopenAndSourceIsolation (1.31s)
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/context
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/parent
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/result
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/run
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/attempt
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/set
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/revision
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/missing_revision
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/digest
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_digest
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_run
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/check_attempt
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/story_kind
+=== RUN   TestResultAggregate_RejectsWrongBindingAndScope/unexecuted_pass
+--- PASS: TestResultAggregate_RejectsWrongBindingAndScope (24.47s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/context (1.44s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/parent (2.82s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/result (1.90s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/run (1.17s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/attempt (2.01s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/set (2.09s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/revision (1.15s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/missing_revision (1.83s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/digest (2.36s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_digest (1.17s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_run (1.42s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/check_attempt (1.47s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/story_kind (1.24s)
+    --- PASS: TestResultAggregate_RejectsWrongBindingAndScope/unexecuted_pass (2.41s)
+=== RUN   TestResultAggregate_RejectsStoryRelabellingAndAtomicCheckConflict
+--- PASS: TestResultAggregate_RejectsStoryRelabellingAndAtomicCheckConflict (1.95s)
+PASS
+coverage: 11.8% of statements
+ok  	github.com/cloudvane/litefactory/internal/store	29.550s	coverage: 11.8% of statements
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery/legacy
+    agent_result_aggregates_test.go:120: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.350s
+    agent_result_aggregates_test.go:209: executed aggregate-only recovery: run=2 attempt=aggregate-recovery digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.234s; no new story events/effects
+=== RUN   TestResultAggregateWorktree_CompletionAndRecovery/separated
+    agent_result_aggregates_test.go:120: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.378s
+    agent_result_aggregates_test.go:209: executed aggregate-only recovery: run=2 attempt=aggregate-recovery digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.240s; no new story events/effects
+--- PASS: TestResultAggregateWorktree_CompletionAndRecovery (10.51s)
+    --- PASS: TestResultAggregateWorktree_CompletionAndRecovery/legacy (5.81s)
+    --- PASS: TestResultAggregateWorktree_CompletionAndRecovery/separated (4.69s)
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly
+    agent_result_aggregates_test.go:214: executed fixture aggregate: run=1 attempt=aggregate-attempt selected=[{US-1 6eefa96ecec8fe6737b5f1cdbea149a306b6705f0c6a567e34fde7dfab7a6169} {US-2 43d7503e2be43b63658adca451b0593c052d7d50ee2da6187f23edb8bf29170b}] digest=cef99a252101675d9e1ba0f0c00bbe65dc33d84261aedf50df6e02facf9f32b0 output=ok  	aggregatefixture	0.409s
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_snapshot
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_check
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_revision
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_set
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/failed
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/unexecuted
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/stale_bytes
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/omitted_final_file
+=== RUN   TestResultAggregateWorktree_RejectionsAndValidateReadOnly/symlink
+--- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly (4.97s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_snapshot (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/missing_check (0.12s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_revision (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/wrong_set (0.00s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/failed (0.26s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/unexecuted (0.27s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/stale_bytes (0.07s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/omitted_final_file (0.07s)
+    --- PASS: TestResultAggregateWorktree_RejectionsAndValidateReadOnly/symlink (0.07s)
+PASS
+coverage: 5.5% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	17.554s	coverage: 5.5% of statements

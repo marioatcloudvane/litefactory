@@ -36,3 +36,17 @@ itself, and uncommitted work at the end of a run is normal.
 Research uses `teams/source/skills/research-evidence/SKILL.md` only. For other
 modes, lifecycle, managed stories, Plan continuation and the story protocol are in
 `.claude/skills/shared/workflow.md`.
+
+## Shared completion
+
+Follow the factory-declared final route: shared result helper, permitted communication
+operations or structured terminal output. Use the supplied explicit baseline and
+revision; prior prose is not editable state. A story checkpoint or input receipt
+alone does not complete the run. Input, engineering, acceptance and remote effects
+remain independent. Correct preflight diagnostics; preserve request identity on
+reply loss and use a new request for corrected content. The factory revalidates
+after exit; missing/malformed output blocks nominal success, and failure or
+interruption retains its cause. Validate remains reference-only, without shell,
+edits, capture, fresh checks or delegation. Legacy scopes keep their declared
+compatibility route until supported upgrade/admission. Adoption and retirement are
+separate; offline checks do not satisfy authentic #274/#296 host observations.

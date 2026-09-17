@@ -106,6 +106,10 @@ type Settings struct {
 	// AutoResumeOnSessionLimit opts into bounded recovery after verified provider
 	// quota interruptions. The zero value keeps unattended retries disabled.
 	AutoResumeOnSessionLimit bool `yaml:"auto_resume_on_session_limit"`
+	// MCPAutoStart prepares per-launch neutral registration; loaded once, default true.
+	MCPAutoStart bool `yaml:"mcp_auto_start"`
+	// AllowMCPStoryCreation is a loaded false-default ceiling; grants remain separate.
+	AllowMCPStoryCreation bool `yaml:"allow_mcp_story_creation"`
 
 	// AutoSyncBase controls whether a later story's auto-sync step runs at
 	// all. Defaults to true: staying behind the base branch quietly, without
@@ -447,6 +451,8 @@ func Defaults() Config {
 			AttachmentMaxTotalBytes:    DefaultAttachmentMaxTotalBytes,
 			AttachmentMaxCount:         DefaultAttachmentMaxCount,
 			AutoResumeOnSessionLimit:   false,
+			MCPAutoStart:               true,
+			AllowMCPStoryCreation:      false,
 			AutoSyncBase:               true,
 			AutoSyncMaxBehind:          DefaultAutoSyncMaxBehind,
 			BlockRunOnConflict:         true,
@@ -622,6 +628,9 @@ func Decode(r io.Reader) (*Config, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
+	}
+	if err := strictMCPAutoStart(data); err != nil {
+		return nil, err
 	}
 	if err := legacySettingsError(data); err != nil {
 		return nil, err
@@ -843,4 +852,32 @@ func friendlyYAMLError(err error) error {
 		msgs = append(msgs, unknownFieldRE.ReplaceAllString(msg, `unknown key "$1"`))
 	}
 	return fmt.Errorf("parse config: %s", strings.Join(msgs, "; "))
+}
+
+// strictMCPAutoStart rejects YAML coercions for both MCP settings, rather
+// than treating quoted strings, nulls or yes/no scalars as loaded policy.
+func strictMCPAutoStart(data []byte) error {
+	doc, ok := decodeYAMLDocument(data)
+	if !ok {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "settings" {
+			continue
+		}
+		settings := root.Content[i+1]
+		if settings.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(settings.Content); j += 2 {
+			if (settings.Content[j].Value == "mcp_auto_start" || settings.Content[j].Value == "allow_mcp_story_creation") && settings.Content[j+1].Tag != "!!bool" {
+				return fmt.Errorf("settings.%s must be a boolean", settings.Content[j].Value)
+			}
+		}
+	}
+	return nil
 }

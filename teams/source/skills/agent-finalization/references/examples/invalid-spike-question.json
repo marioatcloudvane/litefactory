@@ -1,0 +1,25 @@
+{
+  "result": {
+    "outcome": "incomplete",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "spike": {
+        "request": "Inspect contract."
+      }
+    },
+    "reason": "Further evidence or work is required.",
+    "questions": [
+      {
+        "id": "Q-1",
+        "text": "Which boundary should be inspected?",
+        "options": [
+          {
+            "id": "O-1",
+            "text": "Creation"
+          }
+        ],
+        "recommended_option": "O-1"
+      }
+    ]
+  }
+}

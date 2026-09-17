@@ -1,0 +1,32 @@
+{
+  "story": "US-001",
+  "snapshot_id": "run0007-us001-v1",
+  "files": [
+    "internal/store/migrations/0042_mcp_authority.sql",
+    "internal/store/mcp_authority.go",
+    "internal/store/result_bindings.go",
+    "internal/turn/mcp_attempt.go",
+    "internal/store/mcp_authority_test.go",
+    "internal/turn/mcp_attempt_test.go"
+  ],
+  "checks": [
+    {
+      "id": "us001-authority",
+      "name": "go test ./internal/turn ./internal/store -run '^TestMCP(Attempt|Lease)_' -count=1",
+      "passed": true,
+      "evidence": "Executed by integration specialist: PASS; turn 1.309s; store 1.747s. Real SQLite authority operation matrix and exact expiry, private socket shared-service calls, cancellation/admission, fresh launch variants and copy isolation."
+    },
+    {
+      "id": "us001-authority-race",
+      "name": "go test -race ./internal/turn ./internal/store -run '^TestMCP(Attempt|Lease)_' -count=1",
+      "passed": true,
+      "evidence": "Executed by integration specialist: PASS; turn 16.784s; store 16.727s."
+    },
+    {
+      "id": "us001-compatibility",
+      "name": "go test ./internal/store ./internal/turn -run 'TestResultBinding_|TestAgentResultService_' -count=1",
+      "passed": true,
+      "evidence": "Executed by implementation engineer after final production edits: PASS; store 1.141s; turn 1.774s."
+    }
+  ]
+}

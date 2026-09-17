@@ -1,0 +1,1 @@
+{"stage":"engineering","story":"US-008","outcome":"invalidated","reason":"Aggregate make check stopped at pinned lint. Behavior-preserving production/test cleanup now changes this story implementation snapshot; prior executed evidence remains historical, and fresh final-state aggregate verification is pending. No acceptance is changed."}

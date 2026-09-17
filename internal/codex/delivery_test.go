@@ -12,7 +12,11 @@ func TestDeliveryArgsForceIsolationAndNativeRoleFiles(t *testing.T) {
 	runner := &Runner{userConfig: true}
 	req := request(t, agent.PathCold)
 	req.Delivery = &agent.Delivery{Root: t.TempDir(), Identity: strings.Repeat("a", 64), Roles: []string{"researcher"}}
-	args := strings.Join(runner.args(req, "read-only"), " ")
+	argv, err := runner.args(req, "read-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := strings.Join(argv, " ")
 	for _, want := range []string{"--ignore-user-config", "--ignore-rules", "agents.researcher.config_file", filepath.Join(req.Delivery.Root, "roles", "researcher.toml"), "read-only"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("missing %q: %s", want, args)

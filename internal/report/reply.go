@@ -190,11 +190,15 @@ const (
 	// discloses the model, the confirming handle, the files that were
 	// written, and the commit that completed the merge.
 	ReplyAppliesResolution
+	// ReplyCreationProposal presents exact retained owner-review content.
+	ReplyCreationProposal
 )
 
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
+	case ReplyCreationProposal:
+		return "creation_proposal"
 	case ReplyUnknownCommand:
 		return "unknown_command"
 	case ReplyEmptySpike:
@@ -267,6 +271,8 @@ func (k ReplyKind) String() string {
 // valid reports whether k is one of the real kinds.
 func (k ReplyKind) valid() bool {
 	switch k {
+	case ReplyCreationProposal:
+		return true
 	case ReplyUnknownCommand, ReplyEmptySpike:
 		return true
 	case ReplyAmbiguousAgentLabels, ReplyMalformedAgentLabel, ReplyUnknownAgent:
@@ -380,6 +386,7 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
+	Creation         *CreationReply
 	SourceGeneration int
 	SourceStoryIssue int
 	SourceCommentID  int64
@@ -727,6 +734,13 @@ func (r Reply) body() string {
 
 	span, named := commandSpan(r.Command)
 	switch r.Kind {
+	case ReplyCreationProposal:
+		if r.Creation != nil {
+			b.WriteString("Retained creation proposal. Review the complete JSON below; preparation grants no publication.\n\n")
+			fence := fenceFor(r.Creation.Envelope)
+			b.WriteString(fence + "json\n" + r.Creation.Envelope + "\n" + fence + "\n\n")
+			fmt.Fprintf(&b, "To approve these exact bytes for the next Research attempt, comment:\n\n`/mcp-create %s %s`", r.Creation.Hash, r.Creation.Relationship)
+		}
 	case ReplyEmptySpike:
 		b.WriteString("`/spike` needs something to work on. Say what you want tried, on the same line or the ones after it:")
 		b.WriteString(sectionGap)
@@ -1079,3 +1093,6 @@ const conflictProposalConfirmationSentence = "This is a suggestion only: litefac
 // other three. It takes one %d verb for the count of paths it hid.
 const conflictPathRejectionSentence = "%d of the conflicting path(s) could not be shown safely and " +
 	"were counted instead of printed."
+
+// CreationReply contains the complete retained JSON and its exact fingerprint.
+type CreationReply struct{ Envelope, Hash, Relationship string }

@@ -1,0 +1,39 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=20m ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	(cached)
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	(cached)
+ok  	github.com/cloudvane/litefactory/internal/agentresult	(cached)
+ok  	github.com/cloudvane/litefactory/internal/attach	(cached)
+ok  	github.com/cloudvane/litefactory/internal/cli	257.793s
+ok  	github.com/cloudvane/litefactory/internal/codex	(cached)
+ok  	github.com/cloudvane/litefactory/internal/config	4.005s
+ok  	github.com/cloudvane/litefactory/internal/confirm	(cached)
+ok  	github.com/cloudvane/litefactory/internal/daemon	672.893s
+ok  	github.com/cloudvane/litefactory/internal/git	(cached)
+ok  	github.com/cloudvane/litefactory/internal/github	(cached)
+ok  	github.com/cloudvane/litefactory/internal/gittest	4.210s
+ok  	github.com/cloudvane/litefactory/internal/harness	(cached)
+ok  	github.com/cloudvane/litefactory/internal/identity	6.732s
+ok  	github.com/cloudvane/litefactory/internal/launchd	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logging	(cached)
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/planbrief	(cached)
+ok  	github.com/cloudvane/litefactory/internal/redact	(cached)
+ok  	github.com/cloudvane/litefactory/internal/render	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)
+ok  	github.com/cloudvane/litefactory/internal/schedule	(cached)
+ok  	github.com/cloudvane/litefactory/internal/secrets	(cached)
+ok  	github.com/cloudvane/litefactory/internal/store	(cached)
+ok  	github.com/cloudvane/litefactory/internal/submission	(cached)
+ok  	github.com/cloudvane/litefactory/internal/team	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teampublish	2.219s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamsource	11.537s
+ok  	github.com/cloudvane/litefactory/internal/turn	1166.347s

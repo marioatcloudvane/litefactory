@@ -1,0 +1,12 @@
+{
+  "result": {
+    "outcome": "incomplete",
+    "comment": "Offline contract fixture.",
+    "payload": {
+      "spike": {
+        "request": "Inspect the contract."
+      }
+    },
+    "reason": "Further evidence or work is required."
+  }
+}

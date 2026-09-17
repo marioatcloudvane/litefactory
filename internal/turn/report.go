@@ -194,6 +194,7 @@ func (rep RunReport) validate() error {
 
 // ReplyRequest is a run-less answer to a comment litefactory will not act on.
 type ReplyRequest struct {
+	Creation *report.CreationReply
 	// Ref is the task the comment is on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -294,6 +295,9 @@ func (req ReplyRequest) refusing() bool { return req.Refusal != report.ReplyInva
 // A refusal names its own kind; everything else is the command's, through the
 // mapping at [replyKind].
 func (req ReplyRequest) kind() (report.ReplyKind, bool) {
+	if req.Creation != nil {
+		return report.ReplyCreationProposal, true
+	}
 	if req.ScheduleKind != report.ReplyInvalid {
 		return req.ScheduleKind, req.ScheduleKind == report.ReplyScheduleInvalid ||
 			req.ScheduleKind == report.ReplyScheduleConfirmed ||
@@ -341,7 +345,7 @@ func (req ReplyRequest) validate() error {
 	// response. A refusal is triggered by a command that would have spawned
 	// a run, and a command that spawns a run draws no reply — so asking this
 	// question of a refusal refuses the refusal.
-	case !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
+	case req.Creation == nil && !req.refusing() && req.ScheduleKind == report.ReplyInvalid && req.ConfirmKind == report.ReplyInvalid &&
 		!req.Command.NeedsReply():
 		return invalidRequest("%s draws no reply", req.Command.Kind)
 	}
@@ -647,6 +651,7 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 			ConflictSuggestionFailed: req.ConflictSuggestionFailed,
 			ConflictSuggestionReason: req.ConflictSuggestionReason,
 			Schedule:                 req.Schedule,
+			Creation:                 req.Creation,
 			Confirm:                  req.Confirm,
 		})
 	})

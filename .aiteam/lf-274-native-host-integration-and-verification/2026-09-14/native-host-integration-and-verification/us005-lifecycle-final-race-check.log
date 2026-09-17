@@ -1,0 +1,35 @@
+=== RUN   TestMCPApplicationGuidancePayloadContract
+=== RUN   TestMCPApplicationGuidancePayloadContract/research
+=== RUN   TestMCPApplicationGuidancePayloadContract/spike
+=== RUN   TestMCPApplicationGuidancePayloadContract/plan
+=== RUN   TestMCPApplicationGuidancePayloadContract/implement
+--- PASS: TestMCPApplicationGuidancePayloadContract (8.16s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/research (1.46s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/spike (1.69s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/plan (2.56s)
+    --- PASS: TestMCPApplicationGuidancePayloadContract/implement (2.45s)
+=== RUN   TestMCPRuntimeActualLaunchPaths
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold
+=== RUN   TestMCPRuntimeActualLaunchPaths/resume
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused
+--- PASS: TestMCPRuntimeActualLaunchPaths (2.84s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold (0.11s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/resume (0.10s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused (0.09s)
+=== RUN   TestMCPRuntimeConcurrentCancellationIsolation
+--- PASS: TestMCPRuntimeConcurrentCancellationIsolation (2.39s)
+=== RUN   TestMCPRuntimeReplacementRejectsStaleRegistration
+--- PASS: TestMCPRuntimeReplacementRejectsStaleRegistration (1.50s)
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/research
+    mcp_runtime_lifecycle_test.go:283: mode=research installed=[communication_preflight communication_receipt communication_submit activity_update feedback_preflight receipts_get] shared_provider_neutral=true excluding_contract_words=230 excluding_contract_bytes=1770 including_contract_words=265 including_contract_bytes=2147 provider_tokens=unavailable; no authentic host acquisition
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/spike
+    mcp_runtime_lifecycle_test.go:283: mode=spike installed=[communication_preflight communication_receipt communication_submit] shared_provider_neutral=true excluding_contract_words=219 excluding_contract_bytes=1636 including_contract_words=253 including_contract_bytes=2006 provider_tokens=unavailable; no authentic host acquisition
+=== RUN   TestMCPRuntimeApplicationGuidanceSizes/plan
+    mcp_runtime_lifecycle_test.go:283: mode=plan installed=[communication_preflight communication_receipt communication_submit] shared_provider_neutral=true excluding_contract_words=230 excluding_contract_bytes=1716 including_contract_words=264 including_contract_bytes=2089 provider_tokens=unavailable; no authentic host acquisition
+--- PASS: TestMCPRuntimeApplicationGuidanceSizes (6.76s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/research (1.67s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/spike (2.50s)
+    --- PASS: TestMCPRuntimeApplicationGuidanceSizes/plan (2.59s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	23.564s

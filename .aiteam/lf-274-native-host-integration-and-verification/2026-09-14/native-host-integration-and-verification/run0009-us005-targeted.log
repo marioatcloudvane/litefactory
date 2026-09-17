@@ -1,0 +1,67 @@
+COMMAND: go test -race -count=1 -timeout=8m ./internal/turn -run ^(TestValidationCheckpointReconcilesTerminal|TestMCPRuntime(ActualLaunchPaths|ConcurrentCancellationIsolation|ReplacementRejectsStaleRegistration|UnmanagedPreparation)|TestCodexMCPLifecycle.*|TestSubmissionTerminalValidationRequiresRecordedReceipt)$ -v
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/enabled
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/disabled
+=== RUN   TestCodexMCPLifecycleEnabledDisabledAbsentSetup/absent
+--- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup (7.12s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/enabled (2.33s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/disabled (1.84s)
+    --- PASS: TestCodexMCPLifecycleEnabledDisabledAbsentSetup/absent (2.96s)
+=== RUN   TestCodexMCPLifecycleMalformedQuotedValuesSurvive
+--- PASS: TestCodexMCPLifecycleMalformedQuotedValuesSurvive (2.79s)
+=== RUN   TestCodexMCPLifecycleServerCollisionRefusesSafely
+--- PASS: TestCodexMCPLifecycleServerCollisionRefusesSafely (2.51s)
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/cold
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/resume
+=== RUN   TestCodexMCPLifecycleRunPathsPreserveRegistration/cold_after_resume_refused
+--- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration (3.21s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/cold (0.36s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/resume (0.35s)
+    --- PASS: TestCodexMCPLifecycleRunPathsPreserveRegistration/cold_after_resume_refused (0.34s)
+=== RUN   TestCodexMCPLifecycleConcurrentCancellationIsolation
+--- PASS: TestCodexMCPLifecycleConcurrentCancellationIsolation (2.65s)
+=== RUN   TestMCPRuntimeActualLaunchPaths
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold
+=== RUN   TestMCPRuntimeActualLaunchPaths/resume
+=== RUN   TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused
+--- PASS: TestMCPRuntimeActualLaunchPaths (2.70s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold (0.10s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/resume (0.08s)
+    --- PASS: TestMCPRuntimeActualLaunchPaths/cold_after_resume_refused (0.10s)
+=== RUN   TestMCPRuntimeConcurrentCancellationIsolation
+--- PASS: TestMCPRuntimeConcurrentCancellationIsolation (1.49s)
+=== RUN   TestMCPRuntimeReplacementRejectsStaleRegistration
+--- PASS: TestMCPRuntimeReplacementRejectsStaleRegistration (1.56s)
+=== RUN   TestMCPRuntimeUnmanagedPreparation
+=== RUN   TestMCPRuntimeUnmanagedPreparation/research
+=== RUN   TestMCPRuntimeUnmanagedPreparation/spike
+--- PASS: TestMCPRuntimeUnmanagedPreparation (4.71s)
+    --- PASS: TestMCPRuntimeUnmanagedPreparation/research (2.53s)
+    --- PASS: TestMCPRuntimeUnmanagedPreparation/spike (2.18s)
+=== RUN   TestValidationCheckpointReconcilesTerminal
+=== RUN   TestValidationCheckpointReconcilesTerminal/duplicate
+=== RUN   TestValidationCheckpointReconcilesTerminal/lost_reply
+=== RUN   TestValidationCheckpointReconcilesTerminal/conflict
+=== RUN   TestValidationCheckpointReconcilesTerminal/missing
+=== RUN   TestValidationCheckpointReconcilesTerminal/concurrent
+=== RUN   TestValidationCheckpointReconcilesTerminal/broker
+=== RUN   TestValidationCheckpointReconcilesTerminal/wrong_snapshot
+--- PASS: TestValidationCheckpointReconcilesTerminal (18.68s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/duplicate (2.26s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/lost_reply (2.88s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/conflict (2.20s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/missing (3.42s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/concurrent (2.00s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/broker (3.46s)
+    --- PASS: TestValidationCheckpointReconcilesTerminal/wrong_snapshot (2.46s)
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=false
+=== RUN   TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=true
+--- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt (3.59s)
+    --- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=false (1.88s)
+    --- PASS: TestSubmissionTerminalValidationRequiresRecordedReceipt/rejected_receipt=true (1.71s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/turn	52.968s
+
+EXIT: 0

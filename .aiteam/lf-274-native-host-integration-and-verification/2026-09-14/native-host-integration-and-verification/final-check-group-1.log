@@ -1,0 +1,31 @@
+Group: small-bundle
+Packages: cmd/litefactory cmd/team-benchmark cmd/team-publish internal/agent internal/agentresult internal/attach internal/codex internal/config internal/confirm internal/gittest internal/identity internal/launchd internal/logging internal/mcpadapter internal/meter internal/naming internal/planbrief internal/redact internal/render internal/repos internal/schedule internal/secrets internal/submission internal/team internal/teampublish internal/teamremote internal/teamsource
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.807s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	6.229s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	6.737s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.025s
+ok  	github.com/cloudvane/litefactory/internal/codex	51.930s
+ok  	github.com/cloudvane/litefactory/internal/config	7.205s
+ok  	github.com/cloudvane/litefactory/internal/confirm	4.591s
+ok  	github.com/cloudvane/litefactory/internal/gittest	6.337s
+ok  	github.com/cloudvane/litefactory/internal/identity	20.193s
+ok  	github.com/cloudvane/litefactory/internal/launchd	7.395s
+ok  	github.com/cloudvane/litefactory/internal/logging	3.483s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	5.271s
+ok  	github.com/cloudvane/litefactory/internal/meter	2.987s
+ok  	github.com/cloudvane/litefactory/internal/naming	3.093s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	2.998s
+ok  	github.com/cloudvane/litefactory/internal/redact	3.593s
+ok  	github.com/cloudvane/litefactory/internal/render	2.962s
+ok  	github.com/cloudvane/litefactory/internal/repos	11.486s
+ok  	github.com/cloudvane/litefactory/internal/schedule	3.459s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.949s
+ok  	github.com/cloudvane/litefactory/internal/submission	5.280s
+ok  	github.com/cloudvane/litefactory/internal/team	6.599s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	8.091s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	3.949s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	20.609s
+go test -race -timeout 8m ./cmd/litefactory/... ./cmd/team-benchmark/...       51.38s user 36.72s system 142% cpu 1:01.92 total
+EXIT: 0

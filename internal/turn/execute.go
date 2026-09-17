@@ -80,6 +80,8 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// MCP is the optional startup-owned automatic tool runtime.
+	MCP *MCPRuntime
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
 	// False disables automatic recovery without affecting manual schedules.
 	AutoResumeOnSessionLimit bool
@@ -147,15 +149,11 @@ type Options struct {
 	// git.DefaultRemote.
 	Remote string
 
-	// SubIssueCreator and SubIssueRenderer are the sub-issue phase's two
-	// dependencies (see internal/turn/subissues.go). Nil in either one is a
-	// turn that runs without the phase at all: it is skipped rather than
-	// refused, the same tolerance [Options.Remote] gets for the same reason —
-	// a great many callers of this package, in tests above all, have no
-	// occasion to file a plan's sub-issues and should not have to supply a
-	// forge client and a renderer to construct a valid Options.
+	// SubIssueCreator and SubIssueRenderer serve managed Plan publication.
+	// Callers without Plan work may omit them; Plan admission checks the
+	// complete forge and renderer capabilities before enabling publication.
 	SubIssueCreator  SubIssueCreator
-	SubIssueRenderer SubIssueRenderer
+	SubIssueRenderer CompleteStoryRenderer
 
 	// AssetFetcher fetches attachment bytes, and AttachmentLimits are the
 	// ceilings that ingestion runs under. *github.Client satisfies the
@@ -598,6 +596,10 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		if errors.Is(err, store.ErrPlanNotReady) {
 			return readinessRefused(ctx, opts, result)
 		}
+		var contextRefusal *planContextRefusal
+		if errors.As(err, &contextRefusal) {
+			return prelaunchRefused(ctx, opts, result, contextRefusal.reason())
+		}
 		// Any failure after allocation is retryable preparation. Do not turn
 		// infrastructure failure into a report that acknowledges the source.
 		allocated, found, lookupErr := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
@@ -776,19 +778,23 @@ func Reconcile(ctx context.Context, opts Options) (store.Reconciliation, error) 
 	return reconciliation, nil
 }
 
-// readinessRefused carries an explanation only after a raced allocation, if
-// any, has become terminal. Refusals never change session state in preparation.
 func readinessRefused(ctx context.Context, opts Options, result Result) (Result, error) {
+	return prelaunchRefused(ctx, opts, result, "Implementation refused: the plan is not ready or has pending refinements. No agent launched. Submit a fresh /implement command after the plan is ready.")
+}
+
+// prelaunchRefused carries an explanation only after a raced allocation, if
+// any, has become terminal. Refusals never change session state in preparation.
+func prelaunchRefused(ctx context.Context, opts Options, result Result, reason string) (Result, error) {
 	result.Disposition = DispositionPrepareFailed
 	result.Outcome = harness.OutcomeFailed
-	result.Reason = "Implementation refused: the plan is not ready or has pending refinements. No agent launched. Submit a fresh /implement command after the plan is ready."
+	result.Reason = reason
 	run, found, err := opts.DB.GetRunByTrigger(ctx, result.SessionID, result.TriggerCommentID)
 	if err != nil {
 		return result, err
 	}
 	if found {
 		if run.Status != store.RunPrelaunch {
-			return result, fmt.Errorf("readiness refusal found a non-prelaunch run")
+			return result, fmt.Errorf("prelaunch refusal found a non-prelaunch run")
 		}
 		run, err = opts.DB.FinishRun(context.WithoutCancel(ctx), run.ID, store.RunOutcome{Status: store.RunFailed, SemanticOutcome: "refused", Error: result.Reason})
 		if err != nil {

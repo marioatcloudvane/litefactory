@@ -1,0 +1,650 @@
+{
+  "version": 1,
+  "unit": "UTF-8 bytes",
+  "scenarios": [
+    {
+      "name": "cold",
+      "revision": 1,
+      "expected_result": "internal/agentresult/testdata/v1/exchanges/cold-result.json",
+      "full": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/workflow/SKILL.md",
+          "sha256": "a47e2fd284b697086bd55f937d50a51ede7af3d08cb3e31c14748a907047284d"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/cold-task.json",
+          "sha256": "074cfdf82eaa011129b15096637daad7ca2678d73a8faabb0c61beb7e5d90095"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/cold-result.json",
+          "sha256": "dbd31bbd3704bfd16d5d943f30360ac112126919985bedaedc980bd5d407ed88"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "scoped": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/SKILL.md",
+          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+        },
+        {
+          "direction": "output",
+          "kind": "instruction_read",
+          "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+          "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/common.md",
+          "sha256": "8b30e6c80612509511afd21936608fb43650c7e21a9465e47b8769163714ac11"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/cold-task.json",
+          "sha256": "074cfdf82eaa011129b15096637daad7ca2678d73a8faabb0c61beb7e5d90095"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/cold-result.json",
+          "sha256": "dbd31bbd3704bfd16d5d943f30360ac112126919985bedaedc980bd5d407ed88"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "baseline": ""
+    },
+    {
+      "name": "continuation",
+      "revision": 1,
+      "expected_result": "internal/agentresult/testdata/v1/exchanges/continuation-result.json",
+      "full": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/workflow/SKILL.md",
+          "sha256": "a47e2fd284b697086bd55f937d50a51ede7af3d08cb3e31c14748a907047284d"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-task.json",
+          "sha256": "641bff3da17394d3d66cbc9ea554e234f8e7ded46147c447c1f21d1f4bc4db51"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-read.json",
+          "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-baseline.json",
+          "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-full-update.json",
+          "sha256": "04926fed8edad4c3cabc9237cea1922dbabb744b101622e780c7bc2d686387be"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "scoped": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/SKILL.md",
+          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+        },
+        {
+          "direction": "output",
+          "kind": "instruction_read",
+          "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+          "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/common.md",
+          "sha256": "8b30e6c80612509511afd21936608fb43650c7e21a9465e47b8769163714ac11"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-task.json",
+          "sha256": "641bff3da17394d3d66cbc9ea554e234f8e7ded46147c447c1f21d1f4bc4db51"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-read.json",
+          "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-baseline.json",
+          "sha256": "6f75b149e1960aad7fcbd14b0633ecee8e505fcb2e118510ef8bcbe2b933809e"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/continuation-scoped-update.json",
+          "sha256": "6259db55afcd1c06a797630f8e91fcaf5338941b2444733937271f394890dce3"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "baseline": "internal/agentresult/testdata/v1/exchanges/continuation-current.json"
+    },
+    {
+      "name": "stale-retry",
+      "revision": 2,
+      "expected_result": "internal/agentresult/testdata/v1/exchanges/stale-retry-result.json",
+      "full": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/workflow/SKILL.md",
+          "sha256": "a47e2fd284b697086bd55f937d50a51ede7af3d08cb3e31c14748a907047284d"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-task.json",
+          "sha256": "b1d393f2e162ac7dbdf5efc3ef7809550c4a06f5c6328411f298c6bdc28d80bf"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-read.json",
+          "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-baseline.json",
+          "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-update.json",
+          "sha256": "04926fed8edad4c3cabc9237cea1922dbabb744b101622e780c7bc2d686387be"
+        },
+        {
+          "direction": "input",
+          "kind": "diagnostic",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-diagnostic.json",
+          "sha256": "5ab578813cd1de5073ed88456cb2919cff649dae413ab0bfb5194802b206f270"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-read.json",
+          "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-baseline.json",
+          "sha256": "e82dfe1f30a966b4c73165cae503a0d896c344d6cab3cac780fee66674cab564"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-full-retry-update.json",
+          "sha256": "180ae9fd4357a4ed22f71e364e428026ba930127f9ecabda0c31eb2104820728"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "scoped": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/SKILL.md",
+          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+        },
+        {
+          "direction": "output",
+          "kind": "instruction_read",
+          "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+          "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/common.md",
+          "sha256": "8b30e6c80612509511afd21936608fb43650c7e21a9465e47b8769163714ac11"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-task.json",
+          "sha256": "b1d393f2e162ac7dbdf5efc3ef7809550c4a06f5c6328411f298c6bdc28d80bf"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-read.json",
+          "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-baseline.json",
+          "sha256": "6f75b149e1960aad7fcbd14b0633ecee8e505fcb2e118510ef8bcbe2b933809e"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-update.json",
+          "sha256": "6259db55afcd1c06a797630f8e91fcaf5338941b2444733937271f394890dce3"
+        },
+        {
+          "direction": "input",
+          "kind": "diagnostic",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-diagnostic.json",
+          "sha256": "5ab578813cd1de5073ed88456cb2919cff649dae413ab0bfb5194802b206f270"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-read.json",
+          "sha256": "7683810ec922835266bca303330e3d995cfd0e95076e2c53551a7e16a97eb523"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-baseline.json",
+          "sha256": "70cfa4c63a0819f0c649bab885f10e34dc5eb8287de9eb7aebf792f7f3e1c3d4"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/stale-retry-scoped-retry-update.json",
+          "sha256": "847402111d2f9a8cb4db863edb3b83c6ec6cd5d5183975cc2b7e37f7c04a2d9c"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "baseline": "internal/agentresult/testdata/v1/exchanges/stale-retry-current.json"
+    },
+    {
+      "name": "incomplete",
+      "revision": 1,
+      "expected_result": "internal/agentresult/testdata/v1/exchanges/incomplete-result.json",
+      "full": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/workflow/SKILL.md",
+          "sha256": "a47e2fd284b697086bd55f937d50a51ede7af3d08cb3e31c14748a907047284d"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-task.json",
+          "sha256": "e814682c970190e7cb0820d1bd1678170bd60eec1b6383f2cff49403e1d52a51"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-read.json",
+          "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-baseline.json",
+          "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-full-update.json",
+          "sha256": "7dfa89656bf8a413c7ef2c642fe45bcbe573173cb1086f0c21160a3f8441e8cb"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "scoped": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/SKILL.md",
+          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+        },
+        {
+          "direction": "output",
+          "kind": "instruction_read",
+          "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+          "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/common.md",
+          "sha256": "8b30e6c80612509511afd21936608fb43650c7e21a9465e47b8769163714ac11"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-task.json",
+          "sha256": "e814682c970190e7cb0820d1bd1678170bd60eec1b6383f2cff49403e1d52a51"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-read.json",
+          "sha256": "dd3c8b19e16d3bbaf798545bf7a506fcceed906c498048b50567949f99050552"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-baseline.json",
+          "sha256": "6fd1fe3d48e0db7bc6ec4a325adfb24af954e096859694cd313ddaec3d7befbe"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/incomplete-scoped-update.json",
+          "sha256": "8f13409a012802f20e7b978056966fd85fad0d9750147ea730642c8aff10f7d0"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "baseline": "internal/agentresult/testdata/v1/exchanges/incomplete-current.json"
+    },
+    {
+      "name": "blocked",
+      "revision": 1,
+      "expected_result": "internal/agentresult/testdata/v1/exchanges/blocked-result.json",
+      "full": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "internal/agentresult/testdata/v1/exchanges/full-guidance.md",
+          "sha256": "bc12e5f627f19c573815e3b0bb130fd99535c92bc5f3824d13baadbe6c61c4b1"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/workflow/SKILL.md",
+          "sha256": "a47e2fd284b697086bd55f937d50a51ede7af3d08cb3e31c14748a907047284d"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-task.json",
+          "sha256": "8dc29d446dfb14ab68c53683383e36d6cc903e0a6f336b12086f80bc22c8306f"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-read.json",
+          "sha256": "9bab9b5dff960cf3002471e35864efbcfbe429ac5fd1d27384b2c8edcb8070ca"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-baseline.json",
+          "sha256": "7c03d23a1df605f547046bed72358383d4c0d7ffe79af5921602ddc8a09fa59d"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-full-update.json",
+          "sha256": "fa8cd1638cf7bc40d10680414db3665a973128b1b0f301bde572277484eba30e"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "scoped": [
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/SKILL.md",
+          "sha256": "8a15b927009599f879baf583a7743b700b7619d022cbb9e475d5f3c16a13282c"
+        },
+        {
+          "direction": "output",
+          "kind": "instruction_read",
+          "path": "internal/agentresult/testdata/v1/exchanges/late-guidance-read.json",
+          "sha256": "9d23931ad35fb03f8e647deee6d0c9cf1e5a9ff4bd6ad47b933d56938c9502a4"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/common.md",
+          "sha256": "8b30e6c80612509511afd21936608fb43650c7e21a9465e47b8769163714ac11"
+        },
+        {
+          "direction": "input",
+          "kind": "instructions",
+          "path": "teams/source/skills/agent-finalization/references/research.md",
+          "sha256": "ff0f7f972f3d66c2a0483ec1a21760c6f7e40675ae5dadbd57576482232da116"
+        },
+        {
+          "direction": "input",
+          "kind": "constraints",
+          "path": "internal/agentresult/testdata/v1/exchanges/constraints.txt",
+          "sha256": "51681087200effbcdca7ce13b902c82afeefd748883b561bf638fb47d71a5743"
+        },
+        {
+          "direction": "input",
+          "kind": "task",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-task.json",
+          "sha256": "8dc29d446dfb14ab68c53683383e36d6cc903e0a6f336b12086f80bc22c8306f"
+        },
+        {
+          "direction": "output",
+          "kind": "read_request",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-read.json",
+          "sha256": "b5a189138034396e2341b10566519429862d9b90485443c0cbb326c96f667a26"
+        },
+        {
+          "direction": "input",
+          "kind": "baseline",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-baseline.json",
+          "sha256": "89894285333067797158aca0cae8be717377688bf7ca9147fca29b2ab6d07a07"
+        },
+        {
+          "direction": "output",
+          "kind": "contribution",
+          "path": "internal/agentresult/testdata/v1/exchanges/blocked-scoped-update.json",
+          "sha256": "3143701aab08f3d7a05c5b979580b1a20e8f2821cbbbc8299440874e89c2700b"
+        },
+        {
+          "direction": "input",
+          "kind": "receipt",
+          "path": "internal/agentresult/testdata/v1/exchanges/receipt.json",
+          "sha256": "c6994d155fb76d68db81be8404a514d02d596d4d53fd6ac11e62e8bd722a9902"
+        }
+      ],
+      "baseline": "internal/agentresult/testdata/v1/exchanges/blocked-current.json"
+    }
+  ]
+}

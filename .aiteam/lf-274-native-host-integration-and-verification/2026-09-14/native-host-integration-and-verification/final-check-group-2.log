@@ -1,0 +1,7 @@
+Group: git-github-report
+Packages: internal/git internal/github internal/report
+ok  	github.com/cloudvane/litefactory/internal/git	109.964s
+ok  	github.com/cloudvane/litefactory/internal/github	2.671s
+ok  	github.com/cloudvane/litefactory/internal/report	16.050s
+go test -race -timeout 8m ./internal/git/... ./internal/github/...   131.51s user 161.11s system 259% cpu 1:52.85 total
+EXIT: 0

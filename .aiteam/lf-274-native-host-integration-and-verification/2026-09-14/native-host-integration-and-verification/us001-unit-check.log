@@ -1,0 +1,94 @@
+=== RUN   TestMCPLaunchSpec_CatalogValidation
+=== PAUSE TestMCPLaunchSpec_CatalogValidation
+=== RUN   TestMCPLaunchSpec_CatalogOwnership
+=== PAUSE TestMCPLaunchSpec_CatalogOwnership
+=== RUN   TestMCPLaunchSpec_StructuredSyntaxPaths
+=== PAUSE TestMCPLaunchSpec_StructuredSyntaxPaths
+=== CONT  TestMCPLaunchSpec_CatalogValidation
+=== CONT  TestMCPLaunchSpec_StructuredSyntaxPaths
+=== CONT  TestMCPLaunchSpec_CatalogOwnership
+=== RUN   TestMCPLaunchSpec_CatalogValidation/installed_catalog/preserves_exact_order
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/installed_catalog/preserves_exact_order
+--- PASS: TestMCPLaunchSpec_StructuredSyntaxPaths (0.00s)
+--- PASS: TestMCPLaunchSpec_CatalogOwnership (0.00s)
+=== RUN   TestMCPLaunchSpec_CatalogValidation/omitted_catalog/preserves_neutral_legacy_value
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/omitted_catalog/preserves_neutral_legacy_value
+=== RUN   TestMCPLaunchSpec_CatalogValidation/duplicate/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/duplicate/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/empty_name/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/empty_name/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/wildcard/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/wildcard/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/permission_grammar/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/permission_grammar/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/qualified_provider_name/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/qualified_provider_name/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/newline/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/newline/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/nul/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/nul/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/non_ASCII/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/non_ASCII/rejected
+=== RUN   TestMCPLaunchSpec_CatalogValidation/oversized_name/rejected
+=== PAUSE TestMCPLaunchSpec_CatalogValidation/oversized_name/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/installed_catalog/preserves_exact_order
+=== CONT  TestMCPLaunchSpec_CatalogValidation/nul/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/wildcard/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/omitted_catalog/preserves_neutral_legacy_value
+=== CONT  TestMCPLaunchSpec_CatalogValidation/permission_grammar/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/empty_name/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/duplicate/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/non_ASCII/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/oversized_name/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/newline/rejected
+=== CONT  TestMCPLaunchSpec_CatalogValidation/qualified_provider_name/rejected
+--- PASS: TestMCPLaunchSpec_CatalogValidation (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/installed_catalog/preserves_exact_order (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/nul/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/wildcard/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/omitted_catalog/preserves_neutral_legacy_value (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/empty_name/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/permission_grammar/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/duplicate/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/non_ASCII/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/oversized_name/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/newline/rejected (0.00s)
+    --- PASS: TestMCPLaunchSpec_CatalogValidation/qualified_provider_name/rejected (0.00s)
+PASS
+coverage: 2.5% of statements
+ok  	github.com/cloudvane/litefactory/internal/agent	1.674s	coverage: 2.5% of statements
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+=== RUN   TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== PAUSE TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration
+=== CONT  TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration
+=== RUN   TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+=== PAUSE TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+--- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/disabled/no_resources_required (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/enabled_missing_broker/refuses_registration (0.00s)
+    --- PASS: TestBuildMCPLaunchSpec_UnavailableAuthority/absent_authority/no_registration (0.00s)
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request
+=== CONT  TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch
+--- PASS: TestRunMCPBound_DisabledAndInvalidRuntime (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/unsupported_provider/preserves_provider_request (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/absent_runtime/preserves_provider_request (0.00s)
+    --- PASS: TestRunMCPBound_DisabledAndInvalidRuntime/enabled_incomplete_runtime/refuses_before_host_launch (0.00s)
+PASS
+coverage: 0.2% of statements
+ok  	github.com/cloudvane/litefactory/internal/turn	1.991s	coverage: 0.2% of statements

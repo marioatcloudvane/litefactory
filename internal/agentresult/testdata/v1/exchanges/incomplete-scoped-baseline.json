@@ -1,0 +1,19 @@
+{
+  "result_id": "fixture-result",
+  "revision": 1,
+  "complete_snapshot": false,
+  "selections": [
+    {
+      "target": {
+        "field": "comment"
+      },
+      "value": "Initial investigation retained."
+    },
+    {
+      "target": {
+        "field": "reason"
+      },
+      "value": "A focused follow-up remains."
+    }
+  ]
+}

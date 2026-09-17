@@ -1,0 +1,77 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "outcome"
+      },
+      "value": "blocked"
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Investigation is blocked by unavailable authorized input."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "reason"
+      },
+      "value": "The required authorized baseline is unavailable."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.research.request"
+      },
+      "value": "Inspect the shared communication boundary."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.research.findings"
+      },
+      "value": [
+        {
+          "id": "F-1",
+          "text": "Authored results have a separate trusted context."
+        },
+        {
+          "id": "F-2",
+          "text": "Snapshot history retains source attribution across runs."
+        },
+        {
+          "id": "F-3",
+          "text": "Stable identities allow coordinated changes without indexes."
+        },
+        {
+          "id": "F-4",
+          "text": "Retained check references require exact frozen revisions."
+        },
+        {
+          "id": "F-5",
+          "text": "Progress cannot grant acceptance or publication."
+        },
+        {
+          "id": "F-6",
+          "text": "Preflight is distinct from durable submission."
+        }
+      ]
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.research.decisions"
+      },
+      "value": [
+        {
+          "id": "D-1",
+          "text": "Keep lifecycle ownership at the factory."
+        }
+      ]
+    }
+  ]
+}
