@@ -1,0 +1,15 @@
+Command: make check
+Outer wall-clock bound: 480 seconds; Makefile test recipe uses -race -timeout=0.
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.968s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	3.155s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	4.788s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.676s
+make: *** [test] Terminated: 15
+
+RUN0017_RESULT state=timed_out exit_code=124 elapsed_seconds=480.181

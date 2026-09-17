@@ -99,9 +99,18 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	// has to be what was actually sent (AC-3.11), not what was first assembled.
 	meta = turnMeta(prep, runResult)
 	retainRunDiagnostics(bookkeeping, opts, runResult, &meta, logger)
-	if runErr != nil {
-		// The run never started, so there is no RunResult to report — but the
-		// row exists and owes the issue a comment all the same.
+	if runResult == nil {
+		// The process never started at all — a genuine startup/setup failure
+		// (a bad request, an unwritable log directory, or similar) — so there
+		// is no RunResult to report. [agent.RunResult]'s own contract is that
+		// a RunResult comes back for every run that actually happened, so a
+		// non-nil runResult here, even alongside a non-nil runErr, means the
+		// subprocess did start and run; that case is handled below by
+		// harvestStopped, which preserves the actual process outcome (exit
+		// code, log path, result text) and attributes the accompanying error
+		// to the phase it actually happened in — local cleanup, finalization
+		// or scoped submission recovery — instead of mislabeling it as the
+		// agent never starting.
 		result.Disposition = DispositionRan
 		result.Outcome = harness.OutcomeFailed
 		result.Reason = fmt.Sprintf("coding agent did not start: %v", runErr)
@@ -112,17 +121,22 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 		return finish(bookkeeping, opts, prep, result, nil, &meta, logger)
 	}
 
-	return harvestStopped(ctx, opts, prep, result, runResult, &meta, logger)
+	return harvestStopped(ctx, opts, prep, result, runResult, runErr, &meta, logger)
 }
 
-// harvestStopped resumes only persistence and harvest after observed completion.
-func harvestStopped(ctx context.Context, opts Options, prep *preparation, result Result, runResult *harness.RunResult, meta *harness.Meta, logger *slog.Logger) (out Result, outErr error) {
+// harvestStopped resumes only persistence and harvest after observed
+// completion. factoryErr is non-nil only when the subprocess above already
+// produced runResult and something local and afterward — session/resource
+// cleanup, finalization, or a scoped submission recovery fault — also
+// failed; it is reported as a fact distinct from runResult's own outcome
+// (see the factoryErr handling below), never in place of it.
+func harvestStopped(ctx context.Context, opts Options, prep *preparation, result Result, runResult *harness.RunResult, factoryErr error, meta *harness.Meta, logger *slog.Logger) (out Result, outErr error) {
 	bookkeeping := context.WithoutCancel(ctx)
 	terminalSaved := false
 	defer func() {
 		if outErr != nil && !terminalSaved {
 			out.Repair = func(c context.Context) (Result, error) {
-				return harvestStopped(c, opts, prep, result, runResult, meta, logger)
+				return harvestStopped(c, opts, prep, result, runResult, factoryErr, meta, logger)
 			}
 		}
 	}()
@@ -157,13 +171,28 @@ func harvestStopped(ctx context.Context, opts Options, prep *preparation, result
 	result.Run = run
 	terminalSaved = true
 
+	// A local factory fault surfaced only after the subprocess above already
+	// produced runResult: the exit code, log path and result text already set
+	// above stay exactly what the process actually did, and this only records
+	// the truthful factory-side cause. Setting result.Err still blocks
+	// success-only save/publication and overall workflow success through
+	// [Result.Succeeded] below, exactly as any other factory failure does —
+	// this changes only the reported cause, never whether the turn is marked
+	// successful. Interruption reporting is left untouched (AC-005).
+	if factoryErr != nil && runResult.Outcome != agent.OutcomeInterrupted {
+		result.Err = describeFactoryFailure(factoryErr)
+	}
+
 	result = publishPlanHandoff(ctx, opts, prep, result, runResult, logger)
 	result = save(ctx, opts, prep, result, runResult, logger)
 	if prep.promptInput.ApprovedStories != nil && result.Succeeded() {
 		if err := opts.DB.MarkStoryAggregateSucceeded(bookkeeping, prep.run.ID); err != nil {
 			result.Err = err
 		} else if opts.StoryProgress != nil {
-			if err := opts.StoryProgress.Poll(bookkeeping); err != nil {
+			// Scoped to this run's own parent (AC-003): an unrelated parent's
+			// broken pending debt is reconciled by the daemon-wide sweep
+			// (StoryProgress.Poll), not here.
+			if err := opts.StoryProgress.PollRun(bookkeeping, prep.run.ID); err != nil {
 				logger.Error("story completion remains pending", slog.Any("error", err))
 			}
 		}
@@ -260,6 +289,31 @@ func runClaude(
 		return result, nil
 	}
 	return result, err
+}
+
+// describeFactoryFailure names the phase a local factory fault happened in —
+// [SubmissionRecoveryError]'s scoped submission recovery (US-002), or
+// ordinary session/resource cleanup and finalization — so the report never
+// confuses "the agent never started" with "the agent ran and something local
+// failed afterward" (AC-005, issue #311).
+//
+// Whether the subprocess itself had already succeeded or failed is not
+// repeated here: result.Harness (set from the real runResult above, in every
+// case this is reached) already carries that truthfully, and
+// [report.Run.Failure]'s own rendering already distinguishes "did its work,
+// but litefactory could not complete the turn" from "then could not complete
+// the turn either" — the same distinction this codebase already draws for a
+// push failure after a successful run. Duplicating that framing here would
+// only repeat it. The original fault is wrapped with %w, not replaced, so a
+// later errors.As/errors.Is (for example against *SubmissionRecoveryError)
+// still reaches it.
+func describeFactoryFailure(factoryErr error) error {
+	phase := "local cleanup/finalization"
+	var recoveryErr *SubmissionRecoveryError
+	if errors.As(factoryErr, &recoveryErr) {
+		phase = "local submission recovery"
+	}
+	return fmt.Errorf("%s failed: %w", phase, factoryErr)
 }
 
 // refusalEvidence renders the refused run's stderr for the log line.
