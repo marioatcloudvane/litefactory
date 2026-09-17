@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [x] Research
+- [ ] Research
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -39,3 +39,5 @@ Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.
 Illustrative workflow: RESEARCH_WORKFLOW_EXAMPLE.dot (proposed profile; not executable by current litefactory).
 
 Roadmap sketch: RESEARCH_ROADMAP.md (advisory parent/child scopes, not approved or published stories).
+
+- 2026-09-17 (run 0010): Prepared nine authorized main-issue drafts and two preflight-valid batches. GitHub creation blocked by tool approval policy before first issue; no issues created. Research continuation/publication incomplete; preserve drafts for approved route.

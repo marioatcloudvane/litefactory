@@ -540,3 +540,14 @@ Fresh focused repository evidence uses revision `1a59feb8777a9fd60e881ab99b93401
 Root-agent tool inspection reports creation preflight is exposed (`feedback_preflight` creation kind), but no corresponding issue/story creation submission tool is exposed in this attempt. Communication result submission is a different operation. No issues were created and no live creation test is claimed. Research does not publish stories; test publication after the user authorizes that operation and the appropriate tool is exposed.
 
 No blocking questions remain for this bounded sketch. Parent/child scopes below are intentionally not acceptance criteria, frozen contracts or publication-ready bodies. No implementation, issue publication or mode transition.
+
+
+## Run 0010: authorized main-issue creation blocked at tool approval
+
+Owner explicitly authorized the nine independent main issues with Research starting mode. MAIN_ISSUE_DRAFTS.json contains discussion summaries, 3–6 candidate child scopes and dependencies. MAIN_ISSUE_PUBLICATION_INTENT.json retains the normalized connector inputs; MAIN_ISSUE_BATCH_1.json and MAIN_ISSUE_BATCH_2.json retain factory-shaped batches of five and four. No child issues are requested.
+
+Both batches passed factory creation preflight (requests 7879320910a324c00df1709e0dc8adff and 424ca3481891be6583e89a586b043e95). These are content validation only, not creation authority or publication receipts. Existing issue #230 confirms label 'Mode: Research'.
+
+Factory issues_create_batch is not exposed in this attempt. Source review found its owner preparation -> exact reviewed hash grant -> eligible Research launch flow, maximum five items/one batch per attempt, and no mode-label field. The user separately authorized ordinary issue creation; the GitHub connector supports title/body/labels and was attempted for the first parent, Foundations for graph-based execution. It returned: 'MCP tool call requires approval, but approval policy is never'. The call did not return an issue or issue number. No other issue-creation path was attempted after that rejection. No issues were created by this run; mode labels have not been applied to new issues.
+
+Publication remains incomplete. To test factory creation, an authenticated owner must prepare each exact batch with '/mcp-create prepare <batch JSON>', review the retained proposal/hash, and approve it through the factory's '/mcp-create <sha256> linked' command for a new eligible attempt. Do not invent a hash or impersonate the owner. Two batches require two grants/launches. That factory envelope cannot set Research labels; arrange an authorized label-setting operation and verify it before claiming the owner's full request satisfied. Alternatively an approval-enabled GitHub connector run could create the prepared ordinary issues with Research labels. Neither route has been executed here.
