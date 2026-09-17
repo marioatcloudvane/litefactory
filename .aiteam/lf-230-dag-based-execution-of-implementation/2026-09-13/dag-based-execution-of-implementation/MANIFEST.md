@@ -34,12 +34,14 @@
 
 - 2026-09-17 (run 0011): Created exact approved five-main-issue batch as #315–#319; confirmed creation request e4e1cc13d76d34956367d316533ce225 after recovering rejected wrapper request bd17269c4a06161499055a04b1e70660 and correcting a source-confirmed tool schema/handler mismatch. Current five-issue creation complete; broader nine-parent publication and Research-mode initialization remain incomplete. No code, tests, child publication or mode transition.
 
+- 2026-09-17 (run 0012): Created remaining exact approved four-main-issue batch as #321–#324; preflight valid (15b378cf5013677573cf73e9087b8eba), creation and matching receipt confirmed (986399cc7e377ce8a6fafe43e945d69c, publication 2). All nine parents now created; current four creation fulfilled. Research-mode label initialization remains incomplete, with no retry of the previous approval-policy refusal. No children, code, tests, engineering/acceptance claim or mode transition.
+
 ## Notes
 
 Research brief: RESEARCH_BRIEF.md. Reuse this session on continuation.
 
 Illustrative workflow: RESEARCH_WORKFLOW_EXAMPLE.dot (proposed profile; not executable by current litefactory).
 
-Roadmap sketch: RESEARCH_ROADMAP.md (advisory parent/child scopes, not approved or published stories).
+Roadmap sketch: RESEARCH_ROADMAP.md (all nine main scopes now published; candidate children remain advisory, not approved Plan stories).
 
 - 2026-09-17 (run 0010): Prepared nine authorized main-issue drafts and two preflight-valid batches. GitHub creation blocked by tool approval policy before first issue; no issues created. Research continuation/publication incomplete; preserve drafts for approved route.

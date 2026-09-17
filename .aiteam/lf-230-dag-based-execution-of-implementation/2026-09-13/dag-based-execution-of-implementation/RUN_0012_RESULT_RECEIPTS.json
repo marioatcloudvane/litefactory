@@ -1,0 +1,171 @@
+{
+  "proposal_hash": "6a82293c4570677976c94215d33dabc7f35c11466e8fc25a4c629ea61ecd8cad",
+  "preflight": {
+    "request_id": "15b378cf5013677573cf73e9087b8eba",
+    "result": {
+      "valid": true,
+      "diagnostics": []
+    }
+  },
+  "creation": {
+    "request_id": "986399cc7e377ce8a6fafe43e945d69c",
+    "result": {
+      "request_id": "986399cc7e377ce8a6fafe43e945d69c",
+      "tool": "issues_create_batch",
+      "disposition": "confirmed",
+      "reference": {
+        "kind": "creation_publication",
+        "id": 2
+      },
+      "states": {
+        "input": "accepted",
+        "effects": "confirmed"
+      },
+      "publications": [
+        {
+          "issue_id": 5492324318,
+          "issue_number": 321,
+          "relationship": "linked"
+        },
+        {
+          "issue_id": 5492324425,
+          "issue_number": 322,
+          "relationship": "linked"
+        },
+        {
+          "issue_id": 5492324513,
+          "issue_number": 323,
+          "relationship": "linked"
+        },
+        {
+          "issue_id": 5492324610,
+          "issue_number": 324,
+          "relationship": "linked"
+        }
+      ]
+    }
+  },
+  "creation_receipt_read": true,
+  "verification": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "number": 321,
+        "title": "Wire graph-based execution into Validate mode",
+        "state": "open",
+        "labels": [],
+        "body_matches": true,
+        "url": "https://github.com/marioatcloudvane/litefactory/issues/321"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "number": 322,
+        "title": "Wire graph-based execution into Spike mode",
+        "state": "open",
+        "labels": [],
+        "body_matches": true,
+        "url": "https://github.com/marioatcloudvane/litefactory/issues/322"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "number": 323,
+        "title": "Retire legacy orchestration and execution",
+        "state": "open",
+        "labels": [],
+        "body_matches": true,
+        "url": "https://github.com/marioatcloudvane/litefactory/issues/323"
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "number": 324,
+        "title": "Retire obsolete team setup",
+        "state": "open",
+        "labels": [],
+        "body_matches": true,
+        "url": "https://github.com/marioatcloudvane/litefactory/issues/324"
+      }
+    }
+  ],
+  "application_request_id": "b777c29487e35b7f9f0ca8a6b6bfa435",
+  "application_receipt": {
+    "request_id": "b777c29487e35b7f9f0ca8a6b6bfa435",
+    "result": {
+      "Validation": {
+        "valid": true,
+        "complete": true,
+        "diagnostics": [],
+        "unchecked_paths": [],
+        "expected_revision": 3,
+        "current_revision": 3
+      },
+      "Receipt": {
+        "ID": 23,
+        "ResultID": 4,
+        "RunID": 488,
+        "AppliedRevision": 4,
+        "SubmissionReceiptID": 0,
+        "Attempt": "dcae11ac154463d84753dfa0ebec8b1c",
+        "RequestID": "b777c29487e35b7f9f0ca8a6b6bfa435",
+        "RequestHash": "f8b4008672577378d4ecc303eb2459a0e0d4baebfc5af01aaa0b658dd50ba381",
+        "InputState": "accepted",
+        "Payload": "eyJleHBlY3RlZF9yZXZpc2lvbiI6Mywib3BlcmF0aW9ucyI6W3sib3AiOiJzZXQiLCJ0YXJnZXQiOnsiZmllbGQiOiJjb21tZW50In0sInZhbHVlIjoiQ3JlYXRlZCBhbmQgdmVyaWZpZWQgdGhlIGZvdXIgbWFpbiBpc3N1ZXMgZnJvbSBhcHByb3ZlZCBwcm9wb3NhbCA2YTgyMjkzYzQ1NzA2Nzc5NzZjOTQyMTVkMzNkYWJjN2YzNWMxMTQ2NmU4ZmMyNWE0YzYyOWVhNjFlY2Q4Y2FkOiAjMzIxIFdpcmUgZ3JhcGgtYmFzZWQgZXhlY3V0aW9uIGludG8gVmFsaWRhdGUgbW9kZTsgIzMyMiBXaXJlIGdyYXBoLWJhc2VkIGV4ZWN1dGlvbiBpbnRvIFNwaWtlIG1vZGU7ICMzMjMgUmV0aXJlIGxlZ2FjeSBvcmNoZXN0cmF0aW9uIGFuZCBleGVjdXRpb247ICMzMjQgUmV0aXJlIG9ic29sZXRlIHRlYW0gc2V0dXAuIEFsbCBmb3VyIGFyZSBvcGVuLCBsaW5rZWQgdG8gIzIzMCwgYW5kIHRoZWlyIGJvZGllcyBleGFjdGx5IG1hdGNoIHRoZSBhcHByb3ZlZCBhcnRpZmFjdHMuIE5vIGNoaWxkIGlzc3VlcyB3ZXJlIGNyZWF0ZWQuIEV4YWN0IHByb3Bvc2FsIGhhc2ggdmVyaWZpY2F0aW9uIGFuZCBjcmVhdGlvbiBwcmVmbGlnaHQgcGFzc2VkIHdpdGggbm8gZGlhZ25vc3RpY3MuIENyZWF0aW9uIHJlcXVlc3QgOTg2Mzk5Y2M3ZTM3N2NlOGE2ZmFmZTQzZTk0NWQ2OWMgY29uZmlybWVkIHB1YmxpY2F0aW9uIGVmZmVjdHM7IGl0cyBtYXRjaGluZyByZWNlaXB0IHdhcyByZWFkIGFuZCBHaXRIdWIgY29udGVudHMgaW5kZXBlbmRlbnRseSB2ZXJpZmllZC4gVGhpcyBmb3VyLWlzc3VlIGNyZWF0aW9uIHJlcXVlc3QgaXMgZnVsZmlsbGVkLiBUb2dldGhlciB3aXRoICMzMTXigJMjMzE5IGZyb20gdGhlIHByZXZpb3VzIGJhdGNoLCBhbGwgbmluZSByb2FkbWFwIHBhcmVudHMgbm93IGV4aXN0LiBCcm9hZGVyIFJlc2VhcmNoLW1vZGUgaW5pdGlhbGl6YXRpb24gcmVtYWlucyBpbmNvbXBsZXRlOiB0aGUgZm91ciBuZXcgaXNzdWVzIGhhdmUgbm8gbGFiZWxzLCBhbmQgdGhlIHByZXZpb3VzIGZpdmUgd2VyZSBhbHNvIHVubGFiZWxlZCBhdCB0aGVpciBsYXN0IHZlcmlmaWNhdGlvbi4gQm9kaWVzIHNwZWNpZnkgUmVzZWFyY2gsIGJ1dCB0aGF0IGRvZXMgbm90IGluaXRpYWxpemUgbW9kZSBsYWJlbHMuIFRoZSBwcmV2aW91cyBsYWJlbCBtdXRhdGlvbiB3YXMgYmxvY2tlZCBiZWNhdXNlIHRvb2wgYXBwcm92YWwgaXMgcmVxdWlyZWQgdW5kZXIgYXBwcm92YWwgcG9saWN5IG5ldmVyOyBpdCB3YXMgbm90IHJldHJpZWQgb3IgYnlwYXNzZWQgaW4gdGhpcyBydW4uIE5vIGVuZ2luZWVyaW5nIGNvbXBsZXRpb24gb3IgYWNjZXB0YW5jZSBpcyBjbGFpbWVkLiJ9LHsib3AiOiJzZXQiLCJ0YXJnZXQiOnsiZmllbGQiOiJyZWFzb24ifSwidmFsdWUiOiJBbGwgbmluZSBtYWluIGlzc3VlcyBhcmUgY3JlYXRlZDsgUmVzZWFyY2ggbW9kZSBsYWJlbCBpbml0aWFsaXphdGlvbiByZW1haW5zIGluY29tcGxldGUgdW5kZXIgdGhlIHByZXZpb3VzbHkgb2JzZXJ2ZWQgdG9vbC1hcHByb3ZhbCByZXN0cmljdGlvbi4ifSx7Im9wIjoic2V0IiwidGFyZ2V0Ijp7ImZpZWxkIjoicGF5bG9hZC5yZXNlYXJjaC5yZXF1ZXN0In0sInZhbHVlIjoiQ3JlYXRlIHRoZSBleGFjdCBhcHByb3ZlZCBmb3VyLW1haW4taXNzdWUgcHJvcG9zYWwgNmE4MjI5M2M0NTcwNjc3OTc2Yzk0MjE1ZDMzZGFiYzdmMzVjMTE0NjZlOGZjMjVhNGM2MjllYTYxZWNkOGNhZCBhbmQgdmVyaWZ5IHB1YmxpY2F0aW9uOyBwcmVzZXJ2ZSBicm9hZGVyIFJlc2VhcmNoLWxhYmVsIHN0YXR1cy4ifV19",
+        "Diagnostics": "eyJ2YWxpZCI6dHJ1ZSwiY29tcGxldGUiOnRydWUsImRpYWdub3N0aWNzIjpbXSwidW5jaGVja2VkX3BhdGhzIjpbXSwiZXhwZWN0ZWRfcmV2aXNpb24iOjMsImN1cnJlbnRfcmV2aXNpb24iOjN9",
+        "Observations": [
+          {
+            "Sequence": 1,
+            "RunID": 488,
+            "Attempt": "dcae11ac154463d84753dfa0ebec8b1c",
+            "Dimension": "received",
+            "State": "received"
+          },
+          {
+            "Sequence": 2,
+            "RunID": 488,
+            "Attempt": "dcae11ac154463d84753dfa0ebec8b1c",
+            "Dimension": "input",
+            "State": "accepted"
+          }
+        ],
+        "Latest": {
+          "Received": "received",
+          "Input": "accepted",
+          "Engineering": "pending",
+          "Acceptance": "pending",
+          "Publication": "pending"
+        }
+      },
+      "Snapshot": {
+        "meta": {
+          "schema_version": 1,
+          "task": "github:marioatcloudvane/litefactory#230",
+          "run_id": 488,
+          "attempt_id": "dcae11ac154463d84753dfa0ebec8b1c",
+          "mode": "research",
+          "result_id": "result-4",
+          "result_revision": 4,
+          "scope_ref": "323c2e2fad7dc9b2d2e9e2d55c2e47fe99d6fcfd56aab278d1870080e56aa75a",
+          "request_id": "b777c29487e35b7f9f0ca8a6b6bfa435",
+          "workflow_version": 2,
+          "submission_contract_version": 2
+        },
+        "result": {
+          "outcome": "incomplete",
+          "comment": "Created and verified the four main issues from approved proposal 6a82293c4570677976c94215d33dabc7f35c11466e8fc25a4c629ea61ecd8cad: #321 Wire graph-based execution into Validate mode; #322 Wire graph-based execution into Spike mode; #323 Retire legacy orchestration and execution; #324 Retire obsolete team setup. All four are open, linked to #230, and their bodies exactly match the approved artifacts. No child issues were created. Exact proposal hash verification and creation preflight passed with no diagnostics. Creation request 986399cc7e377ce8a6fafe43e945d69c confirmed publication effects; its matching receipt was read and GitHub contents independently verified. This four-issue creation request is fulfilled. Together with #315–#319 from the previous batch, all nine roadmap parents now exist. Broader Research-mode initialization remains incomplete: the four new issues have no labels, and the previous five were also unlabeled at their last verification. Bodies specify Research, but that does not initialize mode labels. The previous label mutation was blocked because tool approval is required under approval policy never; it was not retried or bypassed in this run. No engineering completion or acceptance is claimed.",
+          "reason": "All nine main issues are created; Research mode label initialization remains incomplete under the previously observed tool-approval restriction.",
+          "payload": {
+            "research": {
+              "request": "Create the exact approved four-main-issue proposal 6a82293c4570677976c94215d33dabc7f35c11466e8fc25a4c629ea61ecd8cad and verify publication; preserve broader Research-label status."
+            }
+          }
+        }
+      },
+      "Baseline": null
+    }
+  }
+}
