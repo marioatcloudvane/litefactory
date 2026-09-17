@@ -1,0 +1,26 @@
+{
+  "proposal_hash": "978ab8fe0c42a4a26aa68f5af76b246cfb92f10df4e7dcbf8215571c92ce96f8",
+  "preflight_request_id": "c69444407f7aac8785131f93e19887ad",
+  "rejected_request_id": "bd17269c4a06161499055a04b1e70660",
+  "creation_request_id": "e4e1cc13d76d34956367d316533ce225",
+  "creation_disposition": "confirmed",
+  "issues": [
+    315,
+    316,
+    317,
+    318,
+    319
+  ],
+  "all_bodies_match_approved": true,
+  "all_mode_labels_absent": true,
+  "label_update": "blocked: approval required; approval policy never",
+  "application_request_id": "6cd8d854df0d6bdb60a43d6328e0f840",
+  "application_revision": 3,
+  "application_states": {
+    "Received": "received",
+    "Input": "accepted",
+    "Engineering": "pending",
+    "Acceptance": "pending",
+    "Publication": "pending"
+  }
+}
