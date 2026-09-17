@@ -584,3 +584,137 @@ Additional regression cases for that future contract: spoofed run/story/issue me
 Follow-up verification: read focused source at revision `5c4bf0b9ce3b32ea66f633280556d57420e42893`, compared changed paths with the initial revision, and fetched current #258 body/comments. Relevant submission identity/runner/receipt sources retain the traced behavior; other code, including metering, has changed since the original test baseline. No tests were rerun and the original baseline is not claimed as verification of this newer revision. A measured ten-file source corpus is 131,574 bytes on disk, partly read; this is not input-token usage or exact transmitted bytes. Billed token counts are unavailable. Some initial guessed filenames did not exist; their actual owners were located and read. No network/permission blocker occurred; no production telemetry was accessed.
 
 - 2026-09-13, run 0002: Answered that story/issue identity is required for trusted correlation and already bound, but redundant in the proposed check key under current snapshot uniqueness. Evaluated the latest #258 owner proposal, its authority/versioning implications, partial changes and on-demand loading; saved this extension. Research complete, no material unanswered owner question. No source code or runtime state changed, no commit/push, and Plan was not started.
+
+
+## Run 0007 — Codex reassessment and unavailable MCP delivery (2026-09-16)
+
+**Research assessment complete; requested live MCP delivery blocked.** Scope and success criteria are clear: reassess #259 against the current worktree, then exercise the actual Codex-host communication tool chain. No additional owner decision is needed. This run did not implement a fix or change modes.
+
+Current revision is `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`. Direct `git diff --stat 792f5f6 HEAD -- internal/store internal/turn internal/agentresult` returned no changes. Nevertheless, the relevant current source was read again and the retained run-0003 probe was executed again; earlier reported results were not treated as current execution evidence.
+
+### Current assessment
+
+1. **Check identity collision remains reproducible.** `internal/store/migrations/0028_submission_contracts.sql:52` declares `PRIMARY KEY(run_id,reference)` for checks. `internal/store/submission_evidence.go:154` resolves the same pair and `:157` rejects another snapshot as an immutable conflict; `:181` exposes the unscoped reader. Capture validation only deduplicates IDs inside one capture (`internal/agent/contribution_capture.go:57`), and retention uses raw `check.ID` (`internal/turn/submission_records.go:41`). This run's probe passed both story preflights with check ID `build`, then observed the second submit error and repeated global recovery error. This is a reproduction of the defect, not a fix-verification pass.
+2. **Foreground recovery can still propagate another run's failure.** `internal/turn/submission_runner.go:53` joins deferred session-close errors into the runner return. `internal/turn/submissions.go:182` calls unscoped recovery; `:265` does so before checkpoint intake. `internal/turn/submission_recovery.go:17` lists pending receipts across runs and joins their errors at `:46`. The probe dynamically reproduced the repeated global error. The propagation to an unrelated successful run remains source-traced in this run, not a live two-run daemon replay. `StoryProgress.Finish` also discovers globally (`internal/turn/story_progress.go:113`), but harvest logs its error (`internal/turn/harvest.go:66`); it is not the fatal propagation path by itself.
+3. **Harvest still mislabels post-execution failure.** `internal/turn/harvest.go:100` handles every nonnil `runErr` under the assumption no result exists, uses “coding agent did not start” at `:105`, overwrites exit metadata, and returns without normal harvesting. Deferred close can produce that error alongside a real process result. This finding is source-traced, not an executed successful-process-plus-failing-cleanup regression.
+4. **Orphaned Plan receipts remain excluded from recovery.** `internal/turn/submissions.go:363` sets engineering/acceptance to `not_applicable`, while valid Plan remains pending at `:368`. Pending discovery includes plan state (`internal/store/submission_receipts.go:268`), but both `internal/turn/submission_recovery.go:23` and `internal/store/submission_recovery.go:54` require engineering and acceptance pending. Normal publication remains a separate supported path (`internal/store/typed_plan.go:11`); this run executed its existing successful publication test. Orphan handling was source-traced only.
+5. **The shared communication contract still uses affected storage.** `internal/turn/agent_result_context.go:84` reads by run/check ID, then verifies attribution against the snapshot, so a changed key must update this reader as well as `internal/turn/submission_records.go:55` and `internal/turn/submissions.go:334`. Shared Plan finalization calls the existing checkpoint owner (`internal/turn/result_finalization.go:315`). MCP transport fixes do not change these observed storage/lifecycle defects. No conclusion about their activation in this Codex host can be drawn from the repository alone.
+
+The recommendation remains bounded: migrate check identity to `(run_id,snapshot_ref,reference)` and update all readers; scope foreground recovery to its own run/attempt while retaining global maintenance; preserve process facts and report the true failing phase; make Plan recovery stage-aware without abandoning normal pre-publication Plan receipts. Preserve aggregate evidence's guard against relabeling story checks as aggregate proof (`internal/store/result_aggregates.go:242`). Snapshot labels themselves remain run-wide; issue/story identity already follows the trusted run/snapshot ownership chain. No additional redundant issue/story columns are required by this finding.
+
+### Executed verification and limits
+
+Environment: `go version go1.27.0 darwin/arm64`. Reused the retained `DUPLICATE_CHECK_PROBE.go.txt` by appending it to a temporary copy of `internal/turn/submissions_test.go` and mapping that copy with Go `-overlay`; no production or repository test source changed. This is a fresh execution of the prior probe, not a newly authored independent reproduction.
+
+Commands:
+
+```text
+go test -overlay=<temporary-overlay.json> ./internal/turn -run '^(TestResearch259DuplicateCheckProbe|TestSubmissionConcurrentStoriesKeepCorrelation|TestTypedPlanRunnerPublicationAndDurableReceipt)$' -count=1 -v -timeout=90s
+go test ./internal/store -run '^TestSubmissionRetainsImmutableReferencedEvidence$' -count=1
+go test ./internal/agentresult -count=1
+```
+
+Results: turn PASS (5.906s), store PASS (0.908s), agentresult PASS (0.462s). The probe logged exactly:
+
+```text
+second story preflight VALID, submit: store: immutable check reference conflict
+global recovery repeats pending collision: store: immutable check reference conflict
+```
+
+Passing existing tests do not cover the cross-run harvest or orphaned Plan failures. No full `make check` or live daemon replay was run; there was no implementation change. Historical incident details and the owner's report of Claude's successful run 6 remain supplied evidence, not observations repeated on this host. A seven-file focused source corpus measured 70,479 bytes on disk; files were only partly read, so this is neither transmitted source bytes nor billed token usage. Billed tokens are unavailable. No sandbox denial occurred during this research.
+
+### Codex tool visibility and delivery status
+
+The parent agent inspected the complete exposed tool registry and reported **no litefactory MCP tools**, including none of `communication_preflight`, `communication_submit`, or `communication_receipt`; there is also no callable tool search/discovery API. Its full captured inventory is `CODEX_RUN_0007_TOOL_INVENTORY.md` in this session. The registry contains 141 nested tools (14 core, 89 GitHub, 23 Sites, 3 document-control, 6 plugin-management, 5 safety-settings and 1 hotline) plus directly exposed functions/clock/collaboration tools.
+
+Accordingly there were **zero calls** to the required communication chain, no payload sent, no rejection/error response, and no request ID or receipt. This distinguishes missing exposure from the prior transport rejection. The cause of missing exposure is not established. Input validity was not preflighted; engineering/acceptance/remote effects have no new receipt state and must not be reported as accepted or published. Per the explicit instruction, neither the CLI helper nor terminal application-JSON fallback was used. The research artifact preserves the result, but does not satisfy requested MCP completion. A future attempt needs the three communication tools exposed to Codex to test the route.
+
+History: run 0007 completed the bounded source/probe reassessment and preserved prior findings. Live Codex MCP delivery remains blocked by unavailable tools; no owner scope question, production edit, runtime edit, commit, push or publication was performed.
+
+
+## Run 0010 — current source recheck and exposed but denied MCP tools (2026-09-17)
+
+**Bounded research complete; requested MCP delivery remains incomplete.** The owner's “re-check now again ...” follows requests to test Codex's actual MCP route while preserving the #259 assessment. Expected behavior, incident input and scope are already supplied: identical check labels under different story snapshots should coexist, one run must not inherit another run's recovery failure, and diagnostics must preserve observed execution facts. No new owner scope decision or reproduction detail is needed for this bounded recheck. Research only; no implementation or mode change.
+
+Current worktree HEAD is still `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`, exactly the run-0007 revision. `git diff --stat -- internal/store internal/turn internal/agentresult` is empty. Current focused source was read again and the retained reproduction executed again; neither historical prose nor earlier reported test passes were substituted for present evidence.
+
+### Current #259 findings
+
+1. **Duplicate check references still collide across story snapshots.** `internal/store/migrations/0028_submission_contracts.sql:52` keys checks by `(run_id,reference)`. `internal/store/submission_evidence.go:154` looks up that pair; `:157` rejects a differing snapshot; `:181` exposes the same unscoped reader. The fresh execution below confirmed both story preflights are valid, then the second submit fails for shared ID `build`.
+2. **Global recovery still propagates foreign failures.** `internal/turn/submissions.go:182` calls unscoped recovery during Close; `internal/turn/submission_runner.go:53` joins that failure into the runner return. `internal/turn/submission_recovery.go:17` discovers all pending submissions and `:46` joins failures. The probe reproduced the repeated global error; contamination of a real concurrent unrelated run remains source-traced, not a live two-run daemon replay.
+3. **Harvest still mislabels failures after execution.** `internal/turn/harvest.go:100-110` treats any `runErr` as absence of execution and emits “coding agent did not start” at `:105`, even though the deferred Close path can return an error alongside the actual successful process result. Source-traced this run.
+4. **Orphaned Plan receipts still evade recovery.** `internal/turn/submissions.go:363-368` makes engineering/acceptance `not_applicable` while Plan remains pending; both `internal/turn/submission_recovery.go:23` and `internal/store/submission_recovery.go:54` require engineering and acceptance pending. Source-traced; normal Plan publication was not re-executed this run and its prior passing test remains dated evidence.
+5. **Shared communication still uses the affected evidence reader.** `internal/turn/agent_result_context.go:84` calls `GetSubmissionCheck` with run and check ID, then checks snapshot attribution at `:92`. A check-key migration must update this reader too. MCP exposure or transport fixes do not repair this storage identity defect.
+
+Recommendation unchanged: an additive check-key migration to `(run_id,snapshot_ref,reference)` covering all readers; run/attempt-scoped foreground recovery; truthful failure-phase reporting that preserves process facts; stage-aware orphan Plan handling without abandoning normal pre-publication receipts. Retain the previous brief's aggregate-attribution safeguards and trusted run/snapshot/story ownership conclusions. No additional issue/story columns are justified by this recheck.
+
+### Executed probe and limits
+
+Environment: `go version go1.27.0 darwin/arm64`. Appended the existing session `DUPLICATE_CHECK_PROBE.go.txt` to a temporary copy of `internal/turn/submissions_test.go`, mapped using Go `-overlay`. This is a fresh execution of a retained probe, not a newly authored independent reproduction. Production and repository test source were unchanged.
+
+```text
+go test -overlay=<temporary-overlay.json> ./internal/turn -run '^TestResearch259DuplicateCheckProbe$' -count=1 -v -timeout=90s
+=== RUN   TestResearch259DuplicateCheckProbe
+    submissions_test.go:633: second story preflight VALID, submit: store: immutable check reference conflict
+    submissions_test.go:637: global recovery repeats pending collision: store: immutable check reference conflict
+--- PASS: TestResearch259DuplicateCheckProbe (0.53s)
+PASS
+ok  github.com/cloudvane/litefactory/internal/turn  1.145s
+```
+
+The test passes because it expects and demonstrates the defect; it is not fix verification. No full `make check`, broad repeated suite or live daemon replay was needed or performed for this research-only recheck. The seven focused source files total 70,479 bytes on disk; partial reads mean this is neither transmitted source bytes nor billed tokens. Billed token usage is unavailable. No shell sandbox denial occurred in this source research. No production code, runtime state, commit or push changed.
+
+### MCP diagnostic and completion status
+
+The parent agent now sees ten litefactory MCP tools, unlike run 0007. Its live `activity_get({})` and correctly shaped `communication_preflight` update (`expected_revision:2`, one set-comment operation) both returned `isError:true` with the exact text:
+
+```text
+MCP tool call requires approval, but approval policy is never
+```
+
+The exact exposed names, both full argument objects and returned errors are retained in `CODEX_RUN_0010_MCP_DIAGNOSTIC.md`. This is a current approval-policy rejection, distinct from earlier missing tool exposure and earlier `Invalid tool parameters` errors. The evidence does not establish successful tool execution or identify the server/host policy change required to resolve it. No visible MCP initialization error is reported; the callable tools exist but the tested operations are denied.
+
+Input validity remains unconfirmed because preflight did not execute successfully. No `communication_submit` or `communication_receipt` was called, no new request ID or receipt exists, and engineering, acceptance and remote effects have no new acknowledged state. The parent used neither CLI helper nor terminal application-JSON fallback. Research findings are saved, but the requested live route is still incomplete. Next diagnostic work should address the approval requirement versus the attempt's `never` policy, then reattempt the authenticated preflight/submit/matching-receipt chain; this research does not change permissions.
+
+History: run 0010 rechecked unchanged current source, dynamically reproduced collision/recovery again, and retained the newly exposed but denied MCP path. No material unanswered owner scope questions. Research complete; live delivery incomplete.
+
+
+## Run 0011 — current reassessment and live MCP retry (2026-09-17)
+
+**Bounded research complete; application delivery is recorded separately below by the parent.** The owner's “do it again” continues the current-source assessment and Codex MCP retry. Expected behavior and scope remain settled: check IDs shared across distinct story snapshots should coexist, recovery must not attribute a foreign run's failure to a successful caller, and process facts must survive cleanup errors. No missing owner decision requires a question. Research mode remains unchanged.
+
+Current HEAD is `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`. The current diff under `internal/store`, `internal/turn` and `internal/agentresult` is empty; retained uncommitted artifacts are not treated as prior success. Relevant current source was read again, and the retained probe was executed again rather than accepting historical output.
+
+### Findings and recommendation
+
+1. **Duplicate check IDs still collide across snapshots.** `internal/store/migrations/0028_submission_contracts.sql:52` declares `PRIMARY KEY(run_id,reference)`; `internal/store/submission_evidence.go:154` looks up that pair and `:157` rejects another snapshot. `GetSubmissionCheck` at `:181` also lacks snapshot scope. Retention still uses the raw check ID (`internal/turn/submission_records.go:41`). This run dynamically reproduced valid story preflights followed by the second story's immutable check conflict.
+2. **Global recovery can still contaminate the caller's result.** `internal/turn/submission_recovery.go:17` lists pending submissions globally, collecting failures through `:46`. `internal/turn/submissions.go:182` invokes it during session Close, and `internal/turn/submission_runner.go:53` joins Close's error into the actual runner return. The probe reproduced the repeated global conflict. An unrelated successful run's harvest contamination remains source-traced, not an executed two-run daemon replay. `StoryProgress.Finish` also discovers globally (`internal/turn/story_progress.go:113`), but its harvest caller logs the error (`internal/turn/harvest.go:66-69`); that call alone is not the fatal path.
+3. **Harvest still mislabels post-execution errors.** `internal/turn/harvest.go:100-110` treats any nonnil `runErr` as absence of execution, emits “coding agent did not start” at `:105`, and bypasses normal harvest, although deferred Close can leave a real process result alongside its error. Source-traced this run.
+4. **Orphaned Plan receipts remain excluded from recovery.** `internal/turn/submissions.go:363-368` records engineering/acceptance `not_applicable` with Plan pending. Pending discovery includes Plan (`internal/store/submission_receipts.go:268`), but recovery (`internal/turn/submission_recovery.go:23`) and abandonment (`internal/store/submission_recovery.go:54`) require both engineering and acceptance pending. Source-traced; normal publication was not rerun and prior passing publication tests remain dated evidence.
+5. **Shared completion still uses affected storage.** `internal/turn/agent_result_context.go:84` resolves checks by run and ID before testing snapshot attribution at `:92`; shared Plan finalization still calls the checkpoint backend (`internal/turn/result_finalization.go:315`). Improving MCP delivery does not repair the observed identity or recovery defects.
+
+Recommendation remains an additive migration to `(run_id,snapshot_ref,reference)` with every reader updated, run/attempt-scoped foreground recovery, truthful failure-phase reporting preserving process facts, and stage-aware orphan Plan handling. Preserve the prior aggregate-attribution safeguards and trusted ownership chain; do not confuse issue/story correlation with additional redundant key columns. This run implements none of these changes and starts no new mode.
+
+### Executed evidence and limits
+
+Environment: `go version go1.27.0 darwin/arm64`. The retained session `DUPLICATE_CHECK_PROBE.go.txt` was appended to a temporary copy of `internal/turn/submissions_test.go` and mapped with Go `-overlay`. The temporary directory was removed afterward. Repository production and test files were untouched. This is fresh execution of an existing probe, not a newly authored independent reproduction.
+
+```text
+go test -overlay=<temporary-overlay.json> ./internal/turn -run '^TestResearch259DuplicateCheckProbe$' -count=1 -v -timeout=90s
+=== RUN   TestResearch259DuplicateCheckProbe
+    submissions_test.go:633: second story preflight VALID, submit: store: immutable check reference conflict
+    submissions_test.go:637: global recovery repeats pending collision: store: immutable check reference conflict
+--- PASS: TestResearch259DuplicateCheckProbe (0.89s)
+PASS
+ok  github.com/cloudvane/litefactory/internal/turn  1.477s
+```
+
+The pass demonstrates the defect; it does not verify a fix. No full `make check`, broad suite, live concurrent daemon replay or runtime modification was performed for this research-only recheck. Twelve partially read source files total 130,586 bytes on disk; this is not transmitted source bytes or billed token usage, which is unavailable. No shell sandbox denial occurred.
+
+The parent reports litefactory tools visible and `activity_get({})` returned successfully (`isError:false`, advisory state unavailable), unlike run 0010's approval rejection. This read alone does not establish successful application preflight, submission or receipt. Exact current tool arguments/results are retained by the parent in `CODEX_RUN_0011_MCP_DIAGNOSTIC.md`; final chain status, request correlation and receipt states must be recorded there and in the final report. No startup error was exposed. No helper or terminal fallback was used by this research worker.
+
+History: run 0011 completed the bounded source reassessment and reproduced duplicate-check/global-recovery failures again. No material unresolved owner scope question, production/runtime edit, commit or push. MCP application delivery remains the parent's separate completion task.
+
+### Run 0011 final MCP delivery observation
+
+The parent completed `communication_preflight` → `communication_submit` → `communication_receipt`, each once. Preflight was valid and complete with no diagnostics or unchecked paths. Submission applied revision 3; the subsequent receipt matched request `4cb8e614737e629881546c6b047da4b7`, run 475, with input accepted. Engineering, acceptance and publication were each pending at receipt read. No approval-policy error recurred and no helper or terminal fallback was used. Exact arguments and complete returned tool results are preserved in `CODEX_RUN_0011_MCP_DIAGNOSTIC.md`. This establishes successful Codex MCP application delivery for this attempt, not engineering acceptance, remote publication, or completion of broader host-adoption requirements. Factory post-exit validation remains outstanding.
