@@ -10,6 +10,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
+	"github.com/cloudvane/litefactory/internal/redact"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -97,6 +98,7 @@ func runAndHarvest(ctx context.Context, opts Options, prep *preparation, result 
 	// have replaced the prompt and the path under it: what this document records
 	// has to be what was actually sent (AC-3.11), not what was first assembled.
 	meta = turnMeta(prep, runResult)
+	retainRunDiagnostics(bookkeeping, opts, runResult, &meta, logger)
 	if runErr != nil {
 		// The run never started, so there is no RunResult to report — but the
 		// row exists and owes the issue a comment all the same.
@@ -270,6 +272,40 @@ func refusalEvidence(result *harness.RunResult) string {
 		return "(no run result)"
 	}
 	return result.Stderr
+}
+
+// retainRunDiagnostics applies the existing credential policy to newly retained
+// metadata fields; raw stdout logs and the process failure remain unchanged.
+func retainRunDiagnostics(ctx context.Context, opts Options, result *agent.RunResult, meta *harness.Meta, logger *slog.Logger) {
+	if result == nil || result.Succeeded() {
+		return
+	}
+	var redactor *redact.Redactor
+	if opts.MCP != nil {
+		redactor = opts.MCP.Redactor
+	}
+	if redactor == nil {
+		redactor = redact.New(redact.Options{Logger: logger})
+	}
+	for _, field := range []struct {
+		source string
+		target *string
+		limit  int
+	}{
+		{result.Stderr, &meta.Stderr, agent.StderrTailBytes},
+		{result.Diagnostic, &meta.Diagnostic, 4096},
+	} {
+		if field.source == "" {
+			continue
+		}
+		body, err := redactor.Apply(ctx, field.source, field.limit)
+		if err != nil {
+			*field.target = "[diagnostic omitted: sanitization failed]"
+			logger.Error("sanitize retained run diagnostic", slog.Any("error", err))
+			continue
+		}
+		*field.target = body.String()
+	}
 }
 
 // turnMeta builds the run's metadata document: what the harness knows about the

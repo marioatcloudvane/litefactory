@@ -17,9 +17,8 @@ import (
 // the outcome. Deleting $LF_HOME loses it and never loses code, which is the
 // deal S-1 makes.
 //
-// It is unredacted, like everything under $LF_HOME. S-7 applies to bodies on
-// their way to the forge, never to the local copy — a redacted local log is a
-// log you cannot debug from.
+// Existing prompt and result fields are unredacted local evidence. Newly retained
+// stderr and diagnostic fields are bounded and sanitized by internal/turn.
 //
 // It lives in this package rather than in internal/turn because this package
 // owns the run directory: the JSONL and the metadata are one artefact pair with
@@ -124,6 +123,10 @@ type Meta struct {
 	Error *string `json:"error"`
 	// LogPath is the absolute path of the sibling NNNN.jsonl.
 	LogPath string `json:"log_path"`
+	// Stderr is a bounded sanitized tail, supplied by internal/turn.
+	Stderr string `json:"stderr,omitempty"`
+	// Diagnostic retains sanitized failure guidance independently of Error.
+	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
 // NewMeta prefills everything this package knows about a run.
