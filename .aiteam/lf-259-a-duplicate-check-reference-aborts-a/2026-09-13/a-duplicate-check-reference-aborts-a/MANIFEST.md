@@ -20,6 +20,8 @@
 
 ## Notes
 
+- Run 0012 delivery: preflight valid/complete; MCP submission and matching receipt accepted input at revision 4, request `3e12805ce9a3ab8d56e7966ce0f6de09`. Engineering/acceptance/publication pending. Advisory research complete; implementation outstanding.
+
 - 2026-09-17, run 0011 final delivery: all three MCP communication calls succeeded once, matching request `4cb8e614737e629881546c6b047da4b7`; input accepted at revision 3, engineering/acceptance/publication pending. Exact call evidence in CODEX_RUN_0011_MCP_DIAGNOSTIC.md; no fallback. Research complete; post-exit factory validation remains outstanding.
 
 - Research reported check-reference collisions, cross-run reconciliation failures, error wording, and Plan receipt recovery.
@@ -35,3 +37,5 @@
 - 2026-09-17, run 0010: Bounded research complete at unchanged `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`; current focused source reconfirms all five findings and fresh execution of retained duplicate-check/recovery probe PASS reproduces both errors (1.145s). No implementation or full suite. MCP delivery remains incomplete: ten litefactory tools now visible, but activity_get and communication_preflight are denied with `MCP tool call requires approval, but approval policy is never`; exact args/errors in CODEX_RUN_0010_MCP_DIAGNOSTIC.md. No submit, matching receipt, request ID, helper/terminal fallback, runtime edit, commit or push. No material unresolved owner scope decision.
 
 - 2026-09-17, run 0011: Bounded research complete at unchanged `3a19dfd16760431cdc86c28dd61ba6b71fbb8d63`. Current source reconfirms five findings; fresh retained probe execution reproduced duplicate check conflict and repeated global recovery failure (PASS, 1.477s). Cross-run harvest and orphan Plan behavior remain source-traced. No material unresolved scope decisions or production/runtime changes. Parent reports activity_get now succeeds; final MCP application chain and receipt status are recorded separately in CODEX_RUN_0011_MCP_DIAGNOSTIC.md and final report.
+
+- 2026-09-17, run 0012: Research complete at `1ef699a99a7ee097a1f5bc217e01f341ef1037db`: produced advisory implementation sequence for scoped check-key migration/readers, foreground recovery isolation, truthful harvest and stage-aware Plan orphan handling. Preserves post-broker-close/succeeded-run publication window, immutable history and aggregate attribution. Added upgrade/replay/isolation/harvest/Plan regression matrix plus operator-owned release activities. No new owner questions, tests, implementation, formal Plan stories, runtime changes or mode switch. Parent handles shared-result delivery.
