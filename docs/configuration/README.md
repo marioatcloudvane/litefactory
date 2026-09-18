@@ -35,5 +35,3 @@ Unknown keys, multiple YAML documents, invalid ranges, incomplete permission mat
 - Repository registration resolves flags, then global defaults, then repository-derived defaults. Stored registrations retain resolved values; changing YAML does not relocate existing worktrees. See [repositories](../cli/repositories.md).
 - An issue's coding-agent label overrides the configured default. Mode selects its permission profile; profiles do not inherit a missing agent cell.
 - Explicit team source selection overrides `teams.default_source`, which overrides `teams.index_url`. See [teams](../cli/teams.md).
-
-The following pages describe executable behavior at source revision `8f556367c2d0a00d2736a53a326152ff43a6f96e`. Source and offline checks do not establish authentic host delivery for #274/#296, fresh installation or successful remote publication.
