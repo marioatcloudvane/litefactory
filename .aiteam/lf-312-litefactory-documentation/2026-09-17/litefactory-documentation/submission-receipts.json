@@ -1,0 +1,68 @@
+{
+  "checkpoints": {
+    "US-001": {
+      "RequestID": "afbd3071fae90f1cd5cffe4b7d0b6c6e",
+      "Story": "US-001",
+      "Revision": "54532d302bdb381c41d73bbfc3aaeef1d7b4d23f07d4746127e9c0cafec21da1",
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    },
+    "US-002": {
+      "RequestID": "0404b93a3a4165792dfa578f611136ec",
+      "Story": "US-002",
+      "Revision": "7a1e46f7bbdc7300f073a0a624b57669f3a7ebbf580acd541e21ceefa00b71b1",
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    },
+    "US-003": {
+      "RequestID": "d8bcc172d7296128295fd1f79e5e7c23",
+      "Story": "US-003",
+      "Revision": "16da29a2f4f5c7492e787445e25ca5ecb37d9e2b9590fb13087dde8042cd3a63",
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    },
+    "US-004": {
+      "RequestID": "8825c0a561bfccf9f28b5d10f0674071",
+      "Story": "US-004",
+      "Revision": "d4d897cfff98be7fc93796eb9980825d25e95341abdd13dec0965df32c6dc6a1",
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    },
+    "US-005": {
+      "RequestID": "ee72fa0d77581a5edaca888fc505f439",
+      "Story": "US-005",
+      "Revision": "fef288a85e72151b8aea60cbd16452397b62eda3ff3bb4b8864c011812f49d20",
+      "InputState": "valid",
+      "EngineeringState": "rejected",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending"
+    }
+  },
+  "application": {
+    "request_id": "02eca25aa6d25f2d8f9d3be5e8b6b835",
+    "revision": 1,
+    "validation": {
+      "valid": true,
+      "complete": true,
+      "diagnostics": [],
+      "unchecked_paths": [],
+      "expected_revision": 0,
+      "current_revision": 0
+    },
+    "latest": {
+      "Received": "received",
+      "Input": "accepted",
+      "Engineering": "pending",
+      "Acceptance": "pending",
+      "Publication": "pending"
+    }
+  }
+}

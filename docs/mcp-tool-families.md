@@ -39,7 +39,7 @@ match the binding.
 
 | Tool | Arguments | Result and constraints |
 | --- | --- | --- |
-| `feedback_preflight` | `{"kind":"application|checkpoint|creation","input":{...}}` | Shared validation diagnostics. Application uses `AgentResultService.Preflight`; checkpoint uses `SubmissionSession` through `EvidenceService`; creation uses `CanonicalCreation`. Checkpoint preflight is available only in Implement/Validate. No domain submission, snapshot capture, retained proposal, grant or publication; submission validates again. |
+| `feedback_preflight` | `{"kind":"application\|checkpoint\|creation","input":{...}}` | Shared validation diagnostics. Application uses `AgentResultService.Preflight`; checkpoint uses `SubmissionSession` through `EvidenceService`; creation uses `CanonicalCreation`. Checkpoint preflight is available only in Implement/Validate. No domain submission, snapshot capture, retained proposal, grant or publication; submission validates again. |
 | `issues_list` | `{"state":"open","page":1,"per_page":30,"include_mode_labels":false}`; all optional | One page of `items`, `page`, `per_page`, `next_page`. State is open/closed, default open; page defaults 1 and must be positive; per_page defaults 30 and must be 1–100. |
 | `issues_get` | `{"issue_number":123,"state":"open","include_mode_labels":false}` | One summary; positive repository-local number required, state defaults open, state mismatch refused. |
 | `issues_comment` | `{"issue_number":123,"message":"Progress details"}` | Durable family receipt, with confirmed comment ID when known. Requires an explicitly bound existing issue; PRs are refused. Nonblank valid UTF-8 message and final redacted body including marker must fit the 65,536-byte comment limit. |
@@ -212,19 +212,18 @@ MCP still refuses publishable/story-bearing Plan proposals; ordinary helper Plan
 policy is unchanged. Plan/Spike gain only activity reads/updates; unrelated
 family tools remain unavailable.
 
-| #274 responsibility | Available seam and remaining work |
+| Historical #274 responsibility | Current implementation and evidence boundary |
 | --- | --- |
-| Native launches | Consume `BuildMCPLaunchSpec` / `agent.MCPLaunchSpec` in actual Claude/Codex cold, resumed and fallback launches; merge native server inventories and permission configuration; own startup, teardown and fallback. Prepared launch data alone is not a connected host. |
-| Production scope construction | Build actual attempt bindings, explicit existing comment targets, current/historical reader scopes and matching family permission digests. Bind the real broker/guard and creation service consistently. |
-| Trusted approval intake | Present the exact factory-prepared proposal and connect authenticated numeric-owner intake to the existing approval primitive; bind approval only to the next eligible actual attempt. Do not expose grants through prompts or tool fields. |
-| Activity lifecycle | Supply factory time and terminal/clear inputs through `ActivityService.Lifecycle`; schedule retention cleanup in the daemon. Updates and cleanup cannot extend lease, grant or terminal deadlines. |
-| Recovery scheduling | Schedule bounded `ReconcileComment` and creation `Reconcile` with independently authorized observer contexts; retain known facts after cancellation/restart without restoring old dispatch authority. Propagate cancellation and join owned transport work. |
+| Native launches | Implemented: `internal/turn/mcp_runtime.go` binds actual invocations; `internal/harness/mcp.go` and `internal/codex/mcp.go` configure native launches. Claude strict configuration excludes ambient registrations; Codex uses scoped overrides and permitted tools. Authentic connection remains unverified. |
+| Production scope construction | Implemented in the production MCP runtime: attempt bindings, current-issue comment target, scoped receipts, digests, broker/guard and eligible creation service. |
+| Trusted approval intake | Implemented by daemon creation intake and runtime binding: exact preparation, numeric-owner approval and one eligible launch. Grants remain factory-held. |
+| Activity lifecycle | Implemented factory lifecycle and daemon cleanup supply terminal/clear inputs. They cannot extend lease, grant or terminal deadlines. |
+| Recovery scheduling | Implemented bounded daemon reconciliation observes comments/creation under separate authority; it preserves uncertainty without restoring dispatch authority. Live remote outcomes still require observation. |
 | Authentic verification | Observe both actual hosts discovering/calling permitted families, direct refusals, isolation, cancellation, reconnect and recovery, with retained evidence of actual host behavior. |
 
-Earlier foundation notes assign some launch/control wiring to #264. For this
-feature's agreed boundary, the outstanding production connections above are the
-#274 handoff. #272 is landed groundwork; #274 is subsequent work, not a dependency
-of #273. Normal Go pipe/socket/SQLite/HTTP fixtures and the aggregate `make check`
+Earlier foundation notes assigned launch/control wiring to #264 and a subsequent
+#274 handoff. Those milestone assignments are historical: the production and native
+connections above now exist. Authentic #274/#296 host observations remain outstanding. Normal Go pipe/socket/SQLite/HTTP fixtures and the aggregate `make check`
 gate establish local implementation behavior only. Their execution evidence is
 retained with the engineering session; this document makes no authentic host or
 live GitHub publication claim.
@@ -240,3 +239,12 @@ immediately. Progress is process-local and grants no application, engineering or
 acceptance completion. Cleanup preserves durable receipts and uncertain publication
 intent for separate daemon reconciliation. No authentic host observation follows
 from these offline source/lifecycle assertions.
+
+## Attachments and user guidance
+
+Issue attachments are ingested by `internal/turn/prepare.go` through `internal/attach`,
+subject to mode permission and fetch capability. They are not an MCP file-transfer
+family. Images and raw PDF/DOCX/PPTX documents have type/count/byte limits;
+rejection does not by itself fail the run, and ingestion does not guarantee
+interpretation. See [attachments](guides/attachments.md), [factory MCP](guides/mcp.md)
+and [Using the factory](guides/README.md).

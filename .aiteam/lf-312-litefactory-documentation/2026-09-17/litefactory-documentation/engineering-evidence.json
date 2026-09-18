@@ -1,0 +1,453 @@
+{
+  "source_revision": "8f556367c2d0a00d2736a53a326152ff43a6f96e",
+  "scoped": {
+    "US-001": {
+      "story": "US-001",
+      "revision": "54532d302bdb381c41d73bbfc3aaeef1d7b4d23f07d4746127e9c0cafec21da1",
+      "source_revision": "8f556367c2d0a00d2736a53a326152ff43a6f96e",
+      "owned_paths": [
+        "README.md",
+        "docs/README.md",
+        "docs/glossary.md",
+        "docs/getting-started/README.md",
+        "docs/getting-started/installation.md",
+        "docs/getting-started/github-setup.md"
+      ],
+      "checks": [
+        {
+          "id": "us001-source-examples",
+          "name": "Source and example correspondence inspection",
+          "passed": true,
+          "evidence": "Inspected go.mod (Go 1.26), Makefile cgo-free build, CLI init/repo/daemon handlers, router help, identity discovery and launchd Keychain/PATH behavior, repository registration presence/team gates, turn command parser and current team delivery implementation. Examples map to existing commands. Root README retains all prior links/headings, replaces team-disabled claim with current immutable bundle delivery, and separates engineering/acceptance/legacy closure. GitHub access table names source-required operations without claiming a live token permission check."
+        },
+        {
+          "id": "us001-focused-tests",
+          "name": "Focused onboarding, identity and delivery tests",
+          "passed": true,
+          "command": "go test ./internal/cli ./internal/identity ./internal/turn -run 'Test(InitCreatesTheHomeConfigAndDatabase|InitStoresTheBotIdentity|InitRefusesWhenTheBotIsTheOwner|InitIsIdempotent|RepoAddRegistersTheClone|RepoAddLeavesTheCloneUntouched|DaemonStartMaterialisesThePATH|ResolveOwnerStripsTheTokenEnvironment|PlanDeliverySelectedRosterAndIdentity|DeliveryRequiresConcreteApprovalBeforeMergeAndClosesOnlyAfterConfirmation)$' -count=1",
+          "evidence": "ok  github.com/cloudvane/litefactory/internal/cli 5.721s\nok  github.com/cloudvane/litefactory/internal/identity 1.506s\nok  github.com/cloudvane/litefactory/internal/turn 1.520s",
+          "exit_code": 0
+        },
+        {
+          "id": "us001-doc-check",
+          "name": "Scoped Markdown navigation/render check",
+          "passed": true,
+          "command": "python3 /tmp/lf312-US-001-check.py",
+          "evidence": "PASS: 6 owned Markdown files; 54 relative links; 6 rendered tables; 8 closed rendered fences; owned anchors resolve; root README links/headings retained; no docs/user navigation. Cross-story targets checked against approved inventory; 12 not present yet. Final aggregate check required.",
+          "exit_code": 0
+        },
+        {
+          "id": "us001-diff-check",
+          "name": "Whitespace check",
+          "passed": true,
+          "command": "git diff --check -- README.md docs/README.md docs/glossary.md docs/getting-started",
+          "evidence": "No output; exit 0.",
+          "exit_code": 0
+        }
+      ],
+      "limitations": [
+        "AC-004 authentic isolated installation/access and disposable-repository Research observation unavailable; remains unverified and unsatisfied.",
+        "No live daemon operation, fresh install, provider invocation or remote publication performed.",
+        "Orchestrator must retain aggregate final-tree navigation and make check results."
+      ]
+    },
+    "US-002": {
+      "story": "US-002",
+      "revision": "7a1e46f7bbdc7300f073a0a624b57669f3a7ebbf580acd541e21ceefa00b71b1",
+      "source_revision": "8f556367c2d0a00d2736a53a326152ff43a6f96e",
+      "owned_paths": [
+        "docs/guides/README.md",
+        "docs/guides/attachments.md",
+        "docs/guides/issue-command-reference.md",
+        "docs/guides/mcp.md",
+        "docs/guides/scheduling.md",
+        "docs/guides/sync-and-conflicts.md",
+        "docs/guides/validation-and-delivery.md",
+        "docs/guides/workflow.md",
+        "docs/guides/working-with-issues.md",
+        "docs/mcp-adapter.md",
+        "docs/mcp-tool-families.md"
+      ],
+      "checks": [
+        {
+          "command": "go test ./internal/schedule ./internal/confirm ./internal/attach ./internal/turn -run 'Test(Parse|CommandDisposition|ActiveCommandsAreNotUnknown|Ingest|DocumentsUseTheDocumentCeiling|ImagesAndDocumentsLandTogether)' -count=1",
+          "passed": true,
+          "output": "ok internal/schedule 0.752s; ok internal/confirm 0.446s; ok internal/attach 0.826s; ok internal/turn 0.371s"
+        },
+        {
+          "command": "go test ./internal/turn -run 'Test(MCPFamilyCompleteCatalogPipeSocketHTTP|ManagedReplanRequiresExactParentControl|CreationAuthorizer_)' -count=1",
+          "passed": true,
+          "output": "ok github.com/cloudvane/litefactory/internal/turn 5.646s"
+        },
+        {
+          "command": "python3 /tmp/lf312-guides-check.py",
+          "passed": true,
+          "output": {
+            "files": 11,
+            "relative_links": 68,
+            "tables_rendered": 14,
+            "fences_rendered": 12,
+            "retained_technical_headings": "all preserved",
+            "pending_sibling_paths": [
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/cli/command-reference.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/configuration/README.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/configuration/coding-agents.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/configuration/config-yaml.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/configuration/permissions.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/operations/README.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/operations/recovery.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/operations/running-the-daemon.md",
+              "/Users/mariomh/.lf-worktrees/litefactory/task-312/docs/operations/troubleshooting.md"
+            ]
+          }
+        }
+      ],
+      "source_example_inspection": "Compared command.go, ask.go, managed_scope.go, daemon mode/agent/sync/tools/story_refinements/proposals/schedules, schedule parser, confirm parser, attachment scan/sniff and turn ingestion, MCP runtime/native registration, owner_exceptions, followups and feature_delivery. Fixed historical MCP availability claims, current proposal-generator absence, exact grammar and label inventory. Examples contain placeholders, no credentials or permission bypasses. MarkdownIt rendered all owned files; existing technical headings preserved.",
+      "limitations": [
+        "Authentic #274/#296 host observations and live remote publication not performed.",
+        "Aggregate make check and combined final-tree navigation owned by orchestrator."
+      ]
+    },
+    "US-003": {
+      "story": "US-003",
+      "revision": "16da29a2f4f5c7492e787445e25ca5ecb37d9e2b9590fb13087dde8042cd3a63",
+      "source_revision": "8f556367c2d0a00d2736a53a326152ff43a6f96e",
+      "owned_paths": [
+        "docs/cli/README.md",
+        "docs/cli/command-reference.md",
+        "docs/cli/repositories.md",
+        "docs/cli/teams.md"
+      ],
+      "files": [
+        {
+          "path": "docs/cli/README.md",
+          "sha256": "a3a806f3c1c43ba63956ce6ed5e98057c4a339d656d079d28391d4e67d6afea8"
+        },
+        {
+          "path": "docs/cli/command-reference.md",
+          "sha256": "032e7a36246b00901de1b3934befaa78763ab6f59287a153387cd11ce173be4a"
+        },
+        {
+          "path": "docs/cli/repositories.md",
+          "sha256": "1d23356bc7b5f0f608316416ae3fabef4128559d643bdaab4a9e70332d67c7b5"
+        },
+        {
+          "path": "docs/cli/teams.md",
+          "sha256": "c14798d7f361949edaff8bd85d6a56a9ad275e303ee602d6f4a99f4205ad92c1"
+        }
+      ],
+      "checks": [
+        {
+          "name": "Scoped CLI source and example reconciliation",
+          "passed": true,
+          "evidence": "Inspected commands.go and all registered handlers; corrected repository worktree default, persisted re-registration values, source default alias precedence, actual logs combination behavior, metering selectors and accepted mode set against executable owners. Inspected config/teams.go, repos/registration.go, naming/paths.go, teamsource/remote.go, turn/delivery.go and relevant focused tests. Examples use placeholders, no credentials or bypass commands."
+        },
+        {
+          "name": "Scoped documentation inventory/navigation/syntax check",
+          "passed": true,
+          "evidence": "PASS: 4 owned files; all 28 registered commands and 43 distinct bound flag names covered; 36 relative links resolve or target approved cross-category inventory; existing anchors resolve; balanced fences and table rows; no docs/user navigation."
+        },
+        {
+          "name": "Focused existing CLI tests",
+          "passed": true,
+          "command": "go test ./internal/cli -run 'Test(CommandsAreWellFormed|CommandHelpShowsOnlyItsOwnFlags|RepoAdd|RepoList|TeamSourceAliasWinsDirectoryCollision|CentralTeamCommandsOutsideGit|RepositoryExternalTeamAssociationDoesNotWriteClones|SubmissionCommand|MeterPriceCommands|MeterRecoveryCommandRejectsSelectors)' -count=1",
+          "evidence": "ok  \tgithub.com/cloudvane/litefactory/internal/cli\t24.569s\n"
+        }
+      ],
+      "limitations": [
+        "Final combined tree navigation/render inspection and make check remain orchestrator obligations.",
+        "No authentic host, remote install, onboarding or publication observation performed.",
+        "Scoped Markdown inspection checks syntax; no GitHub-hosted rendering was observed."
+      ]
+    },
+    "US-004": {
+      "owned_paths": [
+        "docs/configuration/README.md",
+        "docs/configuration/coding-agents.md",
+        "docs/configuration/config-yaml.md",
+        "docs/configuration/permissions.md"
+      ],
+      "checks": [
+        {
+          "id": "US-004-config-tests",
+          "name": "Scoped config decoder/default/policy tests",
+          "passed": true,
+          "evidence": "ok  \tgithub.com/cloudvane/litefactory/internal/config\t0.655s\n"
+        },
+        {
+          "id": "US-004-agent-switch-tests",
+          "name": "Scoped conversation agent-switch tests",
+          "passed": true,
+          "evidence": "ok  \tgithub.com/cloudvane/litefactory/internal/turn\t3.943s\n"
+        },
+        {
+          "id": "US-004-doc-checks",
+          "name": "YAML-field inventory, scoped navigation and Markdown/YAML render checks",
+          "passed": true,
+          "evidence": "PASS: 4 owned files; all 54 config/teams/tier YAML tags represented; 45 scoped links checked against existing files or approved cross-category inventory; owned anchors and fenced blocks checked. markdown-it-py rendered all 4 documents; 8 tables parsed as tables and 3 YAML mappings parsed. Final combined navigation remains aggregate work."
+        },
+        {
+          "id": "US-004-source-examples",
+          "name": "Current executable source/example reconciliation",
+          "passed": true,
+          "evidence": "Compared all 4 pages with internal/config config.go, validate.go, policy.go, template.go, teams.go, tier.go, paths.go; internal/daemon agent.go and tick.go; internal/codex runner.go; internal/harness runner.go; internal/turn prepare.go and command.go; internal/teamsource resolve.go. Corrected stale-source-comment assumptions: Codex omitted stanza fields receive defaults; ordinary agent switches rotate segments, continuation mismatches refuse; current teams use central catalog. Reference revision 8f556367c2d0a00d2736a53a326152ff43a6f96e. Examples use credential references or placeholder executable paths. Authentic #274/#296 host evidence unavailable; no native observation claimed."
+        }
+      ]
+    },
+    "US-005": {
+      "owned_paths": [
+        "docs/operations/README.md",
+        "docs/operations/cleanup.md",
+        "docs/operations/recovery.md",
+        "docs/operations/running-the-daemon.md",
+        "docs/operations/troubleshooting.md",
+        "docs/operations/usage-and-costs.md"
+      ],
+      "checks": [
+        {
+          "id": "US-005-source-examples",
+          "name": "Operations source/example correspondence inspection",
+          "passed": true,
+          "evidence": "Compared all six authored pages at source revision 8f556367c2d0a00d2736a53a326152ff43a6f96e against CLI daemon/start/status/log/meter/price/recover/task handlers, central team handlers, launchd policy, quota continuation admission and finish logic, conservative retirement rules and focused tests. All command examples use documented syntax and placeholders; retained startup PATH, three-retry bound, price snapshot, unknown usage, dirty cleanup, unredacted logs and uncertain effect limitations. No daemon, provider, fresh install, billing or remote-publication observation performed."
+        },
+        {
+          "id": "US-005-doc-check",
+          "name": "Scoped Operations navigation and Markdown structural inspection",
+          "passed": true,
+          "evidence": "PASS: six owned files; five topic links from category index; 53 relative links checked against existing files or approved inventory; existing fragment targets resolve; 11 balanced code blocks; 3 tables with consistent columns; no superseded navigation. Pending other-story targets: none Manually inspected heading, table and fenced-example Markdown structure; no HTML renderer or GitHub render executed. Final combined tree check belongs to orchestrator."
+        },
+        {
+          "id": "US-005-focused-tests",
+          "name": "Focused CLI, continuation and retirement tests",
+          "passed": true,
+          "evidence": "go test ./internal/cli ./internal/turn ./internal/daemon -run 'Test(DaemonStartMaterialisesThePATH|DaemonStartReplacesAndReloads|DaemonStatusReportsLoadedRunningPIDAndLastTick|LogsBareShowsTheAppLog|LogsRendersTheNewestRunByDefault|LogsRenderedOutputIsUnredacted|MeterRecoveryPreparedApplyAndReplay|MeterRecoveryCommandRejectsSelectors|InterruptionDurableBeforeAnnouncementAndReplay|InterruptionRetainsHandleOnResumedTurn|EvaluateRetirement_ConservativeDecisions|EvaluateRetirement_UnavailableEvidence)$' -count=1\nok  \tgithub.com/cloudvane/litefactory/internal/cli\t1.762s\nok  \tgithub.com/cloudvane/litefactory/internal/turn\t9.128s\nok  \tgithub.com/cloudvane/litefactory/internal/daemon\t0.638s\n"
+        }
+      ]
+    }
+  },
+  "aggregate_documentation": {
+    "command": "python3 /tmp/lf312-check-docs.py",
+    "checker": "/tmp/lf312-check-docs.py",
+    "checker_sha256": "aa055f1985926981e72a4ef3bf9509b4009b4f9dffe411e70e391797d786ed43",
+    "baseline": "8f556367c2d0a00d2736a53a326152ff43a6f96e",
+    "passed": true,
+    "output": "{\n  \"status\": \"PASS\",\n  \"stats\": {\n    \"files\": 31,\n    \"relative_links\": 256,\n    \"fragment_links\": 15,\n    \"fences\": 39,\n    \"tables\": 41,\n    \"preserved_technical_anchors\": 10\n  },\n  \"errors\": []\n}",
+    "implementation_digest": "4422c54067106c78da059f5a2397b3e9ea5aac512ace3cd65491d594ae080a59",
+    "details": [
+      {
+        "path": "README.md",
+        "fences": 0,
+        "tables": 0,
+        "anchors": 7
+      },
+      {
+        "path": "docs/README.md",
+        "fences": 0,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/cli/README.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 2
+      },
+      {
+        "path": "docs/cli/command-reference.md",
+        "fences": 0,
+        "tables": 7,
+        "anchors": 8
+      },
+      {
+        "path": "docs/cli/repositories.md",
+        "fences": 1,
+        "tables": 2,
+        "anchors": 4
+      },
+      {
+        "path": "docs/cli/teams.md",
+        "fences": 3,
+        "tables": 0,
+        "anchors": 5
+      },
+      {
+        "path": "docs/configuration/README.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 4
+      },
+      {
+        "path": "docs/configuration/coding-agents.md",
+        "fences": 1,
+        "tables": 0,
+        "anchors": 4
+      },
+      {
+        "path": "docs/configuration/config-yaml.md",
+        "fences": 0,
+        "tables": 6,
+        "anchors": 9
+      },
+      {
+        "path": "docs/configuration/permissions.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 6
+      },
+      {
+        "path": "docs/getting-started/README.md",
+        "fences": 3,
+        "tables": 1,
+        "anchors": 6
+      },
+      {
+        "path": "docs/getting-started/github-setup.md",
+        "fences": 3,
+        "tables": 2,
+        "anchors": 4
+      },
+      {
+        "path": "docs/getting-started/installation.md",
+        "fences": 2,
+        "tables": 1,
+        "anchors": 5
+      },
+      {
+        "path": "docs/glossary.md",
+        "fences": 0,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/README.md",
+        "fences": 0,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/attachments.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/issue-command-reference.md",
+        "fences": 0,
+        "tables": 5,
+        "anchors": 6
+      },
+      {
+        "path": "docs/guides/mcp.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/scheduling.md",
+        "fences": 1,
+        "tables": 0,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/sync-and-conflicts.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/validation-and-delivery.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/workflow.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/guides/working-with-issues.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 1
+      },
+      {
+        "path": "docs/mcp-adapter.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 4
+      },
+      {
+        "path": "docs/mcp-tool-families.md",
+        "fences": 1,
+        "tables": 4,
+        "anchors": 7
+      },
+      {
+        "path": "docs/operations/README.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/operations/cleanup.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 3
+      },
+      {
+        "path": "docs/operations/recovery.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 3
+      },
+      {
+        "path": "docs/operations/running-the-daemon.md",
+        "fences": 2,
+        "tables": 0,
+        "anchors": 3
+      },
+      {
+        "path": "docs/operations/troubleshooting.md",
+        "fences": 1,
+        "tables": 1,
+        "anchors": 1
+      },
+      {
+        "path": "docs/operations/usage-and-costs.md",
+        "fences": 3,
+        "tables": 1,
+        "anchors": 4
+      }
+    ],
+    "limitations": [
+      "Parser rendering is HTML structure inspection, not browser visual verification.",
+      "Credential detection covers explicit token/private-key/bypass patterns, not arbitrary secrets.",
+      "No authentic host, installation, billing, or remote effect observation."
+    ]
+  },
+  "build": {
+    "command": "go build ./...",
+    "exit_code": 0,
+    "output": ""
+  },
+  "whitespace": {
+    "command": "git diff --check",
+    "exit_code": 0,
+    "output": ""
+  },
+  "aggregate_make_check": {
+    "command": "GOLANGCI_LINT_CACHE=/tmp/lf312-golangci-cache make check",
+    "exit_code": 130,
+    "passed": false,
+    "status": "incomplete",
+    "reason": "Stopped owned execution at bounded gate ceiling; race suite had not returned. No hang established.",
+    "output": "go vet ./...\ngolangci-lint v2.13.1 (installed)\n0 issues.\ngo test -race -timeout=0 ./...\nok  \tgithub.com/cloudvane/litefactory/cmd/litefactory\t2.308s\n?   \tgithub.com/cloudvane/litefactory/cmd/team-benchmark\t[no test files]\n?   \tgithub.com/cloudvane/litefactory/cmd/team-publish\t[no test files]\nok  \tgithub.com/cloudvane/litefactory/internal/agent\t4.294s\nok  \tgithub.com/cloudvane/litefactory/internal/agentresult\t8.864s\nok  \tgithub.com/cloudvane/litefactory/internal/attach\t3.333s\nsignal: interrupt\nFAIL\tgithub.com/cloudvane/litefactory/internal/cli\t696.671s\nmake: *** [test] Error 1\n"
+  },
+  "formatting": {
+    "command": "gofmt -l .",
+    "exit_code": 0,
+    "output": ""
+  }
+}

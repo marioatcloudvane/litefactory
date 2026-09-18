@@ -1,0 +1,13 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.308s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	4.294s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	8.864s
+ok  	github.com/cloudvane/litefactory/internal/attach	3.333s
+signal: interrupt
+FAIL	github.com/cloudvane/litefactory/internal/cli	696.671s
+make: *** [test] Error 1

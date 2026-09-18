@@ -1,0 +1,16 @@
+{
+  "command": "make check",
+  "exit_code": 2,
+  "full_log_sha256": "da0fe2b15ce2400396b6ad708fb57e65a2506ccbe6a1502dd5f8ee88c21d704e",
+  "full_log_bytes": 881627,
+  "excerpt": [
+    "go vet ./...",
+    "golangci-lint v2.13.1 (installed)",
+    "level=warning msg=\"[linters_context/goanalysis] Failed to persist facts to cache: failed to save data to low-level cache by key findcall/facts for package byteorder: open /Users/mariomh/Library/Caches/golangci-lint/1d/1df080ef75f642e4c1bacb75297de257ebe188d6a2e071f5adf38b5e551b1aea-a: operation not permitted\"",
+    "0 issues.",
+    "level=error msg=\"Timeout exceeded: try increasing it by passing --timeout option\"",
+    "make: *** [lint] Error 4"
+  ],
+  "cause": "Linter cache path outside writable roots generated permission warnings; linter reported 0 issues but timed out.",
+  "retry": "GOLANGCI_LINT_CACHE=/tmp/lf312-golangci-cache make check"
+}
