@@ -1,7 +1,7 @@
 {
   "result": {
     "outcome": "completed",
-    "comment": "Offline contract fixture.",
+    "comment": "One story, and it covers the whole request: validate authored results so every adapter behaves the same way. Recommend implementing it next. No open questions.",
     "payload": {
       "plan": {
         "summary": "Deliver a pure contract.",

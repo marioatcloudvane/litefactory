@@ -1,7 +1,7 @@
 {
   "result": {
     "outcome": "completed",
-    "comment": "Offline contract fixture.",
+    "comment": "The contract holds: authored input is validated without any I/O, so it is safe to adopt as the adapter boundary as it stands. Nothing is left open.",
     "payload": {
       "research": {
         "request": "Inspect the contract."

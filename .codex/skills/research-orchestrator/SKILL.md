@@ -11,6 +11,28 @@ If its contents are already supplied, do not read them again. Otherwise read
 `teams/source/skills/research-evidence/SKILL.md`.
 Return the findings after saving the brief and manifest; do not start Plan.
 
+## Completion message
+
+The final report you return is the run's last message and the only part of the
+run the owner reads. Write it in plain business language: no Go identifiers, no
+`path:line` citations, no pasted file contents. The saved brief holds the
+detailed evidence; name a file only when that file is itself the answer. Do not
+narrate run or session bookkeeping — which run this is, what a previous run
+sketched, or which remark you are answering.
+
+1. Leads with the answer to the question that was asked.
+2. Says in plain language what you found and what you recommend.
+3. Names what is still open — unresolved questions with useful options, or
+   assumptions the owner should check — or says there are none.
+
+Do not close with an inventory of what you did not do. Unfinished work belongs
+in the outcome and its reason; the separate input, engineering, acceptance and
+publication states are recorded as state, not restated as prose.
+
+This governs the normal completion message only. The research-evidence
+requirement to present necessary questions immediately, with useful options,
+still applies and wins; these three rules do not replace it.
+
 ## Adopted Research finalization
 
 The literal `- Mode: X` header remains authoritative. Follow the neutral

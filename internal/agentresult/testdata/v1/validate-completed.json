@@ -1,7 +1,7 @@
 {
   "result": {
     "outcome": "completed",
-    "comment": "Offline contract fixture.",
+    "comment": "US-001 is reviewed but not accepted. No retained execution was available, so every criterion and review stays unverified; acceptance needs a run that retains its checks.",
     "payload": {
       "validate": {
         "stories": [
