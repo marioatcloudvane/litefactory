@@ -15,8 +15,8 @@ steps.
 | --- | --- |
 | [Getting started](getting-started/README.md) | Install, connect GitHub and request your first Research run. |
 | [Using the factory](guides/README.md) | Direct issue work, use MCP and attachments, schedule requests, resolve conflicts and deliver accepted work. |
-| [CLI — advanced](cli/README.md) | Manage repositories and teams; look up terminal commands. |
-| [Configuration — advanced](configuration/README.md) | Edit `config.yaml`, choose coding agents and understand permissions. |
+| [Using the CLI](cli/README.md) | Manage repositories and teams; look up terminal commands. |
+| [Configuration](configuration/README.md) | Edit `config.yaml`, choose coding agents and understand permissions. |
 | [Operations](operations/README.md) | Run the daemon, inspect logs and usage, recover work and clean up. |
 
 The factory also supports central specialist teams, asynchronous questions,
@@ -24,9 +24,3 @@ reviewed conflict proposals, optional quota recovery and usage reporting. Their
 guides explain prerequisites, supported controls and evidence limits.
 
 New to the terminology? Read the [glossary](glossary.md).
-
-These pages describe repository behavior at revision
-`8f556367c2d0a00d2736a53a326152ff43a6f96e`. Source correspondence and offline checks
-do not establish a successful fresh installation, authentic agent-host delivery
-or remote publication. The [onboarding verification limit](getting-started/README.md#verification-status)
-remains open.
