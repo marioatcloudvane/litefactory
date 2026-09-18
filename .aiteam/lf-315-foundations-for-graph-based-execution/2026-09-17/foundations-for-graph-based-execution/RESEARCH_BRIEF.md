@@ -192,6 +192,346 @@ token-cost or latency measurement was performed. Source-byte counts and billed
 tokens were not measured, per research-evidence's evidence-measurement
 discipline.
 
+
+## Run 0002: illustrative technical sketch (owner request, not a Plan proposal)
+
+Status: **illustrative only.** Nothing below is a committed Plan, typed
+proposal, feature-spec or story decomposition. No code, dependency, SQL file
+or migration was added to the repository. Per the issue's own text — "exact
+package/API design belongs to Plan" — Plan makes the binding decisions; this
+section exists so the owner can see a concrete shape before choosing to start
+Plan. Grounded in this worktree's current source (branch
+`lf/315-foundations-for-graph-based-execution`) and issue #315's verbatim six
+candidate child scopes (fetched via `gh issue view 315`, quoted below where
+relevant), not invented from generic Go patterns.
+
+### The issue's own text already answers "where does this code live"
+
+Issue #315's body says, verbatim: "SQL stays in store, time/backoff in
+daemon, bounded action execution in turn; exact package/API design belongs to
+Plan." That sentence is itself a placement instruction, not just a layering
+metaphor — it matches this repo's existing M0 package-boundary discipline,
+stated almost word-for-word in the two relevant package docs:
+
+- `internal/turn/doc.go:1-8`: "A turn is the whole business path triggered by
+  a single instruction comment... It deliberately knows nothing about
+  time... That belongs to internal/daemon."
+- `internal/daemon/doc.go:1-8`: "Package daemon is litefactory's sense of
+  time. It owns the tick loop... What to do about one comment belongs to
+  internal/turn, which has no clock."
+
+So a graph-execution engine that respects this repo's own architecture is not
+one single new package doing everything — it is a small new **pure** package
+for the graph model itself, plus new files distributed into the three
+existing package directories (`store`, `daemon`, `turn`) for the parts that
+are SQL, time, or bounded action execution, respectively. This directly
+informs the "where we modify code" answer below.
+
+### Proposed new package: `internal/graphexec`
+
+A new, dependency-light leaf package (no SQL import, no clock import — same
+purity discipline as `turn.ParseCommand`) holding the DOT/Gonum parsing,
+validation and pure transition logic. This is where Gonum v0.16.0
+(`graph/formats/dot` for AST, `graph/encoding/dot` only if a
+decoder-compatible carrier type is built — see run 0001's flagged pitfall)
+would become a new, currently-absent dependency (confirmed again this run:
+`grep -in gonum go.mod go.sum` finds nothing).
+
+Candidate types (rough fields/responsibilities, names illustrative):
+
+- **`Profile`** — one parsed, validated, versioned DOT workflow definition:
+  `Mode agent.Mode` (reuses the existing `agent.Mode` closed vocabulary from
+  `internal/agent/mode.go:9`, not a new mode type), `Version int`, `Digest
+  string`, `Nodes []Node`, `Edges []Edge`, `Source []byte` (raw DOT,
+  immutable once pinned). Answers scope item 1 ("Versioned DOT profile...
+  validation") and scope item 2's "explicit version identities."
+- **`Node`** — one graph vertex: `Name string`, `Action string` (an
+  `lf_<mode>_<capability>` action name), `Outcomes []string` (closed per-node
+  outcome vocabulary), `Limit int` (the `lf_limit`-bounded refine-loop cap
+  from run 0001's `RESEARCH_WORKFLOW_EXAMPLE.dot`), `Terminal bool`.
+- **`Edge`** — `From, To string`, `On string` (the outcome/condition that
+  fires this transition).
+- **`ActionSpec`** — one registry entry: `Name string`, `Mode agent.Mode`,
+  `Outcomes []string`. Explicitly excludes any executable-code field — scope
+  item 1 states "No arbitrary executable code in graph attributes," so
+  `ActionSpec` binds a name to a closed outcome vocabulary and (in a later
+  issue) a Go-side handler, never to attribute text that gets evaluated.
+- **`Registry`** — `map[string]ActionSpec` plus `Register`/`Resolve`. This
+  mirrors `turn.RunnerSet`'s existing "validity is registry-driven, not a
+  hardcoded switch" pattern almost exactly (`internal/turn/execute.go:33-43`:
+  "Adding a third implementation is registering it here... nothing in this
+  package... has to change") — the same shape reused for actions instead of
+  runners.
+- **`ParseProfile(dot []byte) (*Profile, error)`** — reads the Gonum AST
+  directly rather than using the generic `graph/encoding/dot` decoder, per
+  run 0001's pitfall finding (the generic decoder drops attributes that miss
+  a setter interface and ignores standalone graph-attribute statements).
+- **`Validate(p *Profile, reg Registry) error`** — closed action/outcome
+  vocabulary check against `reg`, terminal-reachability check, bounded-loop
+  check.
+- **`Decide(p *Profile, node, outcome string) (next string, ok bool)`** — the
+  actual "deterministic serial transition" function (scope item 3): pure,
+  synchronous, no I/O. What runs an action and when is deliberately not this
+  function's job, for the same reason `turn.ParseCommand` is pure and
+  `Execute` is "everything after it" (`internal/turn/doc.go:11-12`).
+
+### New files inside the existing `internal/store` package (no edits to existing files)
+
+Durable instance/node/attempt records (scope item 2), shaped like this
+repo's existing persistence types (`store.Continuation`,
+`store.StoryProgressRun`, `store.Segment` — plain structs, `RunStatus`-style
+closed-vocabulary string statuses, `(db *DB) MethodName` transactional
+methods):
+
+- **`GraphDefinition`** — the durable row for a pinned `graphexec.Profile`:
+  `ID int64`, `Mode string`, `ProfileVersion int` (deliberately **not**
+  named `workflow_version` — see naming note below), `Digest string`,
+  `Source []byte`, `TeamSnapshotDigest string` (correlates to
+  `teamsource`/delivery's existing snapshot digest, so a graph run is pinned
+  to both a graph definition and a role roster snapshot together —
+  addresses run 0001's "workflow/role snapshots" gap), `CreatedAt time.Time`.
+- **`GraphInstance`** — one durable run of a pinned definition against one
+  session: `ID int64`, `SessionID int64`, `DefinitionID int64`, `Status
+  string` (`running|succeeded|failed|cancelled`, same closed-vocabulary
+  style as `store.RunStatus`), `CurrentNode string`, `StartedAt, FinishedAt
+  time.Time`.
+- **`GraphNodeAttempt`** — one node visitation: `ID int64`, `InstanceID
+  int64`, `Node string`, `Attempt int`, `RunID int64` (FK to the *existing*
+  `runs` table — reuses current run identity rather than inventing a
+  parallel one, directly serving scope item 4's "prevent stale attempts from
+  completing newer work" via the same snapshot/attempt scoping #259 just
+  hardened for `submission_checks`), `Status string`, `Outcome string`,
+  `StartedAt, FinishedAt time.Time`.
+- **`GraphOutput`** — durable per-attempt output and owner-reply
+  correlation: `ID int64`, `NodeAttemptID int64`, `Kind string`, `Payload
+  []byte`, `OwnerCommentID int64` (correlates to the existing `lf: ask`
+  tagging in `internal/turn/ask.go`, so an owner reply can be matched back to
+  the node attempt that asked, rather than a new question mechanism).
+- DB methods such as `CreateGraphInstance`, `RecordGraphNodeAttempt`,
+  `FinishGraphNodeAttempt` would follow the same one-transaction,
+  atomic-evidence discipline as `store.FinishInterruptedRun`
+  (`internal/store/continuations.go:53`), which is exactly the discipline
+  scope item 4 (restart/cancellation/bounded-retry) needs and which #259 just
+  finished hardening for the existing run/continuation model.
+
+**Naming note (resolves run 0001's flagged collision):** `ProfileVersion` (or
+similar) is used instead of `workflow_version`, because
+`managed_features.workflow_version` already means something else — legacy
+vs. engineering/acceptance-separated content schema
+(`internal/store/story_completion.go:16`, `internal/store/delivery.go:90`).
+Table names use a `graph_` prefix (`graph_definitions`, `graph_instances`,
+`graph_node_attempts`, `graph_outputs`) rather than `workflow_*`, for the same
+reason.
+
+### New files inside the existing `internal/daemon` package (no edits to existing files)
+
+Time/backoff (scope items 4 and 6): a poller — e.g. finding `GraphInstance`
+rows due for their next tick, analogous to `store.DB.ListBacklogSessions`
+(`internal/daemon/doc.go:23`) and reusing the same exponential-backoff
+mechanism already used for GitHub 403/429 handling
+(`internal/daemon/doc.go:166-170`). For #315 itself, this can be delivered as
+tested, standalone functions that nothing calls yet (see "is zero
+modification achievable" below) — not wired into `Daemon.Tick`.
+
+### New files inside the existing `internal/turn` package (no edits to existing files)
+
+Bounded action execution (scope item 3, and the issue's own explicit
+placement: "bounded action execution in turn"): a function such as
+`ExecuteNodeAction(ctx, Options, GraphActionRequest) (GraphActionResult,
+error)` that reuses the *existing* per-task lock, `RunnerSet`,
+`submission_runner.go`'s attempt-bound cleanup wrapping, and
+`delivery.go`'s mode-ceiling permission bundle — i.e., one graph node's
+action becomes one bounded coding-agent invocation running through the exact
+machinery a plain turn already uses, not a second parallel execution path.
+This preserves "provider permissions and selected mode" (scope item 3's own
+wording) and the existing "mode is a ceiling, not an additive permission
+hint" contract (`internal/turn/delivery.go:74`) by construction, since it is
+the same delivery path.
+
+### Class-diagram-style overview
+
+```
+graphexec.Profile "1" *-- "many" graphexec.Node
+graphexec.Profile "1" *-- "many" graphexec.Edge
+graphexec.Node --> graphexec.ActionSpec        : Action name resolves via Registry
+graphexec.Registry "1" o-- "many" graphexec.ActionSpec
+graphexec.Profile ..> agent.Mode               : reuses existing closed Mode vocabulary
+
+store.GraphDefinition ..> graphexec.Profile     : durable row pins one parsed+validated Profile (by Digest)
+store.GraphInstance --> store.GraphDefinition   : DefinitionID FK
+store.GraphInstance "1" *-- "many" store.GraphNodeAttempt
+store.GraphNodeAttempt --> store.runs           : RunID FK (reuses existing run/segment identity)
+store.GraphNodeAttempt "1" *-- "many" store.GraphOutput
+store.GraphOutput ..> turn.AskTag               : OwnerCommentID correlates to existing "lf: ask" replies
+
+turn.ExecuteNodeAction --uses--> turn.RunnerSet, turn.Options, turn.submission_runner
+turn.ExecuteNodeAction --writes via store methods--> store.GraphNodeAttempt, store.GraphOutput
+turn.ExecuteNodeAction --consults--> graphexec.Registry, graphexec.Decide
+
+daemon.graph poller --reads due rows from--> store.GraphInstance
+daemon.graph poller --would invoke (once a later issue wires it)--> turn.ExecuteNodeAction
+  (the same relationship daemon/executor.go's NewExecutor already has to
+  turn.Execute today — new code following an existing wiring pattern, not
+  a new pattern)
+```
+
+### DB schema sketch (illustrative new migration, e.g. `0048_graph_execution_foundations.sql`)
+
+Following this repo's existing migration conventions (INTEGER/TEXT/BLOB
+columns, `CHECK(... IN (...))` closed vocabularies as in `0021_engineering_
+workflow.sql` and `0047_submission_check_snapshot_scope.sql`, `REFERENCES`
+to existing tables where a concept is reused rather than duplicated):
+
+```sql
+CREATE TABLE graph_definitions (
+  id INTEGER PRIMARY KEY,
+  mode TEXT NOT NULL,
+  profile_version INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  source BLOB NOT NULL,
+  team_snapshot_digest TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(mode, digest)
+);
+
+CREATE TABLE graph_instances (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL REFERENCES sessions(id),
+  definition_id INTEGER NOT NULL REFERENCES graph_definitions(id),
+  status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','cancelled')),
+  current_node TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+
+CREATE TABLE graph_node_attempts (
+  id INTEGER PRIMARY KEY,
+  instance_id INTEGER NOT NULL REFERENCES graph_instances(id),
+  node TEXT NOT NULL,
+  attempt INTEGER NOT NULL,
+  run_id INTEGER REFERENCES runs(id),
+  status TEXT NOT NULL CHECK(status IN ('pending','running','succeeded','failed','cancelled')),
+  outcome TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  UNIQUE(instance_id, node, attempt)
+);
+
+CREATE TABLE graph_outputs (
+  id INTEGER PRIMARY KEY,
+  node_attempt_id INTEGER NOT NULL REFERENCES graph_node_attempts(id),
+  kind TEXT NOT NULL,
+  payload BLOB NOT NULL,
+  owner_comment_id INTEGER,
+  created_at TEXT NOT NULL
+);
+
+-- Trace/verification infrastructure (scope item 6): an append-only edge log,
+-- separate from graph_node_attempts so a retried node's earlier transitions
+-- remain visible rather than overwritten.
+CREATE TABLE graph_transitions (
+  id INTEGER PRIMARY KEY,
+  instance_id INTEGER NOT NULL REFERENCES graph_instances(id),
+  from_node TEXT NOT NULL,
+  to_node TEXT NOT NULL,
+  on_outcome TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+```
+
+Scope item 5's "old/new execution-path admission and compatibility adapter"
+is deliberately **not** sketched as new tables here: run 0001 already
+identified the existing `managed_features.workflow_version` 0/1/2 dual-path
+pattern plus the `story-contract upgrade` CLI as the concrete precedent Plan
+should adapt, and reusing that pattern (an admission flag or version gate,
+not a new schema) is more consistent with "rollback affects eligible new
+admissions, never silently rewinds effects" than a parallel table would be.
+Left for Plan to design; noted here only so the owner sees it is addressed,
+not silently dropped from this sketch.
+
+### Is "zero existing-code modification" actually true? Direct answer: yes for #315 as scoped, with two caveats worth knowing about
+
+**Yes, achievable, and it has a real precedent already in this codebase.**
+Three separate pieces of evidence support this, not just an agreeable
+default:
+
+1. **New migration files require no code change to register them.**
+   `internal/store/migrate.go:20` embeds the whole directory
+   (`//go:embed migrations/*.sql`) and `loadMigrations` orders files purely
+   by their numeric filename prefix (`internal/store/migrate.go:26-32`, no
+   hardcoded table list). Adding `0048_graph_execution_foundations.sql` is a
+   new file, not an edit to `migrate.go` or any other existing file. I also
+   checked for a schema-enumeration test that might need updating
+   (`grep -n "sqlite_master" internal/store/store_test.go`) and found only a
+   parameterized single-table existence check, not an enumerated list — so no
+   existing test file needs editing either.
+2. **This repo already ships the exact "declare new capability, wire it to
+   nothing yet" pattern #315 would need.** `store.AgentCodex`
+   (`internal/store/runs.go:55-61`) is a named constant that exists purely so
+   future code has something to compare against; its own doc comment says
+   "Nothing in this tree writes a segments.agent or runs.agent row with it
+   yet." `store.SyncFailed` is described the same way. #315's engine,
+   registry, persistence and dispatch primitives can land the same way: real,
+   tested, compilable, genuinely inert until a later issue calls them.
+3. **New files added inside `internal/store`, `internal/daemon` and
+   `internal/turn`'s existing directories are additions, not modifications**,
+   in the sense the owner's question is actually asking (no existing file's
+   bytes change). Go's per-file compilation model and this repo's existing
+   many-small-files convention in those three packages (dozens of files each,
+   per the `ls` above) make this a normal, idiomatic way to add a feature
+   here, not a workaround.
+
+**Two honest caveats, not hidden:**
+
+- **This is not the same as "one wholly new, untouched-elsewhere package."**
+  The issue's own text ("SQL stays in store, time/backoff in daemon, bounded
+  action execution in turn") places most of the new code as new files
+  *inside* the three existing package directories, alongside dozens of
+  existing files there already. If "modify code" is read as "touch these
+  directories at all," the honest answer is no — new files land in
+  `store/`, `daemon/`, `turn/` and one new `graphexec/` directory. If it is
+  read as "change any existing file's contents" (the more natural reading of
+  "modify"), the honest answer is yes, zero, achievable.
+- **Adding Gonum as a dependency touches `go.mod` and `go.sum`.** That is an
+  unavoidable, mechanical two-file diff for any new Go module dependency —
+  not a design or logic change, but not literally zero bytes changed either.
+  Worth naming explicitly since the owner's phrasing was "we modify code,"
+  and a dependency-manifest diff is adjacent to that even though it carries
+  no behavioral risk to existing code.
+- **Nothing yet calls any of this**, by design — that is what makes zero
+  modification possible. The moment a later sibling issue (most plausibly
+  #319 Implement mode, per "Later mode parents extend only their required
+  actions" in the issue text) wires a real mode into this engine, *that*
+  issue will need a small, real edit to an existing dispatch point —
+  plausibly `internal/daemon/executor.go` (which already exists solely to
+  bind `turn.Execute` for the daemon's loop, `internal/daemon/executor.go:16`)
+  or `internal/daemon`'s `Tick`/`dispatch` path. That is honestly out of
+  #315's scope, not a gap in this analysis — the issue's own dependency
+  section says "None; this is the foundation for the other rollout issues,"
+  and the roadmap explicitly sequences wiring into later parents.
+
+### Evidence boundary (run 0002 additions)
+
+Read in this pass, current worktree HEAD (branch
+`lf/315-foundations-for-graph-based-execution`, unchanged from run 0001's
+`ee45930` — no commits landed between runs): `internal/turn/doc.go`,
+`internal/daemon/doc.go`, `internal/turn/execute.go:1-120`,
+`internal/daemon/mode.go:1-120`, `internal/turn/ask.go:1-90`,
+`internal/turn/delivery.go:55-115`, `internal/store/continuations.go:1-100`,
+`internal/store/runs.go:1-80`, `internal/store/segments.go:1-60`,
+`internal/store/story_progress.go:1-40`, `internal/store/migrate.go:1-60`,
+`internal/store/migrations/0021_engineering_workflow.sql`,
+`internal/store/migrations/0047_submission_check_snapshot_scope.sql`,
+`internal/teamsource/resolve.go:1-100`, `internal/daemon/executor.go`,
+`internal/agent/mode.go`, directory listings of `internal/*` and
+`internal/store/migrations/*`, `internal/store/store_test.go` (grep for
+`sqlite_master`/`DELETE FROM`), `go.mod` (module path, Go 1.26, no gonum),
+`go.sum` (grep for gonum, none found). Issue #315's title and full body
+fetched fresh via `gh issue view 315 --repo marioatcloudvane/litefactory
+--json title,body`, quoted verbatim above for the six candidate child scopes.
+No builds, tests, dependency installs or code/schema changes were made. No
+child issues created; no Plan, Implement or Validate work started.
+
 ## History
 
 - 2026-09-17 (run 0001): Read #230's full unmerged Research history (12 runs)
@@ -202,3 +542,24 @@ discipline.
   existing recovery/mode/permission/team-source machinery #315 would need to
   integrate with. Research complete for this bounded pass; no blocking
   question; no implementation, Plan, or issue creation.
+- 2026-09-18 (run 0002): Owner asked for a concrete illustrative technical
+  design (classes, class-diagram overview, DB schema, where existing code
+  would need to change) before committing to Plan. Produced an illustrative
+  (non-binding) sketch: a new pure `internal/graphexec` package for DOT/Gonum
+  parsing and transition logic, plus new files distributed into the existing
+  `internal/store` (persistence: GraphDefinition/GraphInstance/
+  GraphNodeAttempt/GraphOutput), `internal/daemon` (time/backoff poller) and
+  `internal/turn` (bounded ExecuteNodeAction) package directories — matching
+  the issue's own explicit placement instruction and this repo's existing
+  M0 package-boundary discipline. Sketched a `graph_*`-prefixed migration
+  (avoiding the `workflow_version` collision flagged in run 0001) and a
+  class-diagram-style relationship overview. Answered "zero existing-code
+  modification" honestly: yes for #315 as scoped (no existing file's bytes
+  change; confirmed via migrate.go's embed-glob registration and a real
+  "declare now, wire later" precedent already in this codebase,
+  `store.AgentCodex`), with two named caveats — new files still land inside
+  existing package directories, not only a fresh one, and adding Gonum
+  touches go.mod/go.sum. No code, dependency or schema file was actually
+  added to the repository; no Plan, story decomposition or child issue was
+  created. Research checkbox remains checked from run 0001; this is a
+  follow-up deepening, not a new mode start.
