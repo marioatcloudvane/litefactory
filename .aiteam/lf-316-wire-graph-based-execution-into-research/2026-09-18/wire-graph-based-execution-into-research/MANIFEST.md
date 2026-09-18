@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research — incomplete: audit complete; Q-5, Q-7, Q-8, Q-10, Q-11, Q-12 remain open and host delivery verification is outstanding. Current audit at top of RESEARCH_BRIEF.md supersedes historical sections.
+- [ ] Research — incomplete: ten unanswered policy/behavior decisions Q-5/Q-7/Q-8/Q-10/Q-11/Q-12/Q-14..Q-17; eight design groups may be delegated. Current run 0006 decision inventory is at the top of RESEARCH_BRIEF.md; run 0005 evidence audit is retained.
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -25,3 +25,5 @@
 - 2026-09-18: Research run 0004 answered the context/system-prompt duplication question (brief section 11): Claude records the system prompt once; litefactory repeats the bootstrap in the Codex user message each turn; cold-after-refused-resume drops prefixes. No new owner question. Research still incomplete (Q-4..Q-13 open).
 
 - 2026-09-18: Research run 0005 audited all recorded findings at task HEAD 2aad64d and #315 branch 1fbd2c9; corrected unsafe retry, session, result, skill-loading, pinning and context/cost claims. Q-4/Q-6/Q-9/Q-13 removed as owner questions; six material choices remain. Documentation and source review only; no live provider or test execution.
+
+- 2026-09-18: Research run 0006 inventoried all saved unresolved choices, expanded six rollout questions into ten owner-facing policy/behavior decisions with numbered options, and separated eight delegateable design groups plus empirical checks. No answers or delegation assumed; earlier findings and settled requirements preserved.

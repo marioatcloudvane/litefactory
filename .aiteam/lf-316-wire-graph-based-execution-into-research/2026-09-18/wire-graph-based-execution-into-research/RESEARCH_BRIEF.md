@@ -1,6 +1,205 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research INCOMPLETE. Current audit dated 2026-09-18 supersedes every conflicting statement in the historical sections below. The evidence audit is complete; six owner policy choices and specified host verification remain unresolved. No implementation or live provider probe was performed.
+Status: Research INCOMPLETE. The decision inventory for run 0006 below is current: ten owner-facing policy/behavior choices remain unanswered, with eight delegateable design groups and separate verification work. The run 0005 audit remains the factual baseline; its six-question count was a narrower shortlist, not a complete inventory. No implementation or live provider probe was performed.
+
+## Current decision inventory — 2026-09-18, run 0006
+
+Request: list ALL decisions the owner needs to take, explain numbered options in detail and check whether only six are open. This is an inventory of the saved discussion, not a new source/host audit. The six questions from run 0005 remain unanswered; Q-14..Q-17 surface four owner-visible consequences previously left in engineering proposals. Names E-1..E-8 below are discussion labels, not application question IDs or required new approvals.
+
+### Provenance and classification
+
+- Q-5/Q-7/Q-8/Q-10/Q-11/Q-12: existing current question set, explained more fully with unchanged stable option identities. Q-11 additionally exposes the historical park-versus-cancel-on-mode-switch alternative as new O-11d; retired O-11c is not reused.
+- Q-14 standard graph shape: historical section 3 F5 explicitly leaves the illustrated investigator/writer graph and multi-reader variant as proposals. The first-call clarity requirement remains settled. This is a default-team behavior choice, not restricting editable workflows.
+- Q-15 visibility/checkpoint boundaries: historical F9 proposes suppressed intermediate reports; section 10.5 proposes factory commit/push only at pause/final. The audit's result/accounting bridge says this requires deliberate lifecycle support. Owner-visible publication frequency is policy; internal durable checkpoint mechanics remain engineering.
+- Q-16 total-work ceiling: historical F5/F7 and current audit recovery/baseline recommendations discuss loop budgets, retries and duration but do not select an overall ceiling. The need for bounded work is settled. This newly surfaced choice is layered whole-investigation limits, not whether unbounded loops are acceptable; numerical defaults need not be owner-approved individually.
+- Q-17 paused retention: historical F8, section 9.2 and the audit pinning/lifecycle discussion leave retention/cleanup unresolved. Keeping required files until explicit completion/cancellation is recommended; an expiry is an optional new policy with visible semantics, never an assumed cleanup default.
+- E-1..E-4: previously unapproved naming, skill attribute/list/layout, collision/dependency and task/model-tier conventions. These need explicit specification for authors but may be delegated as a design package. Do not mark recommendations as owner decisions.
+- E-5/E-6: host main-session/subagent and skill-delivery mechanisms, conditional on actual compatibility evidence. These cannot grant permission changes or replace the preserved contracts.
+- E-7/E-8: engine state/scheduling/result mechanics and baseline methodology. Question consumption, instruction boundaries, immutable closure and result validation remain required regardless of implementation choice.
+- Other mechanics accounted for under these groups: run/attempt allocation, private triggers, waiting-table/status choice, definition identity, request/result schemas, reserved catalog names, portable team binding, skill aliases/transitive resources, tier fallback, closure hashing, cleanup/retirement, bounded output excerpts, retry/backoff, durable cancellation/effect reconciliation, byte parity and baseline sample size.
+
+### Detailed owner report
+
+No. **Six was the rollout-policy shortlist, not the complete list of unresolved choices.** I should have made that distinction explicit.
+
+Across the saved discussion there are **10 owner-facing policy and behavior decisions**: the original six, plus four choices that were previously buried in workflow, reporting, limits and retention proposals. I explain all ten below. There are also **eight design groups you can delegate**, followed by facts that engineers must verify rather than ask you to choose.
+
+The count groups related details into decisions; it is not a claim that every implementation parameter needs your approval. Nothing below records a recommendation as your answer.
+
+**1. Q-5 — Where do you switch graph execution on?**
+
+This controls the size of the rollout. Existing work must keep the execution path it started on in either option.
+
+1. **Enable it for a repository.** After you opt a repository in, its new Research executions use the graph. This is simple to operate, but every new Research task in that repository enters the rollout.
+2. **Enable individual tasks within an enabled repository.** The repository setting allows graph execution, and you explicitly select which tasks use it. This gives a smaller trial group, at the cost of another setting or owner action.
+
+**Recommendation:** Option 1 for the initial release. Choose option 2 if you want to trial a few issues in a busy repository before all new Research work uses it.
+
+**2. Q-7 — Does a shared agent have a separate definition for each mode?**
+
+You asked for shared agents, and also for one agent definition per mode. The remaining question is whether shared agents are an exception to that rule.
+
+1. **One shared definition can serve several modes.** A shared reader could use exactly the same agent file in Research and Plan. This reduces duplicated text, but one edit changes both modes and makes their different responsibilities harder to separate. It would explicitly relax the earlier per-mode rule.
+2. **Shared agents are still defined separately for each mode.** A shared Research reader and a shared Plan reader have separate role definitions. Common instructions live in shared skills. Teams still reuse those agents, while each mode keeps a clear role boundary.
+
+**Recommendation:** Option 2. It preserves your original per-mode rule; sharing across teams does not require sharing the same agent across modes.
+
+**3. Q-8 — How are shared agents and skills installed?**
+
+This decides whether installing a team is self-contained or requires managing another package.
+
+1. **Each team release includes the shared files it needs.** Installing a team also installs its referenced shared content. If another installed team requires incompatible content at the same shared identity, installation refuses the conflict. Initial setup is easier, but some updates may need coordination between teams.
+2. **Shared content is a separate package.** Teams declare which shared package they need. Shared updates have their own release cycle. This gives clearer independent versioning, but adds dependency installation, compatibility rules and more operator steps.
+
+**Recommendation:** Option 1 for the compatibility bridge. It uses less new package-management machinery; conflict checks must remain explicit.
+
+**4. Q-10 — Should interrupted work restart automatically?**
+
+A daemon restart can leave a node with an uncertain outcome. An empty effect log alone is not evidence that nothing happened.
+
+1. **Retry automatically only when replay has been established as safe.** The factory first checks saved results, pending publication and retained work. It reuses completed work where possible and retries only within the agreed limits when the reconciliation permits it. An uncertain external effect stops automatic replay and produces a report.
+2. **Always require an owner restart after interruption.** The factory reconciles and reports what is known, but does not automatically start the agent again. You decide when to continue. This is easier to reason about operationally, but routine restarts require more attention.
+
+**Recommendation:** Option 1, with positive recovery evidence and a bounded retry policy. Neither option permits blindly duplicating an uncertain comment or other effect.
+
+**5. Q-11 — What cancels an active or paused graph?**
+
+This is about deliberately ending work. A daemon restart is an interruption governed by Q-10, not an owner request to cancel.
+
+1. **Use issue closure/retirement and explicit mode changes.** Closing or retiring the issue, or explicitly choosing another mode, ends the current graph. Otherwise a paused graph remains available for an owner reply. There is no additional cancel command.
+2. **Also provide a dedicated cancel command.** Keep those cancellation triggers and add a way to cancel while leaving the issue open in Research. This is useful if you want to stop an unhelpful investigation without closing the task or selecting another mode.
+3. **Park Research when you select another mode.** Issue closure or retirement still cancels it, but a mode switch suspends the old graph. Returning to Research could explicitly resume that retained investigation. This supports returning to unfinished research, but needs a clear choice between resuming old work and starting new work, and keeps its content longer.
+
+**Recommendation:** Option 1 for the first release. Choose option 2 if stopping work while staying in Research is important. All preserve saved evidence and reconciliation of effects already dispatched; cancellation cannot undo a comment already posted.
+
+**6. Q-12 — What happens when a team is updated during active work?**
+
+Active work must never silently switch to new role or workflow content. The choice is how to preserve that promise while files are updated.
+
+1. **Stop until the original content can be restored.** If required pinned content is unavailable after an update, the graph stops and reports it. Continuing requires the exact original content, or an explicitly new execution. This needs less retained content but can interrupt long-running investigations.
+2. **Keep an immutable copy for the active execution.** The graph continues with the version it started with. New executions use the new team version. This avoids update-induced interruptions, but retained content needs storage and a safe cleanup policy.
+
+**Recommendation:** Option 2. For example, an owner reply next week should still reach the same version of the agent that asked the question. Q-17 determines how long an unanswered investigation remains available.
+
+**7. Q-14 — What should the standard Research workflow contain?**
+
+Newly surfaced from the earlier workflow sketch: the engine can support several shapes, but the shipped default was never selected. This does not reopen your decision to assess clarity in the first reasoning call.
+
+1. **One reasoning agent investigates and writes the report.** One agent checks clarity, investigates, and synthesizes its findings before the factory saves the result. This is the smallest change from current Research and avoids another agent handoff, but offers less separation between investigation and synthesis.
+2. **An investigator followed by a separate writer.** The investigator checks clarity and collects evidence. A fresh writer session turns the saved evidence into the report and can request bounded refinement. This makes the graph handoff useful and visible, but needs a good evidence handoff and may add cost or latency.
+3. **Several specialist readers followed by a writer.** Separate agents read code, documentation or other evidence before synthesis. This can help larger investigations, but adds more handoffs and more execution stages. It should remain sequential under the recorded scope.
+
+**Recommendation:** Option 2 as the standard graph, with no extra clarity-only agent. Teams can edit their workflow later; this choice is the shipped starting point, not a permanent engine restriction.
+
+**8. Q-15 — Which checkpoints should appear on the issue and remote branch?**
+
+Newly surfaced from the proposal to suppress per-node reports and save remotely only at a pause or final result. Internal crash-safe progress is required under every option; public visibility is a separate choice.
+
+1. **Publish at questions, final results and actionable failures.** Keep intermediate node outputs in durable internal checkpoints. The factory saves/publishes the relevant artifacts at owner-visible boundaries. This keeps the issue and branch quieter while retaining progress for recovery.
+2. **Publish a checkpoint after every completed node.** Each completed node produces visible progress and a factory save of any changed artifacts. This exposes intermediate findings sooner and makes remote progress easier to inspect, but creates more comments or commits and more delivery operations to recover.
+
+**Recommendation:** Option 1, with internal progress inspectable when needed. Saving internal progress must not depend on reaching the final writer; a crash must not erase completed investigation.
+
+**9. Q-16 — Should there be an overall work limit as well as node limits?**
+
+Newly surfaced from the loop and retry discussion: bounded nodes were required, but the owner-visible ceiling for a whole investigation was not chosen.
+
+1. **Use per-node dispatch limits and subprocess timeouts.** Every node has bounded attempts and each subprocess has a time limit. This is simpler. The maximum total work still grows with the number of nodes and their configured limits.
+2. **Also set a whole-investigation ceiling.** Keep the node limits and add an overall ceiling on dispatches and active execution time. A large graph or repeated refinements then cannot consume the sum of every generous node allowance. Reaching the ceiling saves an honest incomplete result.
+
+**Recommendation:** Option 2, configurable with proposed defaults in Plan. Time spent waiting for your reply should not consume active-work time. Exact numbers can be delegated; no reliable currency cap should be promised until metering can support it.
+
+**10. Q-17 — How long should an unanswered investigation remain resumable?**
+
+Newly surfaced from the unresolved bundle-retention work. Deleting files that a paused graph needs would turn cleanup into a hidden cancellation policy.
+
+1. **Keep it until you explicitly end it.** A question can be answered weeks later. Required pinned content and continuation state remain until completion or cancellation; cleanup cannot silently expire the pause. This is predictable but can accumulate storage.
+2. **Expire pauses after a configured period.** After a declared period without a reply, the graph is explicitly closed as expired and the owner is informed. A later reply starts a new admitted execution using the saved findings. This bounds retention but changes the long-pause experience.
+
+**Recommendation:** Option 1 for the first release. Completed/cancelled executions may follow a separate cleanup policy once pending delivery and recovery no longer depend on their files. Choosing expiry later would require a visible policy, not an implementation default.
+
+**The remaining design choices can be delegated**
+
+These were also open in the saved discussion. They affect the authoring experience or implementation, but they do not each need to become an owner-approval gate. You can select an option, or ask engineering to draft the recommended choice for Plan review.
+
+**E-1 — Allowed agent and skill names.**
+
+1. Keep lowercase letters, digits and hyphens, such as `code-reader`. This follows the existing naming rules and avoids changing several adapters.
+2. Also allow underscores, such as `code_reader`. This accommodates earlier examples but requires consistent support across validation and both hosts.
+
+Recommend **1**. Your `shared/codebase-analyzer` example did not, by itself, approve a complete character grammar. Bare names and `shared/name`, without `.md`, are already settled.
+
+**E-2 — The author-facing skill declaration and catalog layout.**
+
+1. Use the proposed `lf_skills="reader,shared/writer"` attribute. Keep team workflows and mode-specific agents under each team, team skills under its `skills` folder, and shared content under `shared`. Publish a small exact layout specification before implementation.
+2. Ask Plan to propose a different explicit list encoding or additive folder arrangement, while retaining your settled external catalog, team/shared references and per-mode agent rules.
+
+Recommend **1**. This is an authoring-format proposal, not an instruction to move the catalog into repositories. Q-7 settles the only outstanding behavioral distinction in the shared-agent folders. Exact path spelling, reserved folder names and team binding in a reusable workflow can be specified together; they should not produce repeated permission requests.
+
+**E-3 — What to do when local and shared skills have the same short name.**
+
+1. Reject a node that selects both when their host names would collide. The error tells the author to rename or choose one. This is simpler but restricts combinations.
+2. Generate distinct native aliases while preserving the author's qualified references. Both can be used, but diagnostics and resource references must consistently map the aliases back to the original names.
+
+Recommend **1** for the bridge. Shared skills should resolve dependencies within shared content, rather than changing meaning with whichever team invokes them; validate dependency cycles and the full resource closure. More flexible aliasing can be designed if an actual team needs it.
+
+**E-4 — Where node tasks and model choices are declared.**
+
+1. Require the graph to state each agent node's task and vendor-neutral model tier. Agent markdown describes the reusable role. Missing required settings fail validation before execution.
+2. Let missing values inherit documented role/team defaults. Graphs are shorter, but an author must follow several sources to understand what runs.
+
+Recommend **1**, keeping the exact task representation and handling of legacy role-tier fields in the Plan design. Model tier being controlled per node is already your direction; this choice concerns explicitness and defaults, not changing to provider-specific model names.
+
+**E-5 — How a node's agent becomes the running agent.**
+
+1. Make the selected role the main session for that node. This can remove a delegation hop, but requires proving that both hosts preserve the necessary instructions, permissions and final-result behavior.
+2. Use a minimal parent session that invokes exactly the selected specialist. This fits the existing delivery approach more closely, but adds another context handoff and must not let the parent choose the workflow order.
+
+Recommend testing **1** as the target, with **2** available as a compatibility bridge if it preserves node/session ownership. We cannot call either proven from documentation alone. Different agents still start fresh; the same continuing node may resume.
+
+**E-6 — How skills are loaded on demand.**
+
+1. Use each host's native skill mechanism with only the selected skills and required dependencies delivered to the node. This is the preferred reuse path, but current Claude tool availability and access to supporting resources must be resolved.
+2. Design a narrowly scoped loader for the pinned bundle if the native path cannot meet the requirements. That adds machinery and needs a concrete security and delivery design.
+
+Recommend **1 if verified**, otherwise return with a specific design for **2**. Preloading every skill or broadly opening the daemon's home is not an acceptable shortcut. This is why the former skill-loading question was removed: you cannot choose whether an untested host behavior works. Any actual permission-contract change must be identified explicitly, not hidden in this delegation.
+
+**E-7 — How the engine stores and advances work.**
+
+1. Extend the existing runner/result/recovery path with explicit node records, durable pause state and bounded transitions; drive ordinary steps in the worker and use scheduling for recovery or backoff.
+2. Make each node advance through the scheduler, with a durable handoff between every step. This gives one scheduling model but adds more coordination to the ordinary path.
+
+Recommend **1** for the bridge. Engineers should choose the tables, private trigger identities, transaction boundaries, node-result envelope and exhaustion-report route. Both options must validate every required result, consume owner replies once, preserve uncertain-effect identity and report limits honestly. Whether an exhausted node routes to a declared fallback or a deterministic report operation is not a choice about allowing silent failure.
+
+**E-8 — How to compare the new path with the old one.**
+
+1. Record normal executions on both paths and compare sufficiently similar tasks, models and complete usage records. This avoids deliberately doing the same work twice, but needs care about workload differences.
+2. Add paired experiments on equivalent requests. These are easier to compare, but spend extra tokens and need isolation so they do not duplicate publications.
+
+Recommend **1 initially**, with a later controlled comparison if normal usage cannot answer the question. Exact samples, thresholds, aggregation and post-completion cleanup intervals can be proposed by engineering. Usage must include failed and fallback attempts; unknown usage must remain unknown. Choosing measurement methodology does not establish a saving.
+
+**Facts to verify, not decisions for you**
+
+- Whether each actual Claude/Codex launch loads the selected role, skill body and supporting resources under the permitted tool surface.
+- How same-node resume, compaction and cold fallback handle instructions; whether the proposed delivery removes unnecessary repetition without losing current authority or required instructions.
+- Whether crash, cancellation, duplicate-reply and report-recovery scenarios meet the agreed behavior. Passing a simulated engine test is not proof of native-host behavior.
+- The graph foundation's actual integration revision before implementation, and measured token/time results. The earlier source audit is retained; this decision inventory does not claim a new audit or live probe.
+
+**Already settled — no need to answer again**
+
+Research remains the selected mode. Clarity belongs in the first reasoning call; a clear request proceeds directly to investigation. Questions save progress and end the run without a waiting agent. Agents and skills come from the external catalog, with bare or `shared/name` references and no `.md`. Workflow order belongs to the graph; skills are selected for agents to use as needed. Different agents get fresh sessions, and only a continuing node resumes. Unresolvable references fail before execution. Active definitions are pinned; permissions and required result validation are preserved. Loops are bounded and exhaustion is reported honestly. Both execution paths stay supported until dedicated retirement. Graph completion never selects the next mode, and no token or time saving is assumed.
+
+The six proposed work areas are delivery planning, not six additional product decisions. Exact story boundaries, schema/index choices, digest construction, locking, retry backoff, result mapping and cleanup implementation belong to engineering within the choices above. The bridge must preserve legacy paths and the required real-host/recovery checks; choosing a smaller internal development slice does not waive those adoption conditions.
+
+You can reply with choices such as `Q-5: 1, Q-7: 2, Q-8: 1`, or say **“Use your recommendations for the ten policy decisions and delegate E-1 through E-8 for Plan review,”** with any exceptions. That would settle the choices, not automatically change the selected mode or authorize implementation.
+
+### State and history
+
+Research remains incomplete because the owner has requested explanations, not supplied choices or delegated defaults. Existing findings F-1..F-28, owner decisions D-1..D-6 and assumptions are preserved unchanged in the application update. Q-1/Q-2/Q-3/Q-4/Q-6/Q-9/Q-13 remain retired; no retired option identities are reused. Q-14..Q-17 and their options are new. Ten is the count of current owner-facing policy packages, not a claim that no design detail remains. No source changes, test execution, implementation, mode transition or publication was performed by this inventory step.
+
+- 2026-09-18 run 0006: explained all saved unresolved choices, corrected the implication that only six total decisions remained, surfaced four policy choices, separated eight delegateable design groups and empirical unknowns, and retained settled decisions.
+
+---
 
 ## Current request and evidence boundary
 
