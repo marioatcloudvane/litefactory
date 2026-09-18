@@ -1,8 +1,68 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research INCOMPLETE. Run 0008 clarification below is current: native CLI loading/precedence clarified; four agent/loop/comment/if activities accepted; Q-19 option 1 recorded; Q-18 superseded. Only Q-20 ask semantics and composed-host verification remain. No implementation or live model probe.
+Status: Research COMPLETE for the bounded investigation and owner-decision handoff. Run 0009 below is current: ask means owner clarification; no owner questions remain. Source/documentation conclusions are retained with explicit live-host and recovery verification gates for implementation/adoption. Completion does not claim implementation, acceptance, deployment or a mode change.
 
-## Current native-CLI and loop clarification — 2026-09-18, run 0008
+## Current completed Research handoff — 2026-09-18, run 0009
+
+Latest owner decision: Q-20 option 2, ask is the agent asking the OWNER questions. Prior conditional internal-continue recommendation is superseded. The owner asks again about CURRENT parent/specialist delivery, not future main-node delivery. This section answers that exact distinction; no new preference question is needed.
+
+### Current source evidence and limits
+
+Focused reads at `b1bf108c808635a8cfe3f4e3bb8d3d64f83bc524`:
+
+- `CLAUDE.md:5-7` and `AGENTS.md:7-9`: both actual repository files favor supplied role definitions, mark routing as fallback, and exempt supplied workers from dispatch-only rules. This is concrete text, not a claim that instruction prose is an enforcement boundary.
+- `internal/turn/delivery.go:106-133`: selects CLAUDE.md for Claude and AGENTS.md for Codex, reads ordinary project text, and copies it to bootstrap with the selected roster/role-precedence guidance. Does not combine both project filenames merely because they coexist.
+- `internal/turn/prepare.go:417-421`: Codex bootstrap is in parent user input. `internal/harness/runner.go:642-644`: Claude parent receives plugin directory and appended-system bootstrap. Parent role is not automatically replaced by registered specialist files.
+- `internal/render/native.go:38-58`: Claude role body is native plugin-agent markdown; Codex role body is developer_instructions in TOML. `internal/codex/runner.go:439-442` registers those per-role configs. `internal/turn/delivery.go:75-81` intersects tools with the parent's mode ceiling.
+- Official documentation retrieved 2026-09-18: https://code.claude.com/docs/en/sub-agents documents normal non-fork child context and applicable project memory, with fork/omit/built-in exceptions. https://developers.openai.com/codex/subagents documents custom configuration layers and inherited settings/live overrides. https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.3-codex previously retrieved establishes AGENTS user-role layout. These support intended role priority; they do not prove exact version-specific prompt composition or compliance in a real litefactory child launch.
+
+Do not transfer the Claude parent's appended project-system text to the child by assumption: normal non-fork agents get their own system prompt and delegation task, with memory loaded separately. Do not assert Codex drops all inherited parent context: actual spawn settings and parent higher-level instructions can still apply. The useful current-source conclusion is narrower and sufficient: repo files are supplied, registered roles govern the invoked specialist, and this repository's own routing explicitly defers to that supplied role.
+
+### Final loop semantics
+
+1. Initialize the loop's first pass once before any agent result exists.
+2. Invoke the Research agent; validate and persist its internal JSON.
+3. response=ask means real owner clarification. Persist question/result/correlation, execute the explicit comment operation and end the run, releasing its worker. Pending comment delivery remains recoverable; it is not an agent waiting for input.
+4. An authenticated, correlated owner reply permits the next pass. Reuse the correct continuing node session when applicable; selected latest-content/topology policy remains in force. No automatic agent retry after a crash.
+5. Initial-research completion exits the loop and uses an explicit comment activity before the next phase inside Research. No automatic mode selection.
+6. Missing field, wrong type, unknown result or malformed JSON is invalid output. First-pass default cannot conceal it. Finite dispatch limits and subprocess timeouts remain. Node result validation and final application-result/publication contracts require the explicit bridge previously identified.
+
+All owner choices are now recorded: default graph with legacy compatibility, team-local shared cross-mode roles, native main-role/skill direction, latest content and start-over-on-topology-change with saved findings, one simplified Research role, explicit publication, no automatic agent retry, chosen cancellation triggers, simple limits, indefinite owner pause, inherited defaults, collision rejection and owner-operated usage comparisons. Four activities are agent/loop/comment/if; ask is owner-facing. No additional owner approvals are inferred for routine engineering design.
+
+### Completion scope
+
+The bounded research and decision work is complete. Actual native main-role/skill execution, child instruction composition, resume/compaction/fallback, deterministic recovery/cancellation/publication behavior and authentic #274/#296 observations are unperformed implementation/adoption gates. They remain factual limitations in the handoff, not outstanding product preferences or claims of acceptance. No source implementation, test execution, live model invocation or mode transition occurred. Earlier main/branch/CLI observations remain dated historical evidence, not freshly checked here.
+
+### Owner-facing answer
+
+**In the current setup, the repository instructions are picked up. They are not meant to override the invoked specialist’s role.** Having both files present does not mean both hosts automatically load both: litefactory copies `CLAUDE.md` for Claude and `AGENTS.md` for Codex into its instruction bundle.
+
+The distinction I missed is **the parent session versus the specialist it invokes**:
+
+| Current session | What it receives |
+|---|---|
+| Claude parent | Repository `CLAUDE.md` text in the appended system bootstrap, plus the available specialist roster. Registering those specialists does not make one of their roles the parent’s role. |
+| Invoked Claude specialist | Its own markdown body as its system prompt. Ordinary custom subagents also load applicable `CLAUDE.md` guidance. A normal non-fork subagent does not simply inherit the parent’s entire system prompt or transcript. |
+| Codex parent | Repository `AGENTS.md` text in the user-message bootstrap, plus registered specialist configurations. Normal native project-instruction discovery is a separate source of context. |
+| Invoked Codex specialist | Its role body is rendered into `developer_instructions` in its own configuration. Repository guidance can remain present; it is not promoted above the specialist merely because it came from `AGENTS.md`. |
+
+Those launch/configuration paths are in the current code. The child-context behavior is documented by [Claude](https://code.claude.com/docs/en/sub-agents) and [OpenAI](https://developers.openai.com/codex/subagents). Codex documents project instructions as user-role messages, so the specialist’s developer-role instructions have higher intended priority. Inherited parent instructions and the exact spawn configuration still matter; I have not observed the complete composed child prompt live. [OpenAI message layout](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.3-codex).
+
+**For this repository specifically, both project files already say to use the factory-supplied role definition, and that their dispatch-only rules do not restrict a supplied worker.** Their routing table is explicitly a fallback when no role was supplied. Therefore the intended behavior today is: the parent dispatches the specialist; the specialist follows its supplied role and the applicable project rules, without running the repository’s dispatcher again.
+
+So your concern is valid as a possible conflicting-instructions problem, but **the current files explicitly avoid that particular conflict**. This conclusion comes from source and documentation; it is not a guarantee of perfect model adherence or a claim that we tested every live host combination.
+
+I have also recorded **`response="ask"` as asking the owner**. The first-pass default enters the agent once. If it returns `ask`, the graph saves the JSON and question state, explicitly posts the question, ends the run and releases the worker. It waits durably for your reply before another agent invocation—there is no internal spin. When initial research is finished, the graph leaves the loop, publishes through its comment activity and advances within Research.
+
+No owner decisions remain open. The Research handoff is complete; verifying the actual composed host launches remains an implementation/adoption check, not another question for you.
+
+### History
+
+- 2026-09-18 run 0009: answered CURRENT parent versus invoked-specialist context using actual repo files and adapter code; recorded Q-20 option 2; removed all active questions; corrected stale naming/topology statements; completed bounded Research with live verification explicitly deferred to implementation/adoption evidence, not waived.
+
+---
+
+## Historical native-CLI and loop clarification — 2026-09-18, run 0008 (ask settled above)
 
 User correction: answer actual native host instruction loading when a dedicated role is supplied and both project files exist, not just factory admission. Replace E-7 scheduling discussion with start/while/agent-returned-internal-JSON/explicit-comment/next-phase using four initial activities: agent, loop, comment, if. Owner chooses Q-19 option 1. Prior scheduling question Q-18 is superseded rather than silently assigned an answer.
 

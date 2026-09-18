@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research — incomplete: only Q-20 (meaning of ask in the loop) remains an owner decision; composed native-host verification remains open. Q-18 superseded, Q-19 option 1 selected. Run 0008 section of RESEARCH_BRIEF.md is current.
+- [x] Research — complete: bounded investigation and owner choices settled; ask means owner question, no active questions. Run 0009 handoff records unperformed host/recovery checks as implementation/adoption gates, not verified acceptance.
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -31,3 +31,5 @@
 - 2026-09-18: Research run 0007 recorded graph default, team-local shared cross-mode roles, latest-content execution, no automatic agent retry, single Research agent and other owner choices; explained project instructions/E-7, leaving Q-18/Q-19 only. No implementation/live probe/test execution.
 
 - 2026-09-18: Research run 0008 clarified native role/project-file loading and precedence, accepted agent/loop/comment/if with internal validated JSON and explicit publication, recorded Q-19 option 1, and isolated Q-20 ask semantics. Documentation/source review only, no live host experiment or implementation.
+
+- 2026-09-18: Research run 0009 completed bounded handoff, clarified current parent/specialist context from actual repo files and source, recorded Q-20 option 2, and retained unperformed live-host/recovery gates. No implementation, live experiment or mode transition.
