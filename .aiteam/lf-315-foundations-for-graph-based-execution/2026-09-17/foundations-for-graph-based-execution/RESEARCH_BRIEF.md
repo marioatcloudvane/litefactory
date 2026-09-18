@@ -1017,3 +1017,374 @@ because it directly informs the DOT-file-location question in remark 1.
   repository. No Plan, story decomposition or child issue was created.
   Research checkbox remains checked; this is a further deepening of the same
   bounded pass, not a new mode start.
+
+## Run 0004: how the accumulated design would be sequenced (owner request, "list me how we would structure the work")
+
+Status: **illustrative and advisory only — not a Plan proposal, not a story
+decomposition, not acceptance criteria, not task assignment.** This section
+answers "if we had to sequence this, what would the shape look like," one
+level up from runs 0002/0003's type/schema sketch (structure/order, not
+types). Per the issue's own text, "exact package/API design belongs to
+Plan" — the binding decomposition into stories with acceptance criteria
+remains Plan's job, not this run's. No code, dependency, SQL/migration file
+was added to the repository. No child issue was created. Grounded in runs
+0001-0003's own accumulated sketch (cited by type/file/table name below, not
+re-described abstractly) plus fresh re-reads this run of issue #315's
+verbatim six candidate scopes and #230's `RESEARCH_ROADMAP.md` dependency
+notes (both re-fetched this run, not recalled from run 0001's summary alone).
+
+### Re-confirmed this run, not assumed from memory
+
+- Issue #315's six candidate scopes, re-fetched verbatim via `gh issue view
+  315 --json body` this run: identical wording to run 0001's citation. The
+  issue's own ordering (1 profile/parsing, 2 snapshots/persistence, 3
+  dispatch, 4 recovery, 5 compatibility, 6 observability) carries no stated
+  claim of being a build sequence — the issue only says "Numbers... are
+  suggested planning order, not a requirement to execute every parent
+  serially" (that sentence is actually in `RESEARCH_ROADMAP.md`'s own preface,
+  re-read this run, about the nine *parents*, not #315's six *scopes*
+  specifically — but no sentence anywhere claims the six scopes are an
+  execution order either; they read as a checklist of required capabilities).
+- `RESEARCH_ROADMAP.md` (`origin/lf/230-dag-based-execution-of-implementation`,
+  re-read this run, not just run 0001's summary of it) states, in its own
+  "Dependency summary" section: "Recovery and basic observability are
+  required throughout, already allocated above" and, for #315 specifically,
+  "If Foundations' six scopes prove too large, split definition/runtime
+  foundations from durable execution and recovery as a tenth parent during
+  its own Plan; no evidence yet requires that expansion." Two direct
+  consequences for this run's sequencing question: (a) the roadmap's own
+  authors already anticipated recovery/observability might need to be a
+  *separate* later split, which argues against reading scopes 4/6 as
+  "do these last and lightly"; (b) "required throughout" is a completeness
+  requirement on the whole rollout, not a build-order instruction — it does
+  not by itself say recovery must be the *first* thing coded inside #315,
+  only that #315 cannot ship without addressing it before later parents rely
+  on it.
+- `RESEARCH_ROADMAP.md`'s per-parent dependency lines, re-read this run:
+  parent 2 (Research mode, #316) "Depends on 1" (#315); parent 3 (new team/
+  workflow setup, #317) "Depends on 1; Research's first working slice informs
+  the interface" — i.e. #317 depends on *both* #315's foundations and on
+  #316 having produced a first working slice, not on #315 alone; parents 4/5/6
+  (#318/#319/#321) each "Depends on 1" plus their own cross-parent notes. This
+  directly answers part of "what's #315 vs. a sibling issue's job" below.
+
+### Build-order reasoning: what has zero dependencies, and what depends on what
+
+Reasoning from the concrete pieces runs 0002/0003 already named, not from
+generic layering:
+
+1. **`internal/graphexec`'s pure core has no dependency on anything else
+   sketched.** Run 0002 specified it with "no SQL import, no clock import"
+   (run 0002, `internal/graphexec` section). Concretely: `Profile`, `Node`,
+   `Edge`, `ActionSpec`, `Registry`, `ParseProfile`, `Validate`, `Decide` take
+   only `[]byte` (a DOT string) and in-memory registry values as input — no
+   `store.DB`, no `turn.Options`, no `daemon` clock, no filesystem read beyond
+   whatever `ParseProfile`'s caller decides to pass in. This is the same
+   purity level as `turn.ParseCommand`, which run 0002 explicitly cited as
+   precedent (`internal/turn/doc.go:1-8`, quoted in run 0002). It can be
+   fully unit-tested against **inline/synthetic DOT strings** with zero
+   database, zero daemon, zero turn machinery, zero real `.dot` file on disk.
+   This is the one piece of the whole sketch with a genuinely empty
+   dependency set.
+2. **Adding Gonum to `go.mod`/`go.sum` is a precondition for (1) to compile
+   at all**, not a separate downstream chunk — `graphexec.ParseProfile`
+   reads the Gonum AST directly (run 0002's `ParseProfile` bullet, reaffirmed
+   by run 0001's decoder-pitfall finding). It has no dependency of its own
+   (`go get` needs only network/module-proxy access), so it sits at or before
+   step 1, not after it.
+3. **A real, shipped example `.dot` file is not required to start (1), but
+   is required before (1) can be called "done" in a way that matches scope
+   item 1's "registered `lf_<mode>_*` actions."** `graphexec.Validate`'s
+   closed-vocabulary/terminal-reachability/bounded-loop checks (run 0002) can
+   be exercised against synthetic strings written inline in `_test.go` files
+   from day one — no need to wait for a production file. But run 0001 already
+   found the only DOT file that exists anywhere (`RESEARCH_WORKFLOW_EXAMPLE.dot`
+   on the unmerged `#230` branch) is explicitly "illustrative, non-executable,"
+   and run 0003's remark-1 revision means a *real* shipped file's eventual
+   home (e.g. `teams/source/workflows/<mode>.dot`, still an open Plan question
+   per run 0003) is itself unresolved. So: synthetic DOT strings can and
+   should carry `graphexec`'s own unit tests from the start; a real shipped
+   `.dot` file is better sequenced as its own later chunk once run 0003's
+   open ship-location question is resolved (plausibly by Plan, or by #316
+   which actually needs a real `research.dot` per the roadmap's parent-2
+   scope item 1) — conflating the two would block `graphexec`'s own testing
+   on an unrelated open question.
+4. **The `store` persistence layer (`GraphDefinition`/`GraphInstance`/
+   `GraphNodeAttempt`/`GraphOutput` + the illustrative `graph_*` migration)
+   does not need `graphexec` to exist first, in the narrow sense that its
+   SQL schema and CRUD methods reference no `graphexec` Go type** — run
+   0002's own schema sketch is plain SQL columns (`TEXT`, `INTEGER`,
+   `CHECK(...)`), and `store.GraphDefinition`'s Go struct fields
+   (`ID`, `Mode`, `ProfileVersion`, `path`/`digest` per run 0003's revision,
+   `TeamSnapshotDigest`, `CreatedAt`) are all primitive types, not
+   `*graphexec.Profile`. Its CRUD could be built and tested standalone against
+   fabricated rows (e.g. `CreateGraphInstance` called with a literal digest
+   string, no real parsed `Profile` involved) — the same "declare now, wire
+   later" precedent run 0002 already cited (`store.AgentCodex`,
+   `internal/store/runs.go:55-61`). **However**, this is a narrower claim than
+   "fully independent": `graph_definitions.digest` is only *meaningful* once
+   something computes it consistently with `team.HashBytes`'s convention (run
+   0003), and `GraphNodeAttempt.Outcome`/`Status` closed vocabularies only
+   make sense once they mirror `graphexec.Node.Outcomes`/`ActionSpec.Outcomes`
+   — so `store` can be *built and compiled* first, but calling it "finished
+   and correct" in a way useful to the rest of the engine still wants
+   `graphexec`'s vocabulary settled first, to avoid the store's `CHECK(status
+   IN (...))` and `graphexec.ActionSpec.Outcomes` silently drifting apart.
+   **Net: `store` can start in parallel with or immediately after `graphexec`
+   begins, but should not be considered "done" before `graphexec`'s
+   vocabulary stabilizes.**
+5. **`internal/turn`'s `ExecuteNodeAction` + the new `Activity`/
+   `ActivityHandler` layer needs both `graphexec` and `store` to exist first,
+   concretely and directly** — not just architecturally. Run 0003's own class
+   diagram states this as direct calls: `turn.ExecuteNodeAction --consults-->
+   graphexec.Registry, graphexec.Decide` (validation/transition) and
+   `turn.ExecuteNodeAction --writes via store methods--> store.GraphNodeAttempt,
+   store.GraphOutput` (run 0003, "Revised class-diagram-style overview"). A
+   function that calls `graphexec.Decide(...)` and `store.RecordGraphNodeAttempt(...)`
+   cannot compile before those two exist. This chunk genuinely sits after (1)
+   and (4), not merely "conceptually layered above" them — it has a hard Go
+   compile-time dependency on both. Within this chunk, the generic
+   `ActivityRegistry`/`ActivityHandler` mechanism (run 0003) can be built and
+   tested with a **fake/no-op handler** before any real `invoke_agent`
+   handler exists — the registry/dispatch shape does not need a working
+   `InvokeAgentConfig` to be exercised, only *a* handler satisfying the
+   interface.
+6. **The `internal/daemon` poller needs `turn.ExecuteNodeAction` to exist
+   first**, per run 0002's own wording: "the daemon.graph poller ... would
+   invoke (once a later issue wires it) turn.ExecuteNodeAction... the same
+   relationship daemon/executor.go's NewExecutor already has to turn.Execute
+   today" (run 0002, class diagram). Even the standalone, uncalled version run
+   0002 describes ("tested, standalone functions that nothing calls yet") is
+   only *meaningfully testable* once there is a `turn.ExecuteNodeAction`
+   signature to poll toward — before that, "poller" is just a `store.DB`
+   query with no execution partner to demonstrate against. This is the last
+   of the four core pieces in build order, consistent with the issue's own
+   sentence "SQL stays in store, time/backoff in daemon, bounded action
+   execution in turn" listing daemon and turn as the two impure layers, with
+   turn as what daemon calls.
+
+**Resulting bottom-up order, reasoned from actual Go-level dependencies, not
+restated from the issue's 1-6 list:** Gonum dependency addition →
+`graphexec` core (tested against synthetic DOT) → `store` schema/CRUD (can
+overlap with `graphexec`, but should not finalize vocabulary before it) →
+`turn.ExecuteNodeAction` + generic `Activity`/`ActivityHandler` mechanism
+(hard dependency on both prior chunks) → `daemon` poller (hard dependency on
+`turn.ExecuteNodeAction`'s signature existing) → a real shipped example
+`.dot` file (dependency only on run 0003's open ship-location question being
+resolved, not on the Go code chunks — could in principle land anywhere after
+`graphexec` exists, but is more usefully sequenced late, once there is
+something real to exercise it against end-to-end).
+
+### Does the issue's own 1-6 scope numbering match this build order? No — and here is where it diverges, concretely
+
+- **Scope 1 (profile/parsing) does map onto the first *code* chunk**
+  (`graphexec`), so the issue's numbering is not wrong here.
+- **Scope 2 (snapshots/persistence) is not simply "second."** As reasoned in
+  point 4 above, `store`'s schema can be drafted early and in parallel with
+  `graphexec`, but its closed-vocabulary columns (`graph_node_attempts.status`,
+  `.outcome`) want `graphexec`'s `ActionSpec.Outcomes` settled first to avoid
+  drift — so "build `store` fully before touching `graphexec`" (a literal
+  reading of "2 comes after 1... build 1 then 2") is not the soundest
+  reading; "start both close together, let `graphexec` settle the vocabulary
+  `store` depends on" is closer to what the actual coupling supports.
+- **Scope 3 (dispatch) is correctly late relative to 1 and 2** — this matches
+  the issue's numbering and the hard compile dependency found in point 5.
+- **Scope 4 (recovery/restart/bounded-retry) is the most-diverging item.**
+  The issue lists it fourth, after dispatch — but run 0001 already found this
+  is not new-from-zero work: #259 (merged `24234dc`/`9308144`, this branch's
+  own recent history) just hardened exactly the kind of per-attempt isolation
+  and identity-scoping (migration `0047_submission_check_snapshot_scope.sql`
+  widening `submission_checks`' key from `(run_id, reference)` to `(run_id,
+  snapshot_ref, reference)`; `RecoverSubmissionsForAttempt` isolating
+  foreground recovery to one attempt instead of scanning every pending
+  receipt) that `GraphNodeAttempt`'s own design (run 0002: `Attempt int`,
+  `RunID int64` FK reusing existing run identity, "exactly the discipline
+  scope item 4... needs") is explicitly modeled to extend. Reasoned view: the
+  *general shape* of scope 4 (an attempt has a stable identity scoped to its
+  own instance/snapshot, and recovery must not cross that boundary) should be
+  designed into `GraphNodeAttempt`'s schema **from the start of the `store`
+  chunk**, not bolted on as a numbered-fourth afterthought — re-litigating
+  attempt identity after `GraphNodeAttempt` rows already exist and are
+  referenced by `turn.ExecuteNodeAction` would be exactly the kind of schema
+  rework #259 shows this codebase has already paid for once (per-story
+  snapshot scoping added after `submission_checks` shipped without it). The
+  *executable* recovery logic (retry loops, backoff, cancellation handling)
+  can still legitimately wait until after a working dispatch loop exists —
+  there is nothing to retry until dispatch runs at least once — but the
+  *data model* for it should not.
+- **Scope 5 (old/new execution-path compatibility) is correctly late, and
+  arguably later than the issue's own numbering implies.** Run 0002 already
+  found the concrete precedent (`workflow_version` 0/1/2 dual-path pattern,
+  `story-contract upgrade` CLI) is a *content-schema* mechanism, not an
+  *execution-engine* one — reusing that pattern's shape for graph-engine
+  admission is meaningful only once there is a second, real execution path
+  running side-by-side to admit into, which by #315's own scope does not
+  exist yet (nothing in #315 wires a real mode to the graph engine — run
+  0002's "is zero modification achievable" section is explicit that the
+  wiring point is a later sibling issue's job, most plausibly #319). This
+  scope item is closer to "design the admission *mechanism*'s shape as
+  reusable groundwork" within #315, with the actual old/new *coexistence*
+  only becoming real once #316-#319 exist to be the "new" side.
+- **Scope 6 (status/traces/observability) sits earlier than a literal
+  "do it last" reading would suggest, for a concrete reason found in run
+  0002's own schema sketch, not a general best-practice argument**: the
+  append-only `graph_transitions` trace table was already drafted alongside
+  the other three tables in run 0002's single migration file, specifically
+  "so a retried node's earlier transitions remain visible rather than
+  overwritten" (run 0002, schema comment) — i.e. it is coupled to the same
+  attempt/retry data-model decision flagged under scope 4 above, not an
+  independent later add-on. Writing `graph_transitions` rows is cheap to add
+  at the same time `graph_node_attempts` rows are written (same
+  `turn.ExecuteNodeAction` write path, same transaction), so deferring it
+  until after dispatch is "working" risks the same kind of retrofit #259 just
+  demonstrated is costly for attempt-identity scoping. The *token/time
+  baseline recording* half of scope 6 ("Record token/time baselines without
+  promising unmeasured savings" — the issue's own words) is more legitimately
+  deferrable — that is additive instrumentation, not foundational schema.
+
+### Chunk list (numbered as requested, one entry each)
+
+Each entry: what it is (citing runs 0002/0003's concrete names), what it
+depends on, and whether it is squarely #315's own scope or borderline/later.
+
+1. **Add Gonum v0.16.0 as a dependency** (`go.mod`/`go.sum` diff only,
+   `graph/formats/dot` + `graph/encoding/dot` per run 0001/0002's finding it
+   is currently absent). Depends on nothing internal. Squarely #315 — it is
+   literally the enabling precondition for scope item 1.
+2. **Build `internal/graphexec`'s pure core** — `Profile`, `Node`, `Edge`,
+   `ActionSpec`, `Registry`, `ParseProfile`, `Validate`, `Decide` (run 0002),
+   tested against inline/synthetic DOT strings, with the AST-direct parsing
+   approach run 0001 recommended over the generic decoder to avoid the
+   attribute-drop pitfall from the first test written, not discovered later.
+   Depends on (1) only. Squarely #315 — this is scope item 1 verbatim.
+3. **Draft the `store` schema and CRUD in parallel** —
+   `GraphDefinition`/`GraphInstance`/`GraphNodeAttempt`/`GraphOutput` plus the
+   illustrative `graph_*`-prefixed migration (run 0002, revised for
+   `path`+`digest` identity per run 0003's remark 1), including
+   `graph_transitions` from the start (see scope-6 reasoning above) and an
+   attempt/snapshot identity shape informed by #259's just-hardened
+   `(run_id, snapshot_ref, reference)` scoping pattern (see scope-4 reasoning
+   above) even though the executable retry/backoff logic itself is not built
+   yet. Depends on nothing to *start* (can begin same day as (2)), but should
+   not be finalized/considered stable before (2)'s `ActionSpec.Outcomes`
+   vocabulary settles, to avoid the two silently drifting. Squarely #315 —
+   scope item 2, with scope item 4's and 6's *data-model* half pulled forward
+   into this chunk rather than sequenced as separate later chunks.
+4. **Build the generic `ActivityRegistry`/`ActivityHandler` mechanism plus
+   `turn.ExecuteNodeAction`**, tested with a fake/no-op handler — the
+   dispatch skeleton (run 0003) without any real `invoke_agent` behavior
+   wired in. Depends on (2) and (3) (hard compile-time dependency per run
+   0003's own class diagram: consults `graphexec.Registry`/`Decide`, writes
+   via `store.GraphNodeAttempt`/`GraphOutput`). Squarely #315 — scope item 3,
+   deliberately built as reusable generic machinery per the owner's own
+   framing ("concrete implementation of activities is done in later phases,"
+   run 0003).
+5. **Build the `daemon` poller skeleton** — tested standalone functions
+   analogous to `store.DB.ListBacklogSessions` (run 0002), reading due
+   `GraphInstance` rows, "not wired into `Daemon.Tick`" (run 0002's own
+   phrasing). Depends on (4)'s `turn.ExecuteNodeAction` signature existing to
+   poll toward. Squarely #315 — scope items 3/4's daemon-side half, still
+   inert/uncalled by design.
+6. **Sketch (not implement) the old/new execution-path admission mechanism's
+   shape**, reusing the `workflow_version` 0/1/2 dual-path pattern and
+   `story-contract upgrade` CLI as a named precedent (run 0002), as groundwork
+   only — no real second execution path exists yet to admit into within
+   #315's own scope. Depends conceptually on (2)-(5) existing as "the new
+   path" to admit into, though the admission mechanism's own shape (a flag/
+   version gate per run 0002) could be drafted earlier without a working
+   engine behind it. Borderline: the issue lists this as #315's scope item 5,
+   but its *real* exercise (an actual old-vs-new user-visible choice) cannot
+   happen until a later sibling issue (#319 most plausibly, per run 0002's
+   "is zero modification achievable" section) wires a real mode in — so this
+   chunk's #315-side deliverable is closer to "a reusable pattern reference
+   and possibly a stub gate," not a working compatibility layer.
+7. **Add token/time baseline recording** (scope item 6's second half, "record
+   token/time baselines without promising unmeasured savings," issue's own
+   words) as additive instrumentation once (4)/(5) exist to measure. Depends
+   on (4). Squarely #315, but legitimately last among #315's own chunks
+   since it measures a working (even if uncalled) dispatch path rather than
+   shaping it.
+8. **Ship a real, parseable example `.dot` file** — this run finds it is
+   *not* a hard prerequisite for (2)'s testing (synthetic strings suffice),
+   and its ship location is explicitly still open per run 0003 (e.g.
+   `teams/source/workflows/<mode>.dot` vs. some other path — not resolved
+   here or by this run). Depends only on run 0003's open ship-location
+   question being answered, not on any Go-code chunk above. Borderline/later:
+   this is plausibly better owned by #316 (which the roadmap's own text says
+   needs "Ship `research.dot`... using mode-namespaced actions" as *its own*
+   scope item 1) rather than #315 shipping a production file for a mode
+   #315 itself does not wire in. #315's own responsibility is narrower: make
+   sure `ParseProfile`/`Validate` work correctly against *some* real DOT
+   content (which synthetic test fixtures already cover) — not necessarily
+   ship the production file for a mode nothing yet calls.
+9. **Wire a real mode into the engine (invoke a real `invoke_agent`
+   `ActivityHandler`, call `turn.ExecuteNodeAction` from `daemon.Tick`, admit
+   real traffic through the scope-6 gate)** — explicitly **not #315's job**.
+   Per run 0002's "is zero modification achievable" section: "the moment a
+   later sibling issue... wires a real mode into this engine, that issue will
+   need a small, real edit to an existing dispatch point... plausibly
+   `internal/daemon/executor.go`." Per the freshly re-read `RESEARCH_ROADMAP.md`
+   this run: parent 2 (#316, Research mode) and parent 4/5/6 (#318/#319/#321,
+   Plan/Implement/Validate mode) each list "Depends on 1" (#315) as their own
+   first dependency — confirming #315 is meant to end before any of them,
+   not include any of them.
+10. **Resolve `invoke_agent`'s exact `InvokeAgentConfig` model-tier shape**
+    (the "Fable" tension, run 0003) — explicitly **deferred, not sequenced as
+    a #315 chunk at all.** This run carries the open status forward rather
+    than resolving it: run 0003 already named the two options (extend
+    `defaultModelByTier`, or add a literal-model escape hatch) without
+    choosing, and this run does not choose either. The generic
+    `ActivityHandler`/`ActivityRegistry` mechanism in chunk (4) does not need
+    this resolved to be built and tested (a fake handler suffices); only a
+    *real* `invoke_agent` handler would need it, and building a real
+    `invoke_agent` handler is itself sibling-issue territory per chunk (9).
+
+### Sequencing risks pulled forward, not generic project-management advice
+
+- **#259 should be re-read (full diff, not just the commit message) before
+  chunk (3)'s schema is finalized, not after.** Concretely: migration
+  `0047_submission_check_snapshot_scope.sql` and `RecoverSubmissionsForAttempt`
+  (commit `24234dc`, re-inspected this run via `git show 24234dc --stat`) are
+  the exact shape of "attempt identity must be scoped to its own snapshot/
+  instance, and recovery must not cross that boundary" that `GraphNodeAttempt`
+  needs to get right the first time — this was already flagged in run 0001's
+  risk list, and this run's sequencing conclusion (point 4 above) makes it
+  concrete: it belongs in chunk (3), not deferred to a later "scope item 4"
+  chunk.
+- **The Gonum decoder attribute-drop pitfall (run 0001) must shape chunk
+  (2)'s first test, not be discovered after `graphexec` looks done.** A test
+  that parses a DOT string with a standalone graph-attribute statement (not
+  just node/edge attributes) and asserts it survives should exist from
+  `graphexec`'s first commit, per run 0001's finding that the generic
+  `graph/encoding/dot` decoder silently drops exactly this case.
+- **The "Fable"/tier tension (run 0003) blocks only chunk (10), not chunk
+  (4).** Restated here to guard against silently resolving it as a side
+  effect of sequencing, per this run's own constraint: the generic
+  `Activity`/`ActivityHandler` mechanism is unaffected by which of the two
+  options (extend `defaultModelByTier` vs. literal-model escape hatch) gets
+  chosen, so sequencing the generic mechanism ahead of the concrete
+  `invoke_agent` config is not just an ordering convenience — it is what lets
+  #315's own chunk (4) ship without that open question being resolved at all.
+- **The `.dot` ship-location question (run 0003) similarly should not be
+  quietly resolved by this run's sequencing.** Chunk (8) above is sequenced
+  late and marked borderline precisely so that "when do we need a real file"
+  does not implicitly force "where does the file go" to be answered here;
+  both remain open for Plan/owner, carried forward, not decided.
+
+### Evidence boundary (run 0004 additions)
+
+Read fresh this run: issue #315's body via `gh issue view 315 --repo
+marioatcloudvane/litefactory --json title,body -q .body` (verbatim six
+candidate scopes and roadmap-adjacent sections re-confirmed identical to run
+0001's citation); `origin/lf/230-dag-based-execution-of-implementation`'s
+`RESEARCH_ROADMAP.md` in full via `git show`, specifically its per-parent
+dependency lines and "Dependency summary and scope limits" section (not
+merely recalled from run 0001's summary); `git log --oneline -5` (confirmed
+no commits landed on this branch between run 0003 and this run, so all
+runs 0001-0003 evidence citations remain current); `git show 24234dc --stat`
+and `git show 9308144 --stat` (re-inspected #259's actual commit content —
+migration `0047_submission_check_snapshot_scope.sql` and
+`RecoverSubmissionsForAttempt`/foreground-recovery isolation — rather than
+relying only on run 0001's prose summary of that commit). No builds, tests,
+dependency installs, or code/schema changes were made. No child issues
+created; no Plan, Implement or Validate work started.
