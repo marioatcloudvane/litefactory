@@ -1,0 +1,5 @@
+{
+  "command": "go test -timeout=0 ./...",
+  "exit_code": 0,
+  "elapsed_seconds": 679.652
+}

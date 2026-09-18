@@ -1,0 +1,52 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	0.763s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	0.878s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	1.215s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.396s
+ok  	github.com/cloudvane/litefactory/internal/cli	144.090s
+ok  	github.com/cloudvane/litefactory/internal/codex	60.499s
+ok  	github.com/cloudvane/litefactory/internal/config	1.112s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.215s
+ok  	github.com/cloudvane/litefactory/internal/daemon	279.003s
+ok  	github.com/cloudvane/litefactory/internal/git	144.669s
+ok  	github.com/cloudvane/litefactory/internal/github	2.573s
+ok  	github.com/cloudvane/litefactory/internal/gittest	5.976s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.928s
+ok  	github.com/cloudvane/litefactory/internal/harness	65.944s
+ok  	github.com/cloudvane/litefactory/internal/identity	21.950s
+ok  	github.com/cloudvane/litefactory/internal/launchd	5.336s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.384s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	2.083s
+ok  	github.com/cloudvane/litefactory/internal/meter	2.098s
+ok  	github.com/cloudvane/litefactory/internal/naming	2.019s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	2.298s
+ok  	github.com/cloudvane/litefactory/internal/redact	2.476s
+ok  	github.com/cloudvane/litefactory/internal/render	2.387s
+ok  	github.com/cloudvane/litefactory/internal/report	9.073s
+ok  	github.com/cloudvane/litefactory/internal/repos	12.108s
+ok  	github.com/cloudvane/litefactory/internal/schedule	2.504s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.240s
+ok  	github.com/cloudvane/litefactory/internal/store	62.688s
+ok  	github.com/cloudvane/litefactory/internal/submission	1.665s
+ok  	github.com/cloudvane/litefactory/internal/team	3.582s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	6.004s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.694s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	20.009s
+panic: test timed out after 10m0s
+FAIL	github.com/cloudvane/litefactory/internal/turn	601.829s
+FAIL
+
+panic: test timed out after 10m0s
+	running tests:
+		TestConflictAdvisorNeverCalledWhileCloneGateIsHeld (3s)
+		TestConflictSuggestionReachesATerminalStateAfterPosting (5s)
+		TestDirtyConfirmationRecoveryLifecycle (12s)
+		TestExecuteRecordsADistinctReasonPerOutcome (24s)
+		TestExecuteRecordsADistinctReasonPerOutcome/no_result (4s)
+		TestExecuteRefusesSuggestionWithAnExcludedSibling (4s)
+		TestExecuteRejectsAnOutOfScopeSuggestion (3s)
+		TestRegionConfirmationLegacyUnknownAndFreshAuthorization (7s)
+		TestRegionConfirmationPushFailureRetainsLocalCommit (8s)
+		TestRegionPreviewOverflowPreventsProposalPersistence (6s)
+		TestRegionPreviewStatisticsMatchAppliedRawResult (5s)

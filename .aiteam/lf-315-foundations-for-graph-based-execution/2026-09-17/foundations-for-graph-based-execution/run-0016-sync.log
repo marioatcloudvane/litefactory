@@ -1,0 +1,12 @@
+$ git status --short
+(no output; exit 0)
+$ git log -4 --oneline
+0271582 Merge remote-tracking branch 'origin/main' into lf/315-foundations-for-graph-based-execution
+7d57998 Drop contract tests for deleted planning docs
+445bd46 Graph execution foundations: parser, persistence, activity dispatch, scheduling helpers (#315)
+a90a925 The approved five-story plan remains unchanged. Implementation has not started because this run was dispatched with Mode: plan, which is authoritative. To start implementation, post exactly: /implement the published first increment for foundations-for-graph-based-execution. No additional scope approval is requested.
+$ git rev-parse origin/main
+7d5799834b5031c84286080708aaff6091ea63ee
+$ git fetch origin main
+error: cannot open '/Users/mariomh/litefactory/.git/worktrees/task-315/FETCH_HEAD': Operation not permitted
+exit_code=255

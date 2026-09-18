@@ -45,3 +45,28 @@
 - 2026-09-18: Implement run 0014 resumed the three unfinished frozen stories. Core/store retained engineering checkpoints remain satisfied read-only dependencies. Turn and daemon production specialists dispatched; scoped tests, composition and aggregate evidence pending. Acceptance remains for Validate.
 
 - 2026-09-18: Implement run 0014 partial/blocked. Turn and daemon engineering checkpoints recorded with passing scoped race evidence; core/store retained unchanged. Composition scoped tests pass, but AC-032 blocked by baseline missing-document failures and incomplete aggregate gates (ordinary suite and make check reached 480-second ceilings). Build, format, vet and pinned lint passed. No acceptance, aggregate success, save, commit or push claimed. Final application update handed to parent dispatcher; no application receipt claimed here.
+
+## Run 0016 — sync permission blocker
+
+The saved plan brief was read first. The worktree was clean before this run's
+artifact updates. Local metadata shows HEAD `0271582` already merges
+`origin/main`; the local remote-tracking ref resolves to
+`7d5799834b5031c84286080708aaff6091ea63ee`, including the requested teamsource
+fix. Freshness could not be checked: `git fetch origin main` exited 255 with
+`error: cannot open '/Users/mariomh/litefactory/.git/worktrees/task-315/FETCH_HEAD': Operation not permitted`.
+
+The assigned gate task requires stopping on a denied Git write without bypassing
+permissions. No build, tests, make check, changed-file boundary gate or inertness
+gate was executed in run 0016. No implementation or dependency bytes changed;
+only session reporting artifacts were updated. AC-032 and #334 engineering
+completion remain unproven in this run; #330–#333 retained evidence is unchanged.
+No acceptance, aggregate completion, commit or push is claimed.
+Actual command evidence: `run-0016-sync.log`.
+
+
+## Run 0017 — aggregate engineering gates executed
+
+2026-09-18: Aggregate-only continuation; no fetch/sync or implementation changes. Build passed (exit 0, 2.894s). Exact `go test ./...` failed on Go's default ten-minute internal/turn package timeout (exit 1, 637.380s), retained unchanged. `make check` passed (exit 0, 2242.129s): format, vet, pinned golangci-lint v2.13.1 with 0 issues, and full race suite. Supplemental `go test -timeout=0 ./...` passed (exit 0, 679.652s), with all 34 tested packages passing; no selection reduction or code fix. This resolves execution-time limits for the full ordinary/race suites without relabeling the original failed command. Logs and metadata retained as run-0017-*; TEST_REPORT.md, notes.md and DRIFT_REPORT.md updated while preserving previous-run history. #330–#333 retained evidence remains unchanged. #334 and aggregate recorded completion depend on parent-dispatcher snapshot comparison and required factory submissions. No acceptance, publication, commit or push claimed by this worker.
+
+
+Parent-dispatcher handoff update: #334 engineering capture was accepted and its matching receipt verified by the parent, request `6740bd3478a619906414191f28297cd3` (input valid, engineering recorded, acceptance not_applicable, remote effects pending). Aggregate and final application submissions remain the parent's next steps. These session artifact bytes are frozen after this worker's final return so the parent can bind the aggregate snapshot to final bytes.

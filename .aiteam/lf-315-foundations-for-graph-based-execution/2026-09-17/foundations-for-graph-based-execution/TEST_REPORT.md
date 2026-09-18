@@ -127,3 +127,66 @@ ok  	github.com/cloudvane/litefactory/internal/turn	2.577s
 PASS
 ok  	github.com/cloudvane/litefactory/internal/turn	11.597s
 ```
+
+## Run 0016 — sync permission blocker
+
+The saved plan brief was read first. The worktree was clean before this run's
+artifact updates. Local metadata shows HEAD `0271582` already merges
+`origin/main`; the local remote-tracking ref resolves to
+`7d5799834b5031c84286080708aaff6091ea63ee`, including the requested teamsource
+fix. Freshness could not be checked: `git fetch origin main` exited 255 with
+`error: cannot open '/Users/mariomh/litefactory/.git/worktrees/task-315/FETCH_HEAD': Operation not permitted`.
+
+The assigned gate task requires stopping on a denied Git write without bypassing
+permissions. No build, tests, make check, changed-file boundary gate or inertness
+gate was executed in run 0016. No implementation or dependency bytes changed;
+only session reporting artifacts were updated. AC-032 and #334 engineering
+completion remain unproven in this run; #330–#333 retained evidence is unchanged.
+No acceptance, aggregate completion, commit or push is claimed.
+Actual command evidence: `run-0016-sync.log`.
+
+
+## Run 0017 — ordinary suite timeout evidence
+
+`go build ./...` passed (exit 0, 2.894s). The exact `go test ./...` command failed (exit 1, 637.380s); the following is its unmodified running-test list at Go's default package timeout. These names identify tests active at timeout, not individually failed assertions.
+
+```text
+panic: test timed out after 10m0s
+	running tests:
+		TestConflictAdvisorNeverCalledWhileCloneGateIsHeld (3s)
+		TestConflictSuggestionReachesATerminalStateAfterPosting (5s)
+		TestDirtyConfirmationRecoveryLifecycle (12s)
+		TestExecuteRecordsADistinctReasonPerOutcome (24s)
+		TestExecuteRecordsADistinctReasonPerOutcome/no_result (4s)
+		TestExecuteRefusesSuggestionWithAnExcludedSibling (4s)
+		TestExecuteRejectsAnOutOfScopeSuggestion (3s)
+		TestRegionConfirmationLegacyUnknownAndFreshAuthorization (7s)
+		TestRegionConfirmationPushFailureRetainsLocalCommit (8s)
+		TestRegionPreviewOverflowPreventsProposalPersistence (6s)
+		TestRegionPreviewStatisticsMatchAppliedRawResult (5s)
+FAIL	github.com/cloudvane/litefactory/internal/turn	601.829s
+FAIL
+```
+
+The unabridged 263959-byte output is retained in `run-0017-test.log`; command result is in `run-0017-test-result.json`. 33 packages passed and two command packages had no tests. No source diagnosis or review was performed. make check is separately executing all of its gates; its final status and any authorized supplemental ordinary-suite execution will follow below.
+
+
+### Run 0017 make check — passed
+
+`make check` exited 0 in 2242.129 seconds (37m22.129s). Format, vet, pinned golangci-lint v2.13.1 (`0 issues.`), and full `go test -race -timeout=0 ./...` passed. 34 packages reported passing and two command packages had no test files; Go marked some unchanged package results cached. The final internal/turn race package passed in 2171.721 seconds. Cache-write warnings from golangci-lint's default cache path were nonfatal; their full exact output is preserved.
+
+Evidence: `run-0017-make-check.log` (unabridged), `run-0017-make-check-result.json` (exit and elapsed time), `run-0017-make-check-summary.log` (only repetitive warning lines omitted). The original exact ordinary command's timeout remains recorded above. A supplemental `go test -timeout=0 ./...` is now running under the dispatcher's authorization to allow the full suite adequate execution time; no code change or test-selection reduction was made.
+
+
+### Run 0017 final aggregate result — passing with timeout adjustment
+
+| Executed command | Exit | Elapsed | Result |
+|---|---|---|---|
+| `go build ./...` | 0 | 2.894s | PASS |
+| `go test ./...` | 1 | 637.380s | Go default ten-minute package timeout; original failed evidence retained |
+| `make check` | 0 | 2242.129s | PASS: format, vet, pinned lint v2.13.1, full race suite |
+| `go test -timeout=0 ./...` | 0 | 679.652s | PASS: full ordinary suite, same package selection, adequate time |
+
+The supplemental ordinary suite passed all 34 tested packages (two command packages have no tests), including internal/turn in 643.140 seconds. The original command is not relabeled passed; disabling Go's package timeout allowed its complete suite to finish without changing code, package selection or assertions. The Makefile independently runs its race suite with `-timeout=0`; internal/turn passed that suite in 2171.721 seconds. This run's gate execution is complete. Parent dispatcher owns final snapshot-byte comparison and engineering/aggregate evidence submission; no acceptance or publication is asserted here.
+
+Supplemental exact output: `run-0017-test-no-timeout.log`; exit metadata: `run-0017-test-no-timeout-result.json`. Build output is empty, confirmed by its exit metadata. No source or dependency bytes were edited, fetched, synced, committed or pushed. Real SQLite/fake-handler tests remain offline composition evidence and make no authentic-agent, in-flight-crash or uncertain-effect recovery claim.

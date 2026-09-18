@@ -1,0 +1,5 @@
+{
+  "command": "go test ./...",
+  "exit_code": 1,
+  "elapsed_seconds": 637.38
+}

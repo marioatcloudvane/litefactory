@@ -1,0 +1,36 @@
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	0.576s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	1.234s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	1.270s
+ok  	github.com/cloudvane/litefactory/internal/attach	1.517s
+ok  	github.com/cloudvane/litefactory/internal/cli	143.663s
+ok  	github.com/cloudvane/litefactory/internal/codex	59.026s
+ok  	github.com/cloudvane/litefactory/internal/config	1.232s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.295s
+ok  	github.com/cloudvane/litefactory/internal/daemon	268.650s
+ok  	github.com/cloudvane/litefactory/internal/git	143.713s
+ok  	github.com/cloudvane/litefactory/internal/github	1.883s
+ok  	github.com/cloudvane/litefactory/internal/gittest	5.470s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.556s
+ok  	github.com/cloudvane/litefactory/internal/harness	64.585s
+ok  	github.com/cloudvane/litefactory/internal/identity	21.698s
+ok  	github.com/cloudvane/litefactory/internal/launchd	5.114s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.310s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	2.041s
+ok  	github.com/cloudvane/litefactory/internal/meter	1.877s
+ok  	github.com/cloudvane/litefactory/internal/naming	1.790s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	2.305s
+ok  	github.com/cloudvane/litefactory/internal/redact	2.371s
+ok  	github.com/cloudvane/litefactory/internal/render	2.376s
+ok  	github.com/cloudvane/litefactory/internal/report	3.296s
+ok  	github.com/cloudvane/litefactory/internal/repos	10.781s
+ok  	github.com/cloudvane/litefactory/internal/schedule	2.213s
+ok  	github.com/cloudvane/litefactory/internal/secrets	2.534s
+ok  	github.com/cloudvane/litefactory/internal/store	65.258s
+ok  	github.com/cloudvane/litefactory/internal/submission	3.078s
+ok  	github.com/cloudvane/litefactory/internal/team	4.519s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	7.075s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.452s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	22.679s
+ok  	github.com/cloudvane/litefactory/internal/turn	643.140s

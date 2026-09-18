@@ -25,3 +25,32 @@ Turn production uses graph_activity.go because existing activity.go owns an unre
 The prior agent-service error did not recur. AC-032 is blocked by unchanged teamsource source-contract tests referencing docs/story-contract-instruction-manifest.md and docs/agent-auxiliary-contracts.md, intentionally removed by baseline commit bd0b355f77fee415e2ba7a6c33701bfff74a9ed0. Analysis-only diagnosis is in BUG_REPORT.md. No within-scope fix exists; no unrelated docs or existing tests were changed.
 
 Composition blocked checkpoint request 50231cff2c01c664ebdf75829c0980bc was preflighted, submitted and receipt-read: input valid, engineering rejected/not complete, acceptance not_applicable, effects pending. This preserves truthful blocked AC-032 despite passing scoped composition checks. No aggregate capture claiming success is submitted.
+
+## Run 0016 — sync permission blocker
+
+The saved plan brief was read first. The worktree was clean before this run's
+artifact updates. Local metadata shows HEAD `0271582` already merges
+`origin/main`; the local remote-tracking ref resolves to
+`7d5799834b5031c84286080708aaff6091ea63ee`, including the requested teamsource
+fix. Freshness could not be checked: `git fetch origin main` exited 255 with
+`error: cannot open '/Users/mariomh/litefactory/.git/worktrees/task-315/FETCH_HEAD': Operation not permitted`.
+
+The assigned gate task requires stopping on a denied Git write without bypassing
+permissions. No build, tests, make check, changed-file boundary gate or inertness
+gate was executed in run 0016. No implementation or dependency bytes changed;
+only session reporting artifacts were updated. AC-032 and #334 engineering
+completion remain unproven in this run; #330–#333 retained evidence is unchanged.
+No acceptance, aggregate completion, commit or push is claimed.
+Actual command evidence: `run-0016-sync.log`.
+
+
+## Run 0017 — aggregate completion with adequate execution time
+
+Applied current direct aggregate-only instruction: no fetch/sync, implementation change, code review, mode transition, commit or push. Ran all three requested commands. Build passed. Exact ordinary command failed at Go's default ten-minute internal/turn timeout; this failed outcome and full stack are retained without reinterpretation. make check passed all gates, including the full race suite in 2242.129 seconds. Per dispatcher authorization interpreting the user's sufficient-time intent, the supplemental full ordinary suite used `go test -timeout=0 ./...` and passed in 679.652 seconds. No package/test scope was reduced. The original timeout was not an assertion failure and was not erased.
+
+Nonfatal lint warnings report inability to persist facts into the default golangci-lint cache; lint nevertheless reported 0 issues and make check exited 0. A read-only process-metadata probe (`ps`) was denied by the sandbox, exit 127; no bypass, signal or process mutation was attempted. This probe is not a test failure. The uninterrupted race process completed successfully.
+
+All #330–#333 retained completed dependencies are unchanged. #334 frozen revision remains 8862975ddcaba7cb231c5361654b6e517afa44256146ec37471973df30d2e0e0. Parent dispatcher reported metadata-only changed-file boundary verification against local 7d57998: implementation Go/migration files are additions; existing permitted modifications are go.mod/go.sum and planned AC_AMENDMENTS/APP_CONTEXT docs. Initial 33-file snapshot digest: 03939e667a0b931f1592ce1d4d136941c97bda77018d924572bee99f1e0c592e. Parent owns current-byte confirmation, checkpoint/result submission and matching receipts; this worker claims no receipt, recorded completion, acceptance or publication.
+
+
+Parent-dispatcher handoff update: #334 engineering capture was accepted and its matching receipt verified by the parent, request `6740bd3478a619906414191f28297cd3` (input valid, engineering recorded, acceptance not_applicable, remote effects pending). Aggregate and final application submissions remain the parent's next steps. These session artifact bytes are frozen after this worker's final return so the parent can bind the aggregate snapshot to final bytes.
