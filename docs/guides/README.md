@@ -13,6 +13,5 @@ Direct work through GitHub issue comments after [getting started](../getting-sta
 | [Validation and delivery](validation-and-delivery.md) | Separate engineering, acceptance and merging. |
 | [Issue command reference](issue-command-reference.md) | Find exact comment controls and labels. |
 
-Terminal commands belong in [CLI — advanced](../cli/README.md); YAML settings belong in [Configuration — advanced](../configuration/README.md). For failed or missing runs, use [Operations](../operations/README.md).
 
 [Documentation home](../README.md)
