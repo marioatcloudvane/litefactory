@@ -53,10 +53,10 @@ Create an issue in the registered repository. As the configured owner, post this
 as a **new issue comment**:
 
 ```text
-/research Explain this repository's main components and propose a small documentation improvement. Do not implement changes.
+Explain this repository's main components and propose a small documentation improvement. Do not implement changes.
 ```
 
-Keep the slash command first. The factory reads eligible owner comments during
+The factory reads eligible owner comments during
 polling, selects Research and prepares a task worktree. Capacity, backoff and
 access problems can delay dispatch; posting is not a start-time guarantee.
 
