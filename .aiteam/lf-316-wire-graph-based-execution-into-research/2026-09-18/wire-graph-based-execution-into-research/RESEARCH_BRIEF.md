@@ -1,6 +1,6 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research INCOMPLETE. The investigation is done; six owner decisions (D1-D6) are open, each with a recommendation. Nothing is implemented; no child issue, Plan or story exists.
+Status: Research INCOMPLETE. Run 0002 (owner remarks on catalog location, `shared/` references, no `.md`) is folded in: see section 9, which supersedes F1 (root/layout), F2 (names) and F3 (skills location and loading) below where they differ. Questions Q-1..Q-3 are settled; Q-4..Q-9 are open, each with a recommendation. Nothing is implemented; no child issue, Plan or story exists.
 
 Revisions read: this branch base main 7d57998 (no graph code in it). The #315 engine was read from branch lf/315-foundations-for-graph-based-execution at 0271582 (worktree /Users/mariomh/.lf-worktrees/litefactory/task-315). #315 is NOT merged into main; its first increment reports engineering complete, aggregate gates (build, full tests, make check) were still being re-run on 2026-09-18 (#315 comments, runs 12-16 and two later /implement comments). All engine facts below are "as on the #315 branch", not on main.
 
@@ -48,7 +48,7 @@ Validation tightening in graphexec: `lf_agent_markdown` becomes a bare name (no 
 ### F2. Bare-name character set (conflict with owner's examples)
 Existing identifier rules are kebab-case only: `team.KeyPattern` (`team/types.go:6`, no underscore), native role names (`render/native.go:16`) and delivery role names. Owner examples `code_reader`, `doc_reader` (underscore) would be rejected or need those rules changed. Recommend kebab-case agent and skill names (`code-reader`); DOT node names may keep underscores.
 
-### F3. Skills: location, attribute, lazy loading
+### F3. Skills: location, attribute, lazy loading  (location and loading channel SUPERSEDED by section 9)
 Attribute: `lf_skills="a,b"` (comma list like `lf_outcomes`). Location options: (a) catalog-wide `skills/<id>/SKILL.md` (exists today; all skills shared across modes, transitive closure and publish already work, zero duplication); (b) team-wide `<team>/skills/<id>/`; (c) per mode. Recommend (a) for the bridge: it is the only location with existing capture/publish/test support and skills are already the shared-behaviour vehicle across modes; (b) is a clean later move once legacy is retired and forces duplicating research-evidence/agent-finalization during dual support. Per-mode (c) defeats the owner's own "shared behaviour goes into skills" rule.
 Short description / lazy full text: skill `description` frontmatter is already mandatory (`snapshot.go` skillHeader check). Engine builds, per node, an index of name + description + bundle path for exactly the listed skills and adds it to the node prompt; the agent reads the full file with its existing Read tool (already how the bootstrap works). No new tool, no permission widening; do NOT use the Claude `skills:` frontmatter (preloads). Only the node's listed skills (plus their `requires` closure) enter that node's bundle, so `lf_skills` is also a real context boundary. Trade-off: no engine-side record of which skill the agent actually opened; an engine-mediated load tool would need a new MCP tool family and is deferred.
 
@@ -123,7 +123,7 @@ Offline fake-runner tests can establish graph semantics; they do NOT establish r
 7. A bad or edited research.dot bricks Research only for opted-in repos; validation at `team validate`/publish must be the gate.
 8. Honest reporting: no token/time claims; baselines only.
 
-## 6. Open decisions (owner) with recommendations
+## 6. Open decisions (owner) with recommendations  (run 0001 list; current status in section 9.6)
 - D1 Catalog layout: additive `<team>/research.dot` + `<team>/research/<agent>.md` alongside legacy (recommended) vs replace.
 - D2 Skill location: catalog-wide `skills/<skill>/SKILL.md` (recommended) vs team-wide `<team>/skills/` vs per mode. Attribute `lf_skills`.
 - D3 Names: kebab-case agents/skills (recommended) vs allow underscores (requires changing role/key validators).
@@ -140,5 +140,47 @@ Plan-level (not owner): per-node result obligation design, whether an owner-repl
 5. Opt-in adoption and observation: per-repo opt-in and rollback, legacy fallback, the four observed case groups, token/time baselines.
 Scope 4 of #315 (reconciliation) and 5 (admission) overlap children 4 and 5; Plan should decide whether they are absorbed.
 
-## 8. History
+## 8. History (see also section 9)
 - 2026-09-18 run 0001: first Research pass for #316; read #315 engine at 0271582, current team/Research delivery and result contract at 7d57998; recorded D1-D6.
+
+## 9. Run 0002: owner remarks on catalog location and references
+
+Owner instruction: list open questions as `id | name | options | recommendation`. Owner remarks: skills and agents must be outside the repository, never inside one; they belong under `.litefactory/teams/...` so different repositories share them; a `shared` folder holds shared skills and agents; they are referenced as `shared/<name>` (for example `shared/codebase-analyzer`), with no `.md` suffix.
+
+### 9.1 What `.litefactory/teams/` and the installed catalog mean today (verified, revision 7d57998)
+- `$LF_HOME` is `~/.litefactory` unless the `LF_HOME` environment variable is set (`internal/config/paths.go:19-56`). The installed catalog is `$LF_HOME/teams` (`paths.go:67-68`), so the owner's `.litefactory/teams/...` is the same place: already outside every repository, shared by every repository, and the only root real runs read (`internal/teamsource/resolve.go:33-53`; no repository or embedded fallback). Catalog metadata and the single catalog lock live in `$LF_HOME/teams/.litefactory/` (`paths.go:86-87`, `internal/team/catalog_lock.go:16-48`, one flock for every writer and every snapshot capture).
+- Population is only by explicit `litefactory team add|update` (remote release or local package): `internal/cli/cmd_team.go:141-175`; `teamsource.Install` states it "never renders into a repository". A local package inside a registered repository or worktree is refused ("use an independent central package", `cmd_team.go:328-370`). So the outside-the-repo rule is already enforced for installation.
+- The word `.litefactory` also names a legacy repo-relative directory in the older render path (`internal/team/paths.go:13`: provenance lockfile, overrides, flock, plus `.claude/agents/` etc.); `Install` and the daemon do not use it for graph-relevant content. It is not the owner's `.litefactory/teams`.
+- `shared` is already a concept, for agents only: index.json has a `shared` map; files live in `agents/shared/`; teams reference them with `{"ref": id}` (`internal/team/types.go`, `validate.go:23-60,105-125`); overrides use scope `shared:<id>` (`teamsource/override.go`); installing a team whose shared agent differs from one already used by another installed team is refused, and unused shared entries are refused in a release (`teamsource/manage.go:322-330,394-407`, `remote.go:245`). Skills have no `shared` notion: they are one flat catalog-wide folder `skills/<id>/SKILL.md` used by every mode (`internal/teamsource/snapshot.go:334`).
+- Reserved-name collision: top-level catalog folders `agents/` and `skills/` already exist. A team-scoped layout adds `<team>/` folders beside them, so team ids `agents`, `skills` and `shared` (all accepted by `team.KeyPattern`) must be reserved or a team could collide with legacy folders.
+- Repository versus catalog: `teams/source` in this repository is only the publisher's editable source; `go run ./cmd/team-publish` turns it into `teams/releases/<team>/<version>` and the runtime never reads the repository copy (`teams/README.md:3-30,64-66`). So there is no code contradiction; the shipping path for new files is: author in `teams/source`, publish a release, `team add|update` into `$LF_HOME/teams`. An empty home needs `team add` first (default HTTPS catalog, `config/teams.go`). Release builds are one team per package and capture only files reachable from the roster (`teampublish/publish.go:30-77`, "publisher source must contain exactly the selected team"; new `.dot`/agent/skill files are not published until capture reads them).
+- New constraint from the one-team-per-release rule: a cross-team `shared/` folder cannot be published as its own release today, and index.json decoding rejects unknown fields (`team/decode.go:74`), so shared skills need either an index schema change or a filesystem convention with no index entries.
+
+### 9.2 Permission and sandbox facts for reading skills outside the worktree
+- Agents run in the worktree. The delivered instruction bundle is already outside it: `$LF_HOME/bundles/<forge>/<owner>/<repo>/<issue>/run-*` (unique directory per bundle, `turn/delivery.go:192-222,400`), so successive node bundles do not overwrite each other (answers the earlier F8 uncertainty; retention/cleanup is still unexamined).
+- Claude is started with `--plugin-dir <bundle>/plugin` and `--append-system-prompt-file <bundle>/bootstrap.md` (`internal/harness/runner.go:642-644`); skills reach it as native plugin skills. Codex gets `--add-dir` only for configured writable roots and the submission directory, and an explicit `skills.config` list enabling only the bundle's selected skills (`internal/codex/runner.go:288-296,447-460`, `codex/skills.go`).
+- The Claude settings file litefactory generates DENIES reading everything under `$LF_HOME` (`Read(//$LF_HOME/**)`, `internal/harness/settings.go:108`) because daemon.log contains the bot token unredacted. Consequence (inference, not probed live): an agent cannot use its Read tool on the installed catalog or the bundle under `$LF_HOME`. The existing bootstrap sentence "read a supporting skill from sources/..." is therefore unreliable on Claude; what works is the host's native skill mechanism. This corrects my run 0001 F3, which relied on the Read tool.
+- Corrected recommendation: give each node its own bundle containing ONLY the node's `lf_skills` (plus their `requires` closure) as native skills; the host shows each skill's short description and loads the full text when the agent asks, on both hosts, without any new path grant and without weakening the `$LF_HOME` deny. Do NOT use Claude subagent `skills:` frontmatter (preloads full text; https://code.claude.com/docs/en/sub-agents, 2026-09-18). Not probed live: that the native loader works under the deny on Claude and reads outside cwd under Codex's read-only sandbox; a small Spike should confirm before Plan commits. Also unresolved: whether a node's agent runs as the main session or as a subagent of a generic parent (today roles are subagents listed in the bootstrap); running it as the main session would need a runner change.
+
+### 9.3 What the owner remarks settle
+- S-1 (settles Q-1 direction and the root): agents, skills and graphs are read only from the installed catalog `$LF_HOME/teams`; never from a repository, worktree or `teams/source`. Already how the runtime and installer behave.
+- S-2 (settles Q-2): skills live per team plus a `shared` folder; no per-mode skills; the flat catalog-wide legacy `skills/` is not the graph location (my earlier recommendation is withdrawn). Attribute stays `lf_skills` (comma list).
+- S-3: reference syntax is exactly two forms: bare name (team-local) and `shared/<name>`; no `.md`, no other slashes, no `..`, no absolute paths, no other team's name. Pattern: an optional `shared/` prefix followed by a name matching the existing `team.KeyPattern` (lowercase letters, digits, hyphens; no leading or trailing hyphen; at most 64 characters). Applies to both `lf_agent_markdown` and each `lf_skills` entry; the attribute name decides whether it is an agent or a skill. #315's path validator is replaced, not extended.
+- S-4 (settles Q-3 by example): `shared/codebase-analyzer` is kebab-case; underscores are dropped (assumption, flagged for owner check).
+- S-5: additive to legacy (agreed rollout boundary): legacy `agents/**`, `skills/**` and index.json keep working until dedicated retirement.
+Consequences: resolver reads only `$LF_HOME/teams` under the existing catalog lock and os.Root confinement; `graph_definitions.path` is catalog-relative (`<team>/research.dot`) and digest covers the graph, every resolved agent and every skill in the closure, for team and shared files alike; because the catalog is shared by all repositories and changed by `team update`, digest verification before each node matters more (mid-run update by another operation), and per-repository opt-in (Q-5) is required because installing or updating a team must not flip every repository at once. Skill `requires` needs the same two forms; a shared skill may require only shared skills; two entries with the same base name in one node (`reader` and `shared/reader`) are refused. `team status`/`update` drift and `--force` semantics must recognise the new file kinds.
+
+### 9.4 Assumed physical layout (Q-7 proposes it)
+`$LF_HOME/teams/<team>/<mode>.dot`, `$LF_HOME/teams/<team>/<mode>/<agent>.md`, `$LF_HOME/teams/<team>/skills/<skill>/SKILL.md`, and `$LF_HOME/teams/shared/agents/<agent>.md`, `$LF_HOME/teams/shared/skills/<skill>/SKILL.md`. `<team>` ids `shared`, `agents`, `skills` reserved.
+
+### 9.5 Corrections to run 0001 text
+F1 root and layout: root is settled (installed catalog); layout is now Q-7. F2: hyphen-only assumption (S-4). F3: location is per team plus shared; loading is native host skill loading from a per-node bundle, not Read. F8: bundle directories are unique per bundle (verified). Section 5 risk added: a shared, cross-repository catalog means one `team update` changes behavior for every opted-in repository and can occur mid-run; digest check per node is the guard.
+
+### 9.6 Question status
+Settled: Q-1 (additive, catalog outside repo), Q-2 (per team plus shared skills), Q-3 (kebab-case). Open: Q-4 loop exhaustion; Q-5 opt-in; Q-6 clarity node; Q-7 physical layout of team and shared folders; Q-8 how shared content is distributed; Q-9 how agents load skill full text. Recommendations are in the run 0002 final report and application JSON.
+
+### 9.7 Candidate child scope 1 amendments
+Add: reserved team ids; shared-folder distribution and conflict rules (Q-8); per-node bundle with only listed skills; Spike to confirm native skill loading under the `$LF_HOME` deny on both hosts; publisher capture of graph, agent and skill files.
+
+### 9.8 History
+- 2026-09-18 run 0002: verified catalog location, `shared` concept, publisher one-team rule and agent read permissions; settled Q-1..Q-3, added Q-7..Q-9, corrected the skill-loading finding.
