@@ -79,14 +79,3 @@ are separate stages; see [workflow](../guides/workflow.md) and
 | Registration refused | Check `origin`, base branch, installed team and worktree-root collision diagnostics. |
 | No run after a comment | Confirm owner account, registered repository, open issue and daemon health; see [troubleshooting](../operations/troubleshooting.md). |
 | Access denied during reporting or publishing | Check bot repository access and local Git transport separately. |
-
-## Verification status
-
-This journey is reconciled with source at
-`8f556367c2d0a00d2736a53a326152ff43a6f96e`; it is an instruction sequence, not an
-observed installation transcript. **An authentic isolated installation and
-GitHub-access check, followed by Research on a disposable repository, has not
-been recorded.** Its acceptance obligation remains unverified and unsatisfied.
-A future authorized operator capture must record macOS, Go, Git, `gh`, agent and
-litefactory versions, credential/access setup without secrets, commands and
-actual observed feedback. Offline tests cannot replace that observation.
