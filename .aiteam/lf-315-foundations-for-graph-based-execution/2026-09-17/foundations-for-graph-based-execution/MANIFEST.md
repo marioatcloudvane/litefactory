@@ -25,3 +25,7 @@
 ## Notes
 
 - 2026-09-18: Plan run 0007 presents the saved five-story draft and task breakdown for owner review. Run 0006 failed; its completed-draft record above is not publication/readiness evidence. Saved PLAN_CONTEXT.json; no new investigation, implementation, or completed Plan publication.
+
+- 2026-09-18: Plan run 0008: owner explicitly authorized publication. Preparing the complete five-story, 28-task typed proposal from saved specification and binding architecture decisions. Correcting test-role routing for real SQLite without changing scope. Publication/readiness remain pending factory processing; no implementation or mode change.
+
+- 2026-09-18: Run 0008 completed Plan authoring and submitted the full five-story / 28-task / 32-criterion proposal through the shared result helper. Complete preflight passed; request e25aa508248aebd78fbc45eb34b3e0f0 accepted as revision 2 and matching receipt read. Engineering, acceptance and publication are pending in the receipt; factory terminal publication/save owns readiness and links. Draft story keys normalized from 315-* to S315-* and task dots to hyphens to satisfy the shared stable-ID grammar; aliases retained. No implementation or mode change.

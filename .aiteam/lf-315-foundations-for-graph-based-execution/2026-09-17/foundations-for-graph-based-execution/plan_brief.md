@@ -108,13 +108,13 @@ story's own tasks section):
 
 ## Story Index
 
-| ID | Title | Size | Depends on | Link |
-|---|---|---|---|---|
-| 315-graphexec-core | `internal/graphexec` core + Gonum dependency | L | — | _filled on publish_ |
-| 315-store-graph-persistence | `internal/store` graph persistence + migration 0048 | L | — | _filled on publish_ |
-| 315-turn-activity-layer | `internal/turn` activity registry + `ExecuteNodeAction` | M | 315-graphexec-core, 315-store-graph-persistence | _filled on publish_ |
-| 315-daemon-poller-skeleton | `internal/daemon` poller skeleton (unwired) | S | 315-store-graph-persistence | _filled on publish_ |
-| 315-graph-execution-composition | Composition integration test against a real DB | M | 315-graphexec-core, 315-store-graph-persistence, 315-turn-activity-layer | _filled on publish_ |
+| ID | Title | Sub-issue |
+| --- | --- | --- |
+| S315-graphexec-core | Parse, validate and navigate workflow graphs | [#330](https://github.com/marioatcloudvane/litefactory/issues/330) |
+| S315-store-graph-persistence | Persist graph definitions, instances and execution history | [#331](https://github.com/marioatcloudvane/litefactory/issues/331) |
+| S315-turn-activity-layer | Dispatch generic activities through a bounded execution step | [#332](https://github.com/marioatcloudvane/litefactory/issues/332) |
+| S315-daemon-poller-skeleton | Provide unwired graph scheduling and retry helpers | [#333](https://github.com/marioatcloudvane/litefactory/issues/333) |
+| S315-graph-execution-composition | Prove graph execution composition against real persistence | [#334](https://github.com/marioatcloudvane/litefactory/issues/334) |
 
 ## Out of Scope
 
@@ -156,3 +156,9 @@ story's own tasks section):
   obligation is discharged by S1's own round-trip test against the pinned
   `v0.16.0`, not by this plan asserting the claim as settled fact. A future
   version bump of Gonum re-opens EO-1.
+
+## Publication continuation — run 0008
+
+The owner explicitly requested publication of the reviewed five-story, 28-task first increment. The complete typed proposal preserves that scope and the saved criterion identities. Tests using real SQLite are assigned to the integration-test engineer; structural and pure tests remain unit-test work. The proposed migration number 0048 is provisional: use the next available number at implementation time. Factory publication and save establish readiness; local artifacts do not.
+
+Publication identifiers use `S315-*` story keys and `T-001-1`-style task IDs because the shared result format requires a leading letter and forbids dots. These map directly to the reviewed `315-*` keys and `T-001.1`-style task IDs; no typed story identities existed in the supplied result baseline. Scope and dependencies are unchanged.
