@@ -245,6 +245,11 @@ Candidate types (rough fields/responsibilities, names illustrative):
   string`, `Nodes []Node`, `Edges []Edge`, `Source []byte` (raw DOT,
   immutable once pinned). Answers scope item 1 ("Versioned DOT profile...
   validation") and scope item 2's "explicit version identities."
+
+  **Revised by run 0003 — see that section.** The owner corrected the
+  `Source []byte`/DB-blob framing below; run 0003 replaces it with a
+  path+digest identity. This paragraph is left as originally written so the
+  correction is visible in context, not silently edited away.
 - **`Node`** — one graph vertex: `Name string`, `Action string` (an
   `lf_<mode>_<capability>` action name), `Outcomes []string` (closed per-node
   outcome vocabulary), `Limit int` (the `lf_limit`-bounded refine-loop cap
@@ -256,6 +261,9 @@ Candidate types (rough fields/responsibilities, names illustrative):
   item 1 states "No arbitrary executable code in graph attributes," so
   `ActionSpec` binds a name to a closed outcome vocabulary and (in a later
   issue) a Go-side handler, never to attribute text that gets evaluated.
+
+  **See run 0003**: this run's "Activity" design is the concrete shape of
+  that deferred "Go-side handler," not a replacement for `ActionSpec`.
 - **`Registry`** — `map[string]ActionSpec` plus `Register`/`Resolve`. This
   mirrors `turn.RunnerSet`'s existing "validity is registry-driven, not a
   hardcoded switch" pattern almost exactly (`internal/turn/execute.go:33-43`:
@@ -290,6 +298,9 @@ methods):
   `teamsource`/delivery's existing snapshot digest, so a graph run is pinned
   to both a graph definition and a role roster snapshot together —
   addresses run 0001's "workflow/role snapshots" gap), `CreatedAt time.Time`.
+
+  **Revised by run 0003 — the `Source []byte` field is corrected there per
+  the owner's remark 1.** Left unedited here for visible before/after.
 - **`GraphInstance`** — one durable run of a pinned definition against one
   session: `ID int64`, `SessionID int64`, `DefinitionID int64`, `Status
   string` (`running|succeeded|failed|cancelled`, same closed-vocabulary
@@ -348,6 +359,10 @@ wording) and the existing "mode is a ceiling, not an additive permission
 hint" contract (`internal/turn/delivery.go:74`) by construction, since it is
 the same delivery path.
 
+**See run 0003**: this is very plausibly where an `ActivityHandler` for
+`invoke_agent` would live, since it is exactly the impure, I/O-performing
+counterpart `graphexec.ActionSpec` was always meant to defer to.
+
 ### Class-diagram-style overview
 
 ```
@@ -374,6 +389,10 @@ daemon.graph poller --would invoke (once a later issue wires it)--> turn.Execute
   turn.Execute today — new code following an existing wiring pattern, not
   a new pattern)
 ```
+
+**Superseded by run 0003's revised diagram** for the `graph_definitions`/DOT
+identity portion and the new Activity layer; left here unedited for
+before/after visibility.
 
 ### DB schema sketch (illustrative new migration, e.g. `0048_graph_execution_foundations.sql`)
 
@@ -438,6 +457,11 @@ CREATE TABLE graph_transitions (
   at TEXT NOT NULL
 );
 ```
+
+**`graph_definitions.source BLOB NOT NULL` is corrected by run 0003 — see
+that section for the revised `path`/`digest` shape and why.** Left here
+unedited for before/after visibility; the other three tables are unaffected
+by either of the owner's two remarks this run.
 
 Scope item 5's "old/new execution-path admission and compatibility adapter"
 is deliberately **not** sketched as new tables here: run 0001 already
@@ -532,6 +556,402 @@ fetched fresh via `gh issue view 315 --repo marioatcloudvane/litefactory
 No builds, tests, dependency installs or code/schema changes were made. No
 child issues created; no Plan, Implement or Validate work started.
 
+## Run 0003: revising the sketch for the owner's two remarks (DOT-as-file, and Activities)
+
+Status: **illustrative only, same as run 0002.** This section is a follow-up
+deepening of the same bounded pass, not a new mode start (Research checkbox
+stays checked from run 0001). It directly revises two parts of run 0002's
+sketch per an owner comment on issue #315, quoted verbatim in the task
+header. Prior sections above are left unedited — corrections are called out
+inline where they occur and fully resolved here. No code, dependency, SQL
+file or migration was added to the repository this run either.
+
+### Remark 1: the DOT file stays a file — revised identity-pinning approach
+
+**The owner is right, and run 0002's `graph_definitions.source BLOB NOT
+NULL` was the wrong shape.** Two independent pieces of current-repo evidence
+support pinning by path+digest instead of copying bytes into the database:
+
+1. **This repo just consolidated scattered per-mode instruction/workflow
+   files into one git-versioned catalog, away from a loose `docs/` tree —
+   the opposite direction from "put it in the database."** `docs/workflow/`
+   (which held `spike.md`, `session.md`, `delivery.md`, `followups.md`,
+   `owner-exceptions.md`) was deleted from this worktree's history in commit
+   `bd0b355` ("Delete docs directory", 23 files, 4,149 deletions, merged into
+   this branch via `21e5d2a`). Its content is not gone — the equivalent
+   guidance now lives as `teams/source/skills/workflow/SKILL.md`, a single
+   git-tracked file inside the same `teams/source/` catalog this repo already
+   uses for shipped agent/skill content (`teams/source/agents/**/*.md`,
+   `teams/source/skills/**/SKILL.md`). This is directly on point: the repo's
+   own recent history shows shipped instruction/workflow content moving
+   *into* a git-versioned, catalog-captured file tree, not into SQLite. A
+   `.dot` workflow graph is the same kind of artifact — shipped, human-edited,
+   diff-reviewable text — and the most consistent placement is inside that
+   same `teams/source/` catalog (e.g., illustratively, a new
+   `teams/source/workflows/<mode>.dot` per mode, or one file per profile
+   version), not a new scattered `docs/`-style location (which this repo is
+   actively moving away from) and not `.aiteam/` (that is the *session
+   artifact* namespace — `RESEARCH_WORKFLOW_EXAMPLE.dot` living under
+   `.aiteam/lf-230-.../` on the unmerged branch was Research's own illustrative
+   output, not a proposal for where a production `.dot` file should ship;
+   `.aiteam/` archives are explicitly off-limits to read for unrelated work
+   per `docs/workflow/spike.md`'s former text and this session's own
+   `teams/source/skills/workflow/SKILL.md:25` "Never scan archived sessions").
+   Exact placement (a new top-level directory vs. inside `teams/source/`) is
+   still a Plan decision — the evidence here supports "a git-versioned file
+   participating in the existing catalog/capture discipline," not one exact
+   path.
+
+2. **This repo already has a working, tested "pin external file content by
+   digest, not by DB copy" mechanism, and it is the team/role snapshot
+   machinery the owner named.** `internal/teamsource.CaptureRoot` /
+   `CaptureUnlocked` (`internal/teamsource/snapshot.go:52-67`) reads the
+   `teams/source/` catalog and produces a `Snapshot` (`snapshot.go:37-45`)
+   carrying `Digest string` (a whole-snapshot content hash) and `Hashes
+   map[string]string` (a per-file content hash), computed via
+   `team.HashBytes` (`internal/team/hash.go:13-16`, a plain hex-encoded
+   SHA-256 — "Exported so internal/teamsource can hash an agent's raw source
+   bytes... without duplicating this implementation"). That digest, not the
+   file bytes, is what survives into durable per-run evidence:
+   `agent.DeliveryEvidence.SnapshotDigest` (`internal/agent/delivery.go:30`)
+   and, per specialist, `agent.SpecialistEvidence{SourcePath, SourceHash}`
+   (`delivery.go:37-44` — path plus hash, explicitly *not* the rendered
+   bytes). The type's own doc comment states the intent directly:
+   "`DeliveryEvidence` stays in per-run metadata even if an operator later
+   removes a retained bundle" (`delivery.go:21-22`) — i.e., this is already
+   designed as "pin an identity that outlives and does not require the
+   original bytes," exactly what scope item 2's "explicit version identities"
+   and "pinned... snapshots" language asks for, and exactly the pattern the
+   owner is asking #315 to reuse rather than reinvent.
+
+**Revised `graph_definitions` sketch** (illustrative; corrects run 0002's
+version above, not a new table):
+
+```sql
+CREATE TABLE graph_definitions (
+  id INTEGER PRIMARY KEY,
+  mode TEXT NOT NULL,
+  profile_version INTEGER NOT NULL,
+  path TEXT NOT NULL,               -- repo-relative path to the .dot file, e.g. "teams/source/workflows/research.dot"
+  digest TEXT NOT NULL,             -- sha256 of the file's bytes at the moment an instance pinned it (team.HashBytes style)
+  team_snapshot_digest TEXT,        -- unchanged from run 0002: correlates to teamsource.Snapshot.Digest
+  created_at TEXT NOT NULL,
+  UNIQUE(mode, digest)
+);
+```
+
+`source BLOB NOT NULL` is dropped entirely. `path` is a repo-relative string
+(git-versioned, so `git blame`/history already answers "what changed and
+when" — the database does not need to be the audit trail for graph-definition
+content, the same way it is not the audit trail for `teams/source/agents/**`
+content today). `digest` is computed the same way `team.HashBytes` computes
+every other content-identity hash in this codebase, so a `graph_instances`
+row that references a `graph_definitions` row is pinned to *exact* graph
+content (a path alone is not enough — the file at that path can change on
+`main` after an instance starts; the digest is what actually answers "which
+version of this graph ran," matching scope item 2's requirement) without the
+database ever holding a second copy of the file. `Profile.Source []byte` in
+the pure `graphexec` package is unaffected by this change — that field is an
+in-memory value the parser produces when reading the file at parse time, not
+a persisted column; only the *durable row* changes shape.
+
+**One open question this raises for Plan, not resolved here:** unlike
+`teams/source/`, which is captured from a separately installed, centrally
+managed catalog directory (`paths.TeamsDir()`, outside the git worktree —
+see `teamsource.Resolve`, `internal/config.Paths.TeamsDir`), a `.dot`
+workflow file most plausibly ships *inside* the git worktree itself (it is
+closer to `CLAUDE.md` or `docs/workflow/*.md` used to be — project-local
+instruction content — than to the centrally-installed team catalog). If so,
+"digest at pin time" needs a read from the *working tree*, not from a
+`teamsource`-style captured/locked catalog root, and the existing
+`CaptureRoot`/lock discipline may not directly apply as-is — only the
+*hash-not-copy identity pattern* transfers cleanly, not necessarily the exact
+capture/lock code path. Flagging this rather than picking a resolution,
+since it changes where `ParseProfile`/digest-computation code would actually
+run from (worktree vs. installed catalog root) and that decision has real
+consequences for Gonum-parsing failure modes (a missing/renamed file in the
+worktree vs. a missing catalog installation are different failure classes).
+
+### Remark 2: "Activities" — relationship to `ActionSpec`, and a first sketch
+
+**Conclusion: Activity and ActionSpec are two distinct, complementary
+layers, not synonyms — and this conclusion follows directly from run 0002's
+own text, not from importing an external framework's vocabulary.**
+
+Run 0002 already drew this boundary without naming the second half of it:
+`ActionSpec` was deliberately specified as declarative-only — "`ActionSpec`
+binds a name to a closed outcome vocabulary and (in a later issue) a Go-side
+handler, never to attribute text that gets evaluated" (run 0002, `ActionSpec`
+bullet, unedited above). That parenthetical — "a later issue... a Go-side
+handler" — is precisely what the owner is now asking #315 itself to name and
+shape generically (not implement per-mode; the owner is explicit that
+"concrete implementation of activities is done in later phases"). So:
+
+- **`ActionSpec`** (unchanged from run 0002) stays the *declarative* half:
+  `Name`, `Mode`, `Outcomes` — lives in the pure `graphexec` package, has no
+  I/O, is what `Validate` checks a `Profile`'s nodes against. It answers "is
+  this graph well-formed" — never "what actually happens."
+- **`Activity`** (new this run) is the *executable* half: a named, typed unit
+  of work with its own configuration, invoked when a node's action actually
+  runs. It answers "what actually happens" — never "is the graph well-formed."
+
+They are joined by name: a `Node.Action` string (e.g.
+`lf_research_agent`) resolves through `graphexec.Registry` to one
+`ActionSpec` for *validation*, and — separately — through a new
+`ActivityRegistry` to one `ActivityHandler` for *execution*. Keeping these as
+two registries rather than one, with `ActionSpec` gaining a `Handler` field,
+is not arbitrary: it preserves run 0002's own purity split. `graphexec` was
+specified as "no SQL import, no clock import" (run 0002, `internal/graphexec`
+section) — a real `invoke_agent` handler necessarily calls into
+`internal/turn` (session/runner/delivery machinery, all impure), so binding
+it directly onto `graphexec.ActionSpec` would pull I/O into the one package
+run 0002 explicitly kept pure. The natural home for `ActivityHandler`
+implementations is therefore `internal/turn` (next to the already-sketched
+`ExecuteNodeAction`), consulting `graphexec.Registry`/`Decide` for
+validation/transition but not living inside `graphexec` itself — the same
+pure/impure split run 0002's own class diagram already drew for
+`ExecuteNodeAction`, now extended one layer further.
+
+This is **new, generic infrastructure for #315 only.** No mode's actual
+`invoke_agent` behavior is being wired in — consistent with run 0001/0002's
+finding that concrete wiring belongs to sibling issues (most plausibly #319),
+and with the owner's own words this run ("concrete implementation of
+activities is done in later phases (for each mode)").
+
+**Illustrative sketch (names illustrative, not binding):**
+
+```go
+// internal/graphexec (pure, unchanged package boundary)
+type ActionSpec struct {
+    Name     string
+    Mode     agent.Mode
+    Outcomes []string
+}
+
+// internal/turn (impure — where real execution already lives)
+type ActivityRequest struct {
+    Node       string
+    Config     map[string]string // raw lf_* attribute values from the DOT node, before typed decoding
+    RunID      int64             // existing run identity, reused per run 0002's GraphNodeAttempt.RunID
+    ResumeRef  string            // populated only when a prior attempt's session exists; empty means cold start
+}
+
+type ActivityResult struct {
+    Outcome string // must be a member of the matching ActionSpec.Outcomes — checked by the caller, not by the handler
+    Output  []byte // stored via store.GraphOutput, unchanged from run 0002
+}
+
+type ActivityHandler interface {
+    Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error)
+}
+
+type ActivityRegistry map[string]ActivityHandler // Register/Resolve, mirrors graphexec.Registry and turn.RunnerSet's existing shape
+```
+
+### `invoke_agent`'s config shape, and where it plausibly lives
+
+**Typed Go config, illustrative:**
+
+```go
+type InvokeAgentConfig struct {
+    AgentMarkdownRef string      // e.g. "research_intro.md" — a source path, resolved the same way captured.Definition.Path already is
+    ModelTier        config.Tier // vendor-neutral: reuses the existing flagship/balanced/fast vocabulary, NOT a literal model string — see finding below
+    // ResumeRef is deliberately absent from this struct — see "static vs. runtime" below
+}
+```
+
+**Config lives in both places, split by whether a field is static graph
+structure or a runtime value — not an either/or choice:**
+
+- **Static, per-node, git-diffable fields — `AgentMarkdownRef` and
+  `ModelTier` — belong on the DOT node as `lf_*` attributes**, e.g.
+  `lf_agent_markdown="research_intro.md"`, `lf_model_tier="flagship"`. This
+  is consistent with scope item 1's existing `lf_*` vocabulary and its "no
+  arbitrary executable code in graph attributes" constraint (attribute
+  *values* — plain strings — are exactly what DOT's `key="value"` syntax
+  carries; there is no way to put executable code in a DOT attribute value
+  short of a handler choosing to `eval` a string, which this design does not
+  do). `ParseProfile` would decode these into the typed
+  `InvokeAgentConfig` at parse time, the same way `Node.Action` is already
+  sketched as being read off a DOT attribute in run 0002.
+- **Runtime, per-instance values — a resume session id — must NOT be a DOT
+  attribute.** A `.dot` file is one static definition shared by every
+  instance/session that runs it (that is the whole point of pinning it by
+  digest in the revised `graph_definitions` table above); a session id is a
+  fact about one running instance, not about the graph. It is supplied by
+  `internal/turn` code at the moment `ActivityHandler.Execute` is actually
+  called, read from the same place a resume ref comes from today (see
+  finding below) — mirrored here as `ActivityRequest.ResumeRef`, not a
+  config struct field.
+- The owner's own words — "this might have more configuration in the
+  future" — is exactly why `ActivityRequest.Config` above is left as a raw
+  `map[string]string` (every `lf_*` attribute on the node, unfiltered) rather
+  than only the two fields known today: a future field (e.g. a timeout
+  override, an additional tool allowlist) is a new attribute name and a new
+  struct field decoded from the same map, not a schema migration or a new
+  DOT syntax.
+
+**A real tension worth flagging, not silently resolved:** the owner's
+example model name, "Fable," is a real, currently-priced model slug in this
+repo (`claude-fable-5-1`, `scripts/seed-meter-prices.sh:82`) — but it is
+**not** one of the three values `config.defaultModelByTier`'s Claude column
+currently maps to (`opus`/`sonnet`/`haiku`,
+`internal/config/tier.go:158-162`). This repo very recently and deliberately
+replaced literal per-specialist model names with the vendor-neutral `Tier`
+vocabulary specifically so configuration would never again say a literal
+model name (`internal/config/tier.go:10-16`: "A specialist's definition used
+to say `model: opus` or `model: sonnet`... Tier replaces that with a
+vendor-neutral vocabulary"; `.aiteam/AGENT_TIERS.md:30-31`: "No specialist's
+actual model assignment changes in this feature: every row below is a pure
+relabelling of the `model:` value the file already had"). Choosing
+`ModelTier config.Tier` above keeps `invoke_agent` consistent with that
+already-completed design; it also means "Fable" specifically is not directly
+reachable without one of two Plan-level decisions this run does not make:
+(a) extend `defaultModelByTier` so some tier resolves to
+`claude-fable-5-1`/`claude-fable-5` (keeping the vendor-neutral vocabulary,
+losing per-node granularity finer than three tiers), or (b) give
+`InvokeAgentConfig` a literal-model escape hatch bypassing `Tier` entirely
+(finer granularity, but reopens exactly the failure mode `Tier` was built to
+close). Naming this as a real open question, not picking one.
+
+### What I found about how markdown/prompt selection and model selection actually work today
+
+**(d1) Markdown/prompt selection is not currently a per-invocation Go-side
+pointer at all — it is two-layer, roster-driven, and partly resolved by the
+coding-agent CLI itself, not by litefactory's own dispatch code.**
+
+1. `teams/source/index.json` maps each mode to an ordered roster of role
+   entries (`ref` to a shared entry, or an inline `id`/`path`/`tier`/`skills`
+   block) — e.g. `teams.go-team.research: [{"ref": "research-orchestrator"}]`
+   (`teams/source/index.json:48-52`). This is the closest existing analogue
+   to "which markdown for this step" — but it selects a *roster for a whole
+   mode*, not a markdown file for one graph node.
+2. `internal/turn/delivery.go:planDelivery` (`delivery.go:37-130`) is where
+   markdown selection is actually resolved into bytes: for every roster
+   entry captured in the mode's `teamsource.Snapshot`, it takes
+   `captured.Source.Body` (the specialist's raw markdown), resolves a model
+   via `opts.Tiers.ResolveModel(config.Kind(req.Agent),
+   config.Tier(captured.Definition.Tier))` (`delivery.go:69`), and renders
+   both into a harness-native role file via `render.Native` (`delivery.go:81`
+   — for Claude this produces exactly the kind of file this session's own
+   `.claude/agents/research-orchestrator.md` is, complete with a `model:`
+   frontmatter line already baked in). A generic `bootstrap.md` is also
+   written, telling the top-level agent process which named roles it may
+   invoke ("Use only its ordered specialist roster: ...",
+   `delivery.go:106`).
+3. The actual "which file backs this named role, right now" lookup happens
+   inside the coding-agent CLI itself (Claude Code's own subagent/Task-tool
+   resolution against the delivered bundle), not inside litefactory's Go
+   code — this session's own dispatch (`CLAUDE.md`'s "Research →
+   research-orchestrator" table, read and acted on by the top-level agent)
+   is a live example of exactly this mechanism.
+
+There is currently **no** concept of "one graph node directly names one
+markdown file." Selection today is mode→roster→(orchestrator decides at
+runtime which specialist to invoke next), not node→markdown. `invoke_agent`
+naming a specific `AgentMarkdownRef` per graph node would be new — a more
+direct, node-level pointer than anything wired today, though it would reuse
+the same underlying render/delivery mechanics (`captured.Source.Body` →
+`render.Native`) rather than inventing new ones.
+
+**(d2) Model selection already exists as a real per-invocation knob — more
+granular than the task brief's framing of "fixed or CLI-default" suggested.**
+It is resolved **per specialist role**, not merely once per session:
+`internal/turn/delivery.go:69` calls `opts.Tiers.ResolveModel(kind, tier)`
+once for *every* roster entry in `planDelivery`'s loop
+(`delivery.go:67-87`), so two different specialists in the same mode's
+roster already can and do run on different models today (e.g.
+`go-architect.md` is `flagship`/opus, `go-code-reviewer.md` is
+`balanced`/sonnet — `.aiteam/AGENT_TIERS.md:35-44`). The resolution table
+itself (`config.Tiers.ModelByTier`,
+`internal/config/tier.go:105-139,156-169`) is vendor-neutral by design
+(`Tier` is `flagship`/`balanced`/`fast`, never a literal model string), with
+a consistency test (referenced in `.aiteam/AGENT_TIERS.md:9-12` as
+`TestAgentTiersMatchClaudeAgentsFrontmatter`, T-6.6) keeping the
+`.claude/agents/*.md` frontmatter's literal `model:` value honest against
+it. Separately, `internal/harness.Options.Model` — "the concrete model
+resolved once by startup configuration" (`internal/harness/runner.go:245`)
+— is the coarser, session/runner-construction-level knob (set once when a
+`turn.RunnerSet` is built, `internal/daemon/runners.go:31-36`). The
+finer-grained, already-proven mechanism `invoke_agent`'s `ModelTier` should
+plug into is `delivery.go:69`'s per-role resolution, not the coarser
+runner-level default.
+
+**(d3) Session-id-for-resume is already first-class, existing capability —
+not something #315 needs to invent.** `internal/harness/runner.go` documents
+`--resume` semantics in detail (lines ~544-604): a resumed run passes the
+same session id captured from a prior run's stream, with explicit,
+tested handling for a refused resume (`resumeRefused`,
+`runner.go:904-909` — "no init event, so Model is empty... a run that got as
+far as an init event was not refused") versus an unusable resumed
+conversation that must be rerun cold (`resumeUnusable`, `runner.go:936` and
+surrounding doc). `invoke_agent`'s "session id, if present" requirement maps
+directly onto this — `ActivityRequest.ResumeRef` above is a new *caller* of
+this existing mechanism (a graph node instead of a plain turn), not new
+resume logic.
+
+### Revised class-diagram-style overview (supersedes the `graph_definitions`/DOT portion of run 0002's diagram; adds the Activity layer)
+
+```
+graphexec.Profile "1" *-- "many" graphexec.Node
+graphexec.Profile "1" *-- "many" graphexec.Edge
+graphexec.Node --> graphexec.ActionSpec        : Action name resolves via Registry (validation-time, pure)
+graphexec.Registry "1" o-- "many" graphexec.ActionSpec
+graphexec.Profile ..> agent.Mode               : reuses existing closed Mode vocabulary
+
+turn.Node --> turn.ActivityHandler             : same Action name resolves via ActivityRegistry (execution-time, impure)
+turn.ActivityRegistry "1" o-- "many" turn.ActivityHandler
+turn.invokeAgentHandler ..|> turn.ActivityHandler : first concrete example; NOT wired to any mode's real behavior in #315
+turn.invokeAgentHandler ..> turn.InvokeAgentConfig
+turn.InvokeAgentConfig ..> config.Tier          : ModelTier, vendor-neutral — same table delivery.go:69 already resolves
+turn.ActivityRequest ..> turn.ResumeRef         : runtime-only; never a DOT attribute (see remark 2 above)
+
+store.GraphDefinition ..> graphexec.Profile     : durable row pins one parsed+validated Profile by PATH + DIGEST (never by copying Source bytes)
+store.GraphInstance --> store.GraphDefinition   : DefinitionID FK
+store.GraphInstance "1" *-- "many" store.GraphNodeAttempt
+store.GraphNodeAttempt --> store.runs           : RunID FK (reuses existing run/segment identity)
+store.GraphNodeAttempt "1" *-- "many" store.GraphOutput
+store.GraphOutput ..> turn.AskTag               : OwnerCommentID correlates to existing "lf: ask" replies
+
+turn.ExecuteNodeAction --consults--> graphexec.Registry, graphexec.Decide   : is this graph/transition valid
+turn.ExecuteNodeAction --consults--> turn.ActivityRegistry                  : what actually runs for this node's action
+turn.ExecuteNodeAction --uses--> turn.RunnerSet, turn.Options, turn.submission_runner  : how invoke_agent actually calls the coding agent
+turn.ExecuteNodeAction --writes via store methods--> store.GraphNodeAttempt, store.GraphOutput
+
+daemon.graph poller --reads due rows from--> store.GraphInstance
+daemon.graph poller --would invoke (once a later issue wires it)--> turn.ExecuteNodeAction
+```
+
+### Evidence boundary (run 0003 additions)
+
+Read in this pass, current worktree state (branch
+`lf/315-foundations-for-graph-based-execution`, HEAD moved since run 0002 —
+`21e5d2a` merged `origin/main`, which included `bd0b355` "Delete docs
+directory"; confirmed via `git log --oneline -3 -- docs/` and `git show
+bd0b355 --stat`): `docs/` directory absence (`ls docs/` → no such file),
+`teams/source/skills/workflow/SKILL.md` (full read),
+`teams/source/agents/shared/research-orchestrator.md`,
+`teams/source/index.json` (full read), `.claude/agents/research-orchestrator.md`
+frontmatter, `.aiteam/AGENT_TIERS.md` (full read),
+`internal/config/tier.go` (full read), `internal/config/config.go:545-546`,
+`internal/team/doc.go`, `internal/team/hash.go` (full read),
+`internal/teamsource/resolve.go` (full read), `internal/teamsource/snapshot.go:1-70`,
+`internal/agent/delivery.go` (full read), `internal/turn/delivery.go:1-120`,
+`internal/harness/runner.go` (grepped for `Model`/`Resume`/`resume`,
+lines ~245, ~328-334, ~544-604, ~820-870, ~880-936),
+`internal/daemon/runners.go` (grepped for `Model`/`Tiers`/`ResolveModel`),
+`internal/daemon/confirm.go`/`confirm_test.go` (grepped, unrelated conflict-proposal
+`Model` field, noted and set aside), `scripts/seed-meter-prices.sh`
+(grepped for `Fable`/`claude-fable`), `git log --oneline --follow -- teams/source/skills/workflow/SKILL.md`.
+No builds, tests, dependency installs or code/schema changes were made. No
+child issues created; no Plan, Implement or Validate work started. The
+`docs/` deletion observed in git history is reported as evidence only (it
+explains why `docs/workflow/spike.md`, cited by this session's own
+`CLAUDE.md` routing table and by run 0001/0002 above, no longer exists in
+this worktree) — it is not something this Research pass acted on, evaluated
+for correctness, or was asked to investigate further; flagged here only
+because it directly informs the DOT-file-location question in remark 1.
+
 ## History
 
 - 2026-09-17 (run 0001): Read #230's full unmerged Research history (12 runs)
@@ -563,3 +983,37 @@ child issues created; no Plan, Implement or Validate work started.
   added to the repository; no Plan, story decomposition or child issue was
   created. Research checkbox remains checked from run 0001; this is a
   follow-up deepening, not a new mode start.
+- 2026-09-18 (run 0003): Owner posted two corrective remarks on issue #315.
+  Remark 1: the DOT graph must stay a file, not a DB blob. Verified evidence
+  for both halves of the fix — this repo's own recent history shows shipped
+  workflow/instruction content consolidating into git-versioned
+  `teams/source/skills/workflow/SKILL.md` (replacing the now-deleted
+  `docs/workflow/` tree, confirmed via `git show bd0b355 --stat`), and
+  `internal/teamsource`'s `CaptureRoot`/`Snapshot`/`DeliveryEvidence`
+  machinery already pins external content by path+SHA-256 digest
+  (`team.HashBytes`) rather than by DB copy, exactly the pattern the owner
+  named. Revised `graph_definitions` to drop `source BLOB NOT NULL` in favor
+  of `path TEXT NOT NULL` + `digest TEXT NOT NULL`, flagged one open
+  worktree-vs-installed-catalog question for Plan. Remark 2: designed a
+  generic `Activity`/`ActivityHandler` layer, concluded it is distinct from
+  but joined-by-name to run 0002's `ActionSpec` (`ActionSpec` = declarative
+  validation contract in pure `graphexec`; `Activity` = executable behavior +
+  config, living in impure `internal/turn` alongside the already-sketched
+  `ExecuteNodeAction`, to preserve `graphexec`'s own no-I/O purity
+  discipline). Sketched `InvokeAgentConfig` (AgentMarkdownRef, ModelTier)
+  split across static DOT `lf_*` node attributes and a runtime-only
+  `ActivityRequest.ResumeRef`, never a DOT attribute. Investigated current
+  agent-invocation machinery as new ground: found markdown selection today is
+  roster-driven (`teams/source/index.json` → `internal/turn/delivery.go`'s
+  `planDelivery` → CLI-side subagent resolution), not node-level; found model
+  selection already exists as a real per-specialist-role knob
+  (`delivery.go:69`, vendor-neutral `Tier`, not "fixed/CLI-default" as
+  guessed); found session-resume is already first-class in
+  `internal/harness/runner.go`. Flagged an unresolved tension: the owner's
+  example model "Fable" (`claude-fable-5-1`, real in `scripts/seed-meter-prices.sh`)
+  is not currently reachable through the existing three-tier vocabulary,
+  which this repo deliberately built to avoid literal model names in
+  configuration. No code, dependency, SQL file or migration was added to the
+  repository. No Plan, story decomposition or child issue was created.
+  Research checkbox remains checked; this is a further deepening of the same
+  bounded pass, not a new mode start.
