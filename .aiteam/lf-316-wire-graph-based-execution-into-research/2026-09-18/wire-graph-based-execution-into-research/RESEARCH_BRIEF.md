@@ -1,8 +1,109 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research INCOMPLETE. Run 0007 choices below are current and supersede conflicting earlier policy recommendations. Ten earlier policy questions and E-1..E-6/E-8 are answered. Only Q-18 (E-7 advancement), Q-19 (changed graph topology) and native-host verification remain. No implementation or live probe performed.
+Status: Research INCOMPLETE. Run 0008 clarification below is current: native CLI loading/precedence clarified; four agent/loop/comment/if activities accepted; Q-19 option 1 recorded; Q-18 superseded. Only Q-20 ask semantics and composed-host verification remain. No implementation or live model probe.
 
-## Current owner choices — 2026-09-18, run 0007
+## Current native-CLI and loop clarification — 2026-09-18, run 0008
+
+User correction: answer actual native host instruction loading when a dedicated role is supplied and both project files exist, not just factory admission. Replace E-7 scheduling discussion with start/while/agent-returned-internal-JSON/explicit-comment/next-phase using four initial activities: agent, loop, comment, if. Owner chooses Q-19 option 1. Prior scheduling question Q-18 is superseded rather than silently assigned an answer.
+
+### Evidence and design boundary
+
+Read current task source at `d271392490d3f267b7d59e254e7cd85699bf4fa1`: `internal/render/native.go:38-57` Claude markdown versus Codex developer instructions, `internal/codex/runner.go:439-442` specialist registration, `internal/harness/runner.go:642-644` appended bootstrap and empty setting sources, `internal/turn/delivery.go:106-133` manual project-copy construction, `internal/turn/result_finalization.go:52-57` adopted final-result obligation. Native host discovery is a separate layer from those wrapper choices. Do not infer that empty setting sources suppresses every memory file; exact composed launch remains unverified.
+
+Read retained foundation revision `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`: `internal/graphexec/registry.go:13` closed outcomes/no executable attributes, `decide.go:5` deterministic declared edge, `dot.go:39` raw attributes, `validate.go:94` bounded cycles, `internal/turn/graph_node.go:109` validated outcome selection. No fresh merge observation or test execution claimed.
+
+Official documentation retrieved 2026-09-18 with OpenAI Docs guidance: https://code.claude.com/docs/en/sub-agents (main --agent and omitClaudeMd), https://code.claude.com/docs/en/memory (AGENTS import, user-message memory, exclusions), https://developers.openai.com/codex/guides/agents-md (ordered single-file discovery), https://developers.openai.com/codex/config-reference (developer versus model instructions), https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.3-codex (AGENTS user-role messages). Documentation-based behavior and instruction-priority inference are not a live observation. Installed-version values are retained from the prior audit, not newly measured here. model_instructions_file exact interaction with project discovery is not established by the configuration reference and is not assumed to disable AGENTS.
+
+### Accepted target and bounded semantics
+
+- Four author-facing activities initially: agent, loop, comment, if. Registered implementation names stay mode-namespaced (illustrative lf_research_agent, lf_research_loop, lf_research_comment, lf_research_if). Start/terminal are markers. Pause is durable state/re-entry control, not an agent kept alive.
+- Agent emits bounded typed JSON as internal output, durably validated/stored before routing. Do not auto-post its return. Node JSON must be carried through an explicit validated contract bridge; keep final application-result validation and publication authority distinct, not bypassed.
+- Loop evaluates a declared field/operator/value against the latest accepted node result; if selects a declared outcome. Suggested first increment supports typed equality only, finite declared branches and limits, not arbitrary expressions, nested program execution or model-generated destinations. Owner's field=response/condition=ask/default=ask is illustrative syntax, not implemented configuration.
+- Default initializes the pre-result first pass only. A missing/unknown/wrong-type field, malformed JSON or oversized result fails validation. It must not silently fall back to ask. Limits count healthy passes, and a crashed agent does not automatically retry; controlled internal continuation is not crash recovery.
+- Owner questions require question-permission validation, explicit question comment, durable saved output/correlation and run end; later owner reply starts continuation. No busy loop on unanswered questions. Every observable publication uses the existing durable operation/receipt identity; updated workflows never duplicate uncertain previous effects.
+- Phase completion leaves the loop, explicitly comments where selected, and advances within Research. It does not select Plan. Selected latest-graph topology behavior is restart at latest start with saved brief/reply (Q-19 option 1), not node mapping.
+- Q-20 alone distinguishes whether ask means internal continuation or owner clarification. Recommend continue versus needs_owner as separate values if the owner's intent is internal iteration; do not silently assume that interpretation.
+
+### Owner report
+
+**Supplying a dedicated agent does not, by itself, turn off repository instructions.** My previous answer addressed factory routing rather than the native CLI behavior you asked about.
+
+For normal discovery, with both files present in the repository:
+
+| Launch | Dedicated role | Repository instructions also loaded |
+|---|---|---|
+| Claude with a named main-session agent | The agent markdown becomes its system prompt, replacing Claude Code’s default prompt | `CLAUDE.md` still loads. `AGENTS.md` is not automatically loaded merely because it exists. |
+| Codex with role text supplied as `developer_instructions` | Role text is added as developer instructions | `AGENTS.md` still follows normal discovery. `CLAUDE.md` is not a default discovery filename. |
+
+Claude explicitly documents that `--agent` **still loads CLAUDE.md**, even if that agent sets `omitClaudeMd`; that option applies to delegated subagents, not the main-session case. Claude can load `AGENTS.md` through an explicit `@AGENTS.md` import in `CLAUDE.md` or a symlink. Explicit file-exclusion settings can change discovery. [Claude agent documentation](https://code.claude.com/docs/en/sub-agents), [Claude memory documentation](https://code.claude.com/docs/en/memory).
+
+Codex checks `AGENTS.override.md`, then `AGENTS.md`, then configured fallback filenames, selecting at most one per directory. Adding `CLAUDE.md` as a fallback does not make it an additional file when `AGENTS.md` already wins there. It can still be read through explicit instructions or a wrapper. [Official OpenAI discovery documentation](https://developers.openai.com/codex/guides/agents-md).
+
+**Which wins when they conflict?** For those native delivery channels, the role has the higher instruction layer: Claude’s system prompt versus repository user-message guidance; Codex’s developer instructions versus the user-role messages containing `AGENTS.md`. Non-conflicting repository rules still apply. This is instruction precedence, not a guarantee that a model can never mishandle conflicting prose. Merely putting role markdown into ordinary user input does **not** give it that priority. [Claude memory documentation](https://code.claude.com/docs/en/memory), [OpenAI’s Codex message layout](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-5.3-codex), [configuration reference](https://developers.openai.com/codex/config-reference).
+
+`model_instructions_file` is a different Codex mechanism: it replaces built-in instructions rather than adding a developer role. I would not treat it as an interchangeable role-setting option or assume that it disables repository-file discovery. The reference does not establish that exact discovery interaction for our installed CLI version; that remains a targeted verification item.
+
+**Current litefactory adds its own layer.** It manually copies the relevant project file into its bootstrap: `CLAUDE.md` for Claude, `AGENTS.md` for Codex. Claude receives that bootstrap as appended system text; Codex receives it in user input. The current role files are registered as specialists, not yet selected as the node’s main agent. Consequently, native precedence alone does not describe the existing wrapper. The graph adapter should keep the selected role and ordinary repository guidance in their intended channels instead of promoting conflicting project routing into the role’s instruction layer.
+
+These answers are based on the launch code and current official documentation, not a live model experiment. The exact composed graph launch still needs verification.
+
+**Your loop design is a different, clearer requirement than my worker-versus-scheduler question.** I have replaced that question with your requested four activities:
+
+1. **Agent:** invoke the selected role and retain its validated JSON result internally. Returning from this activity does not post a comment.
+2. **Loop:** test a declared response field and repeat the body while the condition holds, within a finite limit.
+3. **If:** choose a declared branch from the saved result.
+4. **Comment:** explicitly publish the chosen question or report through the factory’s existing delivery mechanism.
+
+Start/end are workflow markers. A pause is durable state with no waiting process; neither requires another reasoning agent. A possible shape is:
+
+```mermaid
+flowchart TD
+    S([Start]) --> L{Loop: first pass or more internal work?}
+    L -- yes --> A[Agent: return JSON]
+    A --> I{If: needs owner?}
+    I -- no --> L
+    I -- yes --> Q[Comment: questions]
+    Q --> P([Save state and end run])
+    P -. Owner reply .-> L
+    L -- no --> C[Comment: phase report]
+    C --> N([Next phase within Research])
+```
+
+For example, an agent could return this **illustrative internal result**, not a currently supported submission format:
+
+```json
+{
+  "response": "done",
+  "summary": "Initial investigation finished.",
+  "artifact": "RESEARCH_BRIEF.md",
+  "questions": []
+}
+```
+
+The factory validates and saves that result. The loop/if activities inspect `response`; only the explicit comment activity publishes the report. Later phases can reuse saved output. “Next phase” stays inside Research—it does not automatically choose Plan.
+
+Your proposed `field=response`, `condition=ask`, `default=ask` can describe a small declarative condition. The default should initialize the **first pass only**, before any result exists. After an agent returns, a missing field, invalid JSON or unknown response value must be reported as invalid, not silently turned into `ask` and repeated. Conditions should be typed comparisons over declared fields, not executable expressions. A normal successful loop iteration is also different from retrying a crashed agent; your no-automatic-retry decision remains unchanged.
+
+**Fit with the foundation:** it already supports registered action names, declared outcomes, deterministic edges, saved outputs and bounded cycles. It does not yet implement these four activities or evaluate your response-field condition. They can be added using the existing graph model: a loop becomes a test and back-edge, an if selects an outcome, and comment calls durable publication. That avoids introducing an unrestricted expression language or a second hidden execution engine.
+
+There is one bridge requirement: today every adopted subprocess must provide a validated final result. Internal node JSON therefore needs a defined validated node-result contract and explicit publication control. We must not achieve your design by skipping result validation, nor assume that an agent returning JSON automatically publishes it. The comment activity owns publication; the factory still verifies the appropriate result at each boundary.
+
+**Q-19 option 1 is recorded:** after a workflow-structure update, enter the latest graph from its start with the saved brief and owner reply. Previously uncertain effects retain their original identity and are reconciled, not replayed.
+
+**One semantic question remains: Q-20 — what does `response="ask"` mean?**
+
+1. **Ask the agent to do another internal pass.** The loop invokes it again automatically after a valid successful result. A separate response such as `needs_owner` causes the question comment and ends the run. I recommend calling the internal value `continue` to make the distinction clear.
+2. **Ask the owner a question.** The graph posts that question, saves state and ends the run. It must not immediately invoke the agent again; the next loop pass happens only after your reply. The initial default still allows the first agent invocation before there is any question to publish.
+
+**Recommendation: option 1 for an internal research loop, with an explicit separate owner-question response.** If you mean owner clarification by `ask`, option 2 fits instead. The loop structure is accepted; only that word’s meaning needs resolving.
+
+### History and completion
+
+- 2026-09-18 run 0008: corrected answer to native CLI question using official sources and focused adapter code; recorded four-activity declarative loop, explicit publication and topology-update answer; retired Q-18/Q-19 and introduced only Q-20. Source facts versus proposed schema versus host evidence remain separate. No production changes or live provider call.
+
+---
+
+## Historical owner choices — 2026-09-18, run 0007 (refined above)
 
 Authority: latest owner reply, as supplied for this run. Treat changes as decisions, not requests to reapprove earlier recommendations. The prior audit remains historical evidence; its immutable-pin, global-shared and opt-in prescriptions no longer define target behavior.
 

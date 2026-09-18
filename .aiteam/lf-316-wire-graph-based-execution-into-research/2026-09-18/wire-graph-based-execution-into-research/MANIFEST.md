@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research — incomplete: owner choices recorded; only Q-18 (step advancement), Q-19 (updated graph topology) and native-host verification remain. Run 0007 section of RESEARCH_BRIEF.md is current; earlier policy lists are historical.
+- [ ] Research — incomplete: only Q-20 (meaning of ask in the loop) remains an owner decision; composed native-host verification remains open. Q-18 superseded, Q-19 option 1 selected. Run 0008 section of RESEARCH_BRIEF.md is current.
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -29,3 +29,5 @@
 - 2026-09-18: Research run 0006 inventoried all saved unresolved choices, expanded six rollout questions into ten owner-facing policy/behavior decisions with numbered options, and separated eight delegateable design groups plus empirical checks. No answers or delegation assumed; earlier findings and settled requirements preserved.
 
 - 2026-09-18: Research run 0007 recorded graph default, team-local shared cross-mode roles, latest-content execution, no automatic agent retry, single Research agent and other owner choices; explained project instructions/E-7, leaving Q-18/Q-19 only. No implementation/live probe/test execution.
+
+- 2026-09-18: Research run 0008 clarified native role/project-file loading and precedence, accepted agent/loop/comment/if with internal validated JSON and explicit publication, recorded Q-19 option 1, and isolated Q-20 ask semantics. Documentation/source review only, no live host experiment or implementation.
