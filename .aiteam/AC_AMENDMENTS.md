@@ -1575,3 +1575,23 @@ The prior blanket [enforced] annotation on SEC-21/CONC-10/CONC-11 is removed unt
 those new runtime checks land. Shared-source verification does not assert live
 agent or forge behavior. Security identity, credential isolation, immutable scope,
 factual evidence and actual merge confirmation remain nonwaivable boundaries.
+
+## #315 — Contained Gonum dependency for graph profiles (2026-09-18)
+
+**Status:** ruled; approved dependency deviation, S315-graphexec-core AC-001/AC-002.
+
+**Applies to:** the published graph-execution foundation's pure DOT adapter.
+The existing dependency set is extended only by `gonum.org/v1/gonum v0.16.0`.
+The approved frozen scope explicitly authorizes this addition rather than a
+second general framework or an unpinned parser. No other dependency is added or
+upgraded. Gonum imports are contained in `internal/graphexec/dot.go`, using its
+AST byte parser to preserve standalone graph attributes, declaration defaults
+and explicit node identities. The adapter computes SHA256 over the exact input
+bytes and returns package-owned values; no filesystem or execution entry point
+is exposed. Attribute text remains data.
+
+The rest of graphexec uses only stdlib, `internal/agent` and `internal/config`;
+its reusable semantics support bounded cycles and vendor-neutral model tiers.
+Structural and attribute-preservation tests are the required evidence for this
+containment; this ruling does not assert production wiring or authentic agent
+runtime behavior. A future Gonum upgrade reopens the preservation obligation.

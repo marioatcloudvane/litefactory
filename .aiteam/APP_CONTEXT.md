@@ -30,6 +30,7 @@ config, naming, store, git, secrets, identity, launchd, logging, render,
 gittest, planbrief, attach, schedule → leaves
 
 agent         → naming
+graphexec     → agent, config      pure DOT parsing, registry validation and deterministic bounded-cycle navigation
 meter         → agent              pure normalization, reconciliation, capability diagnostics and exact pricing
 
 redact        →  secrets
@@ -39,7 +40,7 @@ codex         →  agent, config, meter, naming
 harness       →  agent, config, meter, naming
 report        →  agent, git, naming, redact
 repos         →  git, naming, store
-turn          →  agent, attach, codex, config, git, github, harness, meter, naming, planbrief, redact, report, store
+turn          →  agent, attach, codex, config, git, github, graphexec, harness, meter, naming, planbrief, redact, report, store
 daemon        →  agent, attach, codex, config, git, github, harness, naming, redact, report, repos, secrets, store, turn
 teamsource    →  render, repos, store, team   resolves + renders a team's roster (3-tier index precedence)
 cli           →  agent, config, daemon, git, github, identity, launchd, meter, naming, report, repos, secrets, store, team, teamsource
@@ -61,6 +62,8 @@ Package specifications live in `doc.go`; `config` and `store` use the comments a
 
 | I need to… | Use | Notes |
 |---|---|---|
+| parse and navigate an editable workflow graph | `internal/graphexec` | `ParseProfile` accepts bytes and computes exact-byte SHA256; `Validate` aggregates registry/edge/reachability/dispatch-limit faults; `Decide` selects declared outcomes. Gonum v0.16.0 stays in `dot.go`; no file I/O or production wiring. Build profiles/registries then freeze before sharing. |
+| decode vendor-neutral future agent attributes | `graphexec.DecodeInvokeAgentConfig` | `lf_agent_markdown` is a syntactically checked catalog-relative path; `lf_model_tier` uses `config.Tier`. No path resolution, model resolution or invocation. |
 | plan proof for coding-agent behavior | [Nested-agent evidence decision](../docs/decisions/nested-agent-evidence.md) | Evidence inventory, external capture route and historical claim limits |
 | resolve `$LF_HOME` or any path under it | `config.Locate()` → `config.Paths` | `ConfigPath DBPath LogsDir RunsDir DaemonLogPath LockPath SettingsPath` |
 | derive a slug, branch, worktree path, run log path, claude session id | `internal/naming` | `Ref`, `ParseRef`, `Slug`, `Branch`, `ClaudeSessionID` (UUIDv5, pinned namespace), `WorktreePath`, `RunLogPath`, `RunMetaPath`, `DefaultWorktreeRoot`. All pure; never reads `LF_HOME` |
