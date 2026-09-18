@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [x] Research — complete: bounded investigation and owner choices settled; ask means owner question, no active questions. Run 0009 handoff records unperformed host/recovery checks as implementation/adoption gates, not verified acceptance.
+- [x] Research — complete: bounded investigation and owner choices settled; ask means owner question, no active questions. Run 0010 adds an advisory estimate of 11 candidate stories (range 10–13); the run 0009 handoff retains unperformed host/recovery checks as implementation/adoption gates, not verified acceptance.
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -33,3 +33,5 @@
 - 2026-09-18: Research run 0008 clarified native role/project-file loading and precedence, accepted agent/loop/comment/if with internal validated JSON and explicit publication, recorded Q-19 option 1, and isolated Q-20 ask semantics. Documentation/source review only, no live host experiment or implementation.
 
 - 2026-09-18: Research run 0009 completed bounded handoff, clarified current parent/specialist context from actual repo files and source, recorded Q-20 option 2, and retained unperformed live-host/recovery gates. No implementation, live experiment or mode transition.
+
+- 2026-09-18: Research run 0010 estimated 11 candidate user stories (range 10–13) from settled scope, recorded outcomes/dependencies/sizing assumptions, and preserved completed Research with no open questions. No Plan artifacts, stories/issues, implementation or new live checks.

@@ -1,8 +1,57 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research COMPLETE for the bounded investigation and owner-decision handoff. Run 0009 below is current: ask means owner clarification; no owner questions remain. Source/documentation conclusions are retained with explicit live-host and recovery verification gates for implementation/adoption. Completion does not claim implementation, acceptance, deployment or a mode change.
+Status: Research COMPLETE for the bounded investigation and owner-decision handoff. Run 0010 below adds an advisory estimate of 11 candidate stories (range 10–13); no owner questions remain. The run 0009 handoff and prior evidence remain applicable. Live-host and recovery verification remain implementation/adoption gates. Completion does not claim implementation, acceptance, deployment or a mode change.
 
-## Current completed Research handoff — 2026-09-18, run 0009
+## Current story estimate — 2026-09-18, run 0010
+
+The owner asks how many user stories the settled results imply. This is Research sizing, not an approved Plan, acceptance criteria or issue creation. Estimate uses the latest settled decisions, not historical six-area boundaries. No fresh source audit, merge-status observation, test execution or live model call was needed or performed.
+
+### Estimate basis and traceability
+
+- Candidates 1–3: retained resolver/publishing findings and native delivery findings F-2/F-5/F-7/F-8/F-9/F-10/F-19/F-20/F-22/F-25/F-29/F-33; current team-local sharing, default inheritance and main-session role choices govern. Claude and Codex are separate because their delivery channels and live evidence differ.
+- Candidates 4–7: retained real-dispatch/result obligations, attempt/session correlation and typed activity findings F-3/F-4/F-6/F-13/F-27/F-32. Reuse existing graph persistence and managed publication journals; bridge current whole-turn result obligations explicitly. No assumption that suppressing all finalization is already supported.
+- Candidates 8–9: retained interruption/effects/admission findings F-12/F-14/F-15/F-16/F-18 and settled no-agent-retry, cancellation, latest-content/topology policies. Existing run_id foreign key is reused; this is integration, not a new missing-field claim.
+- Candidate 10 delivers shipped artifacts and the complete Research experience. Per-story tests remain within every candidate; the integrated adoption gate includes authentic host evidence, not merely fake-handler coverage. Dependencies do not select modes.
+- Candidate 11 uses existing meter data (F-17/F-24) and adds graph attribution/manual-readable logging, not a benchmark service. All subprocess attempts matter; do not silently lose cold-fallback costs or count unknown usage as zero.
+- Reuse the #315 foundation as last researched. This estimate does not assert a newly checked merge, CLI version or live behavior. Split/merge drivers are advisory uncertainty, not mandatory new approvals.
+
+### Owner-facing estimate
+
+**I recommend 11 user stories, with a realistic range of 10–13 when we turn this into a Plan.** The earlier six items were broad work areas, not six independently deliverable stories. Your decisions have removed several possible features, but running real agents, pausing safely and recovering publication still require separate outcomes.
+
+These are **candidate story boundaries**, not approved stories or newly created issues.
+
+| # | Candidate story | Demonstrable outcome |
+|---|---|---|
+| 1 | Install and resolve a complete Research team | A team release includes its graph, agents and referenced skills. Shared content stays inside that team and works across modes. Names, missing references, collisions and inherited defaults are validated before execution; installation and updates preserve legacy team support. |
+| 2 | Run the Research role directly in Claude | Claude starts the selected role as its main agent, loads the selected native skills and applicable project guidance, and preserves the mode’s permissions. Cold start, continuation and refused-resume fallback retain the required instructions. |
+| 3 | Run the Research role directly in Codex | Codex provides the equivalent behavior through its own instruction and skill channels, without repeatedly adding the entire bootstrap on continuation. Actual project-context and role precedence are checked for the delivered configuration. |
+| 4 | Execute an agent node and save its internal result | A node launches through the existing runner, links its attempt to the run/session, and validates and saves bounded JSON. Returning JSON does not automatically post a comment. An explicit bridge preserves both internal-node validation and the existing final application-result obligation. |
+| 5 | Control the workflow with loop and if activities | The first-pass default invokes the agent once; subsequent routing uses validated response fields and declared branches. Invalid output fails visibly instead of becoming another loop pass. Finite node limits and timeouts prevent runaway execution. |
+| 6 | Publish only through the explicit comment activity | Questions, final reports and actionable failures use the existing durable publication mechanisms. A restart or lost acknowledgment recovers the same operation instead of posting twice; ordinary internal progress stays private. |
+| 7 | Pause for the owner and continue on their reply | An `ask` result saves the questions, publishes them and ends the run, releasing the worker. The pause can last indefinitely. A correlated owner reply is consumed once and continues with the saved findings and appropriate session. |
+| 8 | Handle interruption and cancellation honestly | Startup reconciles interrupted attempts and uncertain effects without automatically rerunning the agent. Closure, retirement and an explicit mode change cancel execution. Report recovery can continue separately from agent execution. |
+| 9 | Make graphs the default while preserving compatibility | New eligible Research work uses the graph; an explicit repository override supports legacy execution, and existing work retains its execution path. The next launch uses updated team content; changed graph topology restarts from the latest start with saved findings, without replaying uncertain prior effects. |
+| 10 | Ship the simplified Research workflow | The shipped graph and one simplified Research role deliver the selected agent/loop/comment/if flow end to end: investigate, ask and pause when needed, then report and advance within Research. Adoption evidence covers both hosts, clear requests, replies, failures and report recovery; finishing does not select Plan. |
+| 11 | Record usage for your own comparisons | Logs connect node, attempt and run usage, including failed launches and cold fallbacks. You can compare old and new execution yourself, with missing measurements identified. No automatic benchmark system or savings claim is added. |
+
+**Why 11 rather than six:** Claude and Codex need different delivery work and evidence. Internal results, external comments and owner waiting also have different failure cases; combining them into one “dispatch” story would hide substantial work. Each story includes its relevant tests. Story 10 ships the actual workflow and proves the assembled experience—it is not a standalone unit-test story.
+
+**Delivery order:** establish the catalog and node-result contracts first (1 and 4), then complete both host adapters and the control/publication activities (2, 3, 5 and 6). Owner continuation follows those (7), with interruption/cancellation (8) and default adoption/update behavior (9) completed before real rollout. Add usage recording (11) alongside node execution so early observations are retained. Ship and verify the complete standard workflow (10) only after those paths work. A minimal admission hook can support development earlier; default rollout must wait for the recovery checks.
+
+**What could change the count:** 10 is reasonable if usage logging fits cleanly into story 4. The count could rise to 12–13 if publishing/installing the expanded team package needs its own compatibility story, or if switching to updated graphs proves substantial enough to separate from execution-path admission. Those are implementation boundaries for Plan, not new product choices for you.
+
+This estimate reuses the already researched #315 parser, validation, persistence and dispatch foundation; it does not count rebuilding them. It excludes legacy retirement, a global shared package, extra investigator/writer agents, automatic agent retries, an old-version retention system and automated benchmarking. Exact installed-host behavior still needs the previously identified live checks, which may affect effort even if the story count stays the same.
+
+No owner decisions remain open. This is a sizing recommendation within Research; no stories have been created and no mode has changed.
+
+### History
+
+- 2026-09-18 run 0010: estimated 11 candidate user stories, realistic range 10–13, with demonstrable outcomes, dependency order and bounded split/merge drivers. All choices remain settled; no stories/issues created, no implementation or mode change.
+
+---
+
+## Completed Research handoff — 2026-09-18, run 0009
 
 Latest owner decision: Q-20 option 2, ask is the agent asking the OWNER questions. Prior conditional internal-continue recommendation is superseded. The owner asks again about CURRENT parent/specialist delivery, not future main-node delivery. This section answers that exact distinction; no new preference question is needed.
 
