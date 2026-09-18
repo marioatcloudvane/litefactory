@@ -1,7 +1,7 @@
 {
   "result": {
     "outcome": "completed",
-    "comment": "Offline contract fixture.",
+    "comment": "US-001 is done \u2014 authored results are now validated before anything accepts them. Nothing was dropped or deferred.",
     "payload": {
       "implement": {
         "stories": [
