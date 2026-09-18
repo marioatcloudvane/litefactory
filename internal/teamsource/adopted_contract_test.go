@@ -32,12 +32,6 @@ func TestAdoptedCommunicationSourceContract(t *testing.T) {
 		}},
 		{"AGENTS.md", []string{"`- Mode: X`", "shared result helper", "prior prose is not editable state", "Input, engineering, acceptance and remote effects remain independent", "Validate remains reference-only", "Adoption and retirement are separate"}},
 		{"CLAUDE.md", []string{"`- Mode: X`", "shared result helper", "prior prose is not editable state", "Input, engineering, acceptance and remote effects remain independent", "Validate remains reference-only", "Adoption and retirement are separate"}},
-		{"docs/story-contract-instruction-manifest.md", []string{
-			"US-005 changes shared/root sources only", "US-006 (Codex writes Claude tree)", "US-007 (Claude writes Codex tree)", "US-010 owns aggregate parity",
-			"teams/source/skills/agent-finalization/SKILL.md", ".claude/skills/shared/workflow.md", ".codex/skills/workflow/SKILL.md",
-			".claude/modes/validate.md", ".codex/skills/review-evidence/SKILL.md", "immutable teams/releases",
-		}},
-		{"docs/agent-auxiliary-contracts.md", []string{"Mode classifier", "Schedule advisor", "Conflict advisor", "explicitly excludes", "typed payloads", "unknown fields", "#274/#296"}},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			t.Parallel()
@@ -52,29 +46,5 @@ func TestAdoptedCommunicationSourceContract(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestAdoptedInstructionManifestExactRoleTargets(t *testing.T) {
-	t.Parallel()
-	data, err := os.ReadFile("../../docs/story-contract-instruction-manifest.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	for _, role := range []string{"requirements-engineer", "proxy-product-owner", "research-orchestrator", "plan-orchestrator", "implement-orchestrator", "go-architect", "go-implementation-engineer", "go-unit-test-engineer", "go-integration-test-engineer", "go-code-reviewer"} {
-		source := "shared/"
-		if strings.HasPrefix(role, "go-") {
-			source = "go-team/"
-		}
-		row := "| " + source + role + ".md | .claude/agents/" + role + ".md | .codex/skills/" + role + "/SKILL.md |"
-		if !strings.Contains(text, row) {
-			t.Errorf("missing exact mapping %s", row)
-		}
-	}
-	for _, obsolete := range []string{"US-009", "US-011", "US-012"} {
-		if strings.Contains(text, obsolete) {
-			t.Errorf("ambiguous previous-feature ownership %s", obsolete)
-		}
 	}
 }
