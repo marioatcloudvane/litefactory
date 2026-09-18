@@ -6,7 +6,7 @@
 
 ## Modes
 
-- [ ] Research — incomplete: ten unanswered policy/behavior decisions Q-5/Q-7/Q-8/Q-10/Q-11/Q-12/Q-14..Q-17; eight design groups may be delegated. Current run 0006 decision inventory is at the top of RESEARCH_BRIEF.md; run 0005 evidence audit is retained.
+- [ ] Research — incomplete: owner choices recorded; only Q-18 (step advancement), Q-19 (updated graph topology) and native-host verification remain. Run 0007 section of RESEARCH_BRIEF.md is current; earlier policy lists are historical.
 - [ ] Plan
 - [ ] Implement
 - [ ] Validate
@@ -27,3 +27,5 @@
 - 2026-09-18: Research run 0005 audited all recorded findings at task HEAD 2aad64d and #315 branch 1fbd2c9; corrected unsafe retry, session, result, skill-loading, pinning and context/cost claims. Q-4/Q-6/Q-9/Q-13 removed as owner questions; six material choices remain. Documentation and source review only; no live provider or test execution.
 
 - 2026-09-18: Research run 0006 inventoried all saved unresolved choices, expanded six rollout questions into ten owner-facing policy/behavior decisions with numbered options, and separated eight delegateable design groups plus empirical checks. No answers or delegation assumed; earlier findings and settled requirements preserved.
+
+- 2026-09-18: Research run 0007 recorded graph default, team-local shared cross-mode roles, latest-content execution, no automatic agent retry, single Research agent and other owner choices; explained project instructions/E-7, leaving Q-18/Q-19 only. No implementation/live probe/test execution.

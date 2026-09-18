@@ -1,8 +1,137 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
-Status: Research INCOMPLETE. The decision inventory for run 0006 below is current: ten owner-facing policy/behavior choices remain unanswered, with eight delegateable design groups and separate verification work. The run 0005 audit remains the factual baseline; its six-question count was a narrower shortlist, not a complete inventory. No implementation or live provider probe was performed.
+Status: Research INCOMPLETE. Run 0007 choices below are current and supersede conflicting earlier policy recommendations. Ten earlier policy questions and E-1..E-6/E-8 are answered. Only Q-18 (E-7 advancement), Q-19 (changed graph topology) and native-host verification remain. No implementation or live probe performed.
 
-## Current decision inventory — 2026-09-18, run 0006
+## Current owner choices — 2026-09-18, run 0007
+
+Authority: latest owner reply, as supplied for this run. Treat changes as decisions, not requests to reapprove earlier recommendations. The prior audit remains historical evidence; its immutable-pin, global-shared and opt-in prescriptions no longer define target behavior.
+
+### Decision mapping
+
+| Prior item | Owner choice and effect |
+|---|---|
+| Q-5 | Graph default. Explain a repository legacy override as proposed opt-out compatibility; no invented current CLI setting. |
+| Q-7 | Shared agent reusable across modes; variants through agent-plus-skills. Supersedes universal mode-specific shared-role requirement. |
+| Q-8 | Shared content only inside its team, e.g. teams/go-team/shared; reject the new global sharing/distribution model. |
+| Q-10 | No automatic agent retry after interruption; reconcile and report. |
+| Q-11 | Closure/retirement and explicit mode switch cancel; no extra cancel command. |
+| Q-12 | Do not keep executing an old pinned team after update; use latest installed content. Exact topology migration is Q-19. |
+| Q-14 | Simplify the existing single Research agent, no investigator/writer split. |
+| Q-15 | Public questions/final/actionable failure; durable internal intermediate progress. |
+| Q-16 | Simplest: node limits and subprocess timeouts, no extra global budget subsystem (recorded interpretation). |
+| Q-17 | Indefinite owner pause until explicit termination; no expiry. Retain findings/state, not an obsolete execution version. |
+| E-1 | Kebab-case. |
+| E-2 | Accept proposed lf_skills/list/layout convention, modified to shared content inside the current team. |
+| E-3 | Reject ambiguous native-name collisions. |
+| E-4 | Documented inherited defaults with node overrides; validate resolved effective task/tier. |
+| E-5 | Node role is the main agent session. |
+| E-6 | Native on-demand skills; selection settled, compatibility remains to prove. |
+| E-7 | Needs clearer explanation; Q-18 supplies two concrete options. |
+| E-8 | Owner compares; retain logs, no automatic benchmark machinery. |
+
+### Updated target boundaries and focused evidence
+
+- Graph is default for new eligible Research executions; repository legacy override and existing path continuity are the proposed compatibility behavior. Current code has no newly implemented graph-default setting. Relevant current source read at `3e5a85021dbdcc1d61eb4ca073c35b538dc78a26`: `internal/turn/prepare.go:138` selected external team capture; `internal/daemon/tick.go:1798` permission selection before `turn.Execute` at line 1828; `internal/daemon/tools.go:23` mode/provider permission lookup.
+- `internal/turn/delivery.go:75` intersects role tools with mode ceiling; lines 106-133 read and incorporate ordinary project instructions. Bundles are written outside the worktree at line 192. Therefore project text can influence the model, but is not the engine's admission/permission control. Reconcile stale routing instructions; do not blindly rewrite project files or claim their text cannot cause model misbehavior. Current legacy code evidence does not prove an already-built graph bridge.
+- Proposed physical reference rule: `shared/name` is always relative to the admitted team, not to a global catalog-level shared folder. A plausible layout is `<team>/shared/agents/<name>.md` and `<team>/shared/skills/<name>/`; exact additive source/publish/capture paths remain Plan details. Reuse a shared role across modes as explicitly chosen; local role files may remain mode-specific. No separate global shared package dependency is in scope.
+- Use current installed graph/role/skill content at launch/continuation; recommend no forced hot interruption of a live invocation. Capture the actual bytes/identity used for each attempt as provenance, not as a mandate to use those bytes forever. When instructions change, a fresh host session from the saved brief avoids obsolete resumed role context. Q-19 decides structural graph change, not whether latest content should be used. Keep old uncertain effects bound to their old request and exact publication content.
+- No automatic agent retry after crash under either E-7 architecture. Read-only reconciliation and retrying delivery of an existing final report are different from re-running an agent. An ordinary owner-triggered continuation can still resume or use the existing cold fallback where appropriate; this does not imply automatic recovery launch after a crash.
+- Default graph is start -> research agent -> save/report -> finish, with durable question pause/owner reply. Agent checks clarity, investigates and synthesizes within one main-role session. Node/task/tier defaults inherit through a documented resolution rule. Selected skills remain lazy, and permissions/result contracts stay enforced.
+- Native main-role/skill support remains an empirical implementation obligation. The existing absent-Claude-Skill/profile gap is not waived by choosing native delivery. No automatic benchmarks, global shared distribution, separate writer agent, extra global budget subsystem, or long-lived old-content execution is requested.
+
+### Current decisions and assumptions
+
+- **D-1:** Owner: runtime agents/skills/workflows remain in the external installed catalog. Shared content is only within a team, for example LF_HOME/teams/go-team/shared, never a new global shared catalog. Preserve legacy compatibility until dedicated retirement.
+- **D-2:** Owner accepts lf_skills and the proposed explicit list/layout convention, modified by team-local shared scope. shared/name resolves inside the current team; no cross-team shared package or global shared namespace.
+- **D-3:** Owner accepts kebab-case names and bare or shared/name references without .md, and rejects ambiguous native-name collisions rather than requiring aliases. Shared agents may be reused across modes, with variants expressed through agent plus selected skills; this explicitly supersedes the earlier universal per-mode shared-agent rule.
+- **D-4:** Remaining #315 scope belongs to #316 and may be split during owner-selected Plan. Mode remains Research; graph completion and this decision reply do not select another mode.
+- **D-5:** LATEST OWNER CHANGE: use the updated graph/team instead of freezing future execution to an old version. This supersedes the old retained-immutable-content recommendation and the earlier long-lived pin requirement. Preserve factual per-attempt provenance; exact conversion of saved progress when topology changes remains Q-19.
+- **D-6:** Clarity remains inside the first Research reasoning call; clear requests investigate directly, and material questions save progress and end the run with no agent waiting.
+- **D-7:** Owner chooses graph execution as the default, not a repository opt-in requirement. A repository-level legacy override for new eligible Research executions is the proposed compatibility mechanism; exact configuration syntax is for Plan.
+- **D-8:** Owner chooses no automatic agent retry after interruption. Reconcile retained effects/results and report; another agent launch needs owner continuation. Existing durable report delivery/reconciliation remains distinct from agent retry.
+- **D-9:** Owner chooses issue closure/retirement and explicit mode switch as cancellation triggers, without an added cancel command. Daemon restart does not implicitly cancel or automatically retry the interrupted agent.
+- **D-10:** Owner chooses the current Research agent, simplified for graph execution, with no investigator/writer split and no added specialist fan-out. Graph performs deterministic save/finalization around that agent.
+- **D-11:** Owner chooses public questions, final results and actionable failures; intermediate node progress stays durably internal. Factory artifact save/publication happens at those relevant boundaries, with no per-node public report requirement.
+- **D-12:** Owner requests the simplest bounded-work approach. Record this as existing per-node dispatch limits and subprocess timeouts, without an extra whole-investigation budget system; exact default values remain engineering detail.
+- **D-13:** Owner chooses indefinite paused continuation until explicit completion/cancellation, without silent timeout expiry. Preserve saved findings and correlation state; latest-content execution policy means this does not require keeping an old team version active forever.
+- **D-14:** Owner chooses inherited documented role/team defaults for missing task/model-tier values, with explicit node overrides when supplied. Resolve and validate effective values before launch; do not treat unspecified values as arbitrary.
+- **D-15:** Owner chooses the node role as the main agent session, and native on-demand skills. Host compatibility and permission/resource behavior still need verification; the selection is settled, not reopened as a preference question.
+- **D-16:** Owner will compare usage manually and wants logs. Retain existing useful usage/timing/outcome records with graph context; do not add automatic benchmark or comparison machinery to this scope.
+
+- **A-1:** Proposed concrete graph-default behavior applies to new eligible Research executions with a selected installed team and valid Research graph; a repository legacy override preserves compatibility. No current configuration key or CLI spelling is claimed.
+- **A-2:** The earlier full code audit remains historical evidence at task HEAD 2aad64d and #315 branch 1fbd2c9; this run only checked focused admission/permission/project-instruction source at task HEAD 3e5a850. No new remote integration observation is claimed.
+- **A-3:** No performance saving is established. Logging remains required; the owner performs comparisons rather than automatic benchmark machinery.
+- **A-4:** Interpret the owner's simplest-work-limit choice as per-node limits and subprocess timeouts without a new overall-budget subsystem. Numeric defaults can be specified in Plan.
+- **A-5:** Latest installed content should be selected at the next launch/continuation boundary; an already-running invocation is not forcibly interrupted solely by a catalog update. This is the proposed operational interpretation of latest-content policy, not an observed implementation.
+- **A-6:** Use a fresh provider session and the saved brief if effective instructions change, so continuation does not retain obsolete role instructions. Topology replacement still requires the owner's Q-19 choice; no node mapping is silently assumed.
+- **A-7:** Claude Code 2.1.276 and codex-cli 0.154.0 were observed in the earlier audit only. No live native-host verification is claimed; chosen main-session/native-skill behavior remains to prove under actual permissions.
+- **A-8:** Per-attempt content identity remains useful provenance even though the owner rejects long-lived old-version execution pins. Pending effect recovery retains exact original request identity and content; selecting a newer team must not rewrite or replay an uncertain old effect.
+
+### Owner-facing explanation and remaining questions
+
+Your choices make the design considerably simpler. I have recorded them, including the changes to the earlier recommendations: **graph execution by default, sharing only inside each team, one Research agent, no automatic agent retries, and use of the updated team rather than an old pinned version.**
+
+**How graph-by-default would work**
+
+There would be no opt-in step for new eligible Research work. Once a repository has a selected installed team with a valid Research graph, new Research executions use that graph automatically. A repository setting can explicitly select the legacy path for compatibility. That setting is now an **opt-out**, not an opt-in. Existing legacy continuations keep their declared path; a graph update does not silently convert one into a graph execution.
+
+This describes the proposed behavior, not an existing command or configuration key. If required graph content is missing or invalid, the factory should explain the problem before launching an agent rather than silently choose a different execution path.
+
+**What happens to CLAUDE.md and AGENTS.md?**
+
+They continue to supply repository instructions, such as coding conventions and where project information lives. They do not become the selector for the execution graph or the permission profile: that selection belongs to the factory before it launches the agent.
+
+They can still influence what the agent tries to do. An old instruction such as “invoke the Research orchestrator” could cause unwanted duplicate orchestration if left in the graph node’s context. The bridge therefore needs to reconcile that routing text with the supplied node role while retaining ordinary project rules. Selecting the graph should not blindly overwrite either file, and text in either file should not replace the factory-selected graph. The current delivery path already reads project instructions and supplies them alongside the selected role; this is a real compatibility concern, not a reason to let those files control admission.
+
+**The choices now recorded**
+
+- **Sharing:** `shared/name` belongs to the current team, for example under `teams/go-team/shared`. Nothing new is shared globally between teams. A shared agent may serve several modes; agent-plus-skills combinations provide variants. The earlier cross-team shared-package decision is no longer needed.
+- **Research:** use the current Research agent, simplified for graph execution. No separate investigator and writer. That agent checks clarity, investigates and writes; the factory handles saving and reporting.
+- **Interruption and cancellation:** no automatic agent retry after a crash. Reconcile and report what happened, then wait for your continuation. Closing/retiring the issue or explicitly changing mode cancels the graph. Recovering an already-authored report is separate from starting the agent again.
+- **Visibility:** publish questions, final results and actionable failures. Keep intermediate progress durably inside the factory rather than posting after every node.
+- **Limits and pauses:** use the simple existing approach of node limits and subprocess timeouts, without a new overall-budget subsystem. An unanswered question remains resumable until you end the work; it does not silently expire.
+- **Authoring and delivery:** kebab-case names, the proposed skill-list attribute, collision rejection, and inherited documented defaults where a node omits values. The node’s selected role runs as the main agent, with native skills. Actual host support still needs verification, but your design choice is settled.
+- **Usage:** retain useful logs, including available usage, timing, outcome and which execution they belong to. You do the comparison; no automatic benchmarking framework is needed.
+
+**E-7 explained: who starts the next step?**
+
+With your one-agent design, the ordinary flow is simply:
+
+`start → Research agent → save/report → finish`
+
+If the agent asks a question, it instead saves the unfinished work, reports the question and ends the run. No process remains waiting for you. Your reply starts a continuation.
+
+**Q-18 — How should those steps advance?**
+
+1. **The current worker continues to the next step.** A worker starts the Research agent. When it finishes, that same worker validates its result, saves the artifacts and triggers the report. Progress is recorded durably between steps, so this is not “keep everything only in memory.” A question or failure releases the worker. There are fewer queue handoffs and fewer moving parts.
+2. **The scheduler starts every individual step.** One scheduled job runs Research, another later job saves the result, and another finishes delivery. Every step is durable, but each also needs scheduling, ownership and recovery coordination. This can be useful for a much larger workflow, but adds machinery to this small one.
+
+**Recommendation: option 1.** Use scheduling where already needed for pending delivery and recovery, rather than scheduling every normal step. Neither option automatically retries an interrupted agent; Q-10 is already settled. A scheduler is not, by itself, an automatic retry policy.
+
+**Using an updated team immediately**
+
+I have removed the recommendation to force an active investigation to keep using its old team version. The practical boundary I recommend is: **use the installed current version at the next launch or continuation**. Changing files cannot rewrite instructions already loaded into a running agent. Let that invocation finish; if instructions changed before the next launch, start a fresh agent session with the saved findings instead of resuming obsolete role instructions.
+
+One behavior still needs choosing because updating the graph can remove or rename the step where work was paused. This does not reopen your decision to use the latest team.
+
+**Q-19 — What should happen to saved progress when the workflow structure changes?**
+
+1. **Restart at the beginning of the latest graph, carrying forward the saved brief and owner reply.** The new Research agent sees the existing findings and continues from them. It may repeat some checking, but there is no fragile attempt to translate old step names into new ones. Any old uncertain publication is reconciled under its existing identity, not sent again as part of the restart.
+2. **Continue at the equivalent step when that mapping is unambiguous; otherwise stop and explain.** This avoids some repeated work, but requires compatibility rules. If the old step has disappeared or changed meaning, the factory reports that it cannot continue automatically rather than inventing a mapping.
+
+**Recommendation: option 1**, because you prefer the simplest approach and the default graph has only one Research agent. A role or skill update alone can use the latest instructions at the same logical step; this question concerns changed workflow structure.
+
+Only these two choices remain: **Q-18 option 1 or 2, and Q-19 option 1 or 2.** The previous ten policy questions and the other design selections are recorded as answered. Native-host verification remains engineering evidence to obtain, not another preference question for you. Mode remains Research.
+
+### Artifact and application state
+
+All previous ten active policy questions are answered and removed from the active application questions. Q-18 and Q-19 are new stable IDs; no retired identity is reused. F-6/F-7/F-9/F-11/F-12/F-15/F-16/F-17/F-18/F-25 are amended to distinguish historical source facts from superseded target prescriptions; F-29 records the focused instruction/admission check. Other historical findings remain unchanged. No implementation, mode change, live model call, new remote integration claim or test run.
+
+- 2026-09-18 run 0007: recorded owner decisions, narrowed scope, explained graph default/project rules and E-7, and asked only Q-18/Q-19 for remaining advancement/topology decisions. Research incomplete pending these choices and host evidence.
+
+---
+
+## Historical decision inventory — 2026-09-18, run 0006 (answered/superseded above)
 
 Request: list ALL decisions the owner needs to take, explain numbered options in detail and check whether only six are open. This is an inventory of the saved discussion, not a new source/host audit. The six questions from run 0005 remain unanswered; Q-14..Q-17 surface four owner-visible consequences previously left in engineering proposals. Names E-1..E-8 below are discussion labels, not application question IDs or required new approvals.
 
