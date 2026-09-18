@@ -70,9 +70,3 @@ Continue with [GitHub setup](github-setup.md), then the
 Changing config requires a daemon restart; there is no general hot reload.
 Retaining an old binary does not guarantee database downgrade compatibility.
 If a command fails, keep its diagnostic and use [troubleshooting](../operations/troubleshooting.md).
-
-## Verification limit
-
-The build recipe follows the repository's Go module and cgo-free Makefile build.
-No fresh installation or upgrade was performed to verify these instructions.
-See the outstanding [operator walkthrough](README.md#verification-status).
