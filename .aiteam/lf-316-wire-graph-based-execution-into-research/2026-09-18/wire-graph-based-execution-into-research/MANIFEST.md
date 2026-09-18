@@ -7,7 +7,7 @@
 ## Modes
 
 - [x] Research — complete: bounded investigation and owner choices settled; ask means owner question, no active questions. Run 0010 adds an advisory estimate of 11 candidate stories (range 10–13); the run 0009 handoff retains unperformed host/recovery checks as implementation/adoption gates, not verified acceptance.
-- [ ] Plan
+- [ ] Plan — run 0011: completed typed content authored; submission/publication/readiness pending factory processing.
 - [ ] Implement
 - [ ] Validate
 - [ ] Spike
@@ -15,8 +15,13 @@
 ## Artifacts
 
 - RESEARCH_BRIEF.md
+- feature-spec.md
+- ARCH_REVIEW.md
+- plan_brief.md
 
 ## History
+
+- 2026-09-18: Plan run 0011 authored 11 typed stories, 63 criteria and 28 tasks; no owner questions remain. Transient application contribution: /private/tmp/lf-316-plan-result.json. #315 integration and authentic host evidence remain implementation/rollout prerequisites. No engineering, tests, acceptance, publication or readiness is claimed.
 
 - 2026-09-18: session created; Research run 0001 requested for issue #316.
 - 2026-09-18: Research run 0001 saved RESEARCH_BRIEF.md; incomplete pending owner decisions D1-D6 (layout, skill location, name charset, loop exhaustion, opt-in, clarity-node shape). #315 engine read from unmerged branch lf/315 at 0271582.
@@ -35,3 +40,5 @@
 - 2026-09-18: Research run 0009 completed bounded handoff, clarified current parent/specialist context from actual repo files and source, recorded Q-20 option 2, and retained unperformed live-host/recovery gates. No implementation, live experiment or mode transition.
 
 - 2026-09-18: Research run 0010 estimated 11 candidate user stories (range 10–13) from settled scope, recorded outcomes/dependencies/sizing assumptions, and preserved completed Research with no open questions. No Plan artifacts, stories/issues, implementation or new live checks.
+
+- 2026-09-18: Plan run 0011 completed typed submission passed full preflight and input was accepted; matching receipt read for request `3c98cbede656809c2fa7aaf52d63eeac`, result revision 1. Engineering, acceptance and publication remain pending. Unsupported formal #315 dependency references were removed after diagnostics; the integration/revalidation prerequisite remains explicit in every story. Factory terminal publication/save still determines readiness.
