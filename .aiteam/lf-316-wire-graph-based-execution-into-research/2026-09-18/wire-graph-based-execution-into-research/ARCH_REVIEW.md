@@ -1,28 +1,31 @@
 # Architect: Go Architect
 # Created: 2026-09-18
+# Revised: Plan run 0013 — fixed shipped Research assets
 
 Verdict: Ready for typed Plan authoring. Foundation integration and authentic delivered-host evidence are explicit implementation prerequisites, not completed facts. No major owner decision or standards deviation is needed.
+
+Scope decision: Research uses a fixed built-in selection of the shipped DOT, role and skills. This is the explicit planning assumption for the narrowed owner request; no owner question remains. Team installation, catalog publication/update/status/drift work, custom team selection and hot reload are outside this change. Existing legacy team behavior remains unchanged. Hardcoded selection chooses assets only: execution still follows the DOT and registered actions.
 
 ## System Overview
 
 ### How This Feature Fits
 
-Research becomes a production consumer of the #315 graph engine. Keep graph parsing and decisions pure in `internal/graphexec`, catalog capture in `internal/teamsource`, catalog mutation in `internal/team`, native file rendering in `internal/render`, shared runner data in `internal/agent`, process specifics in `internal/harness` and `internal/codex`, orchestration and effects in `internal/turn`, polling/time/admission in `internal/daemon`, and SQL exclusively in `internal/store`. `internal/report` renders; it must not acquire orchestration authority.
+Research becomes a production consumer of the #315 graph engine. Keep graph parsing and decisions pure in `internal/graphexec`, bounded shipped-asset resolution in `internal/teamsource`, native file rendering in `internal/render`, shared runner data in `internal/agent`, process specifics in `internal/harness` and `internal/codex`, orchestration and effects in `internal/turn`, polling/time/admission in `internal/daemon`, and SQL exclusively in `internal/store`. `internal/report` renders; it must not acquire orchestration authority.
 
-Important source qualification: this checkout contains no `internal/graphexec`, graph persistence accessors, or foundation graph migration. The retained commit `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b` is locally readable. Its `internal/turn/graph_node.go` implements one activity reservation followed by atomic output/transition completion and explicitly has no production caller. Its `internal/graphexec/invoke_agent.go` decodes references without resolving them. Its migration `0048_graph_execution_foundations.sql` contains definitions, instances, attempts, outputs and transitions, but no owner-wait record or recovery protocol. Plan reuse against this retained revision, and require integration/revalidation of the existing increment before graph-dependent implementation. Do not rebuild it or treat historical branch evidence as merged-current behavior. Migration numbering must be chosen against the actual integrated tree.
+Historical run-0011 source qualification, not rechecked in this bounded revision: that checkout contained no `internal/graphexec`, graph persistence accessors, or foundation graph migration. The retained commit `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b` is locally readable. Its `internal/turn/graph_node.go` implements one activity reservation followed by atomic output/transition completion and explicitly has no production caller. Its `internal/graphexec/invoke_agent.go` decodes references without resolving them. Its migration `0048_graph_execution_foundations.sql` contains definitions, instances, attempts, outputs and transitions, but no owner-wait record or recovery protocol. Plan reuse against this retained revision, and require integration/revalidation of the existing increment before graph-dependent implementation. Do not rebuild it or treat historical branch evidence as merged-current behavior. Migration numbering must be chosen against the actual integrated tree.
 
-Current reusable source inspected: `teamsource/snapshot.go` captures installed content under a catalog lock with 1 MiB per-resource and 16 MiB aggregate bounds; `team/catalog_write.go` writes data then index then provenance; `render/native.go` renders native role files; `turn/delivery.go` hashes delivery identity, intersects tools with the parent ceiling and manages session segments. Current catalog ownership accepts only `index.json`, `agents/` and `skills/`; the proposed team/mode DOT layout therefore needs coordinated publish/install/capture/status changes, not just a lookup helper. Existing bootstrap describes an orchestrator roster; graph main-role delivery must introduce a distinct typed selection, not quietly reuse that text.
+Reusable source inspected in the original review: `teamsource/snapshot.go` establishes bounded owned-byte capture patterns; `render/native.go` renders native role files; `turn/delivery.go` hashes delivery identity, intersects tools with the parent ceiling and manages session segments. Reuse those patterns for the fixed shipped asset closure without requiring installed `$LF_HOME/teams` content. The existing catalog writer's owned-path limitations are outside this narrowed scope: no publish/install/capture-status lifecycle extension is needed. Existing bootstrap describes an orchestrator roster; graph main-role delivery must introduce a distinct typed selection, not quietly reuse that text.
 
 ### Components and Boundaries
 
-No new service, executable or scheduling framework is required. Extend the existing graph package with strict Research action config/result decoding and loop/if decisions. Extend `teamsource` with a graph content capture that owns its bytes, resolved references, effective defaults and content identities. Keep parsing independent of filesystem access: graph syntax validation checks reference grammar; capture resolves and validates the complete closure before admission. Keep `team` independent of `render` and `teamsource` (SEC-18).
+No new service, executable or scheduling framework is required. Extend the existing graph package with strict Research action config/result decoding and loop/if decisions. Add a narrow shipped-Research resolver in `teamsource` backed by the application’s bundled assets (an embedded filesystem is suitable). It owns the selected bytes, resolved references, effective defaults and content identities. Keep parsing independent of filesystem access: graph syntax validation checks reference grammar; the resolver validates the selected shipped closure before admission. Do not introduce a catalog registry, management CLI, installer, release publication workflow or runtime update watcher. Existing `team` remains unchanged and independent of `render` and `teamsource` (SEC-18).
 
 `turn` adapts that capture to a main-role `agent.Request` and a selected native skill closure. Native host launch settings belong exclusively to the respective runner, using supported file-backed configuration and stdin for authored input (SEC-2). The graph receives a validated node result, never provider event-stream fragments. The final application result stays under `agentresult`/submission validation and existing factory authority. Internal node ingestion grants no publication permission.
 
 ### Data Flow
 
 1. Existing owner/mode admission selects a durable execution path. Eligible new Research selects graph; declared legacy continuations retain legacy.
-2. Capture latest installed graph and role/skill closure, validate it, record actual attempt provenance, and compare semantic topology and effective instruction identities with the retained execution.
+2. Resolve the current application’s shipped graph and role/skill closure, validate it, record actual attempt provenance, and compare semantic topology and effective instruction identities with the retained execution.
 3. The current worker advances deterministic activities using durable transitions. Before an agent call, allocate/link an actual run, graph attempt and provider invocation. No SQL transaction or clone gate spans the model call.
 4. Validate/save internal node JSON. `ask` routes to explicit question comment handling and a durable owner wait; `done` routes to explicit report comment handling and graph completion. There is no automatic second agent call after `ask`.
 5. Persist effect intent before external delivery, reconcile exact identities after uncertainty, and release the worker. A correlated authenticated owner reply claims continuation once and makes the next agent pass eligible.
@@ -40,6 +43,8 @@ Add a store-owned explicit question-wait record linked to instance, originating 
 
 ## Cross-story Contracts
 
+- Fixed source: the application selects its built-in Research graph and same-team asset root. Bare role names and optional `shared/name` resolve only within this bundled root; `lf_skills` selects the bounded shipped dependency closure. Reject missing references, invalid syntax, collisions and cycles before launch. Preserve graph team/mode attributes as namespace validation, not dynamic external team selection. No graph path or role text in owner input selects a different source. The current shipped definitions means those available to the running application at its next authorized launch boundary; installing/updating or hot-reloading definitions is not part of this feature.
+
 These names are architecture vocabulary, not instructions to publish an unimplemented wire schema.
 
 - Actions: register `lf_research_agent`, `lf_research_loop`, `lf_research_if`, `lf_research_comment` with closed outcome sets and graph validation. Start/end stay markers. Wait is persisted control state entered after the question comment, not another agent. Validation checks the question route cannot return to agent without owner authorization.
@@ -53,10 +58,10 @@ These names are architecture vocabulary, not instructions to publish an unimplem
 
 The feature spec contains no task IDs yet; the following blocks bind candidate outcomes and their implementation/test task groups. The Plan author maps these to typed task IDs without inventing extra product scope.
 
-### Catalog and complete package delivery
+### Fixed built-in Research selection and validation (#335)
 **Agent:** go-implementation-engineer; tests: go-unit-test-engineer and go-integration-test-engineer.
 
-Extend `team`, `teamsource`, publishing manifests and management CLI together for `<team>/<mode>.dot`, mode agents, team skills and team-local shared folders. Preserve legacy package reading and provenance. Resolution accepts kebab-case bare names or exactly `shared/name`; reject duplicate selected native names and dependency cycles. Capture closure under one catalog lock, validate all independent faults before any write, retain resource-relative links, and use owned-path rederivation/symlink rejection (SEC-12–18). Add pure validation tests and real temporary catalog install/update/drift tests; no installed sibling-tree parity requirement.
+Implement the fixed shipped-asset selector and minimal resolver in `teamsource`, reusing existing native rendering and delivery seams. Graph `lf_agent_markdown` and `lf_skills` continue to resolve kebab-case bare names or exactly `shared/name` inside the bundled team namespace; reject duplicate selected native names, missing resources and dependency cycles. Validate the selected closure before any agent launch, retain resource-relative links and bound capture/delivery bytes. Treat ordinary on-disk artifact and delivery writes with existing confinement protections; embedded assets need no catalog write path. Unit tests cover resolution and prelaunch refusal; temporary native-bundle materialization tests cover delivery where needed. No team publish/install/update/status/drift tasks, catalog migration, external source override or installed sibling-tree parity obligation belongs in #335.
 
 ### Main role in Claude
 **Agent:** go-implementation-engineer; tests: go-unit-test-engineer.
@@ -93,15 +98,15 @@ Store explicit waits and reply claims transactionally; route owner comments thro
 
 Extend startup run reconciliation and existing cancellation hooks with graph-attempt settlement and report-only recovery. Distinguish an allocated interrupted invocation from an unallocated continuation reservation and an already authored effect. Guard existing automatic quota/recovery admission against graph-agent retries. Issue closure, retirement and confirmed explicit mode switch cancel graph execution while preserving owed effects/findings. Retain original failure causes and never reinterpret a receipt as success (CONC-13–15, CONC-21).
 
-### Default admission and latest installed content
+### Default admission and current shipped definitions (#343)
 **Agent:** go-implementation-engineer; tests: go-unit-test-engineer and go-integration-test-engineer.
 
-Use the existing repository configuration owner for the explicit legacy choice; document the actual key in defaults/operator docs and validate it strictly (CFG-1–6). Persist graph/legacy selection per admitted task continuation, separate from graph version selection. Capture latest installed content at each authorized launch boundary, rotate same-node sessions for instruction changes, and start successor instances for semantic topology changes. Reconcile prior effects before producing equivalent successor publications. New eligibility does not silently convert a legacy continuation. Keep default enablement gated until assembled recovery and authentic-host evidence is retained.
+Use the existing repository configuration owner for the explicit legacy choice; document the actual key in defaults/operator docs and validate it strictly (CFG-1–6). Persist graph/legacy selection per admitted task continuation, separate from graph version selection. Resolve the current shipped definitions at each authorized launch boundary, rotate same-node sessions for instruction changes, and start successor instances for semantic topology changes. This safeguards continuation across application versions or supplied built-in revisions; it introduces no installation, catalog update or hot-reload mechanism. Persist actual attempt provenance and never rewrite an in-flight invocation’s instructions. Reconcile prior effects before producing equivalent successor publications. New eligibility does not silently convert a legacy continuation. Keep default enablement gated until assembled recovery and authentic-host evidence is retained.
 
-### Standard Research workflow and adoption
+### Standard built-in Research workflow and adoption (#344)
 **Agent:** go-implementation-engineer; tests: go-unit-test-engineer and go-integration-test-engineer.
 
-Ship the graph and simplified single role in shared `teams/source` and release packaging. The role performs clarity/investigation itself and returns the internal contract. Add offline assembled clear/ask/reply/failure/report-recovery scenarios; retain separately authorized versioned Claude/Codex captures before default rollout. Capture exact snapshot, host version, launch settings, assertions and unavailable prerequisites; no automated paid host tests, no claim that fixtures satisfy authentic #274/#296 helper/correction/receipt observations (EXT-1–5). Do not require the owner to produce a performance comparison for implementation completeness.
+Ship the DOT, simplified single role and required skills as application built-ins, with shared source files outside protected instruction trees. Eligible Research uses them without a team installation step. Bind the fixed selector to these actual shipped assets and verify the DOT drives control flow; do not duplicate the workflow as a hardcoded Go sequence. The role performs clarity/investigation itself and returns the internal contract. Add offline assembled clear/ask/reply/failure/report-recovery scenarios; retain separately authorized versioned Claude/Codex captures before default rollout. Capture exact snapshot, host version, launch settings, assertions and unavailable prerequisites; no automated paid host tests, no claim that fixtures satisfy authentic #274/#296 helper/correction/receipt observations (EXT-1–5). Do not require the owner to produce a performance comparison for implementation completeness.
 
 ### Usage attribution
 **Agent:** go-implementation-engineer; tests: go-unit-test-engineer and go-integration-test-engineer.
@@ -110,7 +115,7 @@ Extend existing `agent` usage capture, `turn/meter.go`, `store/meter*` and inspe
 
 ## Ordering and Planning Notes
 
-Integrate/revalidate existing #315 increment first. Establish catalog capture and neutral node/result contracts before host-specific adapters and control handlers. Comment delivery precedes owner wait/resume; node retention and wait semantics precede recovery. Usage attaches alongside node execution. Default admission/update behavior depends on recovery; final shipped-workflow rollout depends on the assembled path and required external evidence. The previous eleven outcomes remain a reasonable story organization; integrating the existing foundation is a prerequisite, not a new rewrite story.
+Integrate/revalidate existing #315 increment first. Establish built-in selection/resolution and neutral node/result contracts before host-specific adapters and control handlers. Comment delivery precedes owner wait/resume; node retention and wait semantics precede recovery. Usage attaches alongside node execution. Default admission and safe continuation across shipped-definition changes depend on recovery; final shipped-workflow rollout depends on the assembled path and required external evidence. The previous eleven outcomes remain a reasonable story organization; integrating the existing foundation is a prerequisite, not a new rewrite story.
 
 Keep shared source/renderer changes outside installed protected trees. If concrete implementation later requires `.claude/**` or `.codex/**`, create separate independent ownership stories: Codex edits `.claude`, Claude edits `.codex`; shared-source work precedes both and depends on neither. No evidence requires these extra stories now. Do not run a generator that modifies both trees.
 
@@ -119,7 +124,7 @@ Keep shared source/renderer changes outside installed protected trees. If concre
 | Area | Finding |
 |---|---|
 | Input validation | Concern to address: DOT attrs, native-name collision, node JSON and rooted artifacts must fail before action/effect boundaries. Existing bounded capture is reusable. |
-| Authorization | Preserve factory-selected mode, tools and numeric owner identity; catalog role/skills cannot grant permissions or forge access. |
+| Authorization | Preserve factory-selected mode, tools and numeric owner identity; shipped role/skills cannot grant permissions or forge access. |
 | Secrets | Preserve allowlisted subprocess environment and redacted outbound bodies; no credentials in graph files or submission payloads. |
 | Data | SQL stays in store with ctx-first short transactions; no query or transaction escapes into action handlers. |
 | Dependencies | Reuse foundation parser dependencies after integration; no new expression engine, queue or mocking framework. |
@@ -129,4 +134,4 @@ Platform: internal package boundaries and consumer-owned interfaces apply (TEST-
 
 ## Deviations and Evidence Limits
 
-No standards deviation requested. Current tree absence of the foundation is an explicit integration gate. Historical selected-host versions are not verification of future delivery. The referenced nested-agent evidence and story-contract manifest documents are absent; their supplied evidence/contract obligations remain in force. Required authentic host observations and helper correction/receipt evidence remain unverified until a separately authorized operator supplies them; no paid nested agent launches are authorized here.
+No standards deviation requested. The original foundation integration gate remains subject to actual implementation-baseline verification; this bounded scope revision did not repeat that investigation. The narrowed owner request removes catalog lifecycle obligations previously proposed for #335. No replacement installer or management subsystem is implied. Historical selected-host versions are not verification of future delivery. The referenced nested-agent evidence and story-contract manifest documents are absent; their supplied evidence/contract obligations remain in force. Required authentic host observations and helper correction/receipt evidence remain unverified until a separately authorized operator supplies them; no paid nested agent launches are authorized here.
