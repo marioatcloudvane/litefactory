@@ -65,9 +65,8 @@ link when produced. Research may ask a question on the issue; answer there.
 Inspect both the report and any linked brief. A failed run or missing report
 requires investigation, not an assumption that the work completed.
 
-When the research is useful, explicitly request the next step with
-`/plan <your instruction>` in a new comment. Review the resulting plan before
-requesting `/implement <your instruction>`. Engineering and later `/validate`
+When the research is useful, explicitly set the label "Mode: Plan" and paste the instructions in a new comment. Review the resulting plan before
+changing to the Implementation Mode. Engineering and later `/validate`
 are separate stages; see [workflow](../guides/workflow.md) and
 [working with issues](../guides/working-with-issues.md).
 
