@@ -1,5 +1,251 @@
 # Research brief: Wire graph-based execution into Research mode (#316)
 
+Status: Research INCOMPLETE. Current audit dated 2026-09-18 supersedes every conflicting statement in the historical sections below. The evidence audit is complete; six owner policy choices and specified host verification remain unresolved. No implementation or live provider probe was performed.
+
+## Current request and evidence boundary
+
+Validate or invalidate all earlier findings for fit with the repository and the agreed Research graph goal. Read current session first, then focused owners/callers/tests. Local source baseline is task HEAD `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `git diff --name-only 7d57998 HEAD -- internal teams/source` returned no changes. Remote main is `7d5799834b5031c84286080708aaff6091ea63ee`; #315 branch now resolves to `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`. Git remote lookup returned refs with a credential-storage lock warning; no runtime state was edited. Graph code at that revision is unchanged from `445bd46`; the intervening internal diff removes a team test, not graph functionality. No limited PR listing is used as merge evidence.
+
+Documentation retrieved from official sites on 2026-09-18. Version-only commands report Claude Code 2.1.276 and codex-cli 0.154.0. No model call, transcript inspection, test execution or host acceptance capture is claimed. Tests were read as source evidence only. OpenAI Docs skill was used for official Codex references.
+
+## Current verdict
+
+The six-area scope fits, but the previous record mixed observed behavior, owner requirements and proposals. Keep the central catalog, provider runners, durable application result/publication paths and asynchronous questions. The bridge needs explicit graph ownership rather than calling the existing whole-turn pipeline unchanged. The most material corrections are unsafe retry inference, incomplete immutable-content retention, missing node/session identity, unsupported native skill loading, result-contract bypass, and unsupported full-transcript/cost assertions.
+
+## Audit of every recorded finding
+
+### F-1
+
+CONFIRMED with refreshed revision: remote main remains 7d57998 and #315 branch is now 1fbd2c9; its graph implementation is unchanged from 445bd46. Parser/validator, persistence, fake-handler dispatch and unwired scheduling exist on that branch. Production Research dispatch, resolution, pause/reply recovery and admission are missing. These are branch facts, not merged-main behavior; recent-PR lists cannot prove merge status.
+
+Evidence: `internal/graphexec/invoke_agent.go:16` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/turn/graph_node.go:35` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/daemon/graph_poll.go:11` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-2
+
+CONFIRMED for shipped catalog: index-selected mode rosters, legacy agents paths and catalog-wide skills exist; the proposed per-team mode agents and research.dot shipping path are not delivered. Additive publisher/capture/install support is required; do not treat a proposed folder layout as current behavior.
+
+Evidence: `internal/teamsource/snapshot.go:90` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/teampublish/publish.go:30` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `teams/source/index.json:1` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-3
+
+CONFIRMED: current Research questions end a run, preserve artifacts and resume on a later owner comment, with cold fallback. The continuation test covers both providers using test runners; it is not authentic host evidence. Graph-node correlation and exactly-once reply consumption remain new work.
+
+Evidence: `internal/turn/research_continuation_test.go:15` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-4
+
+CONFIRMED requirement; CORRECTED proposal: every adopted subprocess requires valid final application output. Silently disabling that obligation for intermediate nodes would violate the preserved result contract. Plan must define a validated node-result bridge while retaining post-exit enforcement, and distinguish input acknowledgment, node completion, Research outcome and report delivery.
+
+Evidence: `internal/turn/result_finalization.go:44` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/agentresult/types.go:63` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-5
+
+CONFIRMED code, NOT owner approval: existing names permit lowercase letters, digits and hyphens and exclude underscores. Reusing that grammar is a compatibility recommendation. A hyphenated owner example does not settle every allowed character.
+
+Evidence: `internal/team/types.go:5` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/render/native.go:29` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-6
+
+QUALIFIED: existing segments rotate for provider, mode or effective bundle identity, not graph-node identity. This does not guarantee fresh sessions for distinct nodes sharing identical content, or enforce correct return to a node after another agent ran. Explicit instance/node/invocation-to-segment binding is needed; resume only the same continuing node.
+
+Evidence: `internal/turn/delivery.go:300` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/delivery.go:351` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-7
+
+CORRECTED: Claude skills frontmatter preloads full text. The generated home-directory Read deny is real, but native lazy skill loading under it is unverified, not proven mandatory or working. The shipped Research profile and research role omit Skill, so the earlier drop-in native-loader recommendation is invalid. Host loading must be verified under the exact mode ceiling without silently widening permissions.
+
+Evidence: `internal/render/native.go:38` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/harness/settings.go:108` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/config/config.go:502` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `teams/source/agents/shared/research-orchestrator.md:4` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-8
+
+CONFIRMED with scope: selected external teams are resolved only from LF_HOME/teams, with explicit install and refusal of local packages inside registered repositories/worktree storage. Ordinary project instructions can still come from the repository, and repositories without an external team do not capture this catalog. The publisher source inside this repository is not a runtime fallback.
+
+Evidence: `internal/teamsource/resolve.go:33` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/prepare.go:138` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/cli/cmd_team.go:355` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-9
+
+CONFIRMED: the legacy index has shared agents, flat skills and shared-agent conflict checks. Releases capture one team and its reachable closure; index decoding rejects unknown fields. New shared-skill distribution is design work, not an existing supported package.
+
+Evidence: `internal/teamsource/manage.go:322` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/teampublish/publish.go:30` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/team/decode.go:74` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-10
+
+CONFIRMED: delivery uses private retained bundle directories outside the worktree; Claude receives a plugin directory and Codex selects skill paths. This proves delivery configuration, not that every resource can be read or lazily loaded with current permissions. Retention/cleanup guarantees for whole graph instances remain to design.
+
+Evidence: `internal/turn/delivery.go:192` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/harness/runner.go:642` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/codex/skills.go:14` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-11
+
+QUALIFIED design consequence: reserving shared, agents and skills as team ids is needed for the proposed flat additive catalog layout to avoid reserved-folder collisions. Those names are currently accepted; this is neither implemented validation nor an independent owner decision.
+
+Evidence: `internal/team/types.go:5` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/config/paths.go:83` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-12
+
+CONFIRMED gap, CORRECTED interpretation: DOT-only definition identity cannot distinguish identical DOT with different resolved content. team_snapshot_digest is stored but not checked by dispatch. Pinning must include the complete resolved dependency closure. Checking a mutable catalog digest detects drift but does not retain old bytes; recommend retained immutable content with verification. Stop-and-restore is an alternative availability policy, not equivalent seamless pinning.
+
+Evidence: `internal/store/migrations/0048_graph_execution_foundations.sql:1` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/store/graph_definitions.go:19` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/turn/graph_node.go:50` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-13
+
+CORRECTED: the attempt-to-run foreign key already exists, and the store can write owner_comment_id; they are not wholly absent. Missing are allocation/dispatch integration, normal activity-result plumbing for reply correlation, an idempotent consumption protocol and implemented ResumeRef behavior. A unique reply id alone does not validate owner authority, originating node, posted question or atomic consumption.
+
+Evidence: `internal/store/migrations/0048_graph_execution_foundations.sql:29` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/store/graph_attempts.go:30` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/store/graph_outputs.go:23` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/turn/graph_activity.go:13` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-14
+
+CONFIRMED current behavior: startup marks running runs abandoned, records meter abandonment and releases foreign task locks. Graph reservations are not reconciled there, and stale running attempts prevent redispatch. No-run means safe only after a durable allocation-before-launch invariant is enforced, not merely because a nullable graph run link is empty.
+
+Evidence: `internal/store/runs.go:657` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/execute.go:750` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/store/graph_attempts.go:13` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-15
+
+QUALIFIED and retry recommendation corrected: agents are instructed not to commit/push, Claude has explicit git deny rules, factory save runs after success, and managed publication has durable intent and observation-only recovery. These are specific protections, not proof every possible external effect is journaled or that no journal means no effect. Reconcile dispatch/result/report/worktree state and known effects, preserve uncertain request identity, and retry only after a positive safe-replay determination.
+
+Evidence: `internal/harness/settings.go:90` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/harvest.go:424` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/store/comment_operations.go:11` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/publication_recovery.go:43` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-16
+
+CONFIRMED narrow finding: graph cancelled status exists without real graph cancellation dispatch. Existing shutdown abandonment, continuation cancellation and retirement paths do not establish the desired graph cancellation policy. The earlier unsuccessful search is not proof no owner cancel mechanism exists anywhere.
+
+Evidence: `internal/store/migrations/0048_graph_execution_foundations.sql:18` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/turn/execute.go:750` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/daemon/continuation_cancellations.go:17` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-17
+
+CORRECTED accounting: meter data is per subprocess attempt and invocation; a run can contain multiple attempts, including refused resume and cold fallback. Aggregate all of them and preserve unknown coverage. Graph timestamps currently share one logical timestamp, not elapsed runtime. Add execution-path and node/instance association, active versus owner-wait time, comparable workloads and observed costs; one-run-per-node is a proposal, not free complete measurement.
+
+Evidence: `internal/store/migrations/0019_meter_usage.sql:8` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/graph_node.go:125` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-18
+
+CONFIRMED seam; QUALIFIED admission recommendation: the daemon calls the turn after mode and permissions are selected. Durable admission should bind task/session plus selected mode entry or execution instance, not blindly the issue forever. Rollback changes new admissions; existing legacy continuations and pinned graph instances keep their path.
+
+Evidence: `internal/daemon/tick.go:1828` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-19
+
+CONFIRMED launcher behavior: Claude receives the bundle plugin and appended bootstrap on cold and resumed launches, uses its ordinary main session, and receives role markdown as plugin agents rather than --agent main-session selection. The role-to-main-session change is new runner work requiring permission/model/result verification.
+
+Evidence: `internal/harness/runner.go:597` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/delivery.go:100` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-20
+
+CONFIRMED at prompt assembly: with a delivery bundle, Codex bootstrap text is prepended on both cold and resumed requests. Repeated instruction content is sent as user input, not a second actual system-role message. Actual host transcript retention/deduplication was not observed live.
+
+Evidence: `internal/turn/prepare.go:417` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/delivery.go:106` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/codex/runner.go:471` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-21
+
+QUALIFIED: BuildPrompt uses a delta shape on resume, but the complete launch prompt also receives bundle prefixes and current factory result baseline/obligations. Thus litefactory does not send only the owner delta. Do not remove fresh authority or result-contract material while deduplicating static instructions.
+
+Evidence: `internal/harness/prompt.go:240` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/prepare.go:417` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/result_finalization.go:44` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-22
+
+CONFIRMED static defect: refused-resume cold fallback rebuilds BuildPrompt but omits the Instruction bundle line and Codex bootstrap prepended in prepare. Delivery stays on the request, so this does not prove all role/skill configuration disappears. Source finding only; no live reproduction or fix is claimed.
+
+Evidence: `internal/turn/harvest.go:257` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/turn/prepare.go:417` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-23
+
+QUALIFIED by current official Claude documentation (2026-09-18): default system-prompt snapshot is reused until compaction, including resume; CLI/environment/version exceptions exist. Recording once does not mean it is sent or billed only once. Compaction summarizes history, so full original transcript replay is not guaranteed. The current context-window page does not substantiate the earlier claim that the skill-description index disappears. Sources: https://code.claude.com/docs/en/cli-reference#system-prompt-flags-in-resumed-conversations and https://code.claude.com/docs/en/context-window. Local Claude 2.1.276; no live probe.
+
+### F-24
+
+CORRECTED caching inference: cache hits require compatible prefixes and available cache state; session resume is not a cache guarantee. Official OpenAI documentation now distinguishes model-specific retention, including 30-minute minimum for GPT-5.6+ and earlier extended retention up to 24 hours. Anthropic documents 5-minute and optional 1-hour caching. Neither source establishes this CLI run's actual policy, owner reply timing or full uncached rebilling. Use observed meter data. Sources retrieved 2026-09-18: https://developers.openai.com/api/docs/guides/prompt-caching and https://platform.claude.com/docs/en/build-with-claude/prompt-caching.
+
+Evidence: `internal/store/migrations/0019_meter_usage.sql:8` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-25
+
+QUALIFIED options: official Codex documentation supports instruction discovery, resume and developer_instructions, but does not establish this CLI version's exact resumed-message duplication behavior. model_instructions_file replaces built-in instructions and is not equivalent to additive developer instructions. Claude --agent likewise replaces the default prompt and carries tool/model behavior. Prefer a verified additive delivery bridge before replacing host defaults; current-authority and permission checks must still be applied on resume. Sources retrieved 2026-09-18: https://developers.openai.com/codex/guides/agents-md, https://developers.openai.com/codex/noninteractive, https://developers.openai.com/codex/config-reference, https://code.claude.com/docs/en/sub-agents. Local Codex 0.154.0; no live probe.
+
+### F-26
+
+NEW correction: loop exhaustion sets the instance failed and returns an in-memory diagnostic; it does not persist that diagnostic as graph output in this path or deliver an owner report. Honest incomplete reporting is already required. A fallback graph edge is one implementation choice, not a reason to ask whether silent failure is acceptable.
+
+Evidence: `internal/turn/graph_node.go:69` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`.
+
+### F-27
+
+NEW fit requirement: a registered action outcome such as done/gap/question is distinct from the completed/incomplete/blocked application outcome. The illustrated DOT is not a validated shipped workflow, and the existing Research payload has no node outcome field. Define a bounded validated mapping/envelope and atomic persistence; do not derive transitions from arbitrary prose or let a node receipt alone complete the graph.
+
+Evidence: `internal/turn/graph_activity.go:23` at `1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b`; `internal/agentresult/types.go:63` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+### F-28
+
+NEW fit requirement: live skill loading must cover permission availability, selected-skill isolation, qualified names, supporting resources and compaction on both hosts. Claude native skills can contain behavior beyond plain text; a selected bundle alone does not demonstrate a complete execution or permission boundary. Scope and validate supported metadata, and keep graph order in the engine.
+
+Evidence: `internal/codex/skills.go:14` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/config/config.go:502` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`; `internal/render/native.go:38` at `2aad64d1fb161a5a8a5b5382723b31a1e013fbed`.
+
+## Owner decisions versus proposals
+
+- **D-1:** Owner direction: agents and skills are centrally installed outside repositories under LF_HOME/teams, with shared references. Runtime graph delivery must not use a repository fallback. Legacy and new paths coexist until dedicated retirement.
+- **D-2:** Owner direction: team-local and shared skills, referenced by bare name or shared/name without .md. The exact lf_skills attribute, comma encoding and physical layout are research recommendations, not recorded owner approval.
+- **D-3:** Owner direction: agents use bare or shared/name references without .md. One agent markdown per mode and fresh sessions when moving to a different agent remain requirements. Kebab-case grammar is a compatibility proposal, not inferred approval from an example.
+- **D-4:** Owner handover: the remaining #315 scope belongs to #316, and owner-selected Plan may split it into separate issues. No mode is selected by graph completion.
+- **D-5:** Owner direction: pin active workflow/role definitions immutably and resolved agent/skill content by digest. Retained bytes versus fail-closed restoration is still an availability choice; do not silently adopt updated content.
+- **D-6:** Original goal already decides clarity assessment inside the initial reasoning call, immediate investigation for clear requests, and durable questions ending the run without a waiting agent. Q-6 is retired as redundant.
+
+The proposals to reserve top-level names, prohibit duplicate native names, keep shared-skill dependencies within shared content, use a comma list and resolve node tiers are sensible constraints for a selected design, not extra owner approvals. A resolver must cover transitive skill/resource bytes, distinguish logical names from host-specific aliases, reject traversal/unresolvable references before admission and keep filesystem work outside the pure parser. Capture/install/publish changes must be additive while legacy delivery remains supported. Shared names can introduce native-name collisions; define deterministic aliasing or explicit rejection rather than treating bare filenames as globally unique. Team identity inside the DOT must match the admitted team; replacing a graph's team attribute during installation would need an explicit pinning rule.
+
+## Fit corrections for the candidate design
+
+1. **Graph and task boundary.** The DOT example in historical section 3 is illustrative, not a validated runnable workflow. The first reasoning call checks clarity and investigates when clear. Research outcome and graph terminal status are separate. Engine-side report delivery needs a durable report operation and recovery, not a fresh agent-authored comment. A pause needs saved question/origin/result/report identity and explicit waiting eligibility, with no live process. Owner comments must be authenticated and consumed atomically once; an owner-comment column or unique index alone is insufficient.
+2. **Instruction authority and sessions.** Bind an admitted instance and node invocation to its provider segment. Different agent/node transitions start fresh, even if role bytes match; only continuation of the same node may resume. Returning from another agent in a refinement cycle must not silently resume a different node's transcript. Keep static trusted role content stable, bound previous outputs as untrusted data, and deliver current permission/result baseline on every subprocess. A launch-time instruction channel is not automatically an additive one: model_instructions_file and Claude --agent replace defaults. Do not promote arbitrary project notes, prior outputs or owner comments into privileged instructions merely to reduce repetition.
+3. **Permissions and skills.** The earlier native-loader recommendation omitted the absent Claude Skill tool in both Research profile and role. It therefore needs actual host compatibility work, not just a filesystem check. Preserve the mode ceiling and test selected-skill discovery, full body loading, referenced resources, collisions, ambient skills and compaction. Do not claim a Read deny applies identically to every host or that native loading bypasses it safely. Avoid preloading every listed skill when lazy loading is a requirement. Host metadata capable of spawning another agent or executing commands must remain constrained so the engine still controls workflow order.
+4. **Pinning and lifecycle.** Prefer retaining immutable DOT plus every resolved agent, skill and resource from admission, verified before reuse. The bundle retention/cleanup lifetime must cover owner pauses, restart and pending delivery. A changing live catalog should affect future admissions, not silently change active content. Fail closed on missing/tampered retained bytes. Digest-only stop-and-restore remains an explicit alternative, not a mechanism for switching to latest content.
+5. **Recovery.** Separate never-dispatched, in-flight, terminal-result, saved-work and published-report phases. Persist allocation/binding before launch. Recover existing results and effects before re-running a model; absence of an effect record is not sufficient evidence. Uncertain publications keep the original request identity and observation-only recovery. Cancellation must stop the process, revoke further mutation authority, settle attempt state and preserve already-dispatched effect recovery. Limits must include retries and healthy re-entry, and apply to retries of acyclic nodes too; positive limits only on cycles do not bound all retry policies. Exhaustion requires durable honest reporting independent of an exhausted agent. Factory clocks remain in the daemon.
+6. **Result and accounting bridge.** Preserve finalization on every adopted subprocess. Node outcome and output need bounded validated representation; disabling result-required checks is not an acceptable bridge. Fresh node sessions still need a factory-authorized result baseline/revision; session history is not authority. Suppressing intermediate public comments or delaying saves requires deliberate lifecycle support: the existing whole-turn call ordinarily saves/reports. Retain work durably at pauses and completion, and account for crash boundaries between result, save, push and report. Meter all subprocess attempts/invocations and report unknown coverage; compare active time separately from owner waiting and report retry delay. A minimum sample alone does not make unlike tasks/models comparable.
+
+## Candidate scope and verification recommendation
+
+Retain six candidate areas, without creating child issues: A catalog/resolver/pinning; B real Research node dispatch, result bridge and session ownership; C durable owner pause/reply; D restart, cancellation, limits and uncertain effects; E admission and rollback; F verification and baselines. Build A then B with minimum E for an internal clear-request slice, then C and D, with F throughout. Internal progress is not production adoption. Require recovery and real-host delivery verification before opt-in use; preserve the separate #274/#296 authentic-host obligations rather than declaring them satisfied here.
+
+Required future evidence: both hosts cold, same-node resume, fresh next-node session, refused-resume fallback and compaction; native skill body/resource loading under exact mode permissions; bad names and content drift fail before launch; reply duplicate/restart/revocation behavior; crashes before allocation, after launch, after result, after save/push and after report dispatch; cancellation with an in-flight effect; bounded retry/exhaustion with visible incomplete result. Fake runners and real migrated store fixtures can establish engine behavior, but cannot establish provider transcript/permission behavior. No unmeasured savings claim.
+
+## Question audit and remaining choices
+
+- Q-1..Q-3 remain retired. Correct their recorded decisions to avoid attributing the proposed attribute, grammar or exact folder layout to the owner.
+- Q-4 retires as an owner question: honest exhaustion reporting is already required; fallback-edge versus deterministic report-finalization is an engineering choice. Silent failure is not a valid scope alternative.
+- Q-6 retires: the issue's goal already chooses clarity in the first reasoning call.
+- Q-9 retires as an owner preference question: verify actual host loading and permission compatibility first; do not ask the owner to decide an unproven technical fact or silently broaden a mode ceiling.
+- Q-13 retires as an owner question: the handover requires token/time baselines and no unmeasured savings. Workload matching and sufficient sample/coverage are methodology, not an alternative to recording usage.
+
+| id | name | options | recommendation |
+|---|---|---|---|
+| Q-5 | How should new Research graph executions be admitted? | O-5a: Per-repository opt-in; persist the path for each selected-mode execution and preserve existing continuations; O-5b: Per-task owner opt-in under a repository-level ceiling | O-5a |
+| Q-7 | Should shared agent definitions also be separate for each mode? | O-7a: A single shared agent file may be reused across modes, as an explicit exception to one agent file per mode; O-7c: Shared agents remain mode-specific; shared skills carry cross-mode behavior | O-7c |
+| Q-8 | How should shared content be distributed? | O-8a: Each team release carries its referenced shared content; reject incompatible installed copies; O-8b: A separately installed shared package with explicit dependencies | O-8a |
+| Q-10 | Should a crashed node ever retry automatically? | O-10a: Bounded automatic retry only after positive safe-replay reconciliation; uncertain effects stop and report; O-10b: Always stop and report; owner explicitly restarts | O-10a |
+| Q-11 | Which owner actions should cancel an active or paused graph? | O-11a: Issue closure or retirement and explicit mode switch cancel; daemon restart preserves resumable state; O-11b: The same triggers plus a dedicated owner cancel command | O-11a |
+| Q-12 | How should active executions survive a catalog update? | O-12a: Stop and require restoration of the exact pinned content or explicit new admission; O-12b: Retain verified immutable content and finish using the admitted version | O-12b |
+
+These six are not re-asked settled decisions: they were never answered in the supplied record. Q-7 now isolates the real tension between shared agents and the original per-mode rule; Q-10 removes the unsafe no-record criterion; Q-12 reverses the earlier recommendation in favor of retained immutable content. Decisions may be approved together or changed individually. Research remains incomplete; mode remains Research.
+
+## Assumptions and limits
+
+- **A-1:** Installed catalog is the runtime resolution root; publisher source in this repository is permitted source material, not a fallback for active executions.
+- **A-2:** Audit baseline: task HEAD 2aad64d1fb161a5a8a5b5382723b31a1e013fbed; relevant local source equals main 7d57998. #315 inspected at 1fbd2c9716b6fea8d4c321a1ac713a6dbdbe4d5b; graph files unchanged from 445bd46. Recheck integration revision before implementation.
+- **A-3:** No time, billed token or cost saving is established. Source-byte comparisons cannot prove runtime savings.
+- **A-4:** Recommended grammar reuses current lowercase/digit/hyphen restrictions; underscores were not explicitly rejected by the owner.
+- **A-5:** Owner handover is accepted. Remote main ref was still 7d57998 during this audit; no assertion is made about current issue closure or acceptance based on a limited PR listing.
+- **A-6:** Official host documentation was retrieved on 2026-09-18; no live model invocation or private transcript inspection was performed. Exact resumed-instruction behavior and resource loading under the actual launch permissions remain unverified.
+- **A-7:** Version-only commands observed Claude Code 2.1.276 and codex-cli 0.154.0; Codex printed a sandbox PATH-alias warning but returned its version. Documentation may describe behavior not exercised by those local versions.
+- **A-8:** Default Claude snapshot behavior is documentation-backed, not observed in a litefactory model call. Factory authorization, tools and result baselines must be refreshed even while stable role instructions remain pinned.
+
+## Audit history
+
+- 2026-09-18 run 0005: audited all F-1..F-25, added F-26..F-28, refreshed branch evidence, corrected host/cost claims and lifecycle recommendations, distinguished owner decisions from proposals, retired four redundant/technical owner questions and preserved six material rollout choices. No implementation, live provider call or fresh test execution.
+
+---
+
+# Historical research record (superseded where it conflicts with the audit above)
+
+The following preserves earlier reasoning and provenance. Its status, recommendations, questions, findings and diagrams are historical, not the current accepted design. Use the audit above for current conclusions.
+
+# Research brief: Wire graph-based execution into Research mode (#316)
+
 Status: Research INCOMPLETE. Run 0004 (how Claude and Codex handle context across turns; owner fear of a system prompt repeated on every round trip) is folded in as section 11; it adds findings F-19..F-25 and no new owner question. Run 0003 (handover of #315's remaining scope to #316) is folded in: see section 10, which corrects the 'not merged' precondition and adds questions Q-10..Q-13 (Q-5 widened). Run 0002 (owner remarks on catalog location, `shared/` references, no `.md`) is folded in: see section 9, which supersedes F1 (root/layout), F2 (names) and F3 (skills location and loading) below where they differ. Questions Q-1..Q-3 are settled; Q-4..Q-13 are open, each with a recommendation. Nothing is implemented; no child issue, Plan or story exists.
 
 Revisions read: this branch base main 7d57998 (no graph code in it). The #315 engine was read from branch lf/315-foundations-for-graph-based-execution at 0271582 (worktree /Users/mariomh/.lf-worktrees/litefactory/task-315). #315 is NOT merged into main; its first increment reports engineering complete, aggregate gates (build, full tests, make check) were still being re-run on 2026-09-18 (#315 comments, runs 12-16 and two later /implement comments). All engine facts below are "as on the #315 branch", not on main.
