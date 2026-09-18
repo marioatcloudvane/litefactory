@@ -130,5 +130,3 @@ Generated Codex Research, Plan and Implement use `workspace-write`; Validate use
 ## Migration and source bounds
 
 Root `github`, `claude`, `default_agent` and former root settings keys are rejected. Move values to `providers.github`, `agents.claude`, ordered `agents`, and `settings` respectively. Old permission labels do not select these profiles. Do not paste legacy flat configuration into a current file.
-
-Reconciled against [config decoder/defaults](../../internal/config/config.go), [validators](../../internal/config/validate.go), [policy](../../internal/config/policy.go), [template](../../internal/config/template.go), [tiers](../../internal/config/tier.go) and [team sources](../../internal/config/teams.go) at `8f556367c2d0a00d2736a53a326152ff43a6f96e`. Some historical source comments describe earlier behavior; the executable decoder, validators and template determine this reference.
