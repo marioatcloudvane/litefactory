@@ -74,8 +74,13 @@ A completed result and no questions.
     "artifacts": [
       {
         "id": "brief",
-        "kind": "document",
-        "path": "path/to/RESEARCH_BRIEF.md"
+        "kind": "brief",
+        "path": "path/to/session/RESEARCH_BRIEF.md"
+      },
+      {
+        "id": "technical",
+        "kind": "technical",
+        "path": "path/to/session/RESEARCH_TECHNICAL.md"
       }
     ],
     "payload": {
