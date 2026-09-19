@@ -29,4 +29,4 @@ Verify the claim in issue #313: story creation via /mcp-create is unusable becau
 - **a4** — Rests on f10: several proposals in one run are harmless because only the last one is approvable.
 - **a5** — If the post-run comment fails to post, the existing report recovery retries it. This assumes that mechanism can carry a proposal presentation (f12); design confirms this.
 - **a6** — I read the owner's split remark on q1 as agent guidance: advice in the agent's report and in the tool description, with no threshold or enforcement. If a hard rule was meant, say so.
-- **a7** — Rests on f14: the agreed scope is unchanged by the newer base. Only the registration point and the post-run presentation hook move; design adapts to the graph Research-node path after the branch is brought up to date.
+- **a7** — Rests on f14: the agreed scope is unchanged by the newer base. The branch is now level with main, so only the registration point and the post-run presentation hook need to adapt to the graph Research-node path.
