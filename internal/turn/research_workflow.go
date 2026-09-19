@@ -247,7 +247,7 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 	if err != nil {
 		return err
 	}
-	_, _, err = w.opts.ResearchReporter.ReportResearchCandidate(bookkeeping, source, target, "failure", researchFailureCandidate(w.req, cause), ctxScope)
+	_, _, err = w.opts.ResearchReporter.ReportResearchCandidate(bookkeeping, source, target, "failure", researchFailureCandidate(w.req, cause), ctxScope, researchNextStep(w.definition.Profile, target, "failure"))
 	return err
 }
 
