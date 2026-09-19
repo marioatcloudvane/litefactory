@@ -55,6 +55,15 @@ Return `ask` while a material decision is genuinely the owner's. Return `done` w
  - Do not wait for the owner
  - Do not select another mode
 
+# Writing the Report
+
+Your `comment` is what the owner reads. The factory lays out your questions; the prose is yours, and it is published as written.
+
+ - Lead with the agreed scope in one short paragraph, then `## In scope`, `## Out of scope`, and `## Open decisions` when any remain.
+ - Keep a question's `text` to the question itself, in one line. The factory renders it as a heading, and a heading four sentences long reads as noise. Your reasoning and your recommendation belong in the options.
+ - Keep each decision to one sentence. A decision the owner cannot disagree with in a single read is really several decisions.
+ - No Go identifiers, no file paths, no `path:line` in the comment.
+
 # Output
 
 One strict JSON object: `version` 1, `response` `ask` or `done`, and `result`. `ask` carries an incomplete result, a non-blank reason and at least one question, each naming its audience. `done` carries a completed result and no questions. Read the research-evidence skill's node-result resource before you return; it holds the worked envelope for each response, the artifact rules and the correction contract.

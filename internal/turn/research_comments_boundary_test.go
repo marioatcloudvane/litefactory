@@ -51,7 +51,7 @@ func TestResearchCommentHTTPReceiptLossAndCorrection(t *testing.T) {
 	before, err := f.db.GetRun(t.Context(), source.RunID)
 	mustProgress(t, err)
 	forge.afterPost = func() { mustProgress(t, f.db.Close()) }
-	posted, key, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope)
+	posted, key, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope, "")
 	if err == nil || posted.CommentID == 0 || key == "" {
 		t.Fatalf("receipt loss hidden: %+v %q %v", posted, key, err)
 	}
@@ -90,7 +90,7 @@ func TestResearchCommentHTTPReceiptLossAndCorrection(t *testing.T) {
 		t.Fatal("graph publication finalized run or consumed owner input")
 	}
 	candidate.Comment = "Corrected findings."
-	_, corrected, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope)
+	_, corrected, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope, "")
 	mustProgress(t, err)
 	if corrected == key || forge.attemptCount() != 2 {
 		t.Fatal("correction reused identity")
@@ -108,7 +108,7 @@ func TestResearchCommentRenderFailureRecoveryPreservesProcess(t *testing.T) {
 	before, err := f.db.GetRun(t.Context(), source.RunID)
 	mustProgress(t, err)
 	reporter := newReporter(t, f, forge, stubRenderer{err: errors.New("renderer unavailable")})
-	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "failure-report", "failure", candidate, scope)
+	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "failure-report", "failure", candidate, scope, "")
 	if err == nil || !strings.Contains(err.Error(), "renderer unavailable") || key == "" {
 		t.Fatalf("render cause lost: %q %v", key, err)
 	}
@@ -139,9 +139,9 @@ func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Scope needed"
 	candidate.Questions = []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "Which boundary?"}}
-	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope)
+	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
 	mustProgress(t, err)
-	_, same, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope)
+	_, same, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
 	mustProgress(t, err)
 	if key != same || forge.attemptCount() != 1 || watermark(t, f) != 0 {
 		t.Fatal("question repeated or consumed owner reply")
@@ -150,7 +150,7 @@ func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
 		t.Fatal("question omitted")
 	}
 	source.Status = store.GraphFailed
-	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope); err == nil {
+	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, ""); err == nil {
 		t.Fatal("failed process published successful question")
 	}
 }
@@ -162,7 +162,7 @@ func TestResearchCommentRecoveryRejectsForeignReceipt(t *testing.T) {
 			forge := newFakeForge(t)
 			reporter := newReporter(t, f, forge, nil)
 			forge.afterPost = func() { mustProgress(t, f.db.Close()) }
-			_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope)
+			_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope, "")
 			if err == nil || key == "" {
 				t.Fatal("expected lost receipt")
 			}

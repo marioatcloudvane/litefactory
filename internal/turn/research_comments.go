@@ -100,7 +100,7 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	posted, key, err := h.Reporter.ReportResearchCandidate(ctx, source, req.Node, kind, candidate, scope)
+	posted, key, err := h.Reporter.ReportResearchCandidate(ctx, source, req.Node, kind, candidate, scope, researchNextStep(h.Profile, req.Node, kind))
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
@@ -118,7 +118,7 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 // ReportResearchCandidate retains exact authored bytes before rendering. The
 // content digest is part of the operation identity: corrections cannot overwrite
 // or replay an earlier uncertain effect. No run finalization or git save occurs.
-func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context) (Posted, string, error) {
+func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context, next string) (Posted, string, error) {
 	if scope.Mode != "research" {
 		return Posted{}, "", errors.New("research comment context has different mode")
 	}
@@ -172,7 +172,7 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 		return Posted{}, intent.Key, err
 	}
 	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate), "")
+		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate, next), "")
 	})
 	return posted, intent.Key, err
 }
@@ -202,7 +202,11 @@ func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope
 	if err != nil {
 		return Posted{}, err
 	}
-	posted, recoveredKey, err := r.ReportResearchCandidate(ctx, source, intent.Node, intent.Kind, candidate, scope)
+	// Recovery re-posts a comment whose first delivery was uncertain. It has no
+	// parsed graph, so it omits the footer rather than guessing one: the
+	// delivery identity is the candidate's bytes, not the rendered body, so a
+	// recovered comment is still the same effect.
+	posted, recoveredKey, err := r.ReportResearchCandidate(ctx, source, intent.Node, intent.Kind, candidate, scope, "")
 	if recoveredKey != key && err == nil {
 		return Posted{}, errors.New("research recovery identity changed")
 	}
@@ -247,13 +251,24 @@ var researchAudienceHeadings = []struct{ audience, heading string }{
 // every report reads the same way. Identities and the agent's recommendation are
 // rendered because they are what the owner answers with: without them a reply
 // has to quote text back, and a proposed answer nobody sees is not a proposal.
-func renderResearchComment(candidate agentresult.Result) string {
+func renderResearchComment(candidate agentresult.Result, next string) string {
 	var body strings.Builder
 	body.WriteString(strings.TrimSpace(candidate.Comment))
 	if reason := strings.TrimSpace(candidate.Reason); reason != "" {
-		body.WriteString("\n\n")
-		body.WriteString(reason)
+		// The same field means two things. With questions below it, it explains
+		// why the owner is being asked; without them, why the work stopped
+		// short. Naming it accurately is the difference between a heading that
+		// orients the reader and one they have to decode.
+		heading := "Why this is unfinished"
+		if len(candidate.Questions) > 0 {
+			heading = "Why I need your input"
+		}
+		fmt.Fprintf(&body, "\n\n## %s\n\n%s", heading, reason)
 	}
+	// Numbered across the whole report rather than within each group, so "the
+	// third question" means one thing no matter who is reading. The identifier
+	// stays visible beside it because that is what an answer refers to.
+	asked := 0
 	for _, group := range researchAudienceHeadings {
 		questions := make([]agentresult.Question, 0, len(candidate.Questions))
 		for _, q := range candidate.Questions {
@@ -267,21 +282,17 @@ func renderResearchComment(candidate agentresult.Result) string {
 		body.WriteString("\n\n# ")
 		body.WriteString(group.heading)
 		for _, q := range questions {
-			body.WriteString("\n\n## ")
-			body.WriteString(q.ID)
-			body.WriteString(" — ")
-			body.WriteString(strings.TrimSpace(q.Text))
+			asked++
+			fmt.Fprintf(&body, "\n\n## Question %d  ·  %s", asked, strings.TrimSpace(q.Text))
+			fmt.Fprintf(&body, "\n\n_Answer with `%s`_", q.ID)
 			if len(q.Options) == 0 {
 				continue
 			}
 			body.WriteString("\n\n### Options\n")
 			for _, o := range q.Options {
-				body.WriteString("\n- **")
-				body.WriteString(o.ID)
-				body.WriteString("** — ")
-				body.WriteString(strings.TrimSpace(o.Text))
+				fmt.Fprintf(&body, "\n- **`%s`** — %s", o.ID, strings.TrimSpace(o.Text))
 				if o.ID == q.RecommendedOption {
-					body.WriteString("  *(recommended)*")
+					body.WriteString("  ✅ **recommended**")
 				}
 			}
 		}
@@ -291,11 +302,44 @@ func renderResearchComment(candidate agentresult.Result) string {
 	// set closed; this keeps a future widening from losing one silently.
 	for _, q := range candidate.Questions {
 		if !slices.ContainsFunc(researchAudienceHeadings, func(g struct{ audience, heading string }) bool { return g.audience == q.Audience }) {
-			body.WriteString("\n\n## ")
-			body.WriteString(q.ID)
-			body.WriteString(" — ")
-			body.WriteString(strings.TrimSpace(q.Text))
+			asked++
+			fmt.Fprintf(&body, "\n\n## Question %d  ·  %s\n\n_Answer with `%s`_", asked, strings.TrimSpace(q.Text), q.ID)
 		}
 	}
+	if next != "" {
+		body.WriteString("\n\n---\n\n**Next:** ")
+		body.WriteString(next)
+	}
 	return body.String()
+}
+
+// researchNextStep says, in the owner's terms, what the factory does after this
+// publication. It is derived from the graph rather than written by an agent, so
+// it cannot drift, be forgotten, or disagree with what actually happens.
+//
+// It exists because a published comment is indistinguishable from a finished
+// one. An owner who replies to a report while the graph is mid-flight does not
+// nudge it along: admission refuses a running instance outright, and a parked
+// one without a matching claimed wait is refused too. Saying which state this
+// is turns a natural action into an informed one.
+func researchNextStep(profile *graphexec.Profile, node, kind string) string {
+	if profile == nil {
+		return ""
+	}
+	switch kind {
+	case "question":
+		return "reply on this issue to continue. Answer by option id, answer in your own words, or say `proceed` to let the factory assume the recommended answers. Nothing runs until you reply."
+	case "failure":
+		return "this attempt failed and no further work is queued. Comment again to start a fresh one."
+	case "final":
+		target, ok := graphexec.Decide(profile, node, "published")
+		if !ok {
+			return ""
+		}
+		if after, found := profile.Node(target); found && after.Terminal {
+			return "this workflow is finished. Comment `/plan` to turn the agreed scope into stories."
+		}
+		return "the next stage starts on its own within a minute or two. No action is needed, and commenting before it finishes will interrupt it."
+	}
+	return ""
 }

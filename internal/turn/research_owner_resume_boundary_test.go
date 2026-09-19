@@ -23,7 +23,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	mustProgress(t, err)
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, stubRenderer{err: errors.New("not rendered yet")})
-	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope)
+	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
 	if err == nil || key == "" {
 		t.Fatal("expected retained unpublished question")
 	}
