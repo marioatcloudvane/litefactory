@@ -74,21 +74,27 @@ func TestGraphDispatchLifecycle(t *testing.T) {
 		t.Fatalf("a reserved dispatch was claimed twice: ok=%v err=%v", ok, err)
 	}
 
-	// Losing a worker slot must not cost the instance its continuation.
-	if err := db.RequeueGraphDispatch(ctx, parked.ID); err != nil {
-		t.Fatalf("requeue: %v", err)
-	}
-	if due, err := db.ListDueGraphDispatches(ctx, now, 10); err != nil || len(due) != 1 {
-		t.Fatalf("requeued work is not due again: %+v err=%v", due, err)
-	}
-
-	if _, _, err := db.ReserveGraphDispatch(ctx, parked.ID, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.FinishGraphDispatch(ctx, parked.ID, now); err != nil {
-		t.Fatalf("finish: %v", err)
+	// Losing a worker slot must not cost the instance its continuation, but the
+	// retry is spaced out rather than taken on the very next tick.
+	retry := now.Add(time.Minute)
+	requeued, err := db.RequeueGraphDispatch(ctx, parked.ID, retry, "worker slot lost")
+	if err != nil || !requeued {
+		t.Fatalf("requeue: requeued=%v err=%v", requeued, err)
 	}
 	if due, err := db.ListDueGraphDispatches(ctx, now, 10); err != nil || len(due) != 0 {
+		t.Fatalf("a backed-off dispatch must not be due yet: %+v err=%v", due, err)
+	}
+	if due, err := db.ListDueGraphDispatches(ctx, retry, 10); err != nil || len(due) != 1 {
+		t.Fatalf("requeued work is not due at its retry time: %+v err=%v", due, err)
+	}
+
+	if _, _, err := db.ReserveGraphDispatch(ctx, parked.ID, retry); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.FinishGraphDispatch(ctx, parked.ID, retry); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if due, err := db.ListDueGraphDispatches(ctx, retry, 10); err != nil || len(due) != 0 {
 		t.Fatalf("a finished dispatch is still due: %+v err=%v", due, err)
 	}
 	after, err := db.GetGraphInstance(ctx, instance.ID)
@@ -106,5 +112,61 @@ func TestParkRefusesADisagreeingNode(t *testing.T) {
 	now := time.Now().UTC()
 	if _, err := db.ParkGraphInstance(t.Context(), instance.ID, "some-other-node", now, now); err == nil {
 		t.Error("parking on a node the instance is not on was accepted")
+	}
+}
+
+// A stage that can never start must stop asking. Retrying a malformed request
+// every tick spends a forge observation a minute and learns nothing, and that
+// is exactly what a live run did before this existed.
+func TestGraphDispatchGivesUpAfterRepeatedFailures(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, instance := graphDispatchFixture(t)
+	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	parked, err := db.ParkGraphInstance(ctx, instance.ID, instance.CurrentNode, at, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= MaxGraphDispatchAttempts; attempt++ {
+		reserved, ok, err := db.ReserveGraphDispatch(ctx, parked.ID, at)
+		if err != nil || !ok {
+			t.Fatalf("attempt %d could not be reserved: ok=%v err=%v", attempt, ok, err)
+		}
+		if reserved.Attempts != attempt {
+			t.Fatalf("attempt %d counted as %d", attempt, reserved.Attempts)
+		}
+		at = at.Add(time.Hour)
+		requeued, err := db.RequeueGraphDispatch(ctx, parked.ID, at, "free_text has no instruction text")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if attempt < MaxGraphDispatchAttempts && !requeued {
+			t.Fatalf("attempt %d gave up early", attempt)
+		}
+		if attempt == MaxGraphDispatchAttempts && requeued {
+			t.Fatal("a dispatch retried past its cap")
+		}
+	}
+	final, err := db.ListDueGraphDispatches(ctx, at.Add(24*time.Hour), 10)
+	if err != nil || len(final) != 0 {
+		t.Fatalf("an exhausted dispatch is still due: %+v err=%v", final, err)
+	}
+	after, err := db.GetGraphInstance(ctx, instance.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The stage failed; the work it already did did not.
+	if after.Status != GraphRunning || after.CurrentNode != instance.CurrentNode || !after.NextDueAt.IsZero() {
+		t.Fatalf("giving up must leave the instance parked and quiet: %+v", after)
+	}
+}
+
+func TestGraphDispatchRetryDelayGrows(t *testing.T) {
+	t.Parallel()
+	if GraphDispatchRetryDelay(1) >= GraphDispatchRetryDelay(2) {
+		t.Error("a repeated failure must wait longer than the first")
+	}
+	if GraphDispatchRetryDelay(0) <= 0 {
+		t.Error("a retry delay must be positive")
 	}
 }

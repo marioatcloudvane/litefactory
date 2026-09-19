@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -95,8 +96,7 @@ func (d *Daemon) dispatchGraphSteps(ctx context.Context, repos map[int64]store.R
 // recovery and manual schedules do; without one it could not exist beside the
 // comment-triggered run that parked it.
 func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.GraphDispatch) {
-	trigger := turn.Trigger{CommentID: dispatch.TriggerID(), Author: d.filter.Identities().OwnerHandle}
-	command := turn.Command{Kind: turn.KindFreeText}
+	trigger, command := graphStepRequest(dispatch, d.filter.Identities().OwnerHandle)
 	err := d.run(ctx, t, trigger, command, t.log)
 	if err != nil {
 		t.recordWorkerError(err)
@@ -112,10 +112,26 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 	// the reason it could not start will not go away on its own.
 	if !exists || run.Status == store.RunPrelaunch {
 		t.recordWorkerStatus(workerDeferred)
-		if requeueErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID); requeueErr != nil {
+		cause := ""
+		if err != nil {
+			cause = err.Error()
+		}
+		retryAt := t.tickAt.UTC().Add(store.GraphDispatchRetryDelay(dispatch.Attempts))
+		requeued, requeueErr := d.db.RequeueGraphDispatch(ctx, dispatch.ID, retryAt, cause)
+		if requeueErr != nil {
 			t.recordWorkerError(requeueErr)
 			t.log.ErrorContext(ctx, "requeue graph step", slog.Any("error", requeueErr))
+			return
 		}
+		if !requeued {
+			// Out of attempts. Saying so once is worth more than another tick
+			// of the same failure, and the instance keeps its node and findings.
+			t.log.ErrorContext(ctx, "graph step gave up after repeated failures to start",
+				slog.Int("attempts", dispatch.Attempts), slog.String("cause", cause))
+			return
+		}
+		t.log.WarnContext(ctx, "graph step could not start; retrying later",
+			slog.Int("attempts", dispatch.Attempts), slog.Time("retry_at", retryAt), slog.String("cause", cause))
 		return
 	}
 	if finishErr := d.db.FinishGraphDispatch(ctx, dispatch.ID, t.tickAt.UTC()); finishErr != nil {
@@ -123,4 +139,19 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 		t.log.ErrorContext(ctx, "close graph step", slog.Any("error", finishErr))
 	}
 	t.log.InfoContext(ctx, "graph step finished", slog.String("status", string(run.Status)), slog.Int("run_ordinal", run.Ordinal))
+}
+
+// graphStepRequest builds the trigger and command one owed stage runs under.
+//
+// A turn refuses a free-text request with no instruction, and a dispatch has no
+// comment to quote: it is the factory asking itself to continue. The stage's
+// real instructions come from its role and the findings the instance already
+// holds, so this text only names the work that asked for the run. It is
+// separated out because the daemon cannot reach a turn's own validation, and an
+// empty command here is not a compile error — it is a run that dies on arrival,
+// every tick, which is exactly what it did before this had a test.
+func graphStepRequest(dispatch store.GraphDispatch, owner string) (turn.Trigger, turn.Command) {
+	instruction := fmt.Sprintf("Continue the Research workflow at its %s stage.", dispatch.Node)
+	return turn.Trigger{CommentID: dispatch.TriggerID(), Body: instruction, Author: owner},
+		turn.Command{Kind: turn.KindFreeText, Text: instruction}
 }

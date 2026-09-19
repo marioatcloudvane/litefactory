@@ -24,8 +24,15 @@ type GraphDispatch struct {
 	AllocatedRunID            int64
 	ReservedAt, FinishedAt    time.Time
 	CancellationReason        string
+	Attempts                  int
 	CreatedAt                 time.Time
 }
+
+// MaxGraphDispatchAttempts bounds how often one owed stage may fail to start.
+// A transient failure deserves another tick; a malformed one will never get
+// closer to running, and retrying it forever spends a forge observation a
+// minute to learn nothing.
+const MaxGraphDispatchAttempts = 3
 
 // TriggerID returns the private execution identity for this dispatch.
 func (d GraphDispatch) TriggerID() int64 { return graphTriggerBase + d.ID }
@@ -34,7 +41,7 @@ func (d GraphDispatch) TriggerID() int64 { return graphTriggerBase + d.ID }
 // bands are disjoint and ordered, so a caller can tell the three apart.
 func IsGraphTrigger(id int64) bool { return id > graphTriggerBase && id < automaticTriggerBase }
 
-const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,allocated_run_id,reserved_at,finished_at,cancellation_reason,created_at`
+const graphDispatchColumns = `id,instance_id,session_id,node,due_at,status,allocated_run_id,reserved_at,finished_at,cancellation_reason,attempts,created_at`
 
 // ParkGraphInstance records that an instance stopped mid-graph with work left,
 // and schedules the run that will continue it. The instance keeps its current
@@ -105,7 +112,7 @@ func (db *DB) ReserveGraphDispatch(ctx context.Context, id int64, at time.Time) 
 	var d GraphDispatch
 	var ok bool
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		r, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='reserved', reserved_at=? WHERE id=? AND status='pending' AND due_at<=?`, FormatTime(at), id, FormatTime(at))
+		r, err := tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='reserved', reserved_at=?, attempts=attempts+1 WHERE id=? AND status='pending' AND due_at<=?`, FormatTime(at), id, FormatTime(at))
 		if err != nil {
 			return err
 		}
@@ -122,11 +129,49 @@ func (db *DB) ReserveGraphDispatch(ctx context.Context, id int64, at time.Time) 
 	return d, ok, err
 }
 
-// RequeueGraphDispatch returns an unallocated reservation to pending. Losing a
-// worker slot must not cost the instance its continuation.
-func (db *DB) RequeueGraphDispatch(ctx context.Context, id int64) error {
-	_, err := db.sql.ExecContext(ctx, `UPDATE graph_dispatches SET status='pending', reserved_at=NULL WHERE id=? AND status='reserved' AND allocated_run_id IS NULL`, id)
-	return err
+// RequeueGraphDispatch returns an unallocated reservation to pending, due again
+// at retryAt. Losing a worker slot must not cost the instance its continuation,
+// so the work stays owed — but only while there is reason to think another
+// attempt could start it. Past the cap it is cancelled with its own reason, and
+// the instance keeps its node and findings either way.
+func (db *DB) RequeueGraphDispatch(ctx context.Context, id int64, retryAt time.Time, cause string) (bool, error) {
+	var requeued bool
+	err := db.withTx(ctx, func(tx *sql.Tx) error {
+		d, err := scanGraphDispatch(tx.QueryRowContext(ctx, `SELECT `+graphDispatchColumns+` FROM graph_dispatches WHERE id=?`, id))
+		if err != nil {
+			return err
+		}
+		if d.Status != "reserved" || d.AllocatedRunID != 0 {
+			return nil
+		}
+		if d.Attempts >= MaxGraphDispatchAttempts {
+			reason := fmt.Sprintf("graph stage %q could not start in %d attempts", d.Node, d.Attempts)
+			if cause != "" {
+				reason += ": " + cause
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='cancelled', cancellation_reason=?, finished_at=? WHERE id=?`, reason, FormatTime(retryAt), id); err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, d.InstanceID)
+			return err
+		}
+		requeued = true
+		if _, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='pending', reserved_at=NULL, due_at=? WHERE id=?`, FormatTime(retryAt), id); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=? WHERE id=?`, FormatTime(retryAt), d.InstanceID)
+		return err
+	})
+	return requeued, err
+}
+
+// GraphDispatchRetryDelay spaces a failed start out instead of hammering the
+// next tick. It grows with the attempts already spent.
+func GraphDispatchRetryDelay(attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	return time.Duration(attempts) * 5 * time.Minute
 }
 
 // FinishGraphDispatch closes a dispatch and clears the instance's due time. A
@@ -176,7 +221,7 @@ func scanGraphDispatch(row scanner) (GraphDispatch, error) {
 	var due, created string
 	var reserved, finished sql.NullString
 	var allocated sql.NullInt64
-	if err := row.Scan(&v.ID, &v.InstanceID, &v.SessionID, &v.Node, &due, &v.Status, &allocated, &reserved, &finished, &v.CancellationReason, &created); err != nil {
+	if err := row.Scan(&v.ID, &v.InstanceID, &v.SessionID, &v.Node, &due, &v.Status, &allocated, &reserved, &finished, &v.CancellationReason, &v.Attempts, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return v, ErrNotFound
 		}
