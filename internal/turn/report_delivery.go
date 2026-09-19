@@ -40,6 +40,8 @@ func (r *Reporter) deliveryIntent(task, destination naming.Ref, sessionID, trigg
 		namespace = "automatic"
 	case store.IsScheduleTrigger(triggerID):
 		namespace = "schedule"
+	case store.IsGraphTrigger(triggerID):
+		namespace = "graph"
 	}
 	identity := struct {
 		Version                      int

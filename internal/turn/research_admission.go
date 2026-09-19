@@ -44,6 +44,14 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	if req.mode() != "research" {
 		return result, false, nil
 	}
+	// A graph dispatch is the factory continuing work it already admitted. It
+	// must not re-admit: admission is owner authority, and re-capturing here
+	// would rotate the definition under a running instance. Resume the pinned
+	// one at the node it was parked on.
+	if store.IsGraphTrigger(req.Trigger.CommentID) {
+		out, err := resumeResearchDispatch(ctx, opts, req, result)
+		return out, true, err
+	}
 	if req.Continuation != nil {
 		graph, err := opts.DB.HasResearchGraphSession(ctx, req.SessionID)
 		if err != nil {
@@ -114,4 +122,40 @@ func admitResearchExecution(ctx context.Context, opts Options, req Request, resu
 	definition.Profile.Digest = actualPin.Digest
 	out, err := opts.ResearchDriver(ctx, opts, req, result, definition, admitted)
 	return out, true, err
+}
+
+// resumeResearchDispatch enters the workflow at an instance's current node with
+// the definition it was admitted under. Nothing here is a fresh admission: the
+// dispatch that allocated this run is the authority, and it exists only because
+// a previous run of this instance published and had no run left to continue in.
+func resumeResearchDispatch(ctx context.Context, opts Options, req Request, result Result) (Result, error) {
+	if opts.ResearchDriver == nil {
+		return result, errors.New("research graph dispatch requires the application graph driver")
+	}
+	instance, err := opts.DB.LatestResearchInstance(ctx, req.SessionID)
+	if err != nil {
+		return result, fmt.Errorf("resume research dispatch: %w", err)
+	}
+	if instance.Status != store.GraphRunning {
+		return result, errors.New("research graph dispatch targets an instance that is no longer running")
+	}
+	pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return result, err
+	}
+	specs, err := ResearchSpecs()
+	if err != nil {
+		return result, err
+	}
+	definition, err := teamsource.CaptureResearch(ctx, specs)
+	if err != nil {
+		return result, fmt.Errorf("capture current shipped Research: %w", err)
+	}
+	// The running instance keeps the definition it was pinned to. Shipped bytes
+	// may have changed since; that rotates a later launch, never this one.
+	if definition.Profile.Digest != pin.Digest {
+		return result, errors.New("shipped Research graph changed under a running instance; the parked stage cannot resume")
+	}
+	definition.Profile.Digest = pin.Digest
+	return opts.ResearchDriver(ctx, opts, req, result, definition, store.ResearchAdmission{Instance: instance})
 }

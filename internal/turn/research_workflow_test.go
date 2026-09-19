@@ -86,10 +86,23 @@ func TestResearchWorkflowProductionOutcomes(t *testing.T) {
 				if err != nil || !out.Succeeded() || !out.ResearchGraph || forge.attemptCount() != 1 {
 					t.Fatalf("clear outcome %+v posts=%d err=%v", out, forge.attemptCount(), err)
 				}
+				// A clear request no longer finishes the graph. Research
+				// publishes its findings and the workflow stops at the shaping
+				// stage, because one run advances one agent and this run's is
+				// spent. The instance keeps its node and owes a dispatch; that
+				// owed run is what continues it.
 				instance, e := f.db.LatestResearchInstance(t.Context(), f.session.ID)
 				mustProgress(t, e)
-				if instance.Status != store.GraphSucceeded {
-					t.Fatalf("graph not completed: %+v", instance)
+				if instance.Status != store.GraphRunning || instance.CurrentNode != "shape" {
+					t.Fatalf("graph did not park at the shaping stage: %+v", instance)
+				}
+				if instance.NextDueAt.IsZero() {
+					t.Fatalf("a parked instance must be due for its next stage: %+v", instance)
+				}
+				due, e := f.db.ListDueGraphDispatches(t.Context(), instance.NextDueAt, 10)
+				mustProgress(t, e)
+				if len(due) != 1 || due[0].InstanceID != instance.ID || due[0].Node != "shape" {
+					t.Fatalf("the parked stage owes exactly one dispatch: %+v", due)
 				}
 			} else if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 {
 				t.Fatalf("failure lost %+v posts=%d err=%v", out, forge.attemptCount(), err)

@@ -239,6 +239,13 @@ func (d *Daemon) Tick(ctx context.Context) (TickResult, error) {
 		return result, d.observe(ctx, startedAt, err)
 	}
 	d.dispatch(ctx, queues, startedAt, &result)
+	// Owed graph work goes last. An owner is waiting on a comment; nobody is
+	// waiting on a stage the factory owes itself, and a session claimed by
+	// discovery above keeps its dispatch pending for the next tick rather than
+	// competing for the same worker.
+	if err := d.dispatchGraphSteps(ctx, reposByID, startedAt, &result); err != nil {
+		return result, err
+	}
 	result.InFlight = d.inflight.size()
 	result.Scheduled, err = d.db.CountPendingSchedules(ctx)
 	if err != nil {

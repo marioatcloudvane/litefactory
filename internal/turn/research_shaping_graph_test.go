@@ -6,48 +6,26 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/graphexec"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
-// shapingDOT is the two-stage graph shaping.md is written for. It is not the
-// shipped graph: research_workflow.go refuses a second agent inside one run,
-// and it has to, because one comment causes at most one run and a second agent
-// needs a run of its own. Wiring the daemon's due-work admission path is what
-// unblocks it. Until then this keeps the intended topology honest — the layout,
-// the per-stage scoping and the publish-before-shape ordering are all validated
-// here, so flipping the shipped graph over is a one-file change.
-const shapingDOT = `digraph research {
- graph [team="builtin", mode="research", profile_version="1", start="loop"];
- loop [lf_action="lf_research_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
- investigate [lf_action="lf_research_agent", lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
- question [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
- ask [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
- report [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="investigate"];
- shapeloop [lf_action="lf_research_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
- shape [lf_action="lf_research_agent", lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
- shaped [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
- clarify [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
- agreed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="shape"];
- failed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="failure", lf_limit="1"];
- waiting [lf_terminal="true"];complete [lf_terminal="true"];stopped [lf_terminal="true"];
- loop -> investigate [lf_on="true"];loop -> report [lf_on="false"];
- investigate -> question [lf_on="success"];question -> ask [lf_on="true"];question -> loop [lf_on="false"];
- ask -> waiting [lf_on="published"];report -> shapeloop [lf_on="published"];
- shapeloop -> shape [lf_on="true"];shapeloop -> agreed [lf_on="false"];
- shape -> shaped [lf_on="success"];shaped -> clarify [lf_on="true"];shaped -> shapeloop [lf_on="false"];
- clarify -> waiting [lf_on="published"];agreed -> complete [lf_on="published"];
- investigate -> failed [lf_on="failed"];shape -> failed [lf_on="failed"];failed -> stopped [lf_on="published"];
-}`
-
+// The shipped graph is the two-stage one now, so these assert what actually
+// runs rather than an aspiration. Ordering, per-stage scoping and both durable
+// waits are the properties a second stage depends on.
 func shapingProfile(t *testing.T) *graphexec.Profile {
 	t.Helper()
-	p, err := graphexec.ParseProfile([]byte(shapingDOT))
+	specs, err := ResearchSpecs()
 	if err != nil {
-		t.Fatalf("parse two-stage graph: %v", err)
+		t.Fatal(err)
 	}
-	if err := graphexec.ValidateResearchControlGraph(p); err != nil {
-		t.Fatalf("two-stage graph does not validate: %v", err)
+	definition, err := teamsource.CaptureResearch(t.Context(), specs)
+	if err != nil {
+		t.Fatalf("capture shipped Research: %v", err)
 	}
-	return p
+	if err := graphexec.ValidateResearchControlGraph(definition.Profile); err != nil {
+		t.Fatalf("shipped graph does not validate: %v", err)
+	}
+	return definition.Profile
 }
 
 // Clarification hands to shaping through a published report, never directly.
@@ -99,11 +77,10 @@ func TestShapingGraphEndsOnlyAfterShaping(t *testing.T) {
 	}
 }
 
-// The role the second stage needs is in the embedded package already, so wiring
-// the graph never waits on writing it. It is not captured while no node names
-// it: capture reads what the graph references, and the shipped graph has one
-// stage. This asserts the source is there and says what it must contain.
-func TestShapingRoleIsReadyToWire(t *testing.T) {
+// The second stage's role is now captured by the shipped graph. This keeps its
+// shape honest: the headings the factory relies on, and the audience rule that
+// makes a question routable.
+func TestShapingRoleIsShipped(t *testing.T) {
 	raw, err := os.ReadFile("../teamsource/research/shaping.md")
 	if err != nil {
 		t.Fatalf("the shaping role is missing from the embedded package: %v", err)

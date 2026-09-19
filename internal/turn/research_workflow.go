@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -63,7 +64,17 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 		}
 		if node.Action == ResearchAgentAction {
 			if w.prep != nil {
-				return w.finish(ctx, errors.New("research graph attempted another agent without owner continuation"))
+				// One run advances one agent stage, because one comment causes
+				// at most one run and this run's is already spent. Park the
+				// instance on its current node and finish successfully: the
+				// work is not failed, it is owed, and a dispatch now carries
+				// the identity the next run will be allocated under.
+				if _, parkErr := opts.DB.ParkGraphInstance(context.WithoutCancel(ctx), instance.ID, node.Name, opts.MCP.Now(), opts.MCP.Now()); parkErr != nil {
+					return w.finish(ctx, fmt.Errorf("park research graph at %q: %w", node.Name, parkErr))
+				}
+				opts.Logger.Info("research graph parked for its next stage",
+					slog.Int64("instance_id", instance.ID), slog.String("node", node.Name))
+				return w.finish(ctx, nil)
 			}
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name

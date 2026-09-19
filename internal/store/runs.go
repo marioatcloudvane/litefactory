@@ -320,6 +320,21 @@ RETURNING `+runColumns,
 		if err == nil && !params.Prelaunch && IsAutomaticTrigger(params.TriggerCommentID) {
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
 		}
+		// Binding the dispatch to its run here, inside the same transaction that
+		// allocated it, is what makes the open-dispatch index a real guarantee:
+		// a run and the dispatch that authorized it are created together or not
+		// at all.
+		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) {
+			id := params.TriggerCommentID - graphTriggerBase
+			var res sql.Result
+			res, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='running', allocated_run_id=? WHERE id=? AND status='reserved' AND allocated_run_id IS NULL`, run.ID, id)
+			if err == nil {
+				var n int64
+				if n, err = res.RowsAffected(); err == nil && n != 1 {
+					err = graphInvariant("graph run must be allocated to its own reserved dispatch")
+				}
+			}
+		}
 		return err
 	})
 	if err != nil {
