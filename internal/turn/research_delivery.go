@@ -71,7 +71,11 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	sort.Strings(p.skills)
 	// Project guidance is discovered through the host's normal channel. Copying
 	// it into this appended system file would elevate legacy dispatch directives.
-	p.files["bootstrap.md"] = []byte("The factory selected Research and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + researchNodeInstructions)
+	guidance, err := researchNodeGuidance()
+	if err != nil {
+		return nil, err
+	}
+	p.files["bootstrap.md"] = []byte("The factory selected Research and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + guidance)
 	if req.Agent == store.AgentCodex {
 		// Only fixed shipped role/task text belongs here. Owner requests, replies,
 		// prior findings and helper credentials stay on the invocation's stdin.

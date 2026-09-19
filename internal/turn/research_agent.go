@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -16,6 +17,77 @@ import (
 const ResearchAgentAction = "lf_research_agent"
 
 const researchNodeInstructions = "\nFactory invocation: private Research graph node. Return exactly one JSON object with version=1, response=ask or done, and result containing the complete application result. ask requires an incomplete result and permitted nonempty owner questions; done requires a completed result without questions. The entire object is limited to 1 MiB. Use the existing result helper for application-result preflight/correction/receipts; the terminal node result must match its current retained application candidate. Returning a node result retains private progress only; only an explicit graph comment activity may publish it.\n"
+
+// researchNodeExamples renders both accepted envelopes from the same types
+// [agentresult.DecodeResearchNode] validates, so the shape delivered to the
+// agent cannot drift from the decoder. Content is illustrative: the pairing
+// rule between response and outcome/questions is the part that is normative.
+func researchNodeExamples() ([]byte, []byte, error) {
+	ask := agentresult.ResearchNode{
+		Version:  1,
+		Response: "ask",
+		Result: agentresult.Result{
+			Outcome: "incomplete",
+			Comment: "Summarise what is established so far; do not submit this example unchanged.",
+			Reason:  "State why research cannot complete without the owner's answer.",
+			Questions: []agentresult.Question{{
+				ID:                "q1",
+				Text:              "Ask the material question that blocks completion.",
+				Options:           []agentresult.Option{{ID: "a", Text: "Describe one permitted choice."}},
+				RecommendedOption: "a",
+			}},
+			Payload: agentresult.Payload{Research: &agentresult.Research{
+				Request:     "Restate the owner's request.",
+				Findings:    []agentresult.Finding{{ID: "f1", Text: "Record one observed claim.", Evidence: []agentresult.SourceReference{{Path: "path/to/file", Line: 1}}}},
+				Assumptions: []agentresult.Statement{{ID: "a1", Text: "Record one reasonable assumption."}},
+			}},
+		},
+	}
+	done := agentresult.ResearchNode{
+		Version:  1,
+		Response: "done",
+		Result: agentresult.Result{
+			Outcome: "completed",
+			Comment: "Summarise the finished research; do not submit this example unchanged.",
+			Artifacts: []agentresult.Artifact{{
+				ID:   "brief",
+				Kind: "document",
+				Path: "path/to/RESEARCH_BRIEF.md",
+			}},
+			Payload: agentresult.Payload{Research: &agentresult.Research{
+				Request:   "Restate the owner's request.",
+				Findings:  []agentresult.Finding{{ID: "f1", Text: "Record one observed claim.", Evidence: []agentresult.SourceReference{{Path: "path/to/file", Line: 1}}}},
+				Decisions: []agentresult.Statement{{ID: "d1", Text: "Record one settled decision."}},
+			}},
+		},
+	}
+	a, err := json.MarshalIndent(ask, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	d, err := json.MarshalIndent(done, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	return a, d, nil
+}
+
+// researchNodeGuidance is the complete node-result contract delivered to the
+// agent: the prose obligations plus a rendered envelope for each response.
+func researchNodeGuidance() (string, error) {
+	ask, done, err := researchNodeExamples()
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	b.WriteString(researchNodeInstructions)
+	b.WriteString("\nNode envelope, response=ask (incomplete result with permitted owner questions):\n```json\n")
+	b.Write(ask)
+	b.WriteString("\n```\n\nNode envelope, response=done (completed result, no questions):\n```json\n")
+	b.Write(done)
+	b.WriteString("\n```\n\nOmit optional members that do not apply; omit factory identities and unsupported fields.\n")
+	return b.String(), nil
+}
 
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
@@ -101,7 +173,11 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	// instruction channel on cold, resumed and fallback invocations. Keep the
 	// user history incremental instead of appending another copy on each pass.
 	if req.Delivery == nil || req.Delivery.MainRole == "" {
-		req.Prompt += researchNodeInstructions
+		guidance, err := researchNodeGuidance()
+		if err != nil {
+			return out, err
+		}
+		req.Prompt += guidance
 	}
 	req.Invocation = agent.InvocationResearchNode
 	req.Graph = &agent.GraphInvocation{InstanceID: a.InstanceID, AttemptID: a.NodeAttemptID, RunID: a.RunID, Node: a.Node}
