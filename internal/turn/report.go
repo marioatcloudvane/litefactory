@@ -673,6 +673,21 @@ func (r *Reporter) Consume(ctx context.Context, sessionID, commentID int64) (sto
 	case commentID <= 0:
 		return store.Watermark{}, invalidRequest("a comment id is required to consume a comment")
 	}
+	// A factory-minted trigger is not a comment, and it is larger than any id a
+	// forge will ever issue. Consuming one moves the watermark past every
+	// comment the task will ever receive, so the owner is never heard again.
+	// The guard lives here rather than at each call site because a run's
+	// trigger is not always a comment any more, and a caller cannot be relied
+	// on to remember that — one already did not.
+	if store.IsPrivateTrigger(commentID) {
+		wm, _, err := r.db.GetWatermark(ctx, sessionID)
+		if err != nil {
+			return store.Watermark{}, err
+		}
+		r.log.DebugContext(ctx, "nothing to consume: the trigger is factory-minted, not a comment",
+			slog.Int64("session_id", sessionID), slog.Int64("trigger_id", commentID))
+		return wm, nil
+	}
 
 	wm, err := r.db.AdvanceWatermark(ctx, sessionID, commentID)
 	if err != nil {
