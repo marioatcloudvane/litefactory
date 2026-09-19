@@ -13,7 +13,7 @@ Evidence:
 
 ## f2
 
-CreationPublicationService.Prepare does the same preparation from a Go value. It has no non-test callers.
+CreationPublicationService.Prepare does the same preparation from a Go value. It still has no non-test callers on the current base (origin/main).
 
 Evidence:
 
@@ -110,3 +110,12 @@ Mode is chosen per issue when its first comment is admitted, by command or class
 Evidence:
 
 - `internal/daemon/mode.go:132`
+
+## f14
+
+NEW since the last pass: on origin/main (38 commits ahead of this branch) the creation wiring in prepareMCP is skipped for graph Research-node invocations (Invocation == InvocationResearchNode). Both the issue-comment service and the creation grant/issues_create_batch registration are gated on that. Graph-run Research is now the normal Research path, so the new tool must be registered for that invocation kind, and the post-run presentation must fit the graph run's result flow. This branch does not yet contain that change; the rebase will touch the same function.
+
+Evidence:
+
+- `internal/turn/mcp_runtime.go:292`
+- `internal/turn/mcp_runtime.go:301`
