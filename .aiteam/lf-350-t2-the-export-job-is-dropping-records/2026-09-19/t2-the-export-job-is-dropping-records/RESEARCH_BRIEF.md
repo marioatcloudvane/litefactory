@@ -2,7 +2,7 @@
 
 ## Request
 
-Investigate issue #350: records reportedly go missing intermittently from an export job after an unspecified batch; explain what is actually happening.
+Explain why the prior report called issue #350 finished, clarify what the export investigation actually established, and preserve the owner's settled answers.
 
 ## Decisions
 
@@ -13,7 +13,7 @@ Investigate issue #350: records reportedly go missing intermittently from an exp
 - **d5** — The interface is the Research report and its brief and technical artifacts, using only authorized read access to supplied source, configuration and sanitized run evidence.
 - **d6** — Any future discrepancy comparison must use the same project, filters, record unit, time boundaries and snapshot source state, with counts alone insufficient to identify lost records.
 - **d7** — Product fixes, eligibility or format changes, new interfaces or storage schemas, monitoring, retries, recovery, production reruns, backfills and unrelated exporter audits are outside this scope.
-- **d8** — Shaping is complete once the owner-selected checklist, snapshot expectation and uncertainty are recorded, while the incident remains unverified until observed evidence explains an affected-run discrepancy.
+- **d8** — Completion applies only to this bounded research report. The reported incident remains unresolved: no root cause, incident reproduction or verified fix exists. The prior statement that the workflow was finished did not establish incident resolution.
 - **d9** — The owner settled q2 by requiring every eligible record present at snapshot capture in a successful export, with later arrivals belonging to the next export.
 - **d10** — The retained evidence checklist is the actual job command/configuration, deployed revision, meaning of the last batch, one affected run's time/timezone and snapshot evidence, filters, exit status/logs, and an expected record ID or count compared with output at the same record unit.
 - **d11** — Validation must distinguish empty selections, duplicate identities, multiple rows per source entity, blank values or coverage rows where applicable, late arrivals, cancellation, preparation limits, writer failure and consumer truncation.
@@ -27,4 +27,4 @@ Investigate issue #350: records reportedly go missing intermittently from an exp
 - **a1** — Meter export remains only a provisional repository candidate because no supplied evidence identifies it as the affected job.
 - **a2** — The unknown job's documented filters and row meaning define eligibility and record granularity under the owner's settled snapshot rule; meter-specific row meaning is not assumed.
 - **a3** — Run reconciliation cannot be performed from the supplied evidence because the job, snapshot source state and affected output are unavailable.
-- **a4** — The owner's reply authorizes completing the checklist deliverable without further questions and does not authorize a product fix.
+- **a4** — The current request is for a clearer explanation of completion and uncertainty. Preserve the owner's prior unidentified-job answer and snapshot rule; do not infer authorization for a fix or repeat settled questions.

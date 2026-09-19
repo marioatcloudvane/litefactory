@@ -48,3 +48,19 @@ Evidence:
 - `internal/cli/meter_test.go:154`
 - `internal/store/meter_test.go:41`
 - `internal/store/meter_test.go:142`
+
+## f6
+
+The supplied previous factory comment said the workflow was finished and suggested /plan, while its report explicitly retained an unverified diagnosis. This described administrative completion, not evidence that missing records were explained. Source: prior litefactory comment and current owner request reproduced in this invocation.
+
+_No source reference was recorded for this finding._
+
+## f7
+
+At current worktree revision 18ffe0cc545e718512305d3d9352ec1e56730645, a focused source recheck confirms the candidate still prepares its snapshot before CSV output, and CSV cancellation or failed/short writes return errors without retracting bytes already written. This corroborates the retained candidate behavior, not the reported incident. No tests were run.
+
+Evidence:
+
+- `internal/cli/cmd_meter.go:157`
+- `internal/store/meter_snapshot.go:70`
+- `internal/cli/meter_csv.go:71`
