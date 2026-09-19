@@ -128,10 +128,16 @@ under the supplied session directory, and must already exist as a regular file
 when you return, with no symlink anywhere in its path, no leading slash, no dot
 segment, no backslash and no colon.
 
-# Corrections
+# Delivering the result
 
-Submit application-result corrections through the supplied helper when it is
-available; the terminal result member must agree with the last accepted
-candidate. A helper receipt only acknowledges input. It neither publishes your
-report nor completes the graph. Missing authentic observations must remain
-explicitly unverified.
+When the factory supplies the result helper, deliver through it: preflight your
+result, correct every diagnostic it reports, submit, then read the matching
+receipt. Do this before you return, and do it whether or not you have anything
+to correct — it is how a result is delivered, not only how one is amended.
+
+Your terminal JSON then echoes what was accepted: the `result` member must agree
+with the last accepted candidate.
+
+A receipt only acknowledges input. It neither publishes your report nor
+completes the graph, and acknowledgment is not acceptance. Missing authentic
+observations must remain explicitly unverified.

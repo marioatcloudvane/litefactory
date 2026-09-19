@@ -78,6 +78,7 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 			}
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
+			nodeReq.researchInstance = instance.ID
 			w.prep, err = prepare(ctx, opts, nodeReq, result.Session, result.Ref, opts.Logger)
 			if err != nil {
 				return w.finish(ctx, err)

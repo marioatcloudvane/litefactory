@@ -36,9 +36,13 @@ type preparation struct {
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
-	repo          store.Repo
-	session       store.Session
-	ref           naming.Ref
+	// researchInstance is the graph instance this run advances, when it is a
+	// graph run. It scopes the application result, so each instance authors
+	// its own rather than revising whatever the task already held.
+	researchInstance int64
+	repo             store.Repo
+	session          store.Session
+	ref              naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -473,20 +477,21 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
-		resumeOnly:  req.Continuation != nil,
-		repo:        repo,
-		session:     session,
-		ref:         ref,
-		author:      author,
-		worktree:    worktree,
-		shaBefore:   shaBefore,
-		segment:     segment,
-		run:         run,
-		runner:      runner,
-		prompt:      prompt,
-		metaPath:    metaPath,
-		promptInput: promptInput,
-		sync:        sync,
+		researchInstance: req.researchInstance,
+		resumeOnly:       req.Continuation != nil,
+		repo:             repo,
+		session:          session,
+		ref:              ref,
+		author:           author,
+		worktree:         worktree,
+		shaBefore:        shaBefore,
+		segment:          segment,
+		run:              run,
+		runner:           runner,
+		prompt:           prompt,
+		metaPath:         metaPath,
+		promptInput:      promptInput,
+		sync:             sync,
 		request: agent.Request{
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,

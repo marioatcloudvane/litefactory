@@ -147,6 +147,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 	if workContext == "" {
 		workContext = prep.ref.String()
 	}
+	workContext = researchWorkContext(workContext, prep.researchInstance)
 	contextValue := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
@@ -363,4 +364,22 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		return nil, nil, errors.New("MCP installed catalog changed")
 	}
 	return p, spec, nil
+}
+
+// researchWorkContext scopes a graph run's application result to its instance.
+//
+// A result is identified by task, mode and work context, so one context per
+// task made the first delivery an authorship and every later one a revision.
+// An agent that returned only a terminal result — which the instructions
+// permitted until today — could therefore deliver once per task and was
+// refused for the life of the task after that: a create met an existing
+// revision, and the contract requires a revision-bound update. A graph
+// instance is one conversation with one outcome, so it authors its own.
+//
+// A run outside a graph keeps the task-wide context it has always had.
+func researchWorkContext(base string, instance int64) string {
+	if instance <= 0 {
+		return base
+	}
+	return fmt.Sprintf("%s#graph-%d", base, instance)
 }
