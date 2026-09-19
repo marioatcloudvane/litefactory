@@ -12,7 +12,7 @@ Evidence:
 
 ## f2
 
-The existing catalog includes communication preflight, submission and receipt; family tools include feedback preflight, issue list/get/comment/create-batch, evidence submission, activity update/get and receipt lookup. Catalog membership is not blanket availability: installed handlers, mode and creation permission control exposure.
+The catalog includes communication preflight, submission and receipt, plus feedback, issue lookup/publication/creation, evidence, activity and receipt families. Installed handlers, mode and permissions control exposure.
 
 Evidence:
 
@@ -20,7 +20,7 @@ Evidence:
 
 ## f3
 
-Issue lookup deliberately returns repository-local summaries. Full bodies and comment history are not the contract of issues_get or issues_list. Extending issue context would touch this projection and its privacy/bounds tests.
+Issue lookup returns repository-local summaries, not full bodies or comment history.
 
 Evidence:
 
@@ -28,7 +28,7 @@ Evidence:
 
 ## f4
 
-Runtime assembly registers activity and conditionally issue handlers. Publication and creation require additional dependencies and gates. Family dispatch binds permissions to an immutable attempt lease and uses durable receipts to avoid repeating effects.
+Runtime assembly conditionally registers handlers. Publication and creation have additional gates; dispatch binds permissions to an immutable attempt lease and uses durable receipts.
 
 Evidence:
 
@@ -36,7 +36,7 @@ Evidence:
 
 ## f5
 
-Claude registration uses private per-attempt stdio configuration and rejects collisions with the reserved litefactory server name.
+Claude uses private per-attempt stdio registration and reserved-name collision checks.
 
 Evidence:
 
@@ -44,7 +44,7 @@ Evidence:
 
 ## f6
 
-Codex registration uses per-invocation configuration overrides, exact enabled_tools, required startup and reserved-name collision checks. Existing provider registration should be reused if adding tools.
+Codex uses per-invocation overrides, exact enabled_tools, required startup and reserved-name collision checks.
 
 Evidence:
 
@@ -52,7 +52,7 @@ Evidence:
 
 ## f7
 
-Existing tests exercise the family catalog over pipe, socket and HTTP fixture paths. Their presence is evidence of test coverage design, not a claim that tests or authentic provider sessions passed in this investigation.
+Existing catalog tests cover pipe, socket and HTTP fixtures. Their existence does not establish passing tests or authentic provider compatibility in this investigation.
 
 Evidence:
 
