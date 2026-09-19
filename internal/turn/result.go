@@ -104,6 +104,9 @@ func (d Disposition) String() string {
 // turn that never ran — are left zero, and the documented dispositions say
 // which those are.
 type Result struct {
+	// ResearchGraph means publication belongs exclusively to explicit graph
+	// activities; daemon completion must not render a whole-turn report.
+	ResearchGraph bool
 	// Repair is positive stopped-execution evidence retained by the daemon.
 	// Call only under the task's retained ownership; it never launches an agent.
 	Repair func(context.Context) (Result, error)

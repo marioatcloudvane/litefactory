@@ -83,9 +83,15 @@ func (r *Reporter) deliver(ctx context.Context, intent store.ReportDelivery, ren
 		return Posted{}, err
 	}
 	if intent.RunID != 0 {
-		intent.Legacy, err = r.db.IsLegacyReportRun(ctx, intent.RunID)
-		if err != nil {
-			return Posted{}, err
+		_, graphErr := r.db.GetGraphComment(ctx, intent.Key)
+		if graphErr != nil && !errors.Is(graphErr, store.ErrNotFound) {
+			return Posted{}, graphErr
+		}
+		if errors.Is(graphErr, store.ErrNotFound) {
+			intent.Legacy, err = r.db.IsLegacyReportRun(ctx, intent.RunID)
+			if err != nil {
+				return Posted{}, err
+			}
 		}
 	}
 	if intent.Legacy {

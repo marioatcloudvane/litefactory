@@ -630,6 +630,8 @@ type ReclaimedLock struct {
 
 // Reconciliation is what [DB.ReconcileOrphans] found and fixed.
 type Reconciliation struct {
+	// At is the existing store timestamp used to settle orphaned work.
+	At time.Time
 	// AbandonedRuns are the runs that were still marked running, now failed.
 	// The caller must post the ordinary failure comment for each and then call
 	// [DB.CompleteRunReport], which is what advances the watermark past their
@@ -668,6 +670,7 @@ func (db *DB) ReconcileOrphans(ctx context.Context, instanceID string) (Reconcil
 		}
 
 		now := nowUTC()
+		result.At = now
 		exitCode := int64(SignalExitCode)
 		for _, orphan := range orphans {
 			durationMS := now.Sub(orphan.StartedAt).Milliseconds()

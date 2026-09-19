@@ -100,6 +100,27 @@ func meterJSON(t MeterTokens) string { b, _ := json.Marshal(t); return string(b)
 
 // StartMeterAttempt pins the entire current catalog atomically before execution.
 func (db *DB) StartMeterAttempt(ctx context.Context, runID int64, codingAgent string) (MeterAttempt, error) {
+	return db.startMeterAttempt(ctx, runID, codingAgent, nil)
+}
+
+// MeterGraphLink binds an actual provider invocation to a reserved graph attempt.
+// Multiple invocations (for example a refused resume and cold fallback) retain
+// independent meter identities against this same logical graph attempt.
+type MeterGraphLink struct {
+	InstanceID, AttemptID int64
+	Node                  string
+}
+
+// StartGraphMeterAttempt validates the authoritative attempt link and pins prices
+// atomically before launching the provider process.
+func (db *DB) StartGraphMeterAttempt(ctx context.Context, runID int64, codingAgent string, link MeterGraphLink) (MeterAttempt, error) {
+	if link.InstanceID < 1 || link.AttemptID < 1 || link.Node == "" {
+		return MeterAttempt{}, errors.New("store: invalid graph meter link")
+	}
+	return db.startMeterAttempt(ctx, runID, codingAgent, &link)
+}
+
+func (db *DB) startMeterAttempt(ctx context.Context, runID int64, codingAgent string, link *MeterGraphLink) (MeterAttempt, error) {
 	if runID <= 0 || meterIdentity(codingAgent) != nil {
 		return MeterAttempt{}, errors.New("store: invalid meter attempt")
 	}
@@ -109,8 +130,23 @@ func (db *DB) StartMeterAttempt(ctx context.Context, runID int64, codingAgent st
 	}
 	a := MeterAttempt{ID: hex.EncodeToString(random[:]), RunID: runID, CodingAgent: codingAgent}
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `INSERT INTO meter_attempts(id,run_id,ordinal,coding_agent,started_at,outcome,collection_status,diagnostic_codes_json,price_revision_id)
+		if link == nil {
+			return tx.QueryRowContext(ctx, `INSERT INTO meter_attempts(id,run_id,ordinal,coding_agent,started_at,outcome,collection_status,diagnostic_codes_json,price_revision_id)
  VALUES(?,?,(SELECT COALESCE(MAX(ordinal),0)+1 FROM meter_attempts WHERE run_id=?),?,?,'running','unknown','[]',(SELECT MAX(id) FROM meter_price_revisions)) RETURNING ordinal,price_revision_id`, a.ID, runID, runID, codingAgent, FormatTime(nowUTC())).Scan(&a.Ordinal, &a.PriceRevisionID)
+		}
+		var graphAttempt *int64
+		if link != nil {
+			var matches bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts n JOIN runs r ON r.id=n.run_id WHERE n.id=? AND n.instance_id=? AND n.node=? AND n.run_id=? AND n.status='running' AND r.status='running' AND r.mode='research' AND r.agent=?)`, link.AttemptID, link.InstanceID, link.Node, runID, codingAgent).Scan(&matches); err != nil {
+				return err
+			}
+			if !matches {
+				return errors.New("store: graph meter attempt binding mismatch")
+			}
+			graphAttempt = &link.AttemptID
+		}
+		return tx.QueryRowContext(ctx, `INSERT INTO meter_attempts(id,run_id,ordinal,coding_agent,started_at,outcome,collection_status,diagnostic_codes_json,price_revision_id,graph_node_attempt_id)
+ VALUES(?,?,(SELECT COALESCE(MAX(ordinal),0)+1 FROM meter_attempts WHERE run_id=?),?,?,'running','unknown','[]',(SELECT MAX(id) FROM meter_price_revisions),?) RETURNING ordinal,price_revision_id`, a.ID, runID, runID, codingAgent, FormatTime(nowUTC()), graphAttempt).Scan(&a.Ordinal, &a.PriceRevisionID)
 	})
 	return a, err
 }

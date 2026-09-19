@@ -1,0 +1,10 @@
+ok  	github.com/cloudvane/litefactory/internal/agent	2.772s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	1.834s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.043s
+ok  	github.com/cloudvane/litefactory/internal/config	2.332s
+ok  	github.com/cloudvane/litefactory/internal/store	16.884s
+ok  	github.com/cloudvane/litefactory/internal/harness	4.186s
+ok  	github.com/cloudvane/litefactory/internal/codex	5.860s
+ok  	github.com/cloudvane/litefactory/internal/turn	106.641s
+ok  	github.com/cloudvane/litefactory/internal/daemon	31.817s
+ok  	github.com/cloudvane/litefactory/internal/cli	3.866s

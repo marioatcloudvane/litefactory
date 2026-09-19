@@ -24,6 +24,15 @@ type MeterFilter struct {
 
 // MeterRow is an exclusive measurement or a non-additive coverage row.
 type MeterRow struct {
+	ExecutionPath                   string      `json:"execution_path"`
+	RunID                           int64       `json:"run_id"`
+	GraphInstanceID                 *int64      `json:"graph_instance_id"`
+	GraphAttemptID                  *int64      `json:"graph_attempt_id"`
+	GraphNode                       string      `json:"graph_node"`
+	Outcome                         string      `json:"outcome"`
+	AgentVersion                    string      `json:"agent_version"`
+	SourceFormat                    string      `json:"source_format"`
+	SourceInvocationID              string      `json:"source_invocation_id"`
 	ProviderReportedZeroCostRefusal bool        `json:"provider_reported_zero_cost_refusal,omitempty"`
 	Project                         string      `json:"project"`
 	Issue                           int64       `json:"issue"`
@@ -88,7 +97,7 @@ func (db *DB) NewMeterSnapshot(ctx context.Context, f MeterFilter, options Meter
 		// concurrent collection invisible until the complete snapshot is captured.
 		predicate, args := meterPredicates(f)
 		// #nosec G202 -- predicate contains constant SQL fragments only; all selectors are bound parameters.
-		query := `SELECT p.forge||':'||p.owner||'/'||p.name,s.issue_number,r.ordinal,a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,r.mode,COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal FROM meter_attempts a JOIN runs r ON r.id=a.run_id JOIN sessions s ON s.id=r.session_id JOIN repos p ON p.id=s.repo_id LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
+		query := `SELECT p.forge||':'||p.owner||'/'||p.name,s.issue_number,r.ordinal,a.id,a.started_at,COALESCE(a.finished_at,''),a.coding_agent,r.mode,COALESCE(i.id,''),COALESCE(i.parent_id,''),m.actual_model,COALESCE(m.model_provenance,''),m.input_uncached_tokens,m.cache_read_tokens,m.cache_write_tokens,m.cache_write_5m_tokens,m.cache_write_1h_tokens,m.output_tokens,m.reasoning_tokens,a.price_revision_id,COALESCE(m.id,0),COALESCE(m.revision,0),a.collection_status,COALESCE(i.collection_status,'unknown'),COALESCE(m.collection_status,'unknown'),a.diagnostic_codes_json,COALESCE(i.diagnostic_codes_json,'[]'),COALESCE(m.diagnostic_codes_json,'[]'),a.provider_reported_zero_cost_refusal,CASE WHEN n.id IS NULL THEN 'legacy' ELSE 'graph' END,r.id,n.instance_id,n.id,COALESCE(n.node,''),a.outcome,COALESCE(a.agent_version,''),COALESCE(a.source_format,''),COALESCE(i.source_invocation_id,'') FROM meter_attempts a LEFT JOIN graph_node_attempts n ON n.id=a.graph_node_attempt_id JOIN runs r ON r.id=a.run_id JOIN sessions s ON s.id=r.session_id JOIN repos p ON p.id=s.repo_id LEFT JOIN meter_invocations i ON i.attempt_id=a.id LEFT JOIN meter_measurements m ON m.attempt_id=i.attempt_id AND m.invocation_id=i.id WHERE ` + predicate + ` ORDER BY p.forge,p.owner,p.name,s.issue_number,r.ordinal,a.started_at,a.id,i.id,m.actual_model LIMIT 256 OFFSET ?`
 		count, total := 0, options.HeaderBytes
 		lastFilteredInvocation := [2]string{}
 		if total < 0 || total > 256<<20 {
@@ -175,7 +184,7 @@ func scanMeterPage(rows *sql.Rows) ([]MeterRow, error) {
 	for rows.Next() {
 		var r MeterRow
 		var a, i, m, ad, id, md string
-		err := rows.Scan(&r.Project, &r.Issue, &r.Run, &r.AttemptID, &r.AttemptStartedAt, &r.AttemptFinishedAt, &r.CodingAgent, &r.Mode, &r.InvocationID, &r.ParentInvocationID, &r.ActualModel, &r.ModelProvenance, &r.Tokens.InputUncached, &r.Tokens.CacheRead, &r.Tokens.CacheWrite, &r.Tokens.CacheWrite5m, &r.Tokens.CacheWrite1h, &r.Tokens.Output, &r.Tokens.Reasoning, &r.PriceRevisionID, &r.MeasurementID, &r.MeasurementRevision, &a, &i, &m, &ad, &id, &md, &r.ProviderReportedZeroCostRefusal)
+		err := rows.Scan(&r.Project, &r.Issue, &r.Run, &r.AttemptID, &r.AttemptStartedAt, &r.AttemptFinishedAt, &r.CodingAgent, &r.Mode, &r.InvocationID, &r.ParentInvocationID, &r.ActualModel, &r.ModelProvenance, &r.Tokens.InputUncached, &r.Tokens.CacheRead, &r.Tokens.CacheWrite, &r.Tokens.CacheWrite5m, &r.Tokens.CacheWrite1h, &r.Tokens.Output, &r.Tokens.Reasoning, &r.PriceRevisionID, &r.MeasurementID, &r.MeasurementRevision, &a, &i, &m, &ad, &id, &md, &r.ProviderReportedZeroCostRefusal, &r.ExecutionPath, &r.RunID, &r.GraphInstanceID, &r.GraphAttemptID, &r.GraphNode, &r.Outcome, &r.AgentVersion, &r.SourceFormat, &r.SourceInvocationID)
 		if err != nil {
 			return nil, err
 		}

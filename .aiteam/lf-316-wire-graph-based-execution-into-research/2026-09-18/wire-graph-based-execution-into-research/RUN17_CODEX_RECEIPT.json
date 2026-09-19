@@ -1,0 +1,19 @@
+{
+  "request_id": "1b334fd9be437b95bcd569271c446e22",
+  "result": {
+    "ID": 204,
+    "RunID": 524,
+    "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+    "RequestID": "1b334fd9be437b95bcd569271c446e22",
+    "RequestHash": "6aa265eb040ce9c3ad27eb18d8883a49207443970522f2293f97dd256835a399",
+    "Story": "research-codex-main",
+    "Revision": "0b9dcd9b90323d8b43cedcfe3aaad99d719039ae995cc5881c03c922b4599b5e",
+    "Sequence": 4,
+    "StoryAttempt": 1,
+    "InputState": "valid",
+    "EngineeringState": "recorded",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

@@ -1112,6 +1112,9 @@ func (d *Daemon) materialise(ctx context.Context, c *candidate, tickAt time.Time
 		issue = fetched
 	}
 	if issue.State == "closed" {
+		if err := d.db.CancelResearchGraphs(ctx, c.session.ID, "issue closed", tickAt); err != nil {
+			return nil, fmt.Errorf("clear graph execution before retiring closed %s#%d backlog: %w", c.forgeRepo, c.session.IssueNumber, err)
+		}
 		if err := d.db.ClearSessionNeedsPoll(ctx, c.session.ID); err != nil {
 			return nil, fmt.Errorf("retire polling backlog for closed %s#%d: %w",
 				c.forgeRepo, c.session.IssueNumber, err)
@@ -1620,7 +1623,7 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	if !command.Spawns() {
 		return d.reply(ctx, t, c, command, log)
 	}
-	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login}
+	trigger := turn.Trigger{CommentID: c.ID, Body: c.Body, Author: c.Author.Login, AuthorID: c.Author.ID}
 	return d.run(ctx, t, trigger, command, log)
 }
 
@@ -1822,6 +1825,13 @@ func (d *Daemon) run(
 		syncOverride = &value
 	}
 
+	// Claim after mode, agent and permission admission can no longer consume
+	// this input as a runless refusal; preparation failure retains the claim.
+	if mode == agent.ModeResearch && t.continuation == nil {
+		if err := d.claimResearchReply(ctx, t, trigger); err != nil {
+			return d.leave(ctx, t, log, "Research owner reply admission failed", err)
+		}
+	}
 	if t.worker != nil {
 		t.worker.executionRequests++
 	}
@@ -1891,6 +1901,12 @@ func (d *Daemon) run(
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	if turnResult.ResearchGraph {
+		// Explicit graph comment activities own publication. Consuming an input
+		// here acknowledges handling only; it never rewrites the run outcome.
+		_, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID)
+		return d.leave(ctx, t, log, "could not consume Research graph input", err)
+	}
 	posted, err := d.reportTurn(ctx, turnResult)
 	if err != nil {
 		return d.leave(ctx, t, log, "the turn could not be reported", d.orphaned(ctx, log, posted, err))

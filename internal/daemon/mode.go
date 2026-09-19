@@ -232,7 +232,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 		return err
 	}
 	if current == selection.Label {
-		return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
+		return d.markResearchModeApplied(ctx, t, selection)
 	}
 	if current != "" && (current != selection.PreviousLabel || selection.PreviousLabelRemoved) {
 		return &modeRefusal{kind: report.ReplyConflictingModeSelection}
@@ -266,7 +266,7 @@ func (d *Daemon) confirmModeSelection(ctx context.Context, t *task, selection st
 	if current != selection.Label {
 		return &modeRefusal{kind: report.ReplyConflictingModeSelection}
 	}
-	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
+	return d.markResearchModeApplied(ctx, t, selection)
 }
 
 func (d *Daemon) currentModeLabel(ctx context.Context, t *task) (string, error) {
@@ -282,4 +282,14 @@ func (d *Daemon) currentModeLabel(ctx context.Context, t *task) (string, error) 
 		return "", nil
 	}
 	return mode.Label(), nil
+}
+
+// A confirmed explicit mode transition cancels graph execution, preserving reports.
+func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection store.ModeSelection) error {
+	if selection.Mode != "research" {
+		if err := d.db.CancelResearchGraphs(ctx, selection.SessionID, "explicit mode switch", t.tickAt); err != nil {
+			return err
+		}
+	}
+	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
 }

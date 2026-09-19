@@ -1,0 +1,192 @@
+{
+  "research-node-results": {
+    "request_id": "8813b946dce2e08340b4a00228488943",
+    "result": {
+      "ID": 217,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "8813b946dce2e08340b4a00228488943",
+      "RequestHash": "cce1a3695f4e68476a31f4f881289458ab28316408d92f54a91c19220cfcea1d",
+      "Story": "research-node-results",
+      "Revision": "e8f7819424297244c5dde17bbe03af44808bafac01aaaa2a44f32dce42c29507",
+      "Sequence": 17,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-claude-main": {
+    "request_id": "1aff04c4f8edf42f5f83c8701e1ee5ad",
+    "result": {
+      "ID": 218,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "1aff04c4f8edf42f5f83c8701e1ee5ad",
+      "RequestHash": "73335a15cbc7c4c732e2bca7c10ad8e8b76b4d24ac983a578f394c3c16772565",
+      "Story": "research-claude-main",
+      "Revision": "63bcd25e5c5473935c73407dfc90b570573117bb2515a623a69c8a89786de644",
+      "Sequence": 18,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-codex-main": {
+    "request_id": "23251ce422f54171713405104de75911",
+    "result": {
+      "ID": 219,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "23251ce422f54171713405104de75911",
+      "RequestHash": "8358dec4b96813f4ee2c46222cc2e58cc269b001415cd5e674a35c46d74c235e",
+      "Story": "research-codex-main",
+      "Revision": "0b9dcd9b90323d8b43cedcfe3aaad99d719039ae995cc5881c03c922b4599b5e",
+      "Sequence": 19,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-control": {
+    "request_id": "ec9db0b7bd17c79299ca838859498f89",
+    "result": {
+      "ID": 220,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "ec9db0b7bd17c79299ca838859498f89",
+      "RequestHash": "29367c311c6cb33babee4ebc2c538d33f56e752336b8afeb5f7cfe93a72b2a7a",
+      "Story": "research-control",
+      "Revision": "8c44bc193cfe2ff52e473299a9116d955828b4a41265b15efb9b17f16cbd395c",
+      "Sequence": 20,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-comments": {
+    "request_id": "2b47f62c61c343c1737e887307a9a112",
+    "result": {
+      "ID": 221,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "2b47f62c61c343c1737e887307a9a112",
+      "RequestHash": "44c8b577efbd7f33ebd4605888b88f89a6cb661ed2a95574de62326d9f05d021",
+      "Story": "research-comments",
+      "Revision": "2aa323d48024059bad120151fed57e52abd48e896484a1d1bcbb60647f9ef4e0",
+      "Sequence": 21,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-usage": {
+    "request_id": "a8c8093112d3654340ce69d23649c6e5",
+    "result": {
+      "ID": 222,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "a8c8093112d3654340ce69d23649c6e5",
+      "RequestHash": "6eea587cb5e2d1cdf9c1a65333084bd3cb8ebac66bb289bcd56c6081623572fe",
+      "Story": "research-usage",
+      "Revision": "0fa09edabcc4337ff1374c1eebd1f5233d891f8ac3275680b10c0c113d87ffa2",
+      "Sequence": 22,
+      "StoryAttempt": 3,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-owner-resume": {
+    "request_id": "d05b48d4bf910845d2ae6265af18a69f",
+    "result": {
+      "ID": 237,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "d05b48d4bf910845d2ae6265af18a69f",
+      "RequestHash": "401041a3b7455532212dfef1b3e6c583d451543f1152f1808a3410b964917ea2",
+      "Story": "research-owner-resume",
+      "Revision": "98b17a352a85337ed69aad900397a8d6c697ed8f6b9ae3c35e4e323d0854ce44",
+      "Sequence": 37,
+      "StoryAttempt": 5,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-recovery": {
+    "request_id": "742ee98262a7124cec3f67ce982d2692",
+    "result": {
+      "ID": 238,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "742ee98262a7124cec3f67ce982d2692",
+      "RequestHash": "d3cb279f1b10ae744d562ffed434cd25f0bcb24e7d76f3696a7f9bcdb5def42d",
+      "Story": "research-recovery",
+      "Revision": "aaac9cafc06f6f1430845a43b3398699e70566705f3e1f6944edadce4d3a2a0f",
+      "Sequence": 38,
+      "StoryAttempt": 7,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-admission-updates": {
+    "request_id": "7a8224ed3fcfe1b4b7adbfed50bd00bd",
+    "result": {
+      "ID": 239,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "7a8224ed3fcfe1b4b7adbfed50bd00bd",
+      "RequestHash": "0b8123c0a3663930396ce2cc9206e2bea3b0eaef16949054ed4cf3e1380bda7e",
+      "Story": "research-admission-updates",
+      "Revision": "f6ee50138cd14e1d66432e986763d03965278db412d2928425f5b6456b2d8171",
+      "Sequence": 39,
+      "StoryAttempt": 5,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  },
+  "research-standard-workflow": {
+    "request_id": "63a622bef9b289f3320bb29c71954a34",
+    "result": {
+      "ID": 242,
+      "RunID": 524,
+      "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+      "RequestID": "63a622bef9b289f3320bb29c71954a34",
+      "RequestHash": "d84ecb0c769d341e45f79d5e9e88e5bb319fee29cc35061c4892c7f803036709",
+      "Story": "research-standard-workflow",
+      "Revision": "64c31431c6d726e68b040340130a9c4cdd3290ae017db246865708cf4905e715",
+      "Sequence": 42,
+      "StoryAttempt": 7,
+      "InputState": "valid",
+      "EngineeringState": "recorded",
+      "AcceptanceState": "not_applicable",
+      "EffectState": "pending",
+      "PlanState": "not_applicable"
+    }
+  }
+}

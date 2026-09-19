@@ -50,6 +50,9 @@ func (p RunPath) Resuming() bool { return p == PathResume }
 // Request is one coding-agent-tool run: which task, which run number, where,
 // and what to say.
 type Request struct {
+	Invocation InvocationKind
+	Graph      *GraphInvocation
+
 	// MCPLaunch prepares additive per-attempt registration; host consumption is separate.
 	MCPLaunch *MCPLaunchSpec
 
@@ -137,6 +140,17 @@ type Request struct {
 // an implementation MAY check more (internal/harness re-checks Permissions
 // against its own configured ceiling, for one).
 func (req Request) Validate() error {
+	if req.Invocation != "" && req.Invocation != InvocationResearchNode {
+		return invalidRequest("unsupported invocation kind")
+	}
+	if req.Invocation == InvocationResearchNode {
+		if req.Mode != "research" || req.Graph == nil || req.Graph.InstanceID < 1 || req.Graph.AttemptID < 1 || req.Graph.RunID < 1 || req.Graph.Node == "" {
+			return invalidRequest("research node requires factory graph identity and Research mode")
+		}
+	} else if req.Graph != nil {
+		return invalidRequest("graph identity requires a graph invocation")
+	}
+
 	if req.MCPLaunch != nil {
 		if err := req.MCPLaunch.Validate(); err != nil {
 			return err

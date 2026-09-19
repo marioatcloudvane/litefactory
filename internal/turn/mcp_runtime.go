@@ -72,6 +72,10 @@ type preparedMCP struct {
 }
 
 func (p *preparedMCP) close(ctx context.Context) error {
+	return errors.Join(p.closeTransports(ctx), p.runtime.Authority.db.EndResultAttempt(ctx, p.service.Binding()))
+}
+
+func (p *preparedMCP) closeTransports(ctx context.Context) error {
 	activityErr := p.endActivity(ctx, p.runtime.Now())
 	var brokerErr, resultBrokerErr error
 	if p.resultBroker != nil {
@@ -80,7 +84,7 @@ func (p *preparedMCP) close(ctx context.Context) error {
 	if p.broker != nil {
 		brokerErr = p.broker.Close()
 	}
-	return errors.Join(activityErr, brokerErr, resultBrokerErr, p.runtime.Authority.db.EndResultAttempt(ctx, p.service.Binding()))
+	return errors.Join(activityErr, brokerErr, resultBrokerErr)
 }
 
 // runMCPBound binds shared completion on every supported actual invocation.
@@ -284,7 +288,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 	}
 	var creation *CreationPublicationService
 	var intent int64
-	if runtime.Comments != nil && (req.Mode == "research" || req.Mode == "implement" || req.Mode == "validate") {
+	if req.Invocation != agent.InvocationResearchNode && runtime.Comments != nil && (req.Mode == "research" || req.Mode == "implement" || req.Mode == "validate") {
 		families.CommentTargets = []int{ref.Issue}
 		comments, err := NewIssuePublicationService(o.DB, receipts, runtime.Comments, runtime.Redactor, families.CommentTargets, runtime.BotID)
 		if err != nil {
@@ -293,7 +297,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		families.Registrations = append(families.Registrations, comments.Registration())
 	}
 	nativeRunner, nativeSupported := prep.runner.(interface{ SupportsMCP() bool })
-	if req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
+	if req.Invocation != agent.InvocationResearchNode && req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
 		var proposal store.CreationProposal
 		intent, proposal, err = runtime.CreationAuthorizer.store.EligibleCreationIntent(ctx, service.Binding().Task)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {

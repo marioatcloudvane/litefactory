@@ -1,0 +1,110 @@
+package store
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
+// GraphCommentIntent retains authored content independently of rendering and
+// delivery. Its source attempt and operation key survive report-only recovery.
+type GraphCommentIntent struct {
+	Key                         string
+	InstanceID, SourceAttemptID int64
+	Node, Kind                  string
+	Candidate                   []byte
+}
+
+// RetainGraphComment saves exact authored bytes and the original publication identity.
+func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) error {
+	if in.Key == "" || in.InstanceID <= 0 || in.SourceAttemptID <= 0 || in.Node == "" || len(in.Candidate) == 0 || len(in.Candidate) > 1<<20 || (in.Kind != "question" && in.Kind != "final" && in.Kind != "failure") {
+		return errors.New("store: invalid graph comment intent")
+	}
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		var instance int64
+		var status string
+		if err := tx.QueryRowContext(ctx, `SELECT instance_id,status FROM graph_node_attempts WHERE id=?`, in.SourceAttemptID).Scan(&instance, &status); err != nil {
+			return err
+		}
+		if instance != in.InstanceID || ((in.Kind == "failure" && status != GraphFailed) || (in.Kind != "failure" && status != GraphSucceeded)) {
+			return errors.New("store: graph comment source mismatch")
+		}
+		var old GraphCommentIntent
+		err := tx.QueryRowContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, in.Key).Scan(&old.Key, &old.InstanceID, &old.SourceAttemptID, &old.Node, &old.Kind, &old.Candidate)
+		if err == nil {
+			if old.InstanceID != in.InstanceID || old.SourceAttemptID != in.SourceAttemptID || old.Node != in.Node || old.Kind != in.Kind || !bytes.Equal(old.Candidate, in.Candidate) {
+				return errors.New("store: graph comment correction requires a new identity")
+			}
+			return nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO graph_comment_intents(delivery_key,instance_id,source_attempt_id,node,kind,candidate) VALUES(?,?,?,?,?,?)`, in.Key, in.InstanceID, in.SourceAttemptID, in.Node, in.Kind, in.Candidate)
+		if err != nil {
+			return err
+		}
+		if in.Kind == "question" {
+			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state) VALUES(?,?,?,'waiting')`, in.Key, in.InstanceID, in.SourceAttemptID); err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `UPDATE graph_instances SET next_due_at=NULL WHERE id=?`, in.InstanceID)
+		}
+		return err
+	})
+}
+
+// GetGraphComment reads the retained candidate for one durable publication identity.
+func (db *DB) GetGraphComment(ctx context.Context, key string) (GraphCommentIntent, error) {
+	var out GraphCommentIntent
+	err := db.sql.QueryRowContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind,candidate FROM graph_comment_intents WHERE delivery_key=?`, key).Scan(&out.Key, &out.InstanceID, &out.SourceAttemptID, &out.Node, &out.Kind, &out.Candidate)
+	if errors.Is(err, sql.ErrNoRows) {
+		return out, ErrNotFound
+	}
+	if err != nil {
+		return out, fmt.Errorf("store: read graph comment: %w", err)
+	}
+	return out, nil
+}
+
+// graphReportDeliveryTx prevents graph publication from finalizing a whole run
+// or consuming owner input. Only a retained, exactly bound graph intent qualifies.
+func graphReportDeliveryTx(ctx context.Context, tx *sql.Tx, d ReportDelivery) (bool, error) {
+	var session, run int64
+	err := tx.QueryRowContext(ctx, `SELECT i.session_id,a.run_id FROM graph_comment_intents c JOIN graph_instances i ON i.id=c.instance_id JOIN graph_node_attempts a ON a.id=c.source_attempt_id WHERE c.delivery_key=?`, d.Key).Scan(&session, &run)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if session != d.SessionID || run != d.RunID {
+		return false, errors.New("store: graph report run/session mismatch")
+	}
+	return true, nil
+}
+
+// ListGraphComments pages operation metadata without allocating candidate bodies.
+// Empty afterKey starts an instance's history. Delivery receipts are read by Key;
+// a missing report delivery means the retained candidate still needs rendering.
+func (db *DB) ListGraphComments(ctx context.Context, instanceID int64, afterKey string, limit int) ([]GraphCommentIntent, error) {
+	if instanceID <= 0 || limit < 1 || limit > 100 {
+		return nil, errors.New("store: invalid graph comment page")
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT delivery_key,instance_id,source_attempt_id,node,kind FROM graph_comment_intents WHERE instance_id=? AND delivery_key>? ORDER BY delivery_key LIMIT ?`, instanceID, afterKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list graph comments: %w", err)
+	}
+	defer rows.Close()
+	var out []GraphCommentIntent
+	for rows.Next() {
+		var item GraphCommentIntent
+		if err := rows.Scan(&item.Key, &item.InstanceID, &item.SourceAttemptID, &item.Node, &item.Kind); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}

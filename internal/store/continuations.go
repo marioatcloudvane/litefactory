@@ -87,7 +87,11 @@ func (db *DB) FinishInterruptedRun(ctx context.Context, runID int64, outcome Run
 		if e != nil {
 			return e
 		}
-		if intent == nil {
+		var graph bool
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts a JOIN graph_instances i ON i.id=a.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE a.run_id=? AND d.mode='research')`, runID).Scan(&graph); e != nil {
+			return e
+		}
+		if intent == nil || graph {
 			return settleContinuationRun(ctx, tx, run)
 		}
 		c := *intent

@@ -15,6 +15,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/store"
+	"github.com/cloudvane/litefactory/internal/teamsource"
 )
 
 // Runner is [agent.Runner], aliased here for continuity with the many call
@@ -80,6 +81,10 @@ type CloneGate interface {
 // Options are the dependencies a turn runs with. The daemon builds one value at
 // startup and reuses it for every turn; nothing here is per-comment.
 type Options struct {
+	// ResearchDriver is the application-owned DOT execution path. An explicit
+	// graph selection fails closed when the driver is unavailable.
+	ResearchDriver   ResearchLaunchDriver
+	ResearchReporter *Reporter
 	// MCP is the optional startup-owned automatic tool runtime.
 	MCP *MCPRuntime
 	// AutoResumeOnSessionLimit is the loaded opt-in for automatic quota recovery.
@@ -304,6 +309,8 @@ type Issue struct {
 
 // Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
+	// AuthorID is the authenticated forge identity, used for graph reply claims.
+	AuthorID int64
 	// CommentID is the forge's id for the comment. It is unique per session on
 	// the runs row, and that uniqueness is the whole crash-replay guarantee
 	// (AC-3.4).
@@ -328,6 +335,9 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
+	researchDefinition *teamsource.ResearchDefinition
+	researchNode       string
+
 	// Continuation is factory-owned saved context, never supplied by a comment.
 	Continuation *store.Continuation
 
@@ -513,9 +523,15 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if _, pending, err := opts.DB.FindPendingReportDelivery(ctx, session.ID, req.Trigger.CommentID); err != nil {
 		return result, err
 	} else if pending {
-		result.Disposition = DispositionPrepareFailed
-		result.Reason = "a prior explanation awaits confirmed delivery; no agent launched"
-		return result, nil
+		graph, graphErr := opts.DB.HasResearchGraphSession(ctx, session.ID)
+		if graphErr != nil {
+			return result, graphErr
+		}
+		if !graph {
+			result.Disposition = DispositionPrepareFailed
+			result.Reason = "a prior explanation awaits confirmed delivery; no agent launched"
+			return result, nil
+		}
 	}
 	logger = logger.With(slog.String("task", ref.String()))
 
@@ -583,12 +599,24 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	// AC-3.4: a comment that already produced a run never produces a second
 	// one. The unique index on (session, trigger comment) would refuse the
 	// insert anyway; looking first is what turns that into a clean no-op.
+	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
+		return result, err
+	}
 	existing, replay, err := opts.DB.GetRunByTrigger(ctx, session.ID, req.Trigger.CommentID)
 	if err != nil {
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
 	}
 	if replay && existing.Status != store.RunPrelaunch {
+		graph, graphErr := opts.DB.HasResearchGraphRun(ctx, existing.ID)
+		if graphErr != nil {
+			return result, graphErr
+		}
+		result.ResearchGraph = graph
 		return replayed(result, existing, logger), nil
+	}
+
+	if graphResult, handled, graphErr := admitResearchExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
 	}
 
 	prep, err := prepare(ctx, opts, req, session, ref, logger)
