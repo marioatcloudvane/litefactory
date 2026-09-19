@@ -20,7 +20,7 @@ import (
 
 func TestResearchNativeBundleFilesystem(t *testing.T) {
 	var registry graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}} {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}} {
 		if err := registry.Register(graphexec.ActionSpec{Name: "lf_research_" + name, Mode: agent.ModeResearch, Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}

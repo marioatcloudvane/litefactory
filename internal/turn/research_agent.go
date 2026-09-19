@@ -119,7 +119,7 @@ func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegist
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success"}}); err != nil {
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)

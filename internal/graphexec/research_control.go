@@ -106,10 +106,40 @@ func ValidateResearchControlGraph(p *Profile) error {
 						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
 					}
 				}
+				// A failure edge is optional. When declared it may only reach a
+				// failure publication that ends the graph: a failed attempt owns
+				// no response, so it can never authorize another agent.
+				if target, declared := Decide(p, node.Name, "failed"); declared {
+					if err := validateResearchFailurePath(p, target); err != nil {
+						faults = append(faults, fmt.Errorf("research agent %q failure path: %w", node.Name, err))
+					}
+				}
 			}
 		}
 	}
 	return errors.Join(faults...)
+}
+
+// validateResearchFailurePath accepts only a failure publication that ends at a
+// terminal. Publication cannot change failed process history, so the failed
+// attempt's own run outcome is untouched by whatever this node reports.
+func validateResearchFailurePath(p *Profile, name string) error {
+	node, ok := p.Node(name)
+	if !ok {
+		return fmt.Errorf("failure path references missing node %q", name)
+	}
+	if node.Action != "lf_research_comment" {
+		return fmt.Errorf("failure path requires a comment activity at %q", name)
+	}
+	if node.Attrs["lf_kind"] != "failure" {
+		return fmt.Errorf("failure path requires a failure comment at %q", name)
+	}
+	next, exists := Decide(p, name, "published")
+	terminal, found := p.Node(next)
+	if !exists || !found || !terminal.Terminal {
+		return fmt.Errorf("research failure comment %q must end at a terminal", name)
+	}
+	return nil
 }
 
 func validateResearchResponsePath(p *Profile, name, response string, visiting map[string]bool) error {

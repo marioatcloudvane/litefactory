@@ -26,7 +26,7 @@ const researchDefaultActive = false
 func ResearchSpecs() (graphexec.Registry, error) {
 	var specs graphexec.Registry
 	for _, spec := range []graphexec.ActionSpec{
-		{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success"}},
+		{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}},
 		graphexec.ResearchControlSpec(graphexec.ResearchLoopAction),
 		graphexec.ResearchControlSpec(graphexec.ResearchIfAction),
 		ResearchCommentSpec(),

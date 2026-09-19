@@ -146,3 +146,50 @@ func TestResearchConditionDoneComparison(t *testing.T) {
 		})
 	}
 }
+
+// A declared failure edge is the only way the owner learns that Research broke.
+// It must reach a failure publication that ends the graph and can never reach
+// an agent: a failed attempt owns no response to authorize one with.
+func TestValidateResearchFailurePathRejectsUnsafeTargets(t *testing.T) {
+	t.Parallel()
+	const base = `digraph {team=builtin;mode=research;profile_version=1;start=loop;
+loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3];
+work [lf_action=lf_research_agent,lf_outcomes="success,failed",lf_limit=3];
+check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3];
+question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+wait [lf_terminal=true];end [lf_terminal=true];stopped [lf_terminal=true];
+loop -> work [on=true];loop -> report [on=false];work -> check [on=success];
+check -> question [on=true];check -> loop [on=false];question -> wait [on=published];report -> end [on=published];
+`
+	for _, tc := range []struct{ name, tail, want string }{
+		{"final comment", "work -> report [on=failed];}", "requires a failure comment"},
+		{"agent target", "work -> work [on=failed];}", "requires a comment activity"},
+		{"missing terminal", `broken [lf_action=lf_research_comment,lf_kind=failure,lf_outcomes=published];
+work -> broken [on=failed];broken -> loop [on=published];}`, "must end at a terminal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p, err := graphexec.ParseProfile([]byte(base + tc.tail))
+			if err != nil {
+				t.Skipf("fixture rejected earlier than the failure path: %v", err)
+			}
+			err = graphexec.ValidateResearchControlGraph(p)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// The optional edge stays optional: a graph without one is unchanged.
+func TestValidateResearchControlGraphAcceptsNoFailureEdge(t *testing.T) {
+	t.Parallel()
+	p, err := graphexec.ParseProfile([]byte(controlDOT))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := graphexec.ValidateResearchControlGraph(p); err != nil {
+		t.Fatalf("graph without a failure edge must stay valid: %v", err)
+	}
+}

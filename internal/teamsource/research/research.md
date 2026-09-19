@@ -47,4 +47,10 @@ Your terminal output must be one strict JSON object with `version` 1, `response`
  - `done` requires a completed result and no questions.
  - Submit application-result corrections through the supplied helper when available; the terminal `result` member must agree with the last accepted candidate.
  - A helper receipt only acknowledges input. It neither publishes your report nor completes the graph.
+ - Every artifact path is worktree-relative, not session-relative, and must sit
+   strictly under the supplied session directory.
+ - Every artifact must already exist as a regular file when you return, with no
+   symlink anywhere in its path.
+ - Artifact paths carry no leading slash, no `..` segment, no `.` segment, no
+   backslash and no colon.
  - Missing authentic observations must remain explicitly unverified.
