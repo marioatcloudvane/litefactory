@@ -53,7 +53,7 @@ loop -> work [on=true];loop -> report [on=false];work -> check [on=success];chec
 			}
 			payload := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Done","payload":{"research":{"request":"Inspect"}}}}`
 			if response == "ask" {
-				payload = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Scope needed","comment":"Findings","questions":[{"id":"Q-1","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect"}}}}`
+				payload = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Scope needed","comment":"Findings","questions":[{"id":"Q-1","audience":"business","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect"}}}}`
 			}
 			if response == "invalid" {
 				payload = `{"version":1,"response":null}`

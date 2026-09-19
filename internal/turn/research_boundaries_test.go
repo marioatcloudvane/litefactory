@@ -166,7 +166,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 				}
 				raw := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}}`
 				if variant == "ask" {
-					raw = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Owner scope needed","comment":"Findings retained.","questions":[{"id":"Q-1","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect boundaries"}}}}`
+					raw = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Owner scope needed","comment":"Findings retained.","questions":[{"id":"Q-1","audience":"business","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect boundaries"}}}}`
 				}
 				if variant == "failed process" {
 					return &agent.RunResult{Outcome: agent.OutcomeTimedOut, Reason: "timeout", ResultText: raw}, nil

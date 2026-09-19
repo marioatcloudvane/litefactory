@@ -16,7 +16,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	f, source, candidate, scope := researchCommentFixture(t, false)
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Owner scope required"
-	candidate.Questions = []agentresult.Question{{ID: "Q-1", Text: "Which boundary?"}}
+	candidate.Questions = []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "Which boundary?"}}
 	raw, err := json.Marshal(agentresult.ResearchNode{Version: 1, Response: "ask", Result: candidate})
 	mustProgress(t, err)
 	_, err = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: source.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: source.StartedAt})

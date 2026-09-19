@@ -18,7 +18,7 @@ func researchNodeFixture(t *testing.T, response string) (ar.ResearchNode, ar.Con
 	}
 	r, ctx := createFixture("research", outcome)
 	if response == "ask" {
-		r.Questions = []ar.Question{{ID: "Q-1", Text: "Which scope should be investigated?"}}
+		r.Questions = []ar.Question{{ID: "Q-1", Audience: "business", Text: "Which scope should be investigated?"}}
 	}
 	node := ar.ResearchNode{Version: 1, Response: response, Result: r}
 	data, err := json.Marshal(node)
@@ -117,7 +117,7 @@ func TestDecodeResearchNode_ApplicationConsistency(t *testing.T) {
 			n.Result.Reason = "Remaining work"
 		}},
 		{"done with question", "done", func(n *ar.ResearchNode, _ *ar.Context) {
-			n.Result.Questions = []ar.Question{{ID: "Q-1", Text: "Scope?"}}
+			n.Result.Questions = []ar.Question{{ID: "Q-1", Audience: "business", Text: "Scope?"}}
 		}},
 		{"done with reason", "done", func(n *ar.ResearchNode, _ *ar.Context) { n.Result.Reason = "Unfinished" }},
 		{"empty comment", "done", func(n *ar.ResearchNode, _ *ar.Context) { n.Result.Comment = "" }},

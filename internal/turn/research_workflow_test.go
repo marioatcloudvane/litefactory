@@ -19,7 +19,7 @@ import (
 )
 
 const researchDoneJSON = `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Investigation finished.","payload":{"research":{"request":"Inspect boundaries"}}}}`
-const researchAskJSON = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Owner scope needed","comment":"Findings retained.","questions":[{"id":"Q-1","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect boundaries"}}}}`
+const researchAskJSON = `{"version":1,"response":"ask","result":{"outcome":"incomplete","reason":"Owner scope needed","comment":"Findings retained.","questions":[{"id":"Q-1","audience":"business","text":"Which boundary?"}],"payload":{"research":{"request":"Inspect boundaries"}}}}`
 
 func assembledResearchFixture(t *testing.T, runner Runner) (*fixture, *fakeForge, Request) {
 	t.Helper()

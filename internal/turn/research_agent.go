@@ -27,7 +27,7 @@ func researchNodeGuidance() string {
 	return researchNodeInstructions + researchNodeHardRules
 }
 
-const researchNodeHardRules = "\nEnvelope: {\"version\":1,\"response\":\"ask\"|\"done\",\"result\":{...}}. ask requires result.outcome incomplete, a nonblank result.reason and a nonempty result.questions; done requires result.outcome completed and no result.questions. Read the research-evidence skill's node-result resource for the worked envelope of each response, the artifact path rules and the correction contract, before you return.\n"
+const researchNodeHardRules = "\nEnvelope: {\"version\":1,\"response\":\"ask\"|\"done\",\"result\":{...}}. ask requires result.outcome incomplete, a nonblank result.reason and a nonempty result.questions, each naming audience business or technical; done requires result.outcome completed and no result.questions. Read the research-evidence skill's node-result resource for the worked envelope of each response, the artifact path rules and the correction contract, before you return.\n"
 
 // ResearchInvocation contains factory-prepared delivery and result authority.
 // Close joins the live helper transports before exit-time result validation.
@@ -163,6 +163,12 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	node, d := agentresult.DecodeResearchNode([]byte(result.ResultText), trusted)
 	if !d.Valid || !d.Complete {
 		return out, resultDiagnosticError(d)
+	}
+	// Before artifact validation, so a result may declare the two documents the
+	// factory just rendered. Writing them here also means an agent never has to
+	// keep Markdown in step with the result it already submitted.
+	if err := WriteResearchBriefs(req.WorktreePath, invocation.SessionPath, node.Result); err != nil {
+		return out, err
 	}
 	if err := ValidateResearchArtifacts(req.WorktreePath, invocation.SessionPath, node.Result.Artifacts); err != nil {
 		return out, err

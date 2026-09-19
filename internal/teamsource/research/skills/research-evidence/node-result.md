@@ -1,14 +1,15 @@
 Your terminal output is one strict JSON object. The worked envelope for each
 response follows; replace the illustrative content, keep the shape.
 
-# How you ask and describe
-
-You always respond in effective sentences. No over-prose. You talk like an army general, straight to the point. Use easy language. Your counterpart is not an expert so explain and keep it simple. No PhD-styled answers, explain like a good professor would explain to their undergraduate students. Give the counterpart options and explain, never assume the user knows it all.
-
 # response ask
 
 An incomplete result, a non-blank reason and at least one question. Give every
 question concrete options and name the one you recommend.
+
+Every question names its audience: `business` for a decision about what we build
+and why, `technical` for a decision about how. The factory groups the published
+questions under that heading, so the right person finds their part and skips the
+rest. Ask each question of whoever can actually settle it.
 
 ```json
 {
@@ -21,6 +22,7 @@ question concrete options and name the one you recommend.
     "questions": [
       {
         "id": "q1",
+        "audience": "business",
         "text": "Ask the material question that blocks completion.",
         "options": [
           {
@@ -105,8 +107,15 @@ A completed result and no questions.
 
 # Artifacts
 
-Every artifact path is worktree-relative, not session-relative, and sits strictly
-under the supplied session directory. Each must already exist as a regular file
+The factory renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from your result
+and writes them into the supplied session directory. You do not write them. Name
+them in artifacts if you want them referenced:
+
+- `<session>/RESEARCH_BRIEF.md` with kind `brief`
+- `<session>/RESEARCH_TECHNICAL.md` with kind `technical`
+
+Any other artifact path is worktree-relative, not session-relative, sits strictly
+under the supplied session directory, and must already exist as a regular file
 when you return, with no symlink anywhere in its path, no leading slash, no dot
 segment, no backslash and no colon.
 

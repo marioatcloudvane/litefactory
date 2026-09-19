@@ -125,7 +125,7 @@ func TestCreate_Questions(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/permission=%t", mode, outcome, permission), func(t *testing.T) {
 					r, c := createFixture(mode, outcome)
 					c.QuestionsAllowed = permission
-					r.Questions = []ar.Question{{ID: "Q-1", Text: "Which option?", Options: []ar.Option{{ID: "O-1", Text: "Proceed"}}, RecommendedOption: "O-1"}}
+					r.Questions = []ar.Question{{ID: "Q-1", Audience: "business", Text: "Which option?", Options: []ar.Option{{ID: "O-1", Text: "Proceed"}}, RecommendedOption: "O-1"}}
 					d := ar.ValidateResult(r, c)
 					want := permission && (mode == "research" || mode == "plan") && outcome != "completed"
 					if d.Valid != want {
@@ -138,7 +138,7 @@ func TestCreate_Questions(t *testing.T) {
 	for _, kind := range []string{"duplicate question", "duplicate option", "missing option", "invalid ID"} {
 		t.Run(kind, func(t *testing.T) {
 			r, c := createFixture("research", "incomplete")
-			r.Questions = []ar.Question{{ID: "Q-1", Text: "Choose", Options: []ar.Option{{ID: "O-1", Text: "Option"}}}}
+			r.Questions = []ar.Question{{ID: "Q-1", Audience: "business", Text: "Choose", Options: []ar.Option{{ID: "O-1", Text: "Option"}}}}
 			switch kind {
 			case "duplicate question":
 				r.Questions = append(r.Questions, r.Questions[0])

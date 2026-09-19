@@ -138,7 +138,7 @@ func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
 	reporter := newReporter(t, f, forge, nil)
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Scope needed"
-	candidate.Questions = []agentresult.Question{{ID: "Q-1", Text: "Which boundary?"}}
+	candidate.Questions = []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "Which boundary?"}}
 	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope)
 	mustProgress(t, err)
 	_, same, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope)

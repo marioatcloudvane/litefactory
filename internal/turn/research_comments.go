@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
@@ -171,21 +172,7 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 		return Posted{}, intent.Key, err
 	}
 	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		var body strings.Builder
-		body.WriteString(candidate.Comment)
-		if candidate.Reason != "" {
-			body.WriteString("\n\n")
-			body.WriteString(candidate.Reason)
-		}
-		for _, q := range candidate.Questions {
-			body.WriteString("\n\n")
-			body.WriteString(q.Text)
-			for _, o := range q.Options {
-				body.WriteString("\n- ")
-				body.WriteString(o.Text)
-			}
-		}
-		return r.renderer.RenderReportDelivery(ctx, body.String(), "")
+		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate), "")
 	})
 	return posted, intent.Key, err
 }
@@ -245,4 +232,70 @@ func latestResearchAgentAttempt(ctx context.Context, opts Options, profile *grap
 		}
 	}
 	return latest, nil
+}
+
+// researchAudienceHeadings names each audience for the reader. The order is
+// fixed rather than taken from the candidate, so the same question set always
+// renders the same way and two people can be told where their part starts.
+var researchAudienceHeadings = []struct{ audience, heading string }{
+	{"business", "Product Owner Questions"},
+	{"technical", "Technical Questions"},
+}
+
+// renderResearchComment lays out an agent's candidate for the owner. The agent
+// supplies prose and a structured question set; the shape is the factory's, so
+// every report reads the same way. Identities and the agent's recommendation are
+// rendered because they are what the owner answers with: without them a reply
+// has to quote text back, and a proposed answer nobody sees is not a proposal.
+func renderResearchComment(candidate agentresult.Result) string {
+	var body strings.Builder
+	body.WriteString(strings.TrimSpace(candidate.Comment))
+	if reason := strings.TrimSpace(candidate.Reason); reason != "" {
+		body.WriteString("\n\n")
+		body.WriteString(reason)
+	}
+	for _, group := range researchAudienceHeadings {
+		questions := make([]agentresult.Question, 0, len(candidate.Questions))
+		for _, q := range candidate.Questions {
+			if q.Audience == group.audience {
+				questions = append(questions, q)
+			}
+		}
+		if len(questions) == 0 {
+			continue
+		}
+		body.WriteString("\n\n# ")
+		body.WriteString(group.heading)
+		for _, q := range questions {
+			body.WriteString("\n\n## ")
+			body.WriteString(q.ID)
+			body.WriteString(" — ")
+			body.WriteString(strings.TrimSpace(q.Text))
+			if len(q.Options) == 0 {
+				continue
+			}
+			body.WriteString("\n\n### Options\n")
+			for _, o := range q.Options {
+				body.WriteString("\n- **")
+				body.WriteString(o.ID)
+				body.WriteString("** — ")
+				body.WriteString(strings.TrimSpace(o.Text))
+				if o.ID == q.RecommendedOption {
+					body.WriteString("  *(recommended)*")
+				}
+			}
+		}
+	}
+	// An audience outside the rendered set would otherwise vanish from the
+	// report while still counting as an asked question. Validation keeps the
+	// set closed; this keeps a future widening from losing one silently.
+	for _, q := range candidate.Questions {
+		if !slices.ContainsFunc(researchAudienceHeadings, func(g struct{ audience, heading string }) bool { return g.audience == q.Audience }) {
+			body.WriteString("\n\n## ")
+			body.WriteString(q.ID)
+			body.WriteString(" — ")
+			body.WriteString(strings.TrimSpace(q.Text))
+		}
+	}
+	return body.String()
 }
