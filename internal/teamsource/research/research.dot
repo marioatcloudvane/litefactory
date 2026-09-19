@@ -1,4 +1,9 @@
-// Two owner-authorized stages, each one reasoning role. Limits persist across replies.
+// Two owner-authorized stages, each one reasoning role. Research is an
+// introduction: one pass, publish, hand on. Shaping is where the work happens,
+// so it cannot advance on its own — the only edge into its final publication
+// needs "approved", which an agent may only return when an owner reply said so.
+// Everything else loops back for another pass.
+// Limits persist across replies.
 // Every loop, branch and comment names the agent whose response it reads, so the
 // shaping stage bootstraps from its own default instead of inheriting
 // clarification's. One run advances one stage: publishing the report parks the
@@ -13,7 +18,9 @@ digraph research {
  report [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="investigate"];
  shapeloop [lf_action="lf_research_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
  shape [lf_action="lf_research_agent", lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
+ settled [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
  shaped [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
+ review [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
  clarify [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
  agreed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="shape"];
  failed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="failure", lf_limit="1"];
@@ -22,7 +29,9 @@ digraph research {
  investigate -> question [lf_on="success"];question -> ask [lf_on="true"];question -> loop [lf_on="false"];
  ask -> waiting [lf_on="published"];report -> shapeloop [lf_on="published"];
  shapeloop -> shape [lf_on="true"];shapeloop -> agreed [lf_on="false"];
- shape -> shaped [lf_on="success"];shaped -> clarify [lf_on="true"];shaped -> shapeloop [lf_on="false"];
+ shape -> settled [lf_on="success"];settled -> agreed [lf_on="true"];settled -> shaped [lf_on="false"];
+ shaped -> clarify [lf_on="true"];shaped -> review [lf_on="false"];
+ review -> waiting [lf_on="published"];
  clarify -> waiting [lf_on="published"];agreed -> complete [lf_on="published"];
  investigate -> failed [lf_on="failed"];shape -> failed [lf_on="failed"];failed -> stopped [lf_on="published"];
 }

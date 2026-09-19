@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/naming"
 )
 
 func questionSet() agentresult.Result {
@@ -24,7 +25,7 @@ func questionSet() agentresult.Result {
 // The layout is the factory's, not the agent's, so the same question set always
 // reaches the owner the same way and each role can find its own part.
 func TestRenderResearchCommentGroupsByAudience(t *testing.T) {
-	body := renderResearchComment(questionSet(), "")
+	body := renderResearchComment(questionSet(), "", nil)
 	business := strings.Index(body, "# Product Owner Questions")
 	technical := strings.Index(body, "# Technical Questions")
 	if business < 0 || technical < 0 {
@@ -42,7 +43,7 @@ func TestRenderResearchCommentGroupsByAudience(t *testing.T) {
 // owner had to quote text back to answer, and a proposed answer nobody sees is
 // not a proposal.
 func TestRenderResearchCommentKeepsIdentitiesAndRecommendation(t *testing.T) {
-	body := renderResearchComment(questionSet(), "")
+	body := renderResearchComment(questionSet(), "", nil)
 	for _, want := range []string{
 		"### Options",
 		"- **`a`** — Pin per instance  \u2705 **recommended**",
@@ -57,7 +58,7 @@ func TestRenderResearchCommentKeepsIdentitiesAndRecommendation(t *testing.T) {
 }
 
 func TestRenderResearchCommentOmitsEmptySections(t *testing.T) {
-	body := renderResearchComment(agentresult.Result{Outcome: "completed", Comment: "Done."}, "")
+	body := renderResearchComment(agentresult.Result{Outcome: "completed", Comment: "Done."}, "", nil)
 	if strings.Contains(body, "#") {
 		t.Errorf("a report without questions must carry no question headings:\n%s", body)
 	}
@@ -65,7 +66,7 @@ func TestRenderResearchCommentOmitsEmptySections(t *testing.T) {
 		t.Errorf("unexpected body: %q", body)
 	}
 	one := agentresult.Result{Comment: "c", Questions: []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "t"}}}
-	if b := renderResearchComment(one, ""); strings.Contains(b, "Technical Questions") || strings.Contains(b, "### Options") {
+	if b := renderResearchComment(one, "", nil); strings.Contains(b, "Technical Questions") || strings.Contains(b, "### Options") {
 		t.Errorf("empty audience or option section rendered:\n%s", b)
 	}
 }
@@ -75,14 +76,14 @@ func TestRenderResearchCommentOmitsEmptySections(t *testing.T) {
 // instance is refused outright rather than queued — so the natural response to
 // a report that reads as complete is the one that breaks it.
 func TestRenderResearchCommentCarriesTheNextStep(t *testing.T) {
-	body := renderResearchComment(questionSet(), "reply on this issue to continue.")
+	body := renderResearchComment(questionSet(), "reply on this issue to continue.", nil)
 	if !strings.Contains(body, "**Next:** reply on this issue to continue.") {
 		t.Errorf("the next step is missing:\n%s", body)
 	}
 	if strings.Index(body, "**Next:**") < strings.Index(body, "# Technical Questions") {
 		t.Error("the next step must come after the questions it follows")
 	}
-	if plain := renderResearchComment(questionSet(), ""); strings.Contains(plain, "**Next:**") {
+	if plain := renderResearchComment(questionSet(), "", nil); strings.Contains(plain, "**Next:**") {
 		t.Error("an unknown next step must render nothing rather than a guess")
 	}
 }
@@ -111,12 +112,12 @@ func TestResearchNextStepFollowsTheGraph(t *testing.T) {
 // The heading over the reason has to match what follows it: the same field
 // explains why an owner is being asked, or why work stopped short.
 func TestRenderResearchCommentNamesTheReasonForWhatItIs(t *testing.T) {
-	asking := renderResearchComment(questionSet(), "")
+	asking := renderResearchComment(questionSet(), "", nil)
 	if !strings.Contains(asking, "## Why I need your input") {
 		t.Errorf("a report with questions must say why the owner is needed:\n%s", asking)
 	}
 	stopped := agentresult.Result{Outcome: "blocked", Comment: "Stopped.", Reason: "The export job could not be located."}
-	body := renderResearchComment(stopped, "")
+	body := renderResearchComment(stopped, "", nil)
 	if !strings.Contains(body, "## Why this is unfinished") || strings.Contains(body, "your input") {
 		t.Errorf("a report without questions must say why it stopped:\n%s", body)
 	}
@@ -126,7 +127,7 @@ func TestRenderResearchCommentNamesTheReasonForWhatItIs(t *testing.T) {
 // runs across the whole report so "the second question" is unambiguous even
 // though the questions are filed under different readers.
 func TestRenderResearchCommentNumbersQuestionsForAReader(t *testing.T) {
-	body := renderResearchComment(questionSet(), "")
+	body := renderResearchComment(questionSet(), "", nil)
 	for _, want := range []string{
 		"## Question 1  \u00b7  Should a declined scope return as a successor issue?",
 		"_Answer with `Q-1`_",
@@ -141,5 +142,71 @@ func TestRenderResearchCommentNumbersQuestionsForAReader(t *testing.T) {
 	}
 	if strings.Contains(body, "## Q-1 —") {
 		t.Error("the bare identifier is no longer the heading")
+	}
+}
+
+// The factory writes two documents and, until now, never said so. A report that
+// describes findings without pointing at the evidence behind it makes the
+// reader take it on faith.
+func TestRenderResearchCommentLinksSavedDocuments(t *testing.T) {
+	ref, err := naming.ParseRef("github:acme/api#7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := researchArtifactLinks(ref, "lf/7-export", []agentresult.Artifact{
+		{ID: "brief", Kind: "brief", Path: ".aiteam/lf-7/RESEARCH_BRIEF.md"},
+		{ID: "tech", Kind: "technical", Path: ".aiteam/lf-7/RESEARCH_TECHNICAL.md"},
+		{ID: "junk", Kind: "notes", Path: ".aiteam/lf-7/NOTES.md"},
+	})
+	if len(links) != 2 {
+		t.Fatalf("want the two known kinds, got %+v", links)
+	}
+	body := renderResearchComment(questionSet(), "reply on this issue to continue.", links)
+	for _, want := range []string{
+		"## Saved documents",
+		"[Research brief](https://github.com/acme/api/blob/lf/7-export/.aiteam/lf-7/RESEARCH_BRIEF.md)",
+		"[Technical findings](https://github.com/acme/api/blob/lf/7-export/.aiteam/lf-7/RESEARCH_TECHNICAL.md)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "## Saved documents") > strings.Index(body, "**Next:**") {
+		t.Error("the documents belong above the next step, not after it")
+	}
+	// Refusing is safe; a wrong link is worse than none.
+	if l := researchArtifactLinks(ref, "", nil); l != nil {
+		t.Error("no branch means no honest link")
+	}
+	if l := researchArtifactLinks(ref, "b", []agentresult.Artifact{{Kind: "brief", Path: "../escape.md"}}); len(l) != 0 {
+		t.Error("an unsafe path must not become a link")
+	}
+	if body := renderResearchComment(questionSet(), "", nil); strings.Contains(body, "Saved documents") {
+		t.Error("no documents means no empty section")
+	}
+}
+
+// The same question activity is a clarification in one place and a review gate
+// in another. Only the edges say which, and the owner needs different options
+// for each: answer me, versus tell me whether this is good enough.
+func TestResearchNextStepDistinguishesAReviewGate(t *testing.T) {
+	p := shapingProfile(t)
+	review := researchNextStep(p, "review", "question")
+	clarify := researchNextStep(p, "clarify", "question")
+	if review == clarify {
+		t.Fatal("a review gate and a clarification must not read the same")
+	}
+	for _, want := range []string{"dig deeper", "`done`", "`/plan`", "Nothing moves on until you say so"} {
+		if !strings.Contains(review, want) {
+			t.Errorf("the review gate is missing %q: %q", want, review)
+		}
+	}
+	if !researchNodeIsReview(p, "review") {
+		t.Error("the review node is not recognised as one")
+	}
+	for _, notReview := range []string{"clarify", "report", "agreed"} {
+		if researchNodeIsReview(p, notReview) {
+			t.Errorf("%q is not a review gate", notReview)
+		}
 	}
 }

@@ -172,7 +172,7 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 		return Posted{}, intent.Key, err
 	}
 	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate, next), "")
+		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate, next, researchArtifactLinks(ref, session.Branch, candidate.Artifacts)), "")
 	})
 	return posted, intent.Key, err
 }
@@ -251,7 +251,44 @@ var researchAudienceHeadings = []struct{ audience, heading string }{
 // every report reads the same way. Identities and the agent's recommendation are
 // rendered because they are what the owner answers with: without them a reply
 // has to quote text back, and a proposed answer nobody sees is not a proposal.
-func renderResearchComment(candidate agentresult.Result, next string) string {
+// artifactLink is one saved document the owner can open.
+type artifactLink struct{ label, path, url string }
+
+var researchArtifactLabels = map[string]string{
+	"brief":     "Research brief",
+	"technical": "Technical findings",
+	"data":      "Reference data",
+}
+
+// researchArtifactLinks points at the branch rather than a commit, which is the
+// opposite of what a run report does and is right for a different reason. A run
+// report is a statement about one run, so it pins to that run's sha. These
+// documents are not: the factory renders them from the retained result and
+// replaces them in place, so the current branch copy is always the one the
+// reader wants. Pinning would hand them a superseded draft.
+//
+// It also could not pin if it wanted to. A comment is published mid-run, before
+// the run saves, so at this moment there is no commit holding these files.
+func researchArtifactLinks(ref naming.Ref, branch string, artifacts []agentresult.Artifact) []artifactLink {
+	if ref.Forge != naming.ForgeGitHub || ref.Validate() != nil || branch == "" {
+		return nil
+	}
+	out := make([]artifactLink, 0, len(artifacts))
+	for _, a := range artifacts {
+		label, known := researchArtifactLabels[a.Kind]
+		if !known || !agentresult.ValidPath(a.Path) {
+			continue
+		}
+		out = append(out, artifactLink{
+			label: label,
+			path:  a.Path,
+			url:   "https://github.com/" + ref.Owner + "/" + ref.Repo + "/blob/" + branch + "/" + a.Path,
+		})
+	}
+	return out
+}
+
+func renderResearchComment(candidate agentresult.Result, next string, artifacts []artifactLink) string {
 	var body strings.Builder
 	body.WriteString(strings.TrimSpace(candidate.Comment))
 	if reason := strings.TrimSpace(candidate.Reason); reason != "" {
@@ -306,6 +343,12 @@ func renderResearchComment(candidate agentresult.Result, next string) string {
 			fmt.Fprintf(&body, "\n\n## Question %d  ·  %s\n\n_Answer with `%s`_", asked, strings.TrimSpace(q.Text), q.ID)
 		}
 	}
+	if len(artifacts) > 0 {
+		body.WriteString("\n\n## Saved documents\n")
+		for _, a := range artifacts {
+			fmt.Fprintf(&body, "\n- [%s](%s)", a.label, a.url)
+		}
+	}
 	if next != "" {
 		body.WriteString("\n\n---\n\n**Next:** ")
 		body.WriteString(next)
@@ -328,6 +371,15 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 	}
 	switch kind {
 	case "question":
+		// A question node is used for two different moments. Asking is the
+		// agent needing an answer; reviewing is the agent showing finished
+		// work and waiting to be told it is good enough. Only the graph knows
+		// which node this is, and the owner needs different options for each.
+		if researchNodeIsReview(profile, node) {
+			return "more questions, want me to dig deeper, or shall we plan this out?\n" +
+				"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan`** to approve it and start planning straight away.\n" +
+				"Nothing moves on until you say so."
+		}
 		return "reply on this issue to continue. Answer by option id, answer in your own words, or say `proceed` to let the factory assume the recommended answers. Nothing runs until you reply."
 	case "failure":
 		return "this attempt failed and no further work is queued. Comment again to start a fresh one."
@@ -342,4 +394,33 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 		return "the next stage starts on its own within a minute or two. No action is needed, and commenting before it finishes will interrupt it."
 	}
 	return ""
+}
+
+// researchNodeIsReview reports whether a question publication is the review
+// gate: the node a stage reaches when the agent believes it is finished, rather
+// than when it needs an answer. The graph says so — a review is what a "done"
+// response reaches, while an "ask" reaches the other one.
+func researchNodeIsReview(profile *graphexec.Profile, node string) bool {
+	if profile == nil {
+		return false
+	}
+	// Only a question can be a review. A final publication is reached by "done"
+	// too, and calling that a review would be true of the walk and false of the
+	// thing.
+	if n, ok := profile.Node(node); !ok || n.Attrs["lf_kind"] != "question" {
+		return false
+	}
+	for _, n := range profile.Nodes {
+		if n.Action != ResearchAgentAction {
+			continue
+		}
+		next, ok := graphexec.Decide(profile, n.Name, "success")
+		if !ok {
+			continue
+		}
+		if reached, err := graphexec.ResearchResponseReaches(profile, next, "done"); err == nil && reached == node {
+			return true
+		}
+	}
+	return false
 }
