@@ -19,7 +19,7 @@ type GraphCommentIntent struct {
 
 // RetainGraphComment saves exact authored bytes and the original publication identity.
 func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) error {
-	if in.Key == "" || in.InstanceID <= 0 || in.SourceAttemptID <= 0 || in.Node == "" || len(in.Candidate) == 0 || len(in.Candidate) > 1<<20 || (in.Kind != "question" && in.Kind != "final" && in.Kind != "failure") {
+	if in.Key == "" || in.InstanceID <= 0 || in.SourceAttemptID <= 0 || in.Node == "" || len(in.Candidate) == 0 || len(in.Candidate) > 1<<20 || !GraphCommentKind(in.Kind) {
 		return errors.New("store: invalid graph comment intent")
 	}
 	return db.withTx(ctx, func(tx *sql.Tx) error {
@@ -46,7 +46,9 @@ func (db *DB) RetainGraphComment(ctx context.Context, in GraphCommentIntent) err
 		if err != nil {
 			return err
 		}
-		if in.Kind == "question" {
+		// A review waits like a question does: the agent has shown finished
+		// work and the stage does not advance until the owner answers.
+		if GraphCommentWaits(in.Kind) {
 			if _, err = tx.ExecContext(ctx, `INSERT INTO graph_owner_waits(delivery_key,instance_id,source_attempt_id,state) VALUES(?,?,?,'waiting')`, in.Key, in.InstanceID, in.SourceAttemptID); err != nil {
 				return err
 			}
@@ -108,3 +110,19 @@ func (db *DB) ListGraphComments(ctx context.Context, instanceID int64, afterKey 
 	}
 	return out, rows.Err()
 }
+
+// GraphCommentKind reports whether a value names a publication this package
+// retains. "question" asks the owner something; "review" shows them finished
+// work and asks whether it stands; "final" reports a settled outcome and
+// "failure" an attempt that produced none.
+func GraphCommentKind(kind string) bool {
+	switch kind {
+	case "question", "review", "final", "failure":
+		return true
+	}
+	return false
+}
+
+// GraphCommentWaits reports whether publishing this kind leaves the instance
+// waiting on the owner rather than carrying on.
+func GraphCommentWaits(kind string) bool { return kind == "question" || kind == "review" }

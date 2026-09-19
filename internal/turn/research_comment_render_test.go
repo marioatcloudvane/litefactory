@@ -187,11 +187,13 @@ func TestRenderResearchCommentLinksSavedDocuments(t *testing.T) {
 }
 
 // The same question activity is a clarification in one place and a review gate
-// in another. Only the edges say which, and the owner needs different options
-// for each: answer me, versus tell me whether this is good enough.
+// in another. They are separate kinds now, because the difference is not only
+// wording: the publication guard demands an incomplete result with questions
+// for one and a completed result without them for the other, and overloading
+// the kind meant a review could never be published at all.
 func TestResearchNextStepDistinguishesAReviewGate(t *testing.T) {
 	p := shapingProfile(t)
-	review := researchNextStep(p, "review", "question")
+	review := researchNextStep(p, "review", "review")
 	clarify := researchNextStep(p, "clarify", "question")
 	if review == clarify {
 		t.Fatal("a review gate and a clarification must not read the same")

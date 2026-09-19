@@ -33,7 +33,7 @@ type ResearchCommentActivity struct {
 
 // ResearchCommentSpec declares the closed publication kinds and confirmed outcome.
 func ResearchCommentSpec() graphexec.ActionSpec {
-	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "final", "failure"}}}}
+	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review", "final", "failure"}}}}
 }
 
 // RegisterResearchComment installs the validated specification and its publication handler.
@@ -130,6 +130,12 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 	case "question":
 		if candidate.Outcome != "incomplete" || len(candidate.Questions) == 0 || source.Status != store.GraphSucceeded {
 			return Posted{}, "", errors.New("question requires successful incomplete Research with questions")
+		}
+	case "review":
+		// The work the agent would otherwise have called done, shown to the
+		// owner before it counts. Complete like a final, but settling nothing.
+		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
+			return Posted{}, "", errors.New("review requires successful completed Research without questions")
 		}
 	case "final":
 		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
@@ -370,16 +376,11 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 		return ""
 	}
 	switch kind {
+	case "review":
+		return "more questions, want me to dig deeper, or shall we plan this out?\n" +
+			"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan`** to approve it and start planning straight away.\n" +
+			"Nothing moves on until you say so."
 	case "question":
-		// A question node is used for two different moments. Asking is the
-		// agent needing an answer; reviewing is the agent showing finished
-		// work and waiting to be told it is good enough. Only the graph knows
-		// which node this is, and the owner needs different options for each.
-		if researchNodeIsReview(profile, node) {
-			return "more questions, want me to dig deeper, or shall we plan this out?\n" +
-				"Reply with what you want changed, say **`done`** to close this out as it stands, or comment **`/plan`** to approve it and start planning straight away.\n" +
-				"Nothing moves on until you say so."
-		}
 		return "reply on this issue to continue. Answer by option id, answer in your own words, or say `proceed` to let the factory assume the recommended answers. Nothing runs until you reply."
 	case "failure":
 		return "this attempt failed and no further work is queued. Comment again to start a fresh one."
@@ -396,31 +397,11 @@ func researchNextStep(profile *graphexec.Profile, node, kind string) string {
 	return ""
 }
 
-// researchNodeIsReview reports whether a question publication is the review
-// gate: the node a stage reaches when the agent believes it is finished, rather
-// than when it needs an answer. The graph says so — a review is what a "done"
-// response reaches, while an "ask" reaches the other one.
+// researchNodeIsReview reports whether a node publishes a review gate.
 func researchNodeIsReview(profile *graphexec.Profile, node string) bool {
 	if profile == nil {
 		return false
 	}
-	// Only a question can be a review. A final publication is reached by "done"
-	// too, and calling that a review would be true of the walk and false of the
-	// thing.
-	if n, ok := profile.Node(node); !ok || n.Attrs["lf_kind"] != "question" {
-		return false
-	}
-	for _, n := range profile.Nodes {
-		if n.Action != ResearchAgentAction {
-			continue
-		}
-		next, ok := graphexec.Decide(profile, n.Name, "success")
-		if !ok {
-			continue
-		}
-		if reached, err := graphexec.ResearchResponseReaches(profile, next, "done"); err == nil && reached == node {
-			return true
-		}
-	}
-	return false
+	n, ok := profile.Node(node)
+	return ok && n.Attrs["lf_kind"] == "review"
 }

@@ -20,7 +20,7 @@ digraph research {
  shape [lf_action="lf_research_agent", lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
  settled [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
  shaped [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
- review [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
+ review [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="review", lf_limit="8", lf_source="shape"];
  clarify [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
  agreed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="shape"];
  failed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="failure", lf_limit="1"];
