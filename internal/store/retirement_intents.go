@@ -57,6 +57,9 @@ func (db *DB) RecordRetirementOutcome(ctx context.Context, id int64, outcome, re
 			return fmt.Errorf("store: read retirement intent: %w", err)
 		}
 		if clearPath {
+			if err := cancelResearchGraphsTx(ctx, tx, sessionID, "worktree retired", nowUTC()); err != nil {
+				return err
+			}
 			if kind != "worktree" {
 				return fmt.Errorf("store: only a worktree outcome can clear its path")
 			}

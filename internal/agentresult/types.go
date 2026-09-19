@@ -73,13 +73,20 @@ type Result struct {
 	Payload        Payload         `json:"payload"`
 }
 
-// Question requests permitted owner input without recording an answer.
+// Question requests permitted owner input without recording an answer. Audience
+// names the role that can settle it, so one report can carry questions for
+// several people and each of them reads only their own.
 type Question struct {
 	ID                string   `json:"id"`
+	Audience          string   `json:"audience"`
 	Text              string   `json:"text"`
 	Options           []Option `json:"options,omitempty"`
 	RecommendedOption string   `json:"recommended_option,omitempty"`
 }
+
+// QuestionAudiences are the roles a question may be directed at. The set is
+// deliberately small; widening it is a schema change, not an agent's choice.
+var QuestionAudiences = []string{"business", "technical"}
 
 // Option is a stable choice within one question.
 type Option struct {
@@ -92,6 +99,15 @@ type Recommendation struct {
 	Text   string `json:"text"`
 	Action string `json:"action,omitempty"`
 }
+
+// ResearchArtifactKinds are the kinds a Research result may declare. Closing the
+// set is what lets a later stage select the document it needs instead of
+// guessing from a file name: "brief" is the owner's document, "technical" is the
+// evidence a claim rests on, and "data" is structured reference material a later
+// stage consumes verbatim — a data model, a schema, an interface table — rather
+// than reads as argument. Other modes keep an open vocabulary; only Research
+// renders its own documents.
+var ResearchArtifactKinds = []string{"brief", "technical", "data"}
 
 // Artifact references a rooted artifact without proving retained bytes.
 type Artifact struct {

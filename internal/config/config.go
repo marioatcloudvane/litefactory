@@ -881,3 +881,24 @@ func strictMCPAutoStart(data []byte) error {
 	}
 	return nil
 }
+
+// decodeResearchExecution keeps repository YAML decoding in the package's sole
+// third-party decoding boundary.
+func decodeResearchExecution(raw []byte) (string, error) {
+	var cfg struct {
+		Execution string `yaml:"execution"`
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
+		return "", fmt.Errorf("research configuration: %w", err)
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return "", errors.New("research configuration requires exactly one document")
+	}
+	if cfg.Execution != "legacy" && cfg.Execution != "graph" {
+		return "", errors.New("research execution must be legacy or graph")
+	}
+	return cfg.Execution, nil
+}

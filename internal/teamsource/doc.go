@@ -10,6 +10,11 @@
 // Skill requires entries may reference another skill ID or a relative Markdown
 // path; resources are relative paths. Every transitive byte affects the digest.
 //
+// CaptureResearch is a separate fixed built-in source: embedded Research DOT,
+// roles and selected skill resources require no catalog lock, installation or
+// source override. NativeResearch renders only the selected node closure for
+// the existing confined temporary bundle writer.
+//
 // This package is the bridge from team metadata to render's pure adapters;
 // neither team nor render needs knowledge of source acquisition.
 package teamsource

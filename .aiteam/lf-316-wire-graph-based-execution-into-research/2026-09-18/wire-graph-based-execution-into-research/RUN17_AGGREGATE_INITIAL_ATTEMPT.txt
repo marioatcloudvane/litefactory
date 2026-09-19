@@ -1,0 +1,68 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.892s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.999s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	3.678s
+ok  	github.com/cloudvane/litefactory/internal/attach	(cached)
+ok  	github.com/cloudvane/litefactory/internal/cli	423.906s
+ok  	github.com/cloudvane/litefactory/internal/codex	59.475s
+--- FAIL: TestValidationHasNoThirdPartyImports (0.02s)
+    purity_test.go:69: research.go imports "gopkg.in/yaml.v3"; only config.go may import "gopkg.in/yaml.v3", and only for decoding
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/config	3.919s
+ok  	github.com/cloudvane/litefactory/internal/confirm	(cached)
+--- FAIL: TestPersistentModeRetirementWithoutClassifiers (7.93s)
+    --- FAIL: TestPersistentModeRetirementWithoutClassifiers/startup/inferred (2.97s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered, repanicked]
+[signal SIGSEGV: segmentation violation code=0x2 addr=0x0 pc=0x101908554]
+
+goroutine 4122 [running]:
+testing.tRunner.func1.2({0x1025715a0, 0x1026a71f0})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2123 +0x2b8
+testing.tRunner.func1()
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2126 +0x438
+panic({0x1025715a0?, 0x1026a71f0?})
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/runtime/panic.go:859 +0x120
+github.com/cloudvane/litefactory/internal/daemon.(*Daemon).Start(0xc0007de008, {0x102633cd0, 0xc00090c640})
+	/Users/mariomh/.lf-worktrees/litefactory/task-316/internal/daemon/daemon.go:525 +0x1a4
+github.com/cloudvane/litefactory/internal/daemon.TestPersistentModeRetirementWithoutClassifiers.func1(0xc00098a008)
+	/Users/mariomh/.lf-worktrees/litefactory/task-316/internal/daemon/mode_retirement_internal_test.go:69 +0xb5c
+testing.tRunner(0xc00098a008, 0xc000010420)
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2193 +0x168
+created by testing.(*T).Run in goroutine 4231
+	/opt/homebrew/Cellar/go/1.27.0/libexec/src/testing/testing.go:2258 +0x7c0
+FAIL	github.com/cloudvane/litefactory/internal/daemon	55.751s
+ok  	github.com/cloudvane/litefactory/internal/git	149.648s
+ok  	github.com/cloudvane/litefactory/internal/github	3.571s
+ok  	github.com/cloudvane/litefactory/internal/gittest	7.996s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	2.803s
+ok  	github.com/cloudvane/litefactory/internal/harness	64.660s
+ok  	github.com/cloudvane/litefactory/internal/identity	24.260s
+ok  	github.com/cloudvane/litefactory/internal/launchd	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logging	(cached)
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meter	2.609s
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/planbrief	3.496s
+ok  	github.com/cloudvane/litefactory/internal/redact	(cached)
+ok  	github.com/cloudvane/litefactory/internal/render	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	32.923s
+ok  	github.com/cloudvane/litefactory/internal/repos	16.241s
+ok  	github.com/cloudvane/litefactory/internal/schedule	(cached)
+ok  	github.com/cloudvane/litefactory/internal/secrets	(cached)
+ok  	github.com/cloudvane/litefactory/internal/store	586.068s
+ok  	github.com/cloudvane/litefactory/internal/submission	4.779s
+ok  	github.com/cloudvane/litefactory/internal/team	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teampublish	9.725s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamsource	34.920s
+--- FAIL: TestExecuteNodeActionHasNoProductionCaller (3.05s)
+    graph_structure_test.go:44: ../turn/research_workflow.go:82:16: production dispatch reference
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	2580.670s
+FAIL
+make: *** [test] Error 1

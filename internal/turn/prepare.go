@@ -135,7 +135,7 @@ func prepare(
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
 	var selected *teamsource.Snapshot
-	if repo.ExternalTeam != "" {
+	if repo.ExternalTeam != "" && req.researchDefinition == nil {
 		selected, err = teamsource.Capture(ctx, opts.Paths, repo.ExternalTeam, req.mode())
 		if err != nil {
 			return nil, failuref(err, "external team instructions could not be captured")
@@ -197,7 +197,12 @@ func prepare(
 	if err != nil {
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
-	deliveryPlan, err := planDelivery(opts, req, selected, worktree.Path())
+	var deliveryPlan *deliveryPlan
+	if req.researchDefinition != nil {
+		deliveryPlan, err = planResearchDelivery(opts, req, req.researchDefinition, req.researchNode)
+	} else {
+		deliveryPlan, err = planDelivery(opts, req, selected, worktree.Path())
+	}
 	if err != nil {
 		return nil, failuref(err, "external team instructions could not be prepared")
 	}
@@ -416,7 +421,7 @@ func prepare(
 	}
 	if delivery != nil {
 		prompt = "Instruction bundle: " + delivery.Root + "\n\n" + prompt
-		if string(req.Agent) == "codex" {
+		if string(req.Agent) == "codex" && req.researchDefinition == nil {
 			prompt = string(deliveryPlan.files["bootstrap.md"]) + "\n" + prompt
 		}
 	}

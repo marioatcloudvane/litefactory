@@ -82,7 +82,11 @@ func (db *DB) EnsureReportDelivery(ctx context.Context, want ReportDelivery) (Re
 			if run.SessionID != want.SessionID || run.TriggerCommentID != want.TriggerID {
 				return errors.New("report delivery run does not match source")
 			}
-			if !run.Reportable() {
+			graph, err := graphReportDeliveryTx(ctx, tx, want)
+			if err != nil {
+				return err
+			}
+			if !run.Reportable() && !graph {
 				return errors.New("report delivery run has not finished")
 			}
 		}
@@ -164,12 +168,17 @@ func (db *DB) CompleteReportDelivery(ctx context.Context, key string) (ReportDel
 		if d.CommentID <= 0 {
 			return errors.New("report delivery has no confirmed receipt")
 		}
-		if d.RunID != 0 {
-			if _, err := completeRunReportTx(ctx, tx, d.RunID, d.CommentID); err != nil {
-				return err
-			}
-		} else {
-			if err := consumeReportSource(ctx, tx, d.SessionID, d.TriggerID); err != nil {
+		graph, err := graphReportDeliveryTx(ctx, tx, d)
+		if err != nil {
+			return err
+		}
+		// Graph publication does not settle the graph or its subprocess.
+		if !graph {
+			if d.RunID != 0 {
+				if _, err := completeRunReportTx(ctx, tx, d.RunID, d.CommentID); err != nil {
+					return err
+				}
+			} else if err := consumeReportSource(ctx, tx, d.SessionID, d.TriggerID); err != nil {
 				return err
 			}
 		}
@@ -187,7 +196,9 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 	if err != nil {
 		return fmt.Errorf("consume story refinement: %w", err)
 	}
-	if !refinement && !IsScheduleTrigger(triggerID) && !IsAutomaticTrigger(triggerID) {
+	// A private trigger is not a comment. Advancing the watermark to one would
+	// push it past every comment the issue will ever receive and swallow them.
+	if !refinement && !IsScheduleTrigger(triggerID) && !IsAutomaticTrigger(triggerID) && !IsGraphTrigger(triggerID) {
 		if _, err := advanceWatermark(ctx, tx, sessionID, triggerID); err != nil {
 			return fmt.Errorf("advance watermark: %w", err)
 		}

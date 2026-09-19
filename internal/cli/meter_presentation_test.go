@@ -117,7 +117,7 @@ func TestMeterPresentationCoverage(t *testing.T) {
 			if err != nil || len(records) != 2 {
 				t.Fatalf("CSV %v %v", records, err)
 			}
-			if len(records[0]) != 26 || (records[1][20] != "") != (tc.status == "complete") || (records[1][21] != "") != tc.measured {
+			if len(records[0]) != 35 || (records[1][20] != "") != (tc.status == "complete") || (records[1][21] != "") != tc.measured {
 				t.Fatalf("CSV values %v", records)
 			}
 			if strings.Contains(records[1][24], "provider_reported_zero_cost_refusal") != tc.refusal {

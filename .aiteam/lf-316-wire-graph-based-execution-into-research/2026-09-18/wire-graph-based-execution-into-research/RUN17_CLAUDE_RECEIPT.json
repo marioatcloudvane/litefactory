@@ -1,0 +1,19 @@
+{
+  "request_id": "0524455b02e074c7a14f5558471035c9",
+  "result": {
+    "ID": 202,
+    "RunID": 524,
+    "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+    "RequestID": "0524455b02e074c7a14f5558471035c9",
+    "RequestHash": "fee44e971da4c3f940782e40f79b6238975df690effd3a46eeabbb24188ad33b",
+    "Story": "research-claude-main",
+    "Revision": "63bcd25e5c5473935c73407dfc90b570573117bb2515a623a69c8a89786de644",
+    "Sequence": 2,
+    "StoryAttempt": 1,
+    "InputState": "valid",
+    "EngineeringState": "recorded",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

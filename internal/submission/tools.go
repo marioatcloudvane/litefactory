@@ -56,9 +56,10 @@ func (p ToolProfile) Allows(name string) bool {
 const sharedResultCreate = `"result":{"type":"object","properties":{` +
 	`"outcome":{"type":"string","enum":["completed","incomplete","blocked"]},` +
 	`"comment":{"type":"string"},"reason":{"type":"string"},` +
-	`"questions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},` +
+	`"questions":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},` +
+	`"audience":{"type":"string","enum":["business","technical"],"description":"The role that can settle this question."},"text":{"type":"string"},` +
 	`"options":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"}},"required":["id","text"]}},` +
-	`"recommended_option":{"type":"string"}},"required":["id","text"]}},` +
+	`"recommended_option":{"type":"string"}},"required":["id","audience","text"]}},` +
 	`"recommendation":{"type":"object"},"artifacts":{"type":"array","items":{"type":"object"}},` +
 	`"payload":{"type":"object","description":"Exactly one mode key: research, plan, implement, validate or spike."}},` +
 	`"required":["outcome","comment","payload"]}`

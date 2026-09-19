@@ -320,6 +320,21 @@ RETURNING `+runColumns,
 		if err == nil && !params.Prelaunch && IsAutomaticTrigger(params.TriggerCommentID) {
 			_, err = tx.ExecContext(ctx, `UPDATE automatic_continuations SET status = 'running', allocated_run_id = ? WHERE id = ?`, run.ID, params.TriggerCommentID-automaticTriggerBase)
 		}
+		// Binding the dispatch to its run here, inside the same transaction that
+		// allocated it, is what makes the open-dispatch index a real guarantee:
+		// a run and the dispatch that authorized it are created together or not
+		// at all.
+		if err == nil && !params.Prelaunch && IsGraphTrigger(params.TriggerCommentID) {
+			id := params.TriggerCommentID - graphTriggerBase
+			var res sql.Result
+			res, err = tx.ExecContext(ctx, `UPDATE graph_dispatches SET status='running', allocated_run_id=? WHERE id=? AND status='reserved' AND allocated_run_id IS NULL`, run.ID, id)
+			if err == nil {
+				var n int64
+				if n, err = res.RowsAffected(); err == nil && n != 1 {
+					err = graphInvariant("graph run must be allocated to its own reserved dispatch")
+				}
+			}
+		}
 		return err
 	})
 	if err != nil {
@@ -630,6 +645,8 @@ type ReclaimedLock struct {
 
 // Reconciliation is what [DB.ReconcileOrphans] found and fixed.
 type Reconciliation struct {
+	// At is the existing store timestamp used to settle orphaned work.
+	At time.Time
 	// AbandonedRuns are the runs that were still marked running, now failed.
 	// The caller must post the ordinary failure comment for each and then call
 	// [DB.CompleteRunReport], which is what advances the watermark past their
@@ -668,6 +685,7 @@ func (db *DB) ReconcileOrphans(ctx context.Context, instanceID string) (Reconcil
 		}
 
 		now := nowUTC()
+		result.At = now
 		exitCode := int64(SignalExitCode)
 		for _, orphan := range orphans {
 			durationMS := now.Sub(orphan.StartedAt).Milliseconds()
