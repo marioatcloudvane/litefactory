@@ -196,9 +196,7 @@ func consumeReportSource(ctx context.Context, tx *sql.Tx, sessionID, triggerID i
 	if err != nil {
 		return fmt.Errorf("consume story refinement: %w", err)
 	}
-	// A private trigger is not a comment. Advancing the watermark to one would
-	// push it past every comment the issue will ever receive and swallow them.
-	if !refinement && !IsScheduleTrigger(triggerID) && !IsAutomaticTrigger(triggerID) && !IsGraphTrigger(triggerID) {
+	if !refinement && !IsPrivateTrigger(triggerID) {
 		if _, err := advanceWatermark(ctx, tx, sessionID, triggerID); err != nil {
 			return fmt.Errorf("advance watermark: %w", err)
 		}
