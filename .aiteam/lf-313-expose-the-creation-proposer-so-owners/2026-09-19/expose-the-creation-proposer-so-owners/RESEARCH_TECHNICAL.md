@@ -4,35 +4,33 @@ _Technical detail behind [the brief](RESEARCH_BRIEF.md). Findings carry the sour
 
 ## f1
 
-The only path that ever calls CreationAuthorizer.RetainProposal (which is what gives a proposal a hash and makes it retained) is PrepareCreationProposal, which only accepts a comment whose author is the configured owner and whose body literally starts with '/mcp-create prepare '. There is no other way to get a proposal hash into existence today.
+Only PrepareCreationProposal ever retains a proposal. It accepts only an owner comment starting with '/mcp-create prepare '.
 
 Evidence:
 
 - `internal/turn/publication_recovery.go:115`
-- `internal/turn/mcp_creation.go:67`
-- `internal/daemon/mcp_creation.go:33`
+- `internal/daemon/mcp_creation.go:46`
 
 ## f2
 
-CreationPublicationService.Prepare does the same preparation (redaction, link markers, hashing, retention) but takes a Go value, not a parsed owner comment. It is documented as 'a factory-only presenter', is exercised by tests, but has zero callers anywhere in the daemon, MCP tool registration, or runtime wiring.
+CreationPublicationService.Prepare does the same preparation from a Go value. It has no non-test callers.
 
 Evidence:
 
-- `internal/turn/creation_publication.go:95`
+- `internal/turn/creation_publication.go:97`
 
 ## f3
 
-The agent's Research-mode MCP toolset never includes anything that originates a proposal. The only creation-related tools are feedback_preflight (kind 'creation', which only re-validates envelope shape and never persists or hashes) and issues_create_batch, and issues_create_batch is added to the agent's tool list only when a live grant already exists, which itself requires an owner-approved intent, which itself requires a hash that already came from an owner-typed comment.
+The agent has no tool that originates a proposal. issues_create_batch is registered only when an owner-approved intent already exists.
 
 Evidence:
 
+- `internal/turn/mcp_runtime.go:296`
 - `internal/turn/mcp_guidance.go:68`
-- `internal/turn/feedback.go:84`
-- `internal/turn/mcp_runtime.go:301`
 
 ## f4
 
-The reply template shown when a proposal is retained reads as written for the factory presenting its own prepared work back to the owner for review ('Retained creation proposal... preparation grants no publication... To approve these exact bytes'), consistent with a factory-originated proposal rather than an owner-authored one.
+The proposal reply template already renders the full envelope plus the approval command. It reads as written for a factory-produced proposal.
 
 Evidence:
 
@@ -40,17 +38,16 @@ Evidence:
 
 ## f5
 
-Only two behavioral differences separate the owner-comment prepare path from the unused agent-side prepare path: the owner path derives its nonce deterministically from the comment (hash of repo+comment id+body) and caps the rendered envelope at 48000 bytes before hashing; the agent-side path uses a random nonce and applies no cap. Everything downstream of prepare (RetainProposal, AdmitOwnerIntent, the 30-minute approval TTL, BindCreationGrant, issues_create_batch dispatch) is shared code already exercised by tests and needs no change to add an agent-facing prepare tool.
+The owner path and Prepare differ only in nonce (deterministic vs random) and the 48000-byte cap. Retention, intent, TTL, grant binding and dispatch are shared.
 
 Evidence:
 
-- `internal/turn/creation_publication.go:97`
 - `internal/turn/publication_recovery.go:152`
-- `internal/store/mcp_creation.go:16`
+- `internal/turn/creation_publication.go:97`
 
 ## f6
 
-CreationArtifact, the type that becomes a created GitHub issue, carries only Title, Body, ParentIssue and LinkIssues. There is no field for a mode label, so an issue created through this path cannot start already labeled with a selected mode; that would need a separate mechanism if it's wanted.
+CreationArtifact has title, body, parent and links only. There is no mode field.
 
 Evidence:
 
@@ -58,8 +55,58 @@ Evidence:
 
 ## f7
 
-No prior work toward this feature exists in the repository. Git history for the touched files shows only earlier, unrelated work (shared-communication-contract adoption, native-host integration); there is no in-progress branch or session artifact scoped to an agent-facing prepare tool.
+No prior work toward an agent-facing prepare tool exists in the repository.
 
 Evidence:
 
-- `internal/turn/creation_publication.go`
+- `internal/turn/creation_publication.go:97`
+
+## f8
+
+The proposal reply renderer refuses any envelope over 48000 bytes and re-checks its hash. A proposal retained above that size could never be shown to the owner, so it could never be approved.
+
+Evidence:
+
+- `internal/report/reporter.go:122`
+
+## f9
+
+Approval handling records intent only and never launches a run. The grant binds on the next Research attempt, and only if that attempt bound after the approval, within 30 minutes of the approval comment.
+
+Evidence:
+
+- `internal/daemon/mcp_creation.go:58`
+- `internal/store/mcp_creation.go:237`
+
+## f10
+
+Retaining a new proposal makes it the current one and bumps the revision. An approval of an older hash is then refused.
+
+Evidence:
+
+- `internal/store/mcp_creation.go:118`
+
+## f11
+
+The tool list is fixed at launch and checked against the provider catalog. A new tool must be registered before the guard is bound.
+
+Evidence:
+
+- `internal/turn/mcp_runtime.go:314`
+- `internal/turn/mcp_runtime.go:358`
+
+## f12
+
+Reply posting is triggered by an owner comment and skips when that trigger is already consumed. A post-run presentation therefore needs its own delivery identity.
+
+Evidence:
+
+- `internal/turn/report.go:624`
+
+## f13
+
+Mode is chosen per issue when its first comment is admitted, by command or classifier. A created issue without a label is therefore already handled.
+
+Evidence:
+
+- `internal/daemon/mode.go:132`
