@@ -1,0 +1,23 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	2.390s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.436s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	4.006s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.840s
+ok  	github.com/cloudvane/litefactory/internal/cli	407.570s
+ok  	github.com/cloudvane/litefactory/internal/codex	60.390s
+ok  	github.com/cloudvane/litefactory/internal/config	7.073s
+ok  	github.com/cloudvane/litefactory/internal/confirm	1.505s
+signal: interrupt
+FAIL	github.com/cloudvane/litefactory/internal/daemon	502.349s
+ok  	github.com/cloudvane/litefactory/internal/git	145.700s
+ok  	github.com/cloudvane/litefactory/internal/github	6.154s
+ok  	github.com/cloudvane/litefactory/internal/gittest	5.421s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	4.946s
+make: *** [test] Error 1
+
+Owned make check session interrupted after approximately 604 seconds at the orchestration gate ceiling; exit 130. Remaining package tests unfinished. This is incomplete aggregate evidence, not a passing suite.

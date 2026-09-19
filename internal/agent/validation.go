@@ -104,7 +104,23 @@ type ValidationFinding struct {
 // The first "{" to the last "}" spans a fenced block and a prose preamble
 // alike, so neither is special-cased. Prose after the object that carries its
 // own brace overshoots and fails to parse, which is what happens today anyway.
-func validationEnvelope(data []byte) []byte {
+func validationEnvelope(data []byte) []byte { return JSONEnvelope(data) }
+
+// JSONEnvelope narrows terminal agent text to the JSON object inside it.
+//
+// An agent asked for one strict JSON object routinely returns one wrapped in a
+// sentence of commentary or a Markdown fence, and reads its instruction as
+// satisfied. Refusing that is not rigour, it is discarding finished work over
+// punctuation: a Research run did exactly this, completing its investigation
+// and durably submitting its result, only for the terminal echo to be rejected
+// for arriving inside ```json.
+//
+// The bound is the caller's, and it belongs on the raw text as well as on what
+// comes out, or a large preamble becomes a way past it. Taking the last brace
+// is a heuristic: prose after the object containing one takes the wrong slice.
+// That trade has been Validate's for some time and is why the decoders that
+// follow still validate everything.
+func JSONEnvelope(data []byte) []byte {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) > 0 && trimmed[0] == '{' {
 		return trimmed

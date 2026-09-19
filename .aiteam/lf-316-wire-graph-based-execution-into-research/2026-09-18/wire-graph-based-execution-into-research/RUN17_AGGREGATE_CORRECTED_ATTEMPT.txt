@@ -1,0 +1,52 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.980s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	(cached)
+ok  	github.com/cloudvane/litefactory/internal/agentresult	(cached)
+ok  	github.com/cloudvane/litefactory/internal/attach	(cached)
+ok  	github.com/cloudvane/litefactory/internal/cli	388.529s
+ok  	github.com/cloudvane/litefactory/internal/codex	55.658s
+ok  	github.com/cloudvane/litefactory/internal/config	7.603s
+ok  	github.com/cloudvane/litefactory/internal/confirm	(cached)
+--- FAIL: TestFailedClosureClearRetainsReadableRetry (2.85s)
+    backlog_closure_test.go:228: clear error not propagated: result={StartedAt:2026-08-24 09:10:10 +0000 UTC Duration:1s Skipped:false RetryAt:0001-01-01 00:00:00 +0000 UTC Repos:1 Issues:0 Dispatched:0 InFlight:0 Deferred:0 Scheduled:0 Cursor:{TasksUpdatedSince:2026-08-24 09:10:07 +0000 UTC LastTickAt:2026-08-24 09:10:08 +0000 UTC}} err=count outstanding scheduled work: store: count pending schedules: context canceled
+--- FAIL: TestClockIsReadOnlyFromTick (0.24s)
+    clock_test.go:168: daemon.go:525:9: Daemon.Start reads d.now; only Daemon.Tick may read the clock — take the instant the tick began (task.tickAt) instead
+    clock_test.go:168: mode.go:290:89: Daemon.markResearchModeApplied reads d.now; only Daemon.Tick may read the clock — take the instant the tick began (task.tickAt) instead
+    clock_test.go:168: research_owner_resume.go:51:266: Daemon.claimResearchReply reads d.now; only Daemon.Tick may read the clock — take the instant the tick began (task.tickAt) instead
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/daemon	957.718s
+ok  	github.com/cloudvane/litefactory/internal/git	(cached)
+ok  	github.com/cloudvane/litefactory/internal/github	(cached)
+ok  	github.com/cloudvane/litefactory/internal/gittest	7.087s
+ok  	github.com/cloudvane/litefactory/internal/graphexec	3.730s
+ok  	github.com/cloudvane/litefactory/internal/harness	62.459s
+ok  	github.com/cloudvane/litefactory/internal/identity	17.881s
+ok  	github.com/cloudvane/litefactory/internal/launchd	(cached)
+ok  	github.com/cloudvane/litefactory/internal/logging	(cached)
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/meter	(cached)
+ok  	github.com/cloudvane/litefactory/internal/naming	(cached)
+ok  	github.com/cloudvane/litefactory/internal/planbrief	(cached)
+ok  	github.com/cloudvane/litefactory/internal/redact	(cached)
+ok  	github.com/cloudvane/litefactory/internal/render	(cached)
+ok  	github.com/cloudvane/litefactory/internal/report	(cached)
+ok  	github.com/cloudvane/litefactory/internal/repos	(cached)
+ok  	github.com/cloudvane/litefactory/internal/schedule	(cached)
+ok  	github.com/cloudvane/litefactory/internal/secrets	(cached)
+ok  	github.com/cloudvane/litefactory/internal/store	560.261s
+ok  	github.com/cloudvane/litefactory/internal/submission	(cached)
+ok  	github.com/cloudvane/litefactory/internal/team	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teampublish	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamremote	(cached)
+ok  	github.com/cloudvane/litefactory/internal/teamsource	(cached)
+--- FAIL: TestExecuteNodeActionHasNoProductionCaller (5.53s)
+    graph_structure_test.go:44: ../turn/research_workflow.go:82:16: production dispatch reference
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	2499.984s
+FAIL
+make: *** [test] Error 1

@@ -25,11 +25,13 @@ import (
 )
 
 type deliveryPlan struct {
-	identity string
-	files    map[string][]byte
-	roles    []string
-	skills   []string
-	evidence agent.DeliveryEvidence
+	mainRole  string
+	mainModel string
+	identity  string
+	files     map[string][]byte
+	roles     []string
+	skills    []string
+	evidence  agent.DeliveryEvidence
 }
 
 // planDelivery reads only the locally installed closure. Network refresh belongs
@@ -244,7 +246,7 @@ func writeDelivery(ctx context.Context, home, relative string, p *deliveryPlan) 
 			return nil, err
 		}
 	}
-	d := agent.Delivery{Root: dir, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
+	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: dir, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
 	return &d, nil
 }
 
@@ -288,7 +290,7 @@ func verifyDelivery(root string, p *deliveryPlan) (*agent.Delivery, error) {
 			return nil, fmt.Errorf("retained bundle was modified: %s", path)
 		}
 	}
-	d := agent.Delivery{Root: root, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
+	d := agent.Delivery{MainRole: p.mainRole, MainModel: p.mainModel, Root: root, Identity: p.identity, Roles: p.roles, Skills: p.skills, Evidence: p.evidence}.Clone()
 	return &d, nil
 }
 

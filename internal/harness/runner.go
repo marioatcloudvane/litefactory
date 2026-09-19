@@ -610,6 +610,10 @@ func (r *Runner) args(req agent.Request) []string {
 			allowedTools = append(allowedTools, "mcp__"+mcpServerName+"__"+name)
 		}
 	}
+	model := r.model
+	if req.Delivery != nil && req.Delivery.MainRole != "" {
+		model = req.Delivery.MainModel
+	}
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
@@ -630,7 +634,7 @@ func (r *Runner) args(req agent.Request) []string {
 		// a sub-agent definition carrying its own `model:` frontmatter still
 		// runs on that, which is what lets a cheap router dispatch to
 		// expensive orchestrators.
-		"--model", r.model,
+		"--model", model,
 		"--autocompact", r.autoCompact,
 	}
 	if len(allowedTools) > 0 {
@@ -641,6 +645,9 @@ func (r *Runner) args(req agent.Request) []string {
 	}
 	if req.Delivery != nil {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
+	}
+	if req.Delivery != nil && req.Delivery.MainRole != "" {
+		args = append(args, "--agent", "litefactory-research:"+req.Delivery.MainRole)
 	}
 	if req.Usage != nil {
 		args = append(args, "--forward-subagent-text")

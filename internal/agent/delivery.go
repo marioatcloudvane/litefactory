@@ -11,11 +11,13 @@ import (
 // Delivery names a retained immutable instruction bundle. It contains no
 // credentials and no vendor-specific representation crossing this boundary.
 type Delivery struct {
-	Root     string           `json:"root"`
-	Identity string           `json:"identity"`
-	Roles    []string         `json:"roles"`
-	Skills   []string         `json:"skills"`
-	Evidence DeliveryEvidence `json:"evidence"`
+	MainRole  string           `json:"main_role,omitempty"`
+	MainModel string           `json:"main_model,omitempty"`
+	Root      string           `json:"root"`
+	Identity  string           `json:"identity"`
+	Roles     []string         `json:"roles"`
+	Skills    []string         `json:"skills"`
+	Evidence  DeliveryEvidence `json:"evidence"`
 }
 
 // DeliveryEvidence stays in per-run metadata even if an operator later removes
@@ -57,6 +59,12 @@ var deliveryRoleName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 func (d Delivery) validate() error {
 	if !filepath.IsAbs(d.Root) || d.Identity == "" {
 		return fmt.Errorf("delivery requires an absolute retained bundle and identity")
+	}
+	if d.MainRole != "" && (!deliveryRoleName.MatchString(d.MainRole) || len(d.Roles) != 1 || d.Roles[0] != d.MainRole || d.MainModel == "") {
+		return fmt.Errorf("main-role delivery requires exactly its selected role and resolved model")
+	}
+	if d.MainRole == "" && d.MainModel != "" {
+		return fmt.Errorf("main model requires a selected main role")
 	}
 	for _, id := range d.Roles {
 		if !deliveryRoleName.MatchString(id) {

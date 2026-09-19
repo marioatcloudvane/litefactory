@@ -80,6 +80,9 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 		p := fmt.Sprintf("$.result.questions[%d]", i)
 		identity(&d, p+".id", q.ID, qs)
 		required(&d, p+".text", q.Text)
+		if !slices.Contains(QuestionAudiences, q.Audience) {
+			add(&d, p+".audience", "enum", "business or technical", "unsupported audience", "Name the role that can settle this question.")
+		}
 		opts := map[string]bool{}
 		for j, o := range q.Options {
 			op := fmt.Sprintf("%s.options[%d]", p, j)
@@ -98,6 +101,9 @@ func ValidateResult(r Result, ctx Context) Diagnostics {
 		p := fmt.Sprintf("$.result.artifacts[%d]", i)
 		identity(&d, p+".id", a.ID, arts)
 		required(&d, p+".kind", a.Kind)
+		if ctx.Mode == "research" && a.Kind != "" && !slices.Contains(ResearchArtifactKinds, a.Kind) {
+			add(&d, p+".kind", "enum", "brief, technical or data", "unsupported artifact kind", "Name the document this is: the owner's brief, its technical evidence, or supporting data.")
+		}
 		if !ValidPath(a.Path) {
 			add(&d, p+".path", "path", "rooted relative path syntax", "unsafe path", "Use a clean relative path within the authorized root.")
 		}

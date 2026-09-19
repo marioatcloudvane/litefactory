@@ -248,6 +248,9 @@ func writeMeter(ctx context.Context, out io.Writer, db *store.DB, f store.MeterF
 			r.Project, r.Issue, r.Run, r.AttemptID, r.InvocationID, r.ParentInvocationID, meterAmount(r.ActualModel), r.ModelProvenance, r.CollectionStatus, r.PricingStatus, r.PriceRevisionID, meterRowCostText(r), meterCount(r.Tokens.InputUncached), meterCount(r.Tokens.CacheRead), meterCount(r.Tokens.CacheWrite), meterCount(r.Tokens.CacheWrite5m), meterCount(r.Tokens.CacheWrite1h), meterCount(r.Tokens.Output), meterCount(r.Tokens.Reasoning), strings.Join(r.Diagnostics, ";")); err != nil {
 			return err
 		}
+		if _, err = fmt.Fprintf(out, "  execution %s run_id %d graph_instance %s graph_attempt %s node %s outcome %s; provider %s version %s source %s; started %s finished %s\n", r.ExecutionPath, r.RunID, meterCount(r.GraphInstanceID), meterCount(r.GraphAttemptID), r.GraphNode, r.Outcome, r.SourceInvocationID, r.AgentVersion, r.SourceFormat, r.AttemptStartedAt, r.AttemptFinishedAt); err != nil {
+			return err
+		}
 	}
 	return ctx.Err()
 }

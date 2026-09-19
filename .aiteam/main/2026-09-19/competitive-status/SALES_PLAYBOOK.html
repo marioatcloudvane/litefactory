@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Litefactory — Sales Battlecards</title><style>
+:root { color-scheme: light; --ink:#182b3a; --muted:#536575; --accent:#006d77; --line:#d7e2e6; }
+* { box-sizing:border-box; }
+body { margin:0; background:#f2f6f7; color:var(--ink); font:16px/1.6 system-ui,-apple-system,sans-serif; }
+aside { position:fixed; inset:0 auto 0 0; width:270px; overflow:auto; padding:26px 20px; background:#142d3b; color:white; }
+aside .brand { font-size:23px; font-weight:800; letter-spacing:-.6px; }
+aside p { font-size:12px; color:#b5ced6; }
+aside a { display:block; color:#d9e9ed; text-decoration:none; font-size:12px; margin:8px 0; }
+aside a.group { margin-top:22px; color:white; font-weight:750; font-size:14px; }
+aside a.sub { padding-left:10px; border-left:1px solid #3c5966; }
+main { margin-left:270px; padding:40px; max-width:1290px; }
+.cover { padding:30px; background:var(--accent); color:white; border-radius:12px; margin-bottom:30px; }
+.cover h1 { color:white; margin:0 0 8px; font-size:36px; }
+.cover p { margin:0; color:#e2f2f3; }
+.document { padding:34px; border:1px solid var(--line); border-radius:12px; background:white; margin-bottom:32px; }
+h1 { font-size:29px; line-height:1.2; margin:0 0 22px; }
+h2 { font-size:23px; line-height:1.3; color:var(--accent); border-top:2px solid var(--line); padding-top:28px; margin-top:36px; scroll-margin-top:20px; }
+h3 { font-size:18px; margin-top:26px; }
+h4 { font-size:16px; }
+p { margin:12px 0; }
+a { color:var(--accent); text-underline-offset:3px; overflow-wrap:anywhere; }
+blockquote { margin:18px 0; border-left:4px solid var(--accent); padding:8px 20px; background:#eef7f7; }
+blockquote p { margin:5px 0; }
+li { margin:7px 0; }
+code { background:#eef2f4; padding:2px 5px; border-radius:3px; font-size: .9em; }
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:14px; margin:20px 0; }
+th { background:#e8f1f3; text-align:left; }
+th,td { border:1px solid var(--line); padding:11px 13px; vertical-align:top; }
+hr { border:0; border-top:1px solid var(--line); margin:30px 0; }
+@media(max-width:850px) { aside {position:relative;width:auto;max-height:260px;} main {margin:0;padding:18px;} .document {padding:22px;} .cover h1{font-size:28px;} }
+@media print { @page {size:A4;margin:16mm;} body{background:white;font-size:10pt;line-height:1.4;} aside{display:none;} main{margin:0;padding:0;max-width:none;} .cover{background:white;color:var(--ink);padding:0;border-radius:0;} .cover h1{color:var(--ink);font-size:25pt;} .cover p{color:var(--muted);} .document{border:0;padding:0;margin:0 0 24pt;} #cards{break-before:page;} h1{font-size:21pt;} h2{font-size:16pt;break-after:avoid;} h3,h4{break-after:avoid;} table{font-size:8.5pt;} tr,blockquote{break-inside:avoid;} a{color:inherit;} .table-wrap{overflow:visible;} }
+</style></head>
+<body><aside><div class="brand">litefactory</div><p>INTERNAL SALES ENABLEMENT<br>19 September 2026</p><a class="group" href="#quick">Call-side reference</a><a class="sub" href="#quick-1">Litefactory sales quick reference</a><a class="sub" href="#quick-2">Lead with the buyer's problem</a><a class="sub" href="#quick-3">Fast responses by alternative</a><a class="sub" href="#quick-4">Four questions that expose fit</a><a class="sub" href="#quick-5">Offer a proof, not a promise</a><a class="sub" href="#quick-6">Lines to avoid</a><a class="sub" href="#quick-7">Handle cost directly</a><a class="sub" href="#quick-8">Current evidence</a><a class="group" href="#cards">Full battlecards</a><a class="sub" href="#cards-1">Litefactory launch battlecards</a><a class="sub" href="#cards-2">The conversation to lead</a><a class="sub" href="#cards-3">Qualify before comparing</a><a class="sub" href="#cards-4">Launch claims: what sales may say</a><a class="sub" href="#cards-5">1. Devin Cloud</a><a class="sub" href="#cards-6">2. Windsurf / Devin Desktop</a><a class="sub" href="#cards-7">3. Factory / Droids</a><a class="sub" href="#cards-8">4. Augment Intent</a><a class="sub" href="#cards-9">5. OpenHands / Agent Canvas</a><a class="sub" href="#cards-10">6. Agent Orchestrator / AO</a><a class="sub" href="#cards-11">7. Kiro</a><a class="sub" href="#cards-12">8. GitHub Spec Kit + an existing coding agent</a><a class="sub" href="#cards-13">9. Fabro</a><a class="sub" href="#cards-14">10. Gas City</a><a class="sub" href="#cards-15">Objections that cut across every competitor</a><a class="sub" href="#cards-16">A pilot that can win—or tell us to walk away</a><a class="sub" href="#cards-17">Evidence index and maintenance</a><a class="sub" href="#cards-18">Change history</a></aside>
+<main><header class="cover"><h1>Sell the development process.</h1><p>Competitive responses, discovery questions, and proof-led evaluation.</p></header><section id="quick" class="document"><h1 id="quick-1">Litefactory sales quick reference</h1>
+<p>Internal enablement • 19 September 2026 • Audience: technical owners and small GitHub-centric teams already using coding agents.</p>
+<h2 id="quick-2">Lead with the buyer's problem</h2>
+<p><strong>15-second pitch:</strong> “Litefactory turns your GitHub issues into a managed development process around your coding agents. It keeps approved scope, verification evidence, acceptance, and delivery approval connected, so you can supervise the work without reconstructing every agent session.”</p>
+<p><strong>Positioning:</strong> An always-on software factory you operate, with a defined development process and explicit delivery decisions. Open-source release is planned; describe it as already open source only once the public license and release exist. Mac is the current deployment focus; Linux and Windows server support are roadmap items.</p>
+<p><strong>First question:</strong> “Where do you spend the most time after giving an agent a task: clarifying scope, coordinating work, checking the result, or recovering when something goes wrong?”</p>
+<p>If none of these is painful, do not manufacture a reason to switch.</p>
+<h2 id="quick-3">Fast responses by alternative</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Buyer says</th>
+<th>Response to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>“We already use Devin.”</strong></td>
+<td>“Devin is a credible managed option. Litefactory is worth evaluating if you want to operate the factory yourself and keep an explicit record from approved GitHub scope to accepted change. Let's compare the coordination work each leaves with you.”</td>
+</tr>
+<tr>
+<td><strong>“We use Windsurf / Devin Desktop.”</strong></td>
+<td>“That can remain your interactive development environment. Litefactory addresses asynchronous issue-to-delivery work. The question is whether that work needs a persistent process outside your editor.”</td>
+</tr>
+<tr>
+<td><strong>“Factory already does this.”</strong></td>
+<td>“There is real overlap. Our proposed fit is a focused GitHub process you operate around your existing agents. Let's compare setup effort, the approval record, and the work required from you on the same feature.”</td>
+</tr>
+<tr>
+<td><strong>“Intent already plans and verifies.”</strong></td>
+<td>“Yes. The useful comparison is what happens when requirements change, execution stops, or the code changes after approval. Let's inspect the retained decisions and evidence in both.”</td>
+</tr>
+<tr>
+<td><strong>“OpenHands is open source and self-hosted.”</strong></td>
+<td>“Those are shared strengths, not a reason to choose us by themselves. Evaluate whether litefactory's packaged acceptance and delivery process saves you configuration and supervision.”</td>
+</tr>
+<tr>
+<td><strong>“Agent Orchestrator already coordinates my agents.”</strong></td>
+<td>“It does, including planning and review tracking. Let's compare how each handles a disputed requirement or stale test result, and how clearly it explains the next action you need to take.”</td>
+</tr>
+<tr>
+<td><strong>“Kiro already guides development.”</strong></td>
+<td>“Yes. If its specification workflow solves your problem, it may be enough. Litefactory is relevant when you also want a persistent GitHub delivery process with separately recorded acceptance and delivery approval.”</td>
+</tr>
+<tr>
+<td><strong>“We can use Spec Kit with our agent.”</strong></td>
+<td>“That is a sensible baseline. Litefactory earns its place only if its running service, recovery, and acceptance records save more effort than operating it adds.”</td>
+</tr>
+<tr>
+<td><strong>“Why not a Fabro workflow?”</strong></td>
+<td>“That may be the right answer if you want to design your own workflow. Compare it with litefactory's existing GitHub process: how much must you configure and maintain to get the same scope, evidence, and delivery rules?”</td>
+</tr>
+<tr>
+<td><strong>“Why not a Gas City pack?”</strong></td>
+<td>“Gas City is a close alternative for owning a configurable factory. The decision is whether a pack or litefactory's ready-made process gives your team the behavior it needs with less ongoing work.”</td>
+</tr>
+</tbody>
+</table></div>
+<p>These responses frame a comparison; they do not assert that competitors lack equivalent capabilities. Use the full battlecards for supporting sources and limits.</p>
+<h2 id="quick-4">Four questions that expose fit</h2>
+<ol>
+<li>“When someone says a feature is done, what evidence do you need before accepting it?”</li>
+<li>“How do you handle a requirement that changes after implementation has started?”</li>
+<li>“Who owns recovery when an agent stops or a report never reaches GitHub?”</li>
+<li>“Do you want to run this service yourself, and do you have a host and someone to maintain it?”</li>
+</ol>
+<p>Strong fit: recurring coordination pain, GitHub as the working surface, willingness to self-host, existing supported agents, and a need for explicit acceptance. Weak fit: mainly autocomplete, occasional simple edits, a requirement for a fully managed service, or an unsupported deployment platform.</p>
+<h2 id="quick-5">Offer a proof, not a promise</h2>
+<p><strong>Close:</strong> “Let's run one representative feature with the same acceptance criteria in both tools. We'll record setup time, your intervention time, what survives an interruption, and whether the final evidence actually supports acceptance. Then you can decide whether the factory is earning its keep.”</p>
+<p>Use an isolated demonstration repository. Include one changed requirement, one interrupted run, one stale check, and one PR-head change after approval. Demonstrate only behaviors verified on the release being evaluated. Preparation or a source-code test is not proof that a live integration worked.</p>
+<h2 id="quick-6">Lines to avoid</h2>
+<ul>
+<li>“Devin requires a desktop or forces execution into its cloud.” It has cloud operation and customer-hosted Outposts.</li>
+<li>“We are the only open-source software factory.” Fabro, Gas City, OpenHands, and AO overlap.</li>
+<li>“Runs everywhere,” “free at any scale,” or “guarantees correct code.” These are not established.</li>
+<li>“We are cheaper/faster/more reliable.” Measure equivalent outcomes first.</li>
+<li>“Approved means secure or compliant.” Approval records do not establish either.</li>
+<li>“Linux/Windows are supported,” “Jira is available,” or “open source today” before those release facts are true.</li>
+</ul>
+<h2 id="quick-7">Handle cost directly</h2>
+<p>“Your cost includes agent usage, the worker host, maintaining the service, and reviewing the results. Our pilot should compare the total cost per accepted change, including your time. We do not have a defensible universal savings figure yet.”</p>
+<h2 id="quick-8">Current evidence</h2>
+<p>Detailed competitor links, launch claim qualifications, and full objection handling are in <a href="SALES_BATTLECARDS.md">SALES_BATTLECARDS.md</a>. Repository evidence and assessment limits are in <a href="RESEARCH_BRIEF.md">RESEARCH_BRIEF.md</a>. Competitor statements were checked on 19 September 2026 and should be refreshed before external reuse.</p>
+</section><section id="cards" class="document"><h1 id="cards-1">Litefactory launch battlecards</h1>
+<p><strong>Internal sales field guide · 19 September 2026</strong></p>
+<p>Audience: technical founders and small GitHub-centered Claude Code/Codex teams. Competitor descriptions reflect official sources checked on 19 September 2026. Reconfirm availability for live deals; superiority is unproven.</p>
+<h2 id="cards-2">The conversation to lead</h2>
+<p><strong>15-second pitch</strong></p>
+<blockquote>
+<p>“Litefactory gives your existing coding agents a repeatable GitHub delivery process. It carries approved requirements through implementation, evidence and acceptance, and asks you to approve the specific change being delivered.”</p>
+</blockquote>
+<p><strong>45-second pitch</strong></p>
+<blockquote>
+<p>“Your coding agent may already write good code. The harder part is keeping a feature coherent across clarification, implementation, review, interruptions and final approval. Litefactory runs that process on a machine you control, with GitHub as the owner’s working surface. Its design preserves the scope you approved, relates checks to the implementation they assessed, and keeps coding completion separate from acceptance and delivery. We’re building it for technical owners who want to delegate more without reconstructing the state from chats. Let’s try one real feature and see whether that reduces your coordination work.”</p>
+</blockquote>
+<p><strong>Ownership line — use only with the correct release status</strong></p>
+<blockquote>
+<p>“Our intended open-source release lets you inspect and change the factory’s policy. Self-hosting puts its orchestration and stored state under your control; model inference still depends on your selected provider.”</p>
+</blockquote>
+<p>After a license is actually published, replace “intended open-source release” with the verified license and release. Do not improvise a support entitlement, license promise or price.</p>
+<p><strong>The three ideas to connect</strong></p>
+<ol>
+<li><strong>Your process has a home.</strong> Decisions and delivery state should survive an individual agent conversation.</li>
+<li><strong>Done has an explicit meaning.</strong> Approved requirements, executed checks, acceptance and merged work are different facts.</li>
+<li><strong>Ownership includes the rules.</strong> Hosting and inspecting the orchestration matters to some buyers; it does not make every model call local or every competitor cloud-dependent.</li>
+</ol>
+<p>Those ideas are category benefits, not exclusive capabilities. The sale is whether litefactory’s particular GitHub process is useful with less setup and less owner work for this buyer.</p>
+<h2 id="cards-3">Qualify before comparing</h2>
+<p>Ask: “Walk me through the last agent-built feature from request to merge. Where did you have to step in?” Then establish:</p>
+<ul>
+<li>Which decisions, approvals or evidence were lost or repeated?</li>
+<li>Is GitHub a comfortable place for owner interaction?</li>
+<li>Are Claude Code/Codex already part of the workflow?</li>
+<li>Who will operate the always-on host and investigate failures?</li>
+<li>Is a repeatable approved process valuable enough to justify another component?</li>
+</ul>
+<p><strong>Good pilot:</strong> a real, bounded feature with some ambiguity, meaningful checks and an owner willing to measure their time. <strong>Poor pilot:</strong> autocomplete, a one-line change, a deadline-critical migration, or a team expecting a managed enterprise platform immediately.</p>
+<p>Walk away or narrow the scope when the buyer needs a full IDE, broad enterprise identity/compliance commitments, supported Linux/Windows deployment now, a managed execution service, or an unsupported agent. A current Mac-based operating model is not evidence of support for every macOS or provider version.</p>
+<h2 id="cards-4">Launch claims: what sales may say</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Claim</th>
+<th>Status and safe wording</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GitHub issue-driven operation, Claude/Codex adapters, worktrees, retained scope/evidence, separate acceptance and exact-head delivery approval</td>
+<td><strong>Observed in repository source at <code>0332ff7</code>.</strong> Say “implemented” or demonstrate the actual release. Source inspection is not current live acceptance, deployment health or a reliability result.</td>
+</tr>
+<tr>
+<td>Always-on operation on an owner-controlled Mac</td>
+<td><strong>Intended current deployment model.</strong> Demonstrate the actual Mac/daemon configuration. The host must remain awake and connected.</td>
+</tr>
+<tr>
+<td>Open source</td>
+<td><strong>Owner’s release intent; published license not verified.</strong> Do not announce a completed release, license terms or perpetual free tier prematurely.</td>
+</tr>
+<tr>
+<td>Linux/Windows servers</td>
+<td><strong>Future intent.</strong> Do not sell as supported today.</td>
+</tr>
+<tr>
+<td>Native specialist-team delivery</td>
+<td><strong>Implemented in source; older README contradicts it.</strong> Resolve docs and demonstrate supported CLI versions before promising the feature.</td>
+</tr>
+<tr>
+<td>Research graph workflow</td>
+<td><strong>Implemented, opt-in; default activation remains disabled pending authentic host evidence.</strong> Do not demonstrate an experimental configuration as the default experience.</td>
+</tr>
+<tr>
+<td>Auditability</td>
+<td><strong>Specific retained identities, scope, evidence and decisions.</strong> Do not turn that into certified compliance, complete independent verification or tamper-proof records.</td>
+</tr>
+<tr>
+<td>Lower cost, better quality, faster delivery</td>
+<td><strong>Unproven comparative outcomes.</strong> Offer a measured pilot. Include model, compute, setup, maintenance and owner time.</td>
+</tr>
+<tr>
+<td>Phone operation</td>
+<td>GitHub interaction can reach a running host. <strong>Not exclusive:</strong> competitors provide cloud/mobile or remote-worker paths.</td>
+</tr>
+<tr>
+<td>Fully local/private/offline</td>
+<td><strong>Not a general claim.</strong> Factory state can be local while code or prompts reach the chosen model provider.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Do not say competitors are “just coding agents,” that Devin requires an IDE or cloud-only workers, that GitHub’s closed checkbox proves acceptance, or that a second AI reviewer guarantees independent judgment.</p>
+<h2 id="cards-5">1. Devin Cloud</h2>
+<p><strong>Their strongest case.</strong> Devin offers a managed autonomous development environment, broad work-tracker/event integrations, review tooling and deterministic multi-agent workflows with recorded results and recovery. Outposts can put workers on customer hardware, including a Mac mini; its agent loop and queue remain in Devin’s cloud. This is a serious full-process competitor.</p>
+<p><strong>Fit / walk away.</strong> Explore litefactory when the buyer values control of orchestration policy and stored state and already has supported coding agents. Prefer Devin when managed environments, integrations and enterprise service outweigh running an owner-operated factory.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Devin already handles the whole task. Why would I run your daemon?”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Devin is a capable alternative. Litefactory gives you a specific GitHub delivery contract around your existing agents: retained approved scope, evidence attributed to that work, separate acceptance, and fresh merge approval when the PR head changes. You operate that process and its state on your hardware. The pilot should show whether those defaults reduce your supervision.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “What needs to remain under your control: worker location, orchestration policy, or both?” “Where do you currently establish that the accepted requirement matches the change being merged?”</p>
+<p><strong>Proof demo.</strong> Approve a bounded story, retain its checks, then change the PR head. Show the resulting approval requirement and stored decisions; compare Devin’s configured behavior without assuming it fails.</p>
+<p><strong>Avoid.</strong> “Devin is cloud-only,” “Devin has no review gates,” or an unsupported seat-cost/savings promise.</p>
+<p><strong>Sources:</strong> <a href="https://docs.devin.ai/work-with-devin/dynamic-workflows">Dynamic Workflows</a>, <a href="https://docs.devin.ai/cloud/outposts/overview">Outposts</a>, <a href="https://docs.devin.ai/essential-guidelines/sdlc-integration">SDLC guidance</a>, <a href="https://docs.devin.ai/product-guides/automations">Automations</a>.</p>
+<h2 id="cards-6">2. Windsurf / Devin Desktop</h2>
+<p><strong>Their strongest case.</strong> The official Windsurf editor page now leads to Devin Desktop: an agent command center with the full IDE, session management and agent coordination. It is a strong choice for developers who want to inspect, edit and steer work interactively. It shares a vendor ecosystem with Devin Cloud; treat this as a different buying use case, not an independent company.</p>
+<p><strong>Fit / walk away.</strong> Litefactory fits an owner seeking asynchronous GitHub-based delivery on a continuously running host. Desktop fits a developer whose bottleneck is working inside code and managing interactive agent sessions. They can coexist; there is no need to replace a favored editor.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“I already manage my agents in Windsurf. This looks like another interface.”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Keep the editor you like. Litefactory carries approved work through a GitHub delivery process on your running host. The requirement and its evidence survive the session, and coding completion does not silently become acceptance or merge permission. It is useful when you want to delegate a feature without repeatedly reconstructing its state in the editor.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Do you need better interactive coding, or less supervision between sessions?” “When you return tomorrow, how do you find the outstanding decision and its supporting evidence?”</p>
+<p><strong>Proof demo.</strong> Submit a GitHub instruction, leave the worker running, and later inspect the resulting scope/evidence/next action from GitHub. Use the actual current product surface; do not imply a dashboard that does not exist.</p>
+<p><strong>Avoid.</strong> “Windsurf is only autocomplete” or “Desktop users must leave their laptop on for all cloud work.”</p>
+<p><strong>Sources:</strong> <a href="https://devin.ai/desktop">Devin Desktop / Windsurf</a>, <a href="https://devin.ai/cli">Devin CLI and cloud handoff</a>, <a href="https://docs.devin.ai/integrations/slack">Slack operation</a>.</p>
+<h2 id="cards-7">3. Factory / Droids</h2>
+<p><strong>Their strongest case.</strong> Factory explicitly sells software-factory coverage across the development lifecycle. Its mission documentation covers scoping, user questions, iterative planning, milestones and validation workers. Its deployment documentation includes cloud, hybrid and air-gapped options. Model routing and deployment flexibility are central claims, so neither is an exclusive litefactory advantage.</p>
+<p><strong>Fit / walk away.</strong> Consider litefactory for a narrow GitHub-centered process that a small technical team wants to inspect and operate. Choose Factory when its broader platform and supported deployment/services solve the buyer’s problem. Do not assume the larger product costs more overall or is harder to adopt.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Factory already calls itself a software factory and has much more behind it.”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Factory is a direct competitor. Litefactory focuses on a small-team GitHub process: freeze approved requirements, retain checks against the implementation, assess acceptance separately, and approve the exact PR head for delivery. You keep your supported coding agents and operate the factory yourself. That focused method is what we sell; broader platform capability is Factory’s case.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Which platform capabilities would you actually use in the next three months?” “Do you want a configurable platform or a particular delivery method ready to adopt?”</p>
+<p><strong>Proof demo.</strong> Run the same approved feature and a scope-change interruption through both products. Compare configuration work, owner decisions and evidence available at delivery—not model marketing or number of stages.</p>
+<p><strong>Avoid.</strong> “Factory cannot self-host,” “Factory has no planning,” or treating litefactory’s intended open-source release as already published.</p>
+<p><strong>Sources:</strong> <a href="https://factory.com/product/software-factory">Software Factory</a>, <a href="https://docs.factory.ai/missions/planning">Mission planning</a>, <a href="https://docs.factory.ai/enterprise/network-and-deployment">Deployment</a>.</p>
+<h2 id="cards-8">4. Augment Intent</h2>
+<p><strong>Their strongest case.</strong> Intent’s official walkthrough describes a living specification, coordinator/implementor/verifier roles, parallel worktrees and three human checkpoints: specification, task breakdown and final diffs. It directly competes on guiding development through a process, rather than merely producing code. Its walkthrough was updated on 17 September 2026.</p>
+<p><strong>Fit / walk away.</strong> Explore litefactory when the buyer wants the process centered on GitHub and an owner-operated host, with its particular durable acceptance and delivery rules. Intent is compelling for someone who wants a visual, guided specification-to-merge experience. We have not established that its policy cannot be configured to match ours.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Intent already does planning, implementation and verification. What is different?”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“The stages overlap. Litefactory’s concrete contract is that approved scope stays authoritative, checks identify the implementation they assessed, and acceptance and delivery remain separate decisions. A changed PR head needs fresh merge approval. We put that method into your GitHub workflow on your host. The choice is which operating experience better fits your team.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Which decisions do you want to make in an interactive workspace versus asynchronously in GitHub?” “What happens to your approved specification when an implementation session discovers new scope?”</p>
+<p><strong>Proof demo.</strong> Approve one requirement, propose a mid-run change, and inspect how each tool preserves the old decision and admits the new scope. Measure the owner’s effort to understand the difference.</p>
+<p><strong>Avoid.</strong> “Intent is only an IDE” or “a separate verifier proves the result is correct.”</p>
+<p><strong>Source:</strong> <a href="https://www.augmentcode.com/guides/intent-walkthrough-prompt-to-merge">Official Intent walkthrough</a>.</p>
+<h2 id="cards-9">5. OpenHands / Agent Canvas</h2>
+<p><strong>Their strongest case.</strong> OpenHands combines an MIT-licensed core with Canvas, a visual environment for existing agents, isolated worktrees and automation. Canvas documents local, remote-VM and cloud backends, including self-managed workers that continue while the laptop is off. Claude Code, Codex and other ACP harnesses are documented. Enterprise services and features are separate from the free open-source offering.</p>
+<p><strong>Fit / walk away.</strong> Litefactory may fit a buyer who wants its specific GitHub delivery method instead of assembling a workflow around a more general agent environment. OpenHands may fit better when broad harness integration, backend choice and visual supervision are primary. Open ownership alone is not a reason to switch.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“OpenHands is already open source, self-hosted and supports my agents.”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Yes—ownership and agent choice overlap. Litefactory supplies a particular delivery method: it retains approved requirements, attributes checks to the work assessed, and requires a separate acceptance decision before controlled delivery. That is the process you adopt rather than design from scratch. OpenHands may already meet your needs; compare the maintained defaults, not the open-source label.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Are you primarily choosing an agent workspace or adopting a standard delivery policy?” “Which parts of your acceptance process do people enforce manually today?”</p>
+<p><strong>Proof demo.</strong> Use incomplete or stale evidence in a disposable feature and show how each configured system handles acceptance and the next owner action. Record required custom workflow work.</p>
+<p><strong>Avoid.</strong> “OpenHands self-hosting always requires enterprise,” “all enterprise features are MIT/free,” or “only we let you keep your agents.”</p>
+<p><strong>Sources:</strong> <a href="https://www.openhands.dev/product/canvas">Canvas</a>, <a href="https://www.openhands.dev/pricing">Pricing and editions</a>, <a href="https://raw.githubusercontent.com/OpenHands/OpenHands/main/LICENSE">MIT license</a>.</p>
+<h2 id="cards-10">6. Agent Orchestrator / AO</h2>
+<p><strong>Their strongest case.</strong> AO’s former Composio repository now redirects to Untrivial-ai. The current Apache-2.0 project includes a persistent project planner, worker delegation, isolated workspaces, a local daemon, live Kanban and CI/review feedback across many coding harnesses. It preserves planning context and is much closer to a project coordinator than a basic worktree script.</p>
+<p><strong>Fit / walk away.</strong> Litefactory may suit an owner who prefers GitHub as the operating surface and wants its particular acceptance contract. AO is attractive for broad agent choice and direct visual supervision of parallel work. Both occupy the orchestration layer; do not sell a false agent-versus-factory contrast.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“AO already plans, delegates and follows everything to merge. Why rebuild that?”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“AO is a strong supervisory workspace. Litefactory gives you a defined GitHub acceptance process: engineering completion, acceptance and remote delivery are distinct states, each with retained facts. A successful agent message or a pending publication is not treated as completed delivery. Our case is that this default method makes your owner decisions clearer.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Is your main pain supervising many workers, or deciding whether a feature is actually accepted?” “How much custom coordination code or policy do you want to own?”</p>
+<p><strong>Proof demo.</strong> Take one feature from approved scope through failed checks and rework. Compare how quickly an owner can identify the current authoritative state and remaining decision.</p>
+<p><strong>Avoid.</strong> Describing AO using its old ownership/name without qualification, calling it just a scheduler, or claiming exclusive local durable orchestration.</p>
+<p><strong>Sources:</strong> <a href="https://github.com/Untrivial-ai/agent-orchestrator">Current AO repository</a>, <a href="https://raw.githubusercontent.com/Untrivial-ai/agent-orchestrator/main/LICENSE">Apache-2.0 license</a>.</p>
+<h2 id="cards-11">7. Kiro</h2>
+<p><strong>Their strongest case.</strong> Kiro provides specification-driven development: requirements or bug analysis, design, tasks and acceptance criteria. Its documentation includes dependency-aware parallel execution and a lighter Quick Spec path without approval gates. It is a credible answer to “guide me through development,” including different levels of ceremony for different work.</p>
+<p><strong>Fit / walk away.</strong> Litefactory fits when a buyer wants to keep supported existing coding agents and make the GitHub delivery process persistent on an owner-operated host. Kiro may be sufficient when better requirements/design/task guidance is the main problem. Do not assume an interactive-spec product lacks asynchronous or broader product capabilities.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Kiro already turns an idea into requirements, a design and tasks.”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Kiro provides real specification guidance. Litefactory carries approved requirements into an ongoing GitHub delivery process: it retains scope, attributes executed checks to the implementation and separates acceptance from coding completion. You keep your supported coding agents. The value is continuity through delivery, and we should measure whether it reduces your coordination work.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Where does your current specification workflow stop being enough?” “Which changes need deliberate review, and which should take a lighter path?”</p>
+<p><strong>Proof demo.</strong> Contrast a small bug and a cross-cutting feature. Show actual litefactory behavior and count approval steps and owner minutes. If the small fix incurs needless overhead, acknowledge the gap rather than inventing a streamlined mode.</p>
+<p><strong>Avoid.</strong> “Only litefactory has acceptance criteria” or implying every Kiro task requires the same heavyweight workflow.</p>
+<p><strong>Source:</strong> <a href="https://kiro.dev/docs/specs/">Kiro Specs, updated 27 August 2026</a>.</p>
+<h2 id="cards-12">8. GitHub Spec Kit + an existing coding agent</h2>
+<p><strong>Their strongest case.</strong> Spec Kit is MIT-licensed guidance and tooling for specification, planning and implementation with existing agents. It offers a lower-infrastructure way to introduce a repeatable method. For a technical owner with good CI and a manageable workload, that may solve the practical problem without another daemon.</p>
+<p><strong>Fit / walk away.</strong> Litefactory becomes interesting when the buyer’s remaining pain is continuing and enforcing work across sessions, interruptions and remote delivery effects. Prefer Spec Kit when process guidance is enough and the user can comfortably coordinate execution. A toolkit is not an inferior choice merely because it does less automatically.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Why not use Spec Kit with Claude or Codex and keep things simple?”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“Use that combination if it solves the problem. Litefactory adds a running process that retains approved scope, tracks engineering separately from acceptance, and controls delivery against the approved PR head. It also retains pending reporting work so a lost reply does not require repeating the coding run. That ongoing coordination is what must justify the extra component.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “After the plan exists, what still needs you to move the work forward?” “How often do you reconstruct scope or evidence when a session stops?”</p>
+<p><strong>Proof demo.</strong> Run the same bounded task using the buyer’s agent-plus-Spec-Kit setup and litefactory. Interrupt once; compare resumption work, authoritative decisions, setup cost and owner time.</p>
+<p><strong>Avoid.</strong> “Markdown cannot be useful state,” “Spec Kit is just prompts,” or promising the factory eliminates all human coordination.</p>
+<p><strong>Sources:</strong> <a href="https://github.com/github/spec-kit/blob/main/docs/index.md">Spec Kit documentation</a>, <a href="https://github.com/github/spec-kit/blob/main/docs/quickstart.md">Quickstart</a>, <a href="https://github.com/github/spec-kit/blob/main/LICENSE">MIT license</a>.</p>
+<h2 id="cards-13">9. Fabro</h2>
+<p><strong>Their strongest case.</strong> Fabro is a direct MIT-licensed workflow competitor. It supports graph-defined agents, commands, human gates, loops and parallel paths. Its examples include plan approval and definition-of-done workflows with acceptance checklists, repair and verification. Checkpoint documentation covers durable Git-bound execution state and resume/fork behavior. Self-hosted server documentation and public quickstart wording differ on availability; confirm the exact version rather than calling it unavailable.</p>
+<p><strong>Fit / walk away.</strong> Litefactory may suit a buyer wanting its opinionated GitHub process ready to operate. Fabro may win when the buyer wants to author and evolve a graph-defined workflow. Both can express meaningful process; the question is the policy supplied and the work required to maintain it.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“I can build your process as a Fabro workflow. Why adopt another system?”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“You may be able to. Litefactory supplies the GitHub method together: frozen requirements, attributed checks, separate acceptance, recoverable publication and exact-head merge approval. Fabro gives you strong machinery to build workflows. The buying question is whether you want to construct and maintain that policy or adopt ours. Test the same edge cases before choosing.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Do you want workflow construction to be part of your team’s responsibility?” “Which approval and recovery rules must work by default?”</p>
+<p><strong>Proof demo.</strong> Execute the same scope-change and post-approval head-change scenario, showing retained facts and the actual authorization decision. Include the work needed to configure each product.</p>
+<p><strong>Avoid.</strong> “Fabro has no evidence gates,” “graphs are just diagrams,” or claiming server readiness beyond the version verified.</p>
+<p><strong>Sources:</strong> <a href="https://github.com/fabro-sh/fabro">Repository</a>, <a href="https://docs.fabro.sh/examples/definition-of-done">Definition of done</a>, <a href="https://docs.fabro.sh/execution/checkpoints">Checkpoints</a>, <a href="https://docs.fabro.sh/administration/deployment">Deployment</a>.</p>
+<h2 id="cards-14">10. Gas City</h2>
+<p><strong>Their strongest case.</strong> Gas City is a complete MIT-licensed orchestrator with configurable packs, roles, workflows and coding-agent providers. Durable Beads work survives sessions; a supervisor advances the workflow. It grew from Gas Town infrastructure but is a distinct configurable product. The default Beads/Dolt store has a file-store alternative. Team Server is documented as preview and Gasworks as coming soon; those labels do not diminish the available local orchestrator.</p>
+<p><strong>Fit / walk away.</strong> Litefactory may fit an owner who wants its specific GitHub acceptance method rather than constructing a factory from packs. Gas City may fit better when configurable topology, agents and workflow composition are priorities. Its durable work and recovery directly overlap litefactory’s category benefits.</p>
+<p><strong>Objection</strong></p>
+<blockquote>
+<p>“Gas City already gives me an open-source factory. I can add your rules in a pack.”</p>
+</blockquote>
+<p><strong>30-second reply</strong></p>
+<blockquote>
+<p>“That is credible. Litefactory packages its GitHub rules together: approved scope is frozen, evidence must match the assessed work, acceptance is separate, and a changed PR head requires new merge approval. Gas City gives you a flexible factory to configure. Our case is the maintained method and the owner work it removes—not that a pack could never reproduce it.”</p>
+</blockquote>
+<p><strong>Discovery.</strong> “Which checks will your pack enforce automatically, and who maintains the external integrations?” “Do you need a configurable factory platform or a default development method?”</p>
+<p><strong>Proof demo.</strong> Compare one real acceptance gate. Gas City’s guide says formula gates block work but type-specific external watchers require a person or customer automation. Show exactly what litefactory checks automatically, without claiming all its checks are independently trusted.</p>
+<p><strong>Avoid.</strong> “Gas City is just Gas Town,” “it has no gates,” or “Dolt is mandatory.”</p>
+<p><strong>Sources:</strong> <a href="https://github.com/gastownhall/gascity">Repository</a>, <a href="https://gascity.com/guide/software-factory-faq/">Product FAQ</a>, <a href="https://gascity.com/guide/orchestrating-multiple-ai-agents/">Gate mechanics</a>, <a href="https://raw.githubusercontent.com/gastownhall/gascity/main/LICENSE">MIT license</a>.</p>
+<h2 id="cards-15">Objections that cut across every competitor</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Buyer says</th>
+<th>Ready-to-say reply</th>
+<th>Evidence or action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>“Why not just Claude/Codex and scripts?”</td>
+<td>“That is our minimum-overhead baseline. Keep it unless repeated coordination, recovery or acceptance work costs more than operating the factory. Let’s measure one recurring problem.”</td>
+<td>Compare the buyer’s actual setup; do not weaken it artificially.</td>
+</tr>
+<tr>
+<td>“This looks too complicated.”</td>
+<td>“If it creates more process work than it removes, it is the wrong fit. We should start with one feature and count every setup step, interruption and owner decision.”</td>
+<td>Demonstrate current onboarding and next-action clarity, including awkward steps.</td>
+</tr>
+<tr>
+<td>“Approvals will slow us down.”</td>
+<td>“Some decisions deserve a pause; not every edit does. We should identify which approvals reduce rework and measure the waiting they create. I will not promise a lighter workflow that the product does not yet support.”</td>
+<td>Measure active owner time separately from elapsed approval wait.</td>
+</tr>
+<tr>
+<td>“How much cheaper is it?”</td>
+<td>“We do not have a defensible savings number yet. We will include agent usage, hosting, setup, maintenance and your time, and compare them with your current process.”</td>
+<td>Agree a cost model and usage ceiling before the pilot. No price commitment implied.</td>
+</tr>
+<tr>
+<td>“Open source means I become the support team.”</td>
+<td>“It can. Source access gives control, not an SLA. We need to be explicit about the support actually available and what you are willing to operate.”</td>
+<td>Publish real support channels, release policy and escalation commitments before promising them.</td>
+</tr>
+<tr>
+<td>“Is self-hosting secure?”</td>
+<td>“It gives you control over factory hosting. It does not by itself prove security or keep inference local. Let’s identify the credentials, provider calls and permissions for this deployment.”</td>
+<td>Provide verified architecture and permission evidence; do not claim certification.</td>
+</tr>
+<tr>
+<td>“What if it dies halfway through?”</td>
+<td>“Recovery is implemented, but reliability is something we should demonstrate. We will interrupt a disposable run and inspect preserved edits, decisions, reports and pending effects.”</td>
+<td>Run a controlled failure drill on the launch version; retain the result.</td>
+</tr>
+<tr>
+<td>“What if I want to return to scripts?”</td>
+<td>“GitHub and Git keep much of the working surface familiar, but we should test the exit path rather than promise frictionless portability. We will inventory local state and show what you retain.”</td>
+<td>Agree backup/export and manual continuation steps; do not claim unimplemented export coverage.</td>
+</tr>
+<tr>
+<td>“Why not write a Fabro workflow or Gas City pack?”</td>
+<td>“That may be the right answer. Our value has to be the maintained default method and the edge cases it handles together. Compare construction, verification and ongoing maintenance, not just the happy-path diagram.”</td>
+<td>Run identical policy/recovery scenarios and record custom work required.</td>
+</tr>
+<tr>
+<td>“Passing tests do not mean the feature is right.”</td>
+<td>“Agreed. The process preserves the requirement and its evidence; it cannot make a mistaken requirement correct. The pilot needs a real outcome check and an owner who can judge it.”</td>
+<td>Include a requirement challenge and independent outcome review.</td>
+</tr>
+<tr>
+<td>“You are a new project. Why trust it?”</td>
+<td>“Do not infer production reliability from our architecture. Start with a bounded noncritical change, retain human delivery authority, and inspect the results on the exact release.”</td>
+<td>Show reproducible demos, known limitations and support facts; no invented references.</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="cards-16">A pilot that can win—or tell us to walk away</h2>
+<p><strong>Suggested format:</strong> one small task and one bounded feature against the buyer’s baseline and closest competitor. Agree the window, host, provider versions, cost ceiling, data boundaries and owner. These are proposed evaluation terms.</p>
+<p>Use the same requirement, outcome criteria and repository conditions. Keep the same underlying model where practical; record differences when a product controls it. Do not treat a two-task result as a general benchmark. Run failure scenarios only on disposable branches/test tasks with permission.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Measure</th>
+<th>Record</th>
+<th>Positive signal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owner effort</td>
+<td>Active minutes for setup, clarification, supervision, review and recovery</td>
+<td>Less total owner work without weaker checks</td>
+</tr>
+<tr>
+<td>Interventions</td>
+<td>Count and purpose; distinguish useful decisions from avoidable rescue</td>
+<td>Fewer repeated instructions and state-reconstruction steps</td>
+</tr>
+<tr>
+<td>Useful acceptance</td>
+<td>Criteria met, failed or unresolved; reviewer reasoning</td>
+<td>Correct outcomes with clear unresolved facts</td>
+</tr>
+<tr>
+<td>Scope continuity</td>
+<td>Any unapproved changes and how they were handled</td>
+<td>Owner can identify the authoritative scope throughout</td>
+</tr>
+<tr>
+<td>Evidence attribution</td>
+<td>Implementation revision assessed and checks supporting it</td>
+<td>Stale/missing evidence is visible and handled appropriately</td>
+</tr>
+<tr>
+<td>Recovery</td>
+<td>Time and owner actions after one controlled interruption</td>
+<td>Work resumes without duplicated effects or lost decisions</td>
+</tr>
+<tr>
+<td>Delivery authority</td>
+<td>Result after changing a PR head following approval</td>
+<td>The intended approval policy is actually enforced</td>
+</tr>
+<tr>
+<td>Lead time</td>
+<td>Total elapsed time; split execution and approval wait</td>
+<td>Reduced delay or a clear justified tradeoff</td>
+</tr>
+<tr>
+<td>Total cost</td>
+<td>Usage, worker compute, setup and maintenance labor</td>
+<td>Acceptable cost for the observed outcome; no assumed savings</td>
+</tr>
+<tr>
+<td>Exit and operation</td>
+<td>Restart, inspect state, preserve work and continue manually</td>
+<td>Buyer understands its ongoing burden and exit path</td>
+</tr>
+</tbody>
+</table></div>
+<p>Agree success thresholds with the buyer <strong>before</strong> results are known. Finish with: continue, revise the pilot, or stay with the baseline. A legitimate loss is useful evidence. Keep failed checks and unsupported capabilities in the record.</p>
+<p><strong>Pilot close</strong></p>
+<blockquote>
+<p>“Would you choose one feature where coordination is currently painful? We will compare your existing process, show the failure cases as well as the happy path, and measure your effort. If the factory adds more work than it removes, you should not adopt it.”</p>
+</blockquote>
+<h2 id="cards-17">Evidence index and maintenance</h2>
+<p><strong>Litefactory:</strong> <a href="RESEARCH_BRIEF.md">RESEARCH_BRIEF.md</a> contains path/line evidence at <code>0332ff74633f88fc64b06dc0f7cdd8cdac22d57c</code>. No fresh test-pass or live-daemon claim is made here.</p>
+<p><strong>Competitors:</strong> numbered cards 1–10 index their primary sources directly. Key dated documents: Intent, September 17; Kiro Specs, August 27; Gas City FAQ, August 7. All were checked for this assessment on September 19, 2026. License sources appear with the relevant open-source cards. Fabro server availability remains unresolved.</p>
+<p>Before public use, reconcile launch docs, verify licensing and supported versions, and retain an authentic demonstration. Missing evidence is not proof of competitor absence.</p>
+<h2 id="cards-18">Change history</h2>
+<ul>
+<li>2026-09-19: Created ten launch battlecards, positioning and qualification scripts, common objections, a measured pilot scorecard and evidence index from the completed competitive research. Comparative benefits remain hypotheses until observed in a buyer’s evaluation.</li>
+</ul>
+</section></main></body></html>

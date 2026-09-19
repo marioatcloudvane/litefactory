@@ -36,9 +36,13 @@ type preparation struct {
 
 	validateScope func(context.Context) (string, error)
 	scopeDrift    string
-	repo          store.Repo
-	session       store.Session
-	ref           naming.Ref
+	// researchInstance is the graph instance this run advances, when it is a
+	// graph run. It scopes the application result, so each instance authors
+	// its own rather than revising whatever the task already held.
+	researchInstance int64
+	repo             store.Repo
+	session          store.Session
+	ref              naming.Ref
 
 	author   git.Author
 	worktree *git.Worktree
@@ -135,7 +139,7 @@ func prepare(
 		return nil, fmt.Errorf("read the repository of task %s: %w", ref, err)
 	}
 	var selected *teamsource.Snapshot
-	if repo.ExternalTeam != "" {
+	if repo.ExternalTeam != "" && req.researchDefinition == nil {
 		selected, err = teamsource.Capture(ctx, opts.Paths, repo.ExternalTeam, req.mode())
 		if err != nil {
 			return nil, failuref(err, "external team instructions could not be captured")
@@ -197,7 +201,12 @@ func prepare(
 	if err != nil {
 		return nil, failuref(err, "the head of %s could not be read", branch)
 	}
-	deliveryPlan, err := planDelivery(opts, req, selected, worktree.Path())
+	var deliveryPlan *deliveryPlan
+	if req.researchDefinition != nil {
+		deliveryPlan, err = planResearchDelivery(opts, req, req.researchDefinition, req.researchNode)
+	} else {
+		deliveryPlan, err = planDelivery(opts, req, selected, worktree.Path())
+	}
 	if err != nil {
 		return nil, failuref(err, "external team instructions could not be prepared")
 	}
@@ -416,7 +425,7 @@ func prepare(
 	}
 	if delivery != nil {
 		prompt = "Instruction bundle: " + delivery.Root + "\n\n" + prompt
-		if string(req.Agent) == "codex" {
+		if string(req.Agent) == "codex" && req.researchDefinition == nil {
 			prompt = string(deliveryPlan.files["bootstrap.md"]) + "\n" + prompt
 		}
 	}
@@ -468,20 +477,21 @@ func prepare(
 		slog.Int("prompt_bytes", len(prompt)))
 
 	return &preparation{
-		resumeOnly:  req.Continuation != nil,
-		repo:        repo,
-		session:     session,
-		ref:         ref,
-		author:      author,
-		worktree:    worktree,
-		shaBefore:   shaBefore,
-		segment:     segment,
-		run:         run,
-		runner:      runner,
-		prompt:      prompt,
-		metaPath:    metaPath,
-		promptInput: promptInput,
-		sync:        sync,
+		researchInstance: req.researchInstance,
+		resumeOnly:       req.Continuation != nil,
+		repo:             repo,
+		session:          session,
+		ref:              ref,
+		author:           author,
+		worktree:         worktree,
+		shaBefore:        shaBefore,
+		segment:          segment,
+		run:              run,
+		runner:           runner,
+		prompt:           prompt,
+		metaPath:         metaPath,
+		promptInput:      promptInput,
+		sync:             sync,
 		request: agent.Request{
 			RetainedValidation: promptInput.Validation != nil,
 			Delivery:           delivery,

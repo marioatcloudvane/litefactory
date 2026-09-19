@@ -438,8 +438,16 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	args = append(args, mcpArgs...)
 	if req.Delivery != nil {
 		args = append(args, "--strict-config")
-		for _, role := range req.Delivery.Roles {
-			args = append(args, "-c", "agents."+role+".description="+strconv.Quote("Selected mode specialist; consult the mode roster."), "-c", "agents."+role+".config_file="+strconv.Quote(filepath.Join(req.Delivery.Root, "roles", role+".toml")))
+		if req.Delivery.MainRole != "" {
+			instructions, err := mainInstructionOverride(req.Delivery.Root)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w", agent.ErrInvalidRequest, err)
+			}
+			args = append(args, "-c", instructions, "-c", "features.multi_agent=false")
+		} else {
+			for _, role := range req.Delivery.Roles {
+				args = append(args, "-c", "agents."+role+".description="+strconv.Quote("Selected mode specialist; consult the mode roster."), "-c", "agents."+role+".config_file="+strconv.Quote(filepath.Join(req.Delivery.Root, "roles", role+".toml")))
+			}
 		}
 	}
 	// Before --model and before the subcommand, so the resume form below
@@ -465,8 +473,12 @@ func (r *Runner) args(req agent.Request, sandbox string) ([]string, error) {
 	if r.network {
 		args = append(args, "-c", "sandbox_workspace_write.network_access=true")
 	}
-	if r.model != "" {
-		args = append(args, "--model", r.model)
+	model := r.model
+	if req.Delivery != nil && req.Delivery.MainRole != "" {
+		model = req.Delivery.MainModel
+	}
+	if model != "" {
+		args = append(args, "--model", model)
 	}
 	if req.Path.Resuming() {
 		return append(args, "resume", req.Session.Resume, "-"), nil

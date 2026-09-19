@@ -287,6 +287,8 @@ func Open(ctx context.Context, s Setup) (*Daemon, Startup, error) {
 	}
 	sharedCloneGate := newCloneGate()
 	turnOpts := turn.Options{
+		ResearchDriver:           turn.ExecuteResearchWorkflow,
+		ResearchReporter:         reporter,
 		MCP:                      mcpRuntime,
 		AutoResumeOnSessionLimit: s.Config.Settings.AutoResumeOnSessionLimit,
 		StoryProgress:            storyProgress,

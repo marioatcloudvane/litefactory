@@ -1,0 +1,19 @@
+{
+  "request_id": "833cd70a243fb70aef1d02da70a5f2a2",
+  "result": {
+    "ID": 207,
+    "RunID": 524,
+    "Attempt": "6324bc3003deac7c266006ed3b1ddaba",
+    "RequestID": "833cd70a243fb70aef1d02da70a5f2a2",
+    "RequestHash": "154e560403855f9c68ae4cf6d5150f46f9e97c72bcfcdbfcc95ccd6298402470",
+    "Story": "research-owner-resume",
+    "Revision": "98b17a352a85337ed69aad900397a8d6c697ed8f6b9ae3c35e4e323d0854ce44",
+    "Sequence": 7,
+    "StoryAttempt": 1,
+    "InputState": "valid",
+    "EngineeringState": "recorded",
+    "AcceptanceState": "not_applicable",
+    "EffectState": "pending",
+    "PlanState": "not_applicable"
+  }
+}

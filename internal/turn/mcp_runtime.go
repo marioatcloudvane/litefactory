@@ -72,6 +72,10 @@ type preparedMCP struct {
 }
 
 func (p *preparedMCP) close(ctx context.Context) error {
+	return errors.Join(p.closeTransports(ctx), p.runtime.Authority.db.EndResultAttempt(ctx, p.service.Binding()))
+}
+
+func (p *preparedMCP) closeTransports(ctx context.Context) error {
 	activityErr := p.endActivity(ctx, p.runtime.Now())
 	var brokerErr, resultBrokerErr error
 	if p.resultBroker != nil {
@@ -80,7 +84,7 @@ func (p *preparedMCP) close(ctx context.Context) error {
 	if p.broker != nil {
 		brokerErr = p.broker.Close()
 	}
-	return errors.Join(activityErr, brokerErr, resultBrokerErr, p.runtime.Authority.db.EndResultAttempt(ctx, p.service.Binding()))
+	return errors.Join(activityErr, brokerErr, resultBrokerErr)
 }
 
 // runMCPBound binds shared completion on every supported actual invocation.
@@ -143,6 +147,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 	if workContext == "" {
 		workContext = prep.ref.String()
 	}
+	workContext = researchWorkContext(workContext, prep.researchInstance)
 	contextValue := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
@@ -284,7 +289,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 	}
 	var creation *CreationPublicationService
 	var intent int64
-	if runtime.Comments != nil && (req.Mode == "research" || req.Mode == "implement" || req.Mode == "validate") {
+	if req.Invocation != agent.InvocationResearchNode && runtime.Comments != nil && (req.Mode == "research" || req.Mode == "implement" || req.Mode == "validate") {
 		families.CommentTargets = []int{ref.Issue}
 		comments, err := NewIssuePublicationService(o.DB, receipts, runtime.Comments, runtime.Redactor, families.CommentTargets, runtime.BotID)
 		if err != nil {
@@ -293,7 +298,7 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		families.Registrations = append(families.Registrations, comments.Registration())
 	}
 	nativeRunner, nativeSupported := prep.runner.(interface{ SupportsMCP() bool })
-	if req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
+	if req.Invocation != agent.InvocationResearchNode && req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
 		var proposal store.CreationProposal
 		intent, proposal, err = runtime.CreationAuthorizer.store.EligibleCreationIntent(ctx, service.Binding().Task)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -359,4 +364,22 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		return nil, nil, errors.New("MCP installed catalog changed")
 	}
 	return p, spec, nil
+}
+
+// researchWorkContext scopes a graph run's application result to its instance.
+//
+// A result is identified by task, mode and work context, so one context per
+// task made the first delivery an authorship and every later one a revision.
+// An agent that returned only a terminal result — which the instructions
+// permitted until today — could therefore deliver once per task and was
+// refused for the life of the task after that: a create met an existing
+// revision, and the contract requires a revision-bound update. A graph
+// instance is one conversation with one outcome, so it authors its own.
+//
+// A run outside a graph keeps the task-wide context it has always had.
+func researchWorkContext(base string, instance int64) string {
+	if instance <= 0 {
+		return base
+	}
+	return fmt.Sprintf("%s#graph-%d", base, instance)
 }
