@@ -73,21 +73,9 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 	if current.InstanceID != instance.ID || current.Node != req.Node || current.Status != store.GraphRunning || instance.CurrentNode != req.Node {
 		return ActivityResult{}, errors.New("research comment attempt binding mismatch")
 	}
-	var source store.GraphNodeAttempt
-	for _, n := range h.Profile.Nodes {
-		if n.Action != ResearchAgentAction {
-			continue
-		}
-		a, e := opts.DB.LatestGraphNodeAttempt(ctx, instance.ID, n.Name)
-		if errors.Is(e, store.ErrNotFound) {
-			continue
-		}
-		if e != nil {
-			return ActivityResult{}, e
-		}
-		if a.ID > source.ID {
-			source = a
-		}
+	source, err := latestResearchAgentAttempt(ctx, opts, h.Profile, instance.ID, graphexec.ResearchSource(node.Attrs))
+	if err != nil {
+		return ActivityResult{}, err
 	}
 	if source.ID == 0 {
 		return ActivityResult{}, errors.New("research comment has no source attempt")
@@ -232,4 +220,29 @@ func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope
 		return Posted{}, errors.New("research recovery identity changed")
 	}
 	return posted, err
+}
+
+// latestResearchAgentAttempt resolves the agent result a control or comment node
+// reads. Naming a source is what keeps a later stage from inheriting an earlier
+// one's response: an unnamed source reads whichever agent ran last, which is the
+// single-loop behaviour, while a named one has no attempt of its own until its
+// stage actually runs and so bootstraps from the node's own default.
+func latestResearchAgentAttempt(ctx context.Context, opts Options, profile *graphexec.Profile, instanceID int64, scope string) (store.GraphNodeAttempt, error) {
+	var latest store.GraphNodeAttempt
+	for _, n := range profile.Nodes {
+		if n.Action != ResearchAgentAction || (scope != "" && n.Name != scope) {
+			continue
+		}
+		candidate, err := opts.DB.LatestGraphNodeAttempt(ctx, instanceID, n.Name)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return store.GraphNodeAttempt{}, err
+		}
+		if candidate.ID > latest.ID {
+			latest = candidate
+		}
+	}
+	return latest, nil
 }

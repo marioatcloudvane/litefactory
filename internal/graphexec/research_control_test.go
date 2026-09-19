@@ -193,3 +193,65 @@ func TestValidateResearchControlGraphAcceptsNoFailureEdge(t *testing.T) {
 		t.Fatalf("graph without a failure edge must stay valid: %v", err)
 	}
 }
+
+const twoStageDOT = `digraph {team=builtin;mode=research;profile_version=1;start=loop;
+loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=work];
+work [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=3];
+check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=work];
+question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+shapeloop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=shape];
+shape [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=3];
+shapecheck [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=shape];
+clarify [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
+agreed [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+wait [lf_terminal=true];hold [lf_terminal=true];end [lf_terminal=true];
+loop -> work [on=true];loop -> report [on=false];
+work -> check [on=success];check -> question [on=true];check -> loop [on=false];
+question -> wait [on=published];report -> shapeloop [on=published];
+shapeloop -> shape [on=true];shapeloop -> agreed [on=false];
+shape -> shapecheck [on=success];shapecheck -> clarify [on=true];shapecheck -> shapeloop [on=false];
+clarify -> hold [on=published];agreed -> end [on=published];}`
+
+// Publishing a report hands the workflow to the next stage instead of ending it.
+// The owner sees the findings, then a loop scoped to the next agent bootstraps
+// from its own default rather than inheriting the previous stage's response.
+func TestValidateResearchControlGraphAcceptsAPublishedHandoff(t *testing.T) {
+	t.Parallel()
+	p, err := graphexec.ParseProfile([]byte(twoStageDOT))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := graphexec.ValidateResearchControlGraph(p); err != nil {
+		t.Fatalf("two-stage graph must validate: %v", err)
+	}
+}
+
+func TestValidateResearchControlGraphKeepsTheOwnerBoundaries(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, from, to, want string }{
+		// A question that advances would run on without the answer it asked for.
+		{"ask must rest", "question -> wait [on=published];", "question -> shapeloop [on=published];", "must end at a durable owner wait"},
+		// Reaching an agent directly is still unauthorized; only a differently
+		// scoped control node hands over, and only after a publication.
+		{"no direct agent", "report -> shapeloop [on=published];", "report -> shape [on=published];", "invokes agent"},
+		// A source that names nothing cannot scope anything.
+		{"source must exist", "lf_source=shape];\nshape [", "lf_source=absent];\nshape [", "does not name an agent node"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw := strings.Replace(twoStageDOT, tc.from, tc.to, 1)
+			if raw == twoStageDOT {
+				t.Fatalf("fixture edit %q did not apply", tc.name)
+			}
+			p, err := graphexec.ParseProfile([]byte(raw))
+			if err != nil {
+				t.Skipf("fixture rejected before control validation: %v", err)
+			}
+			err = graphexec.ValidateResearchControlGraph(p)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
+}

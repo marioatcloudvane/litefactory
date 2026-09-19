@@ -77,21 +77,9 @@ func (h ResearchControlActivity) Execute(ctx context.Context, opts Options, req 
 	if attempt.InstanceID != req.InstanceID || attempt.Node != req.Node || attempt.Status != store.GraphRunning || instance.CurrentNode != req.Node {
 		return ActivityResult{}, errors.New("research control attempt binding mismatch")
 	}
-	var latest store.GraphNodeAttempt
-	for _, source := range h.Profile.Nodes {
-		if source.Action != ResearchAgentAction {
-			continue
-		}
-		candidate, err := opts.DB.LatestGraphNodeAttempt(ctx, req.InstanceID, source.Name)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return ActivityResult{}, err
-		}
-		if candidate.ID > latest.ID {
-			latest = candidate
-		}
+	latest, err := latestResearchAgentAttempt(ctx, opts, h.Profile, req.InstanceID, graphexec.ResearchSource(node.Attrs))
+	if err != nil {
+		return ActivityResult{}, err
 	}
 	var response string
 	if latest.ID != 0 {

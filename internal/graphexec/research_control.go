@@ -66,6 +66,10 @@ func (c ResearchCondition) Evaluate(response string, attempted bool) (string, er
 	return "false", nil
 }
 
+// ResearchSource names the agent node a control or comment node reads. An empty
+// result means the legacy reading: whichever agent node ran most recently.
+func ResearchSource(attrs map[string]string) string { return attrs["lf_source"] }
+
 // ValidateResearchControlGraph checks control attributes and all possible ask
 // paths before dispatch. A question publication must end at a terminal: the
 // continuation service alone can later resume the originating agent node.
@@ -79,6 +83,15 @@ func ValidateResearchControlGraph(p *Profile) error {
 		case ResearchLoopAction, ResearchIfAction:
 			if _, err := DecodeResearchCondition(node.Action, node.Attrs); err != nil {
 				faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
+			}
+			// An unscoped control node reads whichever agent ran last, which is
+			// the single-loop behaviour. Naming a source is what lets a later
+			// loop bootstrap from its own default instead of inheriting the
+			// previous stage's response.
+			if source, scoped := node.Attrs["lf_source"]; scoped {
+				if from, exists := p.Node(source); !exists || from.Action != "lf_research_agent" {
+					faults = append(faults, fmt.Errorf("node %q: lf_source %q does not name an agent node", node.Name, source))
+				}
 			}
 			if len(node.Outcomes) != 2 || !slices.Contains(node.Outcomes, "true") || !slices.Contains(node.Outcomes, "false") {
 				faults = append(faults, fmt.Errorf("node %q requires exactly true and false outcomes", node.Name))
@@ -102,7 +115,7 @@ func ValidateResearchControlGraph(p *Profile) error {
 					continue
 				}
 				for _, response := range []string{"ask", "done"} {
-					if err := validateResearchResponsePath(p, next, response, map[string]bool{}); err != nil {
+					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}); err != nil {
 						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
 					}
 				}
@@ -142,7 +155,15 @@ func validateResearchFailurePath(p *Profile, name string) error {
 	return nil
 }
 
-func validateResearchResponsePath(p *Profile, name, response string, visiting map[string]bool) error {
+// validateResearchResponsePath follows one agent's response to the point where
+// that response stops governing the graph. Publication is a step, not an ending:
+// a report may advance to whatever comes next, and only an explicit terminal
+// ends the workflow. Two boundaries are not negotiable. An ask must still come
+// to rest at a durable owner wait, because nothing else stops the graph from
+// running on without the answer. And no response path may reach an agent
+// directly: crossing into a loop scoped to a different agent is what hands over,
+// and that crossing always happens after this stage has published.
+func validateResearchResponsePath(p *Profile, name, response, source string, visiting map[string]bool) error {
 	node, ok := p.Node(name)
 	if !ok {
 		return fmt.Errorf("response path references missing node %q", name)
@@ -167,12 +188,29 @@ func validateResearchResponsePath(p *Profile, name, response string, visiting ma
 			return fmt.Errorf("response path requires %s comment at %q", kind, name)
 		}
 		next, exists := Decide(p, name, "published")
-		terminal, found := p.Node(next)
-		if !exists || !found || !terminal.Terminal {
-			return fmt.Errorf("research comment %q must end at a terminal", name)
+		if !exists {
+			return fmt.Errorf("research comment %q lacks a deterministic published edge", name)
 		}
-		return nil
+		after, found := p.Node(next)
+		if !found {
+			return fmt.Errorf("research comment %q publishes to missing node %q", name, next)
+		}
+		if response == "ask" {
+			if !after.Terminal {
+				return fmt.Errorf("research question %q must end at a durable owner wait", name)
+			}
+			return nil
+		}
+		if after.Terminal {
+			return nil
+		}
+		return validateResearchResponsePath(p, next, response, source, visiting)
 	case ResearchLoopAction, ResearchIfAction:
+		// A control node reading a different agent is that agent's boundary, not
+		// this one's. Its own paths are validated from its own agent's edge.
+		if scope, scoped := node.Attrs["lf_source"]; scoped && scope != source {
+			return nil
+		}
 		c, err := DecodeResearchCondition(node.Action, node.Attrs)
 		if err != nil {
 			return err
@@ -185,7 +223,7 @@ func validateResearchResponsePath(p *Profile, name, response string, visiting ma
 		if !exists {
 			return fmt.Errorf("response path at %q lacks deterministic %q edge", name, outcome)
 		}
-		return validateResearchResponsePath(p, next, response, visiting)
+		return validateResearchResponsePath(p, next, response, source, visiting)
 	default:
 		return fmt.Errorf("response path uses unsupported activity %q", node.Action)
 	}
