@@ -44,8 +44,15 @@ func DecodeResearchNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 		if node.Result.Outcome != "completed" || len(node.Result.Questions) != 0 {
 			add(&d, "$.response", "consistency", "done with completed result without questions", "inconsistent result", "Complete Research only when no owner questions remain.")
 		}
+	case "approved":
+		// Reporting the owner's verdict, not forming one. The result has to be
+		// as complete as a done result, because approving unfinished work is
+		// not something an owner can be asked to mean.
+		if node.Result.Outcome != "completed" || len(node.Result.Questions) != 0 {
+			add(&d, "$.response", "consistency", "approved with completed result without questions", "inconsistent result", "Report the owner's approval only over work you would otherwise call done.")
+		}
 	default:
-		add(&d, "$.response", "enum", "ask or done", "unsupported response", "Choose ask for owner questions or done for completion.")
+		add(&d, "$.response", "enum", "ask, done or approved", "unsupported response", "Choose ask for owner questions, done to show your work, or approved to report that the owner accepted it.")
 	}
 	// Pass the original result bytes to Create so presence-sensitive optional
 	// fields receive exactly the same checks as application submissions.

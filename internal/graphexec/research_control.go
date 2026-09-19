@@ -18,13 +18,23 @@ const (
 func ResearchControlSpec(action string) ActionSpec {
 	attrs := map[string]AttributeSpec{
 		"lf_field":     {Required: true, Values: []string{"response"}},
-		"lf_condition": {Required: true, Values: []string{"ask", "done"}},
+		"lf_condition": {Required: true, Values: ResearchResponses},
 	}
 	if action == ResearchLoopAction {
 		attrs["lf_default"] = AttributeSpec{Values: []string{"ask", "done"}}
 	}
 	return ActionSpec{Name: action, Mode: agent.ModeResearch, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
+
+// ResearchResponses are the three things a Research agent can say about its own
+// turn. "ask" and "done" are its own judgement. "approved" is not: it reports
+// that the owner said the work is good enough, so an agent may only return it
+// on a resumed pass that actually carries such a reply. That distinction is the
+// whole point — advancing a stage is the owner's decision, not the agent's.
+var ResearchResponses = []string{"ask", "done", "approved"}
+
+// ResearchResponse reports whether a value is one of the declared responses.
+func ResearchResponse(value string) bool { return slices.Contains(ResearchResponses, value) }
 
 // ResearchCondition only inspects the response of an already validated result.
 // Attempted distinguishes the initial empty state from a missing/invalid result.
@@ -40,8 +50,8 @@ func DecodeResearchCondition(action string, attrs map[string]string) (ResearchCo
 	if c.Field != "response" {
 		faults = append(faults, errors.New("lf_field must equal response"))
 	}
-	if c.Condition != "ask" && c.Condition != "done" {
-		faults = append(faults, errors.New("lf_condition must equal ask or done"))
+	if !ResearchResponse(c.Condition) {
+		faults = append(faults, errors.New("lf_condition must equal ask, done or approved"))
 	}
 	if value, present := attrs["lf_default"]; present && (action != ResearchLoopAction || (value != "ask" && value != "done")) {
 		faults = append(faults, errors.New("lf_default is only permitted on a loop and must equal ask or done"))
@@ -51,13 +61,13 @@ func DecodeResearchCondition(action string, attrs map[string]string) (ResearchCo
 
 // Evaluate selects a declared outcome, applying the default only before an attempt.
 func (c ResearchCondition) Evaluate(response string, attempted bool) (string, error) {
-	if c.Field != "response" || (c.Condition != "ask" && c.Condition != "done") {
+	if c.Field != "response" || !ResearchResponse(c.Condition) {
 		return "", errors.New("invalid Research condition")
 	}
 	if !attempted {
 		response = c.Default
 	}
-	if response != "ask" && response != "done" {
+	if !ResearchResponse(response) {
 		return "", errors.New("research response is missing or invalid; retained findings require an explicit owner continuation")
 	}
 	if response == c.Condition {
@@ -114,7 +124,7 @@ func ValidateResearchControlGraph(p *Profile) error {
 					faults = append(faults, fmt.Errorf("research agent %q has no deterministic success edge", node.Name))
 					continue
 				}
-				for _, response := range []string{"ask", "done"} {
+				for _, response := range ResearchResponses {
 					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}); err != nil {
 						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
 					}
@@ -180,13 +190,7 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	case "lf_research_agent":
 		return fmt.Errorf("response path invokes agent %q without owner authorization", name)
 	case "lf_research_comment":
-		kind := "final"
-		if response == "ask" {
-			kind = "question"
-		}
-		if node.Attrs["lf_kind"] != kind {
-			return fmt.Errorf("response path requires %s comment at %q", kind, name)
-		}
+		kind := node.Attrs["lf_kind"]
 		next, exists := Decide(p, name, "published")
 		if !exists {
 			return fmt.Errorf("research comment %q lacks a deterministic published edge", name)
@@ -195,16 +199,30 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		if !found {
 			return fmt.Errorf("research comment %q publishes to missing node %q", name, next)
 		}
-		if response == "ask" {
+		switch kind {
+		case "question":
+			// A question rests, whatever prompted it. "ask" is the agent
+			// needing an answer; "done" reaching a question is the review
+			// gate, where the agent shows its work and the owner decides
+			// whether the stage advances. Neither may run on unanswered.
+			if response == "approved" {
+				return fmt.Errorf("an approved response is settled and cannot end at the question at %q", name)
+			}
 			if !after.Terminal {
 				return fmt.Errorf("research question %q must end at a durable owner wait", name)
 			}
 			return nil
+		case "final":
+			if response == "ask" {
+				return fmt.Errorf("response path requires question comment at %q", name)
+			}
+			if after.Terminal {
+				return nil
+			}
+			return validateResearchResponsePath(p, next, response, source, visiting)
+		default:
+			return fmt.Errorf("response path reaches %q publication at %q", kind, name)
 		}
-		if after.Terminal {
-			return nil
-		}
-		return validateResearchResponsePath(p, next, response, source, visiting)
 	case ResearchLoopAction, ResearchIfAction:
 		// A control node reading a different agent is that agent's boundary, not
 		// this one's. Its own paths are validated from its own agent's edge.
@@ -227,4 +245,39 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	default:
 		return fmt.Errorf("response path uses unsupported activity %q", node.Action)
 	}
+}
+
+// ResearchResponseReaches returns the publication one response would reach from
+// a starting node, or empty when that response does not end in one. It exists
+// so a caller can ask the graph what a node means rather than hardcoding a
+// name: the same question activity is a clarification in one place and a review
+// gate in another, and only the edges say which.
+func ResearchResponseReaches(p *Profile, name, response string) (string, error) {
+	for i := 0; i < 32; i++ {
+		node, ok := p.Node(name)
+		if !ok || node.Terminal {
+			return "", nil
+		}
+		switch node.Action {
+		case "lf_research_comment":
+			return name, nil
+		case ResearchLoopAction, ResearchIfAction:
+			c, err := DecodeResearchCondition(node.Action, node.Attrs)
+			if err != nil {
+				return "", err
+			}
+			outcome, err := c.Evaluate(response, true)
+			if err != nil {
+				return "", err
+			}
+			next, exists := Decide(p, name, outcome)
+			if !exists {
+				return "", nil
+			}
+			name = next
+		default:
+			return "", nil
+		}
+	}
+	return "", nil
 }
