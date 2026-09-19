@@ -101,9 +101,12 @@ type Recommendation struct {
 }
 
 // ResearchArtifactKinds are the kinds a Research result may declare. Closing the
-// set is what lets a later stage select the document it needs — the owner's
-// brief, or the evidence behind it — instead of guessing from a file name.
-// Other modes keep an open vocabulary; only Research renders its own documents.
+// set is what lets a later stage select the document it needs instead of
+// guessing from a file name: "brief" is the owner's document, "technical" is the
+// evidence a claim rests on, and "data" is structured reference material a later
+// stage consumes verbatim — a data model, a schema, an interface table — rather
+// than reads as argument. Other modes keep an open vocabulary; only Research
+// renders its own documents.
 var ResearchArtifactKinds = []string{"brief", "technical", "data"}
 
 // Artifact references a rooted artifact without proving retained bytes.

@@ -119,6 +119,10 @@ them in artifacts if you want them referenced:
 - `<session>/RESEARCH_BRIEF.md` with kind `brief`
 - `<session>/RESEARCH_TECHNICAL.md` with kind `technical`
 
+Kind `data` is for structured reference material a later stage consumes verbatim:
+a data model, a schema, an interface table. `technical` is evidence for a claim;
+`data` is material to build from. Those three kinds are the whole set.
+
 Any other artifact path is worktree-relative, not session-relative, sits strictly
 under the supplied session directory, and must already exist as a regular file
 when you return, with no symlink anywhere in its path, no leading slash, no dot

@@ -1,12 +1,16 @@
-// Each owner-authorized pass uses one reasoning role. Limits persist across replies.
+// One owner-authorized stage, one reasoning role. Limits persist across replies.
+// Every loop, branch and comment names the agent whose response it reads. A second
+// stage is ready in shaping.md and cannot be wired until a graph instance can be
+// given a run of its own: one comment causes at most one run, so a second agent
+// needs the daemon's due-work admission path, which is still unwired.
 // The ask default initializes only the first loop evaluation.
 digraph research {
  graph [team="builtin", mode="research", profile_version="1", start="loop"];
- loop [lf_action="lf_research_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8"];
+ loop [lf_action="lf_research_loop", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
  investigate [lf_action="lf_research_agent", lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
- question [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8"];
- ask [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8"];
- report [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1"];
+ question [lf_action="lf_research_if", lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
+ ask [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
+ report [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final", lf_limit="1", lf_source="investigate"];
  failed [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="failure", lf_limit="1"];
  waiting [lf_terminal="true"];
  complete [lf_terminal="true"];
