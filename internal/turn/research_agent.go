@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/agentresult"
@@ -190,8 +191,30 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	if len(encoded) > agentresult.MaxResearchNodeBytes {
 		return out, errors.New("retained research node exceeds 1 MiB")
 	}
+	// The commit message is written from the process result, and a graph node's
+	// is a JSON envelope. Committing that put thousands of bytes of questions,
+	// findings and evidence arrays — fence included — into the subject line of
+	// every graph run's commit. The candidate's own comment is the prose the
+	// agent wrote for a reader, which is what the legacy path has always had
+	// here, so the retained process result carries that instead.
+	narrated := result.Clone()
+	narrated.ResultText = researchCommitNarrative(node.Result)
+	out.ProcessResult = narrated
 	out.Outcome, out.Kind, out.Output = "success", store.GraphOutputJSON, encoded
 	return out, nil
+}
+
+// researchCommitNarrative is what a reader of the repository history sees for
+// one graph node. It prefers the agent's own comment and falls back to naming
+// the outcome, because an empty subject is worse than a terse one.
+func researchCommitNarrative(r agentresult.Result) string {
+	if comment := strings.TrimSpace(r.Comment); comment != "" {
+		return comment
+	}
+	if reason := strings.TrimSpace(r.Reason); reason != "" {
+		return reason
+	}
+	return "Research node produced a " + r.Outcome + " result."
 }
 
 // LoadResearchNodeOutput reads one previously retained node object within byte

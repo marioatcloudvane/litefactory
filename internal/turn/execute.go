@@ -337,6 +337,11 @@ type Trigger struct {
 type Request struct {
 	researchDefinition *teamsource.ResearchDefinition
 	researchNode       string
+	// researchInstance scopes this run's application result to one graph
+	// instance. A result is identified by task, mode and work context, so
+	// without this every run on a task shares one result and every run after
+	// the first has to revise it rather than author one.
+	researchInstance int64
 
 	// Continuation is factory-owned saved context, never supplied by a comment.
 	Continuation *store.Continuation
