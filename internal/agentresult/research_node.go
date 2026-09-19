@@ -1,6 +1,11 @@
 package agentresult
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+
+	"github.com/cloudvane/litefactory/internal/agent"
+)
 
 // MaxResearchNodeBytes bounds the complete node envelope before decoding.
 const MaxResearchNodeBytes = 1 << 20
@@ -17,6 +22,23 @@ type ResearchNode struct {
 // result. No candidate escapes a failed or incomplete inspection.
 func DecodeResearchNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 	d := newDiagnostics()
+	// The bound applies to what the agent actually emitted, before narrowing:
+	// otherwise an oversized preamble is a way past it.
+	if len(data) > MaxResearchNodeBytes {
+		add(&d, "$", "limit", "node JSON at most 1 MiB", "oversized", "Reduce the node output and reference saved findings.")
+		d.Complete = false
+		d.UncheckedPaths = append(d.UncheckedPaths, "$")
+		finish(&d)
+		return ResearchNode{}, d
+	}
+	// Terminal text, not a bare object: an agent that wraps its answer in a
+	// sentence or a Markdown fence has still answered. Narrowing applies only
+	// to text that is not itself JSON — an array, a string or a number at the
+	// root is the wrong shape rather than the right one inside prose, and
+	// hunting for braces inside it would accept what this contract refuses.
+	if trimmed := bytes.TrimLeft(data, " \t\r\n"); len(trimmed) > 0 && !startsJSON(trimmed[0]) {
+		data = agent.JSONEnvelope(data)
+	}
 	if len(data) > MaxResearchNodeBytes {
 		add(&d, "$", "limit", "node JSON at most 1 MiB", "oversized", "Reduce the node output and reference saved findings.")
 		d.Complete = false
@@ -72,4 +94,23 @@ func DecodeResearchNode(data []byte, ctx Context) (ResearchNode, Diagnostics) {
 		return ResearchNode{}, d
 	}
 	return node, d
+}
+
+// startsJSON reports whether text begins a JSON value. Such text is a document
+// already and is judged as written, which is what keeps this narrowing from
+// weakening the contract: an array holding the required object is not the
+// required object, and a second value after the object is one value too many.
+// Only text that does not begin as JSON — a sentence, a Markdown fence — is
+// narrowed to the object inside it.
+//
+// The cost is that an object followed by commentary is still refused, because
+// nothing distinguishes that from an object followed by another value without
+// deciding which trailing bytes are prose. The diagnostic says so plainly, and
+// refusing beats guessing.
+func startsJSON(c byte) bool {
+	switch c {
+	case '{', '[', '"', 't', 'f', 'n', '-':
+		return true
+	}
+	return c >= '0' && c <= '9'
 }
