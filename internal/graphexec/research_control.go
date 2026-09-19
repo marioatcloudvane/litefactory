@@ -200,16 +200,19 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			return fmt.Errorf("research comment %q publishes to missing node %q", name, next)
 		}
 		switch kind {
-		case "question":
-			// A question rests, whatever prompted it. "ask" is the agent
-			// needing an answer; "done" reaching a question is the review
-			// gate, where the agent shows its work and the owner decides
-			// whether the stage advances. Neither may run on unanswered.
+		case "question", "review":
+			// Both rest on the owner, for different reasons: a question is the
+			// agent needing an answer, a review is the agent showing finished
+			// work and waiting to be told it stands. Neither may run on
+			// unanswered, and an approved response has already been answered.
 			if response == "approved" {
-				return fmt.Errorf("an approved response is settled and cannot end at the question at %q", name)
+				return fmt.Errorf("an approved response is settled and cannot end at the %s at %q", kind, name)
+			}
+			if (kind == "question") != (response == "ask") {
+				return fmt.Errorf("response %q cannot end at a %s publication at %q", response, kind, name)
 			}
 			if !after.Terminal {
-				return fmt.Errorf("research question %q must end at a durable owner wait", name)
+				return fmt.Errorf("research %s %q must end at a durable owner wait", kind, name)
 			}
 			return nil
 		case "final":
