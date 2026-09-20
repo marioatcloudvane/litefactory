@@ -240,6 +240,11 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 	if runtime.CreationAuthorizer != nil {
 		projections["tool:issues_create_batch"] = CreationPublicationProjection(o.DB, runtime.CreationAuthorizer.store)
 	}
+	if runtime.CreationAuthorizer != nil {
+		proposal := CreationProposalReceiptProjection()
+		projections[creationProposalReferenceKind] = proposal
+		projections["tool:issues_create_prepare"] = proposal
+	}
 	if session != nil && (req.Mode == "implement" || req.Mode == "validate") {
 		projections["submission"] = SubmissionReceiptProjection(o.DB)
 		projections["tool:evidence_submit"] = EvidenceReceiptProjection(o.DB)
@@ -315,6 +320,17 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 			families.AllowCreation = true
 			families.Registrations = append(families.Registrations, creation.Registration())
 		}
+	}
+	// Drafting a proposal needs no grant and publishes nothing, so unlike the
+	// grant above it is offered on every Research invocation, including a graph
+	// Research node, and never looks up an owner intent. Installing it must not
+	// touch AllowCreation. It reads no session: a graph node has none.
+	if req.Mode == "research" && nativeSupported && nativeRunner.SupportsMCP() && !runtime.DisableMCP && runtime.CreationAuthorizer != nil && runtime.CreationAuthorizer.enabled && runtime.Creation != nil {
+		proposals, err := NewCreationProposalService(o.DB, receipts, runtime.CreationAuthorizer, runtime.Redactor)
+		if err != nil {
+			return nil, nil, err
+		}
+		families.Registrations = append(families.Registrations, proposals.Registration())
 	}
 	digest, err := FamilyPermissionDigest(families)
 	if err != nil {

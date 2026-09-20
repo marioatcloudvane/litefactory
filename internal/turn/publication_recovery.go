@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
@@ -134,12 +133,7 @@ func (r *MCPRuntime) PrepareCreationProposal(ctx context.Context, c OwnerGrantCo
 		return PreparedCreation{}, store.ErrCreationAuthority
 	}
 
-	for i := range envelope.Artifacts {
-		envelope.Artifacts[i].LinkIssues = slices.Clone(envelope.Artifacts[i].LinkIssues)
-		if !slices.Contains(envelope.Artifacts[i].LinkIssues, ref.Issue) {
-			envelope.Artifacts[i].LinkIssues = append(envelope.Artifacts[i].LinkIssues, ref.Issue)
-		}
-	}
+	envelope.Artifacts = linkSourceIssue(envelope.Artifacts, ref.Issue)
 	// No live result/lease is created by this owner-only presenter.
 	receipts, err := r.observationReceipts(store.FamilyScope{Task: c.SourceTask, Repository: c.Repository, RunID: c.CommentID, Attempt: "owner-proposal"})
 	if err != nil {
@@ -152,7 +146,7 @@ func (r *MCPRuntime) PrepareCreationProposal(ctx context.Context, c OwnerGrantCo
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s", c.SourceTask, c.CommentID, c.Body)))
 	var nonce [16]byte
 	copy(nonce[:], digest[:16])
-	prepared, err := service.prepare(ctx, envelope, nonce, 48000)
+	prepared, err := service.prepare(ctx, envelope, nonce, 48000, r.CreationAuthorizer.RetainProposal)
 	if err != nil {
 		return PreparedCreation{}, err
 	}

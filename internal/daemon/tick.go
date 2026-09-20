@@ -1178,6 +1178,14 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 		t.recordWorkerStatus(workerDeferred)
 		return
 	}
+	// A presentation owed from an earlier turn goes before any comment: the
+	// run's trigger is already consumed, so only its recovery debt brings the
+	// session back to it. A session with debt still owed is held by the offer
+	// gate until due, so this normally runs exactly when an attempt is eligible.
+	if err := d.resumeCreationPresentations(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not present a retained creation proposal", err)
+		return
+	}
 	watermark, exists, err := d.db.GetWatermark(ctx, t.session.ID)
 	if err != nil {
 		d.stopped(ctx, t, "could not read this task's watermark", err)
@@ -1193,6 +1201,11 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	if err != nil {
 		d.stopped(ctx, t, "this task's turn could not be completed", err)
 		return
+	}
+	if !deferred && len(d.creationDebt(t.session.ID)) != 0 {
+		// A presentation failed during this drain. Its trigger is consumed, so
+		// nothing but the backlog flag brings the next tick back to it.
+		deferred = true
 	}
 	if deferred {
 		t.recordWorkerStatus(workerDeferred)
@@ -1911,8 +1924,14 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 	if turnResult.ResearchGraph {
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.
-		_, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID)
-		return d.leave(ctx, t, log, "could not consume Research graph input", err)
+		if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
+			return d.leave(ctx, t, log, "could not consume Research graph input", err)
+		}
+		// After the consume, never before: the presentation must not be the first
+		// thing to advance the watermark. Its failure leaves the consumed input
+		// and the run outcome exactly as they are.
+		return d.leave(ctx, t, log, "the creation proposal could not be presented",
+			d.presentCreationProposal(ctx, t, turnResult.Run.ID, turnResult.Run.TriggerCommentID))
 	}
 	posted, err := d.reportTurn(ctx, turnResult)
 	if err != nil {
@@ -1938,7 +1957,12 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		slog.Bool("pushed", turnResult.Pushed),
 		slog.Int64("report_comment_id", posted.CommentID),
 		slog.Bool("reported", !posted.Skipped))
-	return nil
+	// The run's own result is reported and its trigger consumed, so a
+	// presentation failure below changes neither. This call site is shared by
+	// [Daemon.repairStoppedResult], which is how a repaired stopped result
+	// inherits the hook.
+	return d.leave(ctx, t, log, "the creation proposal could not be presented",
+		d.presentCreationProposal(ctx, t, turnResult.Run.ID, turnResult.Run.TriggerCommentID))
 }
 
 // refuseTools answers any obsolete lf:tools= label. The label's value is not
