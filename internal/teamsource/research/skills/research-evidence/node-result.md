@@ -110,6 +110,25 @@ A completed result and no questions.
 }
 ```
 
+# response approved
+
+The `done` envelope above, unchanged except for the response value:
+
+```json
+{
+  "version": 1,
+  "response": "approved",
+  "result": "the completed result exactly as done carries it"
+}
+```
+
+It reports that a reply you were given accepted the work. It is never your own
+verdict, and only a role whose instructions define an approved response may
+return it. Approving unfinished work is not something an owner can be asked to
+mean, so the result must be as complete as a `done` result and carry no
+questions. Recording the approval in your comment does not report it; the
+response value does.
+
 # Artifacts
 
 The factory renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from your result
