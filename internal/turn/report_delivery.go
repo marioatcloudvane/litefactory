@@ -154,7 +154,14 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	}
 	// Legacy task-only replies cannot establish which unconsumed request they
 	// answered. Keep the new intent durable while investigating ambiguity.
-	if delivery.RunID == 0 {
+	//
+	// A creation-proposal presentation is exempt: it is a post-journal purpose
+	// whose identity is the proposal hash, not "the unconsumed request it
+	// answered", and it always carries its own delivery marker, so a pre-journal
+	// task-only bot comment cannot be mistaken for it or for its receipt. Crash
+	// recovery matches it by marker in the PossiblySent branch above. Every
+	// other runless purpose still takes the probe.
+	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) {
 		ambiguous, err := r.legacyRunlessConflict(ctx, delivery, destination)
 		if err != nil {
 			return Posted{}, err

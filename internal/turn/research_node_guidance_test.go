@@ -31,7 +31,7 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 		t.Fatalf("shipped Research package does not carry %s", path)
 	}
 	blocks := fencedJSON.FindAllSubmatch(raw, -1)
-	if len(blocks) != 2 {
+	if len(blocks) != 3 {
 		t.Fatalf("want one worked envelope per response, got %d", len(blocks))
 	}
 	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
@@ -44,7 +44,7 @@ func TestShippedNodeResultResourceDecodes(t *testing.T) {
 		}
 		seen[node.Response] = true
 	}
-	for _, response := range []string{"ask", "done"} {
+	for _, response := range []string{"ask", "done", "approved"} {
 		if !seen[response] {
 			t.Errorf("shipped resource teaches no %q envelope", response)
 		}

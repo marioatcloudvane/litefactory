@@ -75,6 +75,20 @@ func (a *CreationAuthorizer) RetainProposal(ctx context.Context, e submission.Cr
 	return p.Hash, nil
 }
 
+// RetainProposalForRun retains the proposal and records it as the run's single
+// proposal still owed to the owner, atomically. It grants nothing and publishes
+// nothing.
+func (a *CreationAuthorizer) RetainProposalForRun(ctx context.Context, runID int64, e submission.CreationEnvelope) (string, error) {
+	p, err := creationProposal(e)
+	if err != nil {
+		return "", err
+	}
+	if err := a.store.RetainProposalForRun(ctx, p, store.CreationPresentation{RunID: runID}); err != nil {
+		return "", err
+	}
+	return p.Hash, nil
+}
+
 // AdmitOwnerGrantIntent verifies control provenance before recording exact owner intent.
 func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerGrantControl) (int64, error) {
 	if !a.enabled || c.Mode != "research" || c.Bot || c.ActorID == a.botID || c.ActorID != a.ownerID {

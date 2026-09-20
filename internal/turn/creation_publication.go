@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -99,10 +100,35 @@ func (s *CreationPublicationService) Prepare(ctx context.Context, e submission.C
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return PreparedCreation{}, err
 	}
-	return s.prepare(ctx, e, nonce, 0)
+	return s.prepare(ctx, e, nonce, 0, s.authorizer.RetainProposal)
 }
 
-func (s *CreationPublicationService) prepare(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int) (PreparedCreation, error) {
+// errCreationPresentationLimit refuses a canonical envelope the owner could
+// never be shown in one presentation.
+var errCreationPresentationLimit = errors.New("creation proposal exceeds exact owner presentation limit")
+
+// creationRetainer retains one fully prepared envelope and returns its hash.
+// The owner path retains the proposal alone; the agent tool also records it as
+// its run's proposal owed to the owner, atomically.
+type creationRetainer func(context.Context, submission.CreationEnvelope) (string, error)
+
+// linkSourceIssue returns artifacts whose link lists each contain the source
+// issue exactly once, appended after any targets already present. It copies:
+// the input artifacts and their link slices are never modified. It does not
+// cap the list; canonical validation refuses more than 16 targets.
+func linkSourceIssue(artifacts []submission.CreationArtifact, sourceIssue int) []submission.CreationArtifact {
+	out := make([]submission.CreationArtifact, len(artifacts))
+	for i, a := range artifacts {
+		a.LinkIssues = slices.Clone(a.LinkIssues)
+		if !slices.Contains(a.LinkIssues, sourceIssue) {
+			a.LinkIssues = append(a.LinkIssues, sourceIssue)
+		}
+		out[i] = a
+	}
+	return out
+}
+
+func (s *CreationPublicationService) prepare(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, retain creationRetainer) (PreparedCreation, error) {
 	b := s.Binding()
 	if e.Repository != "" && e.Repository != s.receipts.scope.Repository || e.SourceTask != "" && e.SourceTask != b.Task {
 		return PreparedCreation{}, store.ErrCreationAuthority
@@ -148,10 +174,10 @@ func (s *CreationPublicationService) prepare(ctx context.Context, e submission.C
 			return PreparedCreation{}, err
 		}
 		if len(data) > presentationLimit {
-			return PreparedCreation{}, errors.New("creation proposal exceeds exact owner presentation limit")
+			return PreparedCreation{}, errCreationPresentationLimit
 		}
 	}
-	hash, err := s.authorizer.RetainProposal(ctx, e)
+	hash, err := retain(ctx, e)
 	if err != nil {
 		return PreparedCreation{}, err
 	}

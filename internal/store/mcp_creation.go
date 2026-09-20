@@ -91,33 +91,43 @@ type CreationReservation struct {
 
 // RetainProposal stores exact canonical content and advances the current proposal revision.
 func (c *CreationStore) RetainProposal(ctx context.Context, p CreationProposal) error {
-	if !validSubmissionDigest(p.Hash) || p.Hash != submissionDigest(p.Envelope) || p.Repository == "" || p.SourceTask == "" || (p.Relationship != "linked" && p.Relationship != "attach") || p.Artifacts < 1 || p.Artifacts > MCPCreationAttemptLimit || len(p.Envelope) > MaxResultInputBytes {
-		return ErrCreationAuthority
-	}
-	if err := validateCreationProposal(p); err != nil {
+	if err := validateRetention(p); err != nil {
 		return err
 	}
 	return c.db.withTx(ctx, func(tx *sql.Tx) error {
-		var n int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN repos r ON r.id=s.repo_id WHERE s.task_ref=? AND r.owner || '/' || r.name=?`, p.SourceTask, p.Repository).Scan(&n); err != nil {
-			return err
-		}
-		if n != 1 {
-			return ErrCreationAuthority
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_creation_proposals(hash,repository,source_task,relationship,artifacts,envelope,retained_ns) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hash) DO NOTHING`, p.Hash, p.Repository, p.SourceTask, p.Relationship, p.Artifacts, p.Envelope, c.now().UnixNano()); err != nil {
-			return err
-		}
-		old, _, err := creationProposalTx(ctx, tx, p.Hash)
-		if err != nil {
-			return err
-		}
-		if old.Repository != p.Repository || old.SourceTask != p.SourceTask || old.Relationship != p.Relationship || old.Artifacts != p.Artifacts || !bytes.Equal(old.Envelope, p.Envelope) {
-			return ErrCreationConflict
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO mcp_creation_current(source_task,proposal_hash) VALUES(?,?) ON CONFLICT(source_task) DO UPDATE SET revision=CASE WHEN proposal_hash<>excluded.proposal_hash THEN revision+1 ELSE revision END,proposal_hash=excluded.proposal_hash`, p.SourceTask, p.Hash)
-		return err
+		return c.retainProposalTx(ctx, tx, p)
 	})
+}
+
+func validateRetention(p CreationProposal) error {
+	if !validSubmissionDigest(p.Hash) || p.Hash != submissionDigest(p.Envelope) || p.Repository == "" || p.SourceTask == "" || (p.Relationship != "linked" && p.Relationship != "attach") || p.Artifacts < 1 || p.Artifacts > MCPCreationAttemptLimit || len(p.Envelope) > MaxResultInputBytes {
+		return ErrCreationAuthority
+	}
+	return validateCreationProposal(p)
+}
+
+// retainProposalTx is the retention body shared by RetainProposal and
+// RetainProposalForRun; the caller owns the transaction and has validated p.
+func (c *CreationStore) retainProposalTx(ctx context.Context, tx *sql.Tx, p CreationProposal) error {
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions s JOIN repos r ON r.id=s.repo_id WHERE s.task_ref=? AND r.owner || '/' || r.name=?`, p.SourceTask, p.Repository).Scan(&n); err != nil {
+		return err
+	}
+	if n != 1 {
+		return ErrCreationAuthority
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_creation_proposals(hash,repository,source_task,relationship,artifacts,envelope,retained_ns) VALUES(?,?,?,?,?,?,?) ON CONFLICT(hash) DO NOTHING`, p.Hash, p.Repository, p.SourceTask, p.Relationship, p.Artifacts, p.Envelope, c.now().UnixNano()); err != nil {
+		return err
+	}
+	old, _, err := creationProposalTx(ctx, tx, p.Hash)
+	if err != nil {
+		return err
+	}
+	if old.Repository != p.Repository || old.SourceTask != p.SourceTask || old.Relationship != p.Relationship || old.Artifacts != p.Artifacts || !bytes.Equal(old.Envelope, p.Envelope) {
+		return ErrCreationConflict
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO mcp_creation_current(source_task,proposal_hash) VALUES(?,?) ON CONFLICT(source_task) DO UPDATE SET revision=CASE WHEN proposal_hash<>excluded.proposal_hash THEN revision+1 ELSE revision END,proposal_hash=excluded.proposal_hash`, p.SourceTask, p.Hash)
+	return err
 }
 func creationProposalTx(ctx context.Context, tx *sql.Tx, hash string) (CreationProposal, int64, error) {
 	var p CreationProposal

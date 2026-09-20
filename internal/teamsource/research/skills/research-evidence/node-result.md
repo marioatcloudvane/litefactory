@@ -118,7 +118,45 @@ The `done` envelope above, unchanged except for the response value:
 {
   "version": 1,
   "response": "approved",
-  "result": "the completed result exactly as done carries it"
+  "result": {
+    "outcome": "completed",
+    "comment": "Summarise the work the reply accepted; do not submit this example unchanged.",
+    "artifacts": [
+      {
+        "id": "brief",
+        "kind": "brief",
+        "path": "path/to/session/RESEARCH_BRIEF.md"
+      },
+      {
+        "id": "technical",
+        "kind": "technical",
+        "path": "path/to/session/RESEARCH_TECHNICAL.md"
+      }
+    ],
+    "payload": {
+      "research": {
+        "request": "Restate the owner's request.",
+        "findings": [
+          {
+            "id": "f1",
+            "text": "Record one observed claim.",
+            "evidence": [
+              {
+                "path": "path/to/file",
+                "line": 1
+              }
+            ]
+          }
+        ],
+        "decisions": [
+          {
+            "id": "d1",
+            "text": "Record one settled decision."
+          }
+        ]
+      }
+    }
+  }
 }
 ```
 

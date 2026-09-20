@@ -7,7 +7,7 @@ import (
 )
 
 // FamilyCatalogVersion changes when immutable family call permissions change.
-const FamilyCatalogVersion = "families-v2"
+const FamilyCatalogVersion = "families-v3"
 
 // NewFamilyToolProfile enables only explicitly installed catalog entries. Mode
 // restrictions and the default-off creation gate cannot be supplied by callers.
@@ -34,6 +34,12 @@ func familyAllowed(mode string, creation bool, name string) bool {
 	if name == "issues_create_batch" {
 		return mode == "research" && creation
 	}
+	// Drafting retains a proposal and publishes nothing, so it needs no grant.
+	// The creation flag means a live grant exists and must never gate this tool;
+	// installation, not that flag, is the story-creation gate.
+	if name == "issues_create_prepare" {
+		return mode == "research"
+	}
 	if name == "evidence_submit" {
 		return mode == "implement" || mode == "validate"
 	}
@@ -56,6 +62,10 @@ func familyTool(name string) (ToolSpec, bool) {
 		spec.Description = "Publish a receipted comment to an explicitly authorized existing issue."
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"issue_number":{"type":"integer"},"message":{"type":"string"}},"required":["issue_number","message"],"additionalProperties":false}`)
 		spec.Effect = "publication"
+	case "issues_create_prepare":
+		spec.Description = "Draft 1 to 5 issues the owner asked to have created and have the factory retain them as a creation proposal. Call it only when the owner's request asks for issues or stories to be created. It publishes nothing and needs no approval; the factory presents the proposal to the owner, who decides. Repository, source task and version are supplied by the factory. The whole proposal must stay under about 48000 bytes; a larger one is refused, so shorten it or split the work. Recommendation: split large work into several focused issues rather than one big one; this is advice only and never blocks a proposal."
+		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"relationship":{"type":"string","enum":["linked","attach"],"description":"linked (default) links each draft to the source issue; attach also attaches each draft as a sub-issue of the source issue."},"drafts":{"type":"array","minItems":1,"maxItems":5,"items":{"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":256},"body":{"type":"string","minLength":1,"maxLength":65536},"parent_issue":{"type":"integer","minimum":1,"description":"Only with attach; must be the source issue."},"link_issues":{"type":"array","maxItems":16,"items":{"type":"integer","minimum":1}}},"required":["title","body"],"additionalProperties":false}}},"required":["drafts"],"additionalProperties":false}`)
+		spec.Effect = "input"
 	case "issues_create_batch":
 		spec.Description = "Publish an exactly reviewed batch using the factory-held live creation grant."
 		spec.InputSchema = json.RawMessage(`{"type":"object","properties":{"envelope":{"type":"object","description":"The exact reviewed creation envelope."},"hash":{"type":"string"}},"required":["envelope","hash"],"additionalProperties":false}`)

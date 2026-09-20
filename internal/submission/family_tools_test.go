@@ -10,7 +10,7 @@ import (
 )
 
 func TestFamilyProfile_ModeMatrix(t *testing.T) {
-	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
+	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
 	for _, mode := range []string{"research", "implement", "validate", "plan", "spike"} {
 		for _, gate := range []bool{false, true} {
 			name := mode + "/gate off"
@@ -37,6 +37,10 @@ func TestFamilyProfile_ModeMatrix(t *testing.T) {
 					want := mode != "plan" && mode != "spike"
 					if tool == "issues_create_batch" {
 						want = mode == "research" && gate
+					}
+					// Drafting needs no grant, so the creation flag never gates it.
+					if tool == "issues_create_prepare" {
+						want = mode == "research"
 					}
 					if tool == "evidence_submit" {
 						want = mode == "implement" || mode == "validate"
@@ -116,7 +120,7 @@ func TestFamilyProfile_RegistrationAndImmutability(t *testing.T) {
 // takes no arguments; a missing member is what leaves the model guessing.
 func TestToolSchemasAreUsableInEveryMode(t *testing.T) {
 	t.Parallel()
-	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
+	installed := []string{"feedback_preflight", "issues_list", "issues_get", "issues_comment", "issues_create_batch", "issues_create_prepare", "evidence_submit", "activity_update", "activity_get", "receipts_get"}
 	for _, mode := range []string{"research", "spike", "plan", "implement", "validate"} {
 		for _, creation := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/creation=%t", mode, creation), func(t *testing.T) {
