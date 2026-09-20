@@ -76,7 +76,7 @@ Evidence:
 
 ## f11
 
-The earlier pass reported focused offline tests passing with no matching decoder tests; this scope revision inspected existing handlers and performed no implementation changes or new tests.
+The earlier pass reported focused offline tests passing with no matching decoder tests; this continuation inspected brief generation, artifacts and comment handling without changing implementation or running new tests.
 
 Evidence:
 
@@ -91,3 +91,35 @@ Evidence:
 - `internal/graphexec/purity_test.go:50` @ `e1c196eef2bafc2779d21c7a33e7dcdf89b8a506`
 - `internal/graphexec/registry.go:36` @ `e1c196eef2bafc2779d21c7a33e7dcdf89b8a506`
 - `internal/turn/research_admission.go:26` @ `e1c196eef2bafc2779d21c7a33e7dcdf89b8a506`
+
+## f17
+
+The Research agent handler currently decodes the result, writes both Research documents and checks artifacts before final private result retention; extracting brief generation changes this ordering boundary.
+
+Evidence:
+
+- `internal/turn/research_agent.go:164` @ `4ed4dc64a001bb90067c3ff3cbf6f725af116634`
+
+## f18
+
+The existing brief writer generates both Research documents from identified decisions, assumptions, questions and evidence, replacing superseded content rather than appending.
+
+Evidence:
+
+- `internal/turn/research_briefs.go:20` @ `4ed4dc64a001bb90067c3ff3cbf6f725af116634`
+
+## f19
+
+Artifact validation checks admitted-session containment, regular files and absence of symlink ancestry; these are required checks around document generation, not reasoning work.
+
+Evidence:
+
+- `internal/turn/research_artifacts.go:11` @ `4ed4dc64a001bb90067c3ff3cbf6f725af116634`
+
+## f20
+
+Research comment handling mixes candidate-kind checks and presentation with durable delivery; document labels and Research next-step wording are scoped, while transport and owner waits can remain shared.
+
+Evidence:
+
+- `internal/turn/research_comments.go:121` @ `4ed4dc64a001bb90067c3ff3cbf6f725af116634`
