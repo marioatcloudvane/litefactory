@@ -1,0 +1,434 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "The plan has three stories: ship a Plan workflow and Markdown package matching Research, connect the three durable owner reviews, and connect checked publication with final approval and recovery. Your publication timing and whole-set review/rewind decisions are preserved. No owner questions remain. The proposed path stays opt-in while authentic host evidence is unavailable. Publication and readiness remain factory decisions; this proposal does not claim either. After publication and approval, use /implement build the three stories in dependency order.",
+    "payload": {
+      "plan": {
+        "summary": "Implement owner-reviewed Plan graphs with Research-style DOT, role and skill Markdown. Reuse existing graph, draft and publication machinery; review stories, engineering and acceptance, create complete issues after consistency, then obtain final approval on confirmed issues. Preserve whole-set revisions, durable replies, supersession, recovery, legacy compatibility and opt-in activation.",
+        "stories": [
+          {
+            "key": "S1",
+            "intent": "create",
+            "title": "Ship a Plan workflow package matching Research",
+            "user_story": {
+              "actor": "owner and maintainer",
+              "want": "a readable Plan workflow with the same Markdown organization as Research",
+              "benefit": "understand and maintain the planning conversation without learning another structure",
+              "notes": [
+                "Use one mode workflow, stage role documents and reusable skill/supporting documents. Keep existing execution available while the new path is connected."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "The application-owned Plan package mirrors Research's embedded organization: one editable plan.dot, stage role Markdown, and skills/<name>/SKILL.md with supporting Markdown. Roles explain stories, engineering, acceptance, consistency, publication and final review without introducing another catalog or installed instruction-tree regeneration."
+              },
+              {
+                "id": "AC-002",
+                "text": "The package declares stories → engineering → acceptance, explicit owner review gates, earliest-stage rewind routes, checked publication and post-publication final approval. All actions use registered lf_plan_* names; validation rejects unresolved actions, unsafe attributes and unbounded loops."
+              },
+              {
+                "id": "AC-003",
+                "text": "Plan capture retains the workflow, roles and selected skill/resource closure with immutable hashes; both provider deliveries resolve to those captured bytes. Missing resources, unsafe paths, cycles and resource-name collisions fail with actionable diagnostics."
+              },
+              {
+                "id": "AC-004",
+                "text": "Existing Research capture and graph validation remain compatible. This package alone does not enable default Plan graph admission, publish stories or change the mode."
+              },
+              {
+                "id": "AC-005",
+                "text": "Executed package/graph checks cover required ordering, control bounds, invalid resources/actions and both provider renderings using in-memory or temporary output. Evidence identifies the implementation snapshot and distinguishes offline rendering from authentic provider observation."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T1",
+                "description": "Add the Research-style embedded Plan assets, capture support and Plan graph action specifications in existing owning packages.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T2",
+                "description": "Write and execute capture/render/graph validation and Research compatibility cases using temporary or in-memory outputs.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Add an application-owned Plan asset directory alongside Research; reuse immutable capture and the pure graph validator. Runtime admission and effects arrive in dependent stories.",
+              "components": [
+                {
+                  "name": "internal/teamsource/plan/",
+                  "responsibility": "Plan DOT, stage roles and skill/supporting Markdown matching internal/teamsource/research/."
+                },
+                {
+                  "name": "internal/teamsource",
+                  "responsibility": "Capture Plan resources and both native delivery forms."
+                },
+                {
+                  "name": "internal/graphexec",
+                  "responsibility": "Register/validate the closed Plan action vocabulary and bounded topology."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Plan package capture",
+                  "input": "Selected Plan package resources and existing graph profile",
+                  "output": "Immutable workflow/role/resource snapshot or complete diagnostics"
+                },
+                {
+                  "name": "Graph validation",
+                  "input": "Plan DOT and registered action specifications",
+                  "output": "Validated bounded topology or rejection"
+                }
+              ],
+              "constraints": [
+                "No new dependency, engine, public service or installed .claude/.codex tree changes.",
+                "No arbitrary executable DOT expressions or unchecked resource traversal.",
+                "S1 does not admit a partially wired graph into normal execution."
+              ],
+              "decisions": [
+                {
+                  "decision": "Use Research's embedded asset layout.",
+                  "reason": "The owner's priority is the same Markdown organization with minimal extra machinery."
+                },
+                {
+                  "decision": "Evidence inventory AC-001–AC-005: source review plus executed teamsource/graphexec tests; existing fixtures available; bound to exact implementation snapshot; missing prerequisite is implementation and executed results.",
+                  "reason": "Rendering and synthetic package checks cannot establish authentic host delivery."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "S2",
+            "intent": "create",
+            "title": "Shape and approve stories through three durable Plan reviews",
+            "user_story": {
+              "actor": "owner",
+              "want": "shape the whole story set, then its engineering details, then its acceptance criteria in separate reviews",
+              "benefit": "resolve the problems and intended behavior before agreeing the finished technical plan",
+              "notes": [
+                "Each stage covers the whole set, even when discussion concerns one story. A continuation request is not approval. Draft stories remain unpublished during discussion."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Explicit opt-in admits new Plan graph executions using S1's captured package; default and active legacy executions retain their existing path and versions. Cold, resumed and fallback invocations use the same retained definitions even when shipped assets change; completing or pausing Plan never selects another mode."
+              },
+              {
+                "id": "AC-002",
+                "text": "Story shaping presents titles, descriptions, problems solved and intended benefits; engineering adds architecture, boundaries, dependencies and provisional tasks; acceptance adds prose success intent, canonical criteria, explicit completion signals and complete task mappings. Reviews display the whole set, current stage/revision, changes, questions and exact approval requested. No intermediate discussion or node completion creates story issues."
+              },
+              {
+                "id": "AC-003",
+                "text": "Only an authenticated owner response correlated to the displayed review, stage and current set revision can advance that gate. Wrong-owner, stale, duplicate or mismatched replies, silence, ordinary continuation, agent completion and input receipts cannot approve another revision or stage."
+              },
+              {
+                "id": "AC-004",
+                "text": "Meaningful additions/removals/splits/merges reopen story shaping; design/dependency changes reopen engineering; criteria-only changes reopen acceptance unless they change earlier intent. Clear whole-set approval at the earliest affected stage and every later stage while retaining content/history. Wording-only edits retain stage approvals only with a recorded comparison establishing unchanged meaning; uncertainty reopens review."
+              },
+              {
+                "id": "AC-005",
+                "text": "Persist stable draft/story identities, set/story revisions, stage content, dependencies, decisions, assumptions, unresolved questions, owner replies, review evidence and supersession links. Renames preserve identity; splits/merges create linked identities; removed drafts leave the active set. Restart or worker interruption around reply claim restores the originating review without skipping or double-advancing a gate."
+              },
+              {
+                "id": "AC-006",
+                "text": "Owner waits end the invocation and release worker capacity. Bounded-loop exhaustion retains drafts and explains the pause; explicit continuation starts a fresh bounded attempt without granting approval. Executed pure transition and real-store assembled tests cover stage gates, rewinds, reply authentication/correlation, restart, pinning and zero intermediate issue creation."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T1",
+                "description": "Extend typed drafts and minimal store-owned revision/review/supersession persistence; enforce atomic whole-set approval and invalidation transitions.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T2",
+                "description": "Connect explicit Plan admission, registered activities, authenticated owner waits, rendered reviews and retained continuation through existing turn/daemon/result boundaries.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-005",
+                  "AC-006"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              },
+              {
+                "id": "T3",
+                "description": "Write and execute deterministic validation/transition cases for partial content, gates, revisions and earliest-stage invalidation.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              },
+              {
+                "id": "T4",
+                "description": "Write and execute ordinary assembled tests with real migrated SQLite and fake provider/remote boundaries covering admission, durable replies, restart, pinning, exhaustion and no intermediate publication.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-005",
+                  "AC-006"
+                ],
+                "depends_on": [
+                  "T2"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Extend existing graph state and Plan draft projections with one current whole-set revision and factory-enforced review evidence. Reuse graph waits and dispatch rather than building another lifecycle service.",
+              "components": [
+                {
+                  "name": "internal/agentresult and internal/planbrief",
+                  "responsibility": "Bounded partial stage content and draft validation."
+                },
+                {
+                  "name": "internal/store",
+                  "responsibility": "SQL migrations and ctx-first durable draft/review/reply operations."
+                },
+                {
+                  "name": "internal/config, internal/turn and internal/daemon",
+                  "responsibility": "Explicit Plan admission, captured invocations, mode-specific reply claims and scheduling."
+                },
+                {
+                  "name": "internal/report",
+                  "responsibility": "Pure redacted review presentation."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Stage result application",
+                  "input": "Typed draft plus current captured execution and retained authenticated owner evidence",
+                  "output": "New retained revision and valid next stage or explicit incomplete/invalid result"
+                },
+                {
+                  "name": "Owner review claim",
+                  "input": "Numeric owner reply correlated to published review and retained set revision",
+                  "output": "Atomic reply consumption and stage decision without duplicate advancement"
+                }
+              ],
+              "constraints": [
+                "SQL remains in store; keep its single connection and do not hold transactions over provider/forge calls.",
+                "The daemon owns time; waits and bounded attempts reuse current machinery.",
+                "Do not trust agent prose as approval authority or let partial node completion invoke completed Plan publication.",
+                "Remote effects/provider calls in automated tests are faked; real-store tests are ordinary Go tests without tags."
+              ],
+              "decisions": [
+                {
+                  "decision": "Invalidate approvals for the whole set from the earliest affected stage.",
+                  "reason": "This implements settled q2=a and q3=a without per-story mixed-stage tracking."
+                },
+                {
+                  "decision": "Evidence inventory AC-001–AC-006: pure cases plus assembled real-store/turn/daemon tests; existing Research/Plan fixtures available; bound to exact implementation snapshot and persisted contracts; implementation and new executed checks remain prerequisites.",
+                  "reason": "Offline tests prove specified state behavior; they do not prove authentic provider operation."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "S1"
+              ],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "S3",
+            "intent": "create",
+            "title": "Publish reviewed stories and approve the confirmed result",
+            "user_story": {
+              "actor": "owner",
+              "want": "receive complete story issues after the three reviews and make the final decision on those published issues",
+              "benefit": "approve the exact deliverable while interruptions or requested changes preserve the work and existing issue identities",
+              "notes": [
+                "Acceptance-stage approval authorizes creation after consistency passes. Publication, final approval, readiness and implementation authorization remain distinct."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Publication requires the same reviewed revision to have all three current whole-set approvals, a nonempty complete typed story set, resolved questions, valid criterion/task mappings and acyclic dependencies without missing or superseded targets. External dependencies resolve to retained issue identities. Reject invalid/stale content before remote writes. Acceptance approval authorizes this checked publication without another pre-publication approval gate."
+              },
+              {
+                "id": "AC-002",
+                "text": "Use the existing durable factory publisher to create/update complete issues and confirm the entire published set before final review. Surviving stories retain issue identity. Creation or an accepted input receipt alone cannot make graph Plan ready; readiness requires final owner approval of the exact confirmed set/revisions plus successful save. Preserve legacy readiness behavior."
+              },
+              {
+                "id": "AC-003",
+                "text": "Final rejection reopens the earliest affected review and all later reviews, repeats consistency checking and produces managed revisions before another final review. Any content change invalidates final approval. Competing/unconfirmed remote content cannot silently become the approved revision or be overwritten as if unchanged."
+              },
+              {
+                "id": "AC-004",
+                "text": "Post-publication rename preserves identity; removal/split/merge explicitly transitions active managed membership while retaining historical issue identities and supersession links. Removed/superseded stories leave the active publication, final-review and readiness set; surviving stories are updated rather than recreated. Preserve completed historical dependencies and do not introduce automatic deletion or closure policy."
+              },
+              {
+                "id": "AC-005",
+                "text": "On interrupted or uncertain create/update/attach/save, retain effect identities and receipts, reconcile before retry, and do not duplicate story issues. Final review remains unavailable until all publication effects are confirmed. Restart retains final-review correlation; stale/duplicate final replies cannot approve different issue revisions. Report input, publication, acceptance and readiness states honestly."
+              },
+              {
+                "id": "AC-006",
+                "text": "Executed assembled real-store publisher/daemon cases cover invalid pre-publication plans, partial/uncertain effects, reply loss/retry/restart, final rejection and republication, identity-preserving supersession, stale final approval, save failure and legacy compatibility; repository make check passes before engineering completion."
+              },
+              {
+                "id": "AC-007",
+                "text": "Document Plan opt-in, resume and activation prerequisites alongside Research guidance. Retain an evidence inventory distinguishing offline results from authentic Claude and Codex role/skill/helper invocation, same-run correction and authoritative receipt observations, including captured snapshot and host CLI versions. Missing authentic observations remain explicitly unverified and prevent default activation; do not claim them from synthetic tests or this planning run."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T1",
+                "description": "Connect consistency-checked graph Plan publication to the existing publisher; add narrow active/superseded membership handling and final-review/readiness persistence while preserving legacy behavior.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T2",
+                "description": "Write and execute pure completeness, mapping, dependency and final-review revision validation cases.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003",
+                  "AC-004"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              },
+              {
+                "id": "T3",
+                "description": "Write and execute real-store assembled publisher/recovery and legacy cases with deterministic remote-loss fixtures; retain actual outputs and run make check.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-003",
+                  "AC-004",
+                  "AC-005",
+                  "AC-006"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              },
+              {
+                "id": "T4",
+                "description": "Document Plan graph operation and exact external observation prerequisites; keep default activation disabled while authentic evidence is missing.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007"
+                ],
+                "depends_on": [
+                  "T1"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Reuse existing typed Plan handoff, publication intents and reconciliation. Add graph-specific final approval and explicit active/superseded membership where the existing publisher currently rejects omission of indexed identities.",
+              "components": [
+                {
+                  "name": "internal/turn Plan publication/handoff and graph activities",
+                  "responsibility": "Validate the reviewed revision, publish through current owner, reconcile effects and gate final review/readiness."
+                },
+                {
+                  "name": "internal/store",
+                  "responsibility": "Retain membership, publication references and exact final-review approval."
+                },
+                {
+                  "name": "internal/planbrief and internal/report",
+                  "responsibility": "Consistency validation and exact published-set review projection."
+                },
+                {
+                  "name": "docs/workflow/plan-graph.md",
+                  "responsibility": "Operator usage and evidence/activation limitations."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Checked Plan publication",
+                  "input": "Complete typed set plus current three-stage approval references",
+                  "output": "Confirmed issue identities/revisions and saved index, or resumable pending/failure state"
+                },
+                {
+                  "name": "Final approval",
+                  "input": "Authenticated correlated owner response to confirmed published set/revisions",
+                  "output": "Graph Plan readiness only after approval and successful save"
+                }
+              ],
+              "constraints": [
+                "Keep factory-issued identity, transport and observed-revision contracts; no agent-side forge publisher.",
+                "Never clear uncertain effects to force a new create or infer readiness from a receipt.",
+                "No implicit workflow/content upgrade, legacy retirement or automatic mode selection.",
+                "No changes to Implement/Validate test responsibilities; make check is engineering evidence, not acceptance or authentic host proof."
+              ],
+              "decisions": [
+                {
+                  "decision": "Publish first, then request final approval on confirmed issues.",
+                  "reason": "Implements settled q1=b while separating publication from readiness."
+                },
+                {
+                  "decision": "Extend supersession narrowly within existing managed publication.",
+                  "reason": "Current indexed-identity retention prevents removals; approved split/merge/removal behavior needs explicit historical membership rather than omission."
+                },
+                {
+                  "decision": "Evidence inventory AC-001–AC-006: pure validation and real-store publisher/recovery fixtures, current sources available, exact implementation snapshot/contract bounds, pending implementation and executed checks.",
+                  "reason": "Deterministic remote-loss fixtures prove recovery logic only."
+                },
+                {
+                  "decision": "Evidence inventory AC-007: documentation/source inspection verifies the activation gate and recorded prerequisites; authentic proof requires separately authorized actual Claude and Codex host captures, pinned package snapshot and CLI versions; captures are currently unavailable.",
+                  "reason": "Default activation remains blocked on authentic observations without making those unavailable observations a fabricated pass or launching nested agents."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "S2"
+              ],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

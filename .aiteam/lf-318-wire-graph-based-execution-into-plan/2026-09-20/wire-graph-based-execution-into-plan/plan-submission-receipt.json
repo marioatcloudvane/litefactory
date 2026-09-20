@@ -1,0 +1,12 @@
+{
+  "request_id": "ae938bb59190d1a4f1936fa754c5df83",
+  "input": "accepted",
+  "revision": 1,
+  "states": {
+    "Received": "received",
+    "Input": "accepted",
+    "Engineering": "pending",
+    "Acceptance": "pending",
+    "Publication": "pending"
+  }
+}
