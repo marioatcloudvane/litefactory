@@ -14,7 +14,7 @@ import (
 )
 
 // ResearchAgentAction names the registered private Research invocation activity.
-const ResearchAgentAction = "lf_research_agent"
+const ResearchAgentAction = "lf_agent"
 
 const researchNodeInstructions = "\nFactory invocation: private Research graph node. Return exactly one JSON object with version=1, response=ask or done, and result containing the complete application result. ask requires an incomplete result and permitted nonempty owner questions; done requires a completed result without questions. The entire object is limited to 1 MiB. Use the existing result helper for application-result preflight/correction/receipts; the terminal node result must match its current retained application candidate. Returning a node result retains private progress only; only an explicit graph comment activity may publish it.\n"
 
@@ -47,28 +47,38 @@ type ResearchInvocation struct {
 
 // ResearchAgentActivity prepares a reserved attempt using existing host delivery
 // and helper setup. Prepare must not start a subprocess or publish an effect.
-type ResearchAgentActivity struct {
+type ResearchAgentActivity = AgentActivity
+
+// AgentActivity runs one attempt under an explicit admitted mode policy.
+type AgentActivity struct {
+	Policy  WorkflowPolicy
 	Prepare func(context.Context, Options, ActivityRequest) (ResearchInvocation, error)
 }
 
 // RegisterResearchAgent declares one successful private result outcome. ask/done
 // are retained response values for subsequent control activities to inspect.
 func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler ResearchAgentActivity) error {
-	if specs == nil || activities == nil || handler.Prepare == nil {
+	handler.Policy = ResearchWorkflowPolicy()
+	return RegisterAgent(specs, activities, handler)
+}
+
+// RegisterAgent installs the shared invocation activity under an admitted mode policy.
+func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler AgentActivity) error {
+	if specs == nil || activities == nil || handler.Prepare == nil || !handler.Policy.Mode.Valid() || handler.Policy.Decode == nil {
 		return errors.New("research agent registration requires registries and preparation")
 	}
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
 	}
-	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}}); err != nil {
+	if err := specs.Register(graphexec.ActionSpec{Name: ResearchAgentAction, Mode: handler.Policy.Mode, Outcomes: []string{"success", "failed"}}); err != nil {
 		return err
 	}
 	return activities.Register(ResearchAgentAction, handler)
 }
 
 // Execute invokes a reserved attempt and retains its validated result without publication.
-func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequest) (out ActivityResult, returnedErr error) {
-	if opts.DB == nil || h.Prepare == nil || a.Mode != agent.ModeResearch || a.RunID < 1 {
+func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequest) (out ActivityResult, returnedErr error) {
+	if opts.DB == nil || h.Prepare == nil || a.Mode != h.Policy.Mode || a.RunID < 1 {
 		return out, errors.New("research agent requires a real Research run and preparation")
 	}
 	attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
@@ -82,7 +92,7 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	if err != nil {
 		return out, err
 	}
-	if run.Status != store.RunRunning || run.Mode != "research" {
+	if run.Status != store.RunRunning || run.Mode != string(h.Policy.Mode) {
 		return out, errors.New("research agent run is not active Research")
 	}
 	invocation, err := h.Prepare(ctx, opts, a)
@@ -99,7 +109,7 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 			returnedErr = errors.Join(returnedErr, invocation.Close())
 		}
 	}()
-	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != "research" {
+	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) {
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
@@ -107,14 +117,14 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	if err != nil {
 		return out, err
 	}
-	if req.Mode != "research" || req.RunOrdinal != run.Ordinal || req.SegmentOrdinal != segment.Ordinal || req.Session.Ref != segment.SessionRef || req.Session.Resume != segment.ResumeToken || string(invocation.Kind) != run.Agent {
+	if req.Mode != string(h.Policy.Mode) || req.RunOrdinal != run.Ordinal || req.SegmentOrdinal != segment.Ordinal || req.Session.Ref != segment.SessionRef || req.Session.Resume != segment.ResumeToken || string(invocation.Kind) != run.Agent {
 		return out, errors.New("research invocation provider/run binding mismatch")
 	}
 	// Main-role delivery retains these instructions in the host's persistent
 	// instruction channel on cold, resumed and fallback invocations. Keep the
 	// user history incremental instead of appending another copy on each pass.
 	if req.Delivery == nil || req.Delivery.MainRole == "" {
-		req.Prompt += researchNodeGuidance()
+		req.Prompt += h.Policy.Guidance
 	}
 	req.Invocation = agent.InvocationResearchNode
 	req.Graph = &agent.GraphInvocation{InstanceID: a.InstanceID, AttemptID: a.NodeAttemptID, RunID: a.RunID, Node: a.Node}
@@ -161,18 +171,23 @@ func (h ResearchAgentActivity) Execute(ctx context.Context, opts Options, a Acti
 	if err != nil {
 		return out, err
 	}
-	node, d := agentresult.DecodeResearchNode([]byte(result.ResultText), trusted)
+	node, d := h.Policy.Decode([]byte(result.ResultText), trusted)
 	if !d.Valid || !d.Complete {
 		return out, resultDiagnosticError(d)
 	}
-	// Before artifact validation, so a result may declare the two documents the
-	// factory just rendered. Writing them here also means an agent never has to
-	// keep Markdown in step with the result it already submitted.
-	if err := WriteResearchBriefs(req.WorktreePath, invocation.SessionPath, node.Result); err != nil {
-		return out, err
+	if h.Policy.AuthorizeOutput != nil {
+		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
+		if err != nil {
+			return out, err
+		}
+		if err := h.Policy.AuthorizeOutput(ctx, opts.DB, attempt, node); err != nil {
+			return out, err
+		}
 	}
-	if err := ValidateResearchArtifacts(req.WorktreePath, invocation.SessionPath, node.Result.Artifacts); err != nil {
-		return out, err
+	if h.Policy.Artifacts != nil {
+		if err := h.Policy.Artifacts(req.WorktreePath, invocation.SessionPath, node.Result); err != nil {
+			return out, err
+		}
 	}
 	application, err := json.Marshal(agentresult.CreateInput{Result: node.Result})
 	if err != nil {
@@ -220,6 +235,10 @@ func researchCommitNarrative(r agentresult.Result) string {
 // LoadResearchNodeOutput reads one previously retained node object within byte
 // and row bounds. A missing/ambiguous output is an error, never a loop default.
 func LoadResearchNodeOutput(ctx context.Context, db *store.DB, attemptID int64, scope agentresult.Context) (agentresult.ResearchNode, error) {
+	return ResearchWorkflowPolicy().load(ctx, db, attemptID, scope)
+}
+
+func loadNodeOutput(ctx context.Context, db *store.DB, attemptID int64, scope agentresult.Context, decode func([]byte, agentresult.Context) (agentresult.ResearchNode, agentresult.Diagnostics)) (agentresult.ResearchNode, error) {
 	if db == nil {
 		return agentresult.ResearchNode{}, errors.New("research output database is required")
 	}
@@ -247,7 +266,7 @@ func LoadResearchNodeOutput(ctx context.Context, db *store.DB, attemptID int64, 
 	if raw == nil {
 		return agentresult.ResearchNode{}, errors.New("research attempt has no node output")
 	}
-	node, d := agentresult.DecodeResearchNode(raw, scope)
+	node, d := decode(raw, scope)
 	if !d.Valid || !d.Complete {
 		return agentresult.ResearchNode{}, resultDiagnosticError(d)
 	}

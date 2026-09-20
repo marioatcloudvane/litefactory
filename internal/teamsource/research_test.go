@@ -15,8 +15,8 @@ import (
 func researchTestRegistry(t *testing.T) graphexec.Registry {
 	t.Helper()
 	var r graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}} {
-		if err := r.Register(graphexec.ActionSpec{Name: "lf_research_" + name, Mode: "research", Outcomes: outcomes}); err != nil {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}, "research_brief": {"success", "failed"}} {
+		if err := r.Register(graphexec.ActionSpec{Name: "lf_" + name, Mode: "research", Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -27,7 +27,7 @@ func researchTestSource() fstest.MapFS {
 	return fstest.MapFS{
 		"research.dot": {Data: []byte(`digraph research {
  graph [team="builtin", mode="research", profile_version="1", start="work", lf_task="package task", lf_model_tier="fast"];
- work [lf_action="lf_research_agent", lf_outcomes="success", lf_agent_markdown="research", lf_skills="reader", lf_limit="2"];
+ work [lf_action="lf_agent", lf_outcomes="success", lf_agent_markdown="research", lf_skills="reader", lf_limit="2"];
  end [lf_terminal="true"];
  work -> end [lf_on="success"];
  }`)},
@@ -49,7 +49,7 @@ func TestCaptureResearchValidation(t *testing.T) {
 		mutate func(fstest.MapFS)
 		want   string
 	}{
-		{"external namespace", func(f fstest.MapFS) { replaceResearchFixture(f, "research.dot", `team="builtin"`, `team="external"`) }, "team=builtin"},
+		{"external namespace", func(f fstest.MapFS) { replaceResearchFixture(f, "research.dot", `team="builtin"`, `team="external"`) }, "admitted team or mode"},
 		{"agent extension", func(f fstest.MapFS) {
 			replaceResearchFixture(f, "research.dot", `lf_agent_markdown="research"`, `lf_agent_markdown="research.md"`)
 		}, "agent"},

@@ -1,10 +1,12 @@
 package turn
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strings"
+	"syscall"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
 )
@@ -41,17 +43,75 @@ func WriteResearchBriefs(worktree, session string, result agentresult.Result) er
 		return fmt.Errorf("research briefs root: %w", err)
 	}
 	defer root.Close()
+	// Refuse symlinks and non-directory ancestors before creating anything.
+	parts := strings.Split(session, "/")
+	for i := range parts {
+		info, err := root.Lstat(strings.Join(parts[:i+1], "/"))
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("inspect research briefs directory: %w", err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("research briefs directory has unsafe ancestry")
+		}
+	}
+	if err := ValidateResearchArtifactDeclarations(worktree, session, []agentresult.Artifact{{Path: path.Join(session, ResearchBriefName)}, {Path: path.Join(session, ResearchTechnicalName)}}); err != nil {
+		return err
+	}
 	if err := root.MkdirAll(session, 0o750); err != nil {
 		return fmt.Errorf("research briefs directory: %w", err)
 	}
-	for name, body := range map[string]string{
-		ResearchBriefName:     renderResearchBrief(result),
-		ResearchTechnicalName: renderResearchTechnical(result),
-	} {
-		if err := root.WriteFile(path.Join(session, name), []byte(body), 0o600); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
+	var sessionInfo os.FileInfo
+	for i := range parts {
+		sessionInfo, err = root.Lstat(strings.Join(parts[:i+1], "/"))
+		if err != nil {
+			return fmt.Errorf("inspect created research directory: %w", err)
+		}
+		if !sessionInfo.IsDir() || sessionInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.New("research briefs directory changed to unsafe ancestry")
 		}
 	}
+	destination, err := root.OpenRoot(session)
+	if err != nil {
+		return fmt.Errorf("open research briefs directory: %w", err)
+	}
+	defer destination.Close()
+	openedInfo, err := destination.Stat(".")
+	if err != nil {
+		return fmt.Errorf("inspect opened research directory: %w", err)
+	}
+	if !os.SameFile(sessionInfo, openedInfo) {
+		return errors.New("research briefs directory changed while opening")
+	}
+
+	documents := []struct{ name, body string }{{ResearchBriefName, renderResearchBrief(result)}, {ResearchTechnicalName, renderResearchTechnical(result)}}
+	// Check both destinations before the first truncation. A later I/O failure
+	// may leave partial files, but the caller cannot retain generation success.
+	for _, document := range documents {
+		info, err := destination.Lstat(document.name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", document.name, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("research brief %s is not a regular file", document.name)
+		}
+	}
+	for _, document := range documents {
+		file, err := destination.OpenFile(document.name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+		if err != nil {
+			return fmt.Errorf("write %s: %w", document.name, err)
+		}
+		_, writeErr := file.WriteString(document.body)
+		if err := errors.Join(writeErr, file.Close()); err != nil {
+			return fmt.Errorf("write %s: %w", document.name, err)
+		}
+	}
+
 	return nil
 }
 

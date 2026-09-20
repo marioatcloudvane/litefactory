@@ -9,13 +9,14 @@ import (
 )
 
 const controlDOT = `digraph {team=builtin;mode=research;profile_version=1;start=loop;
-loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3];
-work [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=3];
-check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3];
-question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
-report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+loop [lf_action=lf_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3];
+work [lf_action=lf_agent,lf_outcomes=success,lf_limit=3];
+brief [lf_action=lf_research_brief,lf_source=work,lf_outcomes=success,lf_limit=3];
+check [lf_action=lf_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3];
+question [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_comment,lf_kind=final,lf_outcomes=published];
 wait [lf_terminal=true];end [lf_terminal=true];
-loop -> work [on=true];loop -> report [on=false];work -> check [on=success];
+loop -> work [on=true];loop -> report [on=false];work -> brief [on=success];brief -> check [on=success];
 check -> question [on=true];check -> loop [on=false];question -> wait [on=published];report -> end [on=published];}`
 
 func TestResearchConditionValues(t *testing.T) {
@@ -47,10 +48,11 @@ func TestResearchConditionValues(t *testing.T) {
 }
 
 func TestResearchControlValidation(t *testing.T) {
-	var specs graphexec.Registry
+	specs := graphexec.Registry{Policy: graphexec.ValidateResearchControlGraph}
 	for _, spec := range []graphexec.ActionSpec{
+		{Name: "lf_research_brief", Mode: agent.ModeResearch, Outcomes: []string{"success"}},
 		graphexec.ResearchControlSpec(graphexec.ResearchLoopAction), graphexec.ResearchControlSpec(graphexec.ResearchIfAction),
-		{Name: "lf_research_agent", Mode: agent.ModeResearch, Outcomes: []string{"success"}}, {Name: "lf_research_comment", Mode: agent.ModeResearch, Outcomes: []string{"published"}},
+		{Name: "lf_agent", Mode: agent.ModeResearch, Outcomes: []string{"success"}}, {Name: "lf_comment", Mode: agent.ModeResearch, Outcomes: []string{"published"}}, {Name: "lf_ask", Mode: agent.ModeResearch, Outcomes: []string{"published"}},
 	} {
 		if err := specs.Register(spec); err != nil {
 			t.Fatal(err)
@@ -153,19 +155,20 @@ func TestResearchConditionDoneComparison(t *testing.T) {
 func TestValidateResearchFailurePathRejectsUnsafeTargets(t *testing.T) {
 	t.Parallel()
 	const base = `digraph {team=builtin;mode=research;profile_version=1;start=loop;
-loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3];
-work [lf_action=lf_research_agent,lf_outcomes="success,failed",lf_limit=3];
-check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3];
-question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
-report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+loop [lf_action=lf_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3];
+work [lf_action=lf_agent,lf_outcomes="success,failed",lf_limit=3];
+brief [lf_action=lf_research_brief,lf_source=work,lf_outcomes=success,lf_limit=3];
+check [lf_action=lf_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3];
+question [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_comment,lf_kind=final,lf_outcomes=published];
 wait [lf_terminal=true];end [lf_terminal=true];stopped [lf_terminal=true];
-loop -> work [on=true];loop -> report [on=false];work -> check [on=success];
+loop -> work [on=true];loop -> report [on=false];work -> brief [on=success];brief -> check [on=success];
 check -> question [on=true];check -> loop [on=false];question -> wait [on=published];report -> end [on=published];
 `
 	for _, tc := range []struct{ name, tail, want string }{
 		{"final comment", "work -> report [on=failed];}", "requires a failure comment"},
 		{"agent target", "work -> work [on=failed];}", "requires a comment activity"},
-		{"missing terminal", `broken [lf_action=lf_research_comment,lf_kind=failure,lf_outcomes=published];
+		{"missing terminal", `broken [lf_action=lf_comment,lf_kind=failure,lf_outcomes=published];
 work -> broken [on=failed];broken -> loop [on=published];}`, "must end at a terminal"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,22 +198,24 @@ func TestValidateResearchControlGraphAcceptsNoFailureEdge(t *testing.T) {
 }
 
 const twoStageDOT = `digraph {team=builtin;mode=research;profile_version=1;start=loop;
-loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=work];
-work [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=3];
-check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=work];
-question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
-report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
-shapeloop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=shape];
-shape [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=3];
-shapecheck [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=shape];
-clarify [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
-agreed [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];
+loop [lf_action=lf_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=work];
+work [lf_action=lf_agent,lf_outcomes=success,lf_limit=3];
+brief [lf_action=lf_research_brief,lf_source=work,lf_outcomes=success,lf_limit=3];
+check [lf_action=lf_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=work];
+question [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_comment,lf_kind=final,lf_outcomes=published];
+shapeloop [lf_action=lf_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=3,lf_source=shape];
+shape [lf_action=lf_agent,lf_outcomes=success,lf_limit=3];
+shapebrief [lf_action=lf_research_brief,lf_source=shape,lf_outcomes=success,lf_limit=3];
+shapecheck [lf_action=lf_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=3,lf_source=shape];
+clarify [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+agreed [lf_action=lf_comment,lf_kind=final,lf_outcomes=published];
 wait [lf_terminal=true];hold [lf_terminal=true];end [lf_terminal=true];
 loop -> work [on=true];loop -> report [on=false];
-work -> check [on=success];check -> question [on=true];check -> loop [on=false];
+work -> brief [on=success];brief -> check [on=success];check -> question [on=true];check -> loop [on=false];
 question -> wait [on=published];report -> shapeloop [on=published];
 shapeloop -> shape [on=true];shapeloop -> agreed [on=false];
-shape -> shapecheck [on=success];shapecheck -> clarify [on=true];shapecheck -> shapeloop [on=false];
+shape -> shapebrief [on=success];shapebrief -> shapecheck [on=success];shapecheck -> clarify [on=true];shapecheck -> shapeloop [on=false];
 clarify -> hold [on=published];agreed -> end [on=published];}`
 
 // Publishing a report hands the workflow to the next stage instead of ending it.

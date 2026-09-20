@@ -20,8 +20,8 @@ import (
 
 func TestResearchNativeBundleFilesystem(t *testing.T) {
 	var registry graphexec.Registry
-	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}} {
-		if err := registry.Register(graphexec.ActionSpec{Name: "lf_research_" + name, Mode: agent.ModeResearch, Outcomes: outcomes}); err != nil {
+	for name, outcomes := range map[string][]string{"agent": {"success", "failed"}, "loop": {"true", "false"}, "if": {"true", "false"}, "comment": {"published"}, "ask": {"published"}, "research_brief": {"success", "failed"}} {
+		if err := registry.Register(graphexec.ActionSpec{Name: "lf_" + name, Mode: agent.ModeResearch, Outcomes: outcomes}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile, err := graphexec.ParseProfile([]byte(`digraph {team=builtin;mode=research;profile_version=1;start=work;work [lf_action=lf_research_agent,lf_outcomes=success];end [lf_terminal=true];work -> end [on=success];}`))
+			profile, err := graphexec.ParseProfile([]byte(`digraph {team=builtin;mode=research;profile_version=1;start=work;work [lf_action=lf_agent,lf_outcomes=success];end [lf_terminal=true];work -> end [on=success];}`))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -225,6 +225,11 @@ func TestResearchAgentRealStorePrivateRetention(t *testing.T) {
 			}
 			if len(outputs) != 1 || len(transitions) != 1 || attempt.Status != store.GraphSucceeded || transitions[0].ToNode != "end" {
 				t.Fatalf("non-atomic retention: %+v %+v %+v", outputs, transitions, attempt)
+			}
+			for _, name := range []string{ResearchBriefName, ResearchTechnicalName} {
+				if _, err := os.Stat(filepath.Join(worktree, ".aiteam/session", name)); !os.IsNotExist(err) {
+					t.Fatalf("generic agent generated scoped document %s: %v", name, err)
+				}
 			}
 			scope, err := service.trustedContext(t.Context())
 			if err != nil {

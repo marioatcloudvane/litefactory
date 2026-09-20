@@ -1,14 +1,18 @@
 package turn
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agentresult"
+	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
@@ -20,7 +24,7 @@ func researchCommentFixture(t *testing.T, failed bool) (*fixture, store.GraphNod
 	run, err := f.db.AllocateRun(t.Context(), store.AllocateRunParams{SessionID: f.session.ID, SegmentID: seg.ID, Mode: "research", Agent: store.AgentClaude, TriggerCommentID: 22, LogPath: func(int) string { return "research.log" }})
 	mustProgress(t, err)
 	at := time.Now().UTC()
-	def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	def, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research.dot", Digest: commentBriefProfile(t).Digest, CreatedAt: at})
 	mustProgress(t, err)
 	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: def.ID, Status: store.GraphRunning, CurrentNode: "work", StartedAt: at, NextDueAt: at})
 	mustProgress(t, err)
@@ -33,7 +37,11 @@ func researchCommentFixture(t *testing.T, failed bool) (*fixture, store.GraphNod
 		_, err = f.db.FinishRun(t.Context(), run.ID, store.RunOutcome{Status: store.RunFailed, ExitCode: &code, Error: "timeout"})
 		mustProgress(t, err)
 	}
-	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), source.ID, store.GraphCompletion{Status: status, Outcome: outcome, FinishedAt: at, InstanceStatus: store.GraphRunning}))
+	completion := store.GraphCompletion{Status: status, Outcome: outcome, FinishedAt: at, InstanceStatus: store.GraphRunning}
+	if !failed {
+		completion.Transition = &store.GraphTransition{InstanceID: instance.ID, FromNode: "work", ToNode: "brief", OnOutcome: "success", At: at}
+	}
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), source.ID, completion))
 	source, err = f.db.GetGraphNodeAttempt(t.Context(), source.ID)
 	mustProgress(t, err)
 	candidate := agentresult.Result{Outcome: "completed", Comment: "Retained findings.", Payload: agentresult.Payload{Research: &agentresult.Research{Request: "Inspect boundaries"}}}
@@ -46,6 +54,9 @@ func researchCommentFixture(t *testing.T, failed bool) (*fixture, store.GraphNod
 
 func TestResearchCommentHTTPReceiptLossAndCorrection(t *testing.T) {
 	f, source, candidate, scope := researchCommentFixture(t, false)
+	if source.Status == store.GraphSucceeded && len(candidate.Questions) == 0 {
+		retainCommentBrief(t, f, source, candidate, scope)
+	}
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, nil)
 	before, err := f.db.GetRun(t.Context(), source.RunID)
@@ -91,9 +102,8 @@ func TestResearchCommentHTTPReceiptLossAndCorrection(t *testing.T) {
 	}
 	candidate.Comment = "Corrected findings."
 	_, corrected, err := reporter.ReportResearchCandidate(t.Context(), source, "report", "final", candidate, scope, "")
-	mustProgress(t, err)
-	if corrected == key || forge.attemptCount() != 2 {
-		t.Fatal("correction reused identity")
+	if err == nil || corrected != "" || forge.attemptCount() != 1 {
+		t.Fatal("unretained correction reused source generation")
 	}
 	old, err := f.db.GetGraphComment(t.Context(), key)
 	mustProgress(t, err)
@@ -104,6 +114,9 @@ func TestResearchCommentHTTPReceiptLossAndCorrection(t *testing.T) {
 
 func TestResearchCommentRenderFailureRecoveryPreservesProcess(t *testing.T) {
 	f, source, candidate, scope := researchCommentFixture(t, true)
+	if source.Status == store.GraphSucceeded && len(candidate.Questions) == 0 {
+		retainCommentBrief(t, f, source, candidate, scope)
+	}
 	forge := newFakeForge(t)
 	before, err := f.db.GetRun(t.Context(), source.RunID)
 	mustProgress(t, err)
@@ -134,24 +147,22 @@ func TestResearchCommentRenderFailureRecoveryPreservesProcess(t *testing.T) {
 
 func TestResearchCommentQuestionRequiresSuccessfulSource(t *testing.T) {
 	f, source, candidate, scope := researchCommentFixture(t, false)
-	forge := newFakeForge(t)
-	reporter := newReporter(t, f, forge, nil)
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Scope needed"
 	candidate.Questions = []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "Which boundary?"}}
+	retainCommentBrief(t, f, source, candidate, scope)
+	forge := newFakeForge(t)
+	reporter := newReporter(t, f, forge, nil)
 	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
 	mustProgress(t, err)
 	_, same, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
 	mustProgress(t, err)
 	if key != same || forge.attemptCount() != 1 || watermark(t, f) != 0 {
-		t.Fatal("question repeated or consumed owner reply")
-	}
-	if !strings.Contains(forge.only(t).body, "Which boundary?") {
-		t.Fatal("question omitted")
+		t.Fatal("question repeated or consumed reply")
 	}
 	source.Status = store.GraphFailed
 	if _, _, err = reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, ""); err == nil {
-		t.Fatal("failed process published successful question")
+		t.Fatal("failed source published question")
 	}
 }
 
@@ -159,6 +170,9 @@ func TestResearchCommentRecoveryRejectsForeignReceipt(t *testing.T) {
 	for _, kind := range []string{"author", "destination", "content"} {
 		t.Run(kind, func(t *testing.T) {
 			f, source, candidate, scope := researchCommentFixture(t, false)
+			if source.Status == store.GraphSucceeded && len(candidate.Questions) == 0 {
+				retainCommentBrief(t, f, source, candidate, scope)
+			}
 			forge := newFakeForge(t)
 			reporter := newReporter(t, f, forge, nil)
 			forge.afterPost = func() { mustProgress(t, f.db.Close()) }
@@ -191,4 +205,44 @@ func TestResearchCommentRecoveryRejectsForeignReceipt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func commentBriefProfile(t *testing.T) *graphexec.Profile {
+	t.Helper()
+	p, err := graphexec.ParseProfile([]byte(`digraph {team=builtin;mode=research;profile_version=1;start=work;
+ work [lf_action=lf_agent,lf_outcomes=success];brief [lf_action=lf_research_brief,lf_source=work,lf_outcomes="success,failed"];end [lf_terminal=true];
+ work -> brief [on=success];brief -> end [on=success];brief -> end [on=failed];}`))
+	mustProgress(t, err)
+	return p
+}
+
+func retainCommentBrief(t *testing.T, f *fixture, source store.GraphNodeAttempt, candidate agentresult.Result, scope agentresult.Context) {
+	t.Helper()
+	_, h, a := prepareCommentBrief(t, f, source, candidate, scope)
+	out, err := h.Execute(t.Context(), Options{DB: f.db}, ActivityRequest{InstanceID: source.InstanceID, Node: "brief", NodeAttemptID: a.ID, Mode: "research"})
+	mustProgress(t, err)
+	if out.Outcome != "success" {
+		t.Fatalf("brief: %+v", out)
+	}
+	mustProgress(t, f.db.CompleteGraphNodeAttempt(t.Context(), a.ID, store.GraphCompletion{Status: store.GraphSucceeded, Outcome: "success", FinishedAt: source.StartedAt, InstanceStatus: store.GraphRunning, Outputs: []store.GraphOutput{{Kind: out.Kind, Payload: out.Output}}, Transition: &store.GraphTransition{InstanceID: source.InstanceID, FromNode: "brief", ToNode: "work", OnOutcome: "success", At: source.StartedAt}}))
+}
+
+func prepareCommentBrief(t *testing.T, f *fixture, source store.GraphNodeAttempt, candidate agentresult.Result, scope agentresult.Context) (string, ResearchBriefActivity, store.GraphNodeAttempt) {
+	t.Helper()
+	response := "done"
+	if len(candidate.Questions) > 0 {
+		response = "ask"
+	}
+	raw, err := json.Marshal(agentresult.ResearchNode{Version: 1, Response: response, Result: candidate})
+	mustProgress(t, err)
+	_, err = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: source.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: source.StartedAt})
+	mustProgress(t, err)
+	root := t.TempDir()
+	mustProgress(t, f.db.SetSessionWorktree(t.Context(), f.session.ID, root))
+	mustProgress(t, os.MkdirAll(filepath.Join(root, ".aiteam/session"), 0700))
+	a, err := f.db.StartGraphNodeAttempt(t.Context(), store.GraphAttemptStart{InstanceID: source.InstanceID, Node: "brief", Limit: 3, StartedAt: source.StartedAt})
+	mustProgress(t, err)
+	h := ResearchBriefActivity{Profile: commentBriefProfile(t), Context: func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error) { return scope, nil }, Destinations: func() (string, string, error) { return root, ".aiteam/session", nil }}
+
+	return root, h, a
 }

@@ -21,6 +21,14 @@ import (
 // Only registered activities conduct work. Owner waits return immediately and
 // subprocess failures never authorize another agent invocation.
 func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, result Result, definition *teamsource.ResearchDefinition, admission store.ResearchAdmission) (Result, error) {
+	return ExecuteWorkflow(ctx, opts, req, result, definition, admission, ResearchWorkflowPolicy())
+}
+
+// ExecuteWorkflow advances one admitted mode through the shared durable lifecycle.
+func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Result, definition *teamsource.WorkflowDefinition, admission store.WorkflowAdmission, policy WorkflowPolicy) (Result, error) {
+	if definition == nil || definition.Profile == nil || definition.Profile.Mode != policy.Mode || req.mode() != string(policy.Mode) {
+		return result, errors.New("workflow differs from admitted mode policy")
+	}
 	result.ResearchGraph = true
 	if opts.MCP == nil || opts.ResearchReporter == nil {
 		return result, errors.New("research graph requires result authority and durable reporter")
@@ -28,20 +36,30 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 	if err := opts.MCP.Validate(); err != nil {
 		return result, err
 	}
-	w := &researchWorkflow{opts: opts, req: req, result: result, definition: definition, admission: admission}
+	w := &researchWorkflow{opts: opts, req: req, result: result, definition: definition, admission: admission, policy: policy}
 	var specs graphexec.Registry
 	var activities ActivityRegistry
-	if err := RegisterResearchAgent(&specs, &activities, ResearchAgentActivity{Prepare: w.invocation}); err != nil {
+	if err := RegisterAgent(&specs, &activities, AgentActivity{Prepare: w.invocation, Policy: policy}); err != nil {
 		return result, err
 	}
 	scope := func(_ context.Context, _ store.GraphNodeAttempt) (agentresult.Context, error) {
-		return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(req.mode(), req.Command)}, nil
+		return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(req.mode(), req.Command)}, nil
 	}
-	if err := RegisterResearchControl(&specs, &activities, ResearchControlActivity{Profile: definition.Profile, Context: scope}); err != nil {
+	if err := RegisterControl(&specs, &activities, ControlActivity{Profile: definition.Profile, Context: scope, Policy: policy}); err != nil {
 		return result, err
 	}
-	if err := RegisterResearchComment(&specs, &activities, ResearchCommentActivity{Profile: definition.Profile, Reporter: opts.ResearchReporter, Context: scope}); err != nil {
+	if err := RegisterComment(&specs, &activities, CommentActivity{Profile: definition.Profile, Reporter: opts.ResearchReporter, Context: scope, Policy: policy}); err != nil {
 		return result, err
+	}
+	if policy.RegisterEffects != nil {
+		if err := policy.RegisterEffects(&specs, &activities, definition.Profile, scope, func() (string, string, error) {
+			if w.prep == nil || w.artifactSession == "" {
+				return "", "", errors.New("scoped activity requires admitted session")
+			}
+			return w.prep.worktree.Path(), w.artifactSession, nil
+		}); err != nil {
+			return result, err
+		}
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -79,6 +97,7 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 			nodeReq := req
 			nodeReq.researchDefinition, nodeReq.researchNode = definition, node.Name
 			nodeReq.researchInstance = instance.ID
+			nodeReq.workflowPolicy = &policy
 			w.prep, err = prepare(ctx, opts, nodeReq, result.Session, result.Ref, opts.Logger)
 			if err != nil {
 				return w.finish(ctx, err)
@@ -93,7 +112,7 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 			w.result.WorktreePath, w.result.Branch, w.result.SHABefore = w.prep.worktree.Path(), w.prep.session.Branch, w.prep.shaBefore
 			w.result.LogPath, w.result.MetaPath = started.LogPath, w.prep.metaPath
 		}
-		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
+		step, err := ExecuteNodeAction(ctx, opts, GraphNodeRequest{StopOnFailure: true, Profile: definition.Profile, Activities: activities, InstanceID: instance.ID, RunID: w.result.Run.ID, At: opts.MCP.Now()})
 		if step.Activity.ProcessResult != nil {
 			w.process = step.Activity.ProcessResult
 		}
@@ -111,13 +130,15 @@ func ExecuteResearchWorkflow(ctx context.Context, opts Options, req Request, res
 }
 
 type researchWorkflow struct {
-	opts       Options
-	req        Request
-	result     Result
-	definition *teamsource.ResearchDefinition
-	admission  store.ResearchAdmission
-	prep       *preparation
-	process    *agent.RunResult
+	artifactSession string
+	policy          WorkflowPolicy
+	opts            Options
+	req             Request
+	result          Result
+	definition      *teamsource.ResearchDefinition
+	admission       store.ResearchAdmission
+	prep            *preparation
+	process         *agent.RunResult
 }
 
 func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a ActivityRequest) (ResearchInvocation, error) {
@@ -136,6 +157,32 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if err != nil {
 		return ResearchInvocation{}, err
 	}
+	if w.policy.BeforeContinue != nil {
+		attempts, err := w.opts.DB.ListGraphNodeAttempts(ctx, a.InstanceID)
+		if err != nil {
+			return ResearchInvocation{}, err
+		}
+		for i := len(attempts) - 1; i >= 0; i-- {
+			source := attempts[i]
+			if source.ID >= a.NodeAttemptID {
+				continue
+			}
+			sourceNode, exists := w.definition.Profile.Node(source.Node)
+			if !exists || sourceNode.Action != ResearchAgentAction {
+				continue
+			}
+			scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(w.policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+			retained, err := w.policy.load(ctx, w.opts.DB, source.ID, scope)
+			if err != nil {
+				return ResearchInvocation{}, err
+			}
+			if err := w.policy.BeforeContinue(ctx, w.opts.DB, source, retained.Result, scope, a.NodeAttemptID); err != nil {
+				return ResearchInvocation{}, err
+			}
+			break
+		}
+	}
+	w.artifactSession = sessionPath
 	p, spec, err := prepareMCP(ctx, prep, req, nil)
 	if err != nil {
 		return ResearchInvocation{}, err
@@ -154,7 +201,7 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 	if err != nil {
 		return closeWithError(err)
 	}
-	saved, err := ResearchReplyContext(ctx, w.opts.DB, a.InstanceID, a.NodeAttemptID, scope)
+	saved, err := WorkflowReplyContext(ctx, w.opts.DB, a.InstanceID, a.NodeAttemptID, scope, w.policy)
 	if err != nil {
 		return closeWithError(err)
 	}
@@ -180,7 +227,7 @@ func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a Activity
 }
 
 func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentresult.Context) (string, error) {
-	prior, reply, err := w.opts.DB.ResearchPredecessor(ctx, w.admission.Instance.ID)
+	prior, reply, err := w.opts.DB.WorkflowPredecessor(ctx, w.admission.Instance.ID)
 	if err != nil || prior == 0 {
 		return "", err
 	}
@@ -193,10 +240,14 @@ func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentre
 	var findings *agentresult.ResearchNode
 	for i := len(attempts) - 1; i >= 0; i-- {
 		a := attempts[i]
+		definitionNode, exists := w.definition.Profile.Node(a.Node)
+		if !exists || definitionNode.Action != ResearchAgentAction {
+			continue
+		}
 		if a.Status != store.GraphSucceeded || a.RunID == 0 || a.Outcome != "success" {
 			continue
 		}
-		node, e := LoadResearchNodeOutput(ctx, w.opts.DB, a.ID, scope)
+		node, e := w.policy.load(ctx, w.opts.DB, a.ID, scope)
 		if e != nil {
 			return "", e
 		}
@@ -225,7 +276,7 @@ func (w *researchWorkflow) predecessorContext(ctx context.Context, scope agentre
 // It never changes the cause. A publication error is returned for joining, so a
 // failure that could not be reported is not silently upgraded to a clean one.
 func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error), step GraphNodeResult, cause error) error {
-	if w.opts.ResearchReporter == nil || step.Node == "" {
+	if w.opts.ResearchReporter == nil || step.Node == "" || w.policy.Failure == nil {
 		return nil
 	}
 	target, declared := graphexec.Decide(w.definition.Profile, step.Node, "failed")
@@ -248,7 +299,7 @@ func (w *researchWorkflow) publishFailure(ctx context.Context, scope func(contex
 	if err != nil {
 		return err
 	}
-	_, _, err = w.opts.ResearchReporter.ReportResearchCandidate(bookkeeping, source, target, "failure", researchFailureCandidate(w.req, cause), ctxScope, researchNextStep(w.definition.Profile, target, "failure"))
+	_, _, err = w.opts.ResearchReporter.ReportWorkflowCandidate(bookkeeping, source, target, "failure", w.policy.Failure(w.req, cause), ctxScope, w.policy.NextStep(w.definition.Profile, target, "failure"), w.policy)
 	return err
 }
 
@@ -337,6 +388,34 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 // attempt and operation identity even when the originating process failed.
 func recoverResearchPublications(ctx context.Context, opts Options, sessionID int64) error {
 	instance, err := opts.DB.LatestResearchInstance(ctx, sessionID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if err == nil {
+		pin, err := opts.DB.GetGraphDefinition(ctx, instance.DefinitionID)
+		if err != nil {
+			return err
+		}
+		if pin.Path == "research/research.dot" {
+			specs, err := ResearchSpecs()
+			if err != nil {
+				return err
+			}
+			current, err := teamsource.CaptureResearch(ctx, specs)
+			if err != nil {
+				return err
+			}
+			if pin.Digest != current.Profile.Digest {
+				return errors.New("unsupported pre-cutover or changed Research capture; effects and dispatch refused")
+			}
+		}
+	}
+	return RecoverWorkflowPublications(ctx, opts, sessionID, ResearchWorkflowPolicy())
+}
+
+// RecoverWorkflowPublications reconciles pending retained effects for the admitted mode.
+func RecoverWorkflowPublications(ctx context.Context, opts Options, sessionID int64, policy WorkflowPolicy) error {
+	instance, err := opts.DB.LatestWorkflowInstance(ctx, sessionID, string(policy.Mode))
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
@@ -346,7 +425,7 @@ func recoverResearchPublications(ctx context.Context, opts Options, sessionID in
 	if opts.ResearchReporter == nil {
 		return errors.New("research report recovery requires its durable reporter")
 	}
-	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: "research", WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
+	scope := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: true}
 	for instance.ID != 0 {
 		after := ""
 		for {
@@ -362,7 +441,7 @@ func recoverResearchPublications(ctx context.Context, opts Options, sessionID in
 				if e == nil && delivery.Completed {
 					continue
 				}
-				if _, e = opts.ResearchReporter.RecoverResearchComment(ctx, intent.Key, scope); e != nil {
+				if _, e = opts.ResearchReporter.RecoverWorkflowComment(ctx, intent.Key, scope, policy); e != nil {
 					return e
 				}
 			}
@@ -371,7 +450,7 @@ func recoverResearchPublications(ctx context.Context, opts Options, sessionID in
 			}
 			after = page[len(page)-1].Key
 		}
-		prior, _, e := opts.DB.ResearchPredecessor(ctx, instance.ID)
+		prior, _, e := opts.DB.WorkflowPredecessor(ctx, instance.ID)
 		if e != nil {
 			return e
 		}

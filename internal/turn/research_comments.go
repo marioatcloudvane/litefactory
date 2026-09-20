@@ -19,12 +19,19 @@ import (
 )
 
 // ResearchCommentAction names the explicit durable publication activity.
-const ResearchCommentAction = "lf_research_comment"
+const ResearchCommentAction = "lf_comment"
+
+// AskAction names the shared publication mechanism that opens a durable owner wait.
+const AskAction = "lf_ask"
 
 // ResearchCommentActivity publishes only explicit graph comments. Failure, when
 // configured, supplies an already-authored application candidate for a failed
 // attempt; it must not invoke an agent or change the original process outcome.
-type ResearchCommentActivity struct {
+type ResearchCommentActivity = CommentActivity
+
+// CommentActivity retains and delivers candidates under an admitted mode contract.
+type CommentActivity struct {
+	Policy   WorkflowPolicy
 	Profile  *graphexec.Profile
 	Reporter *Reporter
 	Context  func(context.Context, store.GraphNodeAttempt) (agentresult.Context, error)
@@ -33,26 +40,40 @@ type ResearchCommentActivity struct {
 
 // ResearchCommentSpec declares the closed publication kinds and confirmed outcome.
 func ResearchCommentSpec() graphexec.ActionSpec {
-	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review", "final", "failure"}}}}
+	return graphexec.ActionSpec{Name: ResearchCommentAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"final", "failure"}}}}
+}
+
+// ResearchAskSpec declares Research question and review publication kinds.
+func ResearchAskSpec() graphexec.ActionSpec {
+	return graphexec.ActionSpec{Name: AskAction, Mode: agent.ModeResearch, Outcomes: []string{"published"}, Attributes: map[string]graphexec.AttributeSpec{"lf_kind": {Required: true, Values: []string{"question", "review"}}}}
 }
 
 // RegisterResearchComment installs the validated specification and its publication handler.
 func RegisterResearchComment(specs *graphexec.Registry, activities *ActivityRegistry, h ResearchCommentActivity) error {
-	if specs == nil || activities == nil || h.Profile == nil || h.Reporter == nil || h.Context == nil {
-		return errors.New("research comment requires pinned profile, reporter and trusted context")
+	h.Policy = ResearchWorkflowPolicy()
+	return RegisterComment(specs, activities, h)
+}
+
+// RegisterComment installs shared report and owner-wait activities for the admitted policy.
+func RegisterComment(specs *graphexec.Registry, activities *ActivityRegistry, h CommentActivity) error {
+	if specs == nil || activities == nil || h.Profile == nil || h.Reporter == nil || h.Context == nil || !h.Policy.Mode.Valid() || h.Policy.Decode == nil || h.Policy.Contract == nil || h.Policy.Render == nil || h.Policy.NextStep == nil {
+		return errors.New("comment requires admitted policy, profile, reporter and context")
 	}
-	if _, ok := activities.Resolve(ResearchCommentAction); ok {
-		return errors.New("research comment already registered")
+	for _, spec := range []graphexec.ActionSpec{ResearchCommentSpec(), ResearchAskSpec()} {
+		spec.Mode = h.Policy.Mode
+		if err := specs.Register(spec); err != nil {
+			return err
+		}
+		if err := activities.Register(spec.Name, h); err != nil {
+			return err
+		}
 	}
-	if err := specs.Register(ResearchCommentSpec()); err != nil {
-		return err
-	}
-	return activities.Register(ResearchCommentAction, h)
+	return nil
 }
 
 // Execute publishes the validated retained candidate bound to this reserved graph activity.
-func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
-	if opts.DB == nil || h.Reporter == nil || h.Reporter.db != opts.DB || h.Profile == nil || h.Context == nil || req.Mode != agent.ModeResearch {
+func (h CommentActivity) Execute(ctx context.Context, opts Options, req ActivityRequest) (ActivityResult, error) {
+	if opts.DB == nil || h.Reporter == nil || h.Reporter.db != opts.DB || h.Profile == nil || h.Context == nil || req.Mode != h.Policy.Mode {
 		return ActivityResult{}, errors.New("research comment requires factory Research context")
 	}
 	instance, err := opts.DB.GetGraphInstance(ctx, req.InstanceID)
@@ -64,7 +85,7 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{}, err
 	}
 	node, ok := h.Profile.Node(req.Node)
-	if !ok || node.Action != ResearchCommentAction || definition.Digest != h.Profile.Digest || definition.Mode != "research" {
+	if !ok || (node.Action != ResearchCommentAction && node.Action != AskAction) || definition.Digest != h.Profile.Digest || definition.Mode != string(h.Policy.Mode) {
 		return ActivityResult{}, errors.New("research comment profile binding mismatch")
 	}
 	current, err := opts.DB.GetGraphNodeAttempt(ctx, req.NodeAttemptID)
@@ -86,6 +107,9 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 		return ActivityResult{}, err
 	}
 	kind := node.Attrs["lf_kind"]
+	if (kind == "question" || kind == "review") != (node.Action == AskAction) {
+		return ActivityResult{}, errors.New("only lf_ask may open an owner wait")
+	}
 	var candidate agentresult.Result
 	if kind == "failure" {
 		if h.Failure == nil || source.Status != store.GraphFailed {
@@ -94,13 +118,13 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 		candidate, err = h.Failure(ctx, source)
 	} else {
 		var output agentresult.ResearchNode
-		output, err = LoadResearchNodeOutput(ctx, opts.DB, source.ID, scope)
+		output, err = h.Policy.load(ctx, opts.DB, source.ID, scope)
 		candidate = output.Result
 	}
 	if err != nil {
 		return ActivityResult{}, err
 	}
-	posted, key, err := h.Reporter.ReportResearchCandidate(ctx, source, req.Node, kind, candidate, scope, researchNextStep(h.Profile, req.Node, kind))
+	posted, key, err := h.Reporter.ReportWorkflowCandidate(ctx, source, req.Node, kind, candidate, scope, h.Policy.NextStep(h.Profile, req.Node, kind), h.Policy)
 	if err != nil {
 		return ActivityResult{Diagnostic: err.Error()}, err
 	}
@@ -119,34 +143,51 @@ func (h ResearchCommentActivity) Execute(ctx context.Context, opts Options, req 
 // content digest is part of the operation identity: corrections cannot overwrite
 // or replay an earlier uncertain effect. No run finalization or git save occurs.
 func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context, next string) (Posted, string, error) {
-	if scope.Mode != "research" {
-		return Posted{}, "", errors.New("research comment context has different mode")
-	}
+	return r.ReportWorkflowCandidate(ctx, source, node, kind, candidate, scope, next, ResearchWorkflowPolicy())
+}
+
+func validateResearchComment(source store.GraphNodeAttempt, kind string, candidate agentresult.Result, scope agentresult.Context) error {
 	d := agentresult.ValidateResult(candidate, scope)
 	if !d.Valid || !d.Complete {
-		return Posted{}, "", resultDiagnosticError(d)
+		return resultDiagnosticError(d)
 	}
 	switch kind {
 	case "question":
 		if candidate.Outcome != "incomplete" || len(candidate.Questions) == 0 || source.Status != store.GraphSucceeded {
-			return Posted{}, "", errors.New("question requires successful incomplete Research with questions")
+			return errors.New("question requires successful incomplete Research with questions")
 		}
 	case "review":
 		// The work the agent would otherwise have called done, shown to the
 		// owner before it counts. Complete like a final, but settling nothing.
 		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
-			return Posted{}, "", errors.New("review requires successful completed Research without questions")
+			return errors.New("review requires successful completed Research without questions")
 		}
 	case "final":
 		if candidate.Outcome != "completed" || len(candidate.Questions) != 0 || source.Status != store.GraphSucceeded {
-			return Posted{}, "", errors.New("final requires successful completed Research without questions")
+			return errors.New("final requires successful completed Research without questions")
 		}
 	case "failure":
 		if candidate.Outcome == "completed" || source.Status != store.GraphFailed || candidate.Reason == "" {
-			return Posted{}, "", errors.New("failure requires failed attempt and actionable incomplete candidate")
+			return errors.New("failure requires failed attempt and actionable incomplete candidate")
 		}
 	default:
-		return Posted{}, "", errors.New("unknown Research comment kind")
+		return errors.New("unknown Research comment kind")
+	}
+	return nil
+}
+
+// ReportWorkflowCandidate retains and delivers an exact candidate under the admitted contract.
+func (r *Reporter) ReportWorkflowCandidate(ctx context.Context, source store.GraphNodeAttempt, node, kind string, candidate agentresult.Result, scope agentresult.Context, next string, policy WorkflowPolicy) (Posted, string, error) {
+	if scope.Mode != string(policy.Mode) || policy.Contract == nil || policy.Render == nil {
+		return Posted{}, "", errors.New("comment policy differs from admitted mode")
+	}
+	if err := policy.Contract(source, kind, candidate, scope); err != nil {
+		return Posted{}, "", err
+	}
+	if kind != "failure" && policy.BeforePublish != nil {
+		if err := policy.BeforePublish(ctx, r.db, source, candidate, scope); err != nil {
+			return Posted{}, "", err
+		}
 	}
 	raw, err := json.Marshal(candidate)
 	if err != nil {
@@ -158,6 +199,13 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 	instance, err := r.db.GetGraphInstance(ctx, source.InstanceID)
 	if err != nil {
 		return Posted{}, "", err
+	}
+	pin, err := r.db.GetGraphDefinition(ctx, instance.DefinitionID)
+	if err != nil {
+		return Posted{}, "", err
+	}
+	if pin.Mode != string(policy.Mode) {
+		return Posted{}, "", errors.New("comment source differs from admitted mode")
 	}
 	run, err := r.db.GetRun(ctx, source.RunID)
 	if err != nil {
@@ -172,13 +220,13 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 		return Posted{}, "", err
 	}
 	sum := sha256.Sum256(raw)
-	purpose := fmt.Sprintf("research-comment:%d:%d:%s:%s:%s", source.InstanceID, source.ID, node, kind, hex.EncodeToString(sum[:]))
+	purpose := fmt.Sprintf("%s-comment:%d:%d:%s:%s:%s", policy.Mode, source.InstanceID, source.ID, node, kind, hex.EncodeToString(sum[:]))
 	intent := r.deliveryIntent(ref, ref, instance.SessionID, run.TriggerCommentID, run.ID, purpose)
 	if err := r.db.RetainGraphComment(ctx, store.GraphCommentIntent{Key: intent.Key, InstanceID: source.InstanceID, SourceAttemptID: source.ID, Node: node, Kind: kind, Candidate: raw}); err != nil {
 		return Posted{}, intent.Key, err
 	}
 	posted, err := r.deliver(ctx, intent, func() (redact.Body, error) {
-		return r.renderer.RenderReportDelivery(ctx, renderResearchComment(candidate, next, researchArtifactLinks(ref, session.Branch, candidate.Artifacts)), "")
+		return r.renderer.RenderReportDelivery(ctx, policy.Render(candidate, next, ref, session.Branch), "")
 	})
 	return posted, intent.Key, err
 }
@@ -186,6 +234,11 @@ func (r *Reporter) ReportResearchCandidate(ctx context.Context, source store.Gra
 // RecoverResearchComment retries only the original durable publication. It does
 // not reserve a graph attempt, invoke a process, save artifacts or alter outcomes.
 func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope agentresult.Context) (Posted, error) {
+	return r.RecoverWorkflowComment(ctx, key, scope, ResearchWorkflowPolicy())
+}
+
+// RecoverWorkflowComment reconciles a retained delivery without invoking a worker.
+func (r *Reporter) RecoverWorkflowComment(ctx context.Context, key string, scope agentresult.Context, policy WorkflowPolicy) (Posted, error) {
 	intent, err := r.db.GetGraphComment(ctx, key)
 	if err != nil {
 		return Posted{}, err
@@ -212,7 +265,7 @@ func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope
 	// parsed graph, so it omits the footer rather than guessing one: the
 	// delivery identity is the candidate's bytes, not the rendered body, so a
 	// recovered comment is still the same effect.
-	posted, recoveredKey, err := r.ReportResearchCandidate(ctx, source, intent.Node, intent.Kind, candidate, scope, "")
+	posted, recoveredKey, err := r.ReportWorkflowCandidate(ctx, source, intent.Node, intent.Kind, candidate, scope, "", policy)
 	if recoveredKey != key && err == nil {
 		return Posted{}, errors.New("research recovery identity changed")
 	}
@@ -226,6 +279,12 @@ func (r *Reporter) RecoverResearchComment(ctx context.Context, key string, scope
 // stage actually runs and so bootstraps from the node's own default.
 func latestResearchAgentAttempt(ctx context.Context, opts Options, profile *graphexec.Profile, instanceID int64, scope string) (store.GraphNodeAttempt, error) {
 	var latest store.GraphNodeAttempt
+	if scope != "" {
+		n, ok := profile.Node(scope)
+		if !ok || n.Action != ResearchAgentAction {
+			return latest, fmt.Errorf("source %q does not name an agent node", scope)
+		}
+	}
 	for _, n := range profile.Nodes {
 		if n.Action != ResearchAgentAction || (scope != "" && n.Name != scope) {
 			continue

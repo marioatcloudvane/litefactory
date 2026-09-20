@@ -58,8 +58,8 @@ type GraphOwnerReply struct {
 // It neither starts a process nor consumes the claim: allocation does that in the
 // same transaction as StartGraphNodeAttempt. Replayed events are refused.
 func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out GraphOwnerWait, err error) {
-	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.QuestionCommentID < 1 || in.Mode != "research" || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
-		return out, graphInvariant("invalid authenticated Research reply")
+	if in.OwnerID < 1 || in.AuthorID != in.OwnerID || in.CommentID < 1 || in.QuestionCommentID < 1 || strings.TrimSpace(in.Mode) == "" || in.TaskRef == "" || in.SourceRef != in.TaskRef || in.DeliveryKey == "" || strings.TrimSpace(in.Body) == "" || len(in.Body) > 65536 || in.At.IsZero() {
+		return out, graphInvariant("invalid authenticated graph reply")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
 		wait, e := scanGraphOwnerWait(tx.QueryRowContext(ctx, `SELECT `+graphWaitColumns+` FROM graph_owner_waits WHERE delivery_key=? AND instance_id=?`, in.DeliveryKey, in.InstanceID))
@@ -77,7 +77,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 			return e
 		}
 		if task != in.TaskRef || mode != in.Mode || status != GraphRunning || !completed || question != in.QuestionCommentID || in.CommentID <= question {
-			return graphInvariant("reply does not match published active Research question")
+			return graphInvariant("reply does not match published active graph question")
 		}
 		var running int
 		if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status='running'`, in.InstanceID).Scan(&running); e != nil {
@@ -97,7 +97,7 @@ func (db *DB) ClaimGraphOwnerReply(ctx context.Context, in GraphOwnerReply) (out
 		return e
 	})
 	if err != nil {
-		return out, fmt.Errorf("store: claim Research reply: %w", err)
+		return out, fmt.Errorf("store: claim graph reply: %w", err)
 	}
 	return out, nil
 }

@@ -17,7 +17,7 @@ func TestClaimGraphOwnerReply_RejectsInvalidAdmissionBeforeStorage(t *testing.T)
 		{"non-owner author", func(in *GraphOwnerReply) { in.AuthorID = 8 }},
 		{"missing reply identity", func(in *GraphOwnerReply) { in.CommentID = 0 }},
 		{"missing question identity", func(in *GraphOwnerReply) { in.QuestionCommentID = 0 }},
-		{"different mode", func(in *GraphOwnerReply) { in.Mode = "implement" }},
+		{"missing mode", func(in *GraphOwnerReply) { in.Mode = "" }},
 		{"missing task", func(in *GraphOwnerReply) { in.TaskRef = "" }},
 		{"unrelated source", func(in *GraphOwnerReply) { in.SourceRef = "github:example/repo#342" }},
 		{"missing publication correlation", func(in *GraphOwnerReply) { in.DeliveryKey = "" }},

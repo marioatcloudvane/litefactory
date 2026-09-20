@@ -8,7 +8,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/naming"
 )
 
-func TestRequest_ResearchNodeIdentity(t *testing.T) {
+func TestRequest_GraphNodeIdentity(t *testing.T) {
 	cases := []struct {
 		name   string
 		change func(*agent.Request)
@@ -24,7 +24,8 @@ func TestRequest_ResearchNodeIdentity(t *testing.T) {
 		{"missing run", func(r *agent.Request) { r.Graph.RunID = 0 }, false},
 		{"negative run", func(r *agent.Request) { r.Graph.RunID = -1 }, false},
 		{"missing node", func(r *agent.Request) { r.Graph.Node = "" }, false},
-		{"wrong mode", func(r *agent.Request) { r.Mode = "implement" }, false},
+		{"second mode node", func(r *agent.Request) { r.Mode = "plan" }, true},
+		{"invalid mode", func(r *agent.Request) { r.Mode = "unregistered" }, false},
 		{"unknown kind", func(r *agent.Request) { r.Invocation = "unrecognized" }, false},
 		{"legacy with graph identity", func(r *agent.Request) { r.Invocation = "" }, false},
 	}

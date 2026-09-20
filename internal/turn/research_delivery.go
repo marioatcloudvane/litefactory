@@ -31,7 +31,11 @@ func PrepareResearchDelivery(ctx context.Context, opts Options, req Request, def
 }
 
 func planResearchDelivery(opts Options, req Request, definition *teamsource.ResearchDefinition, nodeName string) (*deliveryPlan, error) {
-	if req.mode() != "research" || definition == nil || definition.Profile == nil {
+	return planWorkflowDelivery(opts, req, definition, nodeName, ResearchWorkflowPolicy())
+}
+
+func planWorkflowDelivery(opts Options, req Request, definition *teamsource.WorkflowDefinition, nodeName string, policy WorkflowPolicy) (*deliveryPlan, error) {
+	if req.mode() != string(policy.Mode) || definition == nil || definition.Profile == nil {
 		return nil, fmt.Errorf("research delivery requires admitted Research and captured definitions")
 	}
 	node, ok := definition.Nodes[nodeName]
@@ -51,7 +55,7 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	if node.Role.Frontmatter.Tools == nil {
 		node.Role.Frontmatter.Tools = slices.Clone(req.Tools)
 	}
-	files, err := teamsource.NativeResearch(string(req.Agent), node, model, req.Tools, sandbox)
+	files, err := teamsource.NativeWorkflow(string(req.Agent), node, model, req.Tools, sandbox)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +63,7 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	for _, file := range files {
 		p.files[file.Path] = slices.Clone(file.Bytes)
 	}
-	p.evidence = agent.DeliveryEvidence{Team: "builtin", Mode: "research", SnapshotDigest: definition.Digest, ResourceHashes: map[string]string{}}
+	p.evidence = agent.DeliveryEvidence{Team: definition.Profile.Team, Mode: string(policy.Mode), SnapshotDigest: definition.Digest, ResourceHashes: map[string]string{}}
 	for name, raw := range node.Files {
 		p.evidence.ResourceHashes[name] = team.HashBytes(raw)
 		p.evidence.SourceBytes += len(raw)
@@ -71,7 +75,7 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	sort.Strings(p.skills)
 	// Project guidance is discovered through the host's normal channel. Copying
 	// it into this appended system file would elevate legacy dispatch directives.
-	p.files["bootstrap.md"] = []byte("The factory selected Research and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + researchNodeGuidance())
+	p.files["bootstrap.md"] = []byte("The factory selected " + string(policy.Mode) + " and supplied the main role directly. Execute that role; do not dispatch a replacement orchestrator. Ordinary project guidance remains applicable within the supplied role, graph admission and permission ceiling. Only an explicit graph comment activity publishes results. Follow the factory's result and receipt instructions on every continuation and after compaction.\n\nEffective node task:\n" + node.Task + "\n" + policy.Guidance)
 	if req.Agent == store.AgentCodex {
 		// Only fixed shipped role/task text belongs here. Owner requests, replies,
 		// prior findings and helper credentials stay on the invocation's stdin.
@@ -103,4 +107,13 @@ func planResearchDelivery(opts Options, req Request, definition *teamsource.Rese
 	}
 	p.identity = team.HashBytes(encoded)
 	return p, nil
+}
+
+// PrepareWorkflowDelivery selects the captured role and provider segment under the admitted policy.
+func PrepareWorkflowDelivery(ctx context.Context, opts Options, req Request, definition *teamsource.WorkflowDefinition, node string, session store.Session, ref naming.Ref, firstRef string, policy WorkflowPolicy) (store.Segment, *agent.Delivery, error) {
+	p, err := planWorkflowDelivery(opts, req, definition, node, policy)
+	if err != nil {
+		return store.Segment{}, nil, err
+	}
+	return prepareDeliverySegment(ctx, opts, req, session, ref, firstRef, p)
 }

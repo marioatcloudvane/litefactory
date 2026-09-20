@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/render"
@@ -104,8 +105,19 @@ func safeResearchPath(name string) bool {
 }
 
 func captureResearch(ctx context.Context, source fs.FS, registry graphexec.Registry) (*ResearchDefinition, error) {
+	return CaptureWorkflow(ctx, source, "research.dot", "builtin", agent.ModeResearch, registry)
+}
+
+// WorkflowDefinition and WorkflowNode are captured packages and roles, independent of mode.
+type WorkflowDefinition = ResearchDefinition
+
+// WorkflowNode is the captured role and resource closure used by shared workflow delivery.
+type WorkflowNode = ResearchNode
+
+// CaptureWorkflow reads a bounded factory-owned package against an admitted registry.
+func CaptureWorkflow(ctx context.Context, source fs.FS, graphPath, teamName string, mode agent.Mode, registry graphexec.Registry) (*WorkflowDefinition, error) {
 	r := researchReader{ctx: ctx, source: source, files: map[string][]byte{}}
-	raw, err := r.read("research.dot")
+	raw, err := r.read(graphPath)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +126,13 @@ func captureResearch(ctx context.Context, source fs.FS, registry graphexec.Regis
 		return nil, err
 	}
 	var faults []error
-	if profile.Team != "builtin" || string(profile.Mode) != "research" {
-		faults = append(faults, errors.New("built-in Research requires team=builtin and mode=research"))
+	if profile.Team != teamName || profile.Mode != mode || !mode.Valid() {
+		faults = append(faults, errors.New("workflow package differs from admitted team or mode"))
 	}
 	faults = append(faults, graphexec.Validate(profile, registry))
 	result := &ResearchDefinition{Profile: profile, Nodes: map[string]ResearchNode{}, Files: r.files, Hashes: map[string]string{}}
 	for _, node := range profile.Nodes {
-		if node.Action != "lf_research_agent" {
+		if node.Action != "lf_agent" {
 			continue
 		}
 		captured, err := captureResearchNode(ctx, source, node, profile.Attrs)

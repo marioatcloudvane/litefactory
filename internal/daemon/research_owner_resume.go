@@ -52,13 +52,13 @@ func (d *Daemon) claimResearchReply(ctx context.Context, t *task, trigger turn.T
 	return err
 }
 
-// AdmitResearchOwnerReply is the graph driver's authenticated question admission
+// AdmitGraphOwnerReply is the graph driver's authenticated question admission
 // boundary. The caller supplies the actual forge source and selected mode; the
 // question identity comes from durable wait/publication records, not reply text.
 // A claimed reply survives process exit before allocation, with no held worker.
-func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
+func AdmitGraphOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
 	if db == nil {
-		return store.GraphOwnerWait{}, errors.New("research admission requires store")
+		return store.GraphOwnerWait{}, errors.New("graph admission requires store")
 	}
 	wait, err := db.GetGraphOwnerWait(ctx, instanceID)
 	if err != nil {
@@ -69,4 +69,12 @@ func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, owne
 		return wait, err
 	}
 	return db.ClaimGraphOwnerReply(ctx, store.GraphOwnerReply{InstanceID: instanceID, OwnerID: ownerID, AuthorID: comment.Author.ID, CommentID: comment.ID, QuestionCommentID: delivery.CommentID, TaskRef: taskRef, SourceRef: sourceRef, Mode: mode, DeliveryKey: wait.DeliveryKey, Body: comment.Body, At: at})
+}
+
+// AdmitResearchOwnerReply supplies the production Research mode fence.
+func AdmitResearchOwnerReply(ctx context.Context, db *store.DB, instanceID, ownerID int64, taskRef, sourceRef, mode string, comment github.Comment, at time.Time) (store.GraphOwnerWait, error) {
+	if mode != "research" {
+		return store.GraphOwnerWait{}, errors.New("research owner admission mode mismatch")
+	}
+	return AdmitGraphOwnerReply(ctx, db, instanceID, ownerID, taskRef, sourceRef, mode, comment, at)
 }
