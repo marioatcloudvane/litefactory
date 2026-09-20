@@ -2,7 +2,7 @@
 
 ## Request
 
-Retain the shaped graph-based Plan scope and its evidence for the factory scope review, preserving owner answers q1=b, q2=a and q3=a without treating this continuation as scope approval.
+Record the owner's approval of the reviewed graph-based Plan scope while preserving its findings, decisions, assumptions and mode boundaries.
 
 ## Decisions
 
@@ -31,14 +31,14 @@ Retain the shaped graph-based Plan scope and its evidence for the factory scope 
 - **d23** — Shaping decision: successful publication enters awaiting-final-approval status rather than completing Plan or authorizing implementation.
 - **d24** — Shaping decision: the acceptance-stage approval authorizes publication only after the consistency check passes for that same reviewed revision.
 - **d25** — Shaping decision: final review waits until the complete published set and its current issue revisions are confirmed, including recovery from partial or uncertain publication.
-- **d26** — Owner instruction for run 0004: retain the shaped scope and q1=b, q2=a, q3=a without reopening them. The owner explicitly has not approved the scope; the graph review gate must present it and await a separate owner answer. This Research node returns findings privately and does not publish directly.
+- **d26** — Owner approval in run 0006: “we are done here” accepts the reviewed shaping scope, retaining q1=b, q2=a and q3=a without selecting another mode or authorizing implementation.
 
 
 ## Assumptions
 
 - **a1** — Treat 'creation' as creating remote managed story issues, distinct from retaining private drafts, following the owner's distinction.
 - **a2** — Reuse existing Plan discussion and managed publication contracts, adding a post-publication final-review gate as required by owner decision q1=b.
-- **a3** — All three material questions are answered by q1=b, q2=a and q3=a; the remaining detailed rules are shaping decisions or explicit assumptions for scope review.
+- **a3** — All three material questions are answered by q1=b, q2=a and q3=a, and the owner's run 0006 approval accepts the remaining reviewed shaping rules and recorded assumptions.
 - **a4** — Evidence remains repository inspection at revision 7d339edde1326fc509e0a5966d55db88ec77f274; no tests, live recovery or authentic host observations were executed in shaping.
 - **a5** — Use existing explicit admission controls for new graph Plan executions and retain active legacy sessions on their current path, following the agreed dual-path rollout boundary.
 - **a6** — Workflow edits affect newly admitted executions only, because the agreed rollout pins active executions to immutable definitions.
