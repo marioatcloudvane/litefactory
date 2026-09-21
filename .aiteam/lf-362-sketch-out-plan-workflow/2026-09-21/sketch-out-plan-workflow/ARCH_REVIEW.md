@@ -157,3 +157,38 @@ CONC-9 requires no deviation: distinguish Plan-stage approvals from final manage
 - No frontend/infra specialist is required; package Markdown is existing agent-delivery content, not a new UI.
 - Missing manifest/evidence documentation is compensated by the supplied workflow contract and canonical `teams/source/skills/workflow/SKILL.md` guidance reflected in the feature spec; do not invent missing document contents.
 - Proof uses source, real temporary stores, fake runners and controlled forge HTTP. Real hosted operations and authentic provider execution are separate, currently unverified evidence classes.
+
+## Run 0005 Architectural Amendment: Activity-Owned Presentation
+
+**Verdict:** Ready for assembly within the existing three stories. The presentation change is an explicit owner requirement; no additional activity, story or owner decision is needed. This note supersedes earlier hints wherever they would omit empty later-stage headings or delegate rendered titles/bodies to agents. Current factory rendering is not claimed compliant.
+
+### Durable Identity and Title Ownership
+Story 1's store model must bind a monotonically allocated ordinal to the stable story identity within the canonical parent scope. Allocate durably before publication, atomically with the story/effect binding under existing parent ownership. Retries resolve the existing identity; restart, failed or uncertain publication, update and retirement never allocate a replacement ordinal or release an allocated one. Different parents have independent sequences starting at one. A retained allocation may leave a gap; gap filling must not reuse an ordinal. The store owns allocation and uniqueness; rendering must not infer ordinals from current issue count, listing order, child issue number or run identity.
+
+The activity constructs `[parent issue number]-[ordinal]: Story Name`, formatting the ordinal to a minimum width of three digits without truncating larger values: `362-001: Story Name`, then eventually `362-1000: Story Name`. The current typed story name remains editable while its factory prefix and issue identity remain stable. Agent content supplies the name, never an authoritative preformatted identity prefix.
+
+### Rendering Boundary and Exact Layout
+Keep orchestration and identity binding in `internal/turn`'s story activity, SQL in `internal/store`, and deterministic issue title/body rendering in `internal/report`. `internal/render` continues to own native agent instruction delivery, not this issue-body format. Agents supply structured actor/want/benefit, problem, in-scope and out-of-scope lists, and later task/criteria/architecture content. Typed draft/final adapters must preserve those fields without treating full Markdown bodies as input contracts.
+
+The activity-owned rendering contract is exactly this heading order and spelling:
+
+1. `# Userstory`
+2. `## What this story solves`
+3. `## Scope`, containing separate `In-Scope` and `Not in Scope` lists
+4. `# Task`, containing table columns `Task Id | Description | Owner | Dependencies` in that order
+5. `# Acceptance Criterias`
+6. `# Architecture`
+
+The first usable draft renders all headings. Its task table contains column headers and no task rows; acceptance and architecture sections contain no invented obligations or decisions. Later stages populate these sections from typed content. Preserve existing criterion-ID/checklist and architecture content formats inside the specified sections. Empty scaffolding is presentation, not stage-one technical scope or evidence of final completeness.
+
+### Semantic Contract and Final Handoff
+Preserve criterion/task identities, task-to-criterion links, task owners, story dependencies and factory metadata separately from visible section ordering. Do not add a visible Dependencies heading to the specified sequence. Adapt existing renderer/parser/reconciliation seams so semantically complete typed data round-trips without losing metadata or weakening complete-plan validation. Persisted dependency relationships and approved snapshots remain authoritative for execution; presentation must not manufacture or discard them. Avoid introducing a second editable story source.
+
+Story 3's final publication adapter must retain the allocated prefix, exact body contract and existing issue identity, rather than re-rendering the approved draft into a competing legacy layout. Draft, technical and final updates share the same issue presentation owner. Approval binding and conflict detection continue to use the canonical content and exact reviewed revisions; a layout conversion must not overwrite unreviewed owner edits. Retain legacy rendering/parsing only behind supported persisted compatibility routes.
+
+### Existing Story/Task Mapping and Evidence
+- **Story 1 / A1–A4:** Add durable parent-scoped allocation, typed problem/scope presentation fields, activity-owned renderer and recovery tests. Cover independent parents, retirement, lost responses, partial create/attach, restart and ordinals beyond 999; assert the same identity receives the same ordinal.
+- **Story 2 / B1–B3:** Roles and skills return typed content only; update contract examples to show stage-specific content without prescribing agent-authored Markdown titles or bodies. Verify initial empty sections derive from rendering, not fabricated stage output.
+- **Story 3 / C3–C6:** Carry new fields and identity through complete typed handoff, publication, parsing/reconciliation and compatibility boundaries. Add first-draft, technical and final renderer fixtures plus a round-trip check that retains semantic dependencies/IDs while rejecting incomplete final plans and conflicting edits.
+
+Repository constraints remain unchanged except the previously recorded authorized CONC-22 draft-publication amendment. No source changes, tests or runtime/remote verification were performed for this architectural amendment.

@@ -118,3 +118,43 @@
 
 ## Owner Questions
 - None; latest instructions and recorded decisions settle delivery scope.
+
+## Run 0005 Amendment: Activity-Owned Story Presentation
+- Owner requirement: the story activity owns title construction and body rendering; agents supply typed content rather than formatted issue titles or full Markdown bodies.
+- Scope remains the same three delivery stories: activity; agents and DOT; wiring and retirement. Apply presentation requirements within those boundaries without adding a story.
+- Interpret the owner's wording “activity bot by the agents” as “activity, not the agents.”
+
+### Title and Stable Ordinal
+| Field | Requirement |
+|---|---|
+| Title | `[Main Story ID]-[Numerical Id in 00x format]: Story Name`; example: `362-001: Story Name`. |
+| Main Story ID | Parent issue number; do not substitute the child issue number or a transient run identity. |
+| Numerical ID | Persisted per-parent story ordinal, starting at 1 and rendered with a minimum of three digits (`001`, `002`, …, `1000`). |
+| Allocation | Bind the ordinal durably to the stable story identity before recoverable publication; retries, restart, update and retirement never renumber or reuse an allocated ordinal. |
+| Story Name | Current typed story title supplied by the agent; the activity adds the parent and ordinal prefix. |
+
+### Ordered Body Contract
+| Order | Exact heading or label | Content |
+|---|---|---|
+| 1 | `# Userstory` | Current actor, want and benefit from typed story content. |
+| 2 | `## What this story solves` | Brief plain-language description of the problem this story solves. |
+| 3 | `## Scope` | Separate `In-Scope` and `Not in Scope` lists from typed scope content. |
+| 4 | `# Task` | Table with columns `Task Id`, `Description`, `Owner`, `Dependencies`, in that order; rows are filled during later shaping. |
+| 5 | `# Acceptance Criterias` | Criteria filled during later shaping, retaining the existing criterion-ID and checklist format. |
+| 6 | `# Architecture` | Architecture filled during later shaping, retaining the existing architecture content format. |
+- Render every heading in this exact order and spelling from the first draft; later-stage sections remain unpopulated until their stage supplies content, and the initial task table has headers but no invented task rows.
+- Empty later-stage scaffolding does not introduce technical decisions, task obligations or criteria into story-only shaping.
+- Preserve stable criterion/task identities, task owners and links, story dependencies, semantic metadata and revision checks independently of the changed visible layout; do not add a visible Dependencies heading to this specified sequence.
+- The new renderer and its handoff must support the requested presentation without weakening draft validation, complete typed-plan validation, approval binding or owner-edit conflict handling.
+- Final publication and subsequent updates preserve the activity-assigned title/ordinal and body contract while continuing to reuse the same issue identity.
+
+### Additional Acceptance Obligations
+| ID | Observable requirement | Candidate proof |
+|---|---|---|
+| R10 | The activity produces titles such as `362-001: Story Name` from parent identity, durable ordinal and typed story name; retries, restarts and retirement cannot reuse or renumber ordinals. | Allocation/recovery tests including partial publication, retired stories, independent parents and ordinals exceeding three digits. |
+| R11 | First drafts and later revisions render the exact ordered body contract; initial later-stage sections are empty, and subsequent typed content fills them with the existing criteria and architecture formats. | Renderer fixtures for first-stage, technical-stage and complete stories, checking heading spelling/order and task table columns. |
+| R12 | Agents supply structured intent/problem/scope and later-stage content; final handoff preserves activity formatting, semantic dependencies and IDs while still rejecting incomplete final plans and conflicting remote edits. | Role-contract checks and final publication/reconciliation tests through the existing validators. |
+
+### Amendment Readiness
+- Ready for plan assembly; no material owner questions remain.
+- No production code, runtime checks or remote effects are claimed by this amendment.
