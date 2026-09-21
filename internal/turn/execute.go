@@ -335,6 +335,7 @@ type Trigger struct {
 
 // Request is one turn: which task, which comment, and what it asked for.
 type Request struct {
+	workflowPolicy     *WorkflowPolicy
 	researchDefinition *teamsource.ResearchDefinition
 	researchNode       string
 	// researchInstance scopes this run's application result to one graph

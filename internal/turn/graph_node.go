@@ -17,6 +17,7 @@ import (
 // handler duration. NextDueAt is supplied scheduling policy, never computed here.
 // Callers serialize steps for an instance; in-flight crash recovery is deferred.
 type GraphNodeRequest struct {
+	StopOnFailure     bool
 	Profile           *graphexec.Profile
 	Activities        ActivityRegistry
 	InstanceID, RunID int64
@@ -135,7 +136,7 @@ func finishGraphAction(ctx context.Context, opts Options, req GraphNodeRequest, 
 	// Research never retries a failed activity without new owner authority.
 	// Terminalizing only graph execution leaves the original run, authored
 	// candidate and uncertain comment identity available for report recovery.
-	if !succeeded && string(req.Profile.Mode) == "research" {
+	if !succeeded && (req.StopOnFailure || string(req.Profile.Mode) == "research") {
 		completion.InstanceStatus = store.GraphFailed
 		completion.NextDueAt = time.Time{}
 		out.Status = store.GraphFailed

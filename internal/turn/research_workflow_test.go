@@ -318,3 +318,33 @@ func TestResearchAdmissionLeavesOtherModesUnhandled(t *testing.T) {
 		})
 	}
 }
+
+func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
+	f := newFixture(t, nil)
+	at := time.Date(2026, 9, 20, 1, 0, 0, 0, time.UTC)
+	definition, err := f.db.CreateGraphDefinition(t.Context(), store.GraphDefinition{Team: "builtin", Mode: "research", ProfileVersion: 1, Path: "research/research.dot", Digest: strings.Repeat("a", 64), CreatedAt: at})
+	mustProgress(t, err)
+	instance, err := f.db.CreateGraphInstance(t.Context(), store.GraphInstance{SessionID: f.session.ID, DefinitionID: definition.ID, CurrentNode: "investigate", StartedAt: at})
+	mustProgress(t, err)
+	// Reopen to ensure rejection depends on the retained capture, not in-memory state.
+	mustProgress(t, f.db.Close())
+	reopened, err := store.Open(t.Context(), f.paths.DBPath())
+	mustProgress(t, err)
+	*f.db = *reopened
+	err = recoverResearchPublications(t.Context(), f.opts, f.session.ID)
+	if err == nil || !strings.Contains(err.Error(), "unsupported pre-cutover or changed Research capture") {
+		t.Fatalf("old capture recovery: %v", err)
+	}
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	deliveries, err := f.db.ListPendingReportDeliveries(t.Context())
+	mustProgress(t, err)
+	if len(attempts) != 0 || len(deliveries) != 0 {
+		t.Fatalf("unsupported capture created effects: attempts=%v deliveries=%v", attempts, deliveries)
+	}
+	retained, err := f.db.GetGraphDefinition(t.Context(), definition.ID)
+	mustProgress(t, err)
+	if retained.Digest != definition.Digest {
+		t.Fatal("unsupported capture was rewritten")
+	}
+}

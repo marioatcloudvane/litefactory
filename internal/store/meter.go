@@ -137,7 +137,7 @@ func (db *DB) startMeterAttempt(ctx context.Context, runID int64, codingAgent st
 		var graphAttempt *int64
 		if link != nil {
 			var matches bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts n JOIN runs r ON r.id=n.run_id WHERE n.id=? AND n.instance_id=? AND n.node=? AND n.run_id=? AND n.status='running' AND r.status='running' AND r.mode='research' AND r.agent=?)`, link.AttemptID, link.InstanceID, link.Node, runID, codingAgent).Scan(&matches); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM graph_node_attempts n JOIN runs r ON r.id=n.run_id JOIN graph_instances i ON i.id=n.instance_id JOIN graph_definitions d ON d.id=i.definition_id WHERE n.id=? AND n.instance_id=? AND n.node=? AND n.run_id=? AND n.status='running' AND r.status='running' AND r.mode=d.mode AND r.agent=?)`, link.AttemptID, link.InstanceID, link.Node, runID, codingAgent).Scan(&matches); err != nil {
 				return err
 			}
 			if !matches {

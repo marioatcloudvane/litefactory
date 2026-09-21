@@ -203,7 +203,11 @@ func prepare(
 	}
 	var deliveryPlan *deliveryPlan
 	if req.researchDefinition != nil {
-		deliveryPlan, err = planResearchDelivery(opts, req, req.researchDefinition, req.researchNode)
+		policy := ResearchWorkflowPolicy()
+		if req.workflowPolicy != nil {
+			policy = *req.workflowPolicy
+		}
+		deliveryPlan, err = planWorkflowDelivery(opts, req, req.researchDefinition, req.researchNode, policy)
 	} else {
 		deliveryPlan, err = planDelivery(opts, req, selected, worktree.Path())
 	}

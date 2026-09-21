@@ -6,7 +6,7 @@ import (
 )
 
 func TestSemanticDigestExecutionIdentity(t *testing.T) {
-	source := `digraph { graph [team=builtin,mode=research,profile_version=1,start=work]; work [lf_action=lf_research_agent,lf_outcomes=success,lf_task=investigate,lf_model_tier=balanced,lf_limit=8]; end [lf_terminal=true]; work -> end [lf_on=success]; }`
+	source := `digraph { graph [team=builtin,mode=research,profile_version=1,start=work]; work [lf_action=lf_agent,lf_outcomes=success,lf_task=investigate,lf_model_tier=balanced,lf_limit=8]; end [lf_terminal=true]; work -> end [lf_on=success]; }`
 	digest := func(s string) string {
 		t.Helper()
 		p, err := ParseProfile([]byte(s))
@@ -28,7 +28,7 @@ func TestSemanticDigestExecutionIdentity(t *testing.T) {
 		{"task", strings.Replace(source, "investigate", "summarize", 1), false},
 		{"model", strings.Replace(source, "balanced", "powerful", 1), false},
 		{"limit", strings.Replace(source, "lf_limit=8", "lf_limit=7", 1), false},
-		{"action", strings.Replace(source, "lf_research_agent", "lf_research_other", 1), false},
+		{"action", strings.Replace(source, "lf_agent", "lf_research_other", 1), false},
 		{"edge", strings.Replace(source, "lf_on=success", "lf_on=failure", 1), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

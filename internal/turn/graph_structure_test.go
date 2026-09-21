@@ -11,11 +11,17 @@ import (
 	"testing"
 )
 
-// Research is the only adopted mode. Require its one explicit driver call and
-// reject all other production wiring, including function-value references.
+// Research is the only adopted mode. Its policy wrapper is the only production
+// entry to the shared driver, which owns the only activity dispatch call.
+// Reject other wiring, including function-value references and nested callbacks.
 func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
 	t.Parallel()
-	declarations, researchCalls := 0, 0
+	declarations := map[string]int{}
+	calls := map[string]int{}
+	owners := map[string]string{
+		"ExecuteNodeAction": "ExecuteWorkflow",
+		"ExecuteWorkflow":   "ExecuteResearchWorkflow",
+	}
 	for _, root := range []string{"../", "../../cmd"} {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -30,39 +36,57 @@ func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
 				return err
 			}
 			allowed := map[*ast.Ident]bool{}
-			if filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go") {
-				for _, decl := range file.Decls {
-					fn, ok := decl.(*ast.FuncDecl)
-					if !ok || fn.Recv != nil || fn.Name.Name != "ExecuteResearchWorkflow" {
-						continue
-					}
-					ast.Inspect(fn.Body, func(n ast.Node) bool {
-						if _, nested := n.(*ast.FuncLit); nested {
-							return false
-						}
-						if call, ok := n.(*ast.CallExpr); ok {
-							if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" {
-								allowed[id] = true
-								researchCalls++
-							}
-						}
-						return true
-					})
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
 				}
+				if _, tracked := owners[fn.Name.Name]; tracked {
+					declarations[fn.Name.Name]++
+					allowed[fn.Name] = true
+				}
+				if filepath.Clean(path) != filepath.Join("..", "turn", "research_workflow.go") || fn.Recv != nil {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if _, nested := n.(*ast.FuncLit); nested {
+						return false
+					}
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					id, ok := call.Fun.(*ast.Ident)
+					if !ok || owners[id.Name] != fn.Name.Name {
+						return true
+					}
+					allowed[id] = true
+					calls[id.Name]++
+					if id.Name == "ExecuteWorkflow" {
+						if len(call.Args) == 0 {
+							t.Errorf("%s: shared workflow lacks Research policy", positions.Position(call.Pos()))
+							return true
+						}
+						policy, ok := call.Args[len(call.Args)-1].(*ast.CallExpr)
+						if !ok {
+							t.Errorf("%s: shared workflow requires explicit Research policy", positions.Position(call.Pos()))
+							return true
+						}
+						policyName, ok := policy.Fun.(*ast.Ident)
+						if !ok || policyName.Name != "ResearchWorkflowPolicy" || len(policy.Args) != 0 {
+							t.Errorf("%s: production workflow must use ResearchWorkflowPolicy()", positions.Position(policy.Pos()))
+						}
+					}
+					return true
+				})
 			}
 			ast.Inspect(file, func(n ast.Node) bool {
-				if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "ExecuteNodeAction" {
-					declarations++
-					ast.Inspect(fn.Body, func(body ast.Node) bool {
-						if id, ok := body.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" {
-							t.Errorf("%s: recursive dispatch", positions.Position(id.Pos()))
-						}
-						return true
-					})
-					return false
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
 				}
-				if id, ok := n.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" && !allowed[id] {
-					t.Errorf("%s: production dispatch reference", positions.Position(id.Pos()))
+				if _, tracked := owners[id.Name]; tracked && !allowed[id] {
+					t.Errorf("%s: unauthorized production dispatch reference %s", positions.Position(id.Pos()), id.Name)
 				}
 				return true
 			})
@@ -72,11 +96,13 @@ func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if researchCalls != 1 {
-		t.Errorf("found %d direct Research dispatch calls, want 1", researchCalls)
-	}
-	if declarations != 1 {
-		t.Fatalf("found %d dispatch declarations, want 1", declarations)
+	for name, owner := range owners {
+		if calls[name] != 1 {
+			t.Errorf("found %d direct %s calls from %s, want 1", calls[name], name, owner)
+		}
+		if declarations[name] != 1 {
+			t.Errorf("found %d %s declarations, want 1", declarations[name], name)
+		}
 	}
 }
 

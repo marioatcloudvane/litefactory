@@ -13,18 +13,21 @@ import (
 func TestResearchCommentDeclaration(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
-		name, kind, outcome string
-		valid               bool
+		name, action, kind, outcome string
+		valid                       bool
 	}{
-		{"question/accepted", "question", "published", true},
-		{"final/accepted", "final", "published", true},
-		{"failure/accepted", "failure", "published", true},
-		{"private progress/rejected", "progress", "published", false},
-		{"missing kind/rejected", "", "published", false},
-		{"unknown kind/rejected", "arbitrary", "published", false},
-		{"pending delivery/rejected", "final", "pending", false},
-		{"uncertain delivery/rejected", "final", "uncertain", false},
-		{"failed delivery/rejected", "final", "failed", false},
+		{"question/accepted", "lf_ask", "question", "published", true},
+		{"review/accepted", "lf_ask", "review", "published", true},
+		{"question comment/rejected", "lf_comment", "question", "published", false},
+		{"final ask/rejected", "lf_ask", "final", "published", false},
+		{"final/accepted", "lf_comment", "final", "published", true},
+		{"failure/accepted", "lf_comment", "failure", "published", true},
+		{"private progress/rejected", "lf_comment", "progress", "published", false},
+		{"missing kind/rejected", "lf_comment", "", "published", false},
+		{"unknown kind/rejected", "lf_comment", "arbitrary", "published", false},
+		{"pending delivery/rejected", "lf_comment", "final", "pending", false},
+		{"uncertain delivery/rejected", "lf_comment", "final", "uncertain", false},
+		{"failed delivery/rejected", "lf_comment", "final", "failed", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -32,13 +35,16 @@ func TestResearchCommentDeclaration(t *testing.T) {
 			if err := registry.Register(turn.ResearchCommentSpec()); err != nil {
 				t.Fatal(err)
 			}
+			if err := registry.Register(turn.ResearchAskSpec()); err != nil {
+				t.Fatal(err)
+			}
 			kind := ""
 			if tt.kind != "" {
 				kind = fmt.Sprintf(",lf_kind=%q", tt.kind)
 			}
 			dot := fmt.Sprintf(`digraph {team=builtin;mode=research;profile_version=1;start=comment;
-comment [lf_action=lf_research_comment,lf_outcomes=%q%s];
-end [lf_terminal=true];comment -> end [on=%q];}`, tt.outcome, kind, tt.outcome)
+comment [lf_action=%s,lf_outcomes=%q%s];
+end [lf_terminal=true];comment -> end [on=%q];}`, tt.action, tt.outcome, kind, tt.outcome)
 			profile, err := graphexec.ParseProfile([]byte(dot))
 			if err != nil {
 				t.Fatal(err)

@@ -10,20 +10,38 @@ import (
 
 // Research control actions expose only closed, typed response comparisons.
 const (
-	ResearchLoopAction = "lf_research_loop"
-	ResearchIfAction   = "lf_research_if"
+	ResearchLoopAction = "lf_loop"
+	ResearchIfAction   = "lf_if"
 )
 
 // ResearchControlSpec declares data-only string comparisons, never expressions.
 func ResearchControlSpec(action string) ActionSpec {
+	return ControlSpec(action, ResearchControlPolicy())
+}
+
+// ControlPolicy is the admitted mode's closed response and owner-gate vocabulary.
+type ControlPolicy struct {
+	Generation          string
+	Mode                agent.Mode
+	Responses, Defaults []string
+	Ask, Approved       string
+}
+
+// ResearchControlPolicy supplies Research response vocabulary and its document gate.
+func ResearchControlPolicy() ControlPolicy {
+	return ControlPolicy{Generation: "lf_research_brief", Mode: agent.ModeResearch, Responses: ResearchResponses, Defaults: []string{"ask", "done"}, Ask: "ask", Approved: "approved"}
+}
+
+// ControlSpec declares the closed comparisons authorized by the admitted mode policy.
+func ControlSpec(action string, policy ControlPolicy) ActionSpec {
 	attrs := map[string]AttributeSpec{
 		"lf_field":     {Required: true, Values: []string{"response"}},
-		"lf_condition": {Required: true, Values: ResearchResponses},
+		"lf_condition": {Required: true, Values: policy.Responses},
 	}
 	if action == ResearchLoopAction {
-		attrs["lf_default"] = AttributeSpec{Values: []string{"ask", "done"}}
+		attrs["lf_default"] = AttributeSpec{Values: policy.Defaults}
 	}
-	return ActionSpec{Name: action, Mode: agent.ModeResearch, Outcomes: []string{"true", "false"}, Attributes: attrs}
+	return ActionSpec{Name: action, Mode: policy.Mode, Outcomes: []string{"true", "false"}, Attributes: attrs}
 }
 
 // ResearchResponses are the three things a Research agent can say about its own
@@ -38,37 +56,49 @@ func ResearchResponse(value string) bool { return slices.Contains(ResearchRespon
 
 // ResearchCondition only inspects the response of an already validated result.
 // Attempted distinguishes the initial empty state from a missing/invalid result.
-type ResearchCondition struct{ Field, Condition, Default string }
+type ResearchCondition struct {
+	Field, Condition, Default string
+	Responses                 []string
+}
 
 // DecodeResearchCondition validates the declared field, equality value and initial default.
 func DecodeResearchCondition(action string, attrs map[string]string) (ResearchCondition, error) {
-	c := ResearchCondition{Field: attrs["lf_field"], Condition: attrs["lf_condition"], Default: attrs["lf_default"]}
+	return DecodeCondition(action, attrs, ResearchControlPolicy())
+}
+
+// DecodeCondition validates comparison attributes against the admitted response vocabulary.
+func DecodeCondition(action string, attrs map[string]string, policy ControlPolicy) (ResearchCondition, error) {
+	c := ResearchCondition{Responses: policy.Responses, Field: attrs["lf_field"], Condition: attrs["lf_condition"], Default: attrs["lf_default"]}
 	var faults []error
 	if action != ResearchLoopAction && action != ResearchIfAction {
-		faults = append(faults, errors.New("unknown Research control action"))
+		faults = append(faults, errors.New("unknown workflow control action"))
 	}
 	if c.Field != "response" {
 		faults = append(faults, errors.New("lf_field must equal response"))
 	}
-	if !ResearchResponse(c.Condition) {
-		faults = append(faults, errors.New("lf_condition must equal ask, done or approved"))
+	if !slices.Contains(policy.Responses, c.Condition) {
+		faults = append(faults, fmt.Errorf("lf_condition must be one of %v", policy.Responses))
 	}
-	if value, present := attrs["lf_default"]; present && (action != ResearchLoopAction || (value != "ask" && value != "done")) {
-		faults = append(faults, errors.New("lf_default is only permitted on a loop and must equal ask or done"))
+	if value, present := attrs["lf_default"]; present && (action != ResearchLoopAction || !slices.Contains(policy.Defaults, value)) {
+		faults = append(faults, fmt.Errorf("lf_default is only permitted on a loop and must be one of %v", policy.Defaults))
 	}
 	return c, errors.Join(faults...)
 }
 
 // Evaluate selects a declared outcome, applying the default only before an attempt.
 func (c ResearchCondition) Evaluate(response string, attempted bool) (string, error) {
-	if c.Field != "response" || !ResearchResponse(c.Condition) {
-		return "", errors.New("invalid Research condition")
+	responses := c.Responses
+	if responses == nil {
+		responses = ResearchResponses
+	}
+	if c.Field != "response" || !slices.Contains(responses, c.Condition) {
+		return "", errors.New("invalid workflow condition")
 	}
 	if !attempted {
 		response = c.Default
 	}
-	if !ResearchResponse(response) {
-		return "", errors.New("research response is missing or invalid; retained findings require an explicit owner continuation")
+	if !slices.Contains(responses, response) {
+		return "", errors.New("workflow response is missing or invalid; retained findings require an explicit owner continuation")
 	}
 	if response == c.Condition {
 		return "true", nil
@@ -84,14 +114,25 @@ func ResearchSource(attrs map[string]string) string { return attrs["lf_source"] 
 // paths before dispatch. A question publication must end at a terminal: the
 // continuation service alone can later resume the originating agent node.
 func ValidateResearchControlGraph(p *Profile) error {
+	return ValidateControlGraph(p, ResearchControlPolicy())
+}
+
+// ValidateControlGraph checks source bindings, generation prerequisites and owner-wait paths.
+func ValidateControlGraph(p *Profile, policy ControlPolicy) error {
 	if p == nil {
 		return errors.New("research graph is nil")
 	}
 	var faults []error
 	for _, node := range p.Nodes {
+		if policy.Generation != "" && node.Action == policy.Generation {
+			source, ok := p.Node(node.Attrs["lf_source"])
+			if !ok || source.Action != "lf_agent" {
+				faults = append(faults, fmt.Errorf("generation %q requires named agent source", node.Name))
+			}
+		}
 		switch node.Action {
 		case ResearchLoopAction, ResearchIfAction:
-			if _, err := DecodeResearchCondition(node.Action, node.Attrs); err != nil {
+			if _, err := DecodeCondition(node.Action, node.Attrs, policy); err != nil {
 				faults = append(faults, fmt.Errorf("node %q: %w", node.Name, err))
 			}
 			// An unscoped control node reads whichever agent ran last, which is
@@ -99,7 +140,7 @@ func ValidateResearchControlGraph(p *Profile) error {
 			// loop bootstrap from its own default instead of inheriting the
 			// previous stage's response.
 			if source, scoped := node.Attrs["lf_source"]; scoped {
-				if from, exists := p.Node(source); !exists || from.Action != "lf_research_agent" {
+				if from, exists := p.Node(source); !exists || from.Action != "lf_agent" {
 					faults = append(faults, fmt.Errorf("node %q: lf_source %q does not name an agent node", node.Name, source))
 				}
 			}
@@ -109,12 +150,12 @@ func ValidateResearchControlGraph(p *Profile) error {
 			if node.Action == ResearchLoopAction && node.Limit <= 0 {
 				faults = append(faults, fmt.Errorf("node %q requires finite positive lf_limit", node.Name))
 			}
-		case "lf_research_agent":
+		case "lf_agent":
 			// Catalog-only agent graphs remain valid. Runtime control graphs must end
 			// every ask path at a question publication and durable wait boundary.
 			hasControl := false
 			for _, candidate := range p.Nodes {
-				if candidate.Action == ResearchLoopAction || candidate.Action == ResearchIfAction {
+				if candidate.Action == ResearchLoopAction || candidate.Action == ResearchIfAction || candidate.Action == "lf_comment" || candidate.Action == "lf_ask" {
 					hasControl = true
 				}
 			}
@@ -124,8 +165,8 @@ func ValidateResearchControlGraph(p *Profile) error {
 					faults = append(faults, fmt.Errorf("research agent %q has no deterministic success edge", node.Name))
 					continue
 				}
-				for _, response := range ResearchResponses {
-					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}); err != nil {
+				for _, response := range policy.Responses {
+					if err := validateResearchResponsePath(p, next, response, node.Name, map[string]bool{}, policy); err != nil {
 						faults = append(faults, fmt.Errorf("research agent %q response %q: %w", node.Name, response, err))
 					}
 				}
@@ -151,7 +192,7 @@ func validateResearchFailurePath(p *Profile, name string) error {
 	if !ok {
 		return fmt.Errorf("failure path references missing node %q", name)
 	}
-	if node.Action != "lf_research_comment" {
+	if node.Action != "lf_comment" {
 		return fmt.Errorf("failure path requires a comment activity at %q", name)
 	}
 	if node.Attrs["lf_kind"] != "failure" {
@@ -173,7 +214,7 @@ func validateResearchFailurePath(p *Profile, name string) error {
 // running on without the answer. And no response path may reach an agent
 // directly: crossing into a loop scoped to a different agent is what hands over,
 // and that crossing always happens after this stage has published.
-func validateResearchResponsePath(p *Profile, name, response, source string, visiting map[string]bool) error {
+func validateResearchResponsePath(p *Profile, name, response, source string, visiting map[string]bool, policy ControlPolicy) error {
 	node, ok := p.Node(name)
 	if !ok {
 		return fmt.Errorf("response path references missing node %q", name)
@@ -186,10 +227,27 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 	}
 	visiting[name] = true
 	defer delete(visiting, name)
+	if policy.Generation != "" && node.Action == policy.Generation {
+		if node.Attrs["lf_source"] != source {
+			return fmt.Errorf("generation %q source does not match %q", name, source)
+		}
+		next, ok := Decide(p, name, "success")
+		if !ok {
+			return fmt.Errorf("generation %q lacks success edge", name)
+		}
+		visiting["generated:"+source] = true
+		return validateResearchResponsePath(p, next, response, source, visiting, policy)
+	}
 	switch node.Action {
-	case "lf_research_agent":
+	case "lf_agent":
 		return fmt.Errorf("response path invokes agent %q without owner authorization", name)
-	case "lf_research_comment":
+	case "lf_comment", "lf_ask":
+		if policy.Generation != "" && !visiting["generated:"+source] {
+			return fmt.Errorf("publication %q requires matching successful %s generation", name, policy.Generation)
+		}
+		if declared := node.Attrs["lf_source"]; declared != "" && declared != source {
+			return fmt.Errorf("publication %q source differs from current agent", name)
+		}
 		kind := node.Attrs["lf_kind"]
 		next, exists := Decide(p, name, "published")
 		if !exists {
@@ -201,14 +259,17 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		}
 		switch kind {
 		case "question", "review":
+			if node.Action != "lf_ask" {
+				return fmt.Errorf("owner wait requires lf_ask at %q", name)
+			}
 			// Both rest on the owner, for different reasons: a question is the
 			// agent needing an answer, a review is the agent showing finished
 			// work and waiting to be told it stands. Neither may run on
 			// unanswered, and an approved response has already been answered.
-			if response == "approved" {
+			if response == policy.Approved {
 				return fmt.Errorf("an approved response is settled and cannot end at the %s at %q", kind, name)
 			}
-			if (kind == "question") != (response == "ask") {
+			if (kind == "question") != (response == policy.Ask) {
 				return fmt.Errorf("response %q cannot end at a %s publication at %q", response, kind, name)
 			}
 			if !after.Terminal {
@@ -216,13 +277,17 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 			}
 			return nil
 		case "final":
-			if response == "ask" {
+			if node.Action != "lf_comment" {
+				return fmt.Errorf("report requires lf_comment at %q", name)
+			}
+			if response == policy.Ask {
 				return fmt.Errorf("response path requires question comment at %q", name)
 			}
 			if after.Terminal {
 				return nil
 			}
-			return validateResearchResponsePath(p, next, response, source, visiting)
+			visiting["published:"+source] = true
+			return validateResearchResponsePath(p, next, response, source, visiting, policy)
 		default:
 			return fmt.Errorf("response path reaches %q publication at %q", kind, name)
 		}
@@ -230,9 +295,12 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		// A control node reading a different agent is that agent's boundary, not
 		// this one's. Its own paths are validated from its own agent's edge.
 		if scope, scoped := node.Attrs["lf_source"]; scoped && scope != source {
+			if response == policy.Ask || !visiting["published:"+source] {
+				return fmt.Errorf("stage handoff at %q bypasses required publication or wait", name)
+			}
 			return nil
 		}
-		c, err := DecodeResearchCondition(node.Action, node.Attrs)
+		c, err := DecodeCondition(node.Action, node.Attrs, policy)
 		if err != nil {
 			return err
 		}
@@ -244,7 +312,7 @@ func validateResearchResponsePath(p *Profile, name, response, source string, vis
 		if !exists {
 			return fmt.Errorf("response path at %q lacks deterministic %q edge", name, outcome)
 		}
-		return validateResearchResponsePath(p, next, response, source, visiting)
+		return validateResearchResponsePath(p, next, response, source, visiting, policy)
 	default:
 		return fmt.Errorf("response path uses unsupported activity %q", node.Action)
 	}
@@ -262,7 +330,13 @@ func ResearchResponseReaches(p *Profile, name, response string) (string, error) 
 			return "", nil
 		}
 		switch node.Action {
-		case "lf_research_comment":
+		case "lf_research_brief":
+			next, ok := Decide(p, name, "success")
+			if !ok {
+				return "", nil
+			}
+			name = next
+		case "lf_comment", "lf_ask":
 			return name, nil
 		case ResearchLoopAction, ResearchIfAction:
 			c, err := DecodeResearchCondition(node.Action, node.Attrs)

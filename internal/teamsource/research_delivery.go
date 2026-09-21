@@ -17,6 +17,11 @@ import (
 // no installed instruction tree or catalog is changed. Tools are intersected
 // with the invocation ceiling rather than granted by shipped role content.
 func NativeResearch(kind string, node ResearchNode, model string, allowedTools []string, sandbox string) ([]render.RenderedFile, error) {
+	return NativeWorkflow(kind, node, model, allowedTools, sandbox)
+}
+
+// NativeWorkflow renders captured role resources with the admitted permission ceiling.
+func NativeWorkflow(kind string, node WorkflowNode, model string, allowedTools []string, sandbox string) ([]render.RenderedFile, error) {
 	var faults []error
 	native := map[string]bool{}
 	for _, skill := range node.Skills {
@@ -66,7 +71,7 @@ func NativeResearch(kind string, node ResearchNode, model string, allowedTools [
 			result = append(result, render.RenderedFile{Path: "plugin/skills/" + path.Base(skill) + "/" + strings.TrimPrefix(name, prefix), Bytes: slices.Clone(raw)})
 		}
 	}
-	result = append(result, render.RenderedFile{Path: "plugin/.claude-plugin/plugin.json", Bytes: []byte("{\"name\":\"litefactory-research\",\"version\":\"1.0.0\"}\n")})
+	result = append(result, render.RenderedFile{Path: "plugin/.claude-plugin/plugin.json", Bytes: []byte("{\"name\":\"litefactory-workflow\",\"version\":\"1.0.0\"}\n")})
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result, nil
 }
