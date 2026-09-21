@@ -65,3 +65,22 @@ Plan #362 remains unverified. Both repository issue requests were rejected (rece
 Evidence:
 
 - `internal/graphexec/purity_test.go:51`
+
+## f9
+
+The action registry permits generic agent/control/publication mechanisms and mode-prefixed capabilities, while the activity interface separates declared work outcomes from inability to conduct or record work; these are extension seams, not existing Implement scheduling. Repository revision: 8f4514896e48bc8fcd5942e939f1e04a6d51aa9c; source inspection only.
+
+Evidence:
+
+- `internal/graphexec/registry.go:37`
+- `internal/turn/graph_activity.go:21`
+
+## f10
+
+Graph validation requires exactly one edge per declared outcome and a positive visit limit on every cyclic node; its current attribute specifications use closed string values, so a numeric repair configuration requires explicit admission validation. Repository revision: 8f4514896e48bc8fcd5942e939f1e04a6d51aa9c; source inspection only.
+
+Evidence:
+
+- `internal/graphexec/validate.go:76`
+- `internal/graphexec/validate.go:98`
+- `internal/graphexec/validate.go:129`
