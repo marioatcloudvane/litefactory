@@ -14,6 +14,7 @@ import (
 	"github.com/cloudvane/litefactory/internal/git"
 	"github.com/cloudvane/litefactory/internal/harness"
 	"github.com/cloudvane/litefactory/internal/naming"
+	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/teamsource"
 )
@@ -309,6 +310,9 @@ type Issue struct {
 
 // Trigger is what started this turn: a comment, or the issue body itself.
 type Trigger struct {
+	// PlanReply is correlated by authenticated child discovery, never role output.
+	PlanReply *planbrief.PlanOwnerReply
+
 	// AuthorID is the authenticated forge identity, used for graph reply claims.
 	AuthorID int64
 	// CommentID is the forge's id for the comment. It is unique per session on
@@ -529,7 +533,7 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	if _, pending, err := opts.DB.FindPendingReportDelivery(ctx, session.ID, req.Trigger.CommentID); err != nil {
 		return result, err
 	} else if pending {
-		graph, graphErr := opts.DB.HasResearchGraphSession(ctx, session.ID)
+		graph, graphErr := opts.DB.HasWorkflowGraphSession(ctx, session.ID, req.mode())
 		if graphErr != nil {
 			return result, graphErr
 		}
@@ -605,6 +609,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 	// AC-3.4: a comment that already produced a run never produces a second
 	// one. The unique index on (session, trigger comment) would refuse the
 	// insert anyway; looking first is what turns that into a clean no-op.
+	if err := recoverPlanPublications(ctx, opts, session.ID); err != nil {
+		return result, err
+	}
 	if err := recoverResearchPublications(ctx, opts, session.ID); err != nil {
 		return result, err
 	}
@@ -613,7 +620,7 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return result, fmt.Errorf("look for an existing run of comment %d: %w", req.Trigger.CommentID, err)
 	}
 	if replay && existing.Status != store.RunPrelaunch {
-		graph, graphErr := opts.DB.HasResearchGraphRun(ctx, existing.ID)
+		graph, graphErr := opts.DB.HasWorkflowGraphRun(ctx, existing.ID, existing.Mode)
 		if graphErr != nil {
 			return result, graphErr
 		}
@@ -621,6 +628,9 @@ func Execute(ctx context.Context, opts Options, req Request) (out Result, outErr
 		return replayed(result, existing, logger), nil
 	}
 
+	if graphResult, handled, graphErr := admitPlanExecution(ctx, opts, req, result); handled {
+		return graphResult, graphErr
+	}
 	if graphResult, handled, graphErr := admitResearchExecution(ctx, opts, req, result); handled {
 		return graphResult, graphErr
 	}

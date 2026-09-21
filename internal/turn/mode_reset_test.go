@@ -647,6 +647,10 @@ func TestModeResetPreservesOrdinaryColdTurnMachinery(t *testing.T) {
 			return succeeded(req, f.paths.Home()), nil
 		})
 		f = newFixture(t, runner)
+		// Compare legacy single-run cold machinery, independent of graph dispatch.
+		if secondMode == agent.ModePlan {
+			admitLegacyPlanFixture(t, f)
+		}
 		f.opts.Runners = RunnerSet{
 			agent.Kind(store.AgentClaude): runner,
 			agent.Kind(store.AgentCodex):  runner,

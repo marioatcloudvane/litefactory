@@ -76,7 +76,11 @@ func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out W
 			return graphInvariant("workflow definition mode mismatch")
 		}
 		var path string
-		if e := tx.QueryRowContext(ctx, `SELECT path FROM research_execution_paths WHERE session_id=?`, in.SessionID).Scan(&path); e != nil {
+		pathQuery := `SELECT path FROM research_execution_paths WHERE session_id=?`
+		if in.Mode == "plan" {
+			pathQuery = `SELECT path FROM plan_execution_paths WHERE session_id=?`
+		}
+		if e := tx.QueryRowContext(ctx, pathQuery, in.SessionID).Scan(&path); e != nil {
 			return e
 		}
 		if path != "graph" {

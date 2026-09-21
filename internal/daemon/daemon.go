@@ -525,6 +525,9 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 	if _, err := d.db.ReconcileResearchGraphs(ctx, reconciliation.At); err != nil {
 		return Reconciled{}, err
 	}
+	if _, err := d.db.ReconcileWorkflowGraphs(ctx, "plan", reconciliation.At); err != nil {
+		return Reconciled{}, err
+	}
 	d.refreshRecoveries(ctx, time.Time{})
 
 	for _, lock := range reconciliation.ReclaimedLocks {
@@ -543,7 +546,7 @@ func (d *Daemon) Start(ctx context.Context) (Reconciled, error) {
 		ReclaimedLocks: len(reconciliation.ReclaimedLocks),
 	}
 	for _, run := range reconciliation.AbandonedRuns {
-		graph, err := d.db.HasResearchGraphRun(ctx, run.ID)
+		graph, err := d.db.HasWorkflowGraphRun(ctx, run.ID, run.Mode)
 		if err != nil {
 			return result, err
 		}

@@ -402,12 +402,15 @@ func prepare(
 	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 		return nil, err
 	}
-	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
-		return nil, err
+	if req.researchDefinition == nil {
+		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+			return nil, err
+		}
+		if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
+			return nil, err
+		}
 	}
-	if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
-		return nil, err
-	}
+
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
 		return nil, err
 	}
