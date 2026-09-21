@@ -80,3 +80,40 @@ Evidence:
 - `.aiteam/lf-362-sketch-out-plan-workflow/2026-09-21/sketch-out-plan-workflow/PLAN_WORKFLOW_DRAFT.md:1`
 - `internal/planbrief/typed_content.go:245`
 - `internal/turn/research_owner_resume.go:108`
+
+## f9
+
+At revision 739ebf47c6392161eb63f4779028e5d977fe010f, the graph registry admits five generic activity names plus mode-prefixed capabilities, so lf_plan_story fits current spelling admission while lf_story does not; spelling admission alone does not register behavior.
+
+Evidence:
+
+- `internal/graphexec/registry.go:37`
+
+## f10
+
+Existing forge code creates and attaches story sub-issues, exposes unattached partial outcomes for recovery, and updates issue title/body with documented fresh-base and read-back requirements; these are reusable operations rather than a first-loop draft graph contract.
+
+Evidence:
+
+- `internal/github/subissues.go:118`
+- `internal/github/subissues.go:289`
+- `internal/github/managed_issues.go:33`
+
+## f11
+
+The current managed story state helper verifies numeric issue and parent identity but closes stories with reason completed; retiring an irrelevant planning story requires different semantics.
+
+Evidence:
+
+- `internal/github/story_state.go:9`
+- `internal/github/story_state.go:34`
+
+## f12
+
+Current Plan handoff returns from discussion without publishing a proposal, publishes complete plans through the existing publication owner, and only later marks readiness; early incomplete sub-issue publication therefore requires a separate admitted draft contract.
+
+Evidence:
+
+- `internal/turn/plan_handoff.go:141`
+- `internal/turn/plan_handoff.go:245`
+- `internal/turn/plan_handoff.go:264`
