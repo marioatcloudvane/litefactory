@@ -158,3 +158,51 @@
 ### Amendment Readiness
 - Ready for plan assembly; no material owner questions remain.
 - No production code, runtime checks or remote effects are claimed by this amendment.
+
+## Run 0006 Amendment: Technology-Neutral Architecture Review
+- Owner requirement: the new workflow's technical-shaping reviewer is technology-neutral, not the Go-specific `go-architect` role.
+- Scope remains the same three delivery stories; prior title, ordinal, activity-owned rendering and body requirements remain, except the architecture format superseded below.
+- This requirement describes the future workflow; it does not replace the current factory-supplied planning roles or implementation roster.
+
+### Reviewer and Selectable Skills
+| Element | Requirement |
+|---|---|
+| Reviewer responsibility | Review reuse, feasibility, boundaries, data fit and technical decisions in the actual story context without assuming a language, framework or object-oriented design. |
+| Skill roster | Give the role Markdown a separate literal `# Skills` heading with an extensible roster; initially include only Go guidance and agent-setup guidance. |
+| Go guidance | Apply when the story involves Go implementation or Go-specific architecture; do not select it merely because the host repository is Go. |
+| Agent-setup guidance | Apply when the story concerns agent roles, skills, instruction files or workflow setup. |
+| Selection | Select applicable guidance from story scope; both skills may apply to mixed scope, and neither is mandatory for unrelated work. Markdown-only agent or workflow work uses applicable agent-setup guidance without forced Go review. |
+| Future extension | Permit additional guidance skills through roster extension without rewriting the reviewer's general responsibility or requiring unrelated skills. |
+
+### Revised Architecture and Optional Design Presentation
+- The activity renders the following tables beneath `# Architecture` when architecture content is populated; this supersedes the earlier instruction to retain the existing architecture presentation format.
+- In the initial story-only draft, retain the unpopulated `# Architecture` scaffold without inventing technical content.
+- Use the table columns below as recorded implementation assumptions; headings and applicability follow the owner request.
+
+| Exact subsection | Applicability | Table columns | Content |
+|---|---|---|---|
+| `## Architecture - General` | Mandatory whenever architecture is populated | `Area`, `Decision`, `Rationale` | Overall approach, reuse, constraints and relevant technical decisions. |
+| `## Data Model` | Only when the story has relevant data-model concerns | `Entity / Relationship`, `Definition`, `Constraints / Rationale` | Entities, relationships, invariants and changes relevant to the story. |
+| `## Service Design` | Only when the story has relevant service/decomposition concerns | `Layer / Component`, `Responsibility`, `Dependencies / Access` | Layers, services, repositories, database access and decomposition as applicable. |
+| `## Solution Design` | Only when the story has relevant collaboration/design concerns | `Element`, `Collaboration / Contract`, `Rationale` | Collaboration, interfaces and abstractions; inheritance only where applicable to the actual solution. |
+
+- Render applicable subsections in the order above; omit inapplicable subsections rather than filling them with boilerplate or forcing service, data or object-oriented concepts into unrelated stories.
+- Keep `# Design` optional and after `# Architecture`; include it only for frontend scope with relevant frontend design references, such as supplied design links or assets. Do not invent references or add it for backend-only or agent/Markdown-only work.
+- Agents supply typed architecture and applicable frontend reference content; the activity owns table rendering and section inclusion.
+- Preserve semantic interfaces, constraints, dependencies and stable identities under this presentation; complete-plan validation and revision-bound approval requirements continue to apply.
+
+### Iteration and Reuse
+- On every shaping cycle, load and reuse the story's current sections, decisions and applicable references; update only content affected by new input and retain unaffected content.
+- Preserve earlier decisions and their rationale in revision history when superseded; do not regenerate the story from scratch or silently drop prior agreements.
+- Reassess subsection and skill applicability when scope changes; removal of previously applicable content requires a recorded reason and the existing affected-approval invalidation rules.
+
+### Additional Acceptance Obligations
+| ID | Observable requirement | Candidate proof |
+|---|---|---|
+| R13 | The new technical-shaping role is technology-neutral and has a separate `# Skills` roster initially containing only Go and agent-setup guidance; guidance selection follows actual scope. | Role/skill contract checks covering Go, Markdown-only agent setup and mixed-scope fixtures; source review for absence of mandatory Go or object-oriented assumptions. |
+| R14 | Populated architecture always includes the General table and includes Data Model, Service Design and Solution Design tables only when applicable; initial drafts retain empty architecture scaffolding. | Activity-renderer fixtures for initial, agent-only, data/service and collaboration-oriented stories, checking headings, table columns and conditional inclusion. |
+| R15 | Optional `# Design` contains relevant frontend references only for frontend scope; successive cycles preserve and reuse unaffected sections and decisions while recording material changes. | Frontend/non-frontend renderer fixtures and multi-cycle shaping/reconciliation tests checking retained content, revision history and approval invalidation. |
+
+### Run 0006 Readiness
+- Ready for plan assembly; no material owner questions remain.
+- Amendment only: no production implementation, runtime verification or remote effects claimed.

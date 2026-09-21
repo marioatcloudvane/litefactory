@@ -192,3 +192,39 @@ Story 3's final publication adapter must retain the allocated prefix, exact body
 - **Story 3 / C3–C6:** Carry new fields and identity through complete typed handoff, publication, parsing/reconciliation and compatibility boundaries. Add first-draft, technical and final renderer fixtures plus a round-trip check that retains semantic dependencies/IDs while rejecting incomplete final plans and conflicting edits.
 
 Repository constraints remain unchanged except the previously recorded authorized CONC-22 draft-publication amendment. No source changes, tests or runtime/remote verification were performed for this architectural amendment.
+
+## Run 0006 Architectural Amendment: Technology-Neutral Reviewer
+
+**Verdict:** Ready within the existing three stories. This amendment specifies the future Plan workflow's technical reviewer; it does not replace the current factory-supplied Go architect or implementation roster. It supersedes run 0005's instruction to retain the old architecture presentation format. No production source change or verification is claimed.
+
+### Reviewer and Guidance Boundary
+Story 2's technical-shaping role owns technology-neutral review of reuse, feasibility, boundaries, data fit and technical decisions. Its Markdown has a separate literal `# Skills` section with an extensible roster initially containing only Go guidance and agent-setup guidance. The role chooses guidance from the actual story scope: Go guidance for Go work, agent-setup guidance for roles/skills/instruction/workflow work, both for mixed scope, and neither for unrelated work. A Go host repository does not make Markdown-only agent work Go work. Future roster additions do not change the reviewer's general responsibility or make every listed skill mandatory.
+
+Keep this distinction in the delivered resource closure: availability of a skill is not an instruction to apply it on every review. The shared contract describes applicability, and focused guidance supplies the relevant domain checks. Do not change the existing factory role routing to deliver this future reviewer or infer a new agent beyond the three planned workflow roles.
+
+### Typed Content and Activity-Owned Architecture Tables
+Story 1 extends typed technical content with overall architecture decisions, explicit subsection applicability and optional frontend reference content. `internal/report` deterministically renders these through the existing story activity; the agent supplies semantic fields rather than Markdown tables. Complete typed-plan adapters preserve interfaces, constraints, dependencies and identities regardless of their visible placement.
+
+Initial story-only drafts keep an unpopulated `# Architecture`. Once architecture is populated, `## Architecture - General` is mandatory. Conditional subsections appear only when relevant, in the order General, Data Model, Service Design, Solution Design. Service Design covers layers, services, repositories, database access and decomposition. Solution Design covers collaboration, interfaces and abstractions; inheritance is included only when the actual solution uses it. Neither subsection imposes object-oriented design on Go or instruction-only work.
+
+Use the column assumptions already recorded in the run 0006 feature-spec amendment as the single planning baseline:
+
+| Subsection | Columns |
+|---|---|
+| `## Architecture - General` | `Area`, `Decision`, `Rationale` |
+| `## Data Model` | `Entity / Relationship`, `Definition`, `Constraints / Rationale` |
+| `## Service Design` | `Layer / Component`, `Responsibility`, `Dependencies / Access` |
+| `## Solution Design` | `Element`, `Collaboration / Contract`, `Rationale` |
+
+These column labels resolve the ordinary difference between preliminary proposed columns and the saved requirements; do not leave two competing formats in the typed stories. The owner-specified heading names and applicability are unchanged.
+
+Optional `# Design` follows `# Architecture` only for frontend scope with relevant supplied design references. Preserve links/assets as structured references subject to existing validation and untrusted-content boundaries. Do not invent references, emit an empty Design section universally, or treat a linked design as permission to fetch or execute arbitrary content.
+
+### Iteration, Validation and Existing Story Mapping
+Every cycle loads current story sections, decisions, applicability and references. Update affected fields and retain unaffected content; save superseded decisions with their rationale in revision history. Scope changes reassess applicable guidance and subsections. Removing previously relevant content needs a recorded reason and the existing dependent-approval invalidation, rather than silent omission by a renderer.
+
+- **Story 1 / A1–A4:** Own typed applicable architecture/frontend reference fields and renderer fixtures for initial, agent-only, data/service, collaboration, frontend and non-frontend cases. The old activity AC-009 architecture-format obligation is superseded; retain its retirement identity and express the replacement obligations using new AC-011/AC-012 as assigned by the orchestrator. Never reuse a retired criterion ID.
+- **Story 2 / B1–B3:** Own the neutral role, separate selectable skill roster and guidance applicability fixtures. Verify Markdown-only work does not force Go, and mixed scope can use both initially available skills. Existing story/acceptance roles remain within the three-stage design.
+- **Story 3 / C2–C6:** Preserve typed data through repeated shaping, final handoff and reconciliation. Cover retained unaffected sections, superseded decision history, justified applicability changes, semantic metadata round-trip and invalidation of affected approvals. Complete-plan validation remains strict even when some architecture subsections are inapplicable.
+
+No additional standard deviation is required. The prior scoped CONC-22 amendment remains applicable. Current renderer compliance, runtime behavior and remote publication remain unverified by this Plan amendment.
