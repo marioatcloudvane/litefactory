@@ -1171,6 +1171,12 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
+	if handled, err := d.refinePlanChildren(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not route Plan child discussion", err)
+		return
+	} else if handled {
+		return
+	}
 	if deferred, err := d.refineStories(ctx, t); err != nil {
 		d.stopped(ctx, t, "could not refine managed stories", err)
 		return
@@ -1914,6 +1920,9 @@ func (d *Daemon) run(
 		// lock has become defence in depth. A second daemon against the same
 		// $LF_HOME is the only thing left that can produce this. See [inflight].
 		log.InfoContext(ctx, "task is locked by another daemon process; leaving the comment for a later tick")
+		if trigger.PlanReply != nil {
+			return &recoveryPending{errors.New("plan child reply waits for the current session lock owner")}
+		}
 		return nil
 	}
 
@@ -1921,6 +1930,24 @@ func (d *Daemon) run(
 }
 
 func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger, mode agent.Mode, turnResult turn.Result, log *slog.Logger) error {
+	if trigger.PlanReply != nil {
+		// A child comment belongs to its own discovery cursor. The Plan policy
+		// journals consumed reply IDs before effects; refinePlanChildren advances
+		// that child's cursor after this return. Parent input consumption would
+		// skip unrelated parent comments whose globally allocated IDs are lower.
+		reply := trigger.PlanReply
+		if mode != agent.ModePlan || reply.ID != trigger.CommentID || reply.ActorID != trigger.AuthorID || reply.OwnerID != d.filter.Identities().OwnerUserID {
+			return errors.New("plan child completion correlation mismatch")
+		}
+		route, err := d.db.PlanExecutionPath(ctx, t.session.ID)
+		if err != nil {
+			return err
+		}
+		if route != "graph" {
+			return errors.New("plan child completion lacks graph admission")
+		}
+		return nil
+	}
 	if turnResult.ResearchGraph {
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.

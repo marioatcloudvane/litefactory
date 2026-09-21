@@ -17,6 +17,10 @@ func TestAdmittedModeReachesPromptAndReportedRun(t *testing.T) {
 			var f *fixture
 			runner := recordingRunner(func(req harness.Request) (*harness.RunResult, error) { return succeeded(req, f.paths.Home()), nil })
 			f = newFixture(t, runner)
+			// This fixture verifies the retained single-run transport across modes.
+			if mode == agent.ModePlan {
+				admitLegacyPlanFixture(t, f)
+			}
 			req := f.request()
 			req.Mode = mode
 			req.Issue.Labels = []string{"Mode: Research"}

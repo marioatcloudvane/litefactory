@@ -291,5 +291,10 @@ func (d *Daemon) markResearchModeApplied(ctx context.Context, t *task, selection
 			return err
 		}
 	}
+	if selection.Mode != "plan" {
+		if err := d.db.CancelWorkflowGraphs(ctx, selection.SessionID, "plan", "explicit mode switch", t.tickAt); err != nil {
+			return err
+		}
+	}
 	return d.db.MarkModeLabelApplied(ctx, selection.SessionID, selection.TriggerCommentID)
 }

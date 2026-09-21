@@ -64,7 +64,7 @@ func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegist
 
 // RegisterAgent installs the shared invocation activity under an admitted mode policy.
 func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler AgentActivity) error {
-	if specs == nil || activities == nil || handler.Prepare == nil || !handler.Policy.Mode.Valid() || handler.Policy.Decode == nil {
+	if specs == nil || activities == nil || handler.Prepare == nil || !handler.Policy.Mode.Valid() || (handler.Policy.Decode == nil && handler.Policy.NodeProtocol == nil) {
 		return errors.New("research agent registration requires registries and preparation")
 	}
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
@@ -109,7 +109,7 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 			returnedErr = errors.Join(returnedErr, invocation.Close())
 		}
 	}()
-	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) {
+	if h.Policy.NodeProtocol == nil && (invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode)) {
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
@@ -166,6 +166,19 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	}
 	if len(result.ResultText) > agentresult.MaxResearchNodeBytes {
 		return out, errors.New("research node output exceeds 1 MiB")
+	}
+	if h.Policy.NodeProtocol != nil {
+		encoded, narrative, err := h.Policy.NodeProtocol.Decode(ctx, a, []byte(result.ResultText))
+		if err != nil {
+			return out, err
+		}
+		narrated := result.Clone()
+		narrated.ResultText = narrative
+		out.ProcessResult = narrated
+		out.Outcome = "success"
+		out.Kind = store.GraphOutputJSON
+		out.Output = encoded
+		return out, nil
 	}
 	trusted, err := invocation.Results.trustedContext(ctx)
 	if err != nil {

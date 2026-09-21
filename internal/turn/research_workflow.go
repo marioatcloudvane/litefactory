@@ -45,11 +45,31 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 	scope := func(_ context.Context, _ store.GraphNodeAttempt) (agentresult.Context, error) {
 		return agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: string(policy.Mode), WorkflowVersion: store.WorkflowSeparated, QuestionsAllowed: questionPermission(req.mode(), req.Command)}, nil
 	}
-	if err := RegisterControl(&specs, &activities, ControlActivity{Profile: definition.Profile, Context: scope, Policy: policy}); err != nil {
-		return result, err
-	}
-	if err := RegisterComment(&specs, &activities, CommentActivity{Profile: definition.Profile, Reporter: opts.ResearchReporter, Context: scope, Policy: policy}); err != nil {
-		return result, err
+	if policy.NodeProtocol != nil {
+		for _, name := range []string{graphexec.ResearchLoopAction, graphexec.ResearchIfAction} {
+			if err := specs.Register(graphexec.ControlSpec(name, policy.Control)); err != nil {
+				return result, err
+			}
+			if err := activities.Register(name, policy.NodeProtocol.Control); err != nil {
+				return result, err
+			}
+		}
+		for _, spec := range []graphexec.ActionSpec{ResearchCommentSpec(), ResearchAskSpec()} {
+			spec.Mode = policy.Mode
+			if err := specs.Register(spec); err != nil {
+				return result, err
+			}
+			if err := activities.Register(spec.Name, policy.NodeProtocol.Comment); err != nil {
+				return result, err
+			}
+		}
+	} else {
+		if err := RegisterControl(&specs, &activities, ControlActivity{Profile: definition.Profile, Context: scope, Policy: policy}); err != nil {
+			return result, err
+		}
+		if err := RegisterComment(&specs, &activities, CommentActivity{Profile: definition.Profile, Reporter: opts.ResearchReporter, Context: scope, Policy: policy}); err != nil {
+			return result, err
+		}
 	}
 	if policy.RegisterEffects != nil {
 		if err := policy.RegisterEffects(&specs, &activities, definition.Profile, scope, func() (string, string, error) {
@@ -121,6 +141,9 @@ func ExecuteWorkflow(ctx context.Context, opts Options, req Request, result Resu
 		}
 		if step.Status == store.GraphFailed {
 			cause := errors.New(step.Activity.Diagnostic)
+			if policy.NodeProtocol != nil {
+				return w.finish(ctx, cause)
+			}
 			return w.finish(ctx, errors.Join(cause, w.publishFailure(ctx, scope, step, cause)))
 		}
 		if step.Status == store.GraphSucceeded || step.Status == "waiting_owner" {
@@ -142,6 +165,9 @@ type researchWorkflow struct {
 }
 
 func (w *researchWorkflow) invocation(ctx context.Context, _ Options, a ActivityRequest) (ResearchInvocation, error) {
+	if w.policy.NodeProtocol != nil {
+		return w.policy.NodeProtocol.Prepare(ctx, w, a)
+	}
 	prep := w.prep
 	if prep == nil || prep.run.ID != a.RunID {
 		return ResearchInvocation{}, errors.New("research invocation preparation is missing")
@@ -329,6 +355,9 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 		return out, cause
 	}
 	bookkeeping := context.WithoutCancel(ctx)
+	if cause == nil && w.policy.NodeProtocol != nil && w.policy.NodeProtocol.BeforeSave != nil {
+		cause = w.policy.NodeProtocol.BeforeSave(ctx, w)
+	}
 	out.Disposition = DispositionRan
 	out.Harness = w.process
 	out.Outcome = agent.OutcomeFailed
@@ -363,6 +392,9 @@ func (w *researchWorkflow) finish(ctx context.Context, cause error) (Result, err
 	out.Run = run
 	if cause == nil && w.process != nil && w.process.Succeeded() {
 		out = save(bookkeeping, w.opts, w.prep, out, w.process, w.opts.Logger)
+		if out.Err == nil && w.policy.NodeProtocol != nil && w.policy.NodeProtocol.AfterSave != nil {
+			out.Err = w.policy.NodeProtocol.AfterSave(bookkeeping, w, &out)
+		}
 	}
 	state := store.SessionIdle
 	if cause != nil || out.Err != nil {

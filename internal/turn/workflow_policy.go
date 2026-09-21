@@ -13,6 +13,10 @@ import (
 // WorkflowPolicy supplies domain contracts to the shared, admitted mechanisms.
 // It is factory-owned and frozen before dispatch; graph content cannot set it.
 type WorkflowPolicy struct {
+	// NodeProtocol supplies a distinct domain payload without manufacturing
+	// Research results. Nil retains the existing Research application contract.
+	NodeProtocol *WorkflowNodeProtocol
+
 	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
 	BeforeContinue  func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context, int64) error
 	Specs           []graphexec.ActionSpec
@@ -53,4 +57,15 @@ func (p WorkflowPolicy) load(ctx context.Context, db *store.DB, id int64, scope 
 		}
 	}
 	return node, nil
+}
+
+// WorkflowNodeProtocol separates domain payload validation and effects from the
+// shared graph lifecycle, native invocation, metering and saving machinery.
+type WorkflowNodeProtocol struct {
+	Decode     func(context.Context, ActivityRequest, []byte) (encoded []byte, narrative string, err error)
+	Prepare    func(context.Context, *researchWorkflow, ActivityRequest) (ResearchInvocation, error)
+	Control    ActivityHandler
+	Comment    ActivityHandler
+	BeforeSave func(context.Context, *researchWorkflow) error
+	AfterSave  func(context.Context, *researchWorkflow, *Result) error
 }

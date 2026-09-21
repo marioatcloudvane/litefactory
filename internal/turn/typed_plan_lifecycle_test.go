@@ -241,6 +241,7 @@ func TestTypedPlanRunnerPublicationAndDurableReceipt(t *testing.T) {
 		return succeeded(req, f.paths.Home()), nil
 	})
 	f = newFixture(t, runner)
+	admitLegacyPlanFixture(t, f)
 	home, err := os.MkdirTemp("/tmp", "lf207-plan-")
 	mustProgress(t, err)
 	home, err = filepath.EvalSymlinks(home)

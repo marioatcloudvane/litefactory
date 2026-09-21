@@ -27,3 +27,11 @@ Run 0005: completed a narrow Plan amendment for activity-owned stable title numb
 Run 0005 submission: initial preflight found create intent conflicting with factory-known published story identities; corrected all three intents to update without adding identity fields. Corrected preflight valid/complete with no diagnostics or unchecked paths. Dispatcher submitted and read receipt `a095863e3d259dfb86ea067d29cf7a03`: result 33, applied revision 2; input accepted, engineering pending, acceptance pending, publication pending. Updated publication/save/readiness remains unconfirmed; no further submission required.
 
 Owner requests three stories: activity; agents and DOT; wiring and retirement of old Plan code. Publication and readiness remain factory-owned.
+
+## Implement run 0007 — aggregate pending
+
+All three frozen stories have authored implementation and scoped tests. The final full repository race gate is still running; no completed Implement status is claimed in this entry. See TEST_REPORT.md for executed checks, corrected failures and retained checkpoint/invalidation references. Acceptance remains for Validate; task-branch save remains factory-owned.
+
+## Implement run 0007 — engineering complete
+
+Supersedes the earlier aggregate-pending entry. All three frozen stories have completed engineering and scoped verification. Final make check passed (including full race suite), go build passed, and gofmt reported no files. Two aggregate fix cycles resolved lint and compatibility/inventory fixtures. TEST_REPORT.md, DRIFT_REPORT.md, notes.md, SCOPED_CHECKS.log and MAKE_CHECK.log retain factual results; earlier failed output is preserved separately. Story checkpoints are recorded; the final aggregate/application helper validates the complete final artifact snapshot. Acceptance and factory save/remote effects are separate and are not claimed complete here.

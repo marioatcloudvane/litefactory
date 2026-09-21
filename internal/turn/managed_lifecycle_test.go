@@ -113,6 +113,7 @@ func TestManagedPlanRefinementFreezeResumeLiveCompletionLifecycle(t *testing.T) 
 				return result, nil
 			})
 			f = newFixture(t, runner)
+			admitLegacyPlanFixture(t, f)
 			mustProgress(t, f.db.PutManagedFeature(t.Context(), store.ManagedFeature{ParentTask: f.session.TaskRef, Generation: 1, State: "planning", WorkflowVersion: store.WorkflowLegacy}))
 			_, err := f.db.UpsertIdentity(t.Context(), store.Identity{Forge: "github", Role: store.RoleBot, UserID: 9})
 			mustProgress(t, err)
