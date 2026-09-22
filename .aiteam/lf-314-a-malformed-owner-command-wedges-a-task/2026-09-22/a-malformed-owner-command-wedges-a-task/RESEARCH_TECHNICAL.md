@@ -64,3 +64,20 @@ Evidence:
 - `internal/daemon/tick_test.go:299`
 - `internal/daemon/backlog_test.go:109`
 - `internal/daemon/confirm_test.go:54`
+
+## f7
+
+At current revision 3de1897879649e4c80d56940c0d24c2647033cf3, the creation handler still leaves mode, availability, preparation and approval failures unconsumed; preparation decodes an owner payload and can reject malformed data or unsupported versions before presentation.
+
+Evidence:
+
+- `internal/daemon/mcp_creation.go:33`
+- `internal/turn/publication_recovery.go:114`
+
+## f8
+
+Current owner-intent admission checks proposal scope, relationship, retention ordering, freshness and existing intent identity; it mixes deterministic refusals with database errors, so error origin and recorded effects matter for classification.
+
+Evidence:
+
+- `internal/store/mcp_creation.go:153`
