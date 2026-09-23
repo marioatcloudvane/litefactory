@@ -87,3 +87,24 @@ Evidence:
 - `internal/store/research_admission_test.go:10`
 - `internal/store/research_admission_test.go:66`
 - `internal/turn/report_delivery_db_test.go:13`
+
+## f9
+
+Observed at d4baf006eaa386fd4c817a6b9cfb80208417e58c: submission-v2 acceptance inserts a materialized validation-assessment marker, but follow-up discovery selects rows absent from the separate follow-up materialization ledger; retention passes that marker into the version-1 parser, which rejects its missing validation version, and delivery returns before processing existing proposals for that parent. This independently confirms #370's reported code mechanism; production run IDs, log counts and affected rows remain owner-reported. Issue #370 and its empty comment thread were read through GitHub on 2026-09-23.
+
+Evidence:
+
+- `internal/store/submission_progress.go:124`
+- `internal/store/followups.go:106`
+- `internal/turn/followups.go:130`
+- `internal/agent/validation.go:141`
+
+## f10
+
+Inference from f1–f7 and f9: this is a family of durable-work eligibility and failure-disposition gaps, not one parser bug; historical records are treated as current work without consistent checks of format, remaining obligations and recoverability, while permanent errors follow retry-only paths and block their queue or parent.
+
+Evidence:
+
+- `internal/turn/research_workflow.go:421`
+- `internal/turn/followups.go:130`
+- `internal/daemon/tick.go:2129`
