@@ -192,11 +192,15 @@ const (
 	ReplyAppliesResolution
 	// ReplyCreationProposal presents exact retained owner-review content.
 	ReplyCreationProposal
+	// ReplyCreationRejected explains a confirmed creation intake refusal.
+	ReplyCreationRejected
 )
 
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
+	case ReplyCreationRejected:
+		return "creation_rejected"
 	case ReplyCreationProposal:
 		return "creation_proposal"
 	case ReplyUnknownCommand:
@@ -271,7 +275,7 @@ func (k ReplyKind) String() string {
 // valid reports whether k is one of the real kinds.
 func (k ReplyKind) valid() bool {
 	switch k {
-	case ReplyCreationProposal:
+	case ReplyCreationRejected, ReplyCreationProposal:
 		return true
 	case ReplyUnknownCommand, ReplyEmptySpike:
 		return true
@@ -386,10 +390,11 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
-	Creation         *CreationReply
-	SourceGeneration int
-	SourceStoryIssue int
-	SourceCommentID  int64
+	CreationRejection *CreationRejection
+	Creation          *CreationReply
+	SourceGeneration  int
+	SourceStoryIssue  int
+	SourceCommentID   int64
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -734,6 +739,11 @@ func (r Reply) body() string {
 
 	span, named := commandSpan(r.Command)
 	switch r.Kind {
+	case ReplyCreationRejected:
+		if r.CreationRejection != nil {
+			text, _ := r.CreationRejection.guidance()
+			b.WriteString(text)
+		}
 	case ReplyCreationProposal:
 		if r.Creation != nil {
 			b.WriteString("Retained creation proposal. Review the complete JSON below; preparation grants no publication.\n\n")

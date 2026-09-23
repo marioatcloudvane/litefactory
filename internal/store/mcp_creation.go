@@ -153,21 +153,27 @@ func currentCreationProposal(ctx context.Context, tx *sql.Tx, p CreationProposal
 func (c *CreationStore) AdmitOwnerIntent(ctx context.Context, a CreationApproval, relationship string) (int64, error) {
 	var id int64
 	if a.OwnerID < 1 || a.ActorID != a.OwnerID || a.CommentID < 1 || a.Bot || a.CreatedAt.IsZero() || !validSubmissionDigest(a.ProposalHash) {
-		return 0, ErrCreationAuthority
+		return 0, &CreationPolicyRefusal{}
 	}
 	err := c.db.withTx(ctx, func(tx *sql.Tx) error {
 		now := c.now()
 		if a.CreatedAt.After(now) || !now.Before(a.CreatedAt.Add(MCPCreationApprovalTTL)) {
-			return ErrCreationAuthority
+			return &CreationPolicyRefusal{}
 		}
 		p, retained, err := creationProposalTx(ctx, tx, a.ProposalHash)
+		if err == ErrCreationAuthority { //nolint:errorlint // Only the exact observation sentinel proves refusal; wrapped storage errors stay retryable.
+			return &CreationPolicyRefusal{}
+		}
 		if err != nil {
 			return err
 		}
 		if p.Repository != a.Repository || p.SourceTask != a.SourceTask || p.Relationship != relationship || a.CreatedAt.UnixNano() < retained {
-			return ErrCreationAuthority
+			return &CreationPolicyRefusal{}
 		}
 		if err := currentCreationProposal(ctx, tx, p); err != nil {
+			if err == ErrCreationAuthority || errors.Is(err, sql.ErrNoRows) { //nolint:errorlint // Wrapped authority errors may conceal failed storage observations.
+				return &CreationPolicyRefusal{}
+			}
 			return err
 		}
 		var source, hash string
@@ -179,7 +185,7 @@ func (c *CreationStore) AdmitOwnerIntent(ctx context.Context, a CreationApproval
 		err = tx.QueryRowContext(ctx, `SELECT id,source_task,proposal_hash,owner_id,created_ns,proposal_revision FROM mcp_creation_intents WHERE repository=? AND comment_id=?`, a.Repository, a.CommentID).Scan(&id, &source, &hash, &owner, &created, &recordedRevision)
 		if err == nil {
 			if source != a.SourceTask || hash != a.ProposalHash || owner != a.OwnerID || created != a.CreatedAt.UnixNano() || recordedRevision != proposalRevision {
-				return ErrCreationConflict
+				return &CreationPolicyRefusal{Cause: ErrCreationConflict}
 			}
 			return nil
 		}
@@ -187,7 +193,7 @@ func (c *CreationStore) AdmitOwnerIntent(ctx context.Context, a CreationApproval
 			return err
 		}
 		if !a.UpdatedAt.IsZero() && !a.UpdatedAt.Equal(a.CreatedAt) {
-			return ErrCreationAuthority
+			return &CreationPolicyRefusal{}
 		}
 		result, err := tx.ExecContext(ctx, `INSERT INTO mcp_creation_intents(repository,source_task,comment_id,owner_id,proposal_hash,created_ns,expires_ns,proposal_revision) VALUES(?,?,?,?,?,?,?,?)`, a.Repository, a.SourceTask, a.CommentID, a.OwnerID, a.ProposalHash, a.CreatedAt.UnixNano(), a.CreatedAt.Add(MCPCreationApprovalTTL).UnixNano(), proposalRevision)
 		if err != nil {

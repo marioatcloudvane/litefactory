@@ -4,8 +4,11 @@ package agent
 // Only the factory sets this value; it does not widen host permissions.
 type InvocationKind string
 
-// InvocationResearchNode identifies a private Research pass for result retention.
-const InvocationResearchNode InvocationKind = "research_node"
+// InvocationGraphNode identifies a private graph pass for result retention.
+const InvocationGraphNode InvocationKind = "graph_node"
+
+// InvocationResearchNode is the Research adapter spelling of a generic invocation.
+const InvocationResearchNode = InvocationGraphNode
 
 // GraphInvocation is the factory attribution for a reserved node attempt.
 // The run's persisted segment supplies the provider conversation identity.

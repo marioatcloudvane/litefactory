@@ -1,0 +1,152 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+0 issues.
+go test -race -timeout=0 ./...
+ok  	github.com/cloudvane/litefactory/cmd/litefactory	1.896s
+?   	github.com/cloudvane/litefactory/cmd/team-benchmark	[no test files]
+?   	github.com/cloudvane/litefactory/cmd/team-publish	[no test files]
+ok  	github.com/cloudvane/litefactory/internal/agent	2.511s
+ok  	github.com/cloudvane/litefactory/internal/agentresult	4.226s
+ok  	github.com/cloudvane/litefactory/internal/attach	2.972s
+ok  	github.com/cloudvane/litefactory/internal/cli	483.065s
+ok  	github.com/cloudvane/litefactory/internal/codex	62.778s
+ok  	github.com/cloudvane/litefactory/internal/config	3.554s
+ok  	github.com/cloudvane/litefactory/internal/confirm	3.346s
+ok  	github.com/cloudvane/litefactory/internal/daemon	1205.994s
+ok  	github.com/cloudvane/litefactory/internal/git	122.293s
+ok  	github.com/cloudvane/litefactory/internal/github	6.844s
+ok  	github.com/cloudvane/litefactory/internal/gittest	6.807s
+--- FAIL: TestGraphShippedDOTScope (0.46s)
+    purity_test.go:71: unexpected shipped DOT file: ../../teams/source/plan/plan.dot
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/graphexec	4.434s
+ok  	github.com/cloudvane/litefactory/internal/harness	68.955s
+ok  	github.com/cloudvane/litefactory/internal/identity	20.472s
+ok  	github.com/cloudvane/litefactory/internal/launchd	4.656s
+ok  	github.com/cloudvane/litefactory/internal/logging	2.685s
+ok  	github.com/cloudvane/litefactory/internal/mcpadapter	4.173s
+ok  	github.com/cloudvane/litefactory/internal/meter	2.862s
+ok  	github.com/cloudvane/litefactory/internal/naming	2.977s
+ok  	github.com/cloudvane/litefactory/internal/planbrief	3.370s
+ok  	github.com/cloudvane/litefactory/internal/redact	2.919s
+ok  	github.com/cloudvane/litefactory/internal/render	2.694s
+ok  	github.com/cloudvane/litefactory/internal/report	28.105s
+ok  	github.com/cloudvane/litefactory/internal/repos	8.725s
+ok  	github.com/cloudvane/litefactory/internal/schedule	2.540s
+ok  	github.com/cloudvane/litefactory/internal/secrets	3.392s
+ok  	github.com/cloudvane/litefactory/internal/store	763.585s
+ok  	github.com/cloudvane/litefactory/internal/submission	3.616s
+ok  	github.com/cloudvane/litefactory/internal/team	3.002s
+ok  	github.com/cloudvane/litefactory/internal/teampublish	5.811s
+ok  	github.com/cloudvane/litefactory/internal/teamremote	1.916s
+ok  	github.com/cloudvane/litefactory/internal/teamsource	32.099s
+--- FAIL: TestManagedPlanRefinementFreezeResumeLiveCompletionLifecycle (6.97s)
+    --- FAIL: TestManagedPlanRefinementFreezeResumeLiveCompletionLifecycle/claude (3.43s)
+        managed_lifecycle_test.go:131: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestManagedPlanRefinementFreezeResumeLiveCompletionLifecycle/codex (3.54s)
+        managed_lifecycle_test.go:131: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestAdmittedModeReachesPromptAndReportedRun (21.64s)
+    --- FAIL: TestAdmittedModeReachesPromptAndReportedRun/plan (3.59s)
+        mode_transition_test.go:30: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestMalformedPlanningContextIsReportedThenRefused (3.32s)
+    plan_context_refusal_test.go:45: writing run: graph Plan requires durable reporting and redacted effect dependencies
+        logs:
+--- FAIL: TestPlanningConversationThroughOwnerImplementation (7.09s)
+    --- FAIL: TestPlanningConversationThroughOwnerImplementation/claude (3.48s)
+        plan_continuation_test.go:230: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanningConversationThroughOwnerImplementation/codex (3.61s)
+        plan_continuation_test.go:230: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestPlanDiscussionThenCompletion (3.42s)
+    plan_outcome_test.go:103: Execute: graph Plan requires durable reporting and redacted effect dependencies
+        logs:
+--- FAIL: TestPlanRejectsInvalidCurrentHandoff (43.98s)
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/missing_outcome (3.41s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/malformed (3.43s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/unknown_field (3.36s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/wrong_parent (3.68s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/wrong_generation (3.12s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/wrong_run (3.55s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/wrong_attempt (3.29s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/completed_without_proposal (3.43s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/discussion_with_proposal (3.53s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/wrong_context_identity (3.27s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/context_symlink (3.17s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/outcome_symlink (3.61s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanRejectsInvalidCurrentHandoff/failed_subprocess (3.12s)
+        plan_outcome_test.go:202: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestPlanFailuresCannotRestoreReadiness (10.50s)
+    --- FAIL: TestPlanFailuresCannotRestoreReadiness/publication (3.41s)
+        plan_outcome_test.go:238: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanFailuresCannotRestoreReadiness/save (3.81s)
+        plan_outcome_test.go:238: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanFailuresCannotRestoreReadiness/discussion_save (3.28s)
+        plan_outcome_test.go:238: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestPlanFallbackRejectsPreviousAttemptTransport (7.11s)
+    --- FAIL: TestPlanFallbackRejectsPreviousAttemptTransport/claude (3.46s)
+        plan_outcome_test.go:302: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanFallbackRejectsPreviousAttemptTransport/codex (3.66s)
+        plan_outcome_test.go:302: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestPlanNewColdAttemptClearsStaleTransportAndReadiness (3.28s)
+    plan_outcome_test.go:387: Execute: graph Plan requires durable reporting and redacted effect dependencies
+        logs:
+--- FAIL: TestPlanReadinessInvalidatedBeforeExternalTeamCapture (3.56s)
+    plan_outcome_test.go:424: expected retryable team preparation failure: graph Plan requires durable reporting and redacted effect dependencies
+--- FAIL: TestPlanFailureRetainsTransportForRetry (6.68s)
+    --- FAIL: TestPlanFailureRetainsTransportForRetry/failed_agent (3.52s)
+        plan_retry_transport_test.go:99: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+    --- FAIL: TestPlanFailureRetainsTransportForRetry/publication_failure (3.15s)
+        plan_retry_transport_test.go:99: Execute: graph Plan requires durable reporting and redacted effect dependencies
+            logs:
+--- FAIL: TestTypedPlanRunnerPublicationAndDurableReceipt (3.30s)
+    typed_plan_lifecycle_test.go:260: Execute: graph Plan requires durable reporting and redacted effect dependencies
+        logs:
+--- FAIL: TestExecuteNodeActionHasOnlyResearchProductionCaller (3.02s)
+    graph_structure_test.go:89: ../turn/plan_graph.go:130:14: unauthorized production dispatch reference ExecuteWorkflow
+--- FAIL: TestModeResetPreservesOrdinaryColdTurnMachinery (11.98s)
+    mode_reset_test.go:676: Execute: graph Plan requires durable reporting and redacted effect dependencies
+        logs:
+        time=2026-09-21T16:25:35.395+02:00 level=DEBUG msg="fetched the registered clone" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 clone=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestModeResetPreservesOrdinaryColdTurnMachinery2056112170/001/clone remote=origin
+        time=2026-09-21T16:25:35.786+02:00 level=INFO msg="worktree ready" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 worktree=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestModeResetPreservesOrdinaryColdTurnMachinery2056112170/001/worktrees/task-123 branch=lf/123-add-a-health-endpoint branch_created=true branch_start=origin/main worktree_created=true
+        time=2026-09-21T16:25:36.126+02:00 level=DEBUG msg="base sync: up to date" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 branch=lf/123-add-a-health-endpoint base=origin/main behind=0 ahead=0 outcome=up_to_date
+        time=2026-09-21T16:25:36.268+02:00 level=INFO msg="run prepared" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 run_ordinal=1 run_id=1 branch=lf/123-add-a-health-endpoint worktree=/private/var/folders/t7/y76km1p93ygds_ycnt6zl92r0000gn/T/TestModeResetPreservesOrdinaryColdTurnMachinery2056112170/001/worktrees/task-123 sha_before=52002ea0bb1571cc4088d8623f57520b0541471a path=cold previous_run_ordinal=0 history_comments=3 prompt_bytes=2898
+        time=2026-09-21T16:25:36.528+02:00 level=INFO msg="turn finished" session_id=1 issue=123 trigger_comment_id=9001 instance_id=daemon-instance-a task=github:acme/acme-api#123 outcome=succeeded run_ordinal=1 changed=false committed=false pushed=false session_state=idle
+FAIL
+FAIL	github.com/cloudvane/litefactory/internal/turn	2963.689s
+FAIL
+make: *** [test] Error 1

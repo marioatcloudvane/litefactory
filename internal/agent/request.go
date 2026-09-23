@@ -144,8 +144,8 @@ func (req Request) Validate() error {
 		return invalidRequest("unsupported invocation kind")
 	}
 	if req.Invocation == InvocationResearchNode {
-		if req.Mode != "research" || req.Graph == nil || req.Graph.InstanceID < 1 || req.Graph.AttemptID < 1 || req.Graph.RunID < 1 || req.Graph.Node == "" {
-			return invalidRequest("research node requires factory graph identity and Research mode")
+		if !Mode(req.Mode).Valid() || req.Graph == nil || req.Graph.InstanceID < 1 || req.Graph.AttemptID < 1 || req.Graph.RunID < 1 || req.Graph.Node == "" {
+			return invalidRequest("graph node requires factory graph identity and valid mode")
 		}
 	} else if req.Graph != nil {
 		return invalidRequest("graph identity requires a graph invocation")

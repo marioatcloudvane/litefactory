@@ -21,12 +21,12 @@ func (d *Daemon) dispatchContinuations(ctx context.Context, repos map[int64]stor
 		return err
 	}
 	for _, c := range pending {
-		graph, err := d.db.HasResearchGraphSession(ctx, c.SessionID)
+		graph, err := d.db.HasWorkflowGraphSession(ctx, c.SessionID, c.Context.Mode)
 		if err != nil {
 			return err
 		}
-		if graph && c.Context.Mode == "research" {
-			if err := d.db.CancelContinuation(ctx, c.ID, "Research graph requires explicit owner continuation", at); err != nil {
+		if graph && (c.Context.Mode == "research" || c.Context.Mode == "plan") {
+			if err := d.db.CancelContinuation(ctx, c.ID, "Workflow graph requires explicit owner continuation", at); err != nil {
 				return err
 			}
 			continue

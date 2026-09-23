@@ -32,7 +32,7 @@ func TestGraphPackagePurity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if path == "github.com/cloudvane/litefactory/internal/agent" || path == "github.com/cloudvane/litefactory/internal/config" {
+			if path == "github.com/cloudvane/litefactory/internal/agent" || path == "github.com/cloudvane/litefactory/internal/config" || path == "github.com/cloudvane/litefactory/internal/planbrief" {
 				continue
 			}
 			if name == "dot.go" && strings.HasPrefix(path, "gonum.org/v1/gonum/") {
@@ -44,6 +44,16 @@ func TestGraphPackagePurity(t *testing.T) {
 			}
 		}
 	}
+}
+
+// shippedDOT is the closed approved set of captured workflow resources and
+// their declared editable sources. Plan ships both its neutral source and its
+// embedded runtime copy; Research retains its existing captured resource.
+// Any other DOT file is an unexpected workflow or a stray copy.
+var shippedDOT = map[string]bool{
+	"../../internal/teamsource/research/research.dot": true,
+	"../../internal/teamsource/plan/plan.dot":         true,
+	"../../teams/source/plan/plan.dot":                true,
 }
 
 func TestGraphShippedDOTScope(t *testing.T) {
@@ -58,7 +68,7 @@ func TestGraphShippedDOTScope(t *testing.T) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".dot") && filepath.ToSlash(path) != "../../internal/teamsource/research/research.dot" {
+		if strings.HasSuffix(path, ".dot") && !shippedDOT[filepath.ToSlash(path)] {
 			t.Errorf("unexpected shipped DOT file: %s", path)
 		}
 		return nil

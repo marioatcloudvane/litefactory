@@ -29,6 +29,12 @@ func invalidatePlanReadiness(ctx context.Context, o Options, ref naming.Ref, mod
 	if o.SubIssueRenderer == nil {
 		return nil
 	}
+	return invalidateManagedPlanReadiness(ctx, o, ref)
+}
+
+// invalidateManagedPlanReadiness is shared by admitted graph and legacy Plan.
+// Graph Plan owns its renderer and does not require the legacy renderer seam.
+func invalidateManagedPlanReadiness(ctx context.Context, o Options, ref naming.Ref) error {
 	feature, err := o.DB.GetManagedFeature(ctx, ref.String())
 	if errors.Is(err, store.ErrNotFound) {
 		if err := o.DB.PutManagedFeature(ctx, store.ManagedFeature{ParentTask: ref.String(), Generation: 1, State: "planning", WorkflowVersion: store.WorkflowSeparated}); err != nil {

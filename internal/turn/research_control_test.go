@@ -16,12 +16,14 @@ func TestResearchControlRetainedOutput(t *testing.T) {
 		t.Run(response, func(t *testing.T) {
 			db, session, _ := agentResultFixture(t, "research")
 			raw := `digraph {team=builtin;mode=research;profile_version=1;start=loop;
-loop [lf_action=lf_research_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=2];
-work [lf_action=lf_research_agent,lf_outcomes=success,lf_limit=2];
-check [lf_action=lf_research_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=2];
-question [lf_action=lf_research_comment,lf_kind=question,lf_outcomes=published];
-report [lf_action=lf_research_comment,lf_kind=final,lf_outcomes=published];wait [lf_terminal=true];end [lf_terminal=true];
-loop -> work [on=true];loop -> report [on=false];work -> check [on=success];check -> question [on=true];check -> loop [on=false];question -> wait [on=published];report -> end [on=published];}`
+loop [lf_action=lf_loop,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_default=ask,lf_limit=2];
+work [lf_action=lf_agent,lf_outcomes=success,lf_limit=2];
+check [lf_action=lf_if,lf_outcomes="true,false",lf_field=response,lf_condition=ask,lf_limit=2];
+questionbrief [lf_action=lf_research_brief,lf_source=work,lf_outcomes="success,failed"];
+reportbrief [lf_action=lf_research_brief,lf_source=work,lf_outcomes="success,failed"];
+question [lf_action=lf_ask,lf_kind=question,lf_outcomes=published];
+report [lf_action=lf_comment,lf_kind=final,lf_outcomes=published];wait [lf_terminal=true];end [lf_terminal=true];
+loop -> work [on=true];loop -> reportbrief [on=false];work -> check [on=success];check -> questionbrief [on=true];check -> loop [on=false];questionbrief -> question [on=success];questionbrief -> end [on=failed];reportbrief -> report [on=success];reportbrief -> end [on=failed];question -> wait [on=published];report -> end [on=published];}`
 			p, err := graphexec.ParseProfile([]byte(raw))
 			if err != nil {
 				t.Fatal(err)
@@ -91,7 +93,7 @@ loop -> work [on=true];loop -> report [on=false];work -> check [on=success];chec
 				}
 				return
 			}
-			want := "question"
+			want := "questionbrief"
 			if response == "done" {
 				want = "loop"
 			}
@@ -100,7 +102,7 @@ loop -> work [on=true];loop -> report [on=false];work -> check [on=success];chec
 			}
 			if response == "done" {
 				last, err := ExecuteNodeAction(t.Context(), Options{DB: db}, req)
-				if err != nil || last.NextNode != "report" {
+				if err != nil || last.NextNode != "reportbrief" {
 					t.Fatalf("done exit: %+v %v", last, err)
 				}
 			}

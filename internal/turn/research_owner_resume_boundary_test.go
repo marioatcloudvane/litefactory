@@ -1,7 +1,6 @@
 package turn
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -17,10 +16,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	candidate.Outcome = "incomplete"
 	candidate.Reason = "Owner scope required"
 	candidate.Questions = []agentresult.Question{{ID: "Q-1", Audience: "business", Text: "Which boundary?"}}
-	raw, err := json.Marshal(agentresult.ResearchNode{Version: 1, Response: "ask", Result: candidate})
-	mustProgress(t, err)
-	_, err = f.db.RecordGraphOutput(t.Context(), store.GraphOutput{NodeAttemptID: source.ID, Kind: store.GraphOutputJSON, Payload: raw, CreatedAt: source.StartedAt})
-	mustProgress(t, err)
+	retainCommentBrief(t, f, source, candidate, scope)
 	forge := newFakeForge(t)
 	reporter := newReporter(t, f, forge, stubRenderer{err: errors.New("not rendered yet")})
 	_, key, err := reporter.ReportResearchCandidate(t.Context(), source, "question", "question", candidate, scope, "")
@@ -139,7 +135,7 @@ func TestResearchOwnerWaitPublicationClaimAndRestart(t *testing.T) {
 	}
 	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), source.InstanceID)
 	mustProgress(t, err)
-	if len(attempts) != 2 || forge.attemptCount() != 1 {
+	if len(attempts) != 3 || forge.attemptCount() != 1 {
 		t.Fatal("restart duplicated attempt or publication")
 	}
 	// Storage may contain corrupt historical bytes; context loading enforces its

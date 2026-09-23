@@ -129,12 +129,17 @@ func linkSourceIssue(artifacts []submission.CreationArtifact, sourceIssue int) [
 }
 
 func (s *CreationPublicationService) prepare(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, retain creationRetainer) (PreparedCreation, error) {
-	b := s.Binding()
-	if e.Repository != "" && e.Repository != s.receipts.scope.Repository || e.SourceTask != "" && e.SourceTask != b.Task {
-		return PreparedCreation{}, store.ErrCreationAuthority
+	return prepareCreation(ctx, e, nonce, presentationLimit, s.receipts.scope.Repository, s.Binding().Task, s.redactor, retain)
+}
+
+// prepareCreation is shared by run-backed publication and owner-comment intake.
+// Owner intake has source provenance, but no synthetic run or receipt authority.
+func prepareCreation(ctx context.Context, e submission.CreationEnvelope, nonce [16]byte, presentationLimit int, repository, task string, redactor *redact.Redactor, retain creationRetainer) (PreparedCreation, error) {
+	if e.Repository != "" && e.Repository != repository || e.SourceTask != "" && e.SourceTask != task {
+		return PreparedCreation{}, rejectCreation("fields", store.ErrCreationAuthority)
 	}
-	e.Repository = s.receipts.scope.Repository
-	e.SourceTask = b.Task
+	e.Repository = repository
+	e.SourceTask = task
 	e.Version = 1
 	if e.Relationship == "" {
 		e.Relationship = "linked"
@@ -142,7 +147,7 @@ func (s *CreationPublicationService) prepare(ctx context.Context, e submission.C
 	// Canonical validation runs before and after preparation; rendering cannot turn
 	// malformed source text into a silently accepted proposal.
 	if _, _, err := submission.CanonicalCreation(e); err != nil {
-		return PreparedCreation{}, err
+		return PreparedCreation{}, rejectCreation("fields", err)
 	}
 	artifacts := make([]submission.CreationArtifact, len(e.Artifacts))
 	for i, a := range e.Artifacts {
@@ -152,16 +157,16 @@ func (s *CreationPublicationService) prepare(ctx context.Context, e submission.C
 			fmt.Fprintf(&links, "\n\nRelated: https://github.com/%s/issues/%d", e.Repository, target)
 		}
 		marker := fmt.Sprintf("<!-- lf:mcp-create v=1 key=%s artifact=%d -->", hex.EncodeToString(nonce[:]), i)
-		title, err := s.redactor.Apply(ctx, a.Title, 256)
+		title, err := redactor.Apply(ctx, a.Title, 256)
 		if err != nil {
 			return PreparedCreation{}, err
 		}
-		body, err := s.redactor.Apply(ctx, a.Body+links.String()+"\n\n"+marker, 65536)
+		body, err := redactor.Apply(ctx, a.Body+links.String()+"\n\n"+marker, 65536)
 		if err != nil {
 			return PreparedCreation{}, err
 		}
 		if title.Truncated() || body.Truncated() || !strings.HasSuffix(body.String(), marker) {
-			return PreparedCreation{}, errors.New("prepared creation exceeds bounds")
+			return PreparedCreation{}, rejectCreation("fields", errors.New("prepared creation exceeds bounds"))
 		}
 		a.Title = title.String()
 		a.Body = body.String()
@@ -171,10 +176,10 @@ func (s *CreationPublicationService) prepare(ctx context.Context, e submission.C
 	if presentationLimit > 0 {
 		data, _, err := submission.CanonicalCreation(e)
 		if err != nil {
-			return PreparedCreation{}, err
+			return PreparedCreation{}, rejectCreation("fields", err)
 		}
 		if len(data) > presentationLimit {
-			return PreparedCreation{}, errCreationPresentationLimit
+			return PreparedCreation{}, rejectCreation("fields", errCreationPresentationLimit)
 		}
 	}
 	hash, err := retain(ctx, e)

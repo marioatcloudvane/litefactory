@@ -11,11 +11,17 @@ import (
 	"testing"
 )
 
-// Research is the only adopted mode. Require its one explicit driver call and
-// reject all other production wiring, including function-value references.
-func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
+// Research and Plan have explicit production entries to the shared driver,
+// which owns the only activity dispatch call.
+// Reject other wiring, including function-value references and nested callbacks.
+func TestExecuteNodeActionHasOnlyApprovedProductionCallers(t *testing.T) {
 	t.Parallel()
-	declarations, researchCalls := 0, 0
+	declarations := map[string]int{}
+	calls := map[string]int{}
+	owners := map[string]string{
+		"ExecuteNodeAction": "ExecuteWorkflow",
+		"ExecuteWorkflow":   "ExecuteResearchWorkflow",
+	}
 	for _, root := range []string{"../", "../../cmd"} {
 		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -30,39 +36,60 @@ func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
 				return err
 			}
 			allowed := map[*ast.Ident]bool{}
-			if filepath.Clean(path) == filepath.Join("..", "turn", "research_workflow.go") {
-				for _, decl := range file.Decls {
-					fn, ok := decl.(*ast.FuncDecl)
-					if !ok || fn.Recv != nil || fn.Name.Name != "ExecuteResearchWorkflow" {
-						continue
-					}
-					ast.Inspect(fn.Body, func(n ast.Node) bool {
-						if _, nested := n.(*ast.FuncLit); nested {
-							return false
-						}
-						if call, ok := n.(*ast.CallExpr); ok {
-							if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" {
-								allowed[id] = true
-								researchCalls++
-							}
-						}
-						return true
-					})
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
 				}
+				if _, tracked := owners[fn.Name.Name]; tracked {
+					declarations[fn.Name.Name]++
+					allowed[fn.Name] = true
+				}
+				planEntry := filepath.Clean(path) == filepath.Join("..", "turn", "plan_graph.go") && fn.Name.Name == "admitPlanExecution"
+				if (!planEntry && filepath.Clean(path) != filepath.Join("..", "turn", "research_workflow.go")) || fn.Recv != nil {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if _, nested := n.(*ast.FuncLit); nested {
+						return false
+					}
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					id, ok := call.Fun.(*ast.Ident)
+					if !ok || (owners[id.Name] != fn.Name.Name && (!planEntry || id.Name != "ExecuteWorkflow")) {
+						return true
+					}
+					allowed[id] = true
+					calls[id.Name]++
+					if planEntry {
+						assertPlanDispatchPolicy(t, positions, fn, call)
+					} else if id.Name == "ExecuteWorkflow" {
+						if len(call.Args) == 0 {
+							t.Errorf("%s: shared workflow lacks Research policy", positions.Position(call.Pos()))
+							return true
+						}
+						policy, ok := call.Args[len(call.Args)-1].(*ast.CallExpr)
+						if !ok {
+							t.Errorf("%s: shared workflow requires explicit Research policy", positions.Position(call.Pos()))
+							return true
+						}
+						policyName, ok := policy.Fun.(*ast.Ident)
+						if !ok || policyName.Name != "ResearchWorkflowPolicy" || len(policy.Args) != 0 {
+							t.Errorf("%s: production workflow must use ResearchWorkflowPolicy()", positions.Position(policy.Pos()))
+						}
+					}
+					return true
+				})
 			}
 			ast.Inspect(file, func(n ast.Node) bool {
-				if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "ExecuteNodeAction" {
-					declarations++
-					ast.Inspect(fn.Body, func(body ast.Node) bool {
-						if id, ok := body.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" {
-							t.Errorf("%s: recursive dispatch", positions.Position(id.Pos()))
-						}
-						return true
-					})
-					return false
+				id, ok := n.(*ast.Ident)
+				if !ok {
+					return true
 				}
-				if id, ok := n.(*ast.Ident); ok && id.Name == "ExecuteNodeAction" && !allowed[id] {
-					t.Errorf("%s: production dispatch reference", positions.Position(id.Pos()))
+				if _, tracked := owners[id.Name]; tracked && !allowed[id] {
+					t.Errorf("%s: unauthorized production dispatch reference %s", positions.Position(id.Pos()), id.Name)
 				}
 				return true
 			})
@@ -72,11 +99,17 @@ func TestExecuteNodeActionHasOnlyResearchProductionCaller(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if researchCalls != 1 {
-		t.Errorf("found %d direct Research dispatch calls, want 1", researchCalls)
-	}
-	if declarations != 1 {
-		t.Fatalf("found %d dispatch declarations, want 1", declarations)
+	for name, owner := range owners {
+		want := 1
+		if name == "ExecuteWorkflow" {
+			want = 2
+		}
+		if calls[name] != want {
+			t.Errorf("found %d direct %s calls from approved %s entries, want %d", calls[name], name, owner, want)
+		}
+		if declarations[name] != 1 {
+			t.Errorf("found %d %s declarations, want 1", declarations[name], name)
+		}
 	}
 }
 
@@ -147,5 +180,47 @@ func TestGraphActivitiesHaveNoClockOrRetryLoop(t *testing.T) {
 	}
 	if checked < 2 {
 		t.Fatalf("checked %d graph files, want activity and node implementations", checked)
+	}
+}
+
+func assertPlanDispatchPolicy(t *testing.T, positions *token.FileSet, fn *ast.FuncDecl, call *ast.CallExpr) {
+	t.Helper()
+	if len(call.Args) == 0 {
+		t.Errorf("%s: Plan dispatch lacks policy", positions.Position(call.Pos()))
+		return
+	}
+	arg, ok := call.Args[len(call.Args)-1].(*ast.Ident)
+	if !ok || arg.Name != "policy" {
+		t.Errorf("%s: Plan dispatch must use local policy", positions.Position(call.Pos()))
+		return
+	}
+	assignments := 0
+	for _, stmt := range fn.Body.List {
+		assign, ok := stmt.(*ast.AssignStmt)
+		if !ok || len(assign.Lhs) != 1 || len(assign.Rhs) != 1 {
+			continue
+		}
+		lhs, ok := assign.Lhs[0].(*ast.Ident)
+		if !ok || lhs.Name != "policy" {
+			continue
+		}
+		assignments++
+		value, ok := assign.Rhs[0].(*ast.CallExpr)
+		if !ok || len(value.Args) != 0 {
+			t.Error("Plan policy must be factory runtime policy")
+			continue
+		}
+		method, ok := value.Fun.(*ast.SelectorExpr)
+		if !ok || method.Sel.Name != "policy" {
+			t.Error("Plan policy must call runtime policy")
+			continue
+		}
+		receiver, ok := method.X.(*ast.Ident)
+		if !ok || receiver.Name != "r" {
+			t.Error("Plan policy must belong to admitted runtime")
+		}
+	}
+	if assignments != 1 {
+		t.Errorf("Plan policy assignment count=%d, want 1", assignments)
 	}
 }

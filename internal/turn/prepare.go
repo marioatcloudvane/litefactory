@@ -203,7 +203,11 @@ func prepare(
 	}
 	var deliveryPlan *deliveryPlan
 	if req.researchDefinition != nil {
-		deliveryPlan, err = planResearchDelivery(opts, req, req.researchDefinition, req.researchNode)
+		policy := ResearchWorkflowPolicy()
+		if req.workflowPolicy != nil {
+			policy = *req.workflowPolicy
+		}
+		deliveryPlan, err = planWorkflowDelivery(opts, req, req.researchDefinition, req.researchNode, policy)
 	} else {
 		deliveryPlan, err = planDelivery(opts, req, selected, worktree.Path())
 	}
@@ -398,12 +402,15 @@ func prepare(
 	if err := prepareManagedScope(ctx, opts, req, ref); err != nil {
 		return nil, err
 	}
-	if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
-		return nil, err
+	if req.researchDefinition == nil {
+		if err := preparePlanHandoff(ctx, opts, ref, req.mode(), &promptInput); err != nil {
+			return nil, err
+		}
+		if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
+			return nil, err
+		}
 	}
-	if err := preparePlanAttempt(worktree.Path(), session.Branch, run, &promptInput, logger); err != nil {
-		return nil, err
-	}
+
 	if err := prepareRefinementContext(ctx, opts, req, &promptInput); err != nil {
 		return nil, err
 	}

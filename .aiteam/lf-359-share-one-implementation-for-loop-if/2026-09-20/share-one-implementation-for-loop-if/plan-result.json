@@ -1,0 +1,288 @@
+{
+  "result": {
+    "outcome": "completed",
+    "comment": "Two stories keep this bounded: share workflow mechanics and convert Research, then extract its brief activity and prove reuse. No open owner questions. Plan workflows, backward compatibility and production activation remain out of scope. Recommend /implement follow the two-story plan. Publication and readiness remain pending factory terminal processing.",
+    "payload": {
+      "plan": {
+        "summary": "Refactor existing workflow mechanics into lf_agent, lf_if, lf_loop, lf_comment and lf_ask with a small explicit mode policy; fully convert Research and extract lf_research_brief for its two documents. Prove reuse through a second-mode test package. Keep existing durable records, permission and owner-approval boundaries; no compatibility, Plan implementation or new framework.",
+        "stories": [
+          {
+            "key": "US-001",
+            "intent": "create",
+            "title": "Share workflow mechanics and convert Research to generic actions",
+            "user_story": {
+              "actor": "workflow author",
+              "want": "reuse the same execution, branching, reporting and owner-question mechanisms across modes",
+              "benefit": "new workflows need role files and a graph rather than copied runtime code",
+              "notes": [
+                "This is a bounded extraction of existing behavior. Research keeps its vocabulary and presentation; another mode is exercised only by tests.",
+                "Evidence inventory: AC-001 and AC-003 use offline registry, capture, source-control and graph-policy tests; AC-006 uses runner fakes and durable local-store recovery tests; AC-008 uses old-capture/non-graph regression tests and repository checks. Existing co-located tests are available. Evidence is bound to the implementation snapshot; checks remain to be executed. No authentic provider observation is claimed."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-001",
+                "text": "Register lf_agent, lf_if, lf_loop, lf_comment and lf_ask through one shared implementation per mechanism and a small explicit mode policy. Admission retains mode authorization and rejects unknown actions, old Research mechanism names and scoped actions not registered for the admitted mode; generic spelling alone grants no authority."
+              },
+              {
+                "id": "AC-003",
+                "text": "Shared controls retain true/false outcomes, current identity-checked source decoding, initial defaults only before any source attempt, durable limits and owner-wait path rules. Invalid sources, malformed output, exhausted bounds and paths bypassing required waits reject or fail with their actual diagnostic; they cannot silently advance."
+              },
+              {
+                "id": "AC-006",
+                "text": "Extract common package capture, role delivery, admission, agent invocation, result retention, reporting, owner waits and continuation/recovery behind explicit mode policy. Tests preserve admitted permissions, attempt/run and metering identities, refused-resume cold fallback, candidate/delivery identities and actual failures. Only lf_ask opens a durable owner wait; acknowledgment-loss/restart tests reconcile retained delivery without repeating an acknowledged effect."
+              },
+              {
+                "id": "AC-008",
+                "text": "Convert shipped Research mechanism registrations, DOT and relevant captured role instructions to generic actions with no old-name aliases, compatibility decoders, migration or automatic deletion. Unsupported pre-cutover captures fail clearly before dispatch/effects. Non-graph Research and activation defaults remain unchanged. Run make check successfully and confirm gofmt -l . is empty."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Extract the small static mode policy, shared registry/source controls and package capture; keep explicit ActionSpec mode checks and Research result/presentation adapters.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Share activities and lifecycle through request, provider, store and daemon seams; convert Research generic actions/assets together, reject old captures and preserve non-graph/default behavior.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Add focused registry, source/default, graph-policy, package and injected-runner regression tests with external dependencies faked.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-001",
+                  "AC-003",
+                  "AC-006"
+                ],
+                "depends_on": [
+                  "T-002"
+                ]
+              },
+              {
+                "id": "T-004",
+                "description": "Extend normal untagged temporary-store recovery tests for wait/delivery identity, acknowledgment loss and continuation; verify old-capture and non-graph/default regressions.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-006",
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-002"
+                ]
+              },
+              {
+                "id": "T-005",
+                "description": "Resolve failures, run make check and confirm empty gofmt -l . output; retain actual execution evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-008"
+                ],
+                "depends_on": [
+                  "T-003",
+                  "T-004"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "Extract within current package owners using per-admitted-mode registries and function-valued policy seams. Keep the existing engine, records and scoped Research contract.",
+              "components": [
+                {
+                  "name": "internal/graphexec and internal/teamsource",
+                  "responsibility": "Pure action/path validation and bounded owned-package capture with explicit mode and role/resource closure."
+                },
+                {
+                  "name": "internal/turn, internal/agent and provider adapters",
+                  "responsibility": "Shared invocation, source controls, result retention and report/ask lifecycle; Research supplies decoding, vocabulary and presentation."
+                },
+                {
+                  "name": "internal/store and internal/daemon",
+                  "responsibility": "Existing durable admission, delivery, authenticated reply and continuation mechanics parameterized by admitted mode."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "Per-mode registry and policy",
+                  "input": "Admitted mode, registered actions, response decoder/validator, presentation and owner-gate policy",
+                  "output": "Authorized generic graph and shared activity implementations"
+                },
+                {
+                  "name": "Shared delivery",
+                  "input": "Retained source/candidate and report or question/review kind",
+                  "output": "Existing published outcome and retained effect identity; durable wait only for ask"
+                }
+              ],
+              "constraints": [
+                "Preserve physical tables and single-connection SQLite ownership; no new package, framework or database redesign.",
+                "Keep bounded package reads, permission intersection, context/cancellation and existing failure policy.",
+                "Preserve one agent stage per run and durable next-stage dispatch; production registration remains Research-only.",
+                "No protected .claude or .codex instruction-tree edits are identified; update captured Research assets and applicable shared documentation."
+              ],
+              "decisions": [
+                {
+                  "decision": "Keep one registry per admitted mode and preserve ActionSpec.Mode checks.",
+                  "reason": "Generic names remove the naming fence but need no multi-mode plugin registry."
+                },
+                {
+                  "decision": "Allow existing Research document generation through its policy as an intermediate step until US-002 extracts it.",
+                  "reason": "US-001 remains runnable; final feature completion requires the explicit brief activity in US-002."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [],
+              "issue_refs": []
+            }
+          },
+          {
+            "key": "US-002",
+            "intent": "create",
+            "title": "Make Research brief generation explicit and prove workflow reuse",
+            "user_story": {
+              "actor": "Research owner",
+              "want": "both Research documents generated from the same candidate before it is reported or handed onward",
+              "benefit": "documents stay coherent while reusable workflow mechanics remain independent of Research",
+              "notes": [
+                "Investigation and shaping remain Markdown roles. One scoped activity owns both documents; no general document framework or additional Plan workflow is introduced.",
+                "Evidence inventory: AC-004 uses pure policy/rendering tests plus actual temporary-file unsafe-path, replay and partial-write tests; AC-005 uses assembled Research with a real temporary SQLite store and injected runner/transport; AC-002 and AC-007 use captured second-mode/file-only-role fixtures and repository checks. Existing writer, capture, turn, daemon and store test patterns are available. All evidence is implementation-snapshot-bound and awaits execution; synthetic fixtures do not certify live Claude/Codex operation."
+              ]
+            },
+            "acceptance_criteria": [
+              {
+                "id": "AC-004",
+                "text": "Register Research-only lf_research_brief and remove document generation from lf_agent. It resolves a named retained candidate, validates safe destinations before writes, generates RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md only inside the admitted session, then validates references/artifacts and retains source-bound success or an actionable failure. Payload declarations and pre-existing artifacts are checked before result retention; only these two generated documents defer existence checks. Replaying the same candidate reproduces content. Partial writes, unsafe paths, artifact failures or a mismatched candidate cannot release success. Graph admission and consumption require matching successful generation before every successful Research report, ask/review or stage handoff; failure diagnostics may bypass it."
+              },
+              {
+                "id": "AC-005",
+                "text": "The assembled converted Research graph preserves investigation, shaping, questions, reviews, final reporting and authenticated candidate/stage-bound owner approval. Each successful question/review/report or handoff uses current generated documents. Worker done/approved output, stale replies and duplicate replies cannot create approval or duplicate continuation; old files or another candidate's brief success cannot satisfy the document gate."
+              },
+              {
+                "id": "AC-002",
+                "text": "A small test-only second-mode package uses the same capture, role delivery, agent/control/comment/ask and continuation/recovery implementations as Research, with its own existing-shaped result policy and vocabulary. It requires no copied handlers or role-specific runtime branch, exercises durable owner waits and restart handling, and generates no Research documents. It adds no production Plan registration or workflow."
+              },
+              {
+                "id": "AC-007",
+                "text": "A fixture adds a Markdown role and DOT node using an existing contract and permissions without a new handler or role-specific runtime branch. Shipped Research DOT and captured role instructions reflect the explicit brief boundary and generic mechanisms. Execute the assembled regression tests, make check successfully and confirm gofmt -l . is empty; retain results as offline behavior evidence only."
+              }
+            ],
+            "tasks": [
+              {
+                "id": "T-001",
+                "description": "Extract the scoped brief activity, split declaration/pre-existing-artifact checks from generated-document checks, enforce safe writes and source-bound success, and update both Research stages and report/handoff validation.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": []
+              },
+              {
+                "id": "T-002",
+                "description": "Add pure document-rendering, source-binding and graph-policy tests for generated-file exemptions, deterministic content and bypass rejection.",
+                "owner_role": "go-unit-test-engineer",
+                "criterion_ids": [
+                  "AC-004",
+                  "AC-005"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-003",
+                "description": "Extend normal untagged assembled tests using temporary files and real migrated SQLite with injected runners/transport: unsafe and partial writes, Research owner gates, second-mode wait/restart reuse and file-only role addition.",
+                "owner_role": "go-integration-test-engineer",
+                "criterion_ids": [
+                  "AC-002",
+                  "AC-004",
+                  "AC-005",
+                  "AC-007"
+                ],
+                "depends_on": [
+                  "T-001"
+                ]
+              },
+              {
+                "id": "T-004",
+                "description": "Fix regressions, complete captured Research documentation and run make check plus gofmt -l .; retain actual aggregate check evidence.",
+                "owner_role": "go-implementation-engineer",
+                "criterion_ids": [
+                  "AC-007"
+                ],
+                "depends_on": [
+                  "T-002",
+                  "T-003"
+                ]
+              }
+            ],
+            "architecture": {
+              "summary": "A concrete Research effect reuses existing renderers and artifact validation. Successful generation is a retained candidate-bound prerequisite, not merely the presence of files.",
+              "components": [
+                {
+                  "name": "internal/turn/research_briefs.go and research_artifacts.go",
+                  "responsibility": "Generate and validate the two documents with safe destinations and candidate-bound outcome."
+                },
+                {
+                  "name": "Research policy in internal/graphexec and internal/turn",
+                  "responsibility": "Enforce generation on successful report/ask/handoff paths while permitting failed-agent diagnostics."
+                },
+                {
+                  "name": "internal/teamsource/research and co-located tests",
+                  "responsibility": "Wire both Research stages and demonstrate the shared runtime with a test-only second package."
+                }
+              ],
+              "interfaces": [
+                {
+                  "name": "lf_research_brief",
+                  "input": "Named retained Research source, current candidate/attempt identity and admitted session",
+                  "output": "success with both source-bound artifact references or failed with actionable diagnostic"
+                },
+                {
+                  "name": "Research successful-consumer prerequisite",
+                  "input": "Consumer source identity and retained brief output",
+                  "output": "Matching generation permission or explicit rejection"
+                }
+              ],
+              "constraints": [
+                "Controls continue to read the agent result, not the brief output.",
+                "Validate destination safety before writing; partial files may remain but never count as completed generation.",
+                "Use existing normal test conventions: no integration build tag or _Integration test name, no paid provider execution.",
+                "No remote publication, owner approval or mode-transition authority is granted by document generation."
+              ],
+              "decisions": [
+                {
+                  "decision": "One activity produces both Research documents.",
+                  "reason": "They describe one candidate and reuse the current renderers without a generic document system."
+                },
+                {
+                  "decision": "Deterministic writes plus retained source-bound success are sufficient.",
+                  "reason": "Recovery must block downstream success after partial failure, but needs no cross-file transaction framework."
+                }
+              ]
+            },
+            "dependencies": {
+              "story_keys": [
+                "US-001"
+              ],
+              "issue_refs": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

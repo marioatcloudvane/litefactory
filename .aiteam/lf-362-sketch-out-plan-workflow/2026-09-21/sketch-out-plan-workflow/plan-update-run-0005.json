@@ -1,0 +1,647 @@
+{
+  "expected_revision": 1,
+  "operations": [
+    {
+      "op": "set",
+      "target": {
+        "field": "comment"
+      },
+      "value": "Updated the existing three-story plan with activity-owned sub-issue naming and exact body formatting. The activity derives durable parent/ordinal titles and renders the prescribed sections; agents supply typed content. Existing obligations and story IDs are preserved. No owner questions remain. This defines future workflow behavior; no implementation or current-renderer compliance is claimed."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.plan.summary"
+      },
+      "value": "Deliver a runnable human-led Plan workflow in three stories. Publish usable drafts as stable sub-issues, shape technical choices and acceptance in distinct conversations, preserve independent story progress and exact approvals, then reuse existing final publication/readiness controls. Activate the neutral DOT/agent package and retire obsolete default Plan code while preserving explicitly inventoried supported legacy routes. The story activity owns stable '[parent]-[minimum-three-digit ordinal]: Story Name' titles and the owner's exact body structure; agents provide typed content only. Preserve semantic metadata and complete validation through progressive stage population."
+    },
+    {
+      "op": "set",
+      "target": {
+        "field": "payload.plan.stories"
+      },
+      "value": [
+        {
+          "key": "plan-story-activity",
+          "intent": "update",
+          "title": "Manage planning sub-issues through a recoverable story activity",
+          "user_story": {
+            "actor": "feature owner",
+            "want": "usable story drafts to become stable sub-issues that can be revised or retired safely",
+            "benefit": "I can shape each story in its own discussion without losing edits or creating duplicates",
+            "notes": [
+              "Drafts may omit technical design, tasks and acceptance criteria until later planning stages.",
+              "Retirement means explicit owner-confirmed closure as not planned, preserving discussion and history."
+            ]
+          },
+          "acceptance_criteria": [
+            {
+              "id": "AC-001",
+              "text": "Register exactly one new activity, lf_plan_story, with bounded structured create/update/retire inputs. Bind targets to the admitted parent and selected story through factory authority; reject malformed stage payloads, duplicate identities, foreign targets and unsupported operations before remote effects."
+            },
+            {
+              "id": "AC-002",
+              "text": "A usable initial actor/need/benefit draft can create and attach a sub-issue without architecture, tasks or acceptance criteria. Later updates preserve its stable story key and issue identity, retain stage/candidate provenance, and never classify draft publication as complete-plan readiness."
+            },
+            {
+              "id": "AC-003",
+              "text": "Persist immutable candidate/effect history and request correlation before forge mutation. Distinguish applied, conflict, failed and uncertain effects; after restart or lost replies, reconcile the same request. A known created issue survives attachment failure and is attached on recovery without duplicate creation; unresolved create results never trigger blind recreation."
+            },
+            {
+              "id": "AC-004",
+              "text": "Updates validate observed parent/provenance and expected content revision, preserve owner edits and expose conflicts for reconciliation. Observed closure, deletion or reparenting holds the affected story. Unobservable concurrent-edit races are reported as uncertainty rather than an atomic compare-and-swap guarantee."
+            },
+            {
+              "id": "AC-005",
+              "text": "Retirement requires authenticated owner confirmation bound to the exact active story and displayed candidate. Close with not-planned semantics, preserve issue/history and replacement references, and reject unconfirmed, stale, foreign or already-conflicting retirement requests. Architecture advice alone cannot retire a story."
+            },
+            {
+              "id": "AC-006",
+              "text": "Provide durable draft/candidate and effect records using store-owned SQL and an embedded migration; keep incomplete drafts distinct from complete/frozen implementation story contracts. Existing complete-story validation remains unchanged in strength."
+            },
+            {
+              "id": "AC-007",
+              "text": "Passing handler tests and real migrated SQLite plus controlled HTTP forge tests cover create/attach/update/retire, malformed/unauthorized inputs, stale revisions, partial attachment, lost mutation replies, restart/replay and remote drift, asserting both retained identity and honest effect state. Execute ordinary Go tests without integration tags or special Integration names."
+            },
+            {
+              "id": "AC-008",
+              "text": "The activity owns generated sub-issue titles using exactly '[Main Story ID]-[Numerical Id in 00x format]: Story Name', for example '362-001: Story Name'. Derive the main-story ID from the authorized parent and durably allocate a per-parent positive ordinal with minimum three-digit zero padding (001, 002, ...; 1000 remains 1000). Retries, restarts, edits and retirement never renumber or reuse a reserved ordinal; agents supply only the story name and cannot choose the parent/sequence prefix."
+            },
+            {
+              "id": "AC-009",
+              "text": "The activity deterministically renders the story body in this exact heading order and spelling: '# Userstory' containing the existing actor/want/benefit format; '## What this story solves' containing a brief plain-language description; '## Scope' containing separate 'In-Scope' and 'Not in Scope' lists; '# Task' containing a table with exactly 'Task Id | Description | Owner | Dependencies' columns; '# Acceptance Criterias' using the existing criterion format; '# Architecture' using the existing architecture format. Emit the full heading/table scaffold for early drafts, but populate tasks, criteria and architecture only as their stages supply valid content; never invent obligations to fill empty sections."
+            },
+            {
+              "id": "AC-010",
+              "text": "Passing renderer/handler and real-store recovery tests assert exact title/headings/table columns, initial empty later-stage sections, progressive typed-content rendering, parent isolation, zero padding including ordinals above 999, and persistent non-reuse across retry/restart/retirement. Preserve stable issue identity, factory metadata, criterion IDs, task-to-criterion links and story dependencies without adding competing visible top-level sections or weakening complete-story validation."
+            }
+          ],
+          "tasks": [
+            {
+              "id": "A1",
+              "description": "Define bounded activity/stage schemas and immutable draft/effect storage, with migration and exact operation/candidate correlation.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-003",
+                "AC-006"
+              ],
+              "depends_on": []
+            },
+            {
+              "id": "A2",
+              "description": "Implement and register create, attach, update and owner-confirmed not-planned retirement through existing forge boundaries and durable reconciliation.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005"
+              ],
+              "depends_on": [
+                "A1"
+              ]
+            },
+            {
+              "id": "A3",
+              "description": "Write and run pure validation and handler tests with handwritten fakes for authority, stage shape, conflict and uncertainty.",
+              "owner_role": "go-unit-test-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-004",
+                "AC-005",
+                "AC-007"
+              ],
+              "depends_on": [
+                "A2"
+              ]
+            },
+            {
+              "id": "A4",
+              "description": "Write and run real-store and controlled-forge failure/recovery tests, including migration, lost create response and create-before-attachment crash.",
+              "owner_role": "go-integration-test-engineer",
+              "criterion_ids": [
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005",
+                "AC-006",
+                "AC-007"
+              ],
+              "depends_on": [
+                "A2"
+              ]
+            },
+            {
+              "id": "A5",
+              "description": "Extend typed draft content with problem description and in/out scope; persist parent-scoped immutable ordinals and implement activity-owned deterministic title/body projection without weakening complete semantic contracts.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-008",
+                "AC-009",
+                "AC-010"
+              ],
+              "depends_on": [
+                "A1",
+                "A2"
+              ]
+            },
+            {
+              "id": "A6",
+              "description": "Write and run exact-output renderer/handler tests for title prefix, precise headings/columns, typed content escaping and empty early-stage sections.",
+              "owner_role": "go-unit-test-engineer",
+              "criterion_ids": [
+                "AC-008",
+                "AC-009",
+                "AC-010"
+              ],
+              "depends_on": [
+                "A5"
+              ]
+            },
+            {
+              "id": "A7",
+              "description": "Write and run real-store allocation/recovery tests for per-parent sequence isolation, restart/retry identity, retirement non-reuse and ordinal overflow beyond three digits.",
+              "owner_role": "go-integration-test-engineer",
+              "criterion_ids": [
+                "AC-008",
+                "AC-010"
+              ],
+              "depends_on": [
+                "A5"
+              ]
+            }
+          ],
+          "architecture": {
+            "summary": "Add a Plan-scoped effect owner to the existing graph engine; persist candidates and operations separately from complete-story publication. GitHub remains the editable story surface; retained candidates are snapshots, not another editable source.",
+            "components": [
+              {
+                "name": "internal/turn",
+                "responsibility": "Own lf_plan_story registration, authorization, effect lifecycle and reconciliation."
+              },
+              {
+                "name": "internal/store",
+                "responsibility": "Own draft/candidate/effect records and embedded migration, preserving one-connection correctness."
+              },
+              {
+                "name": "internal/github",
+                "responsibility": "Reuse redacted create/attach/update APIs and supply not-planned closure only where missing."
+              },
+              {
+                "name": "internal/graphexec",
+                "responsibility": "Keep pure bounded action schemas and topology/control validation."
+              },
+              {
+                "name": "internal/report",
+                "responsibility": "Render the activity-owned issue-body projection from typed story content, including exact prescribed headings/table and empty later-stage scaffold."
+              }
+            ],
+            "interfaces": [
+              {
+                "name": "Plan story request",
+                "input": "operation, selected story key, stage/candidate reference and expected content revision; factory binds parent/issue/owner authority",
+                "output": "stable issue identity and candidate revision with applied/conflict/failed/uncertain outcome"
+              },
+              {
+                "name": "Effect persistence",
+                "input": "context and immutable operation identity before remote I/O",
+                "output": "durable intent and observed receipt sufficient for restart reconciliation"
+              },
+              {
+                "name": "Activity-owned story projection",
+                "input": "factory-bound parent, durable story ordinal, unprefixed name, actor/want/benefit, plain problem description, in/out scope lists and stage-valid typed content",
+                "output": "deterministic prefixed title and prescribed body scaffold/populated sections, retaining typed dependency and provenance metadata"
+              }
+            ],
+            "constraints": [
+              "No SQL or *sql.DB outside internal/store; no transaction spans remote I/O.",
+              "Use existing redacted forge boundary; agents never supply credentials or arbitrary issue authority.",
+              "No external dependencies; respect context cancellation and existing daemon retry ownership.",
+              "Evidence inventory AC-001–AC-007: source review plus executed unit/real-SQLite/controlled-HTTP checks against this implementation revision; source and fixture infrastructure available; missing prerequisite is implementation and test execution. Fixtures prove offline behavior, not authentic hosted mutations.",
+              "Evidence inventory AC-008–AC-010: exact renderer/handler fixtures and real SQLite allocation/recovery tests against the implementation revision; existing infrastructure available; missing prerequisites are implementation and executed checks. These are proposed requirements, not claims about the current factory renderer."
+            ],
+            "decisions": [
+              {
+                "decision": "Use lf_plan_story and no additional activity names.",
+                "reason": "Current activity admission accepts this name and existing control activities cover conversation routing."
+              },
+              {
+                "decision": "Retain uncertain effects rather than retry new mutations blindly.",
+                "reason": "Forge mutations and replies can fail independently; durable identity prevents duplication."
+              },
+              {
+                "decision": "Treat retirement as not planned with exact owner confirmation.",
+                "reason": "Preserves history and distinguishes rejected scope from implemented work."
+              },
+              {
+                "decision": "Allocate immutable positive ordinals per parent, zero-pad to at least three digits and never reuse reserved numbers.",
+                "reason": "Makes names stable through retry, retirement and later edits without imposing an artificial 999-story limit."
+              }
+            ]
+          },
+          "dependencies": {
+            "story_keys": [],
+            "issue_refs": []
+          }
+        },
+        {
+          "key": "plan-agents-dot",
+          "intent": "update",
+          "title": "Deliver the three-stage Plan agents and DOT workflow package",
+          "user_story": {
+            "actor": "feature owner",
+            "want": "focused story, technical and completion conversations with clear review points",
+            "benefit": "I can guide the plan progressively and retain settled answers while different stories move at their own pace",
+            "notes": [
+              "The first conversation covers only who needs what and why.",
+              "Acceptance criteria and assembled-plan approval belong to the same third stage, with no fourth stage."
+            ]
+          },
+          "acceptance_criteria": [
+            {
+              "id": "AC-001",
+              "text": "Ship plan.dot, three small role Markdown files, one shared Plan evidence/result contract and focused story/technical/acceptance skills under neutral teams/source assets, matching the existing Research package organization. Every referenced resource is present in the captured runtime closure; Research agents and installed .claude/.codex trees remain unchanged."
+            },
+            {
+              "id": "AC-002",
+              "text": "The story role produces usable actor/need/benefit drafts and scoped questions without architecture, tasks or acceptance criteria. It uses lf_plan_story to publish usable drafts and keeps story-specific content/reviews on the story sub-issue; parent content is limited to index, shared decisions and assembled review."
+            },
+            {
+              "id": "AC-003",
+              "text": "The technical role evaluates approved intent for reuse, architecture fit, interfaces, permissions, entities/relationships, invariants, dependencies and failure behavior, preserving decisions and assumptions. It proposes revisions or retirement when intent is infeasible or irrelevant; it does not itself approve or retire a story."
+            },
+            {
+              "id": "AC-004",
+              "text": "The acceptance role proposes observable criteria with stable explicit criterion IDs, proof methods and complete task-to-criterion links; it assembles the complete typed plan for the third-stage review. Its contract distinguishes future completion obligations from executed evidence and binds review to the current story/dependency/shared-decision set."
+            },
+            {
+              "id": "AC-005",
+              "text": "The DOT graph uses existing agent/branch/loop/ask/comment controls plus lf_plan_story. Review-ready output, questions and explicit owner promotion are distinct; every cycle has a positive bound and exhausted loops stop resumably without granting approval. It permits policy-selected eligible stories rather than requiring all stories to advance in lockstep."
+            },
+            {
+              "id": "AC-006",
+              "text": "The package preserves decisions, assumptions, unanswered questions and exact candidate references across replies/restarts, reuses settled answers, and specifies stale/ambiguous/mixed approval handling and routing to the earliest affected stage. Roles cannot choose modes, forge authority, credentials or implementation freeze."
+            },
+            {
+              "id": "AC-007",
+              "text": "Capture and package the complete runtime closure with bounded resource references and digest coverage. Passing graph/parser/schema, resource-closure and in-memory native-render tests for both supported harnesses verify stage/gate contracts and fail on missing or invalid resources; no installed-tree writes or authentic provider-execution claim is required."
+            },
+            {
+              "id": "AC-008",
+              "text": "The shared Plan contract and all three roles supply typed story content to lf_plan_story, including unprefixed story name, actor/want/benefit, brief plain-language problem description and In-Scope/Not in Scope lists. The activity, not the agents, owns ordinal allocation, the parent/sequence title prefix and exact issue-body heading/table rendering. Stage-one instructions leave later-stage content absent rather than authoring task/criterion/architecture placeholders; progressive stages populate their typed sections. Passing role/resource tests verify this division of responsibility and prescribed visible scaffold contract."
+            }
+          ],
+          "tasks": [
+            {
+              "id": "B1",
+              "description": "Author the neutral DOT, three roles, shared evidence/state contract and three focused shaping skills using the activity contract.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005",
+                "AC-006"
+              ],
+              "depends_on": []
+            },
+            {
+              "id": "B2",
+              "description": "Package the neutral source closure through teamsource and in-memory render delivery, with explicit source-to-embedded consistency and digest checks.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-007"
+              ],
+              "depends_on": [
+                "B1"
+              ]
+            },
+            {
+              "id": "B3",
+              "description": "Write and run graph, resource and native-render contract tests, covering positive gates, bounded loops, malformed outputs and Research behavior preservation.",
+              "owner_role": "go-unit-test-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005",
+                "AC-006",
+                "AC-007"
+              ],
+              "depends_on": [
+                "B2"
+              ]
+            },
+            {
+              "id": "B4",
+              "description": "Extend neutral role/skill/result contracts and examples for typed problem/scope content and activity-owned rendering; write and run resource-contract tests excluding agent-generated prefixes or full-body templates.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-008"
+              ],
+              "depends_on": [
+                "B1",
+                "B2"
+              ]
+            }
+          ],
+          "architecture": {
+            "summary": "Provide a factory-owned Plan asset closure using the Research-style resource layout and existing capture/render seams. This story delivers the package and contract fixtures; production activation belongs to the wiring story.",
+            "components": [
+              {
+                "name": "teams/source Plan package",
+                "responsibility": "Author plan.dot, focused roles/skills and shared evidence contract as neutral sources."
+              },
+              {
+                "name": "internal/teamsource",
+                "responsibility": "Capture validated resources, metadata and digests; ship an explicit embedded runtime closure."
+              },
+              {
+                "name": "internal/render",
+                "responsibility": "Produce native role/skill delivery in memory or temporary roots."
+              }
+            ],
+            "interfaces": [
+              {
+                "name": "Role stage output",
+                "input": "selected story, exact candidate/upstream revisions, prior answers and owner feedback",
+                "output": "validated candidate, question or review-ready state with no self-approved promotion"
+              },
+              {
+                "name": "Plan package capture",
+                "input": "DOT entrypoint and bounded declared resource closure",
+                "output": "immutable runtime files, semantic/file digests and renderer inputs"
+              }
+            ],
+            "constraints": [
+              "No protected installed-tree edits or generation into both installed trees.",
+              "Go embedding cannot reach parent directories: use explicit packaging/consistency checks, not runtime source traversal.",
+              "No concurrent child-agent requirement: independence is a policy/state property.",
+              "Evidence inventory AC-001–AC-007: source/resource inspection and parser/schema/in-memory render checks against the packaged revision; infrastructure available; missing prerequisite is authored assets and executed checks. Native rendering fixtures prove contract delivery shape, not authentic Claude/Codex observation.",
+              "Evidence inventory AC-008: source/resource and role-contract fixtures against the revised package; sources/test harness available; missing prerequisites are authored changes and executed checks. Rendering ownership does not imply authentic provider observation."
+            ],
+            "decisions": [
+              {
+                "decision": "Keep criteria and assembled-plan approval in the same third stage.",
+                "reason": "Matches settled three-gate owner direction while final readiness binds exact active scope."
+              },
+              {
+                "decision": "Ship neutral assets and captured runtime closure.",
+                "reason": "Follows Research structure and avoids protected-tree coupling within the requested three-story plan."
+              },
+              {
+                "decision": "Agents supply semantic typed content only; the activity generates title prefixes and the exact visible body.",
+                "reason": "The owner requires stable factory-controlled naming and formatting independent of role prose."
+              }
+            ]
+          },
+          "dependencies": {
+            "story_keys": [
+              "plan-story-activity"
+            ],
+            "issue_refs": []
+          }
+        },
+        {
+          "key": "plan-wiring-retirement",
+          "intent": "update",
+          "title": "Activate the Plan workflow and retire obsolete Plan dispatch",
+          "user_story": {
+            "actor": "feature owner",
+            "want": "the new planning conversations to run reliably in the factory and replace the old default route",
+            "benefit": "I can work through story sub-issues, resume safely and know when the complete plan is ready for implementation",
+            "notes": [
+              "Existing active plans retain the compatibility required by their persisted state.",
+              "Default adoption and removal of obsolete code require separate evidence; retained compatibility is explicitly inventoried."
+            ]
+          },
+          "acceptance_criteria": [
+            {
+              "id": "AC-001",
+              "text": "New eligible Plan runs use the captured Plan graph through the shared workflow engine and a dedicated Plan policy/decoder. Persist workflow selection separately from content/submission and implementation-workflow versions; existing active legacy runs/replans/restarts retain their admitted route unless explicitly upgraded through supported admission. Ordinary replies never select another mode."
+            },
+            {
+              "id": "AC-002",
+              "text": "Persist each story's stage, immutable candidates, exact upstream/shared-decision references, approvals and wait correlation. Authenticated child replies route to the matching story/stage/candidate; direct owner edits become reconciled candidate changes. Questions, unauthorized/stale/ambiguous or mixed change-and-approval replies and loop exhaustion cannot promote. Restart restores the exact wait and consumed-reply/effect state."
+            },
+            {
+              "id": "AC-003",
+              "text": "A scenario with three stories advances two independent stories while one remains in shaping. An intent change reopens the changed story from stage one; a technical change reopens from stage two. Traverse recorded dependencies to reopen affected downstream approvals, preserve demonstrably unrelated approvals, and hold uncertain impact for explicit resolution. Presentation-only changes preserve canonical approvals; canonical set/shared-decision changes invalidate assembled approval."
+            },
+            {
+              "id": "AC-004",
+              "text": "Technical shaping may propose owner-confirmed retirement via lf_plan_story; retired scope preserves history and is excluded explicitly. Revalidate remaining dependencies, replacements and final scope, blocking empty active plans, cycles, dangling/retired references, unresolved material questions or pending edits/effects."
+            },
+            {
+              "id": "AC-005",
+              "text": "Third-stage approval binds the exact complete current active story set and shared decisions with no fourth stage. Complete typed validation requires all story sections, stable criteria, task links and valid dependencies. Final handoff reuses already-created draft issue identities, renders the shared plan_brief.md with link-only index, and requires confirmed publication plus successful save before readiness. Input acknowledgment, draft publication, local stage approval and pending effects cannot freeze implementation scope or establish readiness."
+            },
+            {
+              "id": "AC-006",
+              "text": "Inventory old Plan dispatch, source instructions and compatibility handlers. Remove replaced default dispatch and genuinely unused neutral sources/references; retain required legacy readers, saved contexts and pending-effect recovery with the exact supported cohort and removal prerequisite documented. Tests prove removed paths are not selected for new admitted Plan and retained cohorts still resume. Do not claim required retained paths or external evidence prerequisites are retired."
+            },
+            {
+              "id": "AC-007",
+              "text": "Reconcile project documentation and affected tests with a narrow CONC-22 amendment allowing incomplete draft sub-issue publication only for admitted graph Plan while unready; legacy discussion remains nonpublishing. Preserve Research behavior and its existing activation/evidence gate, existing complete-publication safeguards and the distinction between Plan approval, implementation completion and acceptance."
+            },
+            {
+              "id": "AC-008",
+              "text": "Passing unit and real-store/controlled-forge/temporary-git workflow tests cover independent progress, stale and wrong-story approvals, dependent versus unrelated changes, retirement, restart at owner wait and partial publication, lost responses, save failure and legacy resume. Execute repository make check successfully after combined changes, retaining actual output; do not write dist, restart the daemon or claim offline fixtures satisfy authentic hosted/provider observations."
+            },
+            {
+              "id": "AC-009",
+              "text": "Wire the activity-owned naming/rendering contract through draft updates, review, final publication and index generation so the same issue retains its parent/ordinal prefix and prescribed body layout as later sections are populated. Preserve actor/want/benefit, problem/scope content, factory identity/provenance, stable criterion IDs, task-to-criterion links and story dependencies despite presentation changes. Update graph-Plan render/parser adapters as needed while retaining complete/frozen typed validation and existing legacy formats. Passing end-to-end fixtures cover initial scaffold, progressive population, restart and final handoff without reverting to a conflicting template or accepting incomplete drafts as complete."
+            }
+          ],
+          "tasks": [
+            {
+              "id": "C1",
+              "description": "Wire dedicated Plan policy, result decoding, admission and default dispatch into existing execution/constructor seams with persisted selection.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001"
+              ],
+              "depends_on": []
+            },
+            {
+              "id": "C2",
+              "description": "Implement durable per-story scheduling, owner child-reply/direct-edit admission, exact approvals and dependency-aware invalidation.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-002",
+                "AC-003",
+                "AC-004"
+              ],
+              "depends_on": [
+                "C1"
+              ]
+            },
+            {
+              "id": "C3",
+              "description": "Assemble approved typed stories and exact third-stage final scope; reuse draft issue identities through publication, shared index and save/readiness controls.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-004",
+                "AC-005"
+              ],
+              "depends_on": [
+                "C2"
+              ]
+            },
+            {
+              "id": "C4",
+              "description": "Inventory and remove obsolete default paths/unused neutral sources, document retained compatibility prerequisites and amend CONC-22 narrowly.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-006",
+                "AC-007"
+              ],
+              "depends_on": [
+                "C3"
+              ]
+            },
+            {
+              "id": "C5",
+              "description": "Write and run policy/decoder/approval/invalidation and legacy-dispatch unit regressions.",
+              "owner_role": "go-unit-test-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005",
+                "AC-006",
+                "AC-007",
+                "AC-008"
+              ],
+              "depends_on": [
+                "C4"
+              ]
+            },
+            {
+              "id": "C6",
+              "description": "Write and run real SQLite, controlled HTTP forge and temporary git workflow/recovery fixtures including independent progress and failed save.",
+              "owner_role": "go-integration-test-engineer",
+              "criterion_ids": [
+                "AC-001",
+                "AC-002",
+                "AC-003",
+                "AC-004",
+                "AC-005",
+                "AC-006",
+                "AC-008"
+              ],
+              "depends_on": [
+                "C4"
+              ]
+            },
+            {
+              "id": "C7",
+              "description": "Run make check for the combined feature and retain factual results, resolving failures without touching dist or the running daemon.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-008"
+              ],
+              "depends_on": [
+                "C5",
+                "C6",
+                "C8"
+              ]
+            },
+            {
+              "id": "C8",
+              "description": "Integrate revised graph-Plan naming/body projection through review/publication/index and any render/parser adapter changes, preserving full typed metadata, legacy compatibility and complete validation; execute progressive-rendering/restart/handoff regressions.",
+              "owner_role": "go-implementation-engineer",
+              "criterion_ids": [
+                "AC-009"
+              ],
+              "depends_on": [
+                "C3"
+              ]
+            }
+          ],
+          "architecture": {
+            "summary": "Activate Plan as a policy over shared graph execution, with per-story durable scheduling independent of the parent cursor. Keep stage approval separate from final managed implementation freeze and reuse the existing complete-plan publication owner.",
+            "components": [
+              {
+                "name": "internal/turn",
+                "responsibility": "Plan policy/decoder, approval and scheduling, final typed assembly and publication recovery via existing workflow/handoff owners."
+              },
+              {
+                "name": "internal/daemon",
+                "responsibility": "Authenticated child reply/direct-edit admission, cursor/time/retry ownership and scope routing."
+              },
+              {
+                "name": "internal/store",
+                "responsibility": "Persist stage candidates, dependency edges, approval/wait references and selected workflow route."
+              },
+              {
+                "name": "internal/planbrief",
+                "responsibility": "Validate complete stories and active dependency graph without weakening existing contract."
+              },
+              {
+                "name": "internal/report and Plan index owner",
+                "responsibility": "Render child review content and parent shared/index content with confirmed publication."
+              }
+            ],
+            "interfaces": [
+              {
+                "name": "Plan workflow policy",
+                "input": "admitted graph, persisted story/candidate state and correlated authenticated owner evidence",
+                "output": "eligible next stage or durable wait plus authorized activity effects"
+              },
+              {
+                "name": "Complete Plan handoff",
+                "input": "exact approved current active set, shared-decision revisions and existing draft issue bindings",
+                "output": "complete typed publication and confirmed save/readiness or specific pending/failure state"
+              },
+              {
+                "name": "Legacy route selection",
+                "input": "persisted workflow admission and supported cohort",
+                "output": "unchanged compatibility route or explicitly admitted new route"
+              }
+            ],
+            "constraints": [
+              "No worker per story or alternate graph engine; do not expand Research payloads into fake Plan records.",
+              "No automatic mode change, implementation release, accepted-story rewrite or legacy migration.",
+              "Retain compatibility required by actual cohorts/pending effects; source removal and production adoption are distinct milestones.",
+              "Evidence inventory AC-001–AC-008: source inventory, unit tests, real temporary SQLite, controlled HTTP forge, temporary git and executed make check against the combined revision; infrastructure available; missing prerequisite is implementation/execution. Authentic hosted mutations and both-provider runtime observations remain separately unsatisfied external prerequisites, never replaced by these fixtures.",
+              "Evidence inventory AC-009: end-to-end graph-Plan draft/review/handoff fixtures plus typed validation/legacy regressions against the combined implementation revision; infrastructure available; missing prerequisites are adapter implementation and executed checks."
+            ],
+            "decisions": [
+              {
+                "decision": "Apply a scoped authorized CONC-22 amendment.",
+                "reason": "The owner explicitly requests drafts on sub-issues from the first loop; legacy discussion and complete readiness rules remain intact."
+              },
+              {
+                "decision": "Use targeted dependency invalidation, preserving unrelated approvals.",
+                "reason": "The owner requires independent story progress and later architecture-driven revision or retirement."
+              },
+              {
+                "decision": "Inventory retained compatibility and remove obsolete default behavior now.",
+                "reason": "Fulfills retirement scope without breaking supported persisted cohorts or disguising retention as deletion."
+              },
+              {
+                "decision": "Adapt the new graph-Plan presentation path without changing the current submission shape or weakening complete typed validation.",
+                "reason": "The requested format is future workflow behavior; the present factory renderer is not asserted to support it already."
+              }
+            ]
+          },
+          "dependencies": {
+            "story_keys": [
+              "plan-story-activity",
+              "plan-agents-dot"
+            ],
+            "issue_refs": []
+          }
+        }
+      ]
+    }
+  ]
+}

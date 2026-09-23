@@ -630,7 +630,11 @@ func (r *Reporter) ReportReply(ctx context.Context, req ReplyRequest) (Posted, e
 		return Posted{Skipped: true}, nil
 	}
 
-	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, fmt.Sprintf("reply:%s:schedule:%d:proposal:%d:confirmation:%d", kind, req.Schedule.ID, req.Schedule.ProposalID, req.Confirm.ProposalID))
+	purpose := fmt.Sprintf("reply:%s:schedule:%d:proposal:%d:confirmation:%d", kind, req.Schedule.ID, req.Schedule.ProposalID, req.Confirm.ProposalID)
+	if kind == report.ReplyCreationProposal {
+		purpose = "creation-preparation"
+	}
+	intent := r.deliveryIntent(req.Ref, destination, req.SessionID, req.CommentID, 0, purpose)
 	return r.deliver(ctx, intent, func() (redact.Body, error) {
 		return r.renderer.RenderReply(ctx, report.Reply{
 			Ref:                      req.Ref,

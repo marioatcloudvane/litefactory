@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudvane/litefactory/internal/agent"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -24,13 +23,27 @@ const researchDefaultActive = false
 
 // ResearchSpecs is the closed registry for prelaunch built-in asset validation.
 func ResearchSpecs() (graphexec.Registry, error) {
-	var specs graphexec.Registry
+	return WorkflowSpecs(ResearchWorkflowPolicy())
+}
+
+// WorkflowSpecs registers generic mechanisms only for the explicitly admitted policy.
+func WorkflowSpecs(policy WorkflowPolicy) (graphexec.Registry, error) {
+	specs := graphexec.Registry{Policy: func(p *graphexec.Profile) error { return graphexec.ValidateControlGraph(p, policy.Control) }}
+	if !policy.Mode.Valid() || policy.Control.Mode != policy.Mode || (policy.Decode == nil && policy.NodeProtocol == nil) {
+		return specs, errors.New("workflow registry requires consistent admitted mode and result policy")
+	}
+	comments, asks := ResearchCommentSpec(), ResearchAskSpec()
+	comments.Mode, asks.Mode = policy.Mode, policy.Mode
 	for _, spec := range []graphexec.ActionSpec{
-		{Name: ResearchAgentAction, Mode: agent.ModeResearch, Outcomes: []string{"success", "failed"}},
-		graphexec.ResearchControlSpec(graphexec.ResearchLoopAction),
-		graphexec.ResearchControlSpec(graphexec.ResearchIfAction),
-		ResearchCommentSpec(),
+		{Name: ResearchAgentAction, Mode: policy.Mode, Outcomes: []string{"success", "failed"}},
+		graphexec.ControlSpec(graphexec.ResearchLoopAction, policy.Control),
+		graphexec.ControlSpec(graphexec.ResearchIfAction, policy.Control), comments, asks,
 	} {
+		if err := specs.Register(spec); err != nil {
+			return specs, err
+		}
+	}
+	for _, spec := range policy.Specs {
 		if err := specs.Register(spec); err != nil {
 			return specs, err
 		}

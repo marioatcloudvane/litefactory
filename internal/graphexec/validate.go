@@ -98,8 +98,8 @@ func Validate(p *Profile, registry Registry) error {
 			faults = append(faults, fmt.Errorf("node %q is on a cycle without positive lf_limit", node.Name))
 		}
 	}
-	if p.Mode == agent.ModeResearch {
-		faults = append(faults, ValidateResearchControlGraph(p))
+	if registry.Policy != nil {
+		faults = append(faults, registry.Policy(p))
 	}
 	return errors.Join(faults...)
 }

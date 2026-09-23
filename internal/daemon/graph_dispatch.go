@@ -151,7 +151,7 @@ func (d *Daemon) runGraphStep(ctx context.Context, t *task, dispatch store.Graph
 // empty command here is not a compile error — it is a run that dies on arrival,
 // every tick, which is exactly what it did before this had a test.
 func graphStepRequest(dispatch store.GraphDispatch, owner string) (turn.Trigger, turn.Command) {
-	instruction := fmt.Sprintf("Continue the Research workflow at its %s stage.", dispatch.Node)
+	instruction := fmt.Sprintf("Continue the workflow at its %s stage.", dispatch.Node)
 	return turn.Trigger{CommentID: dispatch.TriggerID(), Body: instruction, Author: owner},
 		turn.Command{Kind: turn.KindFreeText, Text: instruction}
 }

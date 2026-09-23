@@ -1,0 +1,338 @@
+go vet ./...
+golangci-lint v2.13.1 (installed)
+internal/store/plan_story.go:151:19: Error return value of `tx.Rollback` is not checked (errcheck)
+	defer tx.Rollback()
+	                 ^
+internal/turn/plan_graph.go:80:17: Error return value is not checked (errcheck)
+	parent, err := o.SubIssueCreator.(PlanStoryForge).GetIssue(ctx, github.Repo{Owner: result.Ref.Owner, Name: result.Ref.Repo}, req.Issue.Number)
+	               ^
+internal/turn/plan_graph.go:415:47: Error return value is not checked (errcheck)
+	h := PlanStoryActivity{DB: r.opts.DB, Forge: r.opts.SubIssueCreator.(PlanStoryForge), Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
+	                                             ^
+internal/turn/plan_graph.go:575:47: Error return value is not checked (errcheck)
+	h := PlanStoryActivity{DB: r.opts.DB, Forge: r.opts.SubIssueCreator.(PlanStoryForge), Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
+	                                             ^
+internal/turn/plan_graph.go:603:48: Error return value is not checked (errcheck)
+		h := PlanStoryActivity{DB: r.opts.DB, Forge: r.opts.SubIssueCreator.(PlanStoryForge), Redactor: r.opts.MCP.Redactor, LockDir: r.opts.MCP.Paths.StoryProgressLocksDir()}
+		                                             ^
+internal/turn/plan_graph_boundary_test.go:335:12: Error return value is not checked (errcheck)
+	client := f.opts.SubIssueCreator.(PlanStoryForge)
+	          ^
+internal/turn/plan_graph_boundary_test.go:339:11: Error return value is not checked (errcheck)
+		body := remote.children[binding.IssueNumber]["body"].(string)
+		        ^
+internal/turn/plan_graph_boundary_test.go:349:10: Error return value is not checked (errcheck)
+	body := remote.children[binding.IssueNumber]["body"].(string)
+	        ^
+internal/turn/plan_graph_handoff.go:146:11: Error return value is not checked (errcheck)
+	forge := r.opts.SubIssueCreator.(PlanStoryForge)
+	         ^
+internal/turn/plan_graph_boundary_test.go:99:3: ifElseChain: rewrite if-else to switch statement (gocritic)
+		if len(parts) == 2 && parts[1] == "parent" {
+		^
+internal/planbrief/plan_edit.go:96:103: `Criterias` is a misspelling of `Criteria` (misspell)
+	expected := []string{"# Userstory", "## What this story solves", "## Scope", "# Task", "# Acceptance Criterias", "# Architecture"}
+	                                                                                                     ^
+internal/planbrief/plan_edit.go:185:46: `Criterias` is a misspelling of `Criteria` (misspell)
+	for _, line := range sections["# Acceptance Criterias"] {
+	                                            ^
+internal/report/plan_draft.go:58:32: `Criterias` is a misspelling of `Criteria` (misspell)
+	b.WriteString("\n# Acceptance Criterias\n\n")
+	                              ^
+internal/report/plan_draft_test.go:19:326: `Criterias` is a misspelling of `Criteria` (misspell)
+	const want = "# Userstory\n\nAs owner, I want clear intent, so that shared understanding.\n\n## What this story solves\n\nUnclear requirements\n\n## Scope\n\nIn-Scope\n\n- Story conversation\n\nNot in Scope\n\n- Implementation\n\n# Task\n\n| Task Id | Description | Owner | Dependencies |\n|---|---|---|---|\n\n# Acceptance Criterias\n\n\n# Architecture\n\n"
+	                                                                                                                                                                                                                                                                                                                                    ^
+internal/turn/plan_graph_boundary_test.go:300:137: `Criterias` is a misspelling of `Criteria` (misspell)
+			if title != "123-001: Bounded Plan" || !strings.Contains(body, "## Architecture - General") || !strings.Contains(body, "# Acceptance Criterias") {
+			                                                                                                                                     ^
+internal/turn/plan_story_boundary_test.go:178:117: `Criterias` is a misspelling of `Criteria` (misspell)
+			for _, heading := range []string{"# Userstory", "## What this story solves", "## Scope", "# Task", "# Acceptance Criterias", "# Architecture"} {
+			                                                                                                                 ^
+internal/planbrief/plan_workflow.go:139:3: error is not nil (line 135) but it returns nil (nilerr)
+		return nil
+		^
+internal/turn/plan_graph_handoff.go:32:3: error is not nil (line 31) but it returns nil (nilerr)
+		return out, nil
+		^
+internal/planbrief/plan_workflow.go:26:6: exported: exported type PlanStoryState should have comment or be unexported (revive)
+type PlanStoryState struct {
+     ^
+internal/daemon/plan_children.go:35:17: ST1005: error strings should not be capitalized (staticcheck)
+		return false, errors.New("Plan child routing requires direct parent observation")
+		              ^
+internal/daemon/plan_children.go:53:18: ST1005: error strings should not be capitalized (staticcheck)
+			return false, fmt.Errorf("Plan child %s identity, state or parent changed", draft.Key)
+			              ^
+internal/daemon/plan_children.go:109:20: ST1005: error strings should not be capitalized (staticcheck)
+					return false, errors.New("Plan feedback wait was not retained")
+					              ^
+internal/daemon/tick.go:1924:28: ST1005: error strings should not be capitalized (staticcheck)
+			return &recoveryPending{errors.New("Plan child reply waits for the current session lock owner")}
+			                        ^
+internal/daemon/tick.go:1940:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan child completion correlation mismatch")
+			       ^
+internal/daemon/tick.go:1947:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan child completion lacks graph admission")
+			       ^
+internal/graphexec/plan_control.go:28:28: ST1005: error strings should not be capitalized (staticcheck)
+			faults = append(faults, fmt.Errorf("Plan edge %s/%s must reach %s", from, out, to))
+			                        ^
+internal/graphexec/plan_control.go:34:28: ST1005: error strings should not be capitalized (staticcheck)
+			faults = append(faults, fmt.Errorf("Plan node %s requires %s=%s", name, key, value))
+			                        ^
+internal/graphexec/plan_control.go:39:28: ST1005: error strings should not be capitalized (staticcheck)
+			faults = append(faults, fmt.Errorf("Plan node %s requires positive bound", n.Name))
+			                        ^
+internal/graphexec/plan_control.go:47:27: ST1005: error strings should not be capitalized (staticcheck)
+		faults = append(faults, errors.New("Plan graph must contain the closed three-stage node set"))
+		                        ^
+internal/graphexec/plan_control.go:94:28: ST1005: error strings should not be capitalized (staticcheck)
+			faults = append(faults, fmt.Errorf("Plan terminal %s missing", name))
+			                        ^
+internal/graphexec/plan_node.go:29:16: ST1005: error strings should not be capitalized (staticcheck)
+		return node, errors.New("Plan node exceeds 128 KiB or is not UTF-8")
+		             ^
+internal/graphexec/plan_node.go:48:23: ST1005: error strings should not be capitalized (staticcheck)
+			return PlanNode{}, fmt.Errorf("Plan node missing %s", name)
+			                   ^
+internal/graphexec/plan_node.go:62:23: ST1005: error strings should not be capitalized (staticcheck)
+			return PlanNode{}, errors.New("Plan ask requires questions")
+			                   ^
+internal/graphexec/plan_node.go:66:23: ST1005: error strings should not be capitalized (staticcheck)
+			return PlanNode{}, errors.New("Plan review requires candidate and no questions")
+			                   ^
+internal/graphexec/plan_node.go:69:22: ST1005: error strings should not be capitalized (staticcheck)
+		return PlanNode{}, errors.New("Plan roles may return only ask or review_ready, never approval")
+		                   ^
+internal/graphexec/plan_story.go:43:13: ST1005: error strings should not be capitalized (staticcheck)
+		return r, errors.New("Plan story request exceeds 128 KiB")
+		          ^
+internal/graphexec/plan_story.go:73:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan story references exceed bounds")
+		       ^
+internal/graphexec/plan_story.go:108:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan JSON nesting exceeds bound")
+		       ^
+internal/planbrief/plan_draft.go:113:27: ST1005: error strings should not be capitalized (staticcheck)
+		faults = append(faults, errors.New("Design references require frontend scope"))
+		                        ^
+internal/planbrief/plan_workflow.go:97:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan dependencies contain a cycle")
+			       ^
+internal/planbrief/plan_workflow.go:107:11: ST1005: error strings should not be capitalized (staticcheck)
+			return fmt.Errorf("Plan dependency %s is retired", k)
+			       ^
+internal/planbrief/plan_workflow.go:277:17: ST1005: error strings should not be capitalized (staticcheck)
+		return false, errors.New("Plan reply is not authenticated owner evidence")
+		              ^
+internal/planbrief/plan_workflow.go:295:17: ST1005: error strings should not be capitalized (staticcheck)
+		return false, errors.New("Plan reply dependencies or shared decisions changed")
+		              ^
+internal/planbrief/plan_workflow.go:304:17: ST1005: error strings should not be capitalized (staticcheck)
+		return false, errors.New("Plan review has unresolved questions or effects")
+		              ^
+internal/planbrief/plan_workflow.go:309:18: ST1005: error strings should not be capitalized (staticcheck)
+			return false, errors.New("Plan promotion lacks current upstream approval")
+			              ^
+internal/planbrief/plan_workflow.go:387:11: ST1005: error strings should not be capitalized (staticcheck)
+			return fmt.Errorf("Plan story %s has unresolved work", item.Key)
+			       ^
+internal/planbrief/plan_workflow.go:390:11: ST1005: error strings should not be capitalized (staticcheck)
+			return fmt.Errorf("Plan story %s: %w", item.Key, err)
+			       ^
+internal/planbrief/plan_workflow.go:398:12: ST1005: error strings should not be capitalized (staticcheck)
+				return fmt.Errorf("Plan story %s lacks current %s approval", item.Key, stage)
+				       ^
+internal/planbrief/plan_workflow.go:403:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan active scope is empty")
+		       ^
+internal/store/plan_owner_edits.go:25:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan observed revision does not match retained bytes")
+		       ^
+internal/store/plan_owner_edits.go:32:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan owner edit exceeds draft bound")
+		       ^
+internal/store/plan_owner_edits.go:40:12: ST1005: error strings should not be capitalized (staticcheck)
+				return errors.New("Plan owner edit candidate reused with different content")
+				       ^
+internal/store/plan_owner_edits.go:52:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan owner edit waits for pending effect reconciliation")
+			       ^
+internal/store/plan_owner_edits.go:63:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan owner edit base revision or active identity conflict")
+			       ^
+internal/store/plan_story.go:48:28: ST1005: error strings should not be capitalized (staticcheck)
+		return PlanStoryDraft{}, errors.New("Plan parent and key required")
+		                         ^
+internal/store/plan_story.go:93:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan request identity reused with different content")
+		       ^
+internal/store/plan_story.go:139:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan story issue identity conflict")
+		       ^
+internal/store/plan_story.go:161:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan content changed during effect")
+		       ^
+internal/store/plan_workflow.go:17:14: ST1005: error strings should not be capitalized (staticcheck)
+		return "", errors.New("Plan session required")
+		           ^
+internal/store/plan_workflow.go:59:13: ST1005: error strings should not be capitalized (staticcheck)
+		return 0, errors.New("Plan parent, shared revision and expected revision required")
+		          ^
+internal/store/plan_workflow.go:66:13: ST1005: error strings should not be capitalized (staticcheck)
+		return 0, errors.New("Plan state exceeds 4 MiB")
+		          ^
+internal/store/plan_workflow.go:85:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan state revision conflict")
+			       ^
+internal/turn/plan_graph.go:216:11: ST1005: error strings should not be capitalized (staticcheck)
+			return errors.New("Plan child reply authority mismatch")
+			       ^
+internal/turn/plan_graph.go:261:32: ST1005: error strings should not be capitalized (staticcheck)
+		return ResearchInvocation{}, errors.New("Plan invocation preparation missing")
+		                             ^
+internal/turn/plan_graph.go:325:19: ST1005: error strings should not be capitalized (staticcheck)
+		return nil, "", errors.New("Plan node changed factory story/stage/candidate binding")
+		                ^
+internal/turn/plan_graph.go:355:40: ST1005: error strings should not be capitalized (staticcheck)
+		return graphexec.PlanNode{}, source, errors.New("Plan source output missing")
+		                                     ^
+internal/turn/plan_graph.go:377:24: ST1005: error strings should not be capitalized (staticcheck)
+		return node, source, errors.New("Plan output missing")
+		                     ^
+internal/turn/plan_graph.go:408:28: ST1005: error strings should not be capitalized (staticcheck)
+		return ActivityResult{}, errors.New("Plan effect lacks request")
+		                         ^
+internal/turn/plan_graph_handoff.go:141:15: ST1005: error strings should not be capitalized (staticcheck)
+		return out, errors.New("Plan generation is no longer editable")
+		            ^
+internal/turn/plan_graph_handoff.go:163:16: ST1005: error strings should not be capitalized (staticcheck)
+			return out, errors.New("Plan publication drift requires reconciliation")
+			            ^
+internal/turn/plan_graph_handoff.go:228:15: ST1005: error strings should not be capitalized (staticcheck)
+		return out, errors.New("Plan save did not establish exact readiness")
+		            ^
+internal/turn/plan_graph_recovery.go:26:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan publication recovery requires durable reporter")
+		       ^
+internal/turn/plan_graph_recovery.go:53:13: ST1005: error strings should not be capitalized (staticcheck)
+					return errors.New("Plan publication retained identity mismatch")
+					       ^
+internal/turn/plan_story_activity.go:69:10: ST1005: error strings should not be capitalized (staticcheck)
+		return errors.New("Plan story activity dependencies are required")
+		       ^
+internal/turn/plan_story_activity.go:80:28: ST1005: error strings should not be capitalized (staticcheck)
+		return ActivityResult{}, errors.New("Plan story requires admitted Plan authority")
+		                         ^
+internal/turn/plan_story_activity.go:113:19: ST1005: error strings should not be capitalized (staticcheck)
+		return receipt, errors.New("Plan story dependencies missing")
+		                ^
+internal/turn/plan_story_activity.go:135:19: ST1005: error strings should not be capitalized (staticcheck)
+		return receipt, errors.New("Plan request identity reused with changed input")
+		                ^
+internal/turn/plan_story_activity.go:176:20: ST1005: error strings should not be capitalized (staticcheck)
+			return receipt, errors.New("Plan story retired, unpublished or stale")
+			                ^
+internal/turn/plan_story_activity.go:345:33: QF1001: could apply De Morgan's law (staticcheck)
+		if r.Operation == "update" && !(effectErr == nil && child.Title == title && child.Body == body) {
+		                              ^
+internal/turn/plan_graph_boundary_test.go:44:37: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case path == "/123" && r.Method == "GET":
+	                                   ^
+internal/turn/plan_graph_boundary_test.go:46:33: "POST" can be replaced by http.MethodPost (usestdlibvars)
+	case path == "" && r.Method == "POST":
+	                               ^
+internal/turn/plan_graph_boundary_test.go:49:31: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+			http.Error(w, err.Error(), 400)
+			                           ^
+internal/turn/plan_graph_boundary_test.go:62:53: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+			http.Error(w, `{"message":"lost create reply"}`, 500)
+			                                                 ^
+internal/turn/plan_graph_boundary_test.go:65:33: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case path == "" && r.Method == "GET":
+	                               ^
+internal/turn/plan_graph_boundary_test.go:71:48: "POST" can be replaced by http.MethodPost (usestdlibvars)
+	case path == "/123/sub_issues" && r.Method == "POST":
+	                                              ^
+internal/turn/plan_graph_boundary_test.go:76:31: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+			http.Error(w, err.Error(), 400)
+			                           ^
+internal/turn/plan_graph_boundary_test.go:81:58: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+			http.Error(w, `{"message":"attachment interrupted"}`, 500)
+			                                                      ^
+internal/turn/plan_graph_boundary_test.go:91:56: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+			http.Error(w, `{"message":"unknown fixture path"}`, 400)
+			                                                    ^
+internal/turn/plan_graph_boundary_test.go:96:45: "404" can be replaced by http.StatusNotFound (usestdlibvars)
+			http.Error(w, `{"message":"Not Found"}`, 404)
+			                                         ^
+internal/turn/plan_graph_boundary_test.go:101:46: "404" can be replaced by http.StatusNotFound (usestdlibvars)
+				http.Error(w, `{"message":"Not Found"}`, 404)
+				                                         ^
+internal/turn/plan_graph_boundary_test.go:105:25: "GET" can be replaced by http.MethodGet (usestdlibvars)
+		} else if r.Method == "GET" {
+		                      ^
+internal/turn/plan_graph_boundary_test.go:108:60: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+				http.Error(w, `{"message":"interrupted observation"}`, 500)
+				                                                       ^
+internal/turn/plan_graph_boundary_test.go:112:25: "PATCH" can be replaced by http.MethodPatch (usestdlibvars)
+		} else if r.Method == "PATCH" {
+		                      ^
+internal/turn/plan_graph_boundary_test.go:115:32: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+				http.Error(w, err.Error(), 400)
+				                           ^
+internal/turn/plan_graph_boundary_test.go:125:54: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+				http.Error(w, `{"message":"lost update reply"}`, 500)
+				                                                 ^
+internal/turn/plan_graph_boundary_test.go:129:61: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+			http.Error(w, `{"message":"unexpected fixture method"}`, 400)
+			                                                         ^
+internal/turn/plan_story_boundary_test.go:37:19: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case r.Method == "GET" && r.URL.Path == "/repos/acme/app/issues/362":
+	                 ^
+internal/turn/plan_story_boundary_test.go:39:19: "POST" can be replaced by http.MethodPost (usestdlibvars)
+	case r.Method == "POST" && r.URL.Path == "/repos/acme/app/issues":
+	                 ^
+internal/turn/plan_story_boundary_test.go:49:49: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+			http.Error(w, `{"message":"lost response"}`, 500)
+			                                             ^
+internal/turn/plan_story_boundary_test.go:53:19: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case r.Method == "GET" && r.URL.Path == "/repos/acme/app/issues":
+	                 ^
+internal/turn/plan_story_boundary_test.go:58:19: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case r.Method == "GET" && r.URL.Path == "/repos/acme/app/issues/400/parent":
+	                 ^
+internal/turn/plan_story_boundary_test.go:60:45: "404" can be replaced by http.StatusNotFound (usestdlibvars)
+			http.Error(w, `{"message":"Not Found"}`, 404)
+			                                         ^
+internal/turn/plan_story_boundary_test.go:67:19: "POST" can be replaced by http.MethodPost (usestdlibvars)
+	case r.Method == "POST" && r.URL.Path == "/repos/acme/app/issues/362/sub_issues":
+	                 ^
+internal/turn/plan_story_boundary_test.go:70:49: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+			http.Error(w, `{"message":"attach failed"}`, 500)
+			                                             ^
+internal/turn/plan_story_boundary_test.go:75:19: "GET" can be replaced by http.MethodGet (usestdlibvars)
+	case r.Method == "GET" && r.URL.Path == "/repos/acme/app/issues/400":
+	                 ^
+internal/turn/plan_story_boundary_test.go:77:45: "404" can be replaced by http.StatusNotFound (usestdlibvars)
+			http.Error(w, `{"message":"Not Found"}`, 404)
+			                                         ^
+internal/turn/plan_story_boundary_test.go:81:19: "PATCH" can be replaced by http.MethodPatch (usestdlibvars)
+	case r.Method == "PATCH" && r.URL.Path == "/repos/acme/app/issues/400":
+	                 ^
+internal/turn/plan_story_boundary_test.go:96:58: "500" can be replaced by http.StatusInternalServerError (usestdlibvars)
+			http.Error(w, `{"message":"lost mutation response"}`, 500)
+			                                                      ^
+internal/turn/plan_story_boundary_test.go:100:50: "400" can be replaced by http.StatusBadRequest (usestdlibvars)
+		http.Error(w, `{"message":"unexpected path"}`, 400)
+		                                               ^
+109 issues:
+* errcheck: 9
+* gocritic: 1
+* misspell: 6
+* nilerr: 2
+* revive: 1
+* staticcheck: 60
+* usestdlibvars: 30
+make: *** [lint] Error 1

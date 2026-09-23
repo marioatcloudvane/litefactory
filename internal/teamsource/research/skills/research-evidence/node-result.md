@@ -169,8 +169,11 @@ response value does.
 
 # Artifacts
 
-The factory renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from your result
-and writes them into the supplied session directory. You do not write them. Name
+After `lf_agent` retains your result, the explicit `lf_research_brief` activity
+renders RESEARCH_BRIEF.md and RESEARCH_TECHNICAL.md from that exact candidate
+and writes them into the supplied session directory. Successful `lf_comment`,
+`lf_ask` and stage handoff require this generation to succeed; old files do not
+satisfy the gate. Only these two generated documents defer existence checks. You do not write them. Name
 them in artifacts if you want them referenced:
 
 - `<session>/RESEARCH_BRIEF.md` with kind `brief`

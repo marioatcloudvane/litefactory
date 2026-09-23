@@ -15,23 +15,25 @@ digraph research {
  graph [team="builtin", mode="research", profile_version="1", start="loop"];
 
  // ---- Stage 1: clarification -------------------------------------------
- loop        [lf_action="lf_research_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
- investigate [lf_action="lf_research_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
- question    [lf_action="lf_research_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
- ask         [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
- report      [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="investigate"];
+ loop        [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="investigate"];
+ brief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="investigate", lf_limit="8"];
+ investigate [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="research", lf_skills="research-evidence", lf_limit="8"];
+ question    [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="investigate"];
+ ask         [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="investigate"];
+ report      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="investigate"];
 
  // ---- Stage 2: shaping ---------------------------------------------------
- shapeloop   [lf_action="lf_research_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
- shape       [lf_action="lf_research_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
- settled     [lf_action="lf_research_if",      lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
- shaped      [lf_action="lf_research_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
- clarify     [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
- review      [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="review",   lf_limit="8", lf_source="shape"];
- agreed      [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="shape"];
+ shapeloop   [lf_action="lf_loop",    lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_default="ask", lf_limit="8", lf_source="shape"];
+ shapebrief [lf_action="lf_research_brief", lf_outcomes="success,failed", lf_source="shape", lf_limit="8"];
+ shape       [lf_action="lf_agent",   lf_outcomes="success,failed", lf_agent_markdown="shaping", lf_skills="research-evidence", lf_limit="8"];
+ settled     [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="approved", lf_limit="8", lf_source="shape"];
+ shaped      [lf_action="lf_if",      lf_outcomes="true,false", lf_field="response", lf_condition="ask", lf_limit="8", lf_source="shape"];
+ clarify     [lf_action="lf_ask", lf_outcomes="published", lf_kind="question", lf_limit="8", lf_source="shape"];
+ review      [lf_action="lf_ask", lf_outcomes="published", lf_kind="review",   lf_limit="8", lf_source="shape"];
+ agreed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="final",    lf_limit="1", lf_source="shape"];
 
  // ---- Failure and terminals ----------------------------------------------
- failed      [lf_action="lf_research_comment", lf_outcomes="published", lf_kind="failure",  lf_limit="1"];
+ failed      [lf_action="lf_comment", lf_outcomes="published", lf_kind="failure",  lf_limit="1"];
  waiting     [lf_terminal="true"];
  complete    [lf_terminal="true"];
  stopped     [lf_terminal="true"];
@@ -39,7 +41,9 @@ digraph research {
  // Stage 1: investigate until the request is clear, then report and hand on.
  loop        -> investigate [lf_on="true"];
  loop        -> report      [lf_on="false"];
- investigate -> question    [lf_on="success"];
+ investigate -> brief       [lf_on="success"];
+ brief -> question [lf_on="success"];
+ brief -> stopped [lf_on="failed"];
  question    -> ask         [lf_on="true"];    // needs an answer
  question    -> loop        [lf_on="false"];   // nothing to ask; report
  ask         -> waiting     [lf_on="published"];
@@ -48,7 +52,9 @@ digraph research {
  // Stage 2: shape, show the owner, and advance only once they approve.
  shapeloop   -> shape       [lf_on="true"];
  shapeloop   -> agreed      [lf_on="false"];
- shape       -> settled     [lf_on="success"];
+ shape       -> shapebrief  [lf_on="success"];
+ shapebrief -> settled [lf_on="success"];
+ shapebrief -> stopped [lf_on="failed"];
  settled     -> agreed      [lf_on="true"];    // the owner approved
  settled     -> shaped      [lf_on="false"];
  shaped      -> clarify     [lf_on="true"];    // needs an answer

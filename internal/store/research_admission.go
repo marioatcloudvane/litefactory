@@ -8,11 +8,11 @@ import (
 	"fmt"
 )
 
-// AdmitResearchPath freezes the execution path once for this Research task.
+// AdmitWorkflowPath freezes the execution path once for this workflow session.
 // Existing paths always win over changed repository configuration/defaults.
-func (db *DB) AdmitResearchPath(ctx context.Context, sessionID int64, selected string) (string, error) {
+func (db *DB) AdmitWorkflowPath(ctx context.Context, sessionID int64, selected string) (string, error) {
 	if sessionID < 1 || (selected != "legacy" && selected != "graph") {
-		return "", graphInvariant("invalid Research admission")
+		return "", graphInvariant("invalid workflow admission")
 	}
 	var out string
 	err := db.withTx(ctx, func(tx *sql.Tx) error {
@@ -25,9 +25,10 @@ func (db *DB) AdmitResearchPath(ctx context.Context, sessionID int64, selected s
 	return out, err
 }
 
-// ResearchLaunch pins the actual owned package bytes at an authorized boundary.
+// WorkflowLaunch pins the actual owned package bytes at an authorized boundary.
 // The foundation definition remains immutable when only instructions change.
-type ResearchLaunch struct {
+type WorkflowLaunch struct {
+	Mode                                 string
 	SessionID, TriggerID                 int64
 	DefinitionID                         int64
 	Start, ContentDigest, TopologyDigest string
@@ -36,47 +37,68 @@ type ResearchLaunch struct {
 	Reply string
 }
 
-// ResearchAdmission identifies the pinned launch and any predecessor whose findings survive.
-type ResearchAdmission struct {
+// WorkflowAdmission identifies the pinned launch and any predecessor whose findings survive.
+type WorkflowAdmission struct {
 	Instance      GraphInstance
 	PredecessorID int64
 	LaunchID      int64
 }
 
-// ErrResearchEffectsPending prevents successor publication while an original effect is uncertain.
-var ErrResearchEffectsPending = errors.New("prior Research publication must reconcile under its original identity before successor admission")
+// ErrWorkflowEffectsPending prevents successor admission during an uncertain publication.
+var ErrWorkflowEffectsPending = errors.New("prior workflow publication must reconcile under its original identity before successor admission")
 
-// LatestResearchInstance is the daemon's read-only seam for correlating an
+// ErrResearchEffectsPending is the Research policy name for the shared refusal.
+var ErrResearchEffectsPending = ErrWorkflowEffectsPending
+
+// LatestWorkflowInstance is the daemon's read-only seam for correlating an
 // authenticated owner comment with a saved question before launch admission.
-func (db *DB) LatestResearchInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
-	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE mode='research') ORDER BY id DESC LIMIT 1`, sessionID))
+func (db *DB) LatestWorkflowInstance(ctx context.Context, sessionID int64, mode string) (GraphInstance, error) {
+	return scanGraphInstance(db.sql.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE mode=?) ORDER BY id DESC LIMIT 1`, sessionID, mode))
 }
 
-// AdmitResearchLaunch atomically records the launch and, when topology changes
+// AdmitWorkflowLaunch atomically records the launch and, when topology changes
 // or an owner continues terminal work, links a successor at the current start.
 // Calling it is explicit owner authority; recovery must never call this method.
-func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (out ResearchAdmission, err error) {
+func (db *DB) AdmitWorkflowLaunch(ctx context.Context, in WorkflowLaunch) (out WorkflowAdmission, err error) {
 	validDigest := func(s string) bool {
 		raw, e := hex.DecodeString(s)
 		return e == nil && len(raw) == 32 && hex.EncodeToString(raw) == s
 	}
-	if in.SessionID < 1 || in.TriggerID < 0 || in.DefinitionID < 1 || in.Start == "" || !validDigest(in.ContentDigest) || !validDigest(in.TopologyDigest) || len(in.Files) == 0 || len(in.Files) > 16<<20 || len(in.Reply) > 65536 {
-		return out, graphInvariant("invalid Research launch capture")
+	if in.Mode == "" || in.SessionID < 1 || in.TriggerID < 0 || in.DefinitionID < 1 || in.Start == "" || !validDigest(in.ContentDigest) || !validDigest(in.TopologyDigest) || len(in.Files) == 0 || len(in.Files) > 16<<20 || len(in.Reply) > 65536 {
+		return out, graphInvariant("invalid workflow launch capture")
 	}
 	err = db.withTx(ctx, func(tx *sql.Tx) error {
+		var mode string
+		if e := tx.QueryRowContext(ctx, `SELECT mode FROM graph_definitions WHERE id=?`, in.DefinitionID).Scan(&mode); e != nil {
+			return e
+		}
+		if mode != in.Mode {
+			return graphInvariant("workflow definition mode mismatch")
+		}
 		var path string
-		if e := tx.QueryRowContext(ctx, `SELECT path FROM research_execution_paths WHERE session_id=?`, in.SessionID).Scan(&path); e != nil {
+		pathQuery := `SELECT path FROM research_execution_paths WHERE session_id=?`
+		if in.Mode == "plan" {
+			pathQuery = `SELECT path FROM plan_execution_paths WHERE session_id=?`
+		}
+		if e := tx.QueryRowContext(ctx, pathQuery, in.SessionID).Scan(&path); e != nil {
 			return e
 		}
 		if path != "graph" {
-			return graphInvariant("Research launch requires admitted graph path")
+			return graphInvariant("workflow launch requires admitted graph path")
 		}
 		var replayInstance int64
 		var replayDigest string
 		e := tx.QueryRowContext(ctx, `SELECT id,instance_id,content_digest FROM research_launch_definitions WHERE session_id=? AND trigger_id=?`, in.SessionID, in.TriggerID).Scan(&out.LaunchID, &replayInstance, &replayDigest)
 		if e == nil {
+			var replayMode string
+			if e = tx.QueryRowContext(ctx, `SELECT d.mode FROM graph_instances i JOIN graph_definitions d ON d.id=i.definition_id WHERE i.id=?`, replayInstance).Scan(&replayMode); e != nil {
+				return e
+			}
+			if replayMode != in.Mode {
+				return graphInvariant("workflow replay mode mismatch")
+			}
 			if replayDigest != in.ContentDigest {
-				return graphInvariant("Research launch replay cannot replace captured instructions; a new owner continuation is required")
+				return graphInvariant("workflow launch replay cannot replace captured instructions; a new owner continuation is required")
 			}
 			out.Instance, e = scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE id=?`, replayInstance))
 			return e
@@ -85,21 +107,21 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (out R
 			return e
 		}
 		var prior GraphInstance
-		prior, e = scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE mode='research') ORDER BY id DESC LIMIT 1`, in.SessionID))
+		prior, e = scanGraphInstance(tx.QueryRowContext(ctx, `SELECT `+graphInstanceColumns+` FROM graph_instances WHERE session_id=? AND definition_id IN (SELECT id FROM graph_definitions WHERE mode=?) ORDER BY id DESC LIMIT 1`, in.SessionID, in.Mode))
 		if e != nil && !errors.Is(e, ErrNotFound) {
 			return e
 		}
 		var topology string
 		if prior.ID > 0 {
 			if e = tx.QueryRowContext(ctx, `SELECT topology_digest FROM research_launch_definitions WHERE instance_id=? ORDER BY id DESC LIMIT 1`, prior.ID).Scan(&topology); e != nil {
-				return fmt.Errorf("research instance lacks retained launch provenance: %w", e)
+				return fmt.Errorf("workflow instance lacks retained launch provenance: %w", e)
 			}
 			var active int
 			if e = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM graph_node_attempts WHERE instance_id=? AND status IN ('pending','running')`, prior.ID).Scan(&active); e != nil {
 				return e
 			}
 			if active > 0 {
-				return graphInvariant("Research invocation already active")
+				return graphInvariant("workflow invocation already active")
 			}
 			if prior.Status == GraphRunning {
 				var state, reply string
@@ -120,7 +142,7 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (out R
 				return e
 			}
 			if pending > 0 {
-				return ErrResearchEffectsPending
+				return ErrWorkflowEffectsPending
 			}
 			out.PredecessorID = prior.ID
 			if prior.Status == GraphRunning {
@@ -134,13 +156,6 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (out R
 		}
 		out.Instance = prior
 		if prior.ID == 0 || successor {
-			var mode string
-			if e = tx.QueryRowContext(ctx, `SELECT mode FROM graph_definitions WHERE id=?`, in.DefinitionID).Scan(&mode); e != nil {
-				return e
-			}
-			if mode != "research" {
-				return graphInvariant("Research definition mode mismatch")
-			}
 			out.Instance, e = scanGraphInstance(tx.QueryRowContext(ctx, `INSERT INTO graph_instances(session_id,definition_id,status,current_node,started_at) VALUES(?,?,'running',?,?) RETURNING `+graphInstanceColumns, in.SessionID, in.DefinitionID, in.Start, FormatTime(nowUTC())))
 			if e != nil {
 				return e
@@ -154,14 +169,14 @@ func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (out R
 		return tx.QueryRowContext(ctx, `INSERT INTO research_launch_definitions(session_id,trigger_id,instance_id,content_digest,topology_digest,files) VALUES(?,?,?,?,?,?) RETURNING id`, in.SessionID, in.TriggerID, out.Instance.ID, in.ContentDigest, in.TopologyDigest, in.Files).Scan(&out.LaunchID)
 	})
 	if err != nil {
-		return ResearchAdmission{}, fmt.Errorf("store: admit Research launch: %w", err)
+		return WorkflowAdmission{}, fmt.Errorf("store: admit workflow launch: %w", err)
 	}
 	return out, nil
 }
 
-// ResearchPredecessor retains provenance and bounded owner input across a
+// WorkflowPredecessor retains provenance and bounded owner input across a
 // topology restart. Findings remain rooted in the predecessor's saved outputs.
-func (db *DB) ResearchPredecessor(ctx context.Context, instanceID int64) (int64, string, error) {
+func (db *DB) WorkflowPredecessor(ctx context.Context, instanceID int64) (int64, string, error) {
 	var previous int64
 	var reply string
 	err := db.sql.QueryRowContext(ctx, `SELECT predecessor_id,reply_body FROM research_successors WHERE instance_id=?`, instanceID).Scan(&previous, &reply)
@@ -169,4 +184,34 @@ func (db *DB) ResearchPredecessor(ctx context.Context, instanceID int64) (int64,
 		return 0, "", nil
 	}
 	return previous, reply, err
+}
+
+// ResearchLaunch and ResearchAdmission retain the Research policy-facing API.
+type ResearchLaunch = WorkflowLaunch
+
+// ResearchAdmission is the Research adapter result of shared workflow admission.
+type ResearchAdmission = WorkflowAdmission
+
+// AdmitResearchPath freezes the selected Research execution path for a session.
+func (db *DB) AdmitResearchPath(ctx context.Context, sessionID int64, selected string) (string, error) {
+	return db.AdmitWorkflowPath(ctx, sessionID, selected)
+}
+
+// LatestResearchInstance returns the session's most recent Research graph instance.
+func (db *DB) LatestResearchInstance(ctx context.Context, sessionID int64) (GraphInstance, error) {
+	return db.LatestWorkflowInstance(ctx, sessionID, "research")
+}
+
+// AdmitResearchLaunch admits only Research definitions through the shared lifecycle.
+func (db *DB) AdmitResearchLaunch(ctx context.Context, in ResearchLaunch) (ResearchAdmission, error) {
+	if in.Mode != "" && in.Mode != "research" {
+		return ResearchAdmission{}, graphInvariant("Research definition mode mismatch")
+	}
+	in.Mode = "research"
+	return db.AdmitWorkflowLaunch(ctx, in)
+}
+
+// ResearchPredecessor returns retained predecessor identity and owner reply.
+func (db *DB) ResearchPredecessor(ctx context.Context, instanceID int64) (int64, string, error) {
+	return db.WorkflowPredecessor(ctx, instanceID)
 }
