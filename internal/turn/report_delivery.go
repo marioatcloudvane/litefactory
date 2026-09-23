@@ -58,6 +58,14 @@ func (r *Reporter) deliveryIntent(task, destination naming.Ref, sessionID, trigg
 // ReportPending resumes the exact retained delivery before command/readiness
 // reevaluation. A refused original request can never become a fresh invocation.
 func (r *Reporter) ReportPending(ctx context.Context, sessionID, triggerID int64) (Posted, bool, error) {
+	row, outcomeErr := r.db.GetCreationRejection(ctx, sessionID, triggerID)
+	if outcomeErr == nil {
+		posted, err := r.resumeCreationRejection(ctx, row)
+		return posted, true, err
+	}
+	if !errors.Is(outcomeErr, store.ErrNotFound) {
+		return Posted{}, false, outcomeErr
+	}
 	delivery, found, err := r.db.FindPendingReportDelivery(ctx, sessionID, triggerID)
 	if err != nil || !found {
 		return Posted{}, found, err
@@ -160,8 +168,9 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	// answered", and it always carries its own delivery marker, so a pre-journal
 	// task-only bot comment cannot be mistaken for it or for its receipt. Crash
 	// recovery matches it by marker in the PossiblySent branch above. Every
-	// other runless purpose still takes the probe.
-	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) {
+	// creation intake outcome likewise has a source-specific delivery identity.
+	// Other runless purposes still take the probe.
+	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" {
 		ambiguous, err := r.legacyRunlessConflict(ctx, delivery, destination)
 		if err != nil {
 			return Posted{}, err

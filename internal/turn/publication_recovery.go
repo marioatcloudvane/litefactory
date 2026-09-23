@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -112,44 +113,75 @@ func (r *MCPRuntime) AdmitCreationApproval(ctx context.Context, c OwnerGrantCont
 // PrepareCreationProposal admits proposal data only from authenticated owner
 // controls. Preparation retains exact redacted bytes but grants no publication.
 func (r *MCPRuntime) PrepareCreationProposal(ctx context.Context, c OwnerGrantControl) (PreparedCreation, error) {
-	if r == nil || r.CreationAuthorizer == nil || !r.CreationAuthorizer.enabled || c.Mode != "research" || c.Bot || c.ActorID != r.CreationAuthorizer.ownerID || c.ActorID == r.BotID || c.CommentID < 1 || c.CreatedAt.IsZero() || (!c.UpdatedAt.IsZero() && !c.UpdatedAt.Equal(c.CreatedAt)) {
-		return PreparedCreation{}, store.ErrCreationAuthority
+	if r == nil || r.CreationAuthorizer == nil || r.CreationAuthorizer.store == nil {
+		return PreparedCreation{}, fmt.Errorf("creation owner intake unavailable: %w", store.ErrCreationAuthority)
 	}
+	if c.Bot || c.ActorID != r.CreationAuthorizer.ownerID || c.ActorID == r.BotID || c.CommentID < 1 || c.CreatedAt.IsZero() {
+		return PreparedCreation{}, rejectCreation("controls", store.ErrCreationAuthority)
+	}
+	if original, err := r.CreationAuthorizer.outcomes().GetPreparation(ctx, creationSource(c)); err == nil {
+		return preparedFromProposal(original)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return PreparedCreation{}, err
+	}
+	if !c.UpdatedAt.IsZero() && !c.UpdatedAt.Equal(c.CreatedAt) {
+		return PreparedCreation{}, rejectCreation("controls", store.ErrCreationAuthority)
+	}
+	if !r.CreationAuthorizer.enabled {
+		return PreparedCreation{}, rejectCreation("disabled", store.ErrCreationAuthority)
+	}
+	if c.Mode != "research" {
+		return PreparedCreation{}, rejectCreation("mode", store.ErrCreationAuthority)
+	}
+
 	if !strings.HasPrefix(c.Body, "/mcp-create prepare ") {
-		return PreparedCreation{}, store.ErrCreationAuthority
+		return PreparedCreation{}, rejectCreation("controls", store.ErrCreationAuthority)
 	}
 	var envelope submission.CreationEnvelope
 	if err := decodeMCPArguments([]byte(strings.TrimPrefix(c.Body, "/mcp-create prepare ")), &envelope); err != nil {
-		return PreparedCreation{}, err
+		return PreparedCreation{}, rejectCreation("payload", err)
 	}
 	if envelope.Version != 0 && envelope.Version != 1 {
-		return PreparedCreation{}, errors.New("unsupported creation envelope version")
+		return PreparedCreation{}, rejectCreation("version", errors.New("unsupported creation envelope version"))
 	}
 	ref, err := naming.ParseRef(c.SourceTask)
 	if err != nil {
 		return PreparedCreation{}, err
 	}
 	if c.Repository != ref.Owner+"/"+ref.Repo {
-		return PreparedCreation{}, store.ErrCreationAuthority
+		return PreparedCreation{}, rejectCreation("controls", store.ErrCreationAuthority)
 	}
 
 	envelope.Artifacts = linkSourceIssue(envelope.Artifacts, ref.Issue)
-	// No live result/lease is created by this owner-only presenter.
-	receipts, err := r.observationReceipts(store.FamilyScope{Task: c.SourceTask, Repository: c.Repository, RunID: c.CommentID, Attempt: "owner-proposal"})
-	if err != nil {
-		return PreparedCreation{}, err
-	}
-	service, err := NewCreationPublicationService(r.Authority.db, receipts, r.CreationAuthorizer, r.Creation, r.Redactor, r.Paths.StoryProgressLocksDir())
-	if err != nil {
-		return PreparedCreation{}, err
+	if r.Authority == nil || r.Redactor == nil {
+		return PreparedCreation{}, errors.New("creation authority wiring unavailable")
 	}
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s", c.SourceTask, c.CommentID, c.Body)))
 	var nonce [16]byte
 	copy(nonce[:], digest[:16])
-	prepared, err := service.prepare(ctx, envelope, nonce, 48000, r.CreationAuthorizer.RetainProposal)
+	_, err = prepareCreation(ctx, envelope, nonce, 48000, c.Repository, c.SourceTask, r.Redactor, func(ctx context.Context, e submission.CreationEnvelope) (string, error) {
+		p, err := creationProposal(e)
+		if err != nil {
+			return "", err
+		}
+		saved, err := r.CreationAuthorizer.store.RetainProposalForSource(ctx, p, creationSource(c))
+		return saved.Hash, err
+	})
 	if err != nil {
 		return PreparedCreation{}, err
 	}
 
-	return prepared, nil
+	original, err := r.CreationAuthorizer.store.GetPreparation(ctx, creationSource(c))
+	if err != nil {
+		return PreparedCreation{}, err
+	}
+	return preparedFromProposal(original)
+}
+
+func preparedFromProposal(p store.CreationProposal) (PreparedCreation, error) {
+	var envelope submission.CreationEnvelope
+	if err := json.Unmarshal(p.Envelope, &envelope); err != nil {
+		return PreparedCreation{}, err
+	}
+	return PreparedCreation{Envelope: envelope, Hash: p.Hash}, nil
 }

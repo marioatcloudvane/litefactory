@@ -1606,6 +1606,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
 	}
+	if recovered, err := d.resumeCreationSuccess(ctx, t, c); recovered || err != nil {
+		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
+	}
 	command := turn.ParseCommand(c.Body)
 	if command.Name == "/deliver" || command.Name == "/merge" {
 		return d.handleDelivery(ctx, t, c, log)

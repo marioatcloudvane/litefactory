@@ -1,0 +1,44 @@
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/repository
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/task
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/comment
+=== RUN   TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/owner
+--- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay (0.05s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/repository (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/task (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/comment (0.00s)
+    --- PASS: TestCreationSuccessDB_AtomicPreparationAndImmutableReplay/owner (0.00s)
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/owner
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/repository
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/task
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/comment
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/owner
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/repository
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/task
+=== RUN   TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/comment
+--- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding (0.06s)
+    --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded (0.03s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/owner (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/repository (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/task (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/superseded/comment (0.00s)
+    --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired (0.03s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/owner (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/repository (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/task (0.00s)
+        --- PASS: TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding/expired/comment (0.00s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/store	0.673s
+=== RUN   TestCreationSuccessIO_PreparationRestart
+=== RUN   TestCreationSuccessIO_PreparationRestart/lost-response
+=== RUN   TestCreationSuccessIO_PreparationRestart/before-report-with-unrelated-legacy-reply
+--- PASS: TestCreationSuccessIO_PreparationRestart (0.09s)
+    --- PASS: TestCreationSuccessIO_PreparationRestart/lost-response (0.06s)
+    --- PASS: TestCreationSuccessIO_PreparationRestart/before-report-with-unrelated-legacy-reply (0.03s)
+=== RUN   TestCreationSuccessIO_ApprovalConsumptionRestart
+--- PASS: TestCreationSuccessIO_ApprovalConsumptionRestart (0.03s)
+PASS
+ok  	github.com/cloudvane/litefactory/internal/daemon	1.070s

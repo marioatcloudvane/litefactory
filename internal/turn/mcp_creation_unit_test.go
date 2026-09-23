@@ -1,6 +1,7 @@
 package turn
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -35,7 +36,7 @@ func TestOwnerGrantCommand_ExactPublicGrammar(t *testing.T) {
 func TestCreationAuthorizer_RejectsUntrustedControlBeforeStore(t *testing.T) {
 	// A zero store has no I/O dependency. Every case must fail before touching it;
 	// trusted eligible approval persistence is exercised by real SQLite tests.
-	authorizer, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: &store.CreationStore{}, Enabled: true, OwnerID: 42, BotID: 99})
+	authorizer, err := NewCreationAuthorizer(CreationAuthorizerOptions{Store: &store.CreationStore{}, SourceOutcomes: absentCreationOutcomes{}, Enabled: true, OwnerID: 42, BotID: 99})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,4 +110,14 @@ func TestCreationAuthorizer_GateAndUnassignedPermissions(t *testing.T) {
 			}
 		}
 	}
+}
+
+// absentCreationOutcomes allows pure input tests to establish no prior success.
+type absentCreationOutcomes struct{}
+
+func (absentCreationOutcomes) GetOwnerIntent(context.Context, store.CreationSource) (int64, error) {
+	return 0, store.ErrNotFound
+}
+func (absentCreationOutcomes) GetPreparation(context.Context, store.CreationSource) (store.CreationProposal, error) {
+	return store.CreationProposal{}, store.ErrNotFound
 }

@@ -118,6 +118,14 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if err := reply.Ref.Validate(); err != nil {
 		return redact.Body{}, fmt.Errorf("report: %w: %w", ErrInvalidArgument, err)
 	}
+	if reply.Kind == ReplyCreationRejected {
+		if reply.CreationRejection == nil {
+			return redact.Body{}, fmt.Errorf("report: missing creation rejection")
+		}
+		if _, ok := reply.CreationRejection.guidance(); !ok {
+			return redact.Body{}, fmt.Errorf("report: invalid creation rejection")
+		}
+	}
 	if reply.Kind == ReplyCreationProposal {
 		if reply.Creation == nil || len(reply.Creation.Envelope) > 48000 || !json.Valid([]byte(reply.Creation.Envelope)) || (reply.Creation.Relationship != "linked" && reply.Creation.Relationship != "attach") {
 			return redact.Body{}, fmt.Errorf("report: invalid creation proposal")
