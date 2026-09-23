@@ -80,3 +80,15 @@ Evidence:
 - `internal/turn/plan_graph_boundary_test.go:434`
 - `internal/turn/plan_graph_boundary_test.go:568`
 - `internal/daemon/plan_children_boundary_test.go:17`
+
+## f8
+
+Focused source inspection confirms that PlanStoryState already carries per-story Hold and Effect fields, EligiblePlanStories skips held/unresolved stories, and completion and active-set hashing currently exclude only Retired stories; SavePlanWorkflowState journals a snapshot and current state in a local transaction guarded by an expected revision, separately from the draft/effect transaction described in f3.
+
+Evidence:
+
+- `internal/planbrief/plan_workflow.go:27`
+- `internal/planbrief/plan_workflow.go:233`
+- `internal/planbrief/plan_workflow.go:372`
+- `internal/planbrief/plan_workflow.go:386`
+- `internal/store/plan_workflow.go:70`

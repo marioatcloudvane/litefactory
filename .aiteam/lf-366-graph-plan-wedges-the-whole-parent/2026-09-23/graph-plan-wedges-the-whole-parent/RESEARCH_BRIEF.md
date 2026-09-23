@@ -2,7 +2,7 @@
 
 ## Request
 
-Explain the two graph Plan failure cases and revise the bugfix scope to adopt GitHub child-state changes as the owner requires, without broadening to general issue synchronization or implementing.
+Explain the technical solution for the shaped graph Plan bugfix, preserving GitHub as the child-state source of truth and independent story progress, without implementing or expanding scope.
 
 ## Decisions
 
@@ -29,6 +29,10 @@ Explain the two graph Plan failure cases and revise the bugfix scope to adopt Gi
 - **d21** — Removing a closed child from active shaping preserves its history and forces dependency and assembled-plan review where affected, without silently dropping dependencies or inventing replacements.
 - **d22** — Reopening the same bound child restores eligibility only after current content, parent relationship, dependencies and approvals are reevaluated, and stale retirement intent cannot override a later observed reopen.
 - **d23** — Observed reparenting is respected without moving the child back or automatically admitting it to another Plan, and any unresolved scope or dependency consequence is reported on the original parent.
+- **d24** — Discovery and recovery expose per-story outcomes to eligibility and reporting, while shared authority or persistence failures retain parent-level error handling.
+- **d25** — New local completion must keep lifecycle, draft/effect outcome and workflow transition consistent under revision checks, while restart reconciliation must also repair previously persisted partial completion.
+- **d26** — Recovery must not replay an older mutation over a verified later GitHub lifecycle change, and ambiguous ordering holds only the affected story until adequate evidence is available.
+- **d27** — The active-set calculation, dependency checks, selection, publication and readiness must use the same adopted lifecycle so an externally closed child cannot reappear through a stale local projection.
 
 
 ## Assumptions
