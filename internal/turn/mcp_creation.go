@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ func ParseOwnerGrantCommand(body string) (OwnerGrantCommand, error) {
 	var command OwnerGrantCommand
 	parts := strings.Split(body, " ")
 	if len(body) > 128 || len(parts) != 3 || parts[0] != "/mcp-create" || len(parts[1]) != 64 || strings.Trim(parts[1], "0123456789abcdef") != "" || (parts[2] != "linked" && parts[2] != "attach") {
-		return command, errors.New("use exactly /mcp-create <proposal SHA256> linked|attach")
+		return command, rejectCreation("syntax", errors.New("use exactly /mcp-create <proposal SHA256> linked|attach"))
 	}
 	return OwnerGrantCommand{ProposalHash: parts[1], Relationship: parts[2]}, nil
 }
@@ -35,14 +36,23 @@ type OwnerGrantControl struct {
 // CreationAuthorizerOptions fixes the loaded gate and trusted numeric control identities.
 type CreationAuthorizerOptions struct {
 	Store          *store.CreationStore
+	SourceOutcomes CreationSourceOutcomes
 	Enabled        bool
 	OwnerID, BotID int64
+}
+
+// CreationSourceOutcomes observes admitted history without authorizing a new
+// mutation. Keeping observation separate makes unavailable storage retryable.
+type CreationSourceOutcomes interface {
+	GetOwnerIntent(context.Context, store.CreationSource) (int64, error)
+	GetPreparation(context.Context, store.CreationSource) (store.CreationProposal, error)
 }
 
 // CreationAuthorizer is factory-owned. Configuration/owner identities are copied
 // at construction; no method changes them and no model-facing mint API exists.
 type CreationAuthorizer struct {
 	store          *store.CreationStore
+	sourceOutcomes CreationSourceOutcomes
 	enabled        bool
 	ownerID, botID int64
 }
@@ -52,7 +62,14 @@ func NewCreationAuthorizer(o CreationAuthorizerOptions) (*CreationAuthorizer, er
 	if o.Store == nil || o.OwnerID < 1 || o.BotID < 1 || o.OwnerID == o.BotID {
 		return nil, store.ErrCreationAuthority
 	}
-	return &CreationAuthorizer{store: o.Store, enabled: o.Enabled, ownerID: o.OwnerID, botID: o.BotID}, nil
+	return &CreationAuthorizer{store: o.Store, sourceOutcomes: o.SourceOutcomes, enabled: o.Enabled, ownerID: o.OwnerID, botID: o.BotID}, nil
+}
+
+func (a *CreationAuthorizer) outcomes() CreationSourceOutcomes {
+	if a.sourceOutcomes != nil {
+		return a.sourceOutcomes
+	}
+	return a.store
 }
 func creationProposal(e submission.CreationEnvelope) (store.CreationProposal, error) {
 	data, hash, err := submission.CanonicalCreation(e)
@@ -91,9 +108,26 @@ func (a *CreationAuthorizer) RetainProposalForRun(ctx context.Context, runID int
 
 // AdmitOwnerGrantIntent verifies control provenance before recording exact owner intent.
 func (a *CreationAuthorizer) AdmitOwnerGrantIntent(ctx context.Context, c OwnerGrantControl) (int64, error) {
-	if !a.enabled || c.Mode != "research" || c.Bot || c.ActorID == a.botID || c.ActorID != a.ownerID {
-		return 0, store.ErrCreationAuthority
+	if a == nil || a.store == nil {
+		return 0, fmt.Errorf("creation owner intake unavailable: %w", store.ErrCreationAuthority)
 	}
+	if c.Bot || c.ActorID == a.botID || c.ActorID != a.ownerID || c.CommentID < 1 || c.CreatedAt.IsZero() {
+		return 0, rejectCreation("controls", store.ErrCreationAuthority)
+	}
+	// A recorded admission is history, not a new request for authority. Observe
+	// it before current configuration, syntax, proposal freshness or edits.
+	if id, err := a.outcomes().GetOwnerIntent(ctx, creationSource(c)); err == nil {
+		return id, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	if !a.enabled {
+		return 0, rejectCreation("disabled", store.ErrCreationAuthority)
+	}
+	if c.Mode != "research" {
+		return 0, rejectCreation("mode", store.ErrCreationAuthority)
+	}
+
 	command, err := ParseOwnerGrantCommand(c.Body)
 	if err != nil {
 		return 0, err
@@ -153,4 +187,8 @@ func (a *CreationAuthorizer) RecordOperationOutcome(ctx context.Context, permit 
 // ReconcileOperation records factory-observed history without issuing dispatch authority.
 func (a *CreationAuthorizer) ReconcileOperation(ctx context.Context, id int64, outcome string) (store.CreationOperation, error) {
 	return a.store.ReconcileOperation(ctx, id, outcome)
+}
+
+func creationSource(c OwnerGrantControl) store.CreationSource {
+	return store.CreationSource{Repository: c.Repository, SourceTask: c.SourceTask, CommentID: c.CommentID, OwnerID: c.ActorID}
 }
