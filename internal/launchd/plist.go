@@ -69,9 +69,12 @@ const (
 	// touches is absolute.
 	workingDirectory = "/"
 
-	// processType tells launchd this is a background job, which gets it the
-	// scheduling policy of a poller rather than of an interactive app.
-	processType = "Background"
+	// processType is Standard, not Background. The daemon itself is a
+	// poller, but every agent run, build and race test it launches inherits
+	// its policy, and Background confines them to throttled efficiency cores:
+	// a measured third slower on single-threaded work, for jobs that run for
+	// hours.
+	processType = "Standard"
 
 	// exitTimeoutSeconds is how long launchd waits after SIGTERM before
 	// SIGKILL. It matches launchd's own default and is written explicitly
