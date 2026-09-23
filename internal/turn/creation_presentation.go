@@ -16,9 +16,9 @@ import (
 // creation proposal's presentation comment. The full purpose is this prefix
 // plus the proposal hash, so one proposal on one trigger has one delivery.
 //
-// Only this prefix is exempt from the legacy runless-ambiguity probe (see
-// dispatchDelivery); it names deliveries that exist solely after the delivery
-// journal and always carry their delivery marker.
+// This prefix, like source-bound creation intake outcomes, is exempt from the
+// legacy runless-ambiguity probe (see dispatchDelivery): these deliveries exist
+// solely after the delivery journal and always carry their delivery marker.
 const creationPresentationPurpose = "creation-proposal:"
 
 // CreationPresenter is the optional capability the daemon reaches through an

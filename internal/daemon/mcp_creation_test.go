@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/submission"
@@ -101,7 +102,10 @@ func TestMCPOwnerIntake_RetainedProposalAndTrustedMetadata(t *testing.T) {
 		t.Fatalf("replay minted new intent %d/%d %v", id, again, err)
 	}
 	now = now.Add(30 * time.Minute)
-	if _, err = AdmitMCPOwnerCommand(t.Context(), a, repo, 278, "research", good); err == nil {
-		t.Fatal("exact deadline replay extended approval")
+	if again, err = AdmitMCPOwnerCommand(t.Context(), a, repo, 278, "research", good); err != nil || again != id {
+		t.Fatalf("expired admission recovery changed original intent %d/%d %v", id, again, err)
+	}
+	if _, _, err = cs.EligibleCreationIntent(t.Context(), envelope.SourceTask); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("exact deadline recovery renewed authority: %v", err)
 	}
 }
