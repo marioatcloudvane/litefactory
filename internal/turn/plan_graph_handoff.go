@@ -29,7 +29,7 @@ func (r *planGraphRuntime) settled(ctx context.Context) (Result, error) {
 		return out, err
 	}
 	for _, story := range s.Stories {
-		if !story.Retired && (story.Wait != nil || story.Hold != "" || (story.Effect != "" && story.Effect != "applied")) {
+		if story.Blocked() || (story.Active() && story.Wait != nil) {
 			out.Reason = "planning waits for story feedback or effect reconciliation"
 			return out, nil
 		}
@@ -72,8 +72,8 @@ func (r *planGraphRuntime) assembledComment(ctx context.Context, s planbrief.Pla
 	var body strings.Builder
 	fmt.Fprintf(&body, "Acceptance and assembled Plan review\n\nCurrent shared decisions: %s\n\n", s.SharedRevision)
 	for _, item := range s.Stories {
-		if item.Retired {
-			fmt.Fprintf(&body, "- Retired scope: %s.\n", item.Key)
+		if !item.Active() {
+			fmt.Fprintf(&body, "- Inactive scope: %s.\n", item.Key)
 			continue
 		}
 		draft, err := r.opts.DB.GetPlanStoryDraft(ctx, r.result.Ref.String(), item.Key)
@@ -131,7 +131,7 @@ func (r *planGraphRuntime) finalize(ctx context.Context, s planbrief.PlanState, 
 	}()
 	var drafts []planbrief.PlanDraft
 	for _, item := range s.Stories {
-		if !item.Retired {
+		if item.Active() {
 			drafts = append(drafts, item.Draft)
 		}
 	}

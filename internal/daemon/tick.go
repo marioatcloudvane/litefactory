@@ -439,6 +439,9 @@ func (d *Daemon) discover(
 		}
 	}
 
+	if err := d.graphPlanParents(ctx, byRepo, seen); err != nil {
+		return nil, err
+	}
 	if err := d.managedParents(ctx, byRepo, seen); err != nil {
 		return nil, err
 	}
@@ -1171,10 +1174,20 @@ func (d *Daemon) work(ctx context.Context, t *task) {
 	counts := &discoveryCounts{}
 	ctx = github.WithRequestObserver(ctx, counts.observe)
 	defer d.discoverySummary(ctx, "worker", counts)
-	if handled, err := d.refinePlanChildren(ctx, t); err != nil {
+	if err := d.recoverPlanStories(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not reconcile Plan stories", err)
+		return
+	}
+	handledPlan, err := d.refinePlanChildren(ctx, t)
+	if err != nil {
 		d.stopped(ctx, t, "could not route Plan child discussion", err)
 		return
-	} else if handled {
+	}
+	if err = d.reportPlanProgress(ctx, t); err != nil {
+		d.stopped(ctx, t, "could not report Plan progress", err)
+		return
+	}
+	if handledPlan {
 		return
 	}
 	if deferred, err := d.refineStories(ctx, t); err != nil {
@@ -1605,6 +1618,9 @@ func (d *Daemon) handleComment(ctx context.Context, t *task, c github.Comment) e
 
 	if pending, err := d.resumeReport(ctx, t, c.ID); pending || err != nil {
 		return d.leave(ctx, t, log, "prior delivery remains pending", err)
+	}
+	if recovered, err := d.resumeCreationSuccess(ctx, t, c); recovered || err != nil {
+		return d.leave(ctx, t, log, "successful creation intake recovery pending", err)
 	}
 	command := turn.ParseCommand(c.Body)
 	if command.Name == "/deliver" || command.Name == "/merge" {

@@ -9,7 +9,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 # concurrently would interleave their output for no gain.
 .NOTPARALLEL:
 
-.PHONY: all build test check fmt vet lint clean
+.PHONY: all build test test-fast check check-fast fmt vet lint clean
 
 all: build
 
@@ -26,8 +26,18 @@ TEST_TIMEOUT ?= 0
 test:
 	$(GO) test -race -timeout=$(TEST_TIMEOUT) $(PKGS)
 
+## test-fast: run the test suite without the race detector
+# The same tests in a fraction of the time: race instrumentation of the
+# transpiled SQLite dominates `test`. Use it to iterate; it does not replace
+# `check` as the gate.
+test-fast:
+	$(GO) test -timeout=$(TEST_TIMEOUT) $(PKGS)
+
 ## check: everything CI enforces — formatting, vet, lint, race tests
 check: fmt vet lint test
+
+## check-fast: check without the race detector, for iterating before `check`
+check-fast: fmt vet lint test-fast
 
 ## fmt: fail if any file is not gofmt-clean
 fmt:

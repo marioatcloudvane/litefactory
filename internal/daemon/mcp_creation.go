@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/cloudvane/litefactory/internal/github"
+	"github.com/cloudvane/litefactory/internal/naming"
 	"github.com/cloudvane/litefactory/internal/report"
+	"github.com/cloudvane/litefactory/internal/store"
 	"github.com/cloudvane/litefactory/internal/turn"
 )
 
@@ -33,10 +35,10 @@ func AdmitMCPOwnerCommand(ctx context.Context, authorizer *turn.CreationAuthoriz
 func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Comment, log *slog.Logger) error {
 	mode, found, err := resolveModeLabel(t.issue.Labels)
 	if err != nil {
-		return d.leave(ctx, t, log, "creation mode unavailable", err)
+		return d.rejectMCPCreation(ctx, t, c, log, "mode")
 	}
 	if !found || string(mode) != "research" {
-		return d.leave(ctx, t, log, "creation requires selected Research mode", fmt.Errorf("creation requires selected Research mode"))
+		return d.rejectMCPCreation(ctx, t, c, log, "mode")
 	}
 	e, ok := d.turn.(turnExecutor)
 	if !ok || e.opts.MCP == nil {
@@ -46,19 +48,64 @@ func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Commen
 	if strings.HasPrefix(c.Body, "/mcp-create prepare ") {
 		prepared, err := e.opts.MCP.PrepareCreationProposal(ctx, control)
 		if err != nil {
-			return d.leave(ctx, t, log, "creation preparation refused", err)
+			return d.creationIntakeError(ctx, t, c, log, err)
 		}
 		data, err := json.Marshal(prepared.Envelope)
 		if err != nil {
 			return err
 		}
-		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(data), Hash: prepared.Hash, Relationship: prepared.Envelope.Relationship}})
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(data), Hash: prepared.Hash, Relationship: prepared.Envelope.Relationship, Publication: d.creationPublicationContext(ctx, t)}})
 		return d.leave(ctx, t, log, "creation proposal presentation pending", err)
 	}
 	_, err = e.opts.MCP.AdmitCreationApproval(ctx, control)
 	if err != nil {
-		return d.leave(ctx, t, log, "creation approval remains unadmitted", err)
+		return d.creationIntakeError(ctx, t, c, log, err)
 	}
-	_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
-	return d.leave(ctx, t, log, "creation approval consumption pending", err)
+	_, err = d.resumeCreationSuccess(ctx, t, c)
+	return d.leave(ctx, t, log, "creation acceptance delivery pending", err)
+}
+
+func (d *Daemon) creationIntakeError(ctx context.Context, t *task, c github.Comment, log *slog.Logger, err error) error {
+	if reason, rejected := turn.CreationRejectionReason(err); rejected {
+		return d.rejectMCPCreation(ctx, t, c, log, reason)
+	}
+	return d.leave(ctx, t, log, "creation intake remains pending", err)
+}
+func (d *Daemon) rejectMCPCreation(ctx context.Context, t *task, c github.Comment, log *slog.Logger, reason string) error {
+	reporter, ok := d.reporter.(interface {
+		ReportCreationRejection(context.Context, naming.Ref, int64, int64, string, string) (turn.Posted, error)
+	})
+	if !ok {
+		return d.leave(ctx, t, log, "creation rejection reporting unavailable", errors.New("creation rejection reporter unavailable"))
+	}
+	kind := "approval"
+	if strings.HasPrefix(c.Body, "/mcp-create prepare") {
+		kind = "preparation"
+	}
+	source := store.ReportRecovery{Key: recoveryKey(t.session.ID, c.ID), SessionID: t.session.ID, TriggerID: c.ID, Task: t.ref.String()}
+	_, err := d.reportAttempt(ctx, source, func() (turn.Posted, error) {
+		return reporter.ReportCreationRejection(ctx, t.ref, t.session.ID, c.ID, kind, reason)
+	})
+	return d.leave(ctx, t, log, "creation rejection delivery pending", err)
+}
+
+// resumeCreationSuccess follows numeric identity filtering and pending delivery
+// recovery, but precedes parsing and mutable mode/configuration checks.
+func (d *Daemon) resumeCreationSuccess(ctx context.Context, t *task, c github.Comment) (bool, error) {
+	source := store.CreationSource{Repository: t.forgeRepo.String(), SourceTask: t.ref.String(), CommentID: c.ID, OwnerID: c.Author.ID}
+	if admitted, err := d.db.GetCreationAcknowledgment(ctx, source); err == nil {
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: admitted.Source.CommentID, CreationAcceptance: &report.CreationAcceptance{Hash: admitted.Hash, Relationship: admitted.Relationship, CreatedAt: admitted.CreatedAt, ExpiresAt: admitted.ExpiresAt, Publication: d.creationPublicationContext(ctx, t)}})
+		return true, err
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	p, err := d.db.GetCreationPreparation(ctx, source)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(p.Envelope), Hash: p.Hash, Relationship: p.Relationship, Publication: d.creationPublicationContext(ctx, t)}})
+	return true, err
 }

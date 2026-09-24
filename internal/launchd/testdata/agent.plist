@@ -24,7 +24,7 @@
 	<key>StandardErrorPath</key>
 	<string>/Users/mario/.litefactory/logs/launchd.err.log</string>
 	<key>ProcessType</key>
-	<string>Background</string>
+	<string>Standard</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>

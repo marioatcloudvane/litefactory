@@ -67,6 +67,7 @@ func (f *planBoundaryForge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/app/issues/362/sub_issues":
 		if f.failAttach {
+			f.attached = true
 			f.failAttach = false
 			http.Error(w, `{"message":"attach failed"}`, http.StatusInternalServerError)
 			return
@@ -124,7 +125,15 @@ func planBoundarySetup(t *testing.T) (*PlanStoryActivity, *planBoundaryForge, Pl
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &PlanStoryActivity{DB: open(), Forge: client, Redactor: redact.New(redact.Options{}), LockDir: t.TempDir()}
+	db := open()
+	repo, err := db.UpsertRepo(ctx, store.Repo{Path: t.TempDir(), Forge: store.ForgeGitHub, Owner: "acme", Name: "app", RemoteURL: "https://github.com/acme/app.git", BaseBranch: "main", FeaturePrefix: "lf/", WorktreeRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.GetOrCreateSession(ctx, repo, 362); err != nil {
+		t.Fatal(err)
+	}
+	h := &PlanStoryActivity{DB: db, Forge: client, Redactor: redact.New(redact.Options{}), LockDir: t.TempDir()}
 	t.Cleanup(func() { _ = h.DB.Close() })
 	a := PlanStoryAuthority{Parent: "github:acme/app#362", Repo: github.Repo{Owner: "acme", Name: "app"}, ParentNumber: 362, ParentID: 3620, Stage: "story", SelectedKey: "story-one", Candidate: "candidate-one"}
 	r := graphexec.PlanStoryRequest{RequestID: "request-one", Operation: "create", Stage: "story", Candidate: a.Candidate, SharedRevision: "shared-one", Draft: planbrief.PlanDraft{Key: a.SelectedKey, Name: "A usable story", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "shape a story", Benefit: "retain intent"}, Problem: "Plans need discussion", InScope: []string{"Drafts"}, NotInScope: []string{"Implementation"}}}
@@ -150,7 +159,7 @@ func TestPlanBoundaryCreateRecovery(t *testing.T) {
 			h, f, a, r, restart := planBoundarySetup(t)
 			f.failCreate = phase != "attach"
 			f.failAttach = phase == "attach"
-			planApply(t, h, a, r, "uncertain")
+			planApplySharedFailure(t, h, a, r)
 			restart()
 			if phase == "unobservable" {
 				f.hidden = true
@@ -195,7 +204,7 @@ func TestPlanBoundaryUpdateAndRetirementRecovery(t *testing.T) {
 	r.ChangedSections = []string{"intent"}
 	r.Draft.Problem = "An improved explanation"
 	f.failUpdate = true
-	planApply(t, h, a, r, "uncertain")
+	planApplySharedFailure(t, h, a, r)
 	restart()
 	updated := planApply(t, h, a, r, "applied")
 	if updated.IssueID != created.IssueID || f.patches != 1 {
@@ -217,8 +226,9 @@ func TestPlanBoundaryUpdateAndRetirementRecovery(t *testing.T) {
 	a.ActorID = 10
 	a.RetirementCandidate = "candidate-two"
 	a.RetirementRevision = updated.Revision
+	planAuthorizeRetirement(t, h, &a, r)
 	f.failRetire = true
-	planApply(t, h, a, r, "uncertain")
+	planApplySharedFailure(t, h, a, r)
 	restart()
 	planApply(t, h, a, r, "applied")
 	if f.child["state_reason"] != "not_planned" || f.patches != 2 {
@@ -392,4 +402,36 @@ func planScaffoldHeadings(t *testing.T) []string {
 		t.Fatal(err)
 	}
 	return strings.Split(strings.TrimSpace(string(raw)), "\n")
+}
+
+func planApplySharedFailure(t *testing.T, h *PlanStoryActivity, a PlanStoryAuthority, r graphexec.PlanStoryRequest) {
+	t.Helper()
+	got, err := h.Apply(t.Context(), a, r)
+	if err == nil {
+		t.Fatalf("shared HTTP failure concealed: %+v", got)
+	}
+	effect, loadErr := h.DB.LatestPlanStoryEffect(t.Context(), a.Parent, r.RequestID)
+	if loadErr != nil || effect.Outcome != "uncertain" {
+		t.Fatalf("uncertainty lost: %+v %v", effect, loadErr)
+	}
+}
+func planAuthorizeRetirement(t *testing.T, h *PlanStoryActivity, a *PlanStoryAuthority, r graphexec.PlanStoryRequest) {
+	t.Helper()
+	state, revision, err := h.DB.GetPlanWorkflowState(t.Context(), a.Parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := state.ReviewRevision(r.Draft.Key, r.Stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range state.Stories {
+		if state.Stories[i].Key == r.Draft.Key {
+			state.Stories[i].Wait = &planbrief.PlanWait{ID: "retire-wait", Kind: "retire", IssueID: 4000, Stage: r.Stage, Candidate: a.RetirementCandidate, Revision: review}
+		}
+	}
+	if _, err = h.DB.SavePlanWorkflowState(t.Context(), a.Parent, revision, state); err != nil {
+		t.Fatal(err)
+	}
+	a.Confirmation = &planbrief.PlanOwnerReply{ID: 99, OwnerID: a.OwnerID, ActorID: a.ActorID, IssueID: 4000, Key: r.Draft.Key, Stage: r.Stage, Candidate: a.RetirementCandidate, WaitID: "retire-wait", Body: "/retire-plan " + r.Draft.Key + " " + a.RetirementCandidate}
 }

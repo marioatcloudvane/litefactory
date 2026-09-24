@@ -18,6 +18,9 @@ import (
 	"github.com/cloudvane/litefactory/internal/store"
 )
 
+// ErrReportReceiptUncertain means lookup succeeded but no unique trustworthy receipt exists.
+var ErrReportReceiptUncertain = errors.New("report receipt uncertain")
+
 // DeliveryError identifies durable pending work without exposing retained body
 // text. The daemon owns retry timing; a turn makes only one delivery attempt.
 type DeliveryError struct {
@@ -58,6 +61,14 @@ func (r *Reporter) deliveryIntent(task, destination naming.Ref, sessionID, trigg
 // ReportPending resumes the exact retained delivery before command/readiness
 // reevaluation. A refused original request can never become a fresh invocation.
 func (r *Reporter) ReportPending(ctx context.Context, sessionID, triggerID int64) (Posted, bool, error) {
+	row, outcomeErr := r.db.GetCreationRejection(ctx, sessionID, triggerID)
+	if outcomeErr == nil {
+		posted, err := r.resumeCreationRejection(ctx, row)
+		return posted, true, err
+	}
+	if !errors.Is(outcomeErr, store.ErrNotFound) {
+		return Posted{}, false, outcomeErr
+	}
 	delivery, found, err := r.db.FindPendingReportDelivery(ctx, sessionID, triggerID)
 	if err != nil || !found {
 		return Posted{}, found, err
@@ -160,8 +171,9 @@ func (r *Reporter) dispatchDelivery(ctx context.Context, delivery store.ReportDe
 	// answered", and it always carries its own delivery marker, so a pre-journal
 	// task-only bot comment cannot be mistaken for it or for its receipt. Crash
 	// recovery matches it by marker in the PossiblySent branch above. Every
-	// other runless purpose still takes the probe.
-	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) {
+	// creation intake outcome likewise has a source-specific delivery identity.
+	// Other runless purposes still take the probe.
+	if delivery.RunID == 0 && !isCreationPresentation(delivery.Purpose) && delivery.Purpose != "creation-rejection" && delivery.Purpose != "creation-preparation" && delivery.Purpose != "creation-acceptance" && delivery.TriggerNamespace != "plan-observation" && delivery.TriggerNamespace != "plan-reply" {
 		ambiguous, err := r.legacyRunlessConflict(ctx, delivery, destination)
 		if err != nil {
 			return Posted{}, err
@@ -274,10 +286,10 @@ func (r *Reporter) recoverDelivery(ctx context.Context, delivery store.ReportDel
 		}
 	}
 	if conflict {
-		return 0, errors.New("matching delivery identity has conflicting remote content")
+		return 0, fmt.Errorf("%w: matching delivery identity has conflicting remote content", ErrReportReceiptUncertain)
 	}
 	if lowest == 0 {
-		return 0, errors.New("no trustworthy receipt found; empty lookup does not prove non-delivery")
+		return 0, fmt.Errorf("%w: no trustworthy receipt found; empty lookup does not prove non-delivery", ErrReportReceiptUncertain)
 	}
 	return lowest, nil
 }

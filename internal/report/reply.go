@@ -192,11 +192,19 @@ const (
 	ReplyAppliesResolution
 	// ReplyCreationProposal presents exact retained owner-review content.
 	ReplyCreationProposal
+	// ReplyCreationRejected explains a confirmed creation intake refusal.
+	ReplyCreationRejected
+	// ReplyCreationAccepted acknowledges durable creation consent.
+	ReplyCreationAccepted
 )
 
 // String renders the kind for logs and test failures.
 func (k ReplyKind) String() string {
 	switch k {
+	case ReplyCreationAccepted:
+		return "creation_accepted"
+	case ReplyCreationRejected:
+		return "creation_rejected"
 	case ReplyCreationProposal:
 		return "creation_proposal"
 	case ReplyUnknownCommand:
@@ -271,7 +279,7 @@ func (k ReplyKind) String() string {
 // valid reports whether k is one of the real kinds.
 func (k ReplyKind) valid() bool {
 	switch k {
-	case ReplyCreationProposal:
+	case ReplyCreationRejected, ReplyCreationProposal, ReplyCreationAccepted:
 		return true
 	case ReplyUnknownCommand, ReplyEmptySpike:
 		return true
@@ -386,10 +394,12 @@ func (k ReplyKind) RefusesSync() bool {
 // Reply is a run-less answer to a comment: the reply forms from LF-2, which
 // carry the lf:reply marker and no run ordinal because no run happened.
 type Reply struct {
-	Creation         *CreationReply
-	SourceGeneration int
-	SourceStoryIssue int
-	SourceCommentID  int64
+	CreationAcceptance *CreationAcceptance
+	CreationRejection  *CreationRejection
+	Creation           *CreationReply
+	SourceGeneration   int
+	SourceStoryIssue   int
+	SourceCommentID    int64
 	// Ref is the task the comment was on. It appears in the marker, so it must
 	// validate.
 	Ref naming.Ref
@@ -734,12 +744,22 @@ func (r Reply) body() string {
 
 	span, named := commandSpan(r.Command)
 	switch r.Kind {
+	case ReplyCreationAccepted:
+		if r.CreationAcceptance != nil {
+			b.WriteString(r.CreationAcceptance.body())
+		}
+	case ReplyCreationRejected:
+		if r.CreationRejection != nil {
+			text, _ := r.CreationRejection.guidance()
+			b.WriteString(text)
+		}
 	case ReplyCreationProposal:
 		if r.Creation != nil {
 			b.WriteString("Retained creation proposal. Review the complete JSON below; preparation grants no publication.\n\n")
 			fence := fenceFor(r.Creation.Envelope)
 			b.WriteString(fence + "json\n" + r.Creation.Envelope + "\n" + fence + "\n\n")
-			fmt.Fprintf(&b, "To approve these exact bytes for the next Research attempt, comment:\n\n`/mcp-create %s %s`", r.Creation.Hash, r.Creation.Relationship)
+			fmt.Fprintf(&b, "To approve these exact bytes, comment:\n\n`/mcp-create %s %s`", r.Creation.Hash, r.Creation.Relationship)
+			b.WriteString("\n\n" + CreationGuidance(r.Creation.Publication))
 		}
 	case ReplyEmptySpike:
 		b.WriteString("`/spike` needs something to work on. Say what you want tried, on the same line or the ones after it:")
@@ -1095,4 +1115,7 @@ const conflictPathRejectionSentence = "%d of the conflicting path(s) could not b
 	"were counted instead of printed."
 
 // CreationReply contains the complete retained JSON and its exact fingerprint.
-type CreationReply struct{ Envelope, Hash, Relationship string }
+type CreationReply struct {
+	Envelope, Hash, Relationship string
+	Publication                  CreationPublication
+}
