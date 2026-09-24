@@ -2,7 +2,7 @@ The scope is one standalone Bug workflow, selected by the existing `bug` label, 
 
 ## In scope
 
-- Reuse the existing graph engine and available activities, and deliver the missing lf_implement_* activities here for Bug without waiting for #319.
+- Reuse the existing graph engine and available activities, and deliver the missing lf_bug_* activities here for Bug without waiting for #319.
 - Keep Root Cause, Impact and Solution in one analysis report, including reproduction, severity, proposed remedy, complexity and observable success criteria.
 - Let one analyst handle clarification and shaping, looping on owner feedback until the owner approves that analysis revision.
 - Let one fixer change code and regression tests within the approved remedy.
@@ -20,7 +20,7 @@ Feature story breakdowns, switches between feature modes, automatic bug detectio
 
 This is **one workflow**, with two normal owner gates: approval of the remedy and approval of the tested PR for delivery. A ready analysis is a draft, not permission to repair. Missing facts use a question wait; feedback returns to the same analyst. Test failures return to the fixer while budget remains. A materially different remedy returns to analysis and needs renewed approval. No feature-mode handoff occurs.
 
-The following DOT is an illustrative flow, not an executable engine configuration. Labels identify reused generic activities and the proposed lf_implement_* activities. Owner-reply edges represent durable waits and later continuation, not an agent waiting in memory. Factory delivery boxes describe required effects, not claims that those activities already exist.
+The following DOT is an illustrative flow, not an executable engine configuration. Labels identify reused generic activities and the proposed lf_bug_* activities. Owner-reply edges represent durable waits and later continuation, not an agent waiting in memory. Factory delivery boxes describe required effects, not claims that those activities already exist.
 
 ```dot
 digraph bug {
@@ -31,17 +31,17 @@ digraph bug {
   ask [label="lf_ask: missing facts"];
   review [label="lf_ask: approve remedy"];
   shape_loop [label="lf_loop: analysis budget"];
-  prepare [label="lf_implement_prepare"];
+  prepare [label="lf_bug_prepare"];
   fix [label="lf_agent: bug fixer"];
-  reserve [label="lf_implement_repair"];
-  tests [label="lf_implement_test_graph"];
+  reserve [label="lf_bug_repair"];
+  tests [label="lf_bug_test_graph"];
   retry [label="lf_loop: shared repair budget"];
-  pr [label="lf_implement_pr"];
+  pr [label="lf_bug_pr"];
   delivery [label="lf_ask: approve current PR"];
-  merge [label="lf_implement_merge"];
+  merge [label="lf_bug_merge"];
   report [label="lf_comment: delivered"];
   partial [label="lf_comment: incomplete"];
-  closed [label="lf_implement_close"];
+  closed [label="lf_bug_close"];
   complete [label="Complete"];
   stopped [label="Stopped; evidence retained"];
 
@@ -85,11 +85,11 @@ The test graph is a separate graph, not a DOT subgraph embedded in the parent:
 ```dot
 digraph bug_tests {
   rankdir=LR;
-  bind [label="lf_implement_recipe"];
-  regression [label="lf_implement_checks: focused"];
-  suite [label="lf_implement_checks: full"];
-  record [label="lf_implement_record"];
-  result [label="lf_implement_handoff"];
+  bind [label="lf_bug_recipe"];
+  regression [label="lf_bug_checks: focused"];
+  suite [label="lf_bug_checks: full"];
+  record [label="lf_bug_record"];
+  result [label="lf_bug_handoff"];
 
   bind -> regression [label="inputs valid"];
   bind -> record [label="invalid / unavailable"];
@@ -122,7 +122,7 @@ Full-suite success means the regression and all mandatory project checks pass ag
 
 Introduce **two bug-specific roles**: **Bug analyst** combines investigation and shaping, and **Bug fixer** performs the initial repair and bounded corrections. The graph is the orchestrator. Test execution, PR preparation and integration are factory activities, so they do not need extra reasoning agents.
 
-Reuse `lf_agent`, `lf_if`, `lf_loop`, `lf_ask` and `lf_comment` where their admitted contracts fit, and deliver the ten activities specified below within #367, admitted only for Bug. Bug admission, the Bug result contract and the narrow admission of these lf_implement_* names are included; #319 and feature Implement enablement are excluded.
+Reuse `lf_agent`, `lf_if`, `lf_loop`, `lf_ask` and `lf_comment` where their admitted contracts fit, and deliver the ten activities specified below within #367, admitted only for Bug. Bug admission and the Bug result contract are included; these names use Bug's own activity namespace without a cross-prefix exception, while #319 and feature Implement enablement are excluded.
 
 ### Bug analyst specification
 
@@ -183,29 +183,34 @@ These are proposed additions to deliver here, not dependencies on future work:
 
 | New activity | Bug-only responsibility and result |
 |---|---|
-| `lf_implement_prepare` | Validate the current approved bug scope and task worktree; bind the initial attempt to that scope and source, or return blocked without starting repair. |
-| `lf_implement_recipe` | Resolve and validate the regression, focused-test and full-suite recipe against approved criteria and the environment; return a versioned recipe or blocked. |
-| `lf_implement_checks` | Execute one selected recipe phase under factory control; return pass, fail, blocked or cancelled with command, source, environment, exit status and log references. |
-| `lf_implement_repair` | Atomically reserve one additional repair attempt and prepare its failure/feedback context; return reserved, exhausted, reshape or blocked before the fixer runs. |
-| `lf_implement_record` | Persist each attempt and check result against its scope, source and recipe; acknowledge recorded evidence without granting approval. |
-| `lf_implement_handoff` | Finalize the test child's aggregate JSON result and return its evidence references to the parent; return pass only when every mandatory check is current and passing. |
-| `lf_implement_test_graph` | Invoke, resume or recover the separate test child using a durable call identity; propagate cancellation and return its recorded result without duplicating execution. |
-| `lf_implement_pr` | Prepare or update the bug PR from the tested source through existing factory git/GitHub capabilities; return the PR, exact head and target for owner review. |
-| `lf_implement_merge` | Recheck owner approval and test evidence for the exact PR head and target, integrate through existing factory capabilities and confirm the result; stale inputs return for fresh checks and review. |
-| `lf_implement_close` | Close the bug issue only after confirmed integration and record the remote outcome; failed or uncertain closure stays pending and is recovered before retry. |
+| `lf_bug_prepare` | Validate the current approved bug scope and task worktree; bind the initial attempt to that scope and source, or return blocked without starting repair. |
+| `lf_bug_recipe` | Resolve and validate the regression, focused-test and full-suite recipe against approved criteria and the environment; return a versioned recipe or blocked. |
+| `lf_bug_checks` | Execute one selected recipe phase under factory control; return pass, fail, blocked or cancelled with command, source, environment, exit status and log references. |
+| `lf_bug_repair` | Atomically reserve one additional repair attempt and prepare its failure/feedback context; return reserved, exhausted, reshape or blocked before the fixer runs. |
+| `lf_bug_record` | Persist each attempt and check result against its scope, source and recipe; acknowledge recorded evidence without granting approval. |
+| `lf_bug_handoff` | Finalize the test child's aggregate JSON result and return its evidence references to the parent; return pass only when every mandatory check is current and passing. |
+| `lf_bug_test_graph` | Invoke, resume or recover the separate test child using a durable call identity; propagate cancellation and return its recorded result without duplicating execution. |
+| `lf_bug_pr` | Prepare or update the bug PR from the tested source through existing factory git/GitHub capabilities; return the PR, exact head and target for owner review. |
+| `lf_bug_merge` | Recheck owner approval and test evidence for the exact PR head and target, integrate through existing factory capabilities and confirm the result; stale inputs return for fresh checks and review. |
+| `lf_bug_close` | Close the bug issue only after confirmed integration and record the remote outcome; failed or uncertain closure stays pending and is recovered before retry. |
 
-The first six names come from the earlier #319 proposal, but their behavior here is defined for one approved bug. The remaining four names make the previously unnamed child-execution and delivery steps explicit. Existing git, GitHub, persistence and execution capabilities should be reused behind these activities.
+The activity responsibilities are defined for one approved bug, so all ten use lf_bug_* names. The earlier #319 proposal informed some responsibilities but does not establish an identical Implement contract. Existing git, GitHub, persistence and execution capabilities should be reused behind these activities.
 
-`lf_implement_next` is unnecessary because there is one bug rather than a queue of feature stories. No new reasoning agents are needed. The fixer still runs through `lf_agent`; `lf_implement_repair` reserves its attempt and supplies context rather than launching a second fixer.
+`lf_bug_next` is unnecessary because there is one bug rather than a queue of feature stories. No new reasoning agents are needed. The fixer still runs through `lf_agent`; `lf_bug_repair` reserves its attempt and supplies context rather than launching a second fixer.
 
 ## Placement in the graphs
 
-The parent uses `lf_implement_prepare` after scope approval, then invokes the fixer and `lf_implement_test_graph`. A fixable check failure or scoped PR feedback goes through the existing loop and `lf_implement_repair` before returning to the fixer. The child uses `lf_implement_recipe`, `lf_implement_checks` for focused and full-suite phases, `lf_implement_record`, then `lf_implement_handoff`. Passing results lead to `lf_implement_pr`, owner approval, `lf_implement_merge` and `lf_implement_close`.
+The parent uses `lf_bug_prepare` after scope approval, then invokes the fixer and `lf_bug_test_graph`. A fixable check failure or scoped PR feedback goes through the existing loop and `lf_bug_repair` before returning to the fixer. The child uses `lf_bug_recipe`, `lf_bug_checks` for focused and full-suite phases, `lf_bug_record`, then `lf_bug_handoff`. Passing results lead to `lf_bug_pr`, owner approval, `lf_bug_merge` and `lf_bug_close`.
 
 The record carries the bug and scope revisions, attempt identity, durable child-call identity, source and target revisions, recipe/environment, check results, remaining budgets and delivery references. Every activity validates its applicable identities and permissions. Replays recover an existing outcome; unknown outcomes cannot become success.
 
 The initial fix does not consume a repair retry. Additional attempts are reserved once, before execution, from the shared default budget of two; restarts and owner replies cannot reset it. Analysis retains its configurable default of eight invocations. A changed remedy returns to analysis; changed source, recipe or relevant target invalidates affected checks and approval. Missing recipes, environment failures, interrupted tests and exhausted budgets remain explicit incomplete outcomes.
 
-The current registry couples activity prefixes to admitted modes. The required change is to admit this exact activity set for Bug, not to relabel the workflow as Implement or allow arbitrary cross-workflow activities. Validation must show that the Bug lifecycle works while #319 is absent and that unrelated feature workflows gain no new activity authority.
+The current registry couples activity prefixes to admitted modes. Admit Bug and its lf_bug_* namespace through the normal workflow contract; the previously proposed exception for Implement-prefixed activities is removed. Validation must show that the Bug lifecycle works while #319 is absent and that unrelated feature workflows gain no new activity authority.
 
-Your reply removes the dependency and authorizes defining the missing activities here. The exact ten-activity split is my shaping proposal. The complete saved scope now includes this inventory and updated DOT labels; the earlier agent specifications and behavioral rules remain part of it. No product code, tests or remote delivery were executed in this shaping pass.
+Owner replies remove the dependency and require Bug-specific names unless later Implement can use an activity unchanged. The exact ten-activity split is my shaping proposal. The complete saved scope now includes this inventory and updated DOT labels; the earlier agent specifications and behavioral rules remain part of it. No product code, tests or remote delivery were executed in this shaping pass.
+
+
+## Naming and later reuse
+
+All ten new activities use lf_bug_* because their currently specified contracts are Bug-specific and like-for-like Implement reuse is not established. Shared execution and persistence code may be reused internally. Retaining an lf_implement_* name would require the same versioned input/output contract, effects, authorization semantics, failure outcomes and retry/recovery behavior in both workflows, without a Bug-specific adapter or semantic change. #367 does not expand into #319 to establish that future contract.

@@ -2,12 +2,12 @@
 
 ## Request
 
-Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution analysis, approved repair, a separate full-suite test graph and approved delivery; deliver all missing lf_implement_* activities within #367 for Bug only, without requiring #319.
+Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution analysis, approved repair, a separate full-suite test graph and approved delivery; deliver the ten Bug-specific lf_bug_* activities within #367 without requiring #319.
 
 ## Decisions
 
 - **d1** — Owner-set direction: use the existing graph engine and keep the bug workflow lighter than the existing feature workflows.
-- **d2** — Owner correction: #319 is not a prerequisite, and #367 must deliver any needed lf_implement_* activities with authority limited to the Bug workflow.
+- **d2** — Owner correction: #319 is not a prerequisite, and #367 must deliver its missing activities with authority limited to the Bug workflow.
 - **d3** — Owner-set content: analysis covers Root Cause, Impact and Solution; repair covers code, unit tests and a suite rerun, with clarification when the bug location is ambiguous.
 - **d4** — Shaping decision: keep one versioned bug record instead of requiring a feature story breakdown.
 - **d5** — Shaping decision: record engineering completion, validation, owner acceptance and delivery as separate outcomes.
@@ -21,9 +21,10 @@ Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution
 - **d13** — Shaping decision: introduce a Bug analyst that combines investigation and shaping and a Bug fixer that handles initial repair and bounded corrections.
 - **d14** — Shaping decision: the graph owns orchestration, publication and delivery while deterministic factory activities run the test child.
 - **d15** — Shaping decision: present parent and child DOT diagrams as illustrative scope samples rather than executable shipped graph definitions.
-- **d16** — Shaping decision: deliver lf_implement_prepare, lf_implement_recipe, lf_implement_checks, lf_implement_repair, lf_implement_record and lf_implement_handoff for one approved bug.
-- **d17** — Shaping decision: deliver lf_implement_test_graph, lf_implement_pr, lf_implement_merge and lf_implement_close for the separate test child and approved bug delivery.
-- **d18** — Shaping decision: admit the exact new lf_implement_* activity set only within Bug and leave feature Implement enablement and lf_implement_next outside this scope.
+- **d16** — Shaping decision: deliver lf_bug_prepare, lf_bug_recipe, lf_bug_checks, lf_bug_repair, lf_bug_record and lf_bug_handoff for one approved bug.
+- **d17** — Shaping decision: deliver lf_bug_test_graph, lf_bug_pr, lf_bug_merge and lf_bug_close for the separate test child and approved bug delivery.
+- **d18** — Shaping decision: admit the new lf_bug_* activities in Bug's own namespace, remove the cross-prefix exception and leave feature Implement enablement and story scheduling outside this scope.
+- **d19** — Owner-set naming rule: use lf_implement_* only for activities reusable unchanged by later Implement, and use lf_bug_* otherwise.
 
 
 ## Assumptions
@@ -57,7 +58,8 @@ Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution
 - **a27** — The separate-child capability is limited to the required test workflow, excluding arbitrary recursive graph invocation and parallel child fan-out.
 - **a28** — Delivery requires a tested PR and approval of its current head and target, integration confirmation precedes closure, and a failed closure remains pending rather than claiming delivery finished.
 - **a29** — Owner rejection stops with retained evidence, unknown child outcomes prevent parent advancement, and exhausted budgets require explicit authorized continuation rather than an automatic reset.
-- **a30** — lf_implement_prepare binds the approved scope and initial attempt, lf_implement_repair atomically reserves only additional attempts, and lf_agent remains the sole invocation mechanism for the Bug fixer.
-- **a31** — lf_implement_recipe binds mandatory focused and full-suite checks, lf_implement_checks executes a phase, lf_implement_record persists evidence, and lf_implement_handoff returns a source-bound child result without granting owner approval.
-- **a32** — lf_implement_test_graph durably invokes or recovers one child, lf_implement_pr presents the tested change, lf_implement_merge checks current approval and integration, and lf_implement_close confirms issue closure.
+- **a30** — lf_bug_prepare binds the approved scope and initial attempt, lf_bug_repair atomically reserves only additional attempts, and lf_agent remains the sole invocation mechanism for the Bug fixer.
+- **a31** — lf_bug_recipe binds mandatory focused and full-suite checks, lf_bug_checks executes a phase, lf_bug_record persists evidence, and lf_bug_handoff returns a source-bound child result without granting owner approval.
+- **a32** — lf_bug_test_graph durably invokes or recovers one child, lf_bug_pr presents the tested change, lf_bug_merge checks current approval and integration, and lf_bug_close confirms issue closure.
 - **a33** — Scope validation must demonstrate the full Bug lifecycle without #319 and reject use of the new activities by unrelated feature workflows.
+- **a34** — Like-for-like Implement compatibility is not established for any of the ten Bug contracts, so all use lf_bug_* while shared internal code remains reusable without promising identical activity contracts.
