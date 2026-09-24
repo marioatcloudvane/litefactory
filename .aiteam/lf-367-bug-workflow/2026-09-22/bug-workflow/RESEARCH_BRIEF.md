@@ -2,12 +2,12 @@
 
 ## Request
 
-Research #367: a lighter graph-driven bug lifecycle with clarification, Root Cause, Impact and Solution analysis, followed by code repair, unit-test updates and a graph-driven suite rerun; reuse #319 activities after that dependency is completed.
+Shape #367: a standalone bug-label workflow with Root Cause, Impact and Solution analysis, approved repair, a separate full-suite test graph and approved delivery; deliver all missing lf_implement_* activities within #367 for Bug only, without requiring #319.
 
 ## Decisions
 
 - **d1** — Owner-set direction: use the existing graph engine and keep the bug workflow lighter than the existing feature workflows.
-- **d2** — Owner-set dependency: wait for #319 to be completed before implementing the activities-dependent bug workflow.
+- **d2** — Owner correction: #319 is not a prerequisite, and #367 must deliver any needed lf_implement_* activities with authority limited to the Bug workflow.
 - **d3** — Owner-set content: analysis covers Root Cause, Impact and Solution; repair covers code, unit tests and a suite rerun, with clarification when the bug location is ambiguous.
 - **d4** — Shaping decision: keep one versioned bug record instead of requiring a feature story breakdown.
 - **d5** — Shaping decision: record engineering completion, validation, owner acceptance and delivery as separate outcomes.
@@ -21,6 +21,9 @@ Research #367: a lighter graph-driven bug lifecycle with clarification, Root Cau
 - **d13** — Shaping decision: introduce a Bug analyst that combines investigation and shaping and a Bug fixer that handles initial repair and bounded corrections.
 - **d14** — Shaping decision: the graph owns orchestration, publication and delivery while deterministic factory activities run the test child.
 - **d15** — Shaping decision: present parent and child DOT diagrams as illustrative scope samples rather than executable shipped graph definitions.
+- **d16** — Shaping decision: deliver lf_implement_prepare, lf_implement_recipe, lf_implement_checks, lf_implement_repair, lf_implement_record and lf_implement_handoff for one approved bug.
+- **d17** — Shaping decision: deliver lf_implement_test_graph, lf_implement_pr, lf_implement_merge and lf_implement_close for the separate test child and approved bug delivery.
+- **d18** — Shaping decision: admit the exact new lf_implement_* activity set only within Bug and leave feature Implement enablement and lf_implement_next outside this scope.
 
 
 ## Assumptions
@@ -28,7 +31,7 @@ Research #367: a lighter graph-driven bug lifecycle with clarification, Root Cau
 - **a1** — Root Cause, Impact and Solution remain separate sections produced by the Bug analyst, which also shapes the remedy and handles review feedback.
 - **a2** — The owner's acceptance of delivery if it stays in one mode is taken to accept the proposed integration-and-closure boundary within one standalone Bug workflow.
 - **a3** — All four earlier questions are settled by the reply; the revised scope is a new draft for review, not blanket owner approval of its new details.
-- **a4** — Dependency activity names and contracts from #319 remain provisional; verify delivered capabilities before adopting them, and expose unavailable prerequisites as blocked rather than substituting ad hoc execution.
+- **a4** — Earlier #319 activity proposals are historical naming context only; #367 owns the required Bug-only activity contracts and does not wait for #319 or enable feature Implement execution.
 - **a5** — The primary story is one reporter taking one defect from observed failure to a scoped repair and confirmed delivery using the current issue, branch and repository context.
 - **a6** — The bug record contains expected behavior, actual behavior, affected environment/version, reproduction steps and status, evidence references, root cause, trigger, preconditions, impact, severity rationale, remedy, complexity and observable success criteria.
 - **a7** — The execution record contains analysis and approved scope revisions, owner answers, source and target revisions, graph versions, child run and durable call identities, test recipe/environment, attempts/outcomes, remaining budgets and delivery references.
@@ -41,7 +44,7 @@ Research #367: a lighter graph-driven bug lifecycle with clarification, Root Cau
 - **a14** — An unreproduced defect triggers a batched request for missing context and remains incomplete if unsupported; a broader remedy returns to analysis inside Bug without automatically selecting another workflow.
 - **a15** — Regression evidence must demonstrate the recorded failure before the fix and success after it, or explicitly explain an unavailable before-fix run; acceptance requires all mandatory checks against the final source revision.
 - **a16** — A missing test recipe, environment failure, unrelated failing check or flaky result is recorded distinctly and cannot silently become a passing result or authorize unrelated changes.
-- **a17** — Default to eight analyst invocations and two repair attempts after the initial fix, using configurable persistent budgets and reconciling #319's delivered repair accounting before implementation.
+- **a17** — Default to eight analyst invocations and two repair attempts after the initial fix, with configurable persistent accounting delivered in #367 and no dependency on #319.
 - **a18** — Preserve answers, budgets and completed outcomes across restart, invalidate approvals after material scope changes, and invalidate affected check evidence when source, recipe or relevant target changes.
 - **a19** — Cancellation stops new work and propagates to the child; duplicate replies and resumed attempts cannot repeat a recorded child invocation, publication, integration or closure effect.
 - **a20** — For new admitted tasks the bug label takes precedence over feature-mode labels, while existing tasks retain their admitted workflow and label removal alone does not cancel work or revoke approval.
@@ -54,3 +57,7 @@ Research #367: a lighter graph-driven bug lifecycle with clarification, Root Cau
 - **a27** — The separate-child capability is limited to the required test workflow, excluding arbitrary recursive graph invocation and parallel child fan-out.
 - **a28** — Delivery requires a tested PR and approval of its current head and target, integration confirmation precedes closure, and a failed closure remains pending rather than claiming delivery finished.
 - **a29** — Owner rejection stops with retained evidence, unknown child outcomes prevent parent advancement, and exhausted budgets require explicit authorized continuation rather than an automatic reset.
+- **a30** — lf_implement_prepare binds the approved scope and initial attempt, lf_implement_repair atomically reserves only additional attempts, and lf_agent remains the sole invocation mechanism for the Bug fixer.
+- **a31** — lf_implement_recipe binds mandatory focused and full-suite checks, lf_implement_checks executes a phase, lf_implement_record persists evidence, and lf_implement_handoff returns a source-bound child result without granting owner approval.
+- **a32** — lf_implement_test_graph durably invokes or recovers one child, lf_implement_pr presents the tested change, lf_implement_merge checks current approval and integration, and lf_implement_close confirms issue closure.
+- **a33** — Scope validation must demonstrate the full Bug lifecycle without #319 and reject use of the new activities by unrelated feature workflows.

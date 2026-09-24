@@ -93,3 +93,11 @@ Evidence:
 - `internal/turn/execute.go:631` @ `40fa12605a4c5bb5b366a6e2806add039c7cab40`
 - `internal/turn/plan_graph.go:55` @ `40fa12605a4c5bb5b366a6e2806add039c7cab40`
 - `internal/store/plan_workflow.go:13` @ `40fa12605a4c5bb5b366a6e2806add039c7cab40`
+
+## f10
+
+At revision 6e486b3340f54e4642554a51ddb102ef2b1db075 the graph registry accepts the five generic mechanisms for valid modes and otherwise requires an lf_<mode>_ prefix; admitting the requested lf_implement_* names in standalone Bug therefore needs an explicit admission contract rather than silently selecting Implement.
+
+Evidence:
+
+- `internal/graphexec/registry.go:37` @ `6e486b3340f54e4642554a51ddb102ef2b1db075`
