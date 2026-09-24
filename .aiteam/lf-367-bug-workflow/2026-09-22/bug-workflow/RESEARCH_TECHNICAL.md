@@ -131,3 +131,12 @@ Evidence:
 
 - `internal/graphexec/graphexec_test.go`
 - `internal/turn/graph_composition_test.go`
+
+## f18
+
+RESOLVES f15. Graph limits count the maximum dispatches of a node per instance, across every entry edge, so one attempt node entered from test failure and from PR feedback shares one repair counter. The DOT profile names its identity with a mode attribute only, so a workflow identity needs a new profile attribute.
+
+Evidence:
+
+- `internal/graphexec/doc.go:9`
+- `internal/graphexec/doc.go:13`
