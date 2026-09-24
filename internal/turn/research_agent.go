@@ -16,7 +16,7 @@ import (
 // ResearchAgentAction names the registered private Research invocation activity.
 const ResearchAgentAction = "lf_agent"
 
-const researchNodeInstructions = "\nFactory invocation: private Research graph node. Return exactly one JSON object with version=1, response=ask or done, and result containing the complete application result. ask requires an incomplete result and permitted nonempty owner questions; done requires a completed result without questions. The entire object is limited to 1 MiB. Use the existing result helper for application-result preflight/correction/receipts; the terminal node result must match its current retained application candidate. Returning a node result retains private progress only; only an explicit graph comment activity may publish it.\n"
+const researchNodeInstructions = "\nFactory invocation: private Research graph node. Return exactly one JSON object with version=1, response=ask or done, and result containing the complete application result. ask requires an incomplete result and permitted nonempty owner questions; done requires a completed result without questions. The entire object is limited to 1 MiB. Use the existing result helper for application-result preflight/correction/receipts, and submit the result first: the terminal node result only confirms the retained accepted result and never supplies it, so one with no accepted submission, or with a different result, fails the attempt. Returning a node result retains private progress only; only an explicit graph comment activity may publish it.\n"
 
 // researchNodeGuidance is what every invocation carries in its persistent
 // instruction channel, so it holds only what is fatal to get wrong: the
@@ -64,8 +64,11 @@ func RegisterResearchAgent(specs *graphexec.Registry, activities *ActivityRegist
 
 // RegisterAgent installs the shared invocation activity under an admitted mode policy.
 func RegisterAgent(specs *graphexec.Registry, activities *ActivityRegistry, handler AgentActivity) error {
-	if specs == nil || activities == nil || handler.Prepare == nil || !handler.Policy.Mode.Valid() || (handler.Policy.Decode == nil && handler.Policy.NodeProtocol == nil) {
+	if specs == nil || activities == nil || handler.Prepare == nil {
 		return errors.New("research agent registration requires registries and preparation")
+	}
+	if err := handler.Policy.Admit(); err != nil {
+		return fmt.Errorf("research agent registration: %w", err)
 	}
 	if _, exists := activities.Resolve(ResearchAgentAction); exists {
 		return errors.New("research agent activity already registered")
@@ -109,7 +112,7 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 			returnedErr = errors.Join(returnedErr, invocation.Close())
 		}
 	}()
-	if h.Policy.NodeProtocol == nil && (invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode)) {
+	if invocation.Results == nil || invocation.Results.binding.RunID != a.RunID || invocation.Results.binding.Mode != string(h.Policy.Mode) {
 		return out, errors.New("research invocation lacks matching application-result authority")
 	}
 	req := invocation.Request
@@ -167,26 +170,9 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	if len(result.ResultText) > agentresult.MaxResearchNodeBytes {
 		return out, errors.New("research node output exceeds 1 MiB")
 	}
-	if h.Policy.NodeProtocol != nil {
-		encoded, narrative, err := h.Policy.NodeProtocol.Decode(ctx, a, []byte(result.ResultText))
-		if err != nil {
-			return out, err
-		}
-		narrated := result.Clone()
-		narrated.ResultText = narrative
-		out.ProcessResult = narrated
-		out.Outcome = "success"
-		out.Kind = store.GraphOutputJSON
-		out.Output = encoded
-		return out, nil
-	}
-	trusted, err := invocation.Results.trustedContext(ctx)
+	node, revision, err := h.acceptRetained(ctx, invocation.Results, result.ResultText)
 	if err != nil {
 		return out, err
-	}
-	node, d := h.Policy.Decode([]byte(result.ResultText), trusted)
-	if !d.Valid || !d.Complete {
-		return out, resultDiagnosticError(d)
 	}
 	if h.Policy.AuthorizeOutput != nil {
 		attempt, err := opts.DB.GetGraphNodeAttempt(ctx, a.NodeAttemptID)
@@ -202,19 +188,14 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 			return out, err
 		}
 	}
-	application, err := json.Marshal(agentresult.CreateInput{Result: node.Result})
-	if err != nil {
-		return out, err
+	var encoded []byte
+	if h.Policy.Retain != nil {
+		encoded, err = h.Policy.Retain(invocation.Results.Binding(), revision, node)
+	} else {
+		encoded, err = json.Marshal(node)
 	}
-	// Reuse current-attempt receipt/correction and terminal validation, without
-	// projectFinalWorkflow or the whole-turn save/report path.
-	finalizer := preparedMCP{service: invocation.Results}
-	if _, err := finalizer.consumeFinalResult(ctx, nil, string(application)); err != nil {
-		return out, fmt.Errorf("research application result: %w", err)
-	}
-	encoded, err := json.Marshal(node)
 	if err != nil {
-		return out, err
+		return out, fmt.Errorf("encode retained node: %w", err)
 	}
 	if len(encoded) > agentresult.MaxResearchNodeBytes {
 		return out, errors.New("retained research node exceeds 1 MiB")
@@ -230,6 +211,39 @@ func (h AgentActivity) Execute(ctx context.Context, opts Options, a ActivityRequ
 	out.ProcessResult = narrated
 	out.Outcome, out.Kind, out.Output = "success", store.GraphOutputJSON, encoded
 	return out, nil
+}
+
+// acceptRetained is the runtime result boundary of every graph node. The
+// retained accepted shared result is the only source of the node's application
+// data and of every effect input derived from it. The runner's terminal text is
+// parsed for one purpose: to confirm completion and consistency against that
+// retained result. It cannot supply, reconstruct or replace one, so terminal-only
+// output and output that differs from the retained result both fail here, each
+// with its own cause, before anything is retained or any effect can follow.
+//
+// The policy's decoder judges the terminal envelope, and it does so under the
+// mode's own trusted context, so a mode with a richer result contract is held to
+// it here too. Only the response of a consistent envelope is carried over.
+func (h AgentActivity) acceptRetained(ctx context.Context, service *AgentResultService, terminal string) (agentresult.ResearchNode, int64, error) {
+	snapshot, revision, err := service.retainedCurrent(ctx)
+	if err != nil {
+		return agentresult.ResearchNode{}, 0, fmt.Errorf("terminal output cannot supply the application result; submit it through the shared result route: %w", err)
+	}
+	trusted, err := service.trustedContext(ctx)
+	if err != nil {
+		return agentresult.ResearchNode{}, 0, err
+	}
+	if d := agentresult.ValidateResult(snapshot.Result, trusted); !d.Valid || !d.Complete {
+		return agentresult.ResearchNode{}, 0, fmt.Errorf("retained application result is not complete: %w", resultDiagnosticError(d))
+	}
+	envelope, d := h.Policy.Decode([]byte(terminal), trusted)
+	if !d.Valid || !d.Complete {
+		return agentresult.ResearchNode{}, 0, fmt.Errorf("terminal envelope is not a valid confirmation of the retained result: %w", resultDiagnosticError(d))
+	}
+	if !agentresult.SameResult(snapshot.Result, envelope.Result) {
+		return agentresult.ResearchNode{}, 0, errors.New("terminal envelope result differs from the retained accepted result; return the result you submitted, or submit the correction first")
+	}
+	return agentresult.ResearchNode{Version: envelope.Version, Response: envelope.Response, Result: snapshot.Result}, revision, nil
 }
 
 // researchCommitNarrative is what a reader of the repository history sees for

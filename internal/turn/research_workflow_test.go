@@ -71,6 +71,9 @@ func TestResearchWorkflowProductionOutcomes(t *testing.T) {
 				if variant == "malformed" {
 					raw = `{"version":1,"response":"done"}`
 				}
+				if variant == "clear" {
+					submitLiveResult(t, req, raw)
+				}
 				if variant == "timeout" {
 					outcome = agent.OutcomeTimedOut
 					reason = "timeout"
@@ -123,6 +126,7 @@ func TestResearchWorkflowOwnerReplyColdFallback(t *testing.T) {
 		calls++
 		requests = append(requests, req)
 		if calls == 1 {
+			submitLiveResult(t, req, researchAskJSON)
 			return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchAskJSON, FinishedAt: time.Now()}, nil
 		}
 		if calls == 2 {
@@ -184,8 +188,9 @@ func TestResearchWorkflowOwnerReplyColdFallback(t *testing.T) {
 
 func TestResearchWorkflowReportRecoveryDoesNotRetryAgent(t *testing.T) {
 	calls := 0
-	runner := lifecycleMCPHost(func(_ context.Context, _ agent.Request) (*agent.RunResult, error) {
+	runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
 		calls++
+		submitLiveResult(t, req, researchDoneJSON)
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: researchDoneJSON, FinishedAt: time.Now()}, nil
 	})
 	f, forge, req := assembledResearchFixture(t, runner)
@@ -346,5 +351,31 @@ func TestResearchPreCutoverCaptureRefusesRecoveryEffects(t *testing.T) {
 	mustProgress(t, err)
 	if retained.Digest != definition.Digest {
 		t.Fatal("unsupported capture was rewritten")
+	}
+}
+
+// The retained accepted result is the only source of application data. A terminal
+// envelope confirms it: with no accepted submission, or with a different result,
+// the attempt fails with its cause and nothing is published.
+func TestResearchWorkflowTerminalEnvelopeOnlyConfirmsTheRetainedResult(t *testing.T) {
+	for _, tt := range []struct{ name, want string }{
+		{"terminal only", "no accepted shared result"},
+		{"mismatched", "differs from the retained accepted result"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := lifecycleMCPHost(func(_ context.Context, req agent.Request) (*agent.RunResult, error) {
+				terminal := researchDoneJSON
+				if tt.name == "mismatched" {
+					submitLiveResult(t, req, researchDoneJSON)
+					terminal = strings.Replace(researchDoneJSON, "Investigation finished.", "A different summary.", 1)
+				}
+				return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: terminal, FinishedAt: time.Now()}, nil
+			})
+			f, forge, req := assembledResearchFixture(t, runner)
+			out, err := Execute(t.Context(), f.opts, req)
+			if err == nil || out.Run.Status != store.RunFailed || forge.attemptCount() != 0 || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("output that is not the retained result completed or lost its cause: %+v posts=%d err=%v", out.Run, forge.attemptCount(), err)
+			}
+		})
 	}
 }

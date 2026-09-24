@@ -137,6 +137,9 @@ func TestWorkflowReuseSecondModeFileRoleWaitRestart(t *testing.T) {
 		}
 		raw, e := json.Marshal(agentresult.ResearchNode{Version: 1, Response: response, Result: agentresult.Result{Outcome: outcome, Comment: comment, Reason: reason, Questions: questions, Payload: agentresult.Payload{Plan: &agentresult.Plan{Summary: "Inspect fixture"}}}})
 		mustProgress(t, e)
+		if calls == 1 {
+			submitLiveResult(t, req, string(raw))
+		}
 		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(raw), FinishedAt: time.Now()}, nil
 	})
 	f, forge, _ := assembledResearchFixture(t, runner)

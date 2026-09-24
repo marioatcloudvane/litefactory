@@ -6,7 +6,7 @@
 
 - [x] **Research** — `RESEARCH_BRIEF.md` *(complete)*
 - [x] **Plan** — `plan_brief.md` + per-story sub-issues *(typed proposal prepared: 3 stories; publication pending factory submission)*
-- [ ] **Implement** — code + tests *(not started)*
+- [x] **Implement** — code + tests *(engineering complete for story-001..003; hold-back retained; rollout obligations pending)*
 - [ ] **Validate** — verification findings *(not started)*
 - [ ] **Spike** — `SPIKE.md` *(not started)*
 
@@ -26,3 +26,4 @@ for; nothing here licenses starting the next one.
 ## Notes
 
 Hold-back on graph Plan stays until the owner-run tryout; lifting it is a separate final step.
+- 2026-09-25 — Implement: story-001..003 engineered and tested (build/vet/lint clean; turn, daemon, cli and all other packages pass; one unrelated harness timing flake passed on rerun). Graph Plan hold-back retained; tryout and lift obligations unsatisfied.

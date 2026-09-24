@@ -131,7 +131,26 @@ func runMCPBound(ctx context.Context, prep *preparation, req agent.Request, sess
 	return p.finalize(ctx, prep, session, result, err)
 }
 
-func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
+func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession) (*preparedMCP, *agent.MCPLaunchSpec, error) {
+	return prepareMCPWith(ctx, prep, req, session, nil)
+}
+
+// resultOverride replaces the generic trusted resolver and grants of one launch
+// for a mode whose trusted context carries more than the generic one does. The
+// resolver is still called afresh for every validation, so identical bytes get
+// the same outcome for unchanged state and a change refuses them.
+type resultOverride struct {
+	Resolve func(context.Context) (agentresult.Context, error)
+	Targets []agentresult.Target
+	// Pass, when set, gives this attempt an application result of its own inside
+	// the graph instance. A graph instance normally authors one result; a mode
+	// whose instance runs several agent attempts, such as the Plan creation
+	// cycle's one attempt per story, needs each attempt's result identity to
+	// start at revision zero instead of revising the previous attempt's.
+	Pass string
+}
+
+func prepareMCPWith(ctx context.Context, prep *preparation, req agent.Request, session *SubmissionSession, override *resultOverride) (_ *preparedMCP, _ *agent.MCPLaunchSpec, err error) {
 	runtime := prep.mcpRuntime
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -148,6 +167,9 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		workContext = prep.ref.String()
 	}
 	workContext = researchWorkContext(workContext, prep.researchInstance)
+	if override != nil && override.Pass != "" {
+		workContext += "#" + override.Pass
+	}
 	contextValue := agentresult.Context{SchemaVersion: agentresult.SchemaVersion, Mode: req.Mode, WorkflowVersion: workflow, QuestionsAllowed: prep.promptInput.MayAsk, RequireAggregate: req.Mode == "implement", Stories: map[string]agent.ContributionStory{}, EngineeringComplete: map[string]bool{}}
 	if prep.typedPlan != nil {
 		contextValue.PlanScope = prep.typedPlan.scope
@@ -194,6 +216,12 @@ func prepareMCP(ctx context.Context, prep *preparation, req agent.Request, sessi
 		}
 		return cloneResultContext(contextValue), nil
 	}, ReadTargets: agentresult.EditTargets(req.Mode), EditTargets: agentresult.EditTargets(req.Mode)}
+	if override != nil {
+		if override.Resolve == nil {
+			return nil, nil, errors.New("result override requires a trusted resolver")
+		}
+		o.Resolve, o.ReadTargets, o.EditTargets = override.Resolve, slices.Clone(override.Targets), slices.Clone(override.Targets)
+	}
 	if req.Mode == "implement" {
 		o.PrepareAggregate = func(check context.Context, b store.ResultBinding, ref agent.EngineeringContribution, capture agent.AggregateCapture) (store.ResultAggregate, error) {
 			selected := make([]store.ResultStoryRevision, 0, len(contextValue.Stories))

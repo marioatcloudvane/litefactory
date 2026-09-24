@@ -1915,7 +1915,15 @@ func (d *Daemon) run(
 		t.recordWorkerStatus(workerCancelled)
 	}
 	if err != nil {
-		return d.leave(ctx, t, log, "the turn could not be conducted", err)
+		left := d.leave(ctx, t, log, "the turn could not be conducted", err)
+		if trigger.PlanReply != nil && left == nil {
+			// A child reply's cursor advances whenever run returns nil, and leave
+			// swallows the error. The reply is handled only together with the
+			// failure comment, so it must stay pending until a replay of the
+			// failed run has published one.
+			return &recoveryPending{err}
+		}
+		return left
 	}
 
 	if turnResult.Disposition == turn.DispositionLocked {
@@ -1962,9 +1970,15 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 		if route != "graph" {
 			return errors.New("plan child completion lacks graph admission")
 		}
+		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			return &recoveryPending{err}
+		}
 		return nil
 	}
 	if turnResult.ResearchGraph {
+		if err := d.requirePlanFailureReported(ctx, turnResult); err != nil {
+			return d.leave(ctx, t, log, "the failed Plan run has no published failure comment", err)
+		}
 		// Explicit graph comment activities own publication. Consuming an input
 		// here acknowledges handling only; it never rewrites the run outcome.
 		if _, err := d.reporter.Consume(ctx, t.session.ID, trigger.CommentID); err != nil {
@@ -2006,6 +2020,25 @@ func (d *Daemon) completeTurn(ctx context.Context, t *task, trigger turn.Trigger
 	// inherits the hook.
 	return d.leave(ctx, t, log, "the creation proposal could not be presented",
 		d.presentCreationProposal(ctx, t, turnResult.Run.ID, turnResult.Run.TriggerCommentID))
+}
+
+// requirePlanFailureReported keeps the owner's triggering comment unhandled after
+// a failed graph Plan run until that run's failure comment is published. The
+// comment and its handling are one act: a failed run whose failure never reached
+// the issue would otherwise spend the owner's input and leave nothing visible.
+// A successful run, and any run of another mode, owes nothing here.
+func (d *Daemon) requirePlanFailureReported(ctx context.Context, result turn.Result) error {
+	if !result.ResearchGraph || result.Run.ID == 0 || result.Run.Mode != string(agent.ModePlan) || result.Run.Succeeded() {
+		return nil
+	}
+	reported, err := d.db.GraphFailureReported(ctx, result.Run.ID, turn.PlanFailureNode)
+	if err != nil {
+		return fmt.Errorf("read the failure comment of failed Plan run %d: %w", result.Run.ID, err)
+	}
+	if !reported {
+		return fmt.Errorf("failed Plan run %d has no published failure comment; the owner's comment stays unhandled", result.Run.ID)
+	}
+	return nil
 }
 
 // refuseTools answers any obsolete lf:tools= label. The label's value is not

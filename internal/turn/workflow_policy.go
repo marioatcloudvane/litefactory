@@ -13,9 +13,16 @@ import (
 // WorkflowPolicy supplies domain contracts to the shared, admitted mechanisms.
 // It is factory-owned and frozen before dispatch; graph content cannot set it.
 type WorkflowPolicy struct {
-	// NodeProtocol supplies a distinct domain payload without manufacturing
-	// Research results. Nil retains the existing Research application contract.
-	NodeProtocol *WorkflowNodeProtocol
+	// Handlers supplies a mode's own invocation preparation and node activities.
+	// It supplies no result format: every mode's application result travels the
+	// shared result route, judged by Decode, and Handlers only reads it back.
+	// Nil retains Research's generic preparation and activities.
+	Handlers *WorkflowHandlers
+
+	// Retain encodes the output the graph keeps for later nodes, from the retained
+	// accepted result. Nil keeps the checked node itself. Whatever it encodes is
+	// derived from the retained result, never from the terminal envelope.
+	Retain func(binding store.ResultBinding, revision int64, node agentresult.ResearchNode) ([]byte, error)
 
 	AuthorizeOutput func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.ResearchNode) error
 	BeforeContinue  func(context.Context, *store.DB, store.GraphNodeAttempt, agentresult.Result, agentresult.Context, int64) error
@@ -59,10 +66,10 @@ func (p WorkflowPolicy) load(ctx context.Context, db *store.DB, id int64, scope 
 	return node, nil
 }
 
-// WorkflowNodeProtocol separates domain payload validation and effects from the
-// shared graph lifecycle, native invocation, metering and saving machinery.
-type WorkflowNodeProtocol struct {
-	Decode     func(context.Context, ActivityRequest, []byte) (encoded []byte, narrative string, err error)
+// WorkflowHandlers separates a mode's domain activities and invocation preparation
+// from the shared graph lifecycle, native invocation, metering and saving
+// machinery. Preparation must bind the shared result service and final route.
+type WorkflowHandlers struct {
 	Prepare    func(context.Context, *researchWorkflow, ActivityRequest) (ResearchInvocation, error)
 	Control    ActivityHandler
 	Comment    ActivityHandler

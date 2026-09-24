@@ -60,6 +60,11 @@ type Context struct {
 	EngineeringComplete map[string]bool
 	RequireAggregate    bool
 	AggregateValidator  func(agent.EngineeringContribution) Diagnostics
+	// PlanGraph is non-nil only for a graph Plan node. It carries the values the
+	// factory binds to the request and marks the run as graph Plan, which is what
+	// selects the story request and story set branches over the legacy planning
+	// fields. Absent, the mode-plan contract is the legacy one, unchanged.
+	PlanGraph *PlanGraphBinding
 }
 
 // Result contains common content and exactly one mode payload.
@@ -165,10 +170,17 @@ type Spike struct {
 
 // Plan draft fields are omitted until supplied; completion invokes the existing
 // complete typed validator, including roles, criteria and graph obligations.
+//
+// A graph Plan node uses neither: its done result carries exactly one of
+// StoryRequest and StorySet, and its ask carries neither. Which contract applies
+// is decided by the trusted Context (PlanGraph), never by the payload, so a
+// legacy Plan can never be turned into a graph Plan by what it sends.
 type Plan struct {
-	Summary string                    `json:"summary,omitempty"`
-	Context *agent.PlanningDiscussion `json:"context,omitempty"`
-	Stories []PlanStory               `json:"stories,omitempty"`
+	Summary      string                    `json:"summary,omitempty"`
+	Context      *agent.PlanningDiscussion `json:"context,omitempty"`
+	Stories      []PlanStory               `json:"stories,omitempty"`
+	StoryRequest *PlanStoryRequest         `json:"storyrequest,omitempty"`
+	StorySet     *PlanStorySet             `json:"storyset,omitempty"`
 }
 
 // PlanStory retains stable identity while draft detail is enriched.

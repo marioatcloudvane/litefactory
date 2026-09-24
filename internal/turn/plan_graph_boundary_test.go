@@ -3,6 +3,7 @@ package turn
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,9 +17,9 @@ import (
 	"time"
 
 	"github.com/cloudvane/litefactory/internal/agent"
+	ar "github.com/cloudvane/litefactory/internal/agentresult"
 	"github.com/cloudvane/litefactory/internal/config"
 	"github.com/cloudvane/litefactory/internal/github"
-	"github.com/cloudvane/litefactory/internal/graphexec"
 	"github.com/cloudvane/litefactory/internal/planbrief"
 	"github.com/cloudvane/litefactory/internal/secrets"
 	"github.com/cloudvane/litefactory/internal/store"
@@ -137,7 +138,33 @@ func (s *graphPlanHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphexec.PlanNode)) (*fixture, *graphPlanHTTP, Request, *int) {
+// graphPlanAnswer is what a fake Plan agent submits for one node: the stage the
+// factory selected and the story request it authors. The factory-owned members are
+// never part of it, which is what the shared route requires.
+//
+// TerminalOnly skips the live submission, and Terminal replaces the envelope's
+// result, so a test can present terminal-only and mismatched output.
+type graphPlanAnswer struct {
+	Stage        string
+	Request      *ar.PlanStoryRequest
+	TerminalOnly bool
+	Terminal     *ar.Result
+	Ask          bool
+	// Stop ends the process with this outcome instead of a result, and Reason
+	// is what the provider reported.
+	Stop   agent.Outcome
+	Reason string
+}
+
+func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphPlanAnswer)) (*fixture, *graphPlanHTTP, Request, *int) {
+	t.Helper()
+	f, remote, base, calls, _ := graphPlanFixtureWithForge(t, kind, mutate...)
+	return f, remote, base, calls
+}
+
+// graphPlanFixtureWithForge also returns the fake comment forge, so a test can
+// count and read what Plan published, or make publication fail.
+func graphPlanFixtureWithForge(t *testing.T, kind string, mutate ...func(*graphPlanAnswer)) (*fixture, *graphPlanHTTP, Request, *int, *fakeForge) {
 	t.Helper()
 	calls := 0
 	var f *fixture
@@ -151,7 +178,7 @@ func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphexec.PlanN
 			t.Fatal("factory story binding missing")
 		}
 		key, stage := matched[1], matched[2]
-		d := planbrief.PlanDraft{Key: key, Name: "Bounded Plan", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "shape intent", Benefit: "clear scope"}, Problem: "Unclear plan", InScope: []string{"Story discussion"}, NotInScope: []string{"Implementation"}}
+		d := planbrief.PlanDraft{Key: key, Name: "Bounded Plan", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "shape intent", Benefit: "clear scope", Notes: []string{}}, Problem: "Unclear plan", InScope: []string{"Story discussion"}, NotInScope: []string{"Implementation"}, Dependencies: planbrief.DependencyContent{StoryKeys: []string{}, IssueRefs: []string{}}}
 		d.Frontend = kind == "frontend"
 		operation, expected := "create", ""
 		changed := []string{}
@@ -177,26 +204,48 @@ func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphexec.PlanN
 		}
 		if stage == "acceptance" {
 			d.Criteria = []planbrief.PlanCriterion{{ID: "AC-001", Text: "Story remains stable", ProofMethod: "Scoped check"}}
-			d.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Implement", OwnerRole: "go-implementation-engineer", CriterionIDs: []string{"AC-001"}}}
+			d.Tasks = []planbrief.TaskContent{{ID: "T-001", Description: "Implement", OwnerRole: "go-implementation-engineer", CriterionIDs: []string{"AC-001"}, DependsOn: []string{}}}
 			changed = []string{"criteria", "tasks"}
 		}
-		node := graphexec.PlanNode{Version: 1, Response: "review_ready", Comment: "Please review this candidate.", Questions: []string{}, Request: &graphexec.PlanStoryRequest{RequestID: fmt.Sprintf("request-%d", req.Graph.AttemptID), Operation: operation, Stage: stage, Candidate: fmt.Sprintf("plan-%d-%d", req.Graph.InstanceID, req.Graph.AttemptID), ExpectedRevision: expected, SharedRevision: "initial", Upstream: []string{}, Draft: d, ChangedSections: changed}}
-		state, _, loadErr := f.db.GetPlanWorkflowState(t.Context(), f.ref().String())
-		mustProgress(t, loadErr)
-		refs, refErr := state.UpstreamReferences(key, stage)
-		mustProgress(t, refErr)
-		node.Request.Upstream = refs
+		answer := graphPlanAnswer{Stage: stage, Request: &ar.PlanStoryRequest{Operation: operation, ExpectedRevision: expected, Draft: d, ChangedSections: changed}}
 		for _, change := range mutate {
-			change(&node)
+			change(&answer)
 		}
-		raw, err := json.Marshal(node)
+		result, response := ar.Result{Outcome: "completed", Comment: "Please review this candidate.", Payload: ar.Payload{Plan: &ar.Plan{StoryRequest: answer.Request}}}, "done"
+		if answer.Ask {
+			result, response = ar.Result{Outcome: "incomplete", Reason: "The actor is unclear.", Comment: "Please clarify the actor.", Questions: []ar.Question{{ID: "q-1", Audience: "business", Text: "Who needs this?"}}, Payload: ar.Payload{Plan: &ar.Plan{}}}, "ask"
+		}
+		if answer.Stop != 0 {
+			return &agent.RunResult{Outcome: answer.Stop, Reason: answer.Reason, FinishedAt: time.Now()}, nil
+		}
+		envelope, err := json.Marshal(ar.ResearchNode{Version: 1, Response: response, Result: result})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(raw), FinishedAt: time.Now()}, nil
+		if !answer.TerminalOnly {
+			submitLiveResult(t, req, string(envelope))
+		}
+		if answer.Terminal != nil {
+			if envelope, err = json.Marshal(ar.ResearchNode{Version: 1, Response: response, Result: *answer.Terminal}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return &agent.RunResult{Outcome: agent.OutcomeSucceeded, ResultText: string(envelope), FinishedAt: time.Now()}, nil
 	})
+	var remote *graphPlanHTTP
 	var base Request
-	f, _, base = assembledResearchFixture(t, runner)
+	var commentForge *fakeForge
+	f, remote, base, commentForge = setupGraphPlanFixture(t, runner, true)
+	return f, remote, base, &calls, commentForge
+}
+
+// setupGraphPlanFixture assembles a graph Plan session around a scripted runner.
+// seedStory starts the scope with its first story recorded, as a session that
+// already has stories does; without it the scope is empty and starts at the set
+// stage.
+func setupGraphPlanFixture(t *testing.T, runner agent.Runner, seedStory bool) (*fixture, *graphPlanHTTP, Request, *fakeForge) {
+	t.Helper()
+	f, commentForge, base := assembledResearchFixture(t, runner)
 	mustProgress(t, os.MkdirAll(f.opts.MCP.Paths.StoryProgressLocksDir(), 0700))
 	f.opts.Tiers.ModelByTier = map[config.Kind]map[config.Tier]string{"claude": {"balanced": "test-model", "flagship": "test-model"}}
 	_, err := f.db.UpsertIdentity(t.Context(), store.Identity{Forge: store.ForgeGitHub, Role: store.RoleOwner, UserID: 7, Handle: "owner", Source: store.SourceGH})
@@ -214,7 +263,12 @@ func graphPlanFixture(t *testing.T, kind string, mutate ...func(*graphexec.PlanN
 	base.Command = ParseCommand("/plan shape stories")
 	base.Trigger.Body = "/plan shape stories"
 	base.Trigger.AuthorID = 7
-	return f, remote, base, &calls
+	if seedStory {
+		state := planbrief.PlanState{SharedRevision: "initial", Stories: []planbrief.PlanStoryState{{Key: "story-001", Stage: "story", Approvals: map[string]string{}, Draft: planbrief.PlanDraft{Key: "story-001"}}}}
+		_, err = f.db.SavePlanWorkflowState(t.Context(), f.ref().String(), 0, state)
+		mustProgress(t, err)
+	}
+	return f, remote, base, commentForge
 }
 
 func graphPlanState(t *testing.T, f *fixture) planbrief.PlanState {
@@ -381,17 +435,51 @@ func TestPlanGraphBoundary_DirectEditsPreserveAndReopen(t *testing.T) {
 	}
 }
 
-func TestPlanGraphBoundary_WrongUpstreamRefused(t *testing.T) {
+func TestPlanGraphBoundary_AgentSuppliedFactoryValuesRefused(t *testing.T) {
 	f, _, _, _ := graphPlanFixture(t, "agent")
-	state := planbrief.PlanState{SharedRevision: "initial"}
-	_, err := f.db.SavePlanWorkflowState(t.Context(), f.ref().String(), 0, state)
+	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}
+	trusted, err := runtime.resultContext(t.Context(), ActivityRequest{InstanceID: 1, NodeAttemptID: 2})
 	mustProgress(t, err)
-	runtime := planGraphRuntime{opts: f.opts, result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}
-	node := graphexec.PlanNode{Version: 1, Response: "review_ready", Comment: "Review", Questions: []string{}, Request: &graphexec.PlanStoryRequest{RequestID: "one", Operation: "create", Stage: "story", Candidate: "plan-1-2", SharedRevision: "initial", Upstream: []string{"foreign-upstream"}, Draft: planbrief.PlanDraft{Key: "story-001", Name: "Draft", UserStory: planbrief.UserStoryContent{Actor: "owner", Want: "intent", Benefit: "scope"}, Problem: "Gap", InScope: []string{"draft"}, NotInScope: []string{}}}}
-	raw, err := json.Marshal(node)
-	mustProgress(t, err)
-	if _, _, err = runtime.decode(t.Context(), ActivityRequest{InstanceID: 1, NodeAttemptID: 2}, raw); err == nil {
-		t.Fatal("foreign upstream candidate reference accepted")
+	for _, member := range []string{"upstream", "stage", "candidate", "request_id", "shared_revision"} {
+		value := `"foreign"`
+		if member == "upstream" {
+			value = `["foreign-upstream"]`
+		}
+		raw := `{"version":1,"response":"done","result":{"outcome":"completed","comment":"Review","payload":{"plan":{"storyrequest":{"operation":"create","` + member + `":` + value + `,"draft":` + graphBindingDraft + `}}}}}`
+		if _, d := ar.DecodePlanNode([]byte(raw), trusted); d.Valid {
+			t.Fatalf("agent-supplied %s accepted", member)
+		}
+	}
+}
+
+func TestPlanGraphBoundary_TerminalOnlyAndMismatchedOutputCannotCreateStories(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(*graphPlanAnswer)
+		want   string
+	}{
+		{"terminal only", func(a *graphPlanAnswer) { a.TerminalOnly = true }, "no accepted shared result"},
+		{"mismatched", func(a *graphPlanAnswer) {
+			other := ar.Result{Outcome: "completed", Comment: "A different result.", Payload: ar.Payload{Plan: &ar.Plan{StoryRequest: a.Request}}}
+			a.Terminal = &other
+		}, "differs from the retained accepted result"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f, remote, base, _ := graphPlanFixture(t, "agent", tt.change)
+			out, err := Execute(t.Context(), f.opts, base)
+			if err == nil && out.Err == nil {
+				t.Fatal("output that is not the retained result completed nominally")
+			}
+			if joined := fmt.Sprint(err, out.Err, out.Reason); !strings.Contains(joined, tt.want) {
+				t.Fatalf("cause not reported: %q", joined)
+			}
+			if remote.creates != 0 {
+				t.Fatal("a story was created from output that is not the retained result")
+			}
+			if _, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001"); err == nil {
+				t.Fatal("story draft retained from output that is not the retained result")
+			}
+		})
 	}
 }
 
@@ -571,12 +659,12 @@ func TestPlanGraphBoundary_LostUpdatePreservesIdentity(t *testing.T) {
 
 func TestPlanGraphBoundary_OwnerRetirementExcludesOnlyConfirmedScope(t *testing.T) {
 	technical := 0
-	f, remote, base, _ := graphPlanFixture(t, "agent", func(node *graphexec.PlanNode) {
-		if node.Request.Stage == "technical" {
+	f, remote, base, _ := graphPlanFixture(t, "agent", func(answer *graphPlanAnswer) {
+		if answer.Stage == "technical" {
 			technical++
 			if technical == 2 {
-				node.Request.Operation = "retire"
-				node.Request.ChangedSections = nil
+				answer.Request.Operation = "retire"
+				answer.Request.ChangedSections = nil
 			}
 		}
 	})
@@ -666,5 +754,57 @@ func TestPlanGraphBoundary_PartialHandoffResumesSameIssues(t *testing.T) {
 	mustProgress(t, err)
 	if len(second) != 2 || second[1].IssueID != 4010 {
 		t.Fatal("second retained identity changed", second)
+	}
+}
+
+// Later nodes read the retained accepted shared result, resolved from the reference
+// the agent node kept. Any other JSON output, which includes what a private format
+// retained, is refused as a result and is never parsed.
+func TestPlanGraphBoundary_LaterNodesReadTheRetainedSharedResult(t *testing.T) {
+	f, _, base, _ := graphPlanFixture(t, "agent")
+	executeGraphPlan(t, f, base)
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
+	mustProgress(t, err)
+	attempts, err := f.db.ListGraphNodeAttempts(t.Context(), instance.ID)
+	mustProgress(t, err)
+	runtime := planGraphRuntime{opts: f.opts, req: f.request(), result: Result{Ref: f.ref()}, selected: "story-001", stage: "story"}
+	var agentSeen, refused int
+	for _, attempt := range attempts {
+		got, err := runtime.loadRetainedResult(t.Context(), attempt.ID)
+		switch attempt.Node {
+		case "story_agent":
+			agentSeen++
+			if err != nil || got.Response != "done" || got.Request == nil || got.Request.Stage != "story" || got.Request.Candidate != planCandidate(instance.ID, attempt.ID) || got.Request.RequestID != planRequestID(instance.ID, attempt.ID) || got.Request.Draft.Key != "story-001" {
+				t.Fatalf("retained result not read back with the factory's binding: %+v %v", got, err)
+			}
+		case "story_draft":
+			if err == nil || !strings.Contains(err.Error(), "never read as a result") {
+				t.Fatalf("a non-reference output was read as a result: %+v %v", got, err)
+			}
+			refused++
+		}
+	}
+	if agentSeen != 1 || refused != 1 {
+		t.Fatalf("expected one agent and one effect attempt, saw %d and %d", agentSeen, refused)
+	}
+}
+
+// A question is an ask under the shared contract: it names no story branch, so it
+// can publish its questions and wait without any story effect.
+func TestPlanGraphBoundary_AskPublishesQuestionsWithoutAStoryEffect(t *testing.T) {
+	f, remote, base, _ := graphPlanFixture(t, "agent", func(a *graphPlanAnswer) { a.Ask = true })
+	executeGraphPlan(t, f, base)
+	if remote.creates != 0 {
+		t.Fatal("a question created a story")
+	}
+	if _, err := f.db.GetPlanStoryDraft(t.Context(), f.ref().String(), "story-001"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a question retained a story draft: %v", err)
+	}
+	instance, err := f.db.LatestWorkflowInstance(t.Context(), f.session.ID, "plan")
+	mustProgress(t, err)
+	intents, err := f.db.ListGraphComments(t.Context(), instance.ID, "", 10)
+	mustProgress(t, err)
+	if len(intents) != 1 || intents[0].Node != "story_ask" {
+		t.Fatalf("the question was not published as retained: %+v", intents)
 	}
 }
