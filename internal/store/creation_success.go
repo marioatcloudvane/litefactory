@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // CreationSource is trusted intake provenance, independent of mutable command
@@ -106,4 +107,29 @@ func (c *CreationStore) GetOwnerIntent(ctx context.Context, source CreationSourc
 		return 0, fmt.Errorf("creation outcome storage unavailable: %w", ErrCreationAuthority)
 	}
 	return c.db.GetCreationOwnerIntent(ctx, source)
+}
+
+// CreationAcknowledgment is immutable admission evidence, joined to the proposal
+// that the intent approved. It says nothing about current publishing eligibility.
+type CreationAcknowledgment struct {
+	IntentID             int64
+	Source               CreationSource
+	Hash, Relationship   string
+	CreatedAt, ExpiresAt time.Time
+}
+
+// GetCreationAcknowledgment observes original consent even after expiry or
+// supersession. It neither renews consent nor consults the current proposal.
+func (db *DB) GetCreationAcknowledgment(ctx context.Context, source CreationSource) (CreationAcknowledgment, error) {
+	a := CreationAcknowledgment{Source: source}
+	var created, expires int64
+	err := db.sql.QueryRowContext(ctx, `SELECT i.id,p.hash,p.relationship,i.created_ns,i.expires_ns FROM mcp_creation_intents i JOIN mcp_creation_proposals p ON p.hash=i.proposal_hash AND p.repository=i.repository AND p.source_task=i.source_task JOIN sessions s ON s.task_ref=i.source_task JOIN repos r ON r.id=s.repo_id WHERE i.repository=? AND i.source_task=? AND i.comment_id=? AND i.owner_id=? AND r.owner || '/' || r.name=i.repository`, source.Repository, source.SourceTask, source.CommentID, source.OwnerID).Scan(&a.IntentID, &a.Hash, &a.Relationship, &created, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CreationAcknowledgment{}, ErrNotFound
+	}
+	if err != nil {
+		return CreationAcknowledgment{}, fmt.Errorf("observe creation acknowledgment: %w", err)
+	}
+	a.CreatedAt, a.ExpiresAt = time.Unix(0, created).UTC(), time.Unix(0, expires).UTC()
+	return a, nil
 }

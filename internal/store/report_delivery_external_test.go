@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cloudvane/litefactory/internal/github"
 	"github.com/cloudvane/litefactory/internal/naming"
@@ -83,6 +85,14 @@ func (f *deliveryHTTP) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestReportDeliveryHTTPAndSQLiteFailureWindows(t *testing.T) {
+	reportDeliveryFailureWindows(t, false)
+}
+
+func TestCreationAcceptanceHTTPAndSQLiteFailureWindows(t *testing.T) {
+	reportDeliveryFailureWindows(t, true)
+}
+
+func reportDeliveryFailureWindows(t *testing.T, acceptance bool) {
 	for _, tc := range []struct {
 		name, trigger                     string
 		posts                             int
@@ -118,17 +128,21 @@ func TestReportDeliveryHTTPAndSQLiteFailureWindows(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			segment, err := db.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, "report-session", store.AgentClaude)
-			if err != nil {
-				t.Fatal(err)
+			var run store.Run
+			if !acceptance {
+				segment, err := db.GetOrCreateSegment(ctx, session.ID, store.FirstSegmentOrdinal, "report-session", store.AgentClaude)
+				if err != nil {
+					t.Fatal(err)
+				}
+				run, err = db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Agent: store.AgentClaude, Mode: "spike", TriggerCommentID: 55, LogPath: func(int) string { return "/logs/1.jsonl" }})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunFailed, Error: "observed failure"}); err != nil {
+					t.Fatal(err)
+				}
 			}
-			run, err := db.AllocateRun(ctx, store.AllocateRunParams{SessionID: session.ID, SegmentID: segment.ID, Agent: store.AgentClaude, Mode: "spike", TriggerCommentID: 55, LogPath: func(int) string { return "/logs/1.jsonl" }})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := db.FinishRun(ctx, run.ID, store.RunOutcome{Status: store.RunFailed, Error: "observed failure"}); err != nil {
-				t.Fatal(err)
-			}
+
 			faults, err := sql.Open("sqlite", path)
 			if err != nil {
 				t.Fatal(err)
@@ -170,7 +184,14 @@ func TestReportDeliveryHTTPAndSQLiteFailureWindows(t *testing.T) {
 				t.Fatal(err)
 			}
 			req := turn.RunReport{SessionID: session.ID, CommentID: 55, RunID: run.ID, Run: report.Run{Ref: ref, Ordinal: run.Ordinal}}
-			_, deliveryErr := newReporter().ReportRun(ctx, req)
+
+			deliver := func() (turn.Posted, error) { return newReporter().ReportRun(ctx, req) }
+			if acceptance {
+				created := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
+				reply := turn.ReplyRequest{Ref: ref, SessionID: session.ID, CommentID: 55, CreationAcceptance: &report.CreationAcceptance{Hash: strings.Repeat("a", 64), Relationship: "linked", CreatedAt: created, ExpiresAt: created.Add(30 * time.Minute)}}
+				deliver = func() (turn.Posted, error) { return newReporter().ReportReply(ctx, reply) }
+			}
+			_, deliveryErr := deliver()
 			if deliveryErr == nil {
 				t.Fatal("failure window returned success")
 			}
@@ -242,7 +263,7 @@ func TestReportDeliveryHTTPAndSQLiteFailureWindows(t *testing.T) {
 			}
 			var posted turn.Posted
 			if tc.posts == 0 {
-				posted, err = newReporter().ReportRun(ctx, req)
+				posted, err = deliver()
 			} else {
 				var found bool
 				posted, found, err = newReporter().ReportPending(ctx, session.ID, 55)
@@ -266,9 +287,22 @@ func TestReportDeliveryHTTPAndSQLiteFailureWindows(t *testing.T) {
 			if err != nil || wm.LastCommentID != 55 {
 				t.Fatalf("completion source=%+v %v", wm, err)
 			}
-			finished, err := db.GetRun(ctx, run.ID)
-			if err != nil || finished.Status != store.RunReported || finished.ResultCommentID != 900 {
-				t.Fatalf("completion run=%+v %v", finished, err)
+			if acceptance {
+				runs, e := db.ListRuns(ctx, session.ID)
+				if e != nil || len(runs) != 0 {
+					t.Fatalf("acknowledgment allocated run: %+v %v", runs, e)
+				}
+				remote.mu.Lock()
+				body := remote.comments
+				remote.mu.Unlock()
+				if !tc.deleted && (len(body) != 1 || !strings.Contains(body[0].Body, "2026-09-20T10:30:00Z")) {
+					t.Fatalf("missing historical deadline: %+v", body)
+				}
+			} else {
+				finished, err := db.GetRun(ctx, run.ID)
+				if err != nil || finished.Status != store.RunReported || finished.ResultCommentID != 900 {
+					t.Fatalf("completion run=%+v %v", finished, err)
+				}
 			}
 			pending, err := db.ListPendingReportDeliveries(ctx)
 			if err != nil || len(pending) != 0 {

@@ -118,6 +118,9 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if err := reply.Ref.Validate(); err != nil {
 		return redact.Body{}, fmt.Errorf("report: %w: %w", ErrInvalidArgument, err)
 	}
+	if reply.Kind == ReplyCreationAccepted && !reply.CreationAcceptance.valid() {
+		return redact.Body{}, fmt.Errorf("report: invalid creation acceptance")
+	}
 	if reply.Kind == ReplyCreationRejected {
 		if reply.CreationRejection == nil {
 			return redact.Body{}, fmt.Errorf("report: missing creation rejection")
@@ -155,7 +158,7 @@ func (r *Reporter) RenderReply(ctx context.Context, reply Reply) (redact.Body, e
 	if reply.Kind == ReplySuggestsResolution && reply.ConflictProposal.Format == 1 {
 		return r.renderConflictPreview(ctx, reply)
 	}
-	if reply.Kind == ReplyCreationProposal {
+	if reply.Kind == ReplyCreationProposal || reply.Kind == ReplyCreationAccepted {
 		text := reply.body()
 		body, err := r.apply(ctx, text)
 		if err != nil {

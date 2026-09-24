@@ -110,6 +110,10 @@ func TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding(t *testing.T)
 			if err != nil || got != id {
 				t.Fatalf("legacy recovery %d %v", got, err)
 			}
+			acknowledgment, err := f.db.GetCreationAcknowledgment(t.Context(), source)
+			if err != nil || acknowledgment.IntentID != id || acknowledgment.Hash != p.Hash || acknowledgment.Relationship != "linked" || acknowledgment.Source != source || acknowledgment.CreatedAt.UnixNano() != created || acknowledgment.ExpiresAt.UnixNano() != expiry {
+				t.Fatalf("historical acknowledgment projection: %+v %v", acknowledgment, err)
+			}
 			var afterCreated, afterExpiry, afterRevision int64
 			if err = f.db.sql.QueryRowContext(t.Context(), `SELECT created_ns,expires_ns,proposal_revision FROM mcp_creation_intents WHERE id=?`, id).Scan(&afterCreated, &afterExpiry, &afterRevision); err != nil {
 				t.Fatal(err)
@@ -127,6 +131,9 @@ func TestCreationSuccessDB_LegacyApprovalPreservesExpiryAndBinding(t *testing.T)
 					change(&bad)
 					if _, err := f.db.GetCreationOwnerIntent(t.Context(), bad); !errors.Is(err, ErrNotFound) {
 						t.Fatalf("foreign intent recovered: %v", err)
+					}
+					if _, err := f.db.GetCreationAcknowledgment(t.Context(), bad); !errors.Is(err, ErrNotFound) {
+						t.Fatalf("foreign acknowledgment recovered: %v", err)
 					}
 				})
 			}

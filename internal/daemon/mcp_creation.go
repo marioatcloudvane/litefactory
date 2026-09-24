@@ -54,15 +54,15 @@ func (d *Daemon) handleMCPCreation(ctx context.Context, t *task, c github.Commen
 		if err != nil {
 			return err
 		}
-		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(data), Hash: prepared.Hash, Relationship: prepared.Envelope.Relationship}})
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(data), Hash: prepared.Hash, Relationship: prepared.Envelope.Relationship, Publication: d.creationPublicationContext(ctx, t)}})
 		return d.leave(ctx, t, log, "creation proposal presentation pending", err)
 	}
 	_, err = e.opts.MCP.AdmitCreationApproval(ctx, control)
 	if err != nil {
 		return d.creationIntakeError(ctx, t, c, log, err)
 	}
-	_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
-	return d.leave(ctx, t, log, "creation approval consumption pending", err)
+	_, err = d.resumeCreationSuccess(ctx, t, c)
+	return d.leave(ctx, t, log, "creation acceptance delivery pending", err)
 }
 
 func (d *Daemon) creationIntakeError(ctx context.Context, t *task, c github.Comment, log *slog.Logger, err error) error {
@@ -93,8 +93,8 @@ func (d *Daemon) rejectMCPCreation(ctx context.Context, t *task, c github.Commen
 // recovery, but precedes parsing and mutable mode/configuration checks.
 func (d *Daemon) resumeCreationSuccess(ctx context.Context, t *task, c github.Comment) (bool, error) {
 	source := store.CreationSource{Repository: t.forgeRepo.String(), SourceTask: t.ref.String(), CommentID: c.ID, OwnerID: c.Author.ID}
-	if _, err := d.db.GetCreationOwnerIntent(ctx, source); err == nil {
-		_, err = d.reporter.Consume(ctx, t.session.ID, c.ID)
+	if admitted, err := d.db.GetCreationAcknowledgment(ctx, source); err == nil {
+		_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: admitted.Source.CommentID, CreationAcceptance: &report.CreationAcceptance{Hash: admitted.Hash, Relationship: admitted.Relationship, CreatedAt: admitted.CreatedAt, ExpiresAt: admitted.ExpiresAt, Publication: d.creationPublicationContext(ctx, t)}})
 		return true, err
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return false, err
@@ -106,6 +106,6 @@ func (d *Daemon) resumeCreationSuccess(ctx context.Context, t *task, c github.Co
 	if err != nil {
 		return false, err
 	}
-	_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(p.Envelope), Hash: p.Hash, Relationship: p.Relationship}})
+	_, err = d.reportReply(ctx, turn.ReplyRequest{Ref: t.ref, SessionID: t.session.ID, CommentID: c.ID, Creation: &report.CreationReply{Envelope: string(p.Envelope), Hash: p.Hash, Relationship: p.Relationship, Publication: d.creationPublicationContext(ctx, t)}})
 	return true, err
 }
