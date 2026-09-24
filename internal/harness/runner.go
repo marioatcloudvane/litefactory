@@ -647,7 +647,7 @@ func (r *Runner) args(req agent.Request) []string {
 		args = append(args, "--setting-sources", "", "--plugin-dir", filepath.Join(req.Delivery.Root, "plugin"), "--append-system-prompt-file", filepath.Join(req.Delivery.Root, "bootstrap.md"))
 	}
 	if req.Delivery != nil && req.Delivery.MainRole != "" {
-		args = append(args, "--agent", "litefactory-research:"+req.Delivery.MainRole)
+		args = append(args, "--agent", agent.DeliveryPlugin+":"+req.Delivery.MainRole)
 	}
 	if req.Usage != nil {
 		args = append(args, "--forward-subagent-text")

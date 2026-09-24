@@ -8,6 +8,13 @@ import (
 	"slices"
 )
 
+// DeliveryPlugin is the plugin name a delivered bundle is rendered under, and
+// so the namespace its roles are addressed by ("<plugin>:<role>"). The renderer
+// and the harness that selects a role both use it: when they spelled the name
+// separately, a rename of the plugin left every Claude graph node asking for an
+// agent that no longer existed.
+const DeliveryPlugin = "litefactory-workflow"
+
 // Delivery names a retained immutable instruction bundle. It contains no
 // credentials and no vendor-specific representation crossing this boundary.
 type Delivery struct {
