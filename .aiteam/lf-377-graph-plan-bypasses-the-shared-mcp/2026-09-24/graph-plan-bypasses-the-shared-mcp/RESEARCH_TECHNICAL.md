@@ -149,3 +149,13 @@ A related fix landed on this branch: roles without their own tool list now inher
 Evidence:
 
 - `internal/render/native.go:25`
+
+## f16
+
+Extra facts checked in shaping. A key for a new story can already be reserved by the factory without an issue (the owner's new-story command), and the first story key is always story-001, so a promoted set can seed keys the same way. One run selects one eligible story, so without a loop a set would need an owner nudge per story. The shipped graph already has a failure comment node that no Plan failure path reaches.
+
+Evidence:
+
+- `internal/turn/plan_graph.go:192`
+- `internal/turn/plan_graph.go:238`
+- `internal/teamsource/plan/plan.dot:77`
